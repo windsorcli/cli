@@ -3,6 +3,7 @@ package blueprint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -19,6 +20,11 @@ type Shims struct {
 	Walk          func(string, filepath.WalkFunc) error
 	YamlMarshal   func(any) ([]byte, error)
 	YamlUnmarshal func([]byte, any) error
+	FilepathBase  func(string) string
+	TrimSpace     func(string) string
+	HasPrefix     func(string, string) bool
+	Contains      func(string, string) bool
+	Replace       func(string, string, string, int) string
 }
 
 // NewShims creates a new Shims instance with default implementations
@@ -31,8 +37,13 @@ func NewShims() *Shims {
 		WriteFile: func(path string, data []byte, perm os.FileMode) error {
 			return os.WriteFile(path, data, perm)
 		},
-		MkdirAll: os.MkdirAll,
-		Walk:     filepath.Walk,
+		MkdirAll:     os.MkdirAll,
+		Walk:         filepath.Walk,
+		FilepathBase: filepath.Base,
+		TrimSpace:    strings.TrimSpace,
+		HasPrefix:    strings.HasPrefix,
+		Contains:     strings.Contains,
+		Replace:      strings.Replace,
 		YamlMarshal: func(v any) ([]byte, error) {
 			return yaml.Marshal(v)
 		},

@@ -2,8 +2,6 @@ package blueprint
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -96,15 +94,9 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 		}
 	}
 
-	if user != nil {
-		c.filterToUserSelection(result, user)
-		if err := result.StrategicMerge(user); err != nil {
-			return nil, err
-		}
-	}
+	c.applyUserBlueprint(result, user)
 
 	c.setContextMetadata(result)
-	c.setRepositoryFromGit(result)
 
 	return result, nil
 }
@@ -132,61 +124,16 @@ func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]
 	c.commonSubstitutions = substitutions
 }
 
-// setRepositoryFromGit sets the blueprint's Repository for local development if not already set.
-// For local contexts, constructs a URL in the format http://git.<domain>/git/<project> where
-// domain comes from dns.domain config and project is the project folder name. This integrates
-// with the git-livereload service that runs locally. Only sets the repository if Repository.Url
-// is empty and required config values are available.
-func (c *BaseBlueprintComposer) setRepositoryFromGit(blueprint *blueprintv1alpha1.Blueprint) {
-	if c.runtime == nil || c.runtime.ConfigHandler == nil {
-		return
-	}
-
-	if blueprint.Repository.Url != "" {
-		return
-	}
-
-	domain := c.runtime.ConfigHandler.GetString("dns.domain", "")
-	if domain == "" {
-		return
-	}
-
-	if c.runtime.ProjectRoot == "" {
-		return
-	}
-	projectName := filepath.Base(c.runtime.ProjectRoot)
-	if projectName == "" || projectName == "." || projectName == "/" {
-		return
-	}
-
-	repoURL := fmt.Sprintf("http://git.%s/git/%s", domain, projectName)
-
-	branch := "main"
-	if c.runtime.Shell != nil {
-		if b, err := c.runtime.Shell.ExecSilent("git", "rev-parse", "--abbrev-ref", "HEAD"); err == nil && b != "" {
-			branch = strings.TrimSpace(b)
-		}
-	}
-
-	blueprint.Repository = blueprintv1alpha1.Repository{
-		Url: repoURL,
-		Ref: blueprintv1alpha1.Reference{
-			Branch: branch,
-		},
-	}
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// filterToUserSelection removes components and kustomizations from result that are not explicitly
-// referenced in the user blueprint. This allows users to select a subset of available components
-// by listing only the ones they want in their blueprint.yaml. Components are matched by their ID
-// (name or path), kustomizations by name. If the user blueprint has no components or kustomizations,
-// no filtering occurs and all items are retained.
-func (c *BaseBlueprintComposer) filterToUserSelection(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint) {
-	if len(user.TerraformComponents) == 0 && len(user.Kustomizations) == 0 {
+// applyUserBlueprint applies the user blueprint to the composed result, filtering and merging.
+// Filters terraform components, kustomizations, and sources to only those selected by the user.
+// Clears repository if user doesn't define one. After filtering, merges user's values as overrides.
+// If no user blueprint exists, all items from primary/sources are retained unchanged.
+func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint) {
+	if user == nil {
 		return
 	}
 
@@ -219,6 +166,29 @@ func (c *BaseBlueprintComposer) filterToUserSelection(result *blueprintv1alpha1.
 		}
 		result.Kustomizations = filtered
 	}
+
+	if user.Repository.Url == "" {
+		result.Repository = blueprintv1alpha1.Repository{}
+	}
+
+	if len(user.Sources) == 0 {
+		result.Sources = nil
+	} else {
+		userSourceNames := make(map[string]bool)
+		for _, s := range user.Sources {
+			userSourceNames[s.Name] = true
+		}
+
+		var filtered []blueprintv1alpha1.Source
+		for _, s := range result.Sources {
+			if userSourceNames[s.Name] {
+				filtered = append(filtered, s)
+			}
+		}
+		result.Sources = filtered
+	}
+
+	result.StrategicMerge(user)
 }
 
 var _ BlueprintComposer = (*BaseBlueprintComposer)(nil)

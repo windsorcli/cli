@@ -1,7 +1,6 @@
 package blueprint
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
@@ -540,147 +539,144 @@ func TestComposer_SetContextMetadata(t *testing.T) {
 	})
 }
 
-func TestComposer_SetRepositoryFromGit(t *testing.T) {
-	t.Run("SetsRepositoryFromDomainAndProject", func(t *testing.T) {
-		// Given a composer with dns.domain and project name configured
+func TestComposer_ApplyUserBlueprint(t *testing.T) {
+	t.Run("ClearsRepositoryWhenUserBlueprintHasNone", func(t *testing.T) {
+		// Given a composed blueprint with repository but user blueprint has none
 		mocks := setupComposerMocks(t)
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.domain" {
-				return "test"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mocks.Runtime.ProjectName = "myproject"
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if len(args) > 0 && args[0] == "rev-parse" {
-				return "develop\n", nil
-			}
-			return "", nil
-		}
-
 		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{}
 
-		// When setting repository from git
-		composer.setRepositoryFromGit(bp)
-
-		// Then repository should be set with local git URL
-		if bp.Repository.Url != "http://git.test/git/myproject" {
-			t.Errorf("Expected URL 'http://git.test/git/myproject', got '%s'", bp.Repository.Url)
+		result := &blueprintv1alpha1.Blueprint{
+			Repository: blueprintv1alpha1.Repository{
+				Url: "http://git.test/git/project",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "github.com/windsorcli/core"},
+			},
 		}
-		if bp.Repository.Ref.Branch != "develop" {
-			t.Errorf("Expected branch 'develop', got '%s'", bp.Repository.Ref.Branch)
+		user := &blueprintv1alpha1.Blueprint{}
+
+		// When applying user authority
+		composer.applyUserBlueprint(result, user)
+
+		// Then repository and sources should be cleared
+		if result.Repository.Url != "" {
+			t.Errorf("Expected empty repository URL, got '%s'", result.Repository.Url)
+		}
+		if len(result.Sources) != 0 {
+			t.Errorf("Expected no sources, got %d", len(result.Sources))
 		}
 	})
 
-	t.Run("SkipsIfRepositoryAlreadySet", func(t *testing.T) {
-		// Given a blueprint with repository already set
+	t.Run("PreservesRepositoryWhenUserBlueprintDefinesIt", func(t *testing.T) {
+		// Given a user blueprint that defines repository
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{
+
+		result := &blueprintv1alpha1.Blueprint{
 			Repository: blueprintv1alpha1.Repository{
-				Url: "https://existing.com/repo.git",
+				Url: "http://primary.test/repo",
+			},
+		}
+		user := &blueprintv1alpha1.Blueprint{
+			Repository: blueprintv1alpha1.Repository{
+				Url: "http://user.test/repo",
 			},
 		}
 
-		// When setting repository from git
-		composer.setRepositoryFromGit(bp)
+		// When applying user authority
+		composer.applyUserBlueprint(result, user)
 
-		// Then repository should remain unchanged
-		if bp.Repository.Url != "https://existing.com/repo.git" {
-			t.Errorf("Expected URL 'https://existing.com/repo.git', got '%s'", bp.Repository.Url)
+		// Then repository should be merged (user overrides)
+		if result.Repository.Url != "http://user.test/repo" {
+			t.Errorf("Expected user repository URL, got '%s'", result.Repository.Url)
 		}
 	})
 
-	t.Run("HandlesNilRuntime", func(t *testing.T) {
-		// Given a composer with nil runtime
-		composer := &BaseBlueprintComposer{runtime: nil}
-		bp := &blueprintv1alpha1.Blueprint{}
-
-		// When setting repository from git
-		composer.setRepositoryFromGit(bp)
-
-		// Then repository should remain empty
-		if bp.Repository.Url != "" {
-			t.Errorf("Expected empty URL, got '%s'", bp.Repository.Url)
-		}
-	})
-
-	t.Run("SkipsIfNoDomainConfigured", func(t *testing.T) {
-		// Given a composer with no dns.domain configured
+	t.Run("FiltersSourcesToUserSelection", func(t *testing.T) {
+		// Given a user blueprint that selects specific sources
 		mocks := setupComposerMocks(t)
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mocks.Runtime.ProjectName = "myproject"
-
 		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{}
 
-		// When setting repository from git
-		composer.setRepositoryFromGit(bp)
+		result := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "github.com/windsorcli/core"},
+				{Name: "extras", Url: "github.com/windsorcli/extras"},
+			},
+		}
+		user := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "github.com/user/core-fork"},
+			},
+		}
 
-		// Then repository should remain empty
-		if bp.Repository.Url != "" {
-			t.Errorf("Expected empty URL, got '%s'", bp.Repository.Url)
+		// When applying user authority
+		composer.applyUserBlueprint(result, user)
+
+		// Then only user-selected source should remain, with user's URL
+		if len(result.Sources) != 1 {
+			t.Errorf("Expected 1 source after filtering, got %d", len(result.Sources))
+		}
+		if result.Sources[0].Name != "core" {
+			t.Errorf("Expected source 'core', got '%s'", result.Sources[0].Name)
+		}
+		if result.Sources[0].Url != "github.com/user/core-fork" {
+			t.Errorf("Expected user's URL, got '%s'", result.Sources[0].Url)
 		}
 	})
 
-	t.Run("SkipsIfNoProjectName", func(t *testing.T) {
-		// Given a composer with no project name
+	t.Run("DoesNothingWhenUserIsNil", func(t *testing.T) {
+		// Given no user blueprint
 		mocks := setupComposerMocks(t)
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.domain" {
-				return "test"
-			}
-			return ""
-		}
-		mocks.Runtime.ProjectName = ""
-
 		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{}
 
-		// When setting repository from git
-		composer.setRepositoryFromGit(bp)
+		result := &blueprintv1alpha1.Blueprint{
+			Repository: blueprintv1alpha1.Repository{
+				Url: "http://git.test/git/project",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "github.com/windsorcli/core"},
+			},
+		}
 
-		// Then repository should remain empty
-		if bp.Repository.Url != "" {
-			t.Errorf("Expected empty URL, got '%s'", bp.Repository.Url)
+		// When applying user authority with nil user
+		composer.applyUserBlueprint(result, nil)
+
+		// Then result should remain unchanged
+		if result.Repository.Url != "http://git.test/git/project" {
+			t.Errorf("Expected repository preserved, got '%s'", result.Repository.Url)
+		}
+		if len(result.Sources) != 1 {
+			t.Errorf("Expected 1 source, got %d", len(result.Sources))
 		}
 	})
 
-	t.Run("DefaultsToMainBranchWhenGitFails", func(t *testing.T) {
-		// Given a composer where git command fails
+	t.Run("FiltersComponentsToUserSelection", func(t *testing.T) {
+		// Given a user blueprint that selects specific components
 		mocks := setupComposerMocks(t)
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.domain" {
-				return "test"
-			}
-			return ""
-		}
-		mocks.Runtime.ProjectName = "myproject"
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("not a git repository")
-		}
-
 		composer := NewBlueprintComposer(mocks.Runtime)
-		bp := &blueprintv1alpha1.Blueprint{}
 
-		// When setting repository from git
-		composer.setRepositoryFromGit(bp)
-
-		// Then repository should be set with default branch
-		if bp.Repository.Url != "http://git.test/git/myproject" {
-			t.Errorf("Expected URL 'http://git.test/git/myproject', got '%s'", bp.Repository.Url)
+		result := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network/vpc"},
+				{Path: "cluster/eks"},
+				{Path: "database/rds"},
+			},
 		}
-		if bp.Repository.Ref.Branch != "main" {
-			t.Errorf("Expected branch 'main', got '%s'", bp.Repository.Ref.Branch)
+		user := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+			},
+		}
+
+		// When applying user authority
+		composer.applyUserBlueprint(result, user)
+
+		// Then only selected component should remain
+		if len(result.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 component, got %d", len(result.TerraformComponents))
+		}
+		if result.TerraformComponents[0].Path != "cluster/eks" {
+			t.Errorf("Expected 'cluster/eks', got '%s'", result.TerraformComponents[0].Path)
 		}
 	})
 }

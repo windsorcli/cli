@@ -175,7 +175,9 @@ func (l *BaseBlueprintLoader) loadUserBlueprint() error {
 // loadFromOCI pulls a blueprint artifact from an OCI registry and loads its contents. It uses
 // the artifact builder to pull and cache the artifact, then collects template data from the
 // extracted files. OCI artifacts may contain a _template subdirectory or have files directly
-// in the root. Like local templates, it loads schema.yaml, blueprint.yaml, and features.
+// in the root. Like local templates, it loads schema.yaml, blueprint.yaml, and features. After
+// loading, it injects the OCI source into the Sources array and sets the Source field on any
+// components/kustomizations that don't already have one.
 func (l *BaseBlueprintLoader) loadFromOCI() error {
 	if l.artifactBuilder == nil {
 		return fmt.Errorf("artifact builder not available for OCI source")
@@ -219,7 +221,57 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 		return err
 	}
 
+	l.injectOCISource()
+
 	return nil
+}
+
+// injectOCISource adds the OCI artifact as a source in the blueprint and sets the Source field
+// on any terraform components and kustomizations that don't already have one. The source name is
+// extracted from the OCI URL (e.g., "core" from "oci://ghcr.io/windsorcli/core:latest") rather
+// than using the loader's original sourceName. This extracted name is stored back in l.sourceName
+// so that GetSourceName() returns the correct OCI artifact name for use in feature processing.
+func (l *BaseBlueprintLoader) injectOCISource() {
+	if l.blueprint == nil {
+		return
+	}
+
+	ociInfo, err := artifact.ParseOCIReference(l.sourceURL)
+	if err != nil || ociInfo == nil {
+		return
+	}
+
+	l.sourceName = ociInfo.Name
+
+	ociSource := blueprintv1alpha1.Source{
+		Name: ociInfo.Name,
+		Url:  ociInfo.URL,
+		Ref:  blueprintv1alpha1.Reference{Tag: ociInfo.Tag},
+	}
+
+	sourceExists := false
+	for i, source := range l.blueprint.Sources {
+		if source.Name == ociInfo.Name {
+			l.blueprint.Sources[i] = ociSource
+			sourceExists = true
+			break
+		}
+	}
+	if !sourceExists {
+		l.blueprint.Sources = append(l.blueprint.Sources, ociSource)
+	}
+
+	for i := range l.blueprint.TerraformComponents {
+		if l.blueprint.TerraformComponents[i].Source == "" {
+			l.blueprint.TerraformComponents[i].Source = ociInfo.Name
+		}
+	}
+
+	for i := range l.blueprint.Kustomizations {
+		if l.blueprint.Kustomizations[i].Source == "" {
+			l.blueprint.Kustomizations[i].Source = ociInfo.Name
+		}
+	}
 }
 
 // loadBlueprintFromFile reads and unmarshals a blueprint.yaml file at the given path. The parsed

@@ -14,7 +14,7 @@ import (
 // It determines inclusion/exclusion based on boolean condition results.
 // The processor is stateless and shared across all loaders.
 type BlueprintProcessor interface {
-	ProcessFeatures(features []blueprintv1alpha1.Feature, config map[string]any) (*blueprintv1alpha1.Blueprint, error)
+	ProcessFeatures(features []blueprintv1alpha1.Feature, config map[string]any, sourceName ...string) (*blueprintv1alpha1.Blueprint, error)
 }
 
 // =============================================================================
@@ -59,9 +59,11 @@ func NewBlueprintProcessor(rt *runtime.Runtime, opts ...*BaseBlueprintProcessor)
 // against the provided configuration data. Features whose conditions evaluate to true (or have no
 // condition) contribute their terraform components and kustomizations to the result. Components
 // within features can also have individual 'when' conditions for fine-grained control. Features
-// are sorted by metadata.name before processing to ensure deterministic output. Input expressions
-// and substitutions are preserved as-is for later evaluation by their consumers.
-func (p *BaseBlueprintProcessor) ProcessFeatures(features []blueprintv1alpha1.Feature, configData map[string]any) (*blueprintv1alpha1.Blueprint, error) {
+// are sorted by metadata.name before processing to ensure deterministic output. If sourceName is
+// provided, it sets the Source field on components that don't already have one, linking them to
+// their originating OCI artifact. Input expressions and substitutions are preserved as-is for
+// later evaluation by their consumers.
+func (p *BaseBlueprintProcessor) ProcessFeatures(features []blueprintv1alpha1.Feature, configData map[string]any, sourceName ...string) (*blueprintv1alpha1.Blueprint, error) {
 	result := &blueprintv1alpha1.Blueprint{
 		Kind:       "Blueprint",
 		ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
@@ -106,6 +108,9 @@ func (p *BaseBlueprintProcessor) ProcessFeatures(features []blueprintv1alpha1.Fe
 				}
 				component.Inputs = evaluated
 			}
+			if component.Source == "" && len(sourceName) > 0 && sourceName[0] != "" {
+				component.Source = sourceName[0]
+			}
 			result.TerraformComponents = append(result.TerraformComponents, component)
 		}
 
@@ -126,6 +131,9 @@ func (p *BaseBlueprintProcessor) ProcessFeatures(features []blueprintv1alpha1.Fe
 					return nil, fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", kustomization.Name, err)
 				}
 				kustomization.Substitutions = evaluated
+			}
+			if kustomization.Source == "" && len(sourceName) > 0 && sourceName[0] != "" {
+				kustomization.Source = sourceName[0]
 			}
 			result.Kustomizations = append(result.Kustomizations, kustomization)
 		}

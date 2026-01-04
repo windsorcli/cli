@@ -3,11 +3,14 @@ package blueprint
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -119,14 +122,23 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 // Private Methods
 // =============================================================================
 
-// loadPrimary initializes and loads the primary blueprint loader. If a blueprintURL is provided,
-// it loads from the OCI artifact at that URL. Otherwise, it attempts to load from the local
-// _template directory. The primary blueprint serves as the base layer in the composition hierarchy,
-// providing default terraform components, kustomizations, and feature definitions.
+// loadPrimary initializes and loads the primary blueprint loader. Priority order: (1) explicit
+// blueprintURL parameter, (2) local _template directory if it exists, (3) default OCI blueprint
+// from constants.GetEffectiveBlueprintURL(). The primary blueprint serves as the base layer in
+// the composition hierarchy, providing default terraform components, kustomizations, and features.
 func (h *BaseBlueprintHandler) loadPrimary(blueprintURL ...string) error {
 	var sourceURL string
+
 	if len(blueprintURL) > 0 && blueprintURL[0] != "" {
 		sourceURL = blueprintURL[0]
+	} else if h.runtime.TemplateRoot != "" {
+		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
+			sourceURL = ""
+		} else if os.IsNotExist(err) {
+			sourceURL = constants.GetEffectiveBlueprintURL()
+		}
+	} else {
+		sourceURL = constants.GetEffectiveBlueprintURL()
 	}
 
 	h.primaryBlueprintLoader = NewBlueprintLoader(h.runtime, h.artifactBuilder, "primary", sourceURL)
@@ -269,14 +281,17 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 // processFeaturesForBlueprintLoader evaluates all features from a single blueprint loader using
 // the provided configuration values. Features with 'when' conditions are evaluated against the
 // config, and only matching features contribute their terraform components and kustomizations.
-// The resulting components are appended directly to the loader's blueprint, modifying it in place.
+// The loader's source name is passed to the processor to set the Source field on feature-derived
+// components. The resulting components are appended directly to the loader's blueprint, modifying
+// it in place.
 func (h *BaseBlueprintHandler) processFeaturesForBlueprintLoader(loader BlueprintLoader, config map[string]any) error {
 	features := loader.GetFeatures()
 	if len(features) == 0 {
 		return nil
 	}
 
-	processedBp, err := h.processor.ProcessFeatures(features, config)
+	sourceName := loader.GetSourceName()
+	processedBp, err := h.processor.ProcessFeatures(features, config, sourceName)
 	if err != nil {
 		return err
 	}
@@ -312,14 +327,62 @@ func (h *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	if len(overwrite) > 0 {
 		shouldOverwrite = overwrite[0]
 	}
+
+	h.setRepositoryDefaults()
+
 	return h.writer.Write(h.composedBlueprint, shouldOverwrite)
 }
 
+// setRepositoryDefaults sets default repository values on the composed blueprint for first-time
+// blueprint generation. On first run (no user blueprint exists), repository defaults are generated
+// based on dev mode (local git-livereload URL at http://git.<domain>/git/<project>) or git remote
+// origin. In dev mode, also sets the flux-system secret for git auth. If a user blueprint exists,
+// no defaults are set since the composer already handled user authority during composition.
+func (h *BaseBlueprintHandler) setRepositoryDefaults() {
+	if h.composedBlueprint == nil || h.runtime == nil {
+		return
+	}
+
+	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+		return
+	}
+
+	devMode := h.runtime.ConfigHandler.GetBool("dev")
+
+	if devMode {
+		domain := h.runtime.ConfigHandler.GetString("dns.domain", "test")
+		folder := h.shims.FilepathBase(h.runtime.ProjectRoot)
+		if domain != "" && folder != "" && folder != "." {
+			h.composedBlueprint.Repository.Url = fmt.Sprintf("http://git.%s/git/%s", domain, folder)
+		}
+	}
+
+	if h.composedBlueprint.Repository.Url == "" && h.runtime.Shell != nil {
+		if gitURL, err := h.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil && gitURL != "" {
+			gitURL = h.shims.TrimSpace(gitURL)
+			if h.shims.HasPrefix(gitURL, "git@") && h.shims.Contains(gitURL, ":") {
+				gitURL = "ssh://" + h.shims.Replace(gitURL, ":", "/", 1)
+			}
+			h.composedBlueprint.Repository.Url = gitURL
+		}
+	}
+
+	if h.composedBlueprint.Repository.Url != "" {
+		if h.composedBlueprint.Repository.Ref == (blueprintv1alpha1.Reference{}) {
+			h.composedBlueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
+		}
+		if devMode && h.composedBlueprint.Repository.SecretName == nil {
+			secretName := "flux-system"
+			h.composedBlueprint.Repository.SecretName = &secretName
+		}
+	}
+}
+
 // GetTerraformComponents returns a copy of the composed blueprint's terraform components with
-// FullPath resolved for each component. Components with a Name or Source are placed in the
-// Windsor scratch path (contexts/<context>/terraform/), while local components without a source
-// are placed in the project's terraform directory. Input expressions remain unevaluated and
-// are resolved later by consumers like the terraform env printer.
+// Source and FullPath resolved for each component. Source names are expanded to full OCI or Git
+// URLs based on the Sources array. Components with a Name or Source are placed in the Windsor
+// scratch path (contexts/<context>/terraform/), while local components without a source are
+// placed in the project's terraform directory.
 func (h *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	if h.composedBlueprint == nil {
 		return nil
@@ -329,10 +392,65 @@ func (h *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.Terr
 	copy(components, h.composedBlueprint.TerraformComponents)
 
 	for i := range components {
+		h.resolveComponentSource(&components[i])
 		h.resolveComponentFullPath(&components[i])
 	}
 
 	return components
+}
+
+// resolveComponentSource transforms a component's Source field from a source name (e.g., "local")
+// into a fully qualified URL based on the matching entry in the blueprint's Sources array. For OCI
+// sources, the URL is formatted as oci://registry/repo:tag//path/prefix/component.path. For Git
+// sources, the URL is formatted as url//path/prefix/component.path?ref=reference. Components
+// without a matching source or with an already-resolved URL are left unchanged.
+func (h *BaseBlueprintHandler) resolveComponentSource(component *blueprintv1alpha1.TerraformComponent) {
+	if h.composedBlueprint == nil || component.Source == "" {
+		return
+	}
+
+	for _, source := range h.composedBlueprint.Sources {
+		if component.Source != source.Name {
+			continue
+		}
+
+		pathPrefix := source.PathPrefix
+		if pathPrefix == "" {
+			pathPrefix = "terraform"
+		}
+
+		ref := h.getSourceRef(source)
+
+		if strings.HasPrefix(source.Url, "oci://") {
+			baseURL := source.Url
+			if ref != "" {
+				ociPrefix := "oci://"
+				urlWithoutProtocol := baseURL[len(ociPrefix):]
+				if !strings.Contains(urlWithoutProtocol, ":") {
+					baseURL = baseURL + ":" + ref
+				}
+			}
+			component.Source = baseURL + "//" + pathPrefix + "/" + component.Path
+		} else {
+			component.Source = source.Url + "//" + pathPrefix + "/" + component.Path + "?ref=" + ref
+		}
+		return
+	}
+}
+
+// getSourceRef returns the reference (tag, branch, or commit) for a source. It checks the Ref
+// field first, then falls back to Branch, and finally returns "main" as the default.
+func (h *BaseBlueprintHandler) getSourceRef(source blueprintv1alpha1.Source) string {
+	if source.Ref.Tag != "" {
+		return source.Ref.Tag
+	}
+	if source.Ref.Branch != "" {
+		return source.Ref.Branch
+	}
+	if source.Ref.Commit != "" {
+		return source.Ref.Commit
+	}
+	return "main"
 }
 
 // resolveComponentFullPath computes and sets the absolute filesystem path where a terraform

@@ -205,4 +205,3 @@ func TestMockBlueprintHandler_Generate(t *testing.T) {
 		}
 	})
 }
-

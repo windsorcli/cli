@@ -424,8 +424,18 @@ terraform:
 	})
 
 	t.Run("LoadsSourcesFromUserBlueprint", func(t *testing.T) {
-		// Given a user blueprint with sources
+		// Given a user blueprint with sources and a local primary template
 		mocks := setupHandlerMocks(t)
+		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
+
+		templateDir := mocks.Runtime.TemplateRoot
+		os.MkdirAll(templateDir, 0755)
+		primaryYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: primary
+`
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(primaryYaml), 0644)
 
 		userYaml := `kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
@@ -658,6 +668,191 @@ func TestHandler_ResolveComponentFullPath(t *testing.T) {
 		expected := "/project/terraform/network/vpc"
 		if component.FullPath != expected {
 			t.Errorf("Expected '%s', got '%s'", expected, component.FullPath)
+		}
+	})
+}
+
+func TestHandler_ResolveComponentSource(t *testing.T) {
+	t.Run("ResolvesOCISourceWithTag", func(t *testing.T) {
+		// Given a handler with a composed blueprint containing an OCI source
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core", Ref: blueprintv1alpha1.Reference{Tag: "v1.0.0"}},
+			},
+		}
+		component := &blueprintv1alpha1.TerraformComponent{Source: "core", Path: "cluster/talos"}
+
+		// When resolving component source
+		handler.resolveComponentSource(component)
+
+		// Then source should be expanded to full OCI URL
+		expected := "oci://ghcr.io/windsorcli/core:v1.0.0//terraform/cluster/talos"
+		if component.Source != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
+		}
+	})
+
+	t.Run("ResolvesGitSourceWithBranch", func(t *testing.T) {
+		// Given a handler with a composed blueprint containing a Git source
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "infra", Url: "https://github.com/org/infra", Ref: blueprintv1alpha1.Reference{Branch: "develop"}},
+			},
+		}
+		component := &blueprintv1alpha1.TerraformComponent{Source: "infra", Path: "vpc"}
+
+		// When resolving component source
+		handler.resolveComponentSource(component)
+
+		// Then source should be expanded to Git URL format
+		expected := "https://github.com/org/infra//terraform/vpc?ref=develop"
+		if component.Source != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
+		}
+	})
+
+	t.Run("UsesPathPrefixFromSource", func(t *testing.T) {
+		// Given a source with a custom path prefix
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "modules", Url: "oci://ghcr.io/org/modules", PathPrefix: "modules/tf", Ref: blueprintv1alpha1.Reference{Tag: "latest"}},
+			},
+		}
+		component := &blueprintv1alpha1.TerraformComponent{Source: "modules", Path: "network"}
+
+		// When resolving component source
+		handler.resolveComponentSource(component)
+
+		// Then source should use the custom path prefix
+		expected := "oci://ghcr.io/org/modules:latest//modules/tf/network"
+		if component.Source != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
+		}
+	})
+
+	t.Run("DefaultsToMainRef", func(t *testing.T) {
+		// Given a source with no ref specified
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "lib", Url: "https://github.com/org/lib"},
+			},
+		}
+		component := &blueprintv1alpha1.TerraformComponent{Source: "lib", Path: "utils"}
+
+		// When resolving component source
+		handler.resolveComponentSource(component)
+
+		// Then source should default to main ref
+		expected := "https://github.com/org/lib//terraform/utils?ref=main"
+		if component.Source != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
+		}
+	})
+
+	t.Run("LeavesUnmatchedSourceUnchanged", func(t *testing.T) {
+		// Given a component referencing a non-existent source
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{},
+		}
+		component := &blueprintv1alpha1.TerraformComponent{Source: "missing", Path: "vpc"}
+
+		// When resolving component source
+		handler.resolveComponentSource(component)
+
+		// Then source should remain unchanged
+		if component.Source != "missing" {
+			t.Errorf("Expected 'missing', got '%s'", component.Source)
+		}
+	})
+
+	t.Run("SkipsEmptySource", func(t *testing.T) {
+		// Given a component with no source
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		component := &blueprintv1alpha1.TerraformComponent{Path: "local"}
+
+		// When resolving component source
+		handler.resolveComponentSource(component)
+
+		// Then source should remain empty
+		if component.Source != "" {
+			t.Errorf("Expected empty source, got '%s'", component.Source)
+		}
+	})
+
+	t.Run("SkipsWhenNoBlueprintComposed", func(t *testing.T) {
+		// Given a handler with no composed blueprint
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		component := &blueprintv1alpha1.TerraformComponent{Source: "core", Path: "vpc"}
+
+		// When resolving component source
+		handler.resolveComponentSource(component)
+
+		// Then source should remain unchanged
+		if component.Source != "core" {
+			t.Errorf("Expected 'core', got '%s'", component.Source)
+		}
+	})
+}
+
+func TestHandler_GetSourceRef(t *testing.T) {
+	t.Run("ReturnsTag", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Tag: "v1.0.0", Branch: "main"}}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "v1.0.0" {
+			t.Errorf("Expected 'v1.0.0', got '%s'", ref)
+		}
+	})
+
+	t.Run("ReturnsBranchWhenNoTag", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Branch: "develop"}}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "develop" {
+			t.Errorf("Expected 'develop', got '%s'", ref)
+		}
+	})
+
+	t.Run("ReturnsCommit", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Commit: "abc123"}}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "abc123" {
+			t.Errorf("Expected 'abc123', got '%s'", ref)
+		}
+	})
+
+	t.Run("DefaultsToMain", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		source := blueprintv1alpha1.Source{}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "main" {
+			t.Errorf("Expected 'main', got '%s'", ref)
 		}
 	})
 }
@@ -913,4 +1108,147 @@ func (m *mockLoaderImpl) GetSourceName() string {
 		return m.getSourceNameFunc()
 	}
 	return ""
+}
+
+func TestHandler_SetRepositoryDefaults(t *testing.T) {
+	t.Run("SetsDevRepositoryURLInDevMode", func(t *testing.T) {
+		// Given a handler in dev mode with domain and project configured, no user blueprint
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return key == "dev"
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "test"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.Runtime.ProjectRoot = "/path/to/myproject"
+
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.shims = &Shims{
+			FilepathBase: func(s string) string { return "myproject" },
+			TrimSpace:    func(s string) string { return s },
+			HasPrefix:    func(s, prefix string) bool { return false },
+			Contains:     func(s, substr string) bool { return false },
+			Replace:      func(s, old, new string, n int) string { return s },
+		}
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		handler.userBlueprintLoader = nil
+
+		// When setting repository defaults
+		handler.setRepositoryDefaults()
+
+		// Then repository should be set with local git URL
+		if handler.composedBlueprint.Repository.Url != "http://git.test/git/myproject" {
+			t.Errorf("Expected URL 'http://git.test/git/myproject', got '%s'", handler.composedBlueprint.Repository.Url)
+		}
+		if handler.composedBlueprint.Repository.Ref.Branch != "main" {
+			t.Errorf("Expected branch 'main', got '%s'", handler.composedBlueprint.Repository.Ref.Branch)
+		}
+		if handler.composedBlueprint.Repository.SecretName == nil || *handler.composedBlueprint.Repository.SecretName != "flux-system" {
+			t.Errorf("Expected secretName 'flux-system'")
+		}
+	})
+
+	t.Run("FallsBackToGitRemoteWhenNotDevMode", func(t *testing.T) {
+		// Given a handler not in dev mode with no user blueprint
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "https://github.com/test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.shims = &Shims{
+			TrimSpace: func(s string) string { return s },
+			HasPrefix: func(s, prefix string) bool { return false },
+			Contains:  func(s, substr string) bool { return false },
+			Replace:   func(s, old, new string, n int) string { return s },
+		}
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		handler.userBlueprintLoader = nil
+
+		// When setting repository defaults
+		handler.setRepositoryDefaults()
+
+		// Then repository should be set with git remote URL
+		if handler.composedBlueprint.Repository.Url != "https://github.com/test/repo.git" {
+			t.Errorf("Expected URL 'https://github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		}
+	})
+
+	t.Run("NormalizesSSHGitURL", func(t *testing.T) {
+		// Given a handler with SSH-style git URL and no user blueprint
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "git@github.com:test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.shims = NewShims()
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		handler.userBlueprintLoader = nil
+
+		// When setting repository defaults
+		handler.setRepositoryDefaults()
+
+		// Then repository should be normalized to SSH URL
+		if handler.composedBlueprint.Repository.Url != "ssh://git@github.com/test/repo.git" {
+			t.Errorf("Expected URL 'ssh://git@github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		}
+	})
+
+	t.Run("SkipsDefaultsWhenUserBlueprintExists", func(t *testing.T) {
+		// Given a handler with a user blueprint (even if empty)
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return key == "dev"
+		}
+
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.shims = &Shims{
+			FilepathBase: func(s string) string { return "myproject" },
+		}
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+
+		userBp := &blueprintv1alpha1.Blueprint{}
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return userBp },
+		}
+
+		// When setting repository defaults
+		handler.setRepositoryDefaults()
+
+		// Then no defaults should be set (user blueprint exists)
+		if handler.composedBlueprint.Repository.Url != "" {
+			t.Errorf("Expected empty repository URL when user blueprint exists, got '%s'", handler.composedBlueprint.Repository.Url)
+		}
+	})
+
+	t.Run("HandlesNilBlueprint", func(t *testing.T) {
+		// Given a handler with nil composed blueprint
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = nil
+
+		// When setting repository defaults
+		handler.setRepositoryDefaults()
+
+		// Then no panic should occur
+	})
 }
