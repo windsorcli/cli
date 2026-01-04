@@ -102,7 +102,9 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 // For terraform components: Inputs (used for tfvars generation) and Parallelism (runtime override).
 // For kustomizations: Patches, Interval, RetryInterval, Timeout, Substitutions, Wait, Force, and
 // Prune are all stripped as they come from feature composition and should not be written to the
-// user's blueprint. Users can override these in their blueprint.yaml if explicitly needed.
+// user's blueprint. ConfigMaps are stripped except for user-defined ones (values-common is
+// runtime-generated from legacy variables and should not be persisted). Users can override these
+// in their blueprint.yaml if explicitly needed.
 func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint {
 	if blueprint == nil {
 		return nil
@@ -124,6 +126,22 @@ func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.
 		cleaned.Kustomizations[i].Wait = nil
 		cleaned.Kustomizations[i].Force = nil
 		cleaned.Kustomizations[i].Prune = nil
+	}
+
+	if cleaned.ConfigMaps != nil {
+		if _, hasValuesCommon := cleaned.ConfigMaps["values-common"]; hasValuesCommon {
+			if len(cleaned.ConfigMaps) == 1 {
+				cleaned.ConfigMaps = nil
+			} else {
+				userConfigMaps := make(map[string]map[string]string)
+				for k, v := range cleaned.ConfigMaps {
+					if k != "values-common" {
+						userConfigMaps[k] = v
+					}
+				}
+				cleaned.ConfigMaps = userConfigMaps
+			}
+		}
 	}
 
 	return cleaned

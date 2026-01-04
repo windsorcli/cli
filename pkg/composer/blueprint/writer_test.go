@@ -400,4 +400,159 @@ func TestWriter_Write(t *testing.T) {
 			t.Error("Expected error when stat fails unexpectedly")
 		}
 	})
+
+	t.Run("StripsValuesCommonFromConfigMaps", func(t *testing.T) {
+		// Given a blueprint with only values-common ConfigMap
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var marshalledBlueprint *blueprintv1alpha1.Blueprint
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
+				marshalledBlueprint = bp
+			}
+			return []byte("test yaml"), nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {
+					"DOMAIN": "example.com",
+					"CONTEXT": "test",
+				},
+			},
+		}
+
+		// When writing the blueprint
+		err := writer.Write(blueprint, false)
+
+		// Then values-common should be stripped and ConfigMaps should be nil
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if marshalledBlueprint == nil {
+			t.Fatal("Expected blueprint to be marshalled")
+		}
+		if marshalledBlueprint.ConfigMaps != nil {
+			t.Error("Expected ConfigMaps to be nil when only values-common exists")
+		}
+	})
+
+	t.Run("PreservesUserConfigMapsWhenValuesCommonExists", func(t *testing.T) {
+		// Given a blueprint with values-common and user-defined ConfigMaps
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var marshalledBlueprint *blueprintv1alpha1.Blueprint
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
+				marshalledBlueprint = bp
+			}
+			return []byte("test yaml"), nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {
+					"DOMAIN": "example.com",
+				},
+				"user-config": {
+					"KEY": "value",
+				},
+			},
+		}
+
+		// When writing the blueprint
+		err := writer.Write(blueprint, false)
+
+		// Then values-common should be stripped but user-config preserved
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if marshalledBlueprint == nil {
+			t.Fatal("Expected blueprint to be marshalled")
+		}
+		if marshalledBlueprint.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to exist when user-config is present")
+		}
+		if _, exists := marshalledBlueprint.ConfigMaps["values-common"]; exists {
+			t.Error("Expected values-common to be stripped")
+		}
+		if userConfig, exists := marshalledBlueprint.ConfigMaps["user-config"]; !exists {
+			t.Error("Expected user-config to be preserved")
+		} else if userConfig["KEY"] != "value" {
+			t.Errorf("Expected user-config KEY='value', got '%s'", userConfig["KEY"])
+		}
+	})
+
+	t.Run("PreservesUserConfigMapsWhenNoValuesCommon", func(t *testing.T) {
+		// Given a blueprint with only user-defined ConfigMaps
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var marshalledBlueprint *blueprintv1alpha1.Blueprint
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
+				marshalledBlueprint = bp
+			}
+			return []byte("test yaml"), nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			ConfigMaps: map[string]map[string]string{
+				"user-config": {
+					"KEY": "value",
+				},
+			},
+		}
+
+		// When writing the blueprint
+		err := writer.Write(blueprint, false)
+
+		// Then user-config should be preserved
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if marshalledBlueprint == nil {
+			t.Fatal("Expected blueprint to be marshalled")
+		}
+		if marshalledBlueprint.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to exist")
+		}
+		if userConfig, exists := marshalledBlueprint.ConfigMaps["user-config"]; !exists {
+			t.Error("Expected user-config to be preserved")
+		} else if userConfig["KEY"] != "value" {
+			t.Errorf("Expected user-config KEY='value', got '%s'", userConfig["KEY"])
+		}
+	})
 }
