@@ -49,9 +49,6 @@ var execCmd = &cobra.Command{
 		}
 
 		if err := rt.LoadEnvironment(true); err != nil {
-			if !verbose {
-				return nil
-			}
 			return fmt.Errorf("failed to load environment: %w", err)
 		}
 
