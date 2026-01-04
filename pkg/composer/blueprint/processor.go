@@ -146,7 +146,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1a
 			}
 			processed.Inputs = evaluated
 		}
-		if processed.Source == "" && len(sourceName) > 0 && sourceName[0] != "" {
+		if processed.Source == "" && len(sourceName) > 0 && sourceName[0] != "" && sourceName[0] != "primary" {
 			processed.Source = sourceName[0]
 		}
 
@@ -191,7 +191,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(feature blueprintv1alpha1
 			}
 			processed.Substitutions = evaluated
 		}
-		if processed.Source == "" && len(sourceName) > 0 && sourceName[0] != "" {
+		if processed.Source == "" && len(sourceName) > 0 && sourceName[0] != "" && sourceName[0] != "primary" {
 			processed.Source = sourceName[0]
 		}
 
