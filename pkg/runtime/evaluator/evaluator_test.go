@@ -17,7 +17,7 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupEvaluatorTest(t *testing.T) (*ExpressionEvaluator, config.ConfigHandler, string, string) {
+func setupEvaluatorTest(t *testing.T) (ExpressionEvaluator, config.ConfigHandler, string, string) {
 	t.Helper()
 
 	mockConfigHandler := config.NewMockConfigHandler()
@@ -29,7 +29,7 @@ func setupEvaluatorTest(t *testing.T) (*ExpressionEvaluator, config.ConfigHandle
 	return evaluator, mockConfigHandler, projectRoot, templateRoot
 }
 
-func setupEvaluatorWithMockShims(t *testing.T) (*ExpressionEvaluator, *Shims, config.ConfigHandler) {
+func setupEvaluatorWithMockShims(t *testing.T) (ExpressionEvaluator, *Shims, config.ConfigHandler) {
 	t.Helper()
 
 	mockConfigHandler := config.NewMockConfigHandler()
@@ -45,7 +45,8 @@ func setupEvaluatorWithMockShims(t *testing.T) (*ExpressionEvaluator, *Shims, co
 	}
 
 	evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
-	evaluator.Shims = mockShims
+	concreteEvaluator := evaluator.(*expressionEvaluator)
+	concreteEvaluator.Shims = mockShims
 
 	return evaluator, mockShims, mockConfigHandler
 }
@@ -67,19 +68,20 @@ func TestNewExpressionEvaluator(t *testing.T) {
 			t.Fatal("Expected evaluator to be created, got nil")
 		}
 
-		if evaluator.configHandler != mockConfigHandler {
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		if concreteEvaluator.configHandler != mockConfigHandler {
 			t.Errorf("Expected evaluator.configHandler to be set correctly")
 		}
 
-		if evaluator.projectRoot != "/test/project" {
-			t.Errorf("Expected projectRoot to be '/test/project', got '%s'", evaluator.projectRoot)
+		if concreteEvaluator.projectRoot != "/test/project" {
+			t.Errorf("Expected projectRoot to be '/test/project', got '%s'", concreteEvaluator.projectRoot)
 		}
 
-		if evaluator.templateRoot != "/test/template" {
-			t.Errorf("Expected templateRoot to be '/test/template', got '%s'", evaluator.templateRoot)
+		if concreteEvaluator.templateRoot != "/test/template" {
+			t.Errorf("Expected templateRoot to be '/test/template', got '%s'", concreteEvaluator.templateRoot)
 		}
 
-		if evaluator.Shims == nil {
+		if concreteEvaluator.Shims == nil {
 			t.Error("Expected Shims to be initialized")
 		}
 	})
@@ -101,11 +103,12 @@ func TestExpressionEvaluator_SetTemplateData(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 
 		// Then the template data should be set
-		if evaluator.templateData == nil {
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		if concreteEvaluator.templateData == nil {
 			t.Fatal("Expected templateData to be set, got nil")
 		}
 
-		if string(evaluator.templateData["test.jsonnet"]) != `{"key": "value"}` {
+		if string(concreteEvaluator.templateData["test.jsonnet"]) != `{"key": "value"}` {
 			t.Errorf("Expected templateData to contain test.jsonnet")
 		}
 	})
@@ -1468,7 +1471,8 @@ func TestExpressionEvaluator_resolvePath(t *testing.T) {
 		evaluator := NewExpressionEvaluator(mockConfigHandler, "", "")
 
 		// When resolving a relative path without feature path or project root
-		path := evaluator.resolvePath("test.txt", "")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		path := concreteEvaluator.resolvePath("test.txt", "")
 
 		// Then it should return cleaned path
 		if path != "test.txt" {
@@ -1674,7 +1678,8 @@ func TestExpressionEvaluator_lookupInTemplateData_EdgeCases(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When looking up a file
-		result := evaluator.lookupInTemplateData("test.txt", "/test/feature.yaml")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		result := concreteEvaluator.lookupInTemplateData("test.txt", "/test/feature.yaml")
 
 		// Then it should return nil
 		if result != nil {
@@ -1691,7 +1696,8 @@ func TestExpressionEvaluator_lookupInTemplateData_EdgeCases(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 
 		// When looking up an absolute path
-		result := evaluator.lookupInTemplateData("/absolute/path.txt", "/test/feature.yaml")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		result := concreteEvaluator.lookupInTemplateData("/absolute/path.txt", "/test/feature.yaml")
 
 		// Then it should return nil (absolute paths not looked up)
 		if result != nil {
@@ -1708,7 +1714,8 @@ func TestExpressionEvaluator_lookupInTemplateData_EdgeCases(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 
 		// When looking up with empty feature path
-		result := evaluator.lookupInTemplateData("test.txt", "")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		result := concreteEvaluator.lookupInTemplateData("test.txt", "")
 
 		// Then it should return nil
 		if result != nil {
@@ -1726,7 +1733,8 @@ func TestExpressionEvaluator_lookupInTemplateData_EdgeCases(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 
 		// When looking up with feature path outside template root
-		result := evaluator.lookupInTemplateData("test.txt", "/outside/path.yaml")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		result := concreteEvaluator.lookupInTemplateData("test.txt", "/outside/path.yaml")
 
 		// Then it should use feature path directly
 		if result != nil {
@@ -1748,7 +1756,8 @@ func TestExpressionEvaluator_lookupInTemplateData_EdgeCases(t *testing.T) {
 		featurePath := filepath.Join(templateRoot, "test.yaml")
 
 		// When looking up a file
-		result := evaluator.lookupInTemplateData("test.txt", featurePath)
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		result := concreteEvaluator.lookupInTemplateData("test.txt", featurePath)
 
 		// Then it should find the file
 		if result == nil {
@@ -1771,7 +1780,8 @@ func TestExpressionEvaluator_lookupInTemplateData_EdgeCases(t *testing.T) {
 		os.MkdirAll(filepath.Dir(featurePath), 0755)
 
 		// When looking up a file
-		result := evaluator.lookupInTemplateData("test.txt", featurePath)
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		result := concreteEvaluator.lookupInTemplateData("test.txt", featurePath)
 
 		// Then it should find the file without _template prefix
 		if result == nil {

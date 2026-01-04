@@ -11,7 +11,6 @@ type MockTerraformProvider struct {
 	GenerateTerraformArgsFunc   func(componentID, modulePath string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponentFunc   func(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponentsFunc  func() []blueprintv1alpha1.TerraformComponent
-	GetOutputsFunc              func(componentID string) (map[string]any, error)
 	GetTFDataDirFunc            func(componentID string) (string, error)
 	ClearCacheFunc              func()
 }
@@ -54,14 +53,6 @@ func (m *MockTerraformProvider) GetTerraformComponents() []blueprintv1alpha1.Ter
 		return m.GetTerraformComponentsFunc()
 	}
 	return []blueprintv1alpha1.TerraformComponent{}
-}
-
-// GetOutputs implements TerraformProvider.
-func (m *MockTerraformProvider) GetOutputs(componentID string) (map[string]any, error) {
-	if m.GetOutputsFunc != nil {
-		return m.GetOutputsFunc(componentID)
-	}
-	return map[string]any{}, nil
 }
 
 // GetTFDataDir implements TerraformProvider.
