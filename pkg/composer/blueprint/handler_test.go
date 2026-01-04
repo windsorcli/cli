@@ -635,8 +635,9 @@ func TestHandler_resolveComponentFullPath(t *testing.T) {
 
 		// Then should use Name in WindsorScratchPath
 		expected := "/scratch/terraform/my-component"
-		if component.FullPath != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, component.FullPath)
+		actual := filepath.ToSlash(component.FullPath)
+		if actual != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, actual)
 		}
 	})
 
@@ -655,8 +656,9 @@ func TestHandler_resolveComponentFullPath(t *testing.T) {
 
 		// Then should use WindsorScratchPath with Path
 		expected := "/scratch/terraform/vpc"
-		if component.FullPath != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, component.FullPath)
+		actual := filepath.ToSlash(component.FullPath)
+		if actual != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, actual)
 		}
 	})
 
@@ -674,8 +676,9 @@ func TestHandler_resolveComponentFullPath(t *testing.T) {
 
 		// Then should use ProjectRoot
 		expected := "/project/terraform/network/vpc"
-		if component.FullPath != expected {
-			t.Errorf("Expected '%s', got '%s'", expected, component.FullPath)
+		actual := filepath.ToSlash(component.FullPath)
+		if actual != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, actual)
 		}
 	})
 }
