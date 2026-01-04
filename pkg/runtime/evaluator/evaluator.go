@@ -196,6 +196,25 @@ func (e *ExpressionEvaluator) InterpolateString(s string, config map[string]any,
 	return result, nil
 }
 
+// EvaluateValue evaluates a string that may contain an expression and returns a typed result.
+// If the string is purely a single expression (e.g., "${values(cluster.nodes)}"), the expression
+// is evaluated and the result is returned with its original type (map, slice, etc.). If the string
+// contains mixed content (e.g., "prefix-${value}-suffix"), it uses InterpolateString and returns
+// a string. Non-expression strings are returned unchanged. This method is useful for configuration
+// values like Terraform inputs where type preservation is important.
+func (e *ExpressionEvaluator) EvaluateValue(s string, config map[string]any, featurePath string) (any, error) {
+	if !strings.Contains(s, "${") {
+		return s, nil
+	}
+
+	expr := e.extractExpression(s)
+	if expr != "" {
+		return e.Evaluate(expr, config, featurePath)
+	}
+
+	return e.InterpolateString(s, config, featurePath)
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
