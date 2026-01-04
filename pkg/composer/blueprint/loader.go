@@ -384,4 +384,8 @@ func (l *BaseBlueprintLoader) collectTemplateData(dir string) error {
 	})
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 var _ BlueprintLoader = (*BaseBlueprintLoader)(nil)

@@ -292,4 +292,8 @@ func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues m
 	}
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 var _ BlueprintComposer = (*BaseBlueprintComposer)(nil)

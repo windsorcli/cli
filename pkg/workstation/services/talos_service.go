@@ -353,5 +353,9 @@ func validateHostPort(hostPortStr string) (uint32, uint32, string, error) {
 	return hostPort, nodePort, protocol, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure TalosService implements Service interface
 var _ Service = (*TalosService)(nil)

@@ -198,5 +198,9 @@ func (e *TerraformEnvPrinter) formatArgsForEnv(args []string) string {
 	return strings.TrimSpace(strings.Join(formatted, " "))
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure TerraformEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*TerraformEnvPrinter)(nil)

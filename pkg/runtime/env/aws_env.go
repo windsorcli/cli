@@ -82,5 +82,9 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure AwsEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*AwsEnvPrinter)(nil)

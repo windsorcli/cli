@@ -80,5 +80,9 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure GcpEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*GcpEnvPrinter)(nil)

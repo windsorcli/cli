@@ -148,5 +148,9 @@ func incrementIP(ip net.IP) net.IP {
 	return ip
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure BaseNetworkManager implements NetworkManager
 var _ NetworkManager = (*BaseNetworkManager)(nil)

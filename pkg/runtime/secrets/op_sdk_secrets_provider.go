@@ -129,5 +129,9 @@ func (s *OnePasswordSDKSecretsProvider) ParseSecrets(input string) (string, erro
 	return result, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure OnePasswordSDKSecretsProvider implements SecretsProvider
 var _ SecretsProvider = (*OnePasswordSDKSecretsProvider)(nil)

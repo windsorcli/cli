@@ -103,5 +103,9 @@ func (m *MockService) SupportsWildcard() bool {
 	return false
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockService implements Service interface
 var _ Service = (*MockService)(nil)

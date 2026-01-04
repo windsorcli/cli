@@ -239,3 +239,10 @@ func (c *DynamicKubernetesClient) isNodeReady(node *unstructured.Unstructured) b
 
 	return false
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure DynamicKubernetesClient implements the KubernetesClient interface
+var _ KubernetesClient = (*DynamicKubernetesClient)(nil)

@@ -674,3 +674,11 @@ func (e *expressionEvaluator) resolvePath(path string, featurePath string) strin
 
 	return filepath.Clean(path)
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure expressionEvaluator implements the ExpressionEvaluator and HelperRegistrar interfaces
+var _ ExpressionEvaluator = (*expressionEvaluator)(nil)
+var _ HelperRegistrar = (*expressionEvaluator)(nil)

@@ -216,5 +216,9 @@ func (s *DNSService) WriteConfig() error {
 	return nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure DNSService implements Service interface
 var _ Service = (*DNSService)(nil)

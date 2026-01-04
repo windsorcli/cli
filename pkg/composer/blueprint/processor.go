@@ -582,4 +582,8 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, c
 	return result, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 var _ BlueprintProcessor = (*BaseBlueprintProcessor)(nil)

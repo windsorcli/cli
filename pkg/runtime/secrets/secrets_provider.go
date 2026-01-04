@@ -82,9 +82,6 @@ func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
 	panic("ParseSecrets must be implemented by concrete provider")
 }
 
-// Ensure BaseSecretsProvider implements SecretsProvider
-var _ SecretsProvider = (*BaseSecretsProvider)(nil)
-
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -215,3 +212,10 @@ func parseKeys(path string) []string {
 
 	return keys
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure BaseSecretsProvider implements SecretsProvider
+var _ SecretsProvider = (*BaseSecretsProvider)(nil)

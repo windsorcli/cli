@@ -313,5 +313,9 @@ func (e *WindsorEnvPrinter) incrementBuildID(existingBuildID, currentDate string
 	return fmt.Sprintf("%s.%s.%d", existingDate, existingRandom, existingCounter), nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure WindsorEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*WindsorEnvPrinter)(nil)

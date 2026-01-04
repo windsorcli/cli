@@ -103,5 +103,9 @@ func (s *LocalstackService) SupportsWildcard() bool {
 	return true
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure LocalstackService implements Service interface
 var _ Service = (*LocalstackService)(nil)

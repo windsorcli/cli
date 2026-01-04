@@ -254,5 +254,9 @@ func (m *MockConfigHandler) RegisterProvider(prefix string, provider ValueProvid
 	}
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockConfigHandler implements ConfigHandler
 var _ ConfigHandler = (*MockConfigHandler)(nil)

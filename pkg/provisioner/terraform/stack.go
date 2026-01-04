@@ -384,3 +384,10 @@ func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
 	}
 	return nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure TerraformStack implements the Stack interface
+var _ Stack = (*TerraformStack)(nil)

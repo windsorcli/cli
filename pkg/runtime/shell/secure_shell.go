@@ -126,5 +126,9 @@ func (s *SecureShell) ExecSilentWithTimeout(command string, args []string, timeo
 	return executeWithTimeout(execFn, cleanupFn, timeout)
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure SecureShell implements the Shell interface
 var _ Shell = (*SecureShell)(nil)

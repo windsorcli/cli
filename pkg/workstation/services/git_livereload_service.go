@@ -100,5 +100,9 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	}, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure GitService implements Service interface
 var _ Service = (*GitLivereloadService)(nil)

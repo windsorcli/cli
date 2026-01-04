@@ -492,4 +492,8 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	return h.composedBlueprint
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 var _ BlueprintHandler = (*BaseBlueprintHandler)(nil)

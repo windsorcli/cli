@@ -66,4 +66,8 @@ func (m *MockBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	return nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 var _ BlueprintHandler = (*MockBlueprintHandler)(nil)
