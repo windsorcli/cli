@@ -95,7 +95,9 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 		}
 	}
 
-	c.applyUserBlueprint(result, user)
+	if err := c.applyUserBlueprint(result, user); err != nil {
+		return nil, err
+	}
 
 	c.setContextMetadata(result)
 
@@ -135,9 +137,9 @@ func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]
 // Filters terraform components, kustomizations, and sources to only those selected by the user.
 // Clears repository if user doesn't define one. After filtering, merges user's values as overrides.
 // If no user blueprint exists, all items from primary/sources are retained unchanged.
-func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint) {
+func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint) error {
 	if user == nil {
-		return
+		return nil
 	}
 
 	if len(user.TerraformComponents) > 0 {
@@ -191,7 +193,7 @@ func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blu
 		result.Sources = filtered
 	}
 
-	result.StrategicMerge(user)
+	return result.StrategicMerge(user)
 }
 
 // applyCommonSubstitutions extracts common substitutions from values.yaml, merges legacy special
