@@ -14,6 +14,13 @@
       "allowedVersions": "3.9.0"
     },
     {
+      "description": "Pin kubectl to v1.34.3",
+      "matchPackageNames": [
+        "kubernetes/kubectl"
+      ],
+      "allowedVersions": "1.34.3"
+    },
+    {
       "description": "Pin GitHub Actions to specific commit SHAs",
       "matchManagers": [
         "github-actions"
