@@ -22,7 +22,7 @@ type HandlerTestMocks struct {
 	Shell           *shell.MockShell
 	ConfigHandler   *config.MockConfigHandler
 	ArtifactBuilder *artifact.MockArtifact
-	Evaluator       *evaluator.ExpressionEvaluator
+	Evaluator       *evaluator.MockExpressionEvaluator
 	Runtime         *runtime.Runtime
 	Shims           *Shims
 }
@@ -45,21 +45,29 @@ func setupHandlerMocks(t *testing.T) *HandlerTestMocks {
 
 	mockArtifact := artifact.NewMockArtifact()
 
-	eval := evaluator.NewExpressionEvaluator(mockConfigHandler, tmpDir, tmpDir)
+	realEvaluator := evaluator.NewExpressionEvaluator(mockConfigHandler, tmpDir, tmpDir)
+	mockEvaluator := evaluator.NewMockExpressionEvaluator()
+
+	mockEvaluator.EvaluateFunc = realEvaluator.Evaluate
+	mockEvaluator.EvaluateDefaultsFunc = realEvaluator.EvaluateDefaults
+	mockEvaluator.EvaluateValueFunc = realEvaluator.EvaluateValue
+	mockEvaluator.InterpolateStringFunc = realEvaluator.InterpolateString
+	mockEvaluator.SetTemplateDataFunc = realEvaluator.SetTemplateData
+	mockEvaluator.RegisterFunc = realEvaluator.Register
 
 	rt := &runtime.Runtime{
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
-		Evaluator:     eval,
+		Evaluator:     mockEvaluator,
 	}
 
 	mocks := &HandlerTestMocks{
 		Shell:           mockShell,
 		ConfigHandler:   mockConfigHandler,
 		ArtifactBuilder: mockArtifact,
-		Evaluator:       eval,
+		Evaluator:       mockEvaluator,
 		Runtime:         rt,
 		Shims:           NewShims(),
 	}

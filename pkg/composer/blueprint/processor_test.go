@@ -18,7 +18,7 @@ import (
 type ProcessorTestMocks struct {
 	Shell         *shell.MockShell
 	ConfigHandler *config.MockConfigHandler
-	Evaluator     *evaluator.ExpressionEvaluator
+	Evaluator     *evaluator.MockExpressionEvaluator
 	Runtime       *runtime.Runtime
 }
 
@@ -38,20 +38,28 @@ func setupProcessorMocks(t *testing.T) *ProcessorTestMocks {
 		return tmpDir, nil
 	}
 
-	eval := evaluator.NewExpressionEvaluator(mockConfigHandler, tmpDir, tmpDir)
+	realEvaluator := evaluator.NewExpressionEvaluator(mockConfigHandler, tmpDir, tmpDir)
+	mockEvaluator := evaluator.NewMockExpressionEvaluator()
+
+	mockEvaluator.EvaluateFunc = realEvaluator.Evaluate
+	mockEvaluator.EvaluateDefaultsFunc = realEvaluator.EvaluateDefaults
+	mockEvaluator.EvaluateValueFunc = realEvaluator.EvaluateValue
+	mockEvaluator.InterpolateStringFunc = realEvaluator.InterpolateString
+	mockEvaluator.SetTemplateDataFunc = realEvaluator.SetTemplateData
+	mockEvaluator.RegisterFunc = realEvaluator.Register
 
 	rt := &runtime.Runtime{
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
-		Evaluator:     eval,
+		Evaluator:     mockEvaluator,
 	}
 
 	mocks := &ProcessorTestMocks{
 		Shell:         mockShell,
 		ConfigHandler: mockConfigHandler,
-		Evaluator:     eval,
+		Evaluator:     mockEvaluator,
 		Runtime:       rt,
 	}
 
