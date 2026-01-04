@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"fmt"
+	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -98,6 +99,8 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 
 	c.setContextMetadata(result)
 
+	c.applyCommonSubstitutions(result)
+
 	return result, nil
 }
 
@@ -189,6 +192,102 @@ func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blu
 	}
 
 	result.StrategicMerge(user)
+}
+
+// applyCommonSubstitutions extracts common substitutions from values.yaml, merges legacy special
+// variables (DOMAIN, CONTEXT, etc.) from the runtime config, and creates a ConfigMap called
+// "values-common" in the blueprint. This ConfigMap is used by kustomizations for postBuild
+// substitutions. The method combines values from the commonSubstitutions field (set via
+// SetCommonSubstitutions), values from the "common" key in substitutions from values.yaml,
+// and legacy variables extracted from the config handler.
+func (c *BaseBlueprintComposer) applyCommonSubstitutions(blueprint *blueprintv1alpha1.Blueprint) {
+	mergedCommonValues := make(map[string]string)
+
+	if c.commonSubstitutions != nil {
+		for k, v := range c.commonSubstitutions {
+			mergedCommonValues[k] = v
+		}
+	}
+
+	if c.runtime != nil && c.runtime.ConfigHandler != nil {
+		values, err := c.runtime.ConfigHandler.GetContextValues()
+		if err == nil {
+			if substitutions, ok := values["substitutions"].(map[string]any); ok {
+				if common, ok := substitutions["common"].(map[string]any); ok {
+					for k, v := range common {
+						mergedCommonValues[k] = fmt.Sprintf("%v", v)
+					}
+				}
+			}
+		}
+
+		c.mergeLegacySpecialVariables(mergedCommonValues)
+	}
+
+	if len(mergedCommonValues) > 0 {
+		if blueprint.ConfigMaps == nil {
+			blueprint.ConfigMaps = make(map[string]map[string]string)
+		}
+		blueprint.ConfigMaps["values-common"] = mergedCommonValues
+	}
+}
+
+// mergeLegacySpecialVariables extracts legacy configuration values from the runtime config handler
+// and adds them to the merged common values map. These include DOMAIN, CONTEXT, CONTEXT_ID,
+// LOADBALANCER_IP_RANGE, REGISTRY_URL, LOCAL_VOLUME_PATH, and BUILD_ID. These variables are
+// maintained for backward compatibility with existing kustomizations that reference them.
+func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues map[string]string) {
+	if c.runtime == nil || c.runtime.ConfigHandler == nil {
+		return
+	}
+
+	domain := c.runtime.ConfigHandler.GetString("dns.domain")
+	context := c.runtime.ConfigHandler.GetContext()
+	contextID := c.runtime.ConfigHandler.GetString("id")
+	lbStart := c.runtime.ConfigHandler.GetString("network.loadbalancer_ips.start")
+	lbEnd := c.runtime.ConfigHandler.GetString("network.loadbalancer_ips.end")
+	registryURL := c.runtime.ConfigHandler.GetString("docker.registry_url")
+	localVolumePaths := c.runtime.ConfigHandler.GetStringSlice("cluster.workers.volumes")
+
+	loadBalancerIPRange := fmt.Sprintf("%s-%s", lbStart, lbEnd)
+
+	var localVolumePath string
+	if len(localVolumePaths) > 0 {
+		parts := strings.Split(localVolumePaths[0], ":")
+		if len(parts) > 1 {
+			localVolumePath = parts[1]
+		}
+	}
+
+	if domain != "" {
+		mergedCommonValues["DOMAIN"] = domain
+	}
+	if context != "" {
+		mergedCommonValues["CONTEXT"] = context
+	}
+	if contextID != "" {
+		mergedCommonValues["CONTEXT_ID"] = contextID
+	}
+	if loadBalancerIPRange != "-" {
+		mergedCommonValues["LOADBALANCER_IP_RANGE"] = loadBalancerIPRange
+	}
+	if lbStart != "" {
+		mergedCommonValues["LOADBALANCER_IP_START"] = lbStart
+	}
+	if lbEnd != "" {
+		mergedCommonValues["LOADBALANCER_IP_END"] = lbEnd
+	}
+	if registryURL != "" {
+		mergedCommonValues["REGISTRY_URL"] = registryURL
+	}
+	if localVolumePath != "" {
+		mergedCommonValues["LOCAL_VOLUME_PATH"] = localVolumePath
+	}
+
+	buildID, err := c.runtime.GetBuildID()
+	if err == nil && buildID != "" {
+		mergedCommonValues["BUILD_ID"] = buildID
+	}
 }
 
 var _ BlueprintComposer = (*BaseBlueprintComposer)(nil)

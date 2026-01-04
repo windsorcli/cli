@@ -611,7 +611,7 @@ func TestHandler_GetTerraformComponents(t *testing.T) {
 	})
 }
 
-func TestHandler_ResolveComponentFullPath(t *testing.T) {
+func TestHandler_resolveComponentFullPath(t *testing.T) {
 	t.Run("UsesNameForNamedComponents", func(t *testing.T) {
 		// Given a handler with a named component
 		mocks := setupHandlerMocks(t)
@@ -672,7 +672,7 @@ func TestHandler_ResolveComponentFullPath(t *testing.T) {
 	})
 }
 
-func TestHandler_ResolveComponentSource(t *testing.T) {
+func TestHandler_resolveComponentSource(t *testing.T) {
 	t.Run("ResolvesOCISourceWithTag", func(t *testing.T) {
 		// Given a handler with a composed blueprint containing an OCI source
 		mocks := setupHandlerMocks(t)
@@ -807,7 +807,7 @@ func TestHandler_ResolveComponentSource(t *testing.T) {
 	})
 }
 
-func TestHandler_GetSourceRef(t *testing.T) {
+func TestHandler_getSourceRef(t *testing.T) {
 	t.Run("ReturnsTag", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
 		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
@@ -935,7 +935,7 @@ func TestHandler_Generate(t *testing.T) {
 	})
 }
 
-func TestHandler_GetConfigValues(t *testing.T) {
+func TestHandler_getConfigValues(t *testing.T) {
 	t.Run("ReturnsNilWhenConfigHandlerNil", func(t *testing.T) {
 		// Given a handler with nil ConfigHandler
 		mocks := setupHandlerMocks(t)
@@ -989,7 +989,7 @@ func TestHandler_GetConfigValues(t *testing.T) {
 	})
 }
 
-func TestHandler_LoadSourcesFromBlueprint(t *testing.T) {
+func TestHandler_loadSourcesFromBlueprint(t *testing.T) {
 	t.Run("SkipsLoadingWhenLoaderNil", func(t *testing.T) {
 		// Given a handler
 		mocks := setupHandlerMocks(t)
@@ -1110,7 +1110,7 @@ func (m *mockLoaderImpl) GetSourceName() string {
 	return ""
 }
 
-func TestHandler_SetRepositoryDefaults(t *testing.T) {
+func TestHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("SetsDevRepositoryURLInDevMode", func(t *testing.T) {
 		// Given a handler in dev mode with domain and project configured, no user blueprint
 		mocks := setupHandlerMocks(t)

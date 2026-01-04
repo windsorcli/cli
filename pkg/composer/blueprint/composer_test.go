@@ -472,7 +472,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 	})
 }
 
-func TestComposer_SetContextMetadata(t *testing.T) {
+func TestComposer_setContextMetadata(t *testing.T) {
 	t.Run("SetsMetadataFromContext", func(t *testing.T) {
 		// Given a composer with a context name set
 		mocks := setupComposerMocks(t)
@@ -539,7 +539,7 @@ func TestComposer_SetContextMetadata(t *testing.T) {
 	})
 }
 
-func TestComposer_ApplyUserBlueprint(t *testing.T) {
+func TestComposer_applyUserBlueprint(t *testing.T) {
 	t.Run("ClearsRepositoryWhenUserBlueprintHasNone", func(t *testing.T) {
 		// Given a composed blueprint with repository but user blueprint has none
 		mocks := setupComposerMocks(t)
@@ -677,6 +677,452 @@ func TestComposer_ApplyUserBlueprint(t *testing.T) {
 		}
 		if result.TerraformComponents[0].Path != "cluster/eks" {
 			t.Errorf("Expected 'cluster/eks', got '%s'", result.TerraformComponents[0].Path)
+		}
+	})
+}
+
+func TestComposer_applyCommonSubstitutions(t *testing.T) {
+	t.Run("CreatesConfigMapFromCommonSubstitutions", func(t *testing.T) {
+		// Given a composer with common substitutions set
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return ""
+		}
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return []string{}
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		composer.SetCommonSubstitutions(map[string]string{
+			"DOMAIN": "example.com",
+			"ENV":    "production",
+		})
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then ConfigMap should be created with values-common
+		if blueprint.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be initialized")
+		}
+		common, exists := blueprint.ConfigMaps["values-common"]
+		if !exists {
+			t.Fatal("Expected 'values-common' ConfigMap to exist")
+		}
+		if common["DOMAIN"] != "example.com" {
+			t.Errorf("Expected DOMAIN='example.com', got '%s'", common["DOMAIN"])
+		}
+		if common["ENV"] != "production" {
+			t.Errorf("Expected ENV='production', got '%s'", common["ENV"])
+		}
+	})
+
+	t.Run("ExtractsCommonFromValuesYaml", func(t *testing.T) {
+		// Given a composer with values.yaml containing substitutions.common
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"KEY1": "value1",
+						"KEY2": "value2",
+					},
+				},
+			}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then ConfigMap should contain values from values.yaml
+		common := blueprint.ConfigMaps["values-common"]
+		if common["KEY1"] != "value1" {
+			t.Errorf("Expected KEY1='value1', got '%s'", common["KEY1"])
+		}
+		if common["KEY2"] != "value2" {
+			t.Errorf("Expected KEY2='value2', got '%s'", common["KEY2"])
+		}
+	})
+
+	t.Run("MergesCommonSubstitutionsAndValuesYaml", func(t *testing.T) {
+		// Given a composer with both commonSubstitutions and values.yaml
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"FROM_YAML": "yaml-value",
+					},
+				},
+			}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		composer.SetCommonSubstitutions(map[string]string{
+			"FROM_SET": "set-value",
+		})
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then ConfigMap should contain both
+		common := blueprint.ConfigMaps["values-common"]
+		if common["FROM_YAML"] != "yaml-value" {
+			t.Errorf("Expected FROM_YAML='yaml-value', got '%s'", common["FROM_YAML"])
+		}
+		if common["FROM_SET"] != "set-value" {
+			t.Errorf("Expected FROM_SET='set-value', got '%s'", common["FROM_SET"])
+		}
+	})
+
+	t.Run("SkipsWhenNoCommonValues", func(t *testing.T) {
+		// Given a composer with no common substitutions
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return ""
+		}
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return []string{}
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then ConfigMap should not be created
+		if blueprint.ConfigMaps != nil {
+			t.Error("Expected ConfigMaps to be nil when no common values")
+		}
+	})
+
+	t.Run("HandlesNilRuntime", func(t *testing.T) {
+		// Given a composer with nil runtime
+		composer := &BaseBlueprintComposer{
+			runtime:             nil,
+			commonSubstitutions: map[string]string{"KEY": "value"},
+		}
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then should still create ConfigMap from commonSubstitutions
+		if blueprint.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be initialized")
+		}
+		common := blueprint.ConfigMaps["values-common"]
+		if common["KEY"] != "value" {
+			t.Errorf("Expected KEY='value', got '%s'", common["KEY"])
+		}
+	})
+
+	t.Run("HandlesNilConfigHandler", func(t *testing.T) {
+		// Given a composer with nil ConfigHandler
+		mocks := setupComposerMocks(t)
+		mocks.Runtime.ConfigHandler = nil
+		composer := NewBlueprintComposer(mocks.Runtime)
+		composer.SetCommonSubstitutions(map[string]string{"KEY": "value"})
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then should still create ConfigMap from commonSubstitutions
+		common := blueprint.ConfigMaps["values-common"]
+		if common["KEY"] != "value" {
+			t.Errorf("Expected KEY='value', got '%s'", common["KEY"])
+		}
+	})
+
+	t.Run("HandlesGetContextValuesError", func(t *testing.T) {
+		// Given a composer where GetContextValues returns error
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, os.ErrNotExist
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		composer.SetCommonSubstitutions(map[string]string{"KEY": "value"})
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then should still create ConfigMap from commonSubstitutions
+		common := blueprint.ConfigMaps["values-common"]
+		if common["KEY"] != "value" {
+			t.Errorf("Expected KEY='value', got '%s'", common["KEY"])
+		}
+	})
+
+	t.Run("HandlesMissingSubstitutionsKey", func(t *testing.T) {
+		// Given values.yaml without substitutions key
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return ""
+		}
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return []string{}
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then should not create ConfigMap
+		if blueprint.ConfigMaps != nil {
+			t.Error("Expected ConfigMaps to be nil")
+		}
+	})
+
+	t.Run("HandlesMissingCommonKey", func(t *testing.T) {
+		// Given values.yaml with substitutions but no common key
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{},
+			}, nil
+		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return ""
+		}
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return []string{}
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then should not create ConfigMap
+		if blueprint.ConfigMaps != nil {
+			t.Error("Expected ConfigMaps to be nil")
+		}
+	})
+}
+
+func TestComposer_mergeLegacySpecialVariables(t *testing.T) {
+	t.Run("MergesAllLegacyVariables", func(t *testing.T) {
+		// Given a composer with all legacy config values
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "example.com"
+			case "id":
+				return "test-id"
+			case "network.loadbalancer_ips.start":
+				return "10.0.0.1"
+			case "network.loadbalancer_ips.end":
+				return "10.0.0.10"
+			case "docker.registry_url":
+				return "registry.example.com"
+			default:
+				return ""
+			}
+		}
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "cluster.workers.volumes" {
+				return []string{"/host:/container"}
+			}
+			return []string{}
+		}
+		buildIDDir := os.Getenv("WINDSOR_PROJECT_ROOT")
+		if buildIDDir == "" {
+			buildIDDir = mocks.Runtime.ProjectRoot
+		}
+		os.MkdirAll(buildIDDir+"/.windsor", 0755)
+		os.WriteFile(buildIDDir+"/.windsor/.build-id", []byte("build-123"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		merged := make(map[string]string)
+
+		// When merging legacy variables
+		composer.mergeLegacySpecialVariables(merged)
+
+		// Then all variables should be set
+		if merged["DOMAIN"] != "example.com" {
+			t.Errorf("Expected DOMAIN='example.com', got '%s'", merged["DOMAIN"])
+		}
+		if merged["CONTEXT"] != "test-context" {
+			t.Errorf("Expected CONTEXT='test-context', got '%s'", merged["CONTEXT"])
+		}
+		if merged["CONTEXT_ID"] != "test-id" {
+			t.Errorf("Expected CONTEXT_ID='test-id', got '%s'", merged["CONTEXT_ID"])
+		}
+		if merged["LOADBALANCER_IP_RANGE"] != "10.0.0.1-10.0.0.10" {
+			t.Errorf("Expected LOADBALANCER_IP_RANGE='10.0.0.1-10.0.0.10', got '%s'", merged["LOADBALANCER_IP_RANGE"])
+		}
+		if merged["LOADBALANCER_IP_START"] != "10.0.0.1" {
+			t.Errorf("Expected LOADBALANCER_IP_START='10.0.0.1', got '%s'", merged["LOADBALANCER_IP_START"])
+		}
+		if merged["LOADBALANCER_IP_END"] != "10.0.0.10" {
+			t.Errorf("Expected LOADBALANCER_IP_END='10.0.0.10', got '%s'", merged["LOADBALANCER_IP_END"])
+		}
+		if merged["REGISTRY_URL"] != "registry.example.com" {
+			t.Errorf("Expected REGISTRY_URL='registry.example.com', got '%s'", merged["REGISTRY_URL"])
+		}
+		if merged["LOCAL_VOLUME_PATH"] != "/container" {
+			t.Errorf("Expected LOCAL_VOLUME_PATH='/container', got '%s'", merged["LOCAL_VOLUME_PATH"])
+		}
+		if merged["BUILD_ID"] != "build-123" {
+			t.Errorf("Expected BUILD_ID='build-123', got '%s'", merged["BUILD_ID"])
+		}
+	})
+
+	t.Run("SkipsEmptyValues", func(t *testing.T) {
+		// Given a composer with empty config values
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			return ""
+		}
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return ""
+		}
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			return []string{}
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		merged := make(map[string]string)
+
+		// When merging legacy variables
+		composer.mergeLegacySpecialVariables(merged)
+
+		// Then no variables should be set
+		if len(merged) != 0 {
+			t.Errorf("Expected empty map, got %d entries", len(merged))
+		}
+	})
+
+	t.Run("HandlesNilRuntime", func(t *testing.T) {
+		// Given a composer with nil runtime
+		composer := &BaseBlueprintComposer{runtime: nil}
+		merged := make(map[string]string)
+
+		// When merging legacy variables
+		composer.mergeLegacySpecialVariables(merged)
+
+		// Then should return early without error
+		if len(merged) != 0 {
+			t.Errorf("Expected empty map, got %d entries", len(merged))
+		}
+	})
+
+	t.Run("HandlesNilConfigHandler", func(t *testing.T) {
+		// Given a composer with nil ConfigHandler
+		mocks := setupComposerMocks(t)
+		mocks.Runtime.ConfigHandler = nil
+		composer := NewBlueprintComposer(mocks.Runtime)
+		merged := make(map[string]string)
+
+		// When merging legacy variables
+		composer.mergeLegacySpecialVariables(merged)
+
+		// Then should return early without error
+		if len(merged) != 0 {
+			t.Errorf("Expected empty map, got %d entries", len(merged))
+		}
+	})
+
+	t.Run("HandlesLoadBalancerRangeWithDash", func(t *testing.T) {
+		// Given a composer with empty load balancer IPs
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "network.loadbalancer_ips.start" || key == "network.loadbalancer_ips.end" {
+				return ""
+			}
+			return ""
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		merged := make(map[string]string)
+
+		// When merging legacy variables
+		composer.mergeLegacySpecialVariables(merged)
+
+		// Then LOADBALANCER_IP_RANGE should not be set (it would be "-")
+		if _, exists := merged["LOADBALANCER_IP_RANGE"]; exists {
+			t.Error("Expected LOADBALANCER_IP_RANGE to not be set when range is '-'")
+		}
+	})
+
+	t.Run("HandlesLocalVolumePathWithoutColon", func(t *testing.T) {
+		// Given a composer with volume path without colon
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "cluster.workers.volumes" {
+				return []string{"/host-only"}
+			}
+			return []string{}
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		merged := make(map[string]string)
+
+		// When merging legacy variables
+		composer.mergeLegacySpecialVariables(merged)
+
+		// Then LOCAL_VOLUME_PATH should not be set
+		if _, exists := merged["LOCAL_VOLUME_PATH"]; exists {
+			t.Error("Expected LOCAL_VOLUME_PATH to not be set when no colon in path")
+		}
+	})
+
+	t.Run("HandlesMissingBuildID", func(t *testing.T) {
+		// Given a composer where build-id file doesn't exist
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		merged := make(map[string]string)
+
+		// When merging legacy variables
+		composer.mergeLegacySpecialVariables(merged)
+
+		// Then BUILD_ID should not be set
+		if _, exists := merged["BUILD_ID"]; exists {
+			t.Error("Expected BUILD_ID to not be set when build-id file doesn't exist")
+		}
+	})
+
+	t.Run("HandlesEmptyBuildID", func(t *testing.T) {
+		// Given a composer where build-id file is empty
+		mocks := setupComposerMocks(t)
+		buildIDDir := os.Getenv("WINDSOR_PROJECT_ROOT")
+		if buildIDDir == "" {
+			buildIDDir = mocks.Runtime.ProjectRoot
+		}
+		os.MkdirAll(buildIDDir+"/.windsor", 0755)
+		os.WriteFile(buildIDDir+"/.windsor/.build-id", []byte(""), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		merged := make(map[string]string)
+
+		// When merging legacy variables
+		composer.mergeLegacySpecialVariables(merged)
+
+		// Then BUILD_ID should not be set
+		if _, exists := merged["BUILD_ID"]; exists {
+			t.Error("Expected BUILD_ID to not be set when build-id file is empty")
 		}
 	})
 }
