@@ -438,19 +438,23 @@ func (h *BaseBlueprintHandler) resolveComponentSource(component *blueprintv1alph
 	}
 }
 
-// getSourceRef returns the reference (tag, branch, or commit) for a source. It checks the Ref
-// field first, then falls back to Branch, and finally returns "main" as the default.
+// getSourceRef returns the reference (commit, semver, tag, or branch) for a source. It checks
+// fields in priority order: Commit → SemVer → Tag → Branch, returning an empty string if none
+// are specified. This matches the priority used by the terraform provisioner for consistency.
 func (h *BaseBlueprintHandler) getSourceRef(source blueprintv1alpha1.Source) string {
+	if source.Ref.Commit != "" {
+		return source.Ref.Commit
+	}
+	if source.Ref.SemVer != "" {
+		return source.Ref.SemVer
+	}
 	if source.Ref.Tag != "" {
 		return source.Ref.Tag
 	}
 	if source.Ref.Branch != "" {
 		return source.Ref.Branch
 	}
-	if source.Ref.Commit != "" {
-		return source.Ref.Commit
-	}
-	return "main"
+	return ""
 }
 
 // resolveComponentFullPath computes and sets the absolute filesystem path where a terraform

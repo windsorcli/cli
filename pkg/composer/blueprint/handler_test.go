@@ -736,7 +736,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 		}
 	})
 
-	t.Run("DefaultsToMainRef", func(t *testing.T) {
+	t.Run("UsesEmptyRefWhenNoRefSpecified", func(t *testing.T) {
 		// Given a source with no ref specified
 		mocks := setupHandlerMocks(t)
 		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
@@ -750,8 +750,8 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 		// When resolving component source
 		handler.resolveComponentSource(component)
 
-		// Then source should default to main ref
-		expected := "https://github.com/org/lib//terraform/utils?ref=main"
+		// Then source should use empty ref
+		expected := "https://github.com/org/lib//terraform/utils?ref="
 		if component.Source != expected {
 			t.Errorf("Expected '%s', got '%s'", expected, component.Source)
 		}
@@ -808,7 +808,31 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 }
 
 func TestHandler_getSourceRef(t *testing.T) {
-	t.Run("ReturnsTag", func(t *testing.T) {
+	t.Run("ReturnsCommitWhenPresent", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Commit: "abc123", SemVer: "1.0.0", Tag: "v1.0.0", Branch: "main"}}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "abc123" {
+			t.Errorf("Expected 'abc123', got '%s'", ref)
+		}
+	})
+
+	t.Run("ReturnsSemVerWhenCommitNotPresent", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{SemVer: "1.0.0", Tag: "v1.0.0", Branch: "main"}}
+
+		ref := handler.getSourceRef(source)
+
+		if ref != "1.0.0" {
+			t.Errorf("Expected '1.0.0', got '%s'", ref)
+		}
+	})
+
+	t.Run("ReturnsTagWhenCommitAndSemVerNotPresent", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
 		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Tag: "v1.0.0", Branch: "main"}}
@@ -820,7 +844,7 @@ func TestHandler_getSourceRef(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsBranchWhenNoTag", func(t *testing.T) {
+	t.Run("ReturnsBranchWhenOnlyBranchPresent", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
 		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Branch: "develop"}}
@@ -832,27 +856,15 @@ func TestHandler_getSourceRef(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsCommit", func(t *testing.T) {
-		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Commit: "abc123"}}
-
-		ref := handler.getSourceRef(source)
-
-		if ref != "abc123" {
-			t.Errorf("Expected 'abc123', got '%s'", ref)
-		}
-	})
-
-	t.Run("DefaultsToMain", func(t *testing.T) {
+	t.Run("ReturnsEmptyStringWhenNoRefFieldsPresent", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
 		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		source := blueprintv1alpha1.Source{}
 
 		ref := handler.getSourceRef(source)
 
-		if ref != "main" {
-			t.Errorf("Expected 'main', got '%s'", ref)
+		if ref != "" {
+			t.Errorf("Expected empty string, got '%s'", ref)
 		}
 	})
 }
