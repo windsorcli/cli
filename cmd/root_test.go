@@ -247,9 +247,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	// Create mock blueprint handler
 	mockBlueprintHandler := blueprintpkg.NewMockBlueprintHandler()
-	mockBlueprintHandler.InstallFunc = func() error {
-		return nil
-	}
 
 	// Create mock tools manager
 	mockToolsManager := tools.NewMockToolsManager()

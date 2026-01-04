@@ -35,9 +35,6 @@ var installCmd = &cobra.Command{
 		}
 
 		if err := proj.Initialize(false); err != nil {
-			if !verbose {
-				return nil
-			}
 			return err
 		}
 
