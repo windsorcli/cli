@@ -318,7 +318,14 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 	var terraformRemovals, terraformReplaces, terraformMerges []blueprintv1alpha1.TerraformComponent
 	var kustomizationRemovals, kustomizationReplaces, kustomizationMerges []blueprintv1alpha1.Kustomization
 
-	for _, entry := range terraformByID {
+	terraformKeys := make([]string, 0, len(terraformByID))
+	for key := range terraformByID {
+		terraformKeys = append(terraformKeys, key)
+	}
+	sort.Strings(terraformKeys)
+
+	for _, key := range terraformKeys {
+		entry := terraformByID[key]
 		strategy := entry.Strategy
 		if strategy == "" {
 			strategy = "merge"
@@ -333,7 +340,14 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		}
 	}
 
-	for _, entry := range kustomizationByName {
+	kustomizationKeys := make([]string, 0, len(kustomizationByName))
+	for key := range kustomizationByName {
+		kustomizationKeys = append(kustomizationKeys, key)
+	}
+	sort.Strings(kustomizationKeys)
+
+	for _, key := range kustomizationKeys {
+		entry := kustomizationByName[key]
 		strategy := entry.Strategy
 		if strategy == "" {
 			strategy = "merge"
