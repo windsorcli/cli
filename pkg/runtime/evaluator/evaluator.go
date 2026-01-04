@@ -193,7 +193,7 @@ func (e *expressionEvaluator) InterpolateString(s string, config map[string]any,
 // contains mixed content (e.g., "prefix-${value}-suffix"), it uses InterpolateString and returns
 // a string. Non-expression strings are returned unchanged. This method is useful for configuration
 // values like Terraform inputs where type preservation is important.
-func (e *ExpressionEvaluator) EvaluateValue(s string, config map[string]any, featurePath string) (any, error) {
+func (e *expressionEvaluator) EvaluateValue(s string, config map[string]any, featurePath string) (any, error) {
 	if !strings.Contains(s, "${") {
 		return s, nil
 	}
