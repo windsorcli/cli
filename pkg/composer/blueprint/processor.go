@@ -255,6 +255,11 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(componentID strin
 		existingStrategy = "merge"
 	}
 
+	newStrategyPriority, exists := strategyPriorities[strategy]
+	if !exists {
+		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
+	}
+
 	newPriority := new.Priority
 	existingPriority := existing.Priority
 
@@ -266,11 +271,6 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(componentID strin
 
 	if newPriority < existingPriority {
 		return nil
-	}
-
-	newStrategyPriority, exists := strategyPriorities[strategy]
-	if !exists {
-		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
 	}
 	existingStrategyPriority := strategyPriorities[existingStrategy]
 	if newStrategyPriority > existingStrategyPriority {
@@ -330,6 +330,11 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		existingStrategy = "merge"
 	}
 
+	newStrategyPriority, exists := strategyPriorities[strategy]
+	if !exists {
+		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
+	}
+
 	newPriority := new.Priority
 	existingPriority := existing.Priority
 
@@ -341,11 +346,6 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 
 	if newPriority < existingPriority {
 		return nil
-	}
-
-	newStrategyPriority, exists := strategyPriorities[strategy]
-	if !exists {
-		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
 	}
 	existingStrategyPriority := strategyPriorities[existingStrategy]
 	if newStrategyPriority > existingStrategyPriority {

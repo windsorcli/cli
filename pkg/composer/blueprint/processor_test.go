@@ -999,14 +999,14 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
 			"vpc": {
 				Strategy:           "replace",
-				Priority:          0,
+				Priority:           0,
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
 			},
 		}
 
 		// When updating with merge strategy but higher priority
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
-			Priority:          100,
+			Priority:           100,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
 		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
@@ -1031,14 +1031,14 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
 			"vpc": {
 				Strategy:           "merge",
-				Priority:          100,
+				Priority:           100,
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
 			},
 		}
 
 		// When updating with replace strategy but lower priority
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
-			Priority:          0,
+			Priority:           0,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
 		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
@@ -1063,14 +1063,14 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
 			"vpc": {
 				Strategy:           "merge",
-				Priority:          50,
+				Priority:           50,
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
 			},
 		}
 
 		// When updating with replace strategy and same priority
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
-			Priority:          50,
+			Priority:           50,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
 		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
@@ -1092,14 +1092,14 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
 			"vpc": {
 				Strategy:           "merge",
-				Priority:          25,
+				Priority:           25,
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
 			},
 		}
 
 		// When updating with merge strategy and same priority
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
-			Priority:          25,
+			Priority:           25,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
 		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
@@ -1134,6 +1134,35 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		}
 		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
 			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidStrategyEvenWithHigherPriority", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 0
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				Priority:           0,
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with invalid strategy but higher priority
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Priority:           100,
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "typo", entries)
+
+		// Then should return error before checking priority
+		if err == nil {
+			t.Error("Expected error for invalid strategy, even with higher priority")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+		if entries["vpc"].Inputs["key1"] != "value1" {
+			t.Error("Expected original entry to remain unchanged when invalid strategy is rejected")
 		}
 	})
 }
@@ -1457,6 +1486,35 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
 			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidStrategyEvenWithHigherPriority", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 0
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Priority:      0,
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with invalid strategy but higher priority
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Priority:      100,
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "typo", entries)
+
+		// Then should return error before checking priority
+		if err == nil {
+			t.Error("Expected error for invalid strategy, even with higher priority")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+		if entries["app"].Substitutions["key1"] != "value1" {
+			t.Error("Expected original entry to remain unchanged when invalid strategy is rejected")
 		}
 	})
 }
