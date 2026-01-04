@@ -282,8 +282,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 // the provided configuration values. Features with 'when' conditions are evaluated against the
 // config, and only matching features contribute their terraform components and kustomizations.
 // The loader's source name is passed to the processor to set the Source field on feature-derived
-// components. The resulting components are appended directly to the loader's blueprint, modifying
-// it in place.
+// components. Features are processed directly against the loader's blueprint, modifying it in place.
+// This ensures all merge, replace, and remove operations happen against the actual blueprint state.
 func (h *BaseBlueprintHandler) processFeaturesForBlueprintLoader(loader BlueprintLoader, config map[string]any) error {
 	features := loader.GetFeatures()
 	if len(features) == 0 {
@@ -291,14 +291,10 @@ func (h *BaseBlueprintHandler) processFeaturesForBlueprintLoader(loader Blueprin
 	}
 
 	sourceName := loader.GetSourceName()
-	processedBp, err := h.processor.ProcessFeatures(features, config, sourceName)
-	if err != nil {
+	bp := loader.GetBlueprint()
+	if err := h.processor.ProcessFeatures(bp, features, config, sourceName); err != nil {
 		return err
 	}
-
-	bp := loader.GetBlueprint()
-	bp.TerraformComponents = append(bp.TerraformComponents, processedBp.TerraformComponents...)
-	bp.Kustomizations = append(bp.Kustomizations, processedBp.Kustomizations...)
 	return nil
 }
 

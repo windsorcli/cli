@@ -118,22 +118,20 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		// Given a processor and empty features
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
 
 		// When processing empty features
-		result, err := processor.ProcessFeatures(nil, nil)
+		err := processor.ProcessFeatures(target, nil, nil)
 
 		// Then should return empty blueprint
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if result == nil {
-			t.Fatal("Expected non-nil blueprint")
+		if len(target.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components, got %d", len(target.TerraformComponents))
 		}
-		if len(result.TerraformComponents) != 0 {
-			t.Errorf("Expected 0 terraform components, got %d", len(result.TerraformComponents))
-		}
-		if len(result.Kustomizations) != 0 {
-			t.Errorf("Expected 0 kustomizations, got %d", len(result.Kustomizations))
+		if len(target.Kustomizations) != 0 {
+			t.Errorf("Expected 0 kustomizations, got %d", len(target.Kustomizations))
 		}
 	})
 
@@ -152,17 +150,18 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, nil)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
 
 		// Then feature components should be included
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 terraform component, got %d", len(result.TerraformComponents))
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		if result.TerraformComponents[0].Path != "vpc" {
-			t.Errorf("Expected path='vpc', got '%s'", result.TerraformComponents[0].Path)
+		if target.TerraformComponents[0].Path != "vpc" {
+			t.Errorf("Expected path='vpc', got '%s'", target.TerraformComponents[0].Path)
 		}
 	})
 
@@ -183,14 +182,15 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		configData := map[string]any{"enabled": true}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, configData)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, configData)
 
 		// Then feature should be included
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.TerraformComponents) != 1 {
-			t.Errorf("Expected 1 terraform component, got %d", len(result.TerraformComponents))
+		if len(target.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
 	})
 
@@ -211,14 +211,15 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		configData := map[string]any{"enabled": false}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, configData)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, configData)
 
 		// Then feature should be excluded
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.TerraformComponents) != 0 {
-			t.Errorf("Expected 0 terraform components, got %d", len(result.TerraformComponents))
+		if len(target.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components, got %d", len(target.TerraformComponents))
 		}
 	})
 
@@ -243,20 +244,21 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, nil)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
 
 		// Then components should be in sorted feature order
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.TerraformComponents) != 2 {
-			t.Fatalf("Expected 2 terraform components, got %d", len(result.TerraformComponents))
+		if len(target.TerraformComponents) != 2 {
+			t.Fatalf("Expected 2 terraform components, got %d", len(target.TerraformComponents))
 		}
-		if result.TerraformComponents[0].Path != "a-path" {
-			t.Errorf("Expected first path='a-path', got '%s'", result.TerraformComponents[0].Path)
+		if target.TerraformComponents[0].Path != "a-path" {
+			t.Errorf("Expected first path='a-path', got '%s'", target.TerraformComponents[0].Path)
 		}
-		if result.TerraformComponents[1].Path != "z-path" {
-			t.Errorf("Expected second path='z-path', got '%s'", result.TerraformComponents[1].Path)
+		if target.TerraformComponents[1].Path != "z-path" {
+			t.Errorf("Expected second path='z-path', got '%s'", target.TerraformComponents[1].Path)
 		}
 	})
 
@@ -284,16 +286,17 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, configData)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, configData)
 
 		// Then inputs should be evaluated
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 terraform component, got %d", len(result.TerraformComponents))
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		inputs := result.TerraformComponents[0].Inputs
+		inputs := target.TerraformComponents[0].Inputs
 		if inputs["region"] != "us-east-1" {
 			t.Errorf("Expected evaluated value 'us-east-1', got '%v'", inputs["region"])
 		}
@@ -314,17 +317,18 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, nil)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
 
 		// Then kustomization should be included
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.Kustomizations) != 1 {
-			t.Fatalf("Expected 1 kustomization, got %d", len(result.Kustomizations))
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(target.Kustomizations))
 		}
-		if result.Kustomizations[0].Name != "app" {
-			t.Errorf("Expected name='app', got '%s'", result.Kustomizations[0].Name)
+		if target.Kustomizations[0].Name != "app" {
+			t.Errorf("Expected name='app', got '%s'", target.Kustomizations[0].Name)
 		}
 	})
 
@@ -350,17 +354,18 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		configData := map[string]any{"include_vpc": false}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, configData)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, configData)
 
 		// Then only unconditional component should be included
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 terraform component, got %d", len(result.TerraformComponents))
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		if result.TerraformComponents[0].Path != "rds" {
-			t.Errorf("Expected path='rds', got '%s'", result.TerraformComponents[0].Path)
+		if target.TerraformComponents[0].Path != "rds" {
+			t.Errorf("Expected path='rds', got '%s'", target.TerraformComponents[0].Path)
 		}
 	})
 
@@ -386,17 +391,18 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		configData := map[string]any{"include_app": false}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, configData)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, configData)
 
 		// Then only unconditional kustomization should be included
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.Kustomizations) != 1 {
-			t.Fatalf("Expected 1 kustomization, got %d", len(result.Kustomizations))
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(target.Kustomizations))
 		}
-		if result.Kustomizations[0].Name != "base" {
-			t.Errorf("Expected name='base', got '%s'", result.Kustomizations[0].Name)
+		if target.Kustomizations[0].Name != "base" {
+			t.Errorf("Expected name='base', got '%s'", target.Kustomizations[0].Name)
 		}
 	})
 
@@ -416,7 +422,8 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		_, err := processor.ProcessFeatures(features, nil)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
 
 		// Then should return error
 		if err == nil {
@@ -442,7 +449,8 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		_, err := processor.ProcessFeatures(features, nil)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
 
 		// Then should return error
 		if err == nil {
@@ -468,7 +476,8 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		_, err := processor.ProcessFeatures(features, nil)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
 
 		// Then should return error
 		if err == nil {
@@ -492,14 +501,15 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, nil)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
 
 		// Then feature should be included (string "true" is truthy)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.TerraformComponents) != 1 {
-			t.Errorf("Expected 1 terraform component for string 'true', got %d", len(result.TerraformComponents))
+		if len(target.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component for string 'true', got %d", len(target.TerraformComponents))
 		}
 	})
 
@@ -530,16 +540,17 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, configData)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, configData)
 
 		// Then substitutions should be evaluated
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.Kustomizations) != 1 {
-			t.Fatalf("Expected 1 kustomization, got %d", len(result.Kustomizations))
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(target.Kustomizations))
 		}
-		subs := result.Kustomizations[0].Substitutions
+		subs := target.Kustomizations[0].Substitutions
 		if subs["domain"] != "example.com" {
 			t.Errorf("Expected 'example.com', got '%v'", subs["domain"])
 		}
@@ -572,13 +583,14 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		result, err := processor.ProcessFeatures(features, nil)
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
 
 		// Then non-string inputs should be preserved
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		inputs := result.TerraformComponents[0].Inputs
+		inputs := target.TerraformComponents[0].Inputs
 		if inputs["count"] != 42 {
 			t.Errorf("Expected 42, got '%v'", inputs["count"])
 		}
@@ -607,7 +619,8 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		_, err := processor.ProcessFeatures(features, map[string]any{})
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, map[string]any{})
 
 		// Then should return error
 		if err == nil {
@@ -635,11 +648,509 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 
 		// When processing features
-		_, err := processor.ProcessFeatures(features, map[string]any{})
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, map[string]any{})
 
 		// Then should return error
 		if err == nil {
 			t.Error("Expected error for invalid substitution expression")
+		}
+	})
+
+	t.Run("HandlesSourceAssignment", func(t *testing.T) {
+		// Given a feature with components without source
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		features := []blueprintv1alpha1.Feature{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-source"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"}},
+				},
+			},
+		}
+
+		// When processing with sourceName
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil, "test-source")
+
+		// Then source should be assigned
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.TerraformComponents[0].Source != "test-source" {
+			t.Errorf("Expected source='test-source', got '%s'", target.TerraformComponents[0].Source)
+		}
+	})
+
+	t.Run("PreservesExistingSource", func(t *testing.T) {
+		// Given a feature with components that already have source
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		features := []blueprintv1alpha1.Feature{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-source"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Source: "existing-source"}},
+				},
+			},
+		}
+
+		// When processing with sourceName
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil, "new-source")
+
+		// Then existing source should be preserved
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.TerraformComponents[0].Source != "existing-source" {
+			t.Errorf("Expected source='existing-source', got '%s'", target.TerraformComponents[0].Source)
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods
+// =============================================================================
+
+func TestStrategyPriorities(t *testing.T) {
+	t.Run("ReturnsCorrectPriorityForRemove", func(t *testing.T) {
+		// Given remove strategy
+		// When getting priority
+		priority := strategyPriorities["remove"]
+
+		// Then should return 3
+		if priority != 3 {
+			t.Errorf("Expected priority 3 for remove, got %d", priority)
+		}
+	})
+
+	t.Run("ReturnsCorrectPriorityForReplace", func(t *testing.T) {
+		// Given replace strategy
+		// When getting priority
+		priority := strategyPriorities["replace"]
+
+		// Then should return 2
+		if priority != 2 {
+			t.Errorf("Expected priority 2 for replace, got %d", priority)
+		}
+	})
+
+	t.Run("ReturnsCorrectPriorityForMerge", func(t *testing.T) {
+		// Given merge strategy
+		// When getting priority
+		priority := strategyPriorities["merge"]
+
+		// Then should return 1
+		if priority != 1 {
+			t.Errorf("Expected priority 1 for merge, got %d", priority)
+		}
+	})
+
+	t.Run("ReturnsZeroForUnknownStrategy", func(t *testing.T) {
+		// Given unknown strategy
+		// When getting priority
+		priority := strategyPriorities["unknown"]
+
+		// Then should return 0 (zero value)
+		if priority != 0 {
+			t.Errorf("Expected priority 0 for unknown, got %d", priority)
+		}
+	})
+
+	t.Run("ReturnsZeroForEmptyStrategy", func(t *testing.T) {
+		// Given empty strategy
+		// When getting priority
+		priority := strategyPriorities[""]
+
+		// Then should return 0 (zero value)
+		if priority != 0 {
+			t.Errorf("Expected priority 0 for empty, got %d", priority)
+		}
+	})
+}
+
+func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
+	mocks := setupProcessorMocks(t)
+	processor := NewBlueprintProcessor(mocks.Runtime)
+
+	t.Run("ReplacesWhenNewStrategyHasHigherPriority", func(t *testing.T) {
+		// Given existing entry with merge strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with replace strategy
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
+
+		// Then entry should be replaced
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace', got '%s'", entries["vpc"].Strategy)
+		}
+		if entries["vpc"].Inputs["key2"] != "value2" {
+			t.Error("Expected new inputs to be set")
+		}
+	})
+
+	t.Run("PreMergesWhenBothHaveMergeStrategy", func(t *testing.T) {
+		// Given existing entry with merge strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with merge strategy
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then entries should be pre-merged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "merge" {
+			t.Errorf("Expected strategy 'merge', got '%s'", entries["vpc"].Strategy)
+		}
+		inputs := entries["vpc"].Inputs
+		if inputs["key1"] != "value1" {
+			t.Errorf("Expected key1 preserved, got %v", inputs["key1"])
+		}
+		if inputs["key2"] != "value2" {
+			t.Errorf("Expected key2 added, got %v", inputs["key2"])
+		}
+	})
+
+	t.Run("IgnoresWhenNewStrategyHasLowerPriority", func(t *testing.T) {
+		// Given existing entry with replace strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "replace",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with merge strategy
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then entry should remain unchanged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace' to be preserved, got '%s'", entries["vpc"].Strategy)
+		}
+		if entries["vpc"].Inputs["key1"] != "value1" {
+			t.Error("Expected original inputs to be preserved")
+		}
+	})
+}
+
+func TestProcessor_updateKustomizationEntry(t *testing.T) {
+	mocks := setupProcessorMocks(t)
+	processor := NewBlueprintProcessor(mocks.Runtime)
+
+	t.Run("ReplacesWhenNewStrategyHasHigherPriority", func(t *testing.T) {
+		// Given existing entry with merge strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with replace strategy
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "replace", entries)
+
+		// Then entry should be replaced
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace', got '%s'", entries["app"].Strategy)
+		}
+		if entries["app"].Substitutions["key2"] != "value2" {
+			t.Error("Expected new substitutions to be set")
+		}
+	})
+
+	t.Run("PreMergesWhenBothHaveMergeStrategy", func(t *testing.T) {
+		// Given existing entry with merge strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "existing-path"},
+			},
+		}
+
+		// When updating with merge strategy
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then entries should be pre-merged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "merge" {
+			t.Errorf("Expected strategy 'merge', got '%s'", entries["app"].Strategy)
+		}
+		if entries["app"].Path != "new-path" {
+			t.Errorf("Expected path to be updated to 'new-path', got '%s'", entries["app"].Path)
+		}
+	})
+
+	t.Run("IgnoresWhenNewStrategyHasLowerPriority", func(t *testing.T) {
+		// Given existing entry with replace strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "replace",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with merge strategy
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then entry should remain unchanged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace' to be preserved, got '%s'", entries["app"].Strategy)
+		}
+		if entries["app"].Substitutions["key1"] != "value1" {
+			t.Error("Expected original substitutions to be preserved")
+		}
+	})
+}
+
+func TestProcessor_applyCollectedComponents(t *testing.T) {
+	mocks := setupProcessorMocks(t)
+	processor := NewBlueprintProcessor(mocks.Runtime)
+
+	t.Run("AppliesRemoveThenReplaceThenMerge", func(t *testing.T) {
+		// Given collected components with all strategies
+		target := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: map[string]any{"existing": "value", "toRemove": "value"}},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Substitutions: map[string]string{"existing": "value", "toRemove": "value"}},
+			},
+		}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "remove",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"toRemove": nil}},
+			},
+		}
+
+		kustomizationByName := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "remove",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"toRemove": ""}},
+			},
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, kustomizationByName)
+
+		// Then specified fields should be removed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.TerraformComponents[0].Inputs["toRemove"] != nil {
+			t.Error("Expected 'toRemove' input to be removed")
+		}
+		if target.TerraformComponents[0].Inputs["existing"] != "value" {
+			t.Error("Expected 'existing' input to be preserved")
+		}
+		if target.Kustomizations[0].Substitutions["toRemove"] != "" {
+			t.Error("Expected 'toRemove' substitution to be removed")
+		}
+		if target.Kustomizations[0].Substitutions["existing"] != "value" {
+			t.Error("Expected 'existing' substitution to be preserved")
+		}
+	})
+
+	t.Run("AppliesReplaceStrategy", func(t *testing.T) {
+		// Given collected components with replace strategy
+		target := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: map[string]any{"old": "value"}},
+			},
+		}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "replace",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+			},
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+
+		// Then component should be replaced
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.TerraformComponents[0].Inputs["new"] != "value" {
+			t.Error("Expected component to be replaced")
+		}
+		if target.TerraformComponents[0].Inputs["old"] != nil {
+			t.Error("Expected old inputs to be replaced")
+		}
+	})
+
+	t.Run("AppliesMergeStrategy", func(t *testing.T) {
+		// Given collected components with merge strategy
+		target := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: map[string]any{"existing": "value"}},
+			},
+		}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+			},
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+
+		// Then component should be merged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.TerraformComponents[0].Inputs["existing"] != "value" {
+			t.Error("Expected existing inputs to be preserved")
+		}
+		if target.TerraformComponents[0].Inputs["new"] != "value" {
+			t.Error("Expected new inputs to be added")
+		}
+	})
+
+	t.Run("HandlesEmptyStrategyAsMerge", func(t *testing.T) {
+		// Given collected components with empty strategy
+		target := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: map[string]any{"existing": "value"}},
+			},
+		}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+			},
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+
+		// Then should default to merge
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.TerraformComponents[0].Inputs["existing"] != "value" {
+			t.Error("Expected existing inputs to be preserved (merge behavior)")
+		}
+	})
+
+	t.Run("HandlesKustomizationStrategies", func(t *testing.T) {
+		// Given collected kustomizations with different strategies
+		target := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Substitutions: map[string]string{"existing": "value"}},
+			},
+		}
+
+		kustomizationByName := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "replace",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"new": "value"}},
+			},
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, nil, kustomizationByName)
+
+		// Then kustomization should be replaced
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Kustomizations[0].Substitutions["new"] != "value" {
+			t.Error("Expected kustomization to be replaced")
+		}
+		if target.Kustomizations[0].Substitutions["existing"] != "" {
+			t.Error("Expected old substitutions to be replaced")
+		}
+	})
+
+	t.Run("HandlesMultipleComponentsWithDifferentStrategies", func(t *testing.T) {
+		// Given multiple components with different strategies
+		target := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: map[string]any{"existing": "value"}},
+				{Path: "rds", Inputs: map[string]any{"existing": "value"}},
+			},
+		}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "remove",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"existing": nil}},
+			},
+			"rds": {
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "rds", Inputs: map[string]any{"new": "value"}},
+			},
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+
+		// Then strategies should be applied correctly
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.TerraformComponents[0].Inputs["existing"] != nil {
+			t.Error("Expected 'existing' input to be removed from vpc")
+		}
+		if target.TerraformComponents[1].Inputs["existing"] != "value" {
+			t.Error("Expected 'existing' input to be preserved in rds")
+		}
+		if target.TerraformComponents[1].Inputs["new"] != "value" {
+			t.Error("Expected 'new' input to be added to rds")
 		}
 	})
 }
