@@ -994,6 +994,125 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		}
 	})
 
+	t.Run("ReplacesWhenNewHasHigherPriority", func(t *testing.T) {
+		// Given existing entry with replace strategy and priority 0
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "replace",
+				Priority:           0,
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with merge strategy but higher priority
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Priority:           100,
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then entry should be replaced despite lower strategy
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "merge" {
+			t.Errorf("Expected strategy 'merge', got '%s'", entries["vpc"].Strategy)
+		}
+		if entries["vpc"].Priority != 100 {
+			t.Errorf("Expected priority 100, got %d", entries["vpc"].Priority)
+		}
+		if entries["vpc"].Inputs["key2"] != "value2" {
+			t.Error("Expected new inputs to be set")
+		}
+	})
+
+	t.Run("IgnoresWhenNewHasLowerPriority", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 100
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				Priority:           100,
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with replace strategy but lower priority
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Priority:           0,
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
+
+		// Then entry should remain unchanged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "merge" {
+			t.Errorf("Expected strategy 'merge' to be preserved, got '%s'", entries["vpc"].Strategy)
+		}
+		if entries["vpc"].Priority != 100 {
+			t.Errorf("Expected priority 100 to be preserved, got %d", entries["vpc"].Priority)
+		}
+		if entries["vpc"].Inputs["key1"] != "value1" {
+			t.Error("Expected original inputs to be preserved")
+		}
+	})
+
+	t.Run("UsesStrategyPriorityWhenPrioritiesEqual", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 50
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				Priority:           50,
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with replace strategy and same priority
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Priority:           50,
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
+
+		// Then entry should be replaced due to higher strategy priority
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace', got '%s'", entries["vpc"].Strategy)
+		}
+		if entries["vpc"].Priority != 50 {
+			t.Errorf("Expected priority 50, got %d", entries["vpc"].Priority)
+		}
+	})
+
+	t.Run("PreservesPriorityInMergedResult", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 25
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				Priority:           25,
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with merge strategy and same priority
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Priority:           25,
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then priority should be preserved in merged result
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Priority != 25 {
+			t.Errorf("Expected priority 25, got %d", entries["vpc"].Priority)
+		}
+	})
+
 	t.Run("ReturnsErrorForInvalidStrategy", func(t *testing.T) {
 		// Given existing entry with merge strategy
 		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
@@ -1015,6 +1134,35 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		}
 		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
 			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidStrategyEvenWithHigherPriority", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 0
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				Priority:           0,
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with invalid strategy but higher priority
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			Priority:           100,
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "typo", entries)
+
+		// Then should return error before checking priority
+		if err == nil {
+			t.Error("Expected error for invalid strategy, even with higher priority")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+		if entries["vpc"].Inputs["key1"] != "value1" {
+			t.Error("Expected original entry to remain unchanged when invalid strategy is rejected")
 		}
 	})
 }
@@ -1198,6 +1346,125 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 	})
 
+	t.Run("ReplacesWhenNewHasHigherPriority", func(t *testing.T) {
+		// Given existing entry with replace strategy and priority 0
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "replace",
+				Priority:      0,
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with merge strategy but higher priority
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Priority:      100,
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then entry should be replaced despite lower strategy
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "merge" {
+			t.Errorf("Expected strategy 'merge', got '%s'", entries["app"].Strategy)
+		}
+		if entries["app"].Priority != 100 {
+			t.Errorf("Expected priority 100, got %d", entries["app"].Priority)
+		}
+		if entries["app"].Substitutions["key2"] != "value2" {
+			t.Error("Expected new substitutions to be set")
+		}
+	})
+
+	t.Run("IgnoresWhenNewHasLowerPriority", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 100
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Priority:      100,
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with replace strategy but lower priority
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Priority:      0,
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "replace", entries)
+
+		// Then entry should remain unchanged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "merge" {
+			t.Errorf("Expected strategy 'merge' to be preserved, got '%s'", entries["app"].Strategy)
+		}
+		if entries["app"].Priority != 100 {
+			t.Errorf("Expected priority 100 to be preserved, got %d", entries["app"].Priority)
+		}
+		if entries["app"].Substitutions["key1"] != "value1" {
+			t.Error("Expected original substitutions to be preserved")
+		}
+	})
+
+	t.Run("UsesStrategyPriorityWhenPrioritiesEqual", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 50
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Priority:      50,
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with replace strategy and same priority
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Priority:      50,
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "replace", entries)
+
+		// Then entry should be replaced due to higher strategy priority
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace', got '%s'", entries["app"].Strategy)
+		}
+		if entries["app"].Priority != 50 {
+			t.Errorf("Expected priority 50, got %d", entries["app"].Priority)
+		}
+	})
+
+	t.Run("PreservesPriorityInMergedResult", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 25
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Priority:      25,
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with merge strategy and same priority
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Priority:      25,
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then priority should be preserved in merged result
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Priority != 25 {
+			t.Errorf("Expected priority 25, got %d", entries["app"].Priority)
+		}
+	})
+
 	t.Run("ReturnsErrorForInvalidStrategy", func(t *testing.T) {
 		// Given existing entry with merge strategy
 		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
@@ -1219,6 +1486,35 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
 			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidStrategyEvenWithHigherPriority", func(t *testing.T) {
+		// Given existing entry with merge strategy and priority 0
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Priority:      0,
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with invalid strategy but higher priority
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Priority:      100,
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "typo", entries)
+
+		// Then should return error before checking priority
+		if err == nil {
+			t.Error("Expected error for invalid strategy, even with higher priority")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+		if entries["app"].Substitutions["key1"] != "value1" {
+			t.Error("Expected original entry to remain unchanged when invalid strategy is rejected")
 		}
 	})
 }
