@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -710,6 +711,66 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			t.Errorf("Expected source='existing-source', got '%s'", target.TerraformComponents[0].Source)
 		}
 	})
+
+	t.Run("ReturnsErrorForInvalidTerraformComponentStrategy", func(t *testing.T) {
+		// Given a feature with invalid strategy
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		features := []blueprintv1alpha1.Feature{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "invalid-strategy"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						Strategy:           "invalid",
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+					},
+				},
+			},
+		}
+
+		// When processing features
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid strategy")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidKustomizationStrategy", func(t *testing.T) {
+		// Given a feature with invalid kustomization strategy
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		features := []blueprintv1alpha1.Feature{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "invalid-strategy"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Strategy:      "typo",
+						Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+					},
+				},
+			},
+		}
+
+		// When processing features
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFeatures(target, features, nil)
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid strategy")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
 }
 
 // =============================================================================
@@ -861,6 +922,110 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 			t.Error("Expected original inputs to be preserved")
 		}
 	})
+
+	t.Run("AccumulatesRemovalsWhenBothHaveRemoveStrategy", func(t *testing.T) {
+		// Given existing entry with remove strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "remove",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": nil}, DependsOn: []string{"dep1"}},
+			},
+		}
+
+		// When updating with remove strategy
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": nil}, DependsOn: []string{"dep2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "remove", entries)
+
+		// Then removals should be accumulated
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "remove" {
+			t.Errorf("Expected strategy 'remove', got '%s'", entries["vpc"].Strategy)
+		}
+		inputs := entries["vpc"].Inputs
+		if inputs == nil {
+			t.Fatal("Expected inputs map to exist")
+		}
+		if _, exists := inputs["key1"]; !exists {
+			t.Error("Expected key1 to be in removal list")
+		}
+		if _, exists := inputs["key2"]; !exists {
+			t.Error("Expected key2 to be in removal list")
+		}
+		deps := entries["vpc"].DependsOn
+		if !contains(deps, "dep1") {
+			t.Error("Expected dep1 to be in removal list")
+		}
+		if !contains(deps, "dep2") {
+			t.Error("Expected dep2 to be in removal list")
+		}
+	})
+
+	t.Run("ReplacesWhenBothHaveReplaceStrategy", func(t *testing.T) {
+		// Given existing entry with replace strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "replace",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": "value1"}},
+			},
+		}
+
+		// When updating with replace strategy
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
+
+		// Then new entry should replace existing
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace', got '%s'", entries["vpc"].Strategy)
+		}
+		if entries["vpc"].Inputs["key2"] != "value2" {
+			t.Error("Expected new inputs to replace old ones")
+		}
+		if entries["vpc"].Inputs["key1"] != nil {
+			t.Error("Expected old inputs to be replaced")
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidStrategy", func(t *testing.T) {
+		// Given existing entry with merge strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		// When updating with invalid strategy
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "invalid", entries)
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid strategy")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProcessor_updateKustomizationEntry(t *testing.T) {
@@ -947,13 +1112,122 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 			t.Error("Expected original substitutions to be preserved")
 		}
 	})
+
+	t.Run("AccumulatesRemovalsWhenBothHaveRemoveStrategy", func(t *testing.T) {
+		// Given existing entry with remove strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "remove",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": ""}, DependsOn: []string{"dep1"}, Components: []string{"comp1"}, Cleanup: []string{"cleanup1"}},
+			},
+		}
+
+		// When updating with remove strategy
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": ""}, DependsOn: []string{"dep2"}, Components: []string{"comp2"}, Cleanup: []string{"cleanup2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "remove", entries)
+
+		// Then removals should be accumulated
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "remove" {
+			t.Errorf("Expected strategy 'remove', got '%s'", entries["app"].Strategy)
+		}
+		subs := entries["app"].Substitutions
+		if subs == nil {
+			t.Fatal("Expected substitutions map to exist")
+		}
+		if _, exists := subs["key1"]; !exists {
+			t.Error("Expected key1 to be in removal list")
+		}
+		if _, exists := subs["key2"]; !exists {
+			t.Error("Expected key2 to be in removal list")
+		}
+		deps := entries["app"].DependsOn
+		if !contains(deps, "dep1") {
+			t.Error("Expected dep1 to be in removal list")
+		}
+		if !contains(deps, "dep2") {
+			t.Error("Expected dep2 to be in removal list")
+		}
+		comps := entries["app"].Components
+		if !contains(comps, "comp1") {
+			t.Error("Expected comp1 to be in removal list")
+		}
+		if !contains(comps, "comp2") {
+			t.Error("Expected comp2 to be in removal list")
+		}
+		cleanup := entries["app"].Cleanup
+		if !contains(cleanup, "cleanup1") {
+			t.Error("Expected cleanup1 to be in removal list")
+		}
+		if !contains(cleanup, "cleanup2") {
+			t.Error("Expected cleanup2 to be in removal list")
+		}
+	})
+
+	t.Run("ReplacesWhenBothHaveReplaceStrategy", func(t *testing.T) {
+		// Given existing entry with replace strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "replace",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": "value1"}},
+			},
+		}
+
+		// When updating with replace strategy
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
+		}
+		err := processor.updateKustomizationEntry("app", new, "replace", entries)
+
+		// Then new entry should replace existing
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["app"].Strategy != "replace" {
+			t.Errorf("Expected strategy 'replace', got '%s'", entries["app"].Strategy)
+		}
+		if entries["app"].Substitutions["key2"] != "value2" {
+			t.Error("Expected new substitutions to replace old ones")
+		}
+		if entries["app"].Substitutions["key1"] != "" {
+			t.Error("Expected old substitutions to be replaced")
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidStrategy", func(t *testing.T) {
+		// Given existing entry with merge strategy
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+			},
+		}
+
+		// When updating with invalid strategy
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+		}
+		err := processor.updateKustomizationEntry("app", new, "typo", entries)
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid strategy")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
 }
 
 func TestProcessor_applyCollectedComponents(t *testing.T) {
 	mocks := setupProcessorMocks(t)
 	processor := NewBlueprintProcessor(mocks.Runtime)
 
-	t.Run("AppliesRemoveThenReplaceThenMerge", func(t *testing.T) {
+	t.Run("AppliesReplaceThenMergeThenRemove", func(t *testing.T) {
 		// Given collected components with all strategies
 		target := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -981,7 +1255,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		// When applying collected components
 		err := processor.applyCollectedComponents(target, terraformByID, kustomizationByName)
 
-		// Then specified fields should be removed
+		// Then specified fields should be removed (removes are applied last)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1151,6 +1425,63 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 		if target.TerraformComponents[1].Inputs["new"] != "value" {
 			t.Error("Expected 'new' input to be added to rds")
+		}
+	})
+
+	t.Run("AppliesStrategiesInCorrectOrder", func(t *testing.T) {
+		// Given a component that will be merged, then replaced, then have fields removed
+		target := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: map[string]any{"existing": "value", "toRemove": "value"}},
+			},
+		}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"merged": "value"}},
+			},
+		}
+
+		// First apply merge
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		if err != nil {
+			t.Fatalf("Expected no error on merge, got %v", err)
+		}
+
+		// Then apply replace
+		terraformByID = map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "replace",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": "value"}},
+			},
+		}
+		err = processor.applyCollectedComponents(target, terraformByID, nil)
+		if err != nil {
+			t.Fatalf("Expected no error on replace, got %v", err)
+		}
+
+		// Finally apply remove
+		terraformByID = map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "remove",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": nil}},
+			},
+		}
+		err = processor.applyCollectedComponents(target, terraformByID, nil)
+		if err != nil {
+			t.Fatalf("Expected no error on remove, got %v", err)
+		}
+
+		// Then verify final state: merge added "merged", replace replaced everything with "replaced", remove removed "replaced"
+		if target.TerraformComponents[0].Inputs["replaced"] != nil {
+			t.Error("Expected 'replaced' input to be removed (remove applied last)")
+		}
+		if target.TerraformComponents[0].Inputs["merged"] != nil {
+			t.Error("Expected 'merged' input to be gone (replaced)")
+		}
+		if target.TerraformComponents[0].Inputs["existing"] != nil {
+			t.Error("Expected 'existing' input to be gone (replaced)")
 		}
 	})
 }

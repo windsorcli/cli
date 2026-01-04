@@ -243,6 +243,7 @@ func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, configData 
 // updateTerraformComponentEntry updates an existing terraform component entry in the collection
 // map based on strategy priority. If the new strategy has higher priority, it replaces the
 // existing entry. If both have merge strategy with equal priority, the components are pre-merged.
+// If both have remove strategy with equal priority, the removal specifications are accumulated.
 // Returns an error if the merge operation fails.
 func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(componentID string, new *blueprintv1alpha1.ConditionalTerraformComponent, strategy string, entries map[string]*blueprintv1alpha1.ConditionalTerraformComponent) error {
 	existing := entries[componentID]
@@ -251,33 +252,51 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(componentID strin
 		existingStrategy = "merge"
 	}
 
-	newPriority := strategyPriorities[strategy]
+	newPriority, exists := strategyPriorities[strategy]
+	if !exists {
+		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
+	}
 	existingPriority := strategyPriorities[existingStrategy]
 	if newPriority > existingPriority {
 		new.Strategy = strategy
 		entries[componentID] = new
-	} else if newPriority == existingPriority && strategy == "merge" {
-		tempBp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{existing.TerraformComponent},
+	} else if newPriority == existingPriority {
+		switch strategy {
+		case "merge":
+			tempBp := &blueprintv1alpha1.Blueprint{
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{existing.TerraformComponent},
+			}
+			mergedBp := &blueprintv1alpha1.Blueprint{
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{new.TerraformComponent},
+			}
+			if err := tempBp.StrategicMerge(mergedBp); err != nil {
+				return fmt.Errorf("error pre-merging terraform component '%s': %w", componentID, err)
+			}
+			merged := &blueprintv1alpha1.ConditionalTerraformComponent{
+				TerraformComponent: tempBp.TerraformComponents[0],
+				Strategy:           "merge",
+			}
+			entries[componentID] = merged
+		case "remove":
+			accumulated := p.accumulateTerraformRemovals(existing.TerraformComponent, new.TerraformComponent)
+			entries[componentID] = &blueprintv1alpha1.ConditionalTerraformComponent{
+				TerraformComponent: accumulated,
+				Strategy:           "remove",
+			}
+		case "replace":
+			new.Strategy = strategy
+			entries[componentID] = new
+		default:
+			return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
 		}
-		mergedBp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{new.TerraformComponent},
-		}
-		if err := tempBp.StrategicMerge(mergedBp); err != nil {
-			return fmt.Errorf("error pre-merging terraform component '%s': %w", componentID, err)
-		}
-		merged := &blueprintv1alpha1.ConditionalTerraformComponent{
-			TerraformComponent: tempBp.TerraformComponents[0],
-			Strategy:           "merge",
-		}
-		entries[componentID] = merged
 	}
 	return nil
 }
 
 // updateKustomizationEntry updates an existing kustomization entry in the collection map based
 // on strategy priority. If the new strategy has higher priority, it replaces the existing entry.
-// If both have merge strategy with equal priority, the kustomizations are pre-merged. Returns
+// If both have merge strategy with equal priority, the kustomizations are pre-merged. If both
+// have remove strategy with equal priority, the removal specifications are accumulated. Returns
 // an error if the merge operation fails.
 func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization) error {
 	existing := entries[name]
@@ -286,34 +305,51 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		existingStrategy = "merge"
 	}
 
-	newPriority := strategyPriorities[strategy]
+	newPriority, exists := strategyPriorities[strategy]
+	if !exists {
+		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
+	}
 	existingPriority := strategyPriorities[existingStrategy]
 	if newPriority > existingPriority {
 		new.Strategy = strategy
 		entries[name] = new
-	} else if newPriority == existingPriority && strategy == "merge" {
-		tempBp := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{existing.Kustomization},
+	} else if newPriority == existingPriority {
+		switch strategy {
+		case "merge":
+			tempBp := &blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{existing.Kustomization},
+			}
+			mergedBp := &blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{new.Kustomization},
+			}
+			if err := tempBp.StrategicMerge(mergedBp); err != nil {
+				return fmt.Errorf("error pre-merging kustomization '%s': %w", name, err)
+			}
+			merged := &blueprintv1alpha1.ConditionalKustomization{
+				Kustomization: tempBp.Kustomizations[0],
+				Strategy:      "merge",
+			}
+			entries[name] = merged
+		case "remove":
+			accumulated := p.accumulateKustomizationRemovals(existing.Kustomization, new.Kustomization)
+			entries[name] = &blueprintv1alpha1.ConditionalKustomization{
+				Kustomization: accumulated,
+				Strategy:      "remove",
+			}
+		case "replace":
+			new.Strategy = strategy
+			entries[name] = new
+		default:
+			return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
 		}
-		mergedBp := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{new.Kustomization},
-		}
-		if err := tempBp.StrategicMerge(mergedBp); err != nil {
-			return fmt.Errorf("error pre-merging kustomization '%s': %w", name, err)
-		}
-		merged := &blueprintv1alpha1.ConditionalKustomization{
-			Kustomization: tempBp.Kustomizations[0],
-			Strategy:      "merge",
-		}
-		entries[name] = merged
 	}
 	return nil
 }
 
 // applyCollectedComponents applies all collected components and kustomizations to the target
-// blueprint in priority order: remove operations first, then replace operations, then merge
-// operations. This ensures that higher priority strategies take precedence over lower priority
-// ones. Returns an error if any application operation fails.
+// blueprint in the documented order: replace operations first, then merge operations, then remove
+// operations last. This ensures that remove operations are applied after all merge/replace
+// operations, as documented. Returns an error if any application operation fails.
 func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alpha1.Blueprint, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
 	var terraformRemovals, terraformReplaces, terraformMerges []blueprintv1alpha1.TerraformComponent
 	var kustomizationRemovals, kustomizationReplaces, kustomizationMerges []blueprintv1alpha1.Kustomization
@@ -337,6 +373,8 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 			terraformReplaces = append(terraformReplaces, entry.TerraformComponent)
 		case "merge":
 			terraformMerges = append(terraformMerges, entry.TerraformComponent)
+		default:
+			return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, key)
 		}
 	}
 
@@ -359,12 +397,8 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 			kustomizationReplaces = append(kustomizationReplaces, entry.Kustomization)
 		case "merge":
 			kustomizationMerges = append(kustomizationMerges, entry.Kustomization)
-		}
-	}
-
-	for _, removal := range terraformRemovals {
-		if err := target.RemoveTerraformComponent(removal); err != nil {
-			return fmt.Errorf("error removing terraform component '%s': %w", removal.GetID(), err)
+		default:
+			return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, key)
 		}
 	}
 
@@ -383,9 +417,9 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		}
 	}
 
-	for _, removal := range kustomizationRemovals {
-		if err := target.RemoveKustomization(removal); err != nil {
-			return fmt.Errorf("error removing kustomization '%s': %w", removal.Name, err)
+	for _, removal := range terraformRemovals {
+		if err := target.RemoveTerraformComponent(removal); err != nil {
+			return fmt.Errorf("error removing terraform component '%s': %w", removal.GetID(), err)
 		}
 	}
 
@@ -404,7 +438,94 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		}
 	}
 
+	for _, removal := range kustomizationRemovals {
+		if err := target.RemoveKustomization(removal); err != nil {
+			return fmt.Errorf("error removing kustomization '%s': %w", removal.Name, err)
+		}
+	}
+
 	return nil
+}
+
+// accumulateStringSlice merges two string slices into a deduplicated, sorted slice.
+func accumulateStringSlice(existing, new []string) []string {
+	if len(existing) == 0 && len(new) == 0 {
+		return nil
+	}
+	itemMap := make(map[string]bool)
+	for _, item := range existing {
+		itemMap[item] = true
+	}
+	for _, item := range new {
+		itemMap[item] = true
+	}
+	result := make([]string, 0, len(itemMap))
+	for item := range itemMap {
+		result = append(result, item)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// accumulateMapKeys combines keys from two maps into a single map with zero values. Used for
+// accumulating removal specifications where only the keys matter (the values are ignored).
+func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
+	if len(m1) == 0 && len(m2) == 0 {
+		return nil
+	}
+	result := make(map[K]V)
+	for k := range m1 {
+		var zero V
+		result[k] = zero
+	}
+	for k := range m2 {
+		var zero V
+		result[k] = zero
+	}
+	return result
+}
+
+// accumulateTerraformRemovals combines removal specifications from two terraform components when
+// both have "remove" strategy. It preserves ID fields (Path, Name, Source) which are used to match
+// the component but are never removed. It accumulates removal specifications only for fields that
+// RemoveTerraformComponent actually removes: Inputs (map keys) and DependsOn (slice items). The
+// result contains a union of all fields that should be removed from either component. If the
+// component doesn't exist in the target blueprint when removals are applied, RemoveTerraformComponent
+// will perform a no-op, which is the expected behavior.
+func (p *BaseBlueprintProcessor) accumulateTerraformRemovals(existing, new blueprintv1alpha1.TerraformComponent) blueprintv1alpha1.TerraformComponent {
+	accumulated := blueprintv1alpha1.TerraformComponent{
+		Path:   existing.Path,
+		Name:   existing.Name,
+		Source: existing.Source,
+	}
+
+	accumulated.Inputs = accumulateMapKeys(existing.Inputs, new.Inputs)
+	accumulated.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
+
+	return accumulated
+}
+
+// accumulateKustomizationRemovals combines removal specifications from two kustomizations when
+// both have "remove" strategy. It preserves ID fields (Name) which are used to match the
+// kustomization but are never removed. It accumulates removal specifications only for fields that
+// RemoveKustomization actually removes: DependsOn, Components, Cleanup (string slices), Patches
+// (BlueprintPatch slice), and Substitutions (map keys). The result contains a union of all fields
+// that should be removed from either kustomization. If the kustomization doesn't exist in the target
+// blueprint when removals are applied, RemoveKustomization will perform a no-op, which is the
+// expected behavior.
+func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new blueprintv1alpha1.Kustomization) blueprintv1alpha1.Kustomization {
+	accumulated := blueprintv1alpha1.Kustomization{
+		Name: existing.Name,
+	}
+
+	accumulated.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
+	accumulated.Components = accumulateStringSlice(existing.Components, new.Components)
+	accumulated.Cleanup = accumulateStringSlice(existing.Cleanup, new.Cleanup)
+	accumulated.Patches = append(accumulated.Patches, existing.Patches...)
+	accumulated.Patches = append(accumulated.Patches, new.Patches...)
+	accumulated.Substitutions = accumulateMapKeys(existing.Substitutions, new.Substitutions)
+
+	return accumulated
 }
 
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
