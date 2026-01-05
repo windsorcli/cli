@@ -35,7 +35,7 @@ const DefaultGitLiveReloadPassword = "local"
 const DefaultGitLiveReloadWebhookURL = "http://worker-1.test:30292/hook/5dc88e45e809fb0872b749c0969067e2c1fd142e17aed07573fad20553cc0c59"
 
 // renovate: datasource=github-releases depName=siderolabs/talos
-const DefaultTalosImage = "ghcr.io/siderolabs/talos:v1.12.0"
+const DefaultTalosImage = "ghcr.io/siderolabs/talos:v1.12.1"
 
 const DefaultTalosWorkerCPU = 4
 
