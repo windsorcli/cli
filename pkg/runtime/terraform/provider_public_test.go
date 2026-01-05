@@ -2343,4 +2343,56 @@ terraform:
 			t.Errorf("Expected cluster_name to be my-cluster, got: %v", outputs["cluster_name"])
 		}
 	})
+
+	t.Run("IncludesBackendConfigArgsInFallbackInit", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: cluster
+    name: cluster`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+
+		callCount := 0
+		var initArgs []string
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 {
+				if args[1] == "output" {
+					callCount++
+					if callCount == 1 {
+						return "", fmt.Errorf("not initialized")
+					}
+					return `{"cluster_name": {"value": "my-cluster"}}`, nil
+				}
+				if args[1] == "init" {
+					initArgs = args
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		outputs, err := mocks.Provider.GetTerraformOutputs("cluster")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if outputs["cluster_name"] != "my-cluster" {
+			t.Errorf("Expected cluster_name to be my-cluster, got: %v", outputs["cluster_name"])
+		}
+
+		hasBackendConfig := false
+		for _, arg := range initArgs {
+			if strings.HasPrefix(arg, "-backend-config") {
+				hasBackendConfig = true
+				break
+			}
+		}
+
+		if !hasBackendConfig {
+			t.Errorf("Expected init command to include -backend-config arguments, got init args: %v", initArgs)
+		}
+	})
 }

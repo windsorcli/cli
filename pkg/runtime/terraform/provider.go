@@ -664,13 +664,7 @@ func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]
 			if backendOverrideExists {
 				chdirInitArgs = append(chdirInitArgs, "-reconfigure")
 			}
-			initArgsWithoutBackend := make([]string, 0, len(ctx.TerraformArgs.InitArgs))
-			for _, arg := range ctx.TerraformArgs.InitArgs {
-				if !strings.HasPrefix(arg, "-backend-config") {
-					initArgsWithoutBackend = append(initArgsWithoutBackend, arg)
-				}
-			}
-			chdirInitArgs = append(chdirInitArgs, initArgsWithoutBackend...)
+			chdirInitArgs = append(chdirInitArgs, ctx.TerraformArgs.InitArgs...)
 			_, initErr := ctx.provider.shell.ExecSilent(terraformCommand, chdirInitArgs...)
 			if initErr != nil {
 				return make(map[string]any), nil
