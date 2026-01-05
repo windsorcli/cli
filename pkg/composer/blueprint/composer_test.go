@@ -344,6 +344,81 @@ func TestComposer_Compose(t *testing.T) {
 			t.Errorf("Expected name='primary', got '%s'", result.Metadata.Name)
 		}
 	})
+
+	t.Run("CreatesValuesCommonWithLegacyVariables", func(t *testing.T) {
+		// Given a composer with legacy config values
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "dns.domain":
+				return "example.com"
+			case "id":
+				return "test-id"
+			case "network.loadbalancer_ips.start":
+				return "10.0.0.1"
+			case "network.loadbalancer_ips.end":
+				return "10.0.0.10"
+			case "docker.registry_url":
+				return "registry.example.com"
+			default:
+				return ""
+			}
+		}
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+		mocks.ConfigHandler.GetStringSliceFunc = func(key string, defaultValue ...[]string) []string {
+			if key == "cluster.workers.volumes" {
+				return []string{"/host:/container"}
+			}
+			return []string{}
+		}
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		primaryBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "primary"},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("primary", primaryBp),
+		}
+
+		// When composing
+		result, err := composer.Compose(loaders)
+
+		// Then values-common ConfigMap should be created with legacy variables
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be initialized")
+		}
+		common, exists := result.ConfigMaps["values-common"]
+		if !exists {
+			t.Fatal("Expected 'values-common' ConfigMap to exist")
+		}
+		if common["DOMAIN"] != "example.com" {
+			t.Errorf("Expected DOMAIN='example.com', got '%s'", common["DOMAIN"])
+		}
+		if common["CONTEXT"] != "test-context" {
+			t.Errorf("Expected CONTEXT='test-context', got '%s'", common["CONTEXT"])
+		}
+		if common["CONTEXT_ID"] != "test-id" {
+			t.Errorf("Expected CONTEXT_ID='test-id', got '%s'", common["CONTEXT_ID"])
+		}
+		if common["LOADBALANCER_IP_RANGE"] != "10.0.0.1-10.0.0.10" {
+			t.Errorf("Expected LOADBALANCER_IP_RANGE='10.0.0.1-10.0.0.10', got '%s'", common["LOADBALANCER_IP_RANGE"])
+		}
+		if common["REGISTRY_URL"] != "registry.example.com" {
+			t.Errorf("Expected REGISTRY_URL='registry.example.com', got '%s'", common["REGISTRY_URL"])
+		}
+		if common["LOCAL_VOLUME_PATH"] != "/container" {
+			t.Errorf("Expected LOCAL_VOLUME_PATH='/container', got '%s'", common["LOCAL_VOLUME_PATH"])
+		}
+		// BUILD_ID may be empty if no build-id file exists, which is fine
+	})
 }
 
 func TestComposer_SetCommonSubstitutions(t *testing.T) {
