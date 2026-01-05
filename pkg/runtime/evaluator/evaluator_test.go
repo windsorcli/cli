@@ -569,6 +569,69 @@ func TestExpressionEvaluator_EvaluateDefaults(t *testing.T) {
 			t.Fatal("Expected error for invalid expression, got nil")
 		}
 	})
+
+	t.Run("SkipsDeferredValue", func(t *testing.T) {
+		// Given an evaluator with terraform_output helper that returns DeferredValue
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("terraform_output", func(params ...any) (any, error) {
+			return DeferredValue{}, nil
+		}, new(func(string, string) any))
+
+		defaults := map[string]any{
+			"deferred": "${terraform_output('cluster', 'key')}",
+			"normal":   "value",
+			"nested": map[string]any{
+				"deferred": "${terraform_output('cluster', 'key')}",
+				"normal":   "nested-value",
+			},
+			"array": []any{
+				"${terraform_output('cluster', 'key')}",
+				"normal-item",
+			},
+		}
+
+		// When evaluating defaults
+		result, err := evaluator.EvaluateDefaults(defaults, map[string]any{}, "")
+
+		// Then deferred values should be skipped
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := result["deferred"]; exists {
+			t.Error("Expected deferred key to be skipped")
+		}
+
+		if result["normal"] != "value" {
+			t.Errorf("Expected normal key to be preserved, got %v", result["normal"])
+		}
+
+		nested, ok := result["nested"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected nested to be a map, got %T", result["nested"])
+		}
+
+		if _, exists := nested["deferred"]; exists {
+			t.Error("Expected deferred nested key to be skipped")
+		}
+
+		if nested["normal"] != "nested-value" {
+			t.Errorf("Expected normal nested key to be preserved, got %v", nested["normal"])
+		}
+
+		array, ok := result["array"].([]any)
+		if !ok {
+			t.Fatalf("Expected array to be a slice, got %T", result["array"])
+		}
+
+		if len(array) != 1 {
+			t.Errorf("Expected array to have 1 item after filtering deferred, got %d", len(array))
+		}
+
+		if array[0] != "normal-item" {
+			t.Errorf("Expected array[0] to be 'normal-item', got %v", array[0])
+		}
+	})
 }
 
 func TestExpressionEvaluator_InterpolateString(t *testing.T) {

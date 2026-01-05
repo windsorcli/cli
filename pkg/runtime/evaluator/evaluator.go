@@ -131,6 +131,7 @@ func (e *expressionEvaluator) Evaluate(expression string, config map[string]any,
 // String values that are full expressions (e.g., "${value}") are evaluated as expressions,
 // while strings containing partial expressions are interpolated. Literal strings and
 // other types are preserved. The function handles nested maps and arrays recursively.
+// Keys that evaluate to DeferredValue are skipped, consistent with evaluateInputs and evaluateSubstitutions.
 // The featurePath is used for resolving relative paths in file loading functions.
 // Returns a new map with all defaults evaluated, or an error if evaluation fails.
 func (e *expressionEvaluator) EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error) {
@@ -140,6 +141,9 @@ func (e *expressionEvaluator) EvaluateDefaults(defaults map[string]any, config m
 		evaluated, err := e.evaluateDefaultValue(value, config, featurePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate default for key '%s': %w", key, err)
+		}
+		if _, isDeferred := evaluated.(DeferredValue); isDeferred {
+			continue
 		}
 		result[key] = evaluated
 	}
@@ -343,17 +347,23 @@ func (e *expressionEvaluator) evaluateDefaultValue(value any, config map[string]
 			if err != nil {
 				return nil, err
 			}
+			if _, isDeferred := evaluated.(DeferredValue); isDeferred {
+				continue
+			}
 			result[k] = evaluated
 		}
 		return result, nil
 	case []any:
-		result := make([]any, len(v))
-		for i, val := range v {
+		result := make([]any, 0, len(v))
+		for _, val := range v {
 			evaluated, err := e.evaluateDefaultValue(val, config, featurePath)
 			if err != nil {
 				return nil, err
 			}
-			result[i] = evaluated
+			if _, isDeferred := evaluated.(DeferredValue); isDeferred {
+				continue
+			}
+			result = append(result, evaluated)
 		}
 		return result, nil
 	default:
