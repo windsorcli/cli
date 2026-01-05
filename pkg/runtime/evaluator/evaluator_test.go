@@ -644,8 +644,13 @@ func TestExpressionEvaluator_InterpolateString(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if !strings.Contains(result, "key:") || !strings.Contains(result, "value") {
-			t.Errorf("Expected result to contain YAML, got '%s'", result)
+		resultStr, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string result, got %T", result)
+		}
+
+		if !strings.Contains(resultStr, "key:") || !strings.Contains(resultStr, "value") {
+			t.Errorf("Expected result to contain YAML, got '%s'", resultStr)
 		}
 	})
 
@@ -664,8 +669,13 @@ func TestExpressionEvaluator_InterpolateString(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if !strings.Contains(result, "- 1") || !strings.Contains(result, "- 2") {
-			t.Errorf("Expected result to contain YAML array, got '%s'", result)
+		resultStr, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string result, got %T", result)
+		}
+
+		if !strings.Contains(resultStr, "- 1") || !strings.Contains(resultStr, "- 2") {
+			t.Errorf("Expected result to contain YAML array, got '%s'", resultStr)
 		}
 	})
 
@@ -701,6 +711,146 @@ func TestExpressionEvaluator_InterpolateString(t *testing.T) {
 		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error for invalid expression, got nil")
+		}
+	})
+
+	t.Run("HandlesDeferredValue", func(t *testing.T) {
+		// Given an evaluator and config with DeferredValue
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"deferred": DeferredValue{},
+		}
+
+		// When interpolating a string with DeferredValue
+		result, err := evaluator.InterpolateString("Value is ${deferred}", config, "")
+
+		// Then DeferredValue should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, isDeferred := result.(DeferredValue); !isDeferred {
+			t.Errorf("Expected DeferredValue, got %T", result)
+		}
+	})
+
+	t.Run("HandlesDeferredValueInMixedString", func(t *testing.T) {
+		// Given an evaluator and config with DeferredValue
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"deferred": DeferredValue{},
+			"value":    "test",
+		}
+
+		// When interpolating a string with DeferredValue and other values
+		result, err := evaluator.InterpolateString("prefix-${deferred}-${value}-suffix", config, "")
+
+		// Then DeferredValue should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, isDeferred := result.(DeferredValue); !isDeferred {
+			t.Errorf("Expected DeferredValue, got %T", result)
+		}
+	})
+}
+
+func TestExpressionEvaluator_EvaluateValue(t *testing.T) {
+	t.Run("ReturnsStringForNonExpression", func(t *testing.T) {
+		// Given an evaluator
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		// When evaluating a non-expression string
+		result, err := evaluator.EvaluateValue("plain string", map[string]any{}, "")
+
+		// Then the string should be returned unchanged
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != "plain string" {
+			t.Errorf("Expected 'plain string', got %v", result)
+		}
+	})
+
+	t.Run("ReturnsEvaluatedExpression", func(t *testing.T) {
+		// Given an evaluator and config
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"value": 42,
+		}
+
+		// When evaluating a full expression
+		result, err := evaluator.EvaluateValue("${value}", config, "")
+
+		// Then the expression result should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != 42 {
+			t.Errorf("Expected 42, got %v", result)
+		}
+	})
+
+	t.Run("ReturnsInterpolatedString", func(t *testing.T) {
+		// Given an evaluator and config
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"value": "test",
+		}
+
+		// When evaluating a mixed string
+		result, err := evaluator.EvaluateValue("prefix-${value}-suffix", config, "")
+
+		// Then the interpolated string should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if str, ok := result.(string); !ok || str != "prefix-test-suffix" {
+			t.Errorf("Expected 'prefix-test-suffix', got %v", result)
+		}
+	})
+
+	t.Run("ReturnsDeferredValueForDeferredExpression", func(t *testing.T) {
+		// Given an evaluator and config with DeferredValue
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"deferred": DeferredValue{},
+		}
+
+		// When evaluating an expression that returns DeferredValue
+		result, err := evaluator.EvaluateValue("${deferred}", config, "")
+
+		// Then DeferredValue should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, isDeferred := result.(DeferredValue); !isDeferred {
+			t.Errorf("Expected DeferredValue, got %T", result)
+		}
+	})
+
+	t.Run("ReturnsDeferredValueForInterpolatedStringWithDeferred", func(t *testing.T) {
+		// Given an evaluator and config with DeferredValue
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		config := map[string]any{
+			"deferred": DeferredValue{},
+		}
+
+		// When evaluating a mixed string with DeferredValue
+		result, err := evaluator.EvaluateValue("prefix-${deferred}-suffix", config, "")
+
+		// Then DeferredValue should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, isDeferred := result.(DeferredValue); !isDeferred {
+			t.Errorf("Expected DeferredValue, got %T", result)
 		}
 	})
 }

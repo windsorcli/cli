@@ -311,7 +311,7 @@ func TestMockExpressionEvaluator_InterpolateString(t *testing.T) {
 			"value": 42,
 		}
 		expectedFeaturePath := "/test/feature.yaml"
-		mockEvaluator.InterpolateStringFunc = func(s string, config map[string]any, featurePath string) (string, error) {
+		mockEvaluator.InterpolateStringFunc = func(s string, config map[string]any, featurePath string) (any, error) {
 			if s != expectedString {
 				t.Errorf("Expected string %s, got %s", expectedString, s)
 			}
@@ -328,8 +328,12 @@ func TestMockExpressionEvaluator_InterpolateString(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if result != expectedResult {
-			t.Errorf("Expected result %s, got %s", expectedResult, result)
+		resultStr, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string result, got %T", result)
+		}
+		if resultStr != expectedResult {
+			t.Errorf("Expected result %s, got %s", expectedResult, resultStr)
 		}
 	})
 
@@ -337,7 +341,7 @@ func TestMockExpressionEvaluator_InterpolateString(t *testing.T) {
 		// Given a mock evaluator with InterpolateStringFunc set to return an error
 		mockEvaluator := setupMockEvaluatorMocks(t)
 		expectedError := errors.New("interpolation error")
-		mockEvaluator.InterpolateStringFunc = func(s string, config map[string]any, featurePath string) (string, error) {
+		mockEvaluator.InterpolateStringFunc = func(s string, config map[string]any, featurePath string) (any, error) {
 			return "", expectedError
 		}
 

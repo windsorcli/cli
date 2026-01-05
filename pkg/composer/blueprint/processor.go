@@ -606,6 +606,9 @@ func (p *BaseBlueprintProcessor) evaluateInputs(inputs map[string]any, configDat
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
+		if _, isDeferred := evaluated.(evaluator.DeferredValue); isDeferred {
+			continue
+		}
 		result[key] = evaluated
 	}
 	return result, nil
@@ -622,7 +625,14 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, c
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
-		result[key] = evaluated
+		if _, isDeferred := evaluated.(evaluator.DeferredValue); isDeferred {
+			continue
+		}
+		if str, ok := evaluated.(string); ok {
+			result[key] = str
+		} else {
+			result[key] = fmt.Sprintf("%v", evaluated)
+		}
 	}
 	return result, nil
 }

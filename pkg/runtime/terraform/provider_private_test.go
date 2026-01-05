@@ -12,6 +12,10 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
+// =============================================================================
+// Test Private Methods
+// =============================================================================
+
 func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	t.Run("GeneratesLocalBackendArgs", func(t *testing.T) {
 		mocks := setupMocks(t)
@@ -1049,6 +1053,144 @@ func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
 
 		if unsetKey != "TEST_VAR" {
 			t.Errorf("Expected to unset TEST_VAR, got %s", unsetKey)
+		}
+	})
+}
+
+func TestTerraformProvider_applyEnvVars(t *testing.T) {
+	t.Run("AppliesEnvVarsSuccessfully", func(t *testing.T) {
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+
+		envVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+		}
+
+		var setVars map[string]string
+		setVars = make(map[string]string)
+		provider.Shims.Getenv = func(key string) string {
+			return "original-" + key
+		}
+		provider.Shims.Setenv = func(key, value string) error {
+			setVars[key] = value
+			return nil
+		}
+
+		originalEnvVars, err := provider.applyEnvVars(envVars)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if originalEnvVars["VAR1"] != "original-VAR1" {
+			t.Errorf("Expected original VAR1 to be original-VAR1, got: %s", originalEnvVars["VAR1"])
+		}
+
+		if setVars["VAR1"] != "value1" {
+			t.Errorf("Expected VAR1 to be set to value1, got: %s", setVars["VAR1"])
+		}
+
+		if setVars["VAR2"] != "value2" {
+			t.Errorf("Expected VAR2 to be set to value2, got: %s", setVars["VAR2"])
+		}
+	})
+
+	t.Run("RestoresEnvVarsOnError", func(t *testing.T) {
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+
+		envVars := map[string]string{
+			"VAR1": "value1",
+			"VAR2": "value2",
+		}
+
+		var restoredKeys []string
+		restoredKeys = make([]string, 0)
+		callCount := 0
+		provider.Shims.Getenv = func(key string) string {
+			return "original-" + key
+		}
+		provider.Shims.Setenv = func(key, value string) error {
+			callCount++
+			if callCount == 2 {
+				return fmt.Errorf("setenv error")
+			}
+			return nil
+		}
+		provider.Shims.Unsetenv = func(key string) error {
+			restoredKeys = append(restoredKeys, key)
+			return nil
+		}
+
+		_, err := provider.applyEnvVars(envVars)
+		if err == nil {
+			t.Error("Expected error when Setenv fails")
+		}
+
+		if len(restoredKeys) == 0 && callCount < 2 {
+			t.Error("Expected restoreEnvVars to be called on error")
+		}
+	})
+}
+
+func TestTerraformProvider_restoreEnvVars(t *testing.T) {
+	t.Run("RestoresMultipleEnvVars", func(t *testing.T) {
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+
+		originalEnvVars := map[string]string{
+			"VAR1": "original1",
+			"VAR2": "",
+			"VAR3": "original3",
+		}
+
+		var setVars map[string]string
+		var unsetVars []string
+		setVars = make(map[string]string)
+		unsetVars = make([]string, 0)
+
+		provider.Shims.Setenv = func(key, value string) error {
+			setVars[key] = value
+			return nil
+		}
+		provider.Shims.Unsetenv = func(key string) error {
+			unsetVars = append(unsetVars, key)
+			return nil
+		}
+
+		provider.restoreEnvVars(originalEnvVars)
+
+		if setVars["VAR1"] != "original1" {
+			t.Errorf("Expected VAR1 to be restored to original1, got: %s", setVars["VAR1"])
+		}
+
+		if setVars["VAR3"] != "original3" {
+			t.Errorf("Expected VAR3 to be restored to original3, got: %s", setVars["VAR3"])
+		}
+
+		if len(unsetVars) != 1 || unsetVars[0] != "VAR2" {
+			t.Errorf("Expected VAR2 to be unset, got: %v", unsetVars)
+		}
+	})
+
+	t.Run("HandlesEmptyMap", func(t *testing.T) {
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+
+		callCount := 0
+		provider.Shims.Setenv = func(key, value string) error {
+			callCount++
+			return nil
+		}
+		provider.Shims.Unsetenv = func(key string) error {
+			callCount++
+			return nil
+		}
+
+		provider.restoreEnvVars(map[string]string{})
+
+		if callCount != 0 {
+			t.Errorf("Expected no calls for empty map, got %d", callCount)
 		}
 	})
 }

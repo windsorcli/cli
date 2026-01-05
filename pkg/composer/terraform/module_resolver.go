@@ -460,6 +460,11 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			continue
 		}
 
+		val, exists := values[info.Name]
+		if exists && val == nil {
+			continue
+		}
+
 		body.AppendNewline()
 
 		if info.Description != "" {
@@ -469,7 +474,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			body.AppendNewline()
 		}
 
-		if val, exists := values[info.Name]; exists {
+		if exists {
 			writeVariable(body, info.Name, val, []VariableInfo{})
 			continue
 		}
@@ -652,8 +657,27 @@ func convertToCtyValue(value any) cty.Value {
 			return cty.ListValEmpty(cty.DynamicPseudoType)
 		}
 		var ctyList []cty.Value
+		var elementType cty.Type
+		hasElementType := false
+		hasMixedTypes := false
 		for _, item := range v {
-			ctyList = append(ctyList, convertToCtyValue(item))
+			itemVal := convertToCtyValue(item)
+			if itemVal == cty.NilVal {
+				continue
+			}
+			ctyList = append(ctyList, itemVal)
+			if !hasElementType {
+				elementType = itemVal.Type()
+				hasElementType = true
+			} else if !elementType.Equals(itemVal.Type()) {
+				hasMixedTypes = true
+			}
+		}
+		if len(ctyList) == 0 {
+			return cty.ListValEmpty(cty.DynamicPseudoType)
+		}
+		if hasMixedTypes {
+			return cty.TupleVal(ctyList)
 		}
 		return cty.ListVal(ctyList)
 	case map[string]any:

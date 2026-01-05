@@ -1781,3 +1781,122 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
+	t.Run("SkipsDeferredValue", func(t *testing.T) {
+		// Given a processor with evaluator that returns DeferredValue
+		mocks := setupProcessorMocks(t)
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+
+		mocks.Evaluator.EvaluateValueFunc = func(s string, config map[string]any, featurePath string) (any, error) {
+			if s == "${terraform_output('cluster', 'key')}" {
+				return evaluator.DeferredValue{}, nil
+			}
+			if strings.Contains(s, "${") {
+				return "evaluated-value", nil
+			}
+			return s, nil
+		}
+
+		inputs := map[string]any{
+			"deferred": "${terraform_output('cluster', 'key')}",
+			"normal":   "value",
+		}
+
+		// When evaluating inputs
+		result, err := baseProcessor.evaluateInputs(inputs, map[string]any{}, "")
+
+		// Then deferred input should be skipped
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := result["deferred"]; exists {
+			t.Error("Expected deferred input to be skipped")
+		}
+
+		if result["normal"] != "value" {
+			t.Errorf("Expected normal input to be preserved, got %v", result["normal"])
+		}
+	})
+
+	t.Run("SkipsDeferredValueInInterpolatedString", func(t *testing.T) {
+		// Given a processor with evaluator that returns DeferredValue for interpolated strings
+		mocks := setupProcessorMocks(t)
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+
+		mocks.Evaluator.EvaluateValueFunc = func(s string, config map[string]any, featurePath string) (any, error) {
+			if s == "prefix-${terraform_output('cluster', 'key')}-suffix" {
+				return evaluator.DeferredValue{}, nil
+			}
+			if strings.Contains(s, "${") {
+				return "interpolated", nil
+			}
+			return s, nil
+		}
+
+		inputs := map[string]any{
+			"deferred": "prefix-${terraform_output('cluster', 'key')}-suffix",
+		}
+
+		// When evaluating inputs
+		result, err := baseProcessor.evaluateInputs(inputs, map[string]any{}, "")
+
+		// Then deferred input should be skipped
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := result["deferred"]; exists {
+			t.Error("Expected deferred input to be skipped")
+		}
+	})
+}
+
+func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
+	t.Run("SkipsDeferredValue", func(t *testing.T) {
+		// Given a processor with evaluator that returns DeferredValue
+		mocks := setupProcessorMocks(t)
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+
+		mocks.Evaluator.InterpolateStringFunc = func(s string, config map[string]any, featurePath string) (any, error) {
+			if s == "${terraform_output('cluster', 'key')}" {
+				return evaluator.DeferredValue{}, nil
+			}
+			if strings.Contains(s, "${") {
+				return "interpolated-value", nil
+			}
+			return s, nil
+		}
+
+		subs := map[string]string{
+			"deferred": "${terraform_output('cluster', 'key')}",
+			"normal":   "value",
+		}
+
+		// When evaluating substitutions
+		result, err := baseProcessor.evaluateSubstitutions(subs, map[string]any{}, "")
+
+		// Then deferred substitution should be skipped
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := result["deferred"]; exists {
+			t.Errorf("Expected deferred substitution to be skipped, but found in result: %v", result)
+		}
+
+		if result["normal"] != "value" {
+			t.Errorf("Expected normal substitution to be preserved, got %v", result["normal"])
+		}
+	})
+}
