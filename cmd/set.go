@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -32,6 +34,20 @@ var setContextCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize runtime: %w", err)
 		}
 
+		contextName := args[0]
+
+		projectRoot, err := rt.Shell.GetProjectRoot()
+		if err != nil {
+			return fmt.Errorf("failed to get project root: %w", err)
+		}
+
+		contextDir := filepath.Join(projectRoot, "contexts", contextName)
+		if _, err := os.Stat(contextDir); os.IsNotExist(err) {
+			return fmt.Errorf("context %q not found. Run 'windsor init %s' to create it", contextName, contextName)
+		} else if err != nil {
+			return fmt.Errorf("failed to check context directory: %w", err)
+		}
+
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -40,7 +56,7 @@ var setContextCmd = &cobra.Command{
 			return fmt.Errorf("failed to write reset token: %w", err)
 		}
 
-		if err := rt.ConfigHandler.SetContext(args[0]); err != nil {
+		if err := rt.ConfigHandler.SetContext(contextName); err != nil {
 			return fmt.Errorf("failed to set context: %w", err)
 		}
 
