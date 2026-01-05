@@ -262,6 +262,85 @@ func TestGetContextsCmd(t *testing.T) {
 			t.Errorf("Expected current context marker '*', got %q", output)
 		}
 	})
+
+	t.Run("DoesNotChangeCurrentContext", func(t *testing.T) {
+		stdout, _ := setup(t)
+		tmpDir := t.TempDir()
+
+		contextsDir := filepath.Join(tmpDir, "contexts")
+		if err := os.MkdirAll(contextsDir, 0755); err != nil {
+			t.Fatalf("Failed to create contexts directory: %v", err)
+		}
+
+		localDir := filepath.Join(contextsDir, "local")
+		if err := os.MkdirAll(localDir, 0755); err != nil {
+			t.Fatalf("Failed to create local context directory: %v", err)
+		}
+
+		stagingDir := filepath.Join(contextsDir, "staging")
+		if err := os.MkdirAll(stagingDir, 0755); err != nil {
+			t.Fatalf("Failed to create staging context directory: %v", err)
+		}
+
+		windsorYaml := filepath.Join(tmpDir, "windsor.yaml")
+		if err := os.WriteFile(windsorYaml, []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("Failed to create windsor.yaml: %v", err)
+		}
+
+		windsorDir := filepath.Join(tmpDir, ".windsor")
+		if err := os.MkdirAll(windsorDir, 0755); err != nil {
+			t.Fatalf("Failed to create .windsor directory: %v", err)
+		}
+
+		contextFile := filepath.Join(windsorDir, "context")
+		if err := os.WriteFile(contextFile, []byte("local\n"), 0644); err != nil {
+			t.Fatalf("Failed to create context file: %v", err)
+		}
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+
+		rtOverride := &runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: tmpDir,
+		}
+		rt, err := runtime.NewRuntime(rtOverride)
+		if err != nil {
+			t.Fatalf("Failed to create runtime: %v", err)
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"get", "contexts"})
+
+		err = Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		contextFileAfter := filepath.Join(windsorDir, "context")
+		contextData, err := os.ReadFile(contextFileAfter)
+		if err != nil {
+			t.Fatalf("Failed to read context file after listing: %v", err)
+		}
+
+		currentContext := strings.TrimSpace(string(contextData))
+		if currentContext != "local" {
+			t.Errorf("Expected current context to remain 'local', got '%s'", currentContext)
+		}
+
+		output := stdout.String()
+		if !strings.Contains(output, "local") {
+			t.Errorf("Expected 'local' context in output, got %q", output)
+		}
+		if !strings.Contains(output, "staging") {
+			t.Errorf("Expected 'staging' context in output, got %q", output)
+		}
+	})
 }
 
 func TestGetContextCmd(t *testing.T) {

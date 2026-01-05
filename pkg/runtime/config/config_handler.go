@@ -26,6 +26,7 @@ var systemSchemasFS embed.FS
 
 type ConfigHandler interface {
 	LoadConfig() error
+	LoadConfigForContext(contextName string) error
 	LoadConfigString(content string) error
 	GetString(key string, defaultValue ...string) string
 	GetInt(key string, defaultValue ...int) int
@@ -161,13 +162,23 @@ func (c *configHandler) LoadConfig() error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
 	}
+	return c.LoadConfigForContext(c.GetContext())
+}
 
+// LoadConfigForContext loads and merges all configuration sources for the specified context into the internal data map
+// without modifying the current context state. This method performs the same actions as LoadConfig but uses the
+// provided contextName parameter directly instead of reading from the current context. It does not write to the
+// .windsor/context file or set the WINDSOR_CONTEXT environment variable, making it safe for read-only operations
+// like listing contexts. Returns an error for any I/O or validation failure.
+func (c *configHandler) LoadConfigForContext(contextName string) error {
+	if c.shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	contextName := c.GetContext()
 	hasLoadedFiles := false
 
 	if c.schemaValidator != nil && c.schemaValidator.Schema == nil {

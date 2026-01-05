@@ -80,8 +80,7 @@ var getContextsCmd = &cobra.Command{
 			provider := "<none>"
 			backend := "<none>"
 			ctxConfigHandler := config.NewConfigHandler(rt.Shell)
-			ctxConfigHandler.SetContext(ctx)
-			if err := ctxConfigHandler.LoadConfig(); err == nil {
+			if err := ctxConfigHandler.LoadConfigForContext(ctx); err == nil {
 				if p := ctxConfigHandler.GetString("provider"); p != "" {
 					provider = p
 				}

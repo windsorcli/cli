@@ -10,6 +10,7 @@ import (
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
 	LoadConfigFunc            func() error
+	LoadConfigForContextFunc  func(contextName string) error
 	LoadConfigStringFunc      func(content string) error
 	IsLoadedFunc              func() bool
 	GetStringFunc             func(key string, defaultValue ...string) string
@@ -52,6 +53,14 @@ func NewMockConfigHandler() *MockConfigHandler {
 func (m *MockConfigHandler) LoadConfig() error {
 	if m.LoadConfigFunc != nil {
 		return m.LoadConfigFunc()
+	}
+	return nil
+}
+
+// LoadConfigForContext calls the mock LoadConfigForContextFunc if set, otherwise returns nil
+func (m *MockConfigHandler) LoadConfigForContext(contextName string) error {
+	if m.LoadConfigForContextFunc != nil {
+		return m.LoadConfigForContextFunc(contextName)
 	}
 	return nil
 }
