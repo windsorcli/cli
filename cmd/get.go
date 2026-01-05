@@ -106,7 +106,9 @@ var getContextsCmd = &cobra.Command{
 			}
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", info.name, info.provider, info.backend, current)
 		}
-		w.Flush()
+		if err := w.Flush(); err != nil {
+			return fmt.Errorf("failed to flush output: %w", err)
+		}
 
 		return nil
 	},
