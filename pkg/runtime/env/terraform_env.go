@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -74,7 +73,7 @@ func (e *TerraformEnvPrinter) GetEnvVarsForPath(componentID, modulePath string, 
 		return nil, nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
 
-	terraformVars, err := e.formatTerraformArgsAsEnvVars(terraformArgs)
+	terraformVars, err := e.terraformProvider.GetEnvVarsForArgs(terraformArgs, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -139,63 +138,6 @@ func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 	}
 
 	return envVars
-}
-
-// formatTerraformArgsAsEnvVars formats TerraformArgs into environment variables.
-// Returns an error if GetConfigRoot fails, which would result in an empty TF_VAR_context_path.
-func (e *TerraformEnvPrinter) formatTerraformArgsAsEnvVars(terraformArgs *TerraformArgs) (map[string]string, error) {
-	configRoot, err := e.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error getting config root: %w", err)
-	}
-
-	terraformVars := make(map[string]string)
-	terraformVars["TF_DATA_DIR"] = terraformArgs.TFDataDir
-	terraformVars["TF_CLI_ARGS_init"] = e.formatArgsForEnv(terraformArgs.InitArgs)
-	terraformVars["TF_CLI_ARGS_plan"] = e.formatArgsForEnv(terraformArgs.PlanArgs)
-	terraformVars["TF_CLI_ARGS_apply"] = e.formatArgsForEnv(terraformArgs.ApplyArgs)
-	terraformVars["TF_CLI_ARGS_refresh"] = e.formatArgsForEnv(terraformArgs.RefreshArgs)
-	terraformVars["TF_CLI_ARGS_import"] = e.formatArgsForEnv(terraformArgs.ImportArgs)
-	terraformVars["TF_CLI_ARGS_destroy"] = e.formatArgsForEnv(terraformArgs.DestroyArgs)
-	terraformVars["TF_VAR_context_path"] = filepath.ToSlash(configRoot)
-	terraformVars["TF_VAR_context_id"] = e.configHandler.GetString("id", "")
-
-	if e.shims.Goos() == "windows" {
-		terraformVars["TF_VAR_os_type"] = "windows"
-	} else {
-		terraformVars["TF_VAR_os_type"] = "unix"
-	}
-
-	return terraformVars, nil
-}
-
-// formatArgsForEnv formats CLI arguments for use in environment variables.
-// It adds quotes around file paths and values that need them for shell compatibility.
-// Handles Unix absolute paths (/path), relative paths (./path), and Windows drive letter paths
-// (both D:\path and D:/path formats) by detecting drive letters followed by a colon.
-func (e *TerraformEnvPrinter) formatArgsForEnv(args []string) string {
-	formatted := make([]string, len(args))
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "-var-file=") {
-			value := strings.TrimPrefix(arg, "-var-file=")
-			formatted[i] = fmt.Sprintf("-var-file=\"%s\"", value)
-		} else if strings.HasPrefix(arg, "-out=") {
-			value := strings.TrimPrefix(arg, "-out=")
-			formatted[i] = fmt.Sprintf("-out=\"%s\"", value)
-		} else if strings.HasPrefix(arg, "-backend-config=") {
-			if strings.Contains(arg, "=") && !strings.HasPrefix(strings.SplitN(arg, "=", 2)[1], "\"") {
-				parts := strings.SplitN(arg, "=", 2)
-				formatted[i] = fmt.Sprintf("%s=\"%s\"", parts[0], parts[1])
-			} else {
-				formatted[i] = arg
-			}
-		} else if !strings.HasPrefix(arg, "-") && (strings.HasPrefix(arg, "/") || strings.HasPrefix(arg, ".") || (len(arg) >= 2 && arg[1] == ':' && ((arg[0] >= 'A' && arg[0] <= 'Z') || (arg[0] >= 'a' && arg[0] <= 'z')))) {
-			formatted[i] = fmt.Sprintf("\"%s\"", arg)
-		} else {
-			formatted[i] = arg
-		}
-	}
-	return strings.TrimSpace(strings.Join(formatted, " "))
 }
 
 // =============================================================================

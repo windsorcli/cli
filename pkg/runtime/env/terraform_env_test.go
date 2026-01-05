@@ -75,7 +75,7 @@ func setupTerraformEnvPrinter(t *testing.T, mocks *EnvTestMocks, provider terraf
 func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformProvider {
 	realProvider := terraform.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mocks.ToolsManager, nil)
 
-	// Set up the real provider's Shims to use the test's mocked Stat function
+	// Set up the real provider's Shims to use the test's mocked functions
 	// Use reflection to access the exported Shims field on the concrete type
 	rv := reflect.ValueOf(realProvider)
 	if rv.Kind() == reflect.Ptr {
@@ -84,6 +84,7 @@ func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformPro
 			shimsValue := shimsField.Interface().(*terraform.Shims)
 			if shimsValue != nil {
 				shimsValue.Stat = mocks.Shims.Stat
+				shimsValue.Goos = mocks.Shims.Goos
 			}
 		}
 	}
@@ -148,6 +149,26 @@ func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformPro
 				}
 			}
 			return realProvider.GenerateTerraformArgs(componentID, modulePath, interactive)
+		},
+		GetEnvVarsForArgsFunc: func(terraformArgs *terraform.TerraformArgs, includeOutputs bool) (map[string]string, error) {
+			// Ensure the real provider uses the test's mocked functions
+			rv := reflect.ValueOf(realProvider)
+			if rv.Kind() == reflect.Ptr {
+				shimsField := rv.Elem().FieldByName("Shims")
+				if shimsField.IsValid() && shimsField.CanSet() {
+					shimsValue := shimsField.Interface().(*terraform.Shims)
+					if shimsValue != nil {
+						shimsValue.Goos = mocks.Shims.Goos
+					}
+				}
+			}
+			return realProvider.GetEnvVarsForArgs(terraformArgs, includeOutputs)
+		},
+		FormatArgsForEnvFunc: func(args []string) string {
+			return realProvider.FormatArgsForEnv(args)
+		},
+		GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+			return realProvider.GetTerraformOutputs(componentID)
 		},
 	}
 }
@@ -1525,7 +1546,7 @@ terraform:
 		if err != nil {
 			t.Fatalf("Error generating args: %v", err)
 		}
-		envVars, err := printer.formatTerraformArgsAsEnvVars(args)
+		envVars, err := printer.terraformProvider.GetEnvVarsForArgs(args, false)
 		if err != nil {
 			t.Fatalf("Error formatting terraform args as env vars: %v", err)
 		}

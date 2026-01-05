@@ -10,7 +10,7 @@ type MockExpressionEvaluator struct {
 	EvaluateFunc          func(expression string, config map[string]any, featurePath string) (any, error)
 	EvaluateDefaultsFunc  func(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error)
 	EvaluateValueFunc     func(s string, config map[string]any, featurePath string) (any, error)
-	InterpolateStringFunc func(s string, config map[string]any, featurePath string) (string, error)
+	InterpolateStringFunc func(s string, config map[string]any, featurePath string) (any, error)
 }
 
 // =============================================================================
@@ -65,7 +65,7 @@ func (m *MockExpressionEvaluator) EvaluateValue(s string, config map[string]any,
 }
 
 // InterpolateString calls the mock InterpolateStringFunc if set, otherwise returns the input string, nil.
-func (m *MockExpressionEvaluator) InterpolateString(s string, config map[string]any, featurePath string) (string, error) {
+func (m *MockExpressionEvaluator) InterpolateString(s string, config map[string]any, featurePath string) (any, error) {
 	if m.InterpolateStringFunc != nil {
 		return m.InterpolateStringFunc(s, config, featurePath)
 	}

@@ -18,6 +18,11 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
+// DeferredValue is a sentinel type that indicates a value is not yet available
+// and should be deferred. When used in expressions, it propagates through
+// operations and causes the entire expression result to be skipped.
+type DeferredValue struct{}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -47,7 +52,7 @@ type ExpressionEvaluator interface {
 	Evaluate(expression string, config map[string]any, featurePath string) (any, error)
 	EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error)
 	EvaluateValue(s string, config map[string]any, featurePath string) (any, error)
-	InterpolateString(s string, config map[string]any, featurePath string) (string, error)
+	InterpolateString(s string, config map[string]any, featurePath string) (any, error)
 }
 
 // HelperRegistrar defines the interface for registering custom helpers with the evaluator.
@@ -126,6 +131,7 @@ func (e *expressionEvaluator) Evaluate(expression string, config map[string]any,
 // String values that are full expressions (e.g., "${value}") are evaluated as expressions,
 // while strings containing partial expressions are interpolated. Literal strings and
 // other types are preserved. The function handles nested maps and arrays recursively.
+// Keys that evaluate to DeferredValue are skipped, consistent with evaluateInputs and evaluateSubstitutions.
 // The featurePath is used for resolving relative paths in file loading functions.
 // Returns a new map with all defaults evaluated, or an error if evaluation fails.
 func (e *expressionEvaluator) EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error) {
@@ -135,6 +141,9 @@ func (e *expressionEvaluator) EvaluateDefaults(defaults map[string]any, config m
 		evaluated, err := e.evaluateDefaultValue(value, config, featurePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate default for key '%s': %w", key, err)
+		}
+		if _, isDeferred := evaluated.(DeferredValue); isDeferred {
+			continue
 		}
 		result[key] = evaluated
 	}
@@ -146,9 +155,12 @@ func (e *expressionEvaluator) EvaluateDefaults(defaults map[string]any, config m
 // This function processes template expressions embedded in strings, evaluating each expression
 // and replacing it with the result. Complex values like maps and arrays are serialized to YAML.
 // The function handles multiple expressions in a single string and processes them iteratively.
-// Returns the fully interpolated string or an error if any expression evaluation fails.
-func (e *expressionEvaluator) InterpolateString(s string, config map[string]any, featurePath string) (string, error) {
+// If any expression evaluates to DeferredValue, the function returns DeferredValue to indicate
+// the entire string interpolation should be deferred.
+// Returns the fully interpolated string, DeferredValue, or an error if any expression evaluation fails.
+func (e *expressionEvaluator) InterpolateString(s string, config map[string]any, featurePath string) (any, error) {
 	result := s
+	hasDeferred := false
 
 	for strings.Contains(result, "${") {
 		start := strings.Index(result, "${")
@@ -167,7 +179,10 @@ func (e *expressionEvaluator) InterpolateString(s string, config map[string]any,
 		}
 
 		var replacement string
-		if value == nil {
+		if _, isDeferred := value.(DeferredValue); isDeferred {
+			hasDeferred = true
+			replacement = ""
+		} else if value == nil {
 			replacement = ""
 		} else {
 			switch value.(type) {
@@ -183,6 +198,10 @@ func (e *expressionEvaluator) InterpolateString(s string, config map[string]any,
 		}
 
 		result = result[:start] + replacement + result[end+1:]
+	}
+
+	if hasDeferred {
+		return DeferredValue{}, nil
 	}
 
 	return result, nil
@@ -204,7 +223,11 @@ func (e *expressionEvaluator) EvaluateValue(s string, config map[string]any, fea
 		return e.Evaluate(expr, config, featurePath)
 	}
 
-	return e.InterpolateString(s, config, featurePath)
+	result, err := e.InterpolateString(s, config, featurePath)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // =============================================================================
@@ -310,7 +333,11 @@ func (e *expressionEvaluator) evaluateDefaultValue(value any, config map[string]
 			return e.Evaluate(expr, config, featurePath)
 		}
 		if strings.Contains(v, "${") {
-			return e.InterpolateString(v, config, featurePath)
+			result, err := e.InterpolateString(v, config, featurePath)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
 		}
 		return v, nil
 	case map[string]any:
@@ -320,17 +347,23 @@ func (e *expressionEvaluator) evaluateDefaultValue(value any, config map[string]
 			if err != nil {
 				return nil, err
 			}
+			if _, isDeferred := evaluated.(DeferredValue); isDeferred {
+				continue
+			}
 			result[k] = evaluated
 		}
 		return result, nil
 	case []any:
-		result := make([]any, len(v))
-		for i, val := range v {
+		result := make([]any, 0, len(v))
+		for _, val := range v {
 			evaluated, err := e.evaluateDefaultValue(val, config, featurePath)
 			if err != nil {
 				return nil, err
 			}
-			result[i] = evaluated
+			if _, isDeferred := evaluated.(DeferredValue); isDeferred {
+				continue
+			}
+			result = append(result, evaluated)
 		}
 		return result, nil
 	default:
