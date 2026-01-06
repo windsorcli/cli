@@ -1777,265 +1777,6 @@ terraform:
 	})
 }
 
-func TestTerraformProvider_GetEnvVarsForArgs(t *testing.T) {
-	t.Run("ReturnsBaseEnvVarsWithoutOutputs", func(t *testing.T) {
-		mocks := setupMocks(t)
-
-		configRoot := "/test/config"
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-			PlanArgs:  []string{"-out=plan.tfplan"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_DATA_DIR"] != "/test/tfdata" {
-			t.Errorf("Expected TF_DATA_DIR to be /test/tfdata, got: %s", envVars["TF_DATA_DIR"])
-		}
-
-		if envVars["TF_VAR_context_path"] != configRoot {
-			t.Errorf("Expected TF_VAR_context_path to be %s, got: %s", configRoot, envVars["TF_VAR_context_path"])
-		}
-
-		if envVars["TF_VAR_context_id"] != "test-context" {
-			t.Errorf("Expected TF_VAR_context_id to be test-context, got: %s", envVars["TF_VAR_context_id"])
-		}
-	})
-
-	t.Run("ReturnsEnvVarsWithOutputs", func(t *testing.T) {
-		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
-kind: Blueprint
-metadata:
-  name: test
-terraform:
-  - path: cluster
-    name: cluster
-  - path: gitops
-    name: gitops`
-
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		callCount := 0
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) >= 2 {
-				if args[1] == "output" {
-					callCount++
-					if callCount == 1 {
-						return `{"cluster_name": {"value": "my-cluster"}, "region": {"value": "us-west-2"}}`, nil
-					}
-					return `{"gitops_url": {"value": "https://git.example.com"}}`, nil
-				}
-			}
-			return "", nil
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, true)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_VAR_cluster_name"] != "my-cluster" {
-			t.Errorf("Expected TF_VAR_cluster_name to be my-cluster, got: %s", envVars["TF_VAR_cluster_name"])
-		}
-
-		if envVars["TF_VAR_region"] != "us-west-2" {
-			t.Errorf("Expected TF_VAR_region to be us-west-2, got: %s", envVars["TF_VAR_region"])
-		}
-	})
-
-	t.Run("HandlesNonStringOutputValues", func(t *testing.T) {
-		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
-kind: Blueprint
-metadata:
-  name: test
-terraform:
-  - path: cluster
-    name: cluster`
-
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) >= 2 {
-				if args[1] == "output" {
-					return `{"port": {"value": 8080}, "enabled": {"value": true}}`, nil
-				}
-			}
-			return "", nil
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, true)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_VAR_port"] != "8080" {
-			t.Errorf("Expected TF_VAR_port to be 8080, got: %s", envVars["TF_VAR_port"])
-		}
-
-		if envVars["TF_VAR_enabled"] != "true" {
-			t.Errorf("Expected TF_VAR_enabled to be true, got: %s", envVars["TF_VAR_enabled"])
-		}
-	})
-
-	t.Run("HandlesGetBaseEnvVarsError", func(t *testing.T) {
-		mocks := setupMocks(t)
-
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("config root error")
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, false)
-		if err == nil {
-			t.Error("Expected error when GetConfigRoot fails")
-		}
-
-		if envVars != nil {
-			t.Error("Expected nil envVars on error")
-		}
-	})
-
-	t.Run("SkipsComponentsWithOutputErrors", func(t *testing.T) {
-		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
-kind: Blueprint
-metadata:
-  name: test
-terraform:
-  - path: cluster
-    name: cluster
-  - path: gitops
-    name: gitops`
-
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		callCount := 0
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) >= 2 {
-				if args[1] == "output" {
-					callCount++
-					if callCount == 1 {
-						return `{"cluster_name": {"value": "my-cluster"}}`, nil
-					}
-					return "", fmt.Errorf("output error")
-				}
-			}
-			return "", nil
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, true)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_VAR_cluster_name"] != "my-cluster" {
-			t.Errorf("Expected TF_VAR_cluster_name to be my-cluster, got: %s", envVars["TF_VAR_cluster_name"])
-		}
-	})
-
-	t.Run("HandlesWindowsOS", func(t *testing.T) {
-		mocks := setupMocks(t)
-
-		configRoot := "/test/config"
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mocks.Provider.Shims.Goos = func() string {
-			return "windows"
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_VAR_os_type"] != "windows" {
-			t.Errorf("Expected TF_VAR_os_type to be windows, got: %s", envVars["TF_VAR_os_type"])
-		}
-	})
-}
-
 func TestTerraformProvider_FormatArgsForEnv(t *testing.T) {
 	t.Run("FormatsVarFileArgs", func(t *testing.T) {
 		mocks := setupMocks(t)
@@ -2393,6 +2134,164 @@ terraform:
 
 		if !hasBackendConfig {
 			t.Errorf("Expected init command to include -backend-config arguments, got init args: %v", initArgs)
+		}
+	})
+}
+
+func TestTerraformProvider_GetEnvVars_OnlyIncludesRequestedOutputs(t *testing.T) {
+	t.Run("OnlyIncludesOutputsAccessedViaTerraformOutput", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: network
+    name: network
+  - path: cluster
+    name: cluster
+    inputs:
+      vpc_id: '${terraform_output("network", "vpc_id")}'`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "id" {
+				return "test-context"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 {
+				if args[1] == "output" {
+					return `{"vpc_id": {"value": "vpc-123"}, "isolated_subnet_ids": {"value": ["subnet-1"]}, "private_subnet_ids": {"value": ["subnet-2"]}, "public_subnet_ids": {"value": ["subnet-3"]}}`, nil
+				}
+				if args[1] == "init" {
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if envVars["TF_VAR_vpc_id"] != "vpc-123" {
+			t.Errorf("Expected TF_VAR_vpc_id to be 'vpc-123', got: %s", envVars["TF_VAR_vpc_id"])
+		}
+
+		unexpectedVars := []string{
+			"TF_VAR_isolated_subnet_ids",
+			"TF_VAR_private_subnet_ids",
+			"TF_VAR_public_subnet_ids",
+		}
+
+		for _, unexpectedVar := range unexpectedVars {
+			if _, exists := envVars[unexpectedVar]; exists {
+				t.Errorf("Expected %s to NOT be included (not accessed via terraform_output)", unexpectedVar)
+			}
+		}
+
+		mocks.Provider.mu.RLock()
+		networkCache := mocks.Provider.cache["network"]
+		mocks.Provider.mu.RUnlock()
+
+		if networkCache == nil {
+			t.Error("Expected network component outputs to be cached")
+		} else {
+			if len(networkCache) != 1 {
+				t.Errorf("Expected cache to contain only 1 output (vpc_id), got %d: %v", len(networkCache), networkCache)
+			}
+			if networkCache["vpc_id"] != "vpc-123" {
+				t.Errorf("Expected cached vpc_id to be 'vpc-123', got: %v", networkCache["vpc_id"])
+			}
+			if _, exists := networkCache["isolated_subnet_ids"]; exists {
+				t.Error("Expected isolated_subnet_ids to NOT be cached (not accessed via terraform_output)")
+			}
+		}
+	})
+
+	t.Run("AccumulatesMultipleRequestedOutputs", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: network
+    name: network
+  - path: cluster
+    name: cluster
+    inputs:
+      vpc_id: '${terraform_output("network", "vpc_id")}'
+      subnet_ids: '${terraform_output("network", "private_subnet_ids")}'`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "id" {
+				return "test-context"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 {
+				if args[1] == "output" {
+					return `{"vpc_id": {"value": "vpc-123"}, "private_subnet_ids": {"value": ["subnet-1", "subnet-2"]}, "public_subnet_ids": {"value": ["subnet-3"]}, "isolated_subnet_ids": {"value": ["subnet-4"]}}`, nil
+				}
+				if args[1] == "init" {
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if envVars["TF_VAR_vpc_id"] != "vpc-123" {
+			t.Errorf("Expected TF_VAR_vpc_id to be 'vpc-123', got: %s", envVars["TF_VAR_vpc_id"])
+		}
+
+		expectedSubnetIds := `["subnet-1","subnet-2"]`
+		if envVars["TF_VAR_private_subnet_ids"] != expectedSubnetIds {
+			t.Errorf("Expected TF_VAR_private_subnet_ids to be %s, got: %s", expectedSubnetIds, envVars["TF_VAR_private_subnet_ids"])
+		}
+
+		unexpectedVars := []string{
+			"TF_VAR_public_subnet_ids",
+			"TF_VAR_isolated_subnet_ids",
+		}
+
+		for _, unexpectedVar := range unexpectedVars {
+			if _, exists := envVars[unexpectedVar]; exists {
+				t.Errorf("Expected %s to NOT be included (not accessed via terraform_output)", unexpectedVar)
+			}
+		}
+
+		mocks.Provider.mu.RLock()
+		networkCache := mocks.Provider.cache["network"]
+		mocks.Provider.mu.RUnlock()
+
+		if networkCache == nil {
+			t.Error("Expected network component outputs to be cached")
+		} else {
+			if len(networkCache) != 2 {
+				t.Errorf("Expected cache to contain 2 outputs (vpc_id, private_subnet_ids), got %d: %v", len(networkCache), networkCache)
+			}
+			if networkCache["vpc_id"] != "vpc-123" {
+				t.Errorf("Expected cached vpc_id to be 'vpc-123', got: %v", networkCache["vpc_id"])
+			}
 		}
 	})
 }

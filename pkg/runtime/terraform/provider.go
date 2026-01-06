@@ -7,6 +7,7 @@ package terraform
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,7 @@ type terraformProvider struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
 	toolsManager  tools.ToolsManager
+	evaluator     evaluator.ExpressionEvaluator
 	Shims         *Shims // Exported for testing
 	cache         map[string]map[string]any
 	components    []blueprintv1alpha1.TerraformComponent
@@ -74,7 +76,7 @@ type TerraformProvider interface {
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetTerraformOutputs(componentID string) (map[string]any, error)
 	GetTFDataDir(componentID string) (string, error)
-	GetEnvVarsForArgs(terraformArgs *TerraformArgs, includeOutputs bool) (map[string]string, error)
+	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
 }
@@ -94,6 +96,7 @@ func NewTerraformProvider(
 		configHandler: configHandler,
 		shell:         shell,
 		toolsManager:  toolsManager,
+		evaluator:     evaluator,
 		Shims:         NewShims(),
 		cache:         make(map[string]map[string]any),
 	}
@@ -362,27 +365,53 @@ func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 	return tfDataDir, nil
 }
 
-// GetEnvVarsForArgs formats TerraformArgs into environment variables for Terraform operations.
-// It sets up base environment variables including TF_DATA_DIR, TF_CLI_ARGS_*, and TF_VAR_context_* variables.
-// If includeOutputs is true, it also adds TF_VAR_* environment variables from all Terraform component outputs,
-// allowing downstream components to access outputs from upstream components. Complex output values are JSON-encoded.
-// Returns an error if GetConfigRoot fails, which would result in an empty TF_VAR_context_path.
-func (p *terraformProvider) GetEnvVarsForArgs(terraformArgs *TerraformArgs, includeOutputs bool) (map[string]string, error) {
+// GetEnvVars generates Terraform environment variables for the given component ID.
+// It generates TerraformArgs internally, sets up base environment variables including TF_DATA_DIR,
+// TF_CLI_ARGS_*, and TF_VAR_context_* variables. It also evaluates component inputs to populate
+// the cache via terraform_output() calls, then adds TF_VAR_* environment variables from terraform
+// outputs that have been accessed via terraform_output() calls. Only components whose outputs are
+// in the cache are included, ensuring that only necessary outputs are piped to dependent components.
+// Complex output values are JSON-encoded. Returns both the environment variables map and the
+// TerraformArgs struct, or an error if processing fails.
+func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error) {
+	component := p.GetTerraformComponent(componentID)
+	var modulePath string
+	if component != nil {
+		var err error
+		modulePath, err = p.resolveModulePath(component)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error resolving module path for component %s: %w", componentID, err)
+		}
+	}
+	terraformArgs, err := p.GenerateTerraformArgs(componentID, modulePath, interactive)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error generating terraform args: %w", err)
+	}
+
 	envVars, err := p.getBaseEnvVarsForComponent(terraformArgs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if !includeOutputs {
-		return envVars, nil
-	}
-
-	for _, component := range p.GetTerraformComponents() {
-		componentID := component.GetID()
-		outputs, err := p.GetTerraformOutputs(componentID)
-		if err != nil {
-			continue
+	if componentID != "" && p.evaluator != nil {
+		component := p.GetTerraformComponent(componentID)
+		if component != nil && component.Inputs != nil && len(component.Inputs) > 0 {
+			var configData map[string]any
+			if p.configHandler != nil {
+				configData, _ = p.configHandler.GetContextValues()
+			}
+			_, err := p.evaluateInputs(component.Inputs, configData)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to evaluate inputs for component %s: %w", componentID, err)
+			}
 		}
+	}
+
+	p.mu.RLock()
+	cacheCopy := maps.Clone(p.cache)
+	p.mu.RUnlock()
+
+	for _, outputs := range cacheCopy {
 		for key, value := range outputs {
 			envKey := fmt.Sprintf("TF_VAR_%s", key)
 			var envValue string
@@ -399,7 +428,7 @@ func (p *terraformProvider) GetEnvVarsForArgs(terraformArgs *TerraformArgs, incl
 		}
 	}
 
-	return envVars, nil
+	return envVars, terraformArgs, nil
 }
 
 // FormatArgsForEnv formats CLI arguments for use in environment variables.
@@ -470,8 +499,9 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 }
 
 // getOutput fetches a single output value for a terraform component by key.
-// It first checks the cache for previously retrieved outputs, then falls back to calling GetTerraformOutputs
-// if the component is not cached. Returns the output value or DeferredValue if the component or key is not found.
+// When a component is accessed via terraform_output() for the first time, it collects and caches all outputs
+// from that component in a single operation. Subsequent calls for the same component use the cached outputs.
+// Returns the output value or DeferredValue if the component or key is not found.
 // Returns DeferredValue (not an error) when outputs don't exist to allow blueprint processing
 // to proceed during init before components have been applied, while marking the value as deferred
 // so it can be handled appropriately by the expression evaluator.
@@ -494,22 +524,30 @@ func (p *terraformProvider) getOutput(componentID, key string) (any, error) {
 
 	p.mu.Lock()
 	if cached, exists := p.cache[componentID]; exists {
-		p.mu.Unlock()
 		value, exists := cached[key]
-		if !exists {
-			return evaluator.DeferredValue{}, nil
+		if exists {
+			p.mu.Unlock()
+			return value, nil
 		}
-		return value, nil
-	}
-	p.cache[componentID] = outputs
-	p.mu.Unlock()
-
-	value, exists := outputs[key]
-	if !exists {
+		if value, exists := outputs[key]; exists {
+			p.cache[componentID][key] = value
+			p.mu.Unlock()
+			return value, nil
+		}
+		p.mu.Unlock()
 		return evaluator.DeferredValue{}, nil
 	}
+	if p.cache[componentID] == nil {
+		p.cache[componentID] = make(map[string]any)
+	}
+	if value, exists := outputs[key]; exists {
+		p.cache[componentID][key] = value
+		p.mu.Unlock()
+		return value, nil
+	}
+	p.mu.Unlock()
 
-	return value, nil
+	return evaluator.DeferredValue{}, nil
 }
 
 // getBaseEnvVarsForComponent returns the base environment variables for a Terraform component
@@ -872,6 +910,34 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 	}
 
 	return backendConfigArgs, nil
+}
+
+// evaluateInputs evaluates input expressions in component values using the evaluator.
+// String values containing ${} expressions are evaluated, while other values are passed through unchanged.
+// Deferred values are skipped. This method triggers terraform_output() calls which populate the cache.
+// Returns the evaluated values map or an error if evaluation fails.
+func (p *terraformProvider) evaluateInputs(inputs map[string]any, configData map[string]any) (map[string]any, error) {
+	if p.evaluator == nil {
+		return inputs, nil
+	}
+
+	result := make(map[string]any)
+	for key, value := range inputs {
+		strVal, isString := value.(string)
+		if !isString || !strings.Contains(strVal, "${") {
+			result[key] = value
+			continue
+		}
+		evaluated, err := p.evaluator.EvaluateValue(strVal, configData, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+		}
+		if _, isDeferred := evaluated.(evaluator.DeferredValue); isDeferred {
+			continue
+		}
+		result[key] = evaluated
+	}
+	return result, nil
 }
 
 // processBackendConfig processes backend configuration and applies each key-value pair to the provided addArg function.

@@ -351,7 +351,7 @@ func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.T
 		}
 	}
 
-	terraformVars, terraformArgs, err := terraformEnv.GetEnvVarsForPath(component.GetID(), component.FullPath, false)
+	terraformVars, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
 	if err != nil {
 		return nil, fmt.Errorf("error getting terraform env vars: %w", err)
 	}

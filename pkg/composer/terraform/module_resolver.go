@@ -13,6 +13,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -81,13 +82,19 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 
 	components := h.blueprintHandler.GetTerraformComponents()
 
+	configData := h.getConfigValues()
 	for _, component := range components {
 		componentValues := component.Inputs
 		if componentValues == nil {
 			componentValues = make(map[string]any)
 		}
 
-		if err := h.generateComponentTfvars(projectRoot, component, componentValues); err != nil {
+		evaluatedValues, err := h.evaluateInputs(componentValues, configData)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
+		}
+
+		if err := h.generateComponentTfvars(projectRoot, component, evaluatedValues); err != nil {
 			return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
 		}
 	}
@@ -353,6 +360,47 @@ func (h *BaseModuleResolver) removeTfvarsFiles(dir string) error {
 	}
 
 	return nil
+}
+
+// getConfigValues retrieves the current context's configuration values from the ConfigHandler.
+// These values are used during input evaluation to resolve expressions like terraform_output().
+// Returns nil if ConfigHandler is unavailable or if values cannot be retrieved.
+func (h *BaseModuleResolver) getConfigValues() map[string]any {
+	if h.runtime.ConfigHandler == nil {
+		return nil
+	}
+	values, err := h.runtime.ConfigHandler.GetContextValues()
+	if err != nil {
+		return nil
+	}
+	return values
+}
+
+// evaluateInputs evaluates input expressions in component values using the runtime evaluator.
+// String values containing ${} expressions are evaluated, while other values are passed through unchanged.
+// Deferred values are skipped. Returns the evaluated values map or an error if evaluation fails.
+func (h *BaseModuleResolver) evaluateInputs(inputs map[string]any, configData map[string]any) (map[string]any, error) {
+	if h.runtime.Evaluator == nil {
+		return inputs, nil
+	}
+
+	result := make(map[string]any)
+	for key, value := range inputs {
+		strVal, isString := value.(string)
+		if !isString || !strings.Contains(strVal, "${") {
+			result[key] = value
+			continue
+		}
+		evaluated, err := h.runtime.Evaluator.EvaluateValue(strVal, configData, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+		}
+		if _, isDeferred := evaluated.(evaluator.DeferredValue); isDeferred {
+			continue
+		}
+		result[key] = evaluated
+	}
+	return result, nil
 }
 
 // =============================================================================

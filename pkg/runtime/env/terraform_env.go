@@ -61,24 +61,8 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return e.getEmptyEnvVars(), nil
 	}
 
-	terraformVars, _, err := e.GetEnvVarsForPath(projectPath, projectPath, true)
+	terraformVars, _, err := e.terraformProvider.GetEnvVars(projectPath, true)
 	return terraformVars, err
-}
-
-// GetEnvVarsForPath generates Terraform environment variables for the given component ID and module path.
-// Returns both the environment variables map and the TerraformArgs struct, or an error.
-func (e *TerraformEnvPrinter) GetEnvVarsForPath(componentID, modulePath string, interactive bool) (map[string]string, *TerraformArgs, error) {
-	terraformArgs, err := e.terraformProvider.GenerateTerraformArgs(componentID, modulePath, interactive)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error generating terraform args: %w", err)
-	}
-
-	terraformVars, err := e.terraformProvider.GetEnvVarsForArgs(terraformArgs, true)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return terraformVars, terraformArgs, nil
 }
 
 // PostEnvHook executes operations after setting the environment variables.
