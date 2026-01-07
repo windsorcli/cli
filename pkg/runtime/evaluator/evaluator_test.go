@@ -3,6 +3,7 @@ package evaluator
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1909,6 +1910,33 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 		if config, ok := result["object"].(map[string]any); !ok || config["key"] != "value" {
 			t.Errorf("Expected object to be preserved as map, got %v", result["object"])
+		}
+	})
+
+	t.Run("PreventsInfiniteLoopWithDeferredTerraformOutputInInterpolation", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
+			if len(params) != 2 {
+				return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments")
+			}
+			component, _ := params[0].(string)
+			key, _ := params[1].(string)
+			if deferred {
+				return nil, fmt.Errorf("terraform outputs not available for component %s", component)
+			}
+			return fmt.Sprintf(`terraform_output("%s", "%s")`, component, key), nil
+		}, new(func(string, string) any))
+
+		input := "prefix-${terraform_output('a','b')}-suffix"
+		result, err := evaluator.Evaluate(input, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		expected := "prefix-${terraform_output(\"a\", \"b\")}-suffix"
+		if result != expected {
+			t.Errorf("Expected result to be %q, got %q", expected, result)
 		}
 	})
 }

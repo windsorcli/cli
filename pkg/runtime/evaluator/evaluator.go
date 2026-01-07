@@ -143,6 +143,9 @@ func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDef
 				}
 			}
 			result = result[:start] + replacement + result[end+1:]
+			if !evaluateDeferred && ContainsExpression(replacement) {
+				break
+			}
 		}
 		return result, nil
 	}
