@@ -1123,7 +1123,6 @@ func TestTerraformEnv_generateBackendOverrideTf(t *testing.T) {
 // TestTerraformEnv_DependencyResolution - UPDATED
 // This test verifies that GetEnvVars no longer automatically injects dependency variables.
 // Dependency variable injection via addDependencyVariables has been removed.
-// Dependency chaining is now handled via explicit terraform.*.outputs.* references in component inputs.
 func TestTerraformEnv_DependencyResolution(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformEnvPrinter, *EnvTestMocks) {
 		t.Helper()
@@ -1176,7 +1175,7 @@ terraform:
 		}
 
 		// And dependency variables should NOT be automatically injected
-		// (they should only come from explicit terraform.*.outputs.* references in inputs)
+		// (they should only come from explicit terraform_output() references in inputs)
 		unexpectedVars := []string{
 			"TF_VAR_subnet_ids",
 			"TF_VAR_vpc_id",
