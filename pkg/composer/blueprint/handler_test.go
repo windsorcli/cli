@@ -49,9 +49,7 @@ func setupHandlerMocks(t *testing.T) *HandlerTestMocks {
 	mockEvaluator := evaluator.NewMockExpressionEvaluator()
 
 	mockEvaluator.EvaluateFunc = realEvaluator.Evaluate
-	mockEvaluator.EvaluateDefaultsFunc = realEvaluator.EvaluateDefaults
-	mockEvaluator.EvaluateValueFunc = realEvaluator.EvaluateValue
-	mockEvaluator.InterpolateStringFunc = realEvaluator.InterpolateString
+	mockEvaluator.EvaluateMapFunc = realEvaluator.EvaluateMap
 	mockEvaluator.SetTemplateDataFunc = realEvaluator.SetTemplateData
 	mockEvaluator.RegisterFunc = realEvaluator.Register
 

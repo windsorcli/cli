@@ -217,7 +217,8 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 		return "terraform"
 	}
 	mocks.Runtime.ToolsManager = mockToolsManager
-	mockTerraformProvider := terraformRuntime.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mockToolsManager, nil)
+	mockTerraformProvider := terraformRuntime.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mockToolsManager, mocks.Runtime.Evaluator)
+	mocks.Runtime.TerraformProvider = mockTerraformProvider
 	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mockToolsManager, mockTerraformProvider)
 	mocks.Runtime.EnvPrinters.TerraformEnv = terraformEnv
 
@@ -542,20 +543,27 @@ func TestStack_Down(t *testing.T) {
 	t.Run("SkipComponentsWithDestroyFalse", func(t *testing.T) {
 		stack, mocks := setup(t)
 
+		mocks.Runtime.TerraformProvider.ClearCache()
+
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 		destroyFalse := false
 		blueprint := createTestBlueprint()
+		blueprint.Sources = append(blueprint.Sources, blueprintv1alpha1.Source{
+			Name: "source2",
+			Url:  "https://github.com/example/example2.git",
+			Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+		})
 		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
 			{
 				Source:   "source1",
 				Path:     "module/path1",
-				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path1"),
+				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "module/path1"),
 				Destroy:  &destroyFalse,
 			},
 			{
 				Source:   "source2",
 				Path:     "module/path2",
-				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path2"),
+				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "module/path2"),
 			},
 		}
 
@@ -568,8 +576,9 @@ func TestStack_Down(t *testing.T) {
 
 		var terraformCommands []string
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) > 1 {
-				terraformCommands = append(terraformCommands, fmt.Sprintf("%s %s", args[0], args[1]))
+			if command == "terraform" {
+				cmdStr := strings.Join(args, " ")
+				terraformCommands = append(terraformCommands, cmdStr)
 			}
 			return "", nil
 		}
@@ -582,19 +591,19 @@ func TestStack_Down(t *testing.T) {
 		foundPath2Commands := false
 
 		for _, cmd := range terraformCommands {
-			if strings.Contains(cmd, "path1") {
+			if strings.Contains(cmd, "module/path1") || strings.Contains(cmd, "/path1") || (strings.Contains(cmd, "path1") && !strings.Contains(cmd, "path2")) {
 				foundPath1Commands = true
 			}
-			if strings.Contains(cmd, "path2") {
+			if strings.Contains(cmd, "module/path2") || strings.Contains(cmd, "/path2") || (strings.Contains(cmd, "path2") && !strings.Contains(cmd, "path1")) {
 				foundPath2Commands = true
 			}
 		}
 
 		if foundPath1Commands {
-			t.Errorf("Expected no terraform commands for path1 (destroy: false), but found commands")
+			t.Errorf("Expected no terraform commands for path1 (destroy: false), but found commands: %v", terraformCommands)
 		}
 		if !foundPath2Commands {
-			t.Errorf("Expected terraform commands for path2 (destroy: true), but found none")
+			t.Errorf("Expected terraform commands for path2 (destroy: true), but found none. Commands executed: %v", terraformCommands)
 		}
 	})
 

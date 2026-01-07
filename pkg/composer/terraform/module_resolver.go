@@ -13,7 +13,6 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -82,16 +81,21 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 
 	components := h.blueprintHandler.GetTerraformComponents()
 
-	configData := h.getConfigValues()
 	for _, component := range components {
 		componentValues := component.Inputs
 		if componentValues == nil {
 			componentValues = make(map[string]any)
 		}
 
-		evaluatedValues, err := h.evaluateInputs(componentValues, configData)
-		if err != nil {
-			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
+		var evaluatedValues map[string]any
+		var err error
+		if h.runtime.Evaluator == nil {
+			evaluatedValues = componentValues
+		} else {
+			evaluatedValues, err = h.runtime.Evaluator.EvaluateMap(componentValues, "", true)
+			if err != nil {
+				return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
+			}
 		}
 
 		if err := h.generateComponentTfvars(projectRoot, component, evaluatedValues); err != nil {
@@ -262,18 +266,14 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 // For local components without a name, the path is terraform/<component.Path> (the actual module location).
 // Returns the module directory path if it exists, or an error if not found.
 func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
-	var dirName string
-	if component.Name != "" {
-		dirName = component.Name
-	} else {
-		dirName = component.Path
-	}
+	componentID := component.GetID()
 
+	useScratchPath := component.Name != "" || component.Source != ""
 	var modulePath string
-	if component.Name != "" || component.Source != "" {
-		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", dirName)
+	if useScratchPath {
+		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", componentID)
 	} else {
-		modulePath = filepath.Join(projectRoot, "terraform", component.Path)
+		modulePath = filepath.Join(projectRoot, "terraform", componentID)
 	}
 
 	if _, err := h.shims.Stat(modulePath); err != nil {
@@ -362,47 +362,6 @@ func (h *BaseModuleResolver) removeTfvarsFiles(dir string) error {
 	return nil
 }
 
-// getConfigValues retrieves the current context's configuration values from the ConfigHandler.
-// These values are used during input evaluation to resolve expressions like terraform_output().
-// Returns nil if ConfigHandler is unavailable or if values cannot be retrieved.
-func (h *BaseModuleResolver) getConfigValues() map[string]any {
-	if h.runtime.ConfigHandler == nil {
-		return nil
-	}
-	values, err := h.runtime.ConfigHandler.GetContextValues()
-	if err != nil {
-		return nil
-	}
-	return values
-}
-
-// evaluateInputs evaluates input expressions in component values using the runtime evaluator.
-// String values containing ${} expressions are evaluated, while other values are passed through unchanged.
-// Deferred values are skipped. Returns the evaluated values map or an error if evaluation fails.
-func (h *BaseModuleResolver) evaluateInputs(inputs map[string]any, configData map[string]any) (map[string]any, error) {
-	if h.runtime.Evaluator == nil {
-		return inputs, nil
-	}
-
-	result := make(map[string]any)
-	for key, value := range inputs {
-		strVal, isString := value.(string)
-		if !isString || !strings.Contains(strVal, "${") {
-			result[key] = value
-			continue
-		}
-		evaluated, err := h.runtime.Evaluator.EvaluateValue(strVal, configData, "")
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
-		}
-		if _, isDeferred := evaluated.(evaluator.DeferredValue); isDeferred {
-			continue
-		}
-		result[key] = evaluated
-	}
-	return result, nil
-}
-
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -485,8 +444,10 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			}
 		}
 
+		buf := make([]byte, 0, 32)
+		buf = fmt.Appendf(buf, "# %s = null", info.Name)
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = null", info.Name))},
+			{Type: hclsyntax.TokenComment, Bytes: buf},
 		})
 		body.AppendNewline()
 	}

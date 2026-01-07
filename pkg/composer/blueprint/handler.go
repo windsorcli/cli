@@ -223,8 +223,6 @@ func (h *BaseBlueprintHandler) loadSourcesFromBlueprint(loader BlueprintLoader) 
 // primary, then user overlay. The user blueprint filters the final result to only include
 // components explicitly selected by the user.
 func (h *BaseBlueprintHandler) processAndCompose() error {
-	config := h.getConfigValues()
-
 	var loadersToProcess []BlueprintLoader
 	loaderNames := make(map[BlueprintLoader]string)
 
@@ -248,7 +246,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		wg.Add(1)
 		go func(l BlueprintLoader, name string) {
 			defer wg.Done()
-			if err := h.processFeaturesForBlueprintLoader(l, config); err != nil {
+			if err := h.processLoader(l); err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("failed to process features for '%s': %w", name, err))
 				mu.Unlock()
@@ -278,13 +276,13 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	return nil
 }
 
-// processFeaturesForBlueprintLoader evaluates all features from a single blueprint loader using
-// the provided configuration values. Features with 'when' conditions are evaluated against the
-// config, and only matching features contribute their terraform components and kustomizations.
-// The loader's source name is passed to the processor to set the Source field on feature-derived
-// components. Features are processed directly against the loader's blueprint, modifying it in place.
-// This ensures all merge, replace, and remove operations happen against the actual blueprint state.
-func (h *BaseBlueprintHandler) processFeaturesForBlueprintLoader(loader BlueprintLoader, config map[string]any) error {
+// processLoader evaluates all features from a single blueprint loader.
+// Features with 'when' conditions are evaluated, and only matching features contribute their
+// terraform components and kustomizations. The loader's source name is passed to the processor
+// to set the Source field on feature-derived components. Features are processed directly against
+// the loader's blueprint, modifying it in place. This ensures all merge, replace, and remove
+// operations happen against the actual blueprint state.
+func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) error {
 	features := loader.GetFeatures()
 	if len(features) == 0 {
 		return nil
@@ -292,7 +290,7 @@ func (h *BaseBlueprintHandler) processFeaturesForBlueprintLoader(loader Blueprin
 
 	sourceName := loader.GetSourceName()
 	bp := loader.GetBlueprint()
-	if err := h.processor.ProcessFeatures(bp, features, config, sourceName); err != nil {
+	if err := h.processor.ProcessFeatures(bp, features, sourceName); err != nil {
 		return err
 	}
 	return nil
@@ -459,17 +457,13 @@ func (h *BaseBlueprintHandler) getSourceRef(source blueprintv1alpha1.Source) str
 // without a source are resolved to the project's terraform/<path> directory. This path is used
 // by module resolvers and the terraform provisioner to locate module files.
 func (h *BaseBlueprintHandler) resolveComponentFullPath(component *blueprintv1alpha1.TerraformComponent) {
-	var dirName string
-	if component.Name != "" {
-		dirName = component.Name
-	} else {
-		dirName = component.Path
-	}
+	componentID := component.GetID()
 
-	if component.Name != "" || component.Source != "" {
-		component.FullPath = filepath.Join(h.runtime.WindsorScratchPath, "terraform", dirName)
+	useScratchPath := component.Name != "" || component.Source != ""
+	if useScratchPath {
+		component.FullPath = filepath.Join(h.runtime.WindsorScratchPath, "terraform", componentID)
 	} else {
-		component.FullPath = filepath.Join(h.runtime.ProjectRoot, "terraform", dirName)
+		component.FullPath = filepath.Join(h.runtime.ProjectRoot, "terraform", componentID)
 	}
 }
 

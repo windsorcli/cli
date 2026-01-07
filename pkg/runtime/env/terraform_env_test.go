@@ -1338,7 +1338,6 @@ terraform:
 			destroyArgs := []string{"-parallelism=5"}
 
 			return &terraform.TerraformArgs{
-				ModulePath:      modulePath,
 				TFDataDir:       tfDataDir,
 				InitArgs:        initArgs,
 				PlanArgs:        planArgs,
@@ -1349,6 +1348,19 @@ terraform:
 				PlanDestroyArgs: []string{"-destroy"},
 				BackendConfig:   strings.Join(backendConfigArgs, " "),
 			}, nil
+		}
+		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
+			args, err := mockProvider.GenerateTerraformArgsFunc(componentID, "", interactive)
+			if err != nil {
+				return nil, nil, err
+			}
+			envVars := make(map[string]string)
+			envVars["TF_DATA_DIR"] = args.TFDataDir
+			envVars["TF_CLI_ARGS_init"] = strings.Join(args.InitArgs, " ")
+			envVars["TF_CLI_ARGS_plan"] = strings.Join(args.PlanArgs, " ")
+			envVars["TF_CLI_ARGS_apply"] = strings.Join(args.ApplyArgs, " ")
+			envVars["TF_CLI_ARGS_destroy"] = strings.Join(args.DestroyArgs, " ")
+			return envVars, args, nil
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
@@ -1671,6 +1683,10 @@ terraform:
 			}
 			return &terraform.TerraformArgs{}, nil
 		}
+		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
+			_, err := mockProvider.GenerateTerraformArgsFunc(componentID, "", interactive)
+			return nil, nil, err
+		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
 		_, _, err := printer.terraformProvider.GetEnvVars("test/path", true)
@@ -1748,7 +1764,6 @@ terraform:
 			destroyArgs := []string{"-parallelism=3"}
 
 			return &terraform.TerraformArgs{
-				ModulePath:      modulePath,
 				TFDataDir:       tfDataDir,
 				InitArgs:        initArgs,
 				PlanArgs:        planArgs,
@@ -1759,6 +1774,19 @@ terraform:
 				PlanDestroyArgs: []string{"-destroy"},
 				BackendConfig:   strings.Join(backendConfigArgs, " "),
 			}, nil
+		}
+		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
+			args, err := mockProvider.GenerateTerraformArgsFunc(componentID, "", interactive)
+			if err != nil {
+				return nil, nil, err
+			}
+			envVars := make(map[string]string)
+			envVars["TF_DATA_DIR"] = args.TFDataDir
+			envVars["TF_CLI_ARGS_init"] = strings.Join(args.InitArgs, " ")
+			envVars["TF_CLI_ARGS_plan"] = strings.Join(args.PlanArgs, " ")
+			envVars["TF_CLI_ARGS_apply"] = strings.Join(args.ApplyArgs, " ")
+			envVars["TF_CLI_ARGS_destroy"] = strings.Join(args.DestroyArgs, " ")
+			return envVars, args, nil
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 

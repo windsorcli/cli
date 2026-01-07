@@ -155,7 +155,7 @@ func TestNewTerraformProvider(t *testing.T) {
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		registerCalled := false
 		registerName := ""
-		mockEvaluator.RegisterFunc = func(name string, helper func(params ...any) (any, error), signature any) {
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signature any) {
 			registerCalled = true
 			registerName = name
 		}
@@ -192,7 +192,7 @@ func TestNewTerraformProvider(t *testing.T) {
 		concreteProvider.cache["test-component"] = map[string]any{"test-key": "test-value"}
 		concreteProvider.mu.Unlock()
 
-		result, err := testEvaluator.Evaluate(`terraform_output("test-component", "test-key")`, map[string]any{}, "")
+		result, err := testEvaluator.Evaluate(`${terraform_output("test-component", "test-key")}`, "", false)
 
 		if err != nil {
 			t.Fatalf("Expected helper to be registered and callable, got error: %v", err)
@@ -535,7 +535,7 @@ func TestTerraformProvider_GetOutputs(t *testing.T) {
 		mocks.Provider.cache["test-component"] = expectedOutputs
 		mocks.Provider.mu.Unlock()
 
-		output1, err := mocks.Provider.getOutput("test-component", "output1")
+		output1, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -543,7 +543,7 @@ func TestTerraformProvider_GetOutputs(t *testing.T) {
 			t.Errorf("Expected output1 to be 'value1', got %v", output1)
 		}
 
-		output2, err := mocks.Provider.getOutput("test-component", "output2")
+		output2, err := mocks.Provider.getOutput("test-component", "output2", `terraform_output("test-component", "output2")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -563,12 +563,12 @@ func TestTerraformProvider_GetOutputs(t *testing.T) {
 		mocks.Provider.cache["test-component"] = expectedOutputs
 		mocks.Provider.mu.Unlock()
 
-		output1, err1 := mocks.Provider.getOutput("test-component", "output1")
+		output1, err1 := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err1 != nil {
 			t.Fatalf("Expected no error on first call, got %v", err1)
 		}
 
-		output2, err2 := mocks.Provider.getOutput("test-component", "output1")
+		output2, err2 := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err2 != nil {
 			t.Fatalf("Expected no error on second call, got %v", err2)
 		}
@@ -592,13 +592,13 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
 
-		output, err := mocks.Provider.getOutput("nonexistent-component", "any-key")
+		output, err := mocks.Provider.getOutput("nonexistent-component", "any-key", `terraform_output("nonexistent-component", "any-key")`, false)
 
 		if err != nil {
 			t.Errorf("Expected no error for nonexistent component, got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue for nonexistent component, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string for nonexistent component, got %v", output)
 		}
 	})
 
@@ -632,12 +632,12 @@ terraform:
 			t.Fatal("Expected components to be loaded from blueprint")
 		}
 
-		output1, err := mocks.Provider.getOutput("test-component", "output1")
+		output1, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		output2, err := mocks.Provider.getOutput("test-component", "output2")
+		output2, err := mocks.Provider.getOutput("test-component", "output2", `terraform_output("test-component", "output2")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -673,13 +673,13 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "any-key")
+		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, false)
 
 		if err != nil {
 			t.Errorf("Expected no error for empty outputs, got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue for missing key, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string for missing key, got %v", output)
 		}
 	})
 
@@ -709,7 +709,7 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -734,13 +734,13 @@ terraform:
 			return errors.New("setenv failed")
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "any-key")
+		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, false)
 
 		if err != nil {
 			t.Errorf("Expected no error when setenv fails (errors are swallowed), got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when setenv fails, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when setenv fails, got %v", output)
 		}
 	})
 
@@ -755,13 +755,13 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "unsupported"})
 
-		output, err := mocks.Provider.getOutput("test-component", "any-key")
+		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, false)
 
 		if err != nil {
 			t.Errorf("Expected no error when backend override fails (errors are swallowed), got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when backend override fails, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when backend override fails, got %v", output)
 		}
 	})
 
@@ -793,7 +793,7 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -825,12 +825,12 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Errorf("Expected no error when JsonUnmarshal fails (errors are swallowed), got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when JsonUnmarshal fails, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when JsonUnmarshal fails, got %v", output)
 		}
 	})
 
@@ -852,12 +852,12 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Errorf("Expected no error when output has no value field, got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when output has no value field, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when output has no value field, got %v", output)
 		}
 	})
 
@@ -879,12 +879,12 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Errorf("Expected no error when output value is not a map, got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when output value is not a map, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when output value is not a map, got %v", output)
 		}
 	})
 }
@@ -1364,9 +1364,6 @@ terraform:
 			t.Errorf("Expected TFDataDir %s, got %s", expectedTFDataDir, args.TFDataDir)
 		}
 
-		if args.ModulePath != modulePath {
-			t.Errorf("Expected ModulePath %s, got %s", modulePath, args.ModulePath)
-		}
 
 		if len(args.InitArgs) == 0 {
 			t.Error("Expected InitArgs to be populated")
@@ -2152,7 +2149,10 @@ terraform:
     inputs:
       vpc_id: '${terraform_output("network", "vpc_id")}'`
 
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+		configHandler := config.NewMockConfigHandler()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local", Evaluator: testEvaluator})
+		mocks.Provider.evaluator = testEvaluator
 
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "id" {
@@ -2204,14 +2204,18 @@ terraform:
 		if networkCache == nil {
 			t.Error("Expected network component outputs to be cached")
 		} else {
-			if len(networkCache) != 1 {
-				t.Errorf("Expected cache to contain only 1 output (vpc_id), got %d: %v", len(networkCache), networkCache)
-			}
 			if networkCache["vpc_id"] != "vpc-123" {
 				t.Errorf("Expected cached vpc_id to be 'vpc-123', got: %v", networkCache["vpc_id"])
 			}
-			if _, exists := networkCache["isolated_subnet_ids"]; exists {
-				t.Error("Expected isolated_subnet_ids to NOT be cached (not accessed via terraform_output)")
+			// All outputs are cached when fetched, even if not accessed via terraform_output()
+			if isolatedSubnets, exists := networkCache["isolated_subnet_ids"]; !exists {
+				t.Error("Expected isolated_subnet_ids to be cached (all outputs are cached when fetched)")
+			} else {
+				// Verify it's the actual value, not a deferred expression
+				expected := []any{"subnet-1"}
+				if fmt.Sprintf("%v", isolatedSubnets) != fmt.Sprintf("%v", expected) {
+					t.Errorf("Expected isolated_subnet_ids to be cached as actual value, got: %v", isolatedSubnets)
+				}
 			}
 		}
 	})
@@ -2230,7 +2234,10 @@ terraform:
       vpc_id: '${terraform_output("network", "vpc_id")}'
       subnet_ids: '${terraform_output("network", "private_subnet_ids")}'`
 
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+		configHandler := config.NewMockConfigHandler()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local", Evaluator: testEvaluator})
+		mocks.Provider.evaluator = testEvaluator
 
 		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "id" {
@@ -2264,8 +2271,8 @@ terraform:
 		}
 
 		expectedSubnetIds := `["subnet-1","subnet-2"]`
-		if envVars["TF_VAR_private_subnet_ids"] != expectedSubnetIds {
-			t.Errorf("Expected TF_VAR_private_subnet_ids to be %s, got: %s", expectedSubnetIds, envVars["TF_VAR_private_subnet_ids"])
+		if envVars["TF_VAR_subnet_ids"] != expectedSubnetIds {
+			t.Errorf("Expected TF_VAR_subnet_ids to be %s, got: %s", expectedSubnetIds, envVars["TF_VAR_subnet_ids"])
 		}
 
 		unexpectedVars := []string{
@@ -2286,11 +2293,11 @@ terraform:
 		if networkCache == nil {
 			t.Error("Expected network component outputs to be cached")
 		} else {
-			if len(networkCache) != 2 {
-				t.Errorf("Expected cache to contain 2 outputs (vpc_id, private_subnet_ids), got %d: %v", len(networkCache), networkCache)
-			}
 			if networkCache["vpc_id"] != "vpc-123" {
 				t.Errorf("Expected cached vpc_id to be 'vpc-123', got: %v", networkCache["vpc_id"])
+			}
+			if str, isString := networkCache["private_subnet_ids"].(string); isString && strings.HasPrefix(str, "terraform_output(") {
+				t.Errorf("Expected private_subnet_ids to be accessed (not deferred), got: %v", networkCache["private_subnet_ids"])
 			}
 		}
 	})
