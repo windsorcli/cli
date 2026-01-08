@@ -642,24 +642,22 @@ var _ HelperRegistrar = (*expressionEvaluator)(nil)
 // Helper Functions
 // =============================================================================
 
-// ContainsExpression determines whether the provided value is a string that represents an expression.
-// An expression string is defined as any string starting with "${" and ending with "}", such as "${foo.bar}".
-// This function returns true if the value is a string wrapped in "${...}" and false otherwise.
-// If the expression is malformed (e.g., a missing closing brace), the function also returns false.
-// Used to identify values containing expressions that should be evaluated or skipped if not fully resolved.
+// ContainsExpression determines whether the provided value is a string that contains an unresolved expression.
+// An expression is identified by the pattern "${...}" anywhere in the string. This function returns true if
+// the value is a string containing at least one properly closed "${...}" expression pattern, and false otherwise.
+// Used to identify values containing unresolved expressions that should be skipped when evaluateDeferred is false.
 func ContainsExpression(value any) bool {
 	str, isString := value.(string)
 	if !isString {
 		return false
 	}
-	if !strings.HasPrefix(str, "${") {
+	if !strings.Contains(str, "${") {
 		return false
 	}
-	if !strings.HasSuffix(str, "}") {
+	start := strings.Index(str, "${")
+	if start == -1 {
 		return false
 	}
-	if strings.Count(str, "${") != strings.Count(str, "}") {
-		return false
-	}
-	return true
+	end := strings.Index(str[start:], "}")
+	return end != -1
 }

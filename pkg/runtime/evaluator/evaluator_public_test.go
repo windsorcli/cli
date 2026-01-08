@@ -820,4 +820,88 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Errorf("Expected result to be %q, got %q", expected, result)
 		}
 	})
+
+	t.Run("SkipsPartiallyInterpolatedStringsWithUnresolvedExpressions", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
+			if len(params) != 2 {
+				return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments")
+			}
+			component, _ := params[0].(string)
+			key, _ := params[1].(string)
+			if deferred {
+				return nil, fmt.Errorf("terraform outputs not available for component %s", component)
+			}
+			return fmt.Sprintf(`terraform_output("%s", "%s")`, component, key), nil
+		}, new(func(string, string) any))
+
+		values := map[string]any{
+			"deferred": "prefix-${terraform_output('x', 'y')}-suffix",
+			"normal":   "value",
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := result["deferred"]; exists {
+			t.Error("Expected partially interpolated string with unresolved expression to be skipped")
+		}
+
+		if result["normal"] != "value" {
+			t.Errorf("Expected normal to be 'value', got %v", result["normal"])
+		}
+	})
+}
+
+func TestContainsExpression(t *testing.T) {
+	t.Run("ReturnsTrueForFullyWrappedExpression", func(t *testing.T) {
+		if !ContainsExpression("${foo.bar}") {
+			t.Error("Expected ContainsExpression to return true for fully wrapped expression")
+		}
+	})
+
+	t.Run("ReturnsTrueForPartiallyInterpolatedString", func(t *testing.T) {
+		if !ContainsExpression("prefix-${terraform_output('x', 'y')}-suffix") {
+			t.Error("Expected ContainsExpression to return true for partially interpolated string")
+		}
+	})
+
+	t.Run("ReturnsTrueForMultipleExpressions", func(t *testing.T) {
+		if !ContainsExpression("${foo}-${bar}") {
+			t.Error("Expected ContainsExpression to return true for string with multiple expressions")
+		}
+	})
+
+	t.Run("ReturnsFalseForStringWithoutExpression", func(t *testing.T) {
+		if ContainsExpression("plain string") {
+			t.Error("Expected ContainsExpression to return false for plain string")
+		}
+	})
+
+	t.Run("ReturnsFalseForUnclosedExpression", func(t *testing.T) {
+		if ContainsExpression("${unclosed") {
+			t.Error("Expected ContainsExpression to return false for unclosed expression")
+		}
+	})
+
+	t.Run("ReturnsFalseForNonStringValue", func(t *testing.T) {
+		if ContainsExpression(42) {
+			t.Error("Expected ContainsExpression to return false for non-string value")
+		}
+	})
+
+	t.Run("ReturnsFalseForNil", func(t *testing.T) {
+		if ContainsExpression(nil) {
+			t.Error("Expected ContainsExpression to return false for nil")
+		}
+	})
+
+	t.Run("ReturnsFalseForEmptyString", func(t *testing.T) {
+		if ContainsExpression("") {
+			t.Error("Expected ContainsExpression to return false for empty string")
+		}
+	})
 }
