@@ -415,10 +415,9 @@ func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 }
 
 // Get retrieves the value at the specified configuration path from the internal data map.
-// If the value is not found in the current data, and the schema validator is available,
-// it falls back to returning a default value from the schema for the top-level key or
-// deeper nested keys as appropriate. If the key matches a provider pattern (e.g., terraform.*),
-// it delegates to the appropriate provider. Returns nil if the path is empty or no value is found.
+// If the value is not found in the current data, it checks registered providers for the prefix,
+// and if the schema validator is available, it falls back to returning a default value from the schema
+// for the top-level key or deeper nested keys as appropriate. Returns nil if the path is empty or no value is found.
 func (c *configHandler) Get(path string) any {
 	if path == "" {
 		return nil
@@ -432,21 +431,12 @@ func (c *configHandler) Get(path string) any {
 	firstKey := pathKeys[0]
 	provider, hasProvider := c.providers[firstKey]
 
-	shouldTryProviderFirst := hasProvider && c.isProviderPattern(path, pathKeys, firstKey)
-
-	if shouldTryProviderFirst {
-		providerValue, err := provider.GetValue(path)
-		if err == nil {
-			return providerValue
-		}
-	}
-
 	value := getValueByPathFromMap(c.data, pathKeys)
 	if value != nil {
 		return value
 	}
 
-	if !shouldTryProviderFirst && hasProvider {
+	if hasProvider {
 		providerValue, err := provider.GetValue(path)
 		if err == nil {
 			return providerValue
@@ -475,27 +465,13 @@ func (c *configHandler) Get(path string) any {
 }
 
 // RegisterProvider registers a value provider for the specified prefix.
-// When Get encounters a key starting with the prefix, it uses pattern matching to determine
-// whether to check the provider first (for provider-specific patterns like terraform.<componentID>.outputs.<outputKey>)
-// or the data map first (for regular config keys). If the provider returns an error, Get falls back
-// to the data map and then to schema defaults.
+// When Get encounters a key starting with the prefix and the value is not found in the data map,
+// it delegates to the provider. If the provider returns an error, Get falls back to schema defaults.
 func (c *configHandler) RegisterProvider(prefix string, provider ValueProvider) {
 	if c.providers == nil {
 		c.providers = make(map[string]ValueProvider)
 	}
 	c.providers[prefix] = provider
-}
-
-// isProviderPattern checks if a path matches a known provider pattern that should be handled by the provider first.
-// Currently supports: terraform.<componentID>.outputs.<outputKey>
-func (c *configHandler) isProviderPattern(path string, pathKeys []string, prefix string) bool {
-	if prefix != "terraform" {
-		return false
-	}
-	if len(pathKeys) < 4 {
-		return false
-	}
-	return pathKeys[2] == "outputs"
 }
 
 // getValueByPathFromMap returns the value in a nested map[string]any at the location specified by the pathKeys slice.

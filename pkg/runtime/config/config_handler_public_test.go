@@ -1453,9 +1453,9 @@ properties:
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 		mockProvider := &mockValueProvider{value: "provider-value"}
-		handler.RegisterProvider("terraform", mockProvider)
+		handler.RegisterProvider("test", mockProvider)
 
-		value := handler.Get("terraform.component.outputs.key")
+		value := handler.Get("test.key")
 
 		if value != "provider-value" {
 			t.Errorf("Expected 'provider-value', got %v", value)
@@ -1466,9 +1466,9 @@ properties:
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 		mockProvider := &mockValueProvider{err: errors.New("provider error")}
-		handler.RegisterProvider("terraform", mockProvider)
+		handler.RegisterProvider("test", mockProvider)
 
-		value := handler.Get("terraform.component.outputs.key")
+		value := handler.Get("test.key")
 
 		if value != nil {
 			t.Errorf("Expected nil on provider error, got %v", value)
@@ -1506,21 +1506,16 @@ properties:
 		}
 	})
 
-	t.Run("ProviderPatternTakesPrecedenceOverConfig", func(t *testing.T) {
+	t.Run("ConfigValuesTakePrecedenceOverProvider", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
-		handler.Set("terraform.backend", map[string]any{"type": "s3"})
-		mockProvider := &mockValueProvider{value: "output-value"}
-		handler.RegisterProvider("terraform", mockProvider)
+		handler.Set("test.key", "config-value")
+		mockProvider := &mockValueProvider{value: "provider-value"}
+		handler.RegisterProvider("test", mockProvider)
 
-		outputValue := handler.Get("terraform.backend.outputs.key")
-		if outputValue != "output-value" {
-			t.Errorf("Expected provider value 'output-value' for pattern terraform.<component>.outputs.<key>, got %v", outputValue)
-		}
-
-		backendType := handler.Get("terraform.backend.type")
-		if backendType != "s3" {
-			t.Errorf("Expected config value 's3' for non-pattern key, got %v", backendType)
+		value := handler.Get("test.key")
+		if value != "config-value" {
+			t.Errorf("Expected config value 'config-value', got %v", value)
 		}
 	})
 

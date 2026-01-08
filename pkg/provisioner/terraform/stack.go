@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -106,25 +105,25 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 		}
 
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-		initArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "init"}
+		initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 		initArgs = append(initArgs, terraformArgs.InitArgs...)
 		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), terraformCommand, initArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 		}
 
-		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
+		refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
 		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), terraformCommand, refreshArgs...)
 
-		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
+		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
 		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), terraformCommand, planArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		}
 
-		applyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "apply"}
+		applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
 		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
 		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), terraformCommand, applyArgs...)
 		if err != nil {
@@ -184,17 +183,17 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 		}
 
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-		refreshArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "refresh"}
+		refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
 		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), terraformCommand, refreshArgs...)
 
-		planArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "plan"}
+		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
 		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Planning terraform destroy for %s", component.Path), terraformCommand, planArgs...); err != nil {
 			return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
 		}
 
-		destroyArgs := []string{fmt.Sprintf("-chdir=%s", terraformArgs.ModulePath), "destroy"}
+		destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy"}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), terraformCommand, destroyArgs...); err != nil {
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
@@ -268,21 +267,13 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 
 	for i, component := range resolvedComponents {
 		componentCopy := component
+		componentID := componentCopy.GetID()
 
-		var dirName string
-		if componentCopy.Name != "" {
-			dirName = componentCopy.Name
+		useScratchPath := componentCopy.Name != "" || componentCopy.Source != ""
+		if useScratchPath {
+			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", "contexts", s.runtime.ContextName, "terraform", componentID)
 		} else {
-			dirName = componentCopy.Path
-		}
-
-		if componentCopy.Name != "" ||
-			s.isValidTerraformRemoteSource(componentCopy.Source) ||
-			s.isOCISource(componentCopy.Source, blueprint) ||
-			strings.HasPrefix(componentCopy.Source, "file://") {
-			componentCopy.FullPath = filepath.Join(projectRoot, ".windsor", "contexts", s.runtime.ContextName, "terraform", dirName)
-		} else {
-			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", dirName)
+			componentCopy.FullPath = filepath.Join(projectRoot, "terraform", componentID)
 		}
 
 		componentCopy.FullPath = filepath.FromSlash(componentCopy.FullPath)
@@ -291,47 +282,6 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 	}
 
 	blueprint.TerraformComponents = resolvedComponents
-}
-
-// isValidTerraformRemoteSource checks if the source is a valid Terraform module reference.
-func (s *TerraformStack) isValidTerraformRemoteSource(source string) bool {
-	patterns := []string{
-		`^git::https://[^/]+/.*\.git(?:@.*)?$`,
-		`^git@[^:]+:.*\.git(?:@.*)?$`,
-		`^https?://[^/]+/.*\.git(?:@.*)?$`,
-		`^https?://[^/]+/.*\.zip(?:@.*)?$`,
-		`^https?://[^/]+/.*//.*(?:@.*)?$`,
-		`^registry\.terraform\.io/.*`,
-		`^[^/]+\.com/.*`,
-	}
-
-	for _, pattern := range patterns {
-		matched, err := regexp.MatchString(pattern, source)
-		if err != nil {
-			return false
-		}
-		if matched {
-			return true
-		}
-	}
-
-	return false
-}
-
-// isOCISource returns true if the provided source is an OCI repository reference.
-func (s *TerraformStack) isOCISource(sourceNameOrURL string, blueprint *blueprintv1alpha1.Blueprint) bool {
-	if strings.HasPrefix(sourceNameOrURL, "oci://") {
-		return true
-	}
-	if sourceNameOrURL == blueprint.Metadata.Name && strings.HasPrefix(blueprint.Repository.Url, "oci://") {
-		return true
-	}
-	for _, source := range blueprint.Sources {
-		if source.Name == sourceNameOrURL && strings.HasPrefix(source.Url, "oci://") {
-			return true
-		}
-	}
-	return false
 }
 
 // setupTerraformEnvironment configures the Terraform environment for a component.
@@ -351,7 +301,7 @@ func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.T
 		}
 	}
 
-	terraformVars, terraformArgs, err := terraformEnv.GetEnvVarsForPath(component.GetID(), component.FullPath, false)
+	terraformVars, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
 	if err != nil {
 		return nil, fmt.Errorf("error getting terraform env vars: %w", err)
 	}

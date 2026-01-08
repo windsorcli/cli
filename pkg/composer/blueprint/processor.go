@@ -3,7 +3,6 @@ package blueprint
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -28,7 +27,7 @@ var strategyPriorities = map[string]int{
 // It determines inclusion/exclusion based on boolean condition results.
 // The processor is stateless and shared across all loaders.
 type BlueprintProcessor interface {
-	ProcessFeatures(target *blueprintv1alpha1.Blueprint, features []blueprintv1alpha1.Feature, config map[string]any, sourceName ...string) error
+	ProcessFeatures(target *blueprintv1alpha1.Blueprint, features []blueprintv1alpha1.Feature, sourceName ...string) error
 }
 
 // =============================================================================
@@ -48,7 +47,8 @@ type BaseBlueprintProcessor struct {
 // NewBlueprintProcessor creates a new BlueprintProcessor using the runtime's expression evaluator.
 // The evaluator is used to evaluate 'when' conditions on features and components. Optional
 // overrides allow replacing the evaluator for testing. The processor is stateless and can
-// be shared across multiple concurrent feature processing operations.
+// be shared across multiple concurrent feature processing operations. The evaluator must be
+// provided either via the runtime or as an override.
 func NewBlueprintProcessor(rt *runtime.Runtime, opts ...*BaseBlueprintProcessor) *BaseBlueprintProcessor {
 	processor := &BaseBlueprintProcessor{
 		runtime:   rt,
@@ -81,7 +81,7 @@ func NewBlueprintProcessor(rt *runtime.Runtime, opts ...*BaseBlueprintProcessor)
 // priority ones. When priorities are equal, strategy priority is used: "remove" (highest) > "replace" > "merge" (default, lowest).
 // When both priority and strategy are equal, components are merged, removals are accumulated, or replace wins.
 // The target blueprint is modified in place.
-func (p *BaseBlueprintProcessor) ProcessFeatures(target *blueprintv1alpha1.Blueprint, features []blueprintv1alpha1.Feature, configData map[string]any, sourceName ...string) error {
+func (p *BaseBlueprintProcessor) ProcessFeatures(target *blueprintv1alpha1.Blueprint, features []blueprintv1alpha1.Feature, sourceName ...string) error {
 	if target == nil {
 		return fmt.Errorf("target blueprint cannot be nil")
 	}
@@ -100,7 +100,7 @@ func (p *BaseBlueprintProcessor) ProcessFeatures(target *blueprintv1alpha1.Bluep
 	kustomizationByName := make(map[string]*blueprintv1alpha1.ConditionalKustomization)
 
 	for _, feature := range sortedFeatures {
-		shouldInclude, err := p.shouldIncludeFeature(feature, configData)
+		shouldInclude, err := p.shouldIncludeFeature(feature)
 		if err != nil {
 			return err
 		}
@@ -108,11 +108,11 @@ func (p *BaseBlueprintProcessor) ProcessFeatures(target *blueprintv1alpha1.Bluep
 			continue
 		}
 
-		if err := p.collectTerraformComponents(feature, configData, sourceName, terraformByID); err != nil {
+		if err := p.collectTerraformComponents(feature, sourceName, terraformByID); err != nil {
 			return err
 		}
 
-		if err := p.collectKustomizations(feature, configData, sourceName, kustomizationByName); err != nil {
+		if err := p.collectKustomizations(feature, sourceName, kustomizationByName); err != nil {
 			return err
 		}
 	}
@@ -128,9 +128,9 @@ func (p *BaseBlueprintProcessor) ProcessFeatures(target *blueprintv1alpha1.Bluep
 // conditions, inputs, and source assignments. Components are collected into the terraformByID map
 // with strategy priority handling. Components with matching IDs are merged or replaced based on
 // their strategy priority. Returns an error if condition evaluation or input processing fails.
-func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1alpha1.Feature, configData map[string]any, sourceName []string, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent) error {
+func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1alpha1.Feature, sourceName []string, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent) error {
 	for _, tc := range feature.TerraformComponents {
-		shouldInclude, err := p.shouldIncludeComponent(tc.When, configData, feature.Path)
+		shouldInclude, err := p.shouldIncludeComponent(tc.When, feature.Path)
 		if err != nil {
 			return fmt.Errorf("error evaluating terraform component condition: %w", err)
 		}
@@ -140,7 +140,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1a
 
 		processed := tc
 		if processed.Inputs != nil {
-			evaluated, err := p.evaluateInputs(processed.Inputs, configData, feature.Path)
+			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, feature.Path, false)
 			if err != nil {
 				return fmt.Errorf("error evaluating inputs for component '%s': %w", processed.GetID(), err)
 			}
@@ -173,9 +173,9 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1a
 // map with strategy priority handling. Kustomizations with matching names are merged or replaced
 // based on their strategy priority. Returns an error if condition evaluation or substitution
 // processing fails.
-func (p *BaseBlueprintProcessor) collectKustomizations(feature blueprintv1alpha1.Feature, configData map[string]any, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
+func (p *BaseBlueprintProcessor) collectKustomizations(feature blueprintv1alpha1.Feature, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
 	for _, k := range feature.Kustomizations {
-		shouldInclude, err := p.shouldIncludeComponent(k.When, configData, feature.Path)
+		shouldInclude, err := p.shouldIncludeComponent(k.When, feature.Path)
 		if err != nil {
 			return fmt.Errorf("error evaluating kustomization condition: %w", err)
 		}
@@ -185,7 +185,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(feature blueprintv1alpha1
 
 		processed := k
 		if processed.Substitutions != nil {
-			evaluated, err := p.evaluateSubstitutions(processed.Substitutions, configData, feature.Path)
+			evaluated, err := p.evaluateSubstitutions(processed.Substitutions, feature.Path)
 			if err != nil {
 				return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
 			}
@@ -215,11 +215,11 @@ func (p *BaseBlueprintProcessor) collectKustomizations(feature blueprintv1alpha1
 // shouldIncludeFeature evaluates whether a feature should be included based on its 'when' condition.
 // Returns true if the feature has no condition or if the condition evaluates to true. Returns
 // false if the condition evaluates to false. Returns an error if condition evaluation fails.
-func (p *BaseBlueprintProcessor) shouldIncludeFeature(feature blueprintv1alpha1.Feature, configData map[string]any) (bool, error) {
+func (p *BaseBlueprintProcessor) shouldIncludeFeature(feature blueprintv1alpha1.Feature) (bool, error) {
 	if feature.When == "" {
 		return true, nil
 	}
-	matches, err := p.evaluateCondition(feature.When, configData, feature.Path)
+	matches, err := p.evaluateCondition(feature.When, feature.Path)
 	if err != nil {
 		return false, fmt.Errorf("error evaluating feature '%s' condition: %w", feature.Metadata.Name, err)
 	}
@@ -230,11 +230,11 @@ func (p *BaseBlueprintProcessor) shouldIncludeFeature(feature blueprintv1alpha1.
 // on its 'when' condition. Returns true if there is no condition or if the condition evaluates
 // to true. Returns false if the condition evaluates to false. Returns an error if condition
 // evaluation fails.
-func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, configData map[string]any, featurePath string) (bool, error) {
+func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, featurePath string) (bool, error) {
 	if when == "" {
 		return true, nil
 	}
-	matches, err := p.evaluateCondition(when, configData, featurePath)
+	matches, err := p.evaluateCondition(when, featurePath)
 	if err != nil {
 		return false, err
 	}
@@ -578,8 +578,11 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 // helper function resolution. Returns true if the expression evaluates to boolean true or the
 // string "true", false otherwise. Returns an error if the expression is invalid or evaluates
 // to an unexpected type.
-func (p *BaseBlueprintProcessor) evaluateCondition(expr string, configData map[string]any, path string) (bool, error) {
-	evaluated, err := p.evaluator.Evaluate(expr, configData, path)
+func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bool, error) {
+	if !evaluator.ContainsExpression(expr) {
+		expr = "${" + expr + "}"
+	}
+	evaluated, err := p.evaluator.Evaluate(expr, path, false)
 	if err != nil {
 		return false, err
 	}
@@ -594,38 +597,18 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, configData map[s
 	}
 }
 
-func (p *BaseBlueprintProcessor) evaluateInputs(inputs map[string]any, configData map[string]any, featurePath string) (map[string]any, error) {
-	result := make(map[string]any)
-	for key, value := range inputs {
-		strVal, isString := value.(string)
-		if !isString || !strings.Contains(strVal, "${") {
-			result[key] = value
-			continue
-		}
-		evaluated, err := p.evaluator.EvaluateValue(strVal, configData, featurePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
-		}
-		if _, isDeferred := evaluated.(evaluator.DeferredValue); isDeferred {
-			continue
-		}
-		result[key] = evaluated
-	}
-	return result, nil
-}
-
-func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, configData map[string]any, featurePath string) (map[string]string, error) {
+// evaluateSubstitutions evaluates a map of string substitutions using the BaseBlueprintProcessor's expression evaluator.
+// Each substitution value is evaluated; if the result contains unresolved expressions, the substitution is skipped.
+// Returned values retain their string form if possible, or are stringified if not. Returns the successfully
+// evaluated substitutions map or an error if evaluation fails for any substitution.
+func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, featurePath string) (map[string]string, error) {
 	result := make(map[string]string)
 	for key, value := range subs {
-		if !strings.Contains(value, "${") {
-			result[key] = value
-			continue
-		}
-		evaluated, err := p.evaluator.InterpolateString(value, configData, featurePath)
+		evaluated, err := p.evaluator.Evaluate(value, featurePath, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
-		if _, isDeferred := evaluated.(evaluator.DeferredValue); isDeferred {
+		if evaluator.ContainsExpression(evaluated) {
 			continue
 		}
 		if str, ok := evaluated.(string); ok {

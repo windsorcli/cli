@@ -1,8 +1,7 @@
 // The ExpressionEvaluator provides unified expression evaluation for the Runtime system.
-// It provides a single expression evaluator that uses the Runtime's config handler with providers
-// for all expression evaluation, enabling on-demand resolution of dynamic values like terraform.*
-// through the provider system. The evaluator supports all existing expression features including
-// jsonnet, file loading, and string interpolation.
+// It supplies expression evaluation using the Runtime's config handler, supporting features such as
+// jsonnet, file loading, and string interpolation. All expression evaluation is performed through
+// the provider system, enabling on-demand resolution of dynamic values.
 
 package evaluator
 
@@ -18,11 +17,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
-// DeferredValue is a sentinel type that indicates a value is not yet available
-// and should be deferred. When used in expressions, it propagates through
-// operations and causes the entire expression result to be skipped.
-type DeferredValue struct{}
-
 // =============================================================================
 // Types
 // =============================================================================
@@ -34,7 +28,7 @@ type expressionEvaluator struct {
 	templateRoot  string
 	Shims         *Shims
 	templateData  map[string][]byte
-	helpers       []expr.Option
+	helpers       []func(allowDeferred bool) expr.Option
 }
 
 // =============================================================================
@@ -49,17 +43,15 @@ type expressionEvaluator struct {
 type ExpressionEvaluator interface {
 	HelperRegistrar
 	SetTemplateData(templateData map[string][]byte)
-	Evaluate(expression string, config map[string]any, featurePath string) (any, error)
-	EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error)
-	EvaluateValue(s string, config map[string]any, featurePath string) (any, error)
-	InterpolateString(s string, config map[string]any, featurePath string) (any, error)
+	Evaluate(expression string, featurePath string, evaluateDeferred bool) (any, error)
+	EvaluateMap(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error)
 }
 
 // HelperRegistrar defines the interface for registering custom helpers with the evaluator.
 // This allows providers to extend expression evaluation capabilities without the evaluator
 // needing to know about provider-specific functionality.
 type HelperRegistrar interface {
-	Register(name string, helper func(params ...any) (any, error), signature any)
+	Register(name string, helper func(params []any, deferred bool) (any, error), signature any)
 }
 
 // =============================================================================
@@ -76,9 +68,13 @@ func NewExpressionEvaluator(configHandler config.ConfigHandler, projectRoot, tem
 		projectRoot:   projectRoot,
 		templateRoot:  templateRoot,
 		Shims:         NewShims(),
-		helpers:       []expr.Option{},
+		helpers:       []func(deferred bool) expr.Option{},
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // SetTemplateData sets the template data map for in-memory file resolution.
 // This is used when loading blueprints from OCI artifacts where template files
@@ -88,144 +84,99 @@ func (e *expressionEvaluator) SetTemplateData(templateData map[string][]byte) {
 	e.templateData = templateData
 }
 
-// Register registers a custom helper with the evaluator.
-// This allows providers to extend expression evaluation capabilities without
-// the evaluator needing to know about provider-specific functionality.
-func (e *expressionEvaluator) Register(name string, helper func(params ...any) (any, error), signature any) {
-	e.helpers = append(e.helpers, expr.Function(name, helper, signature))
+// Register adds a custom helper function to the evaluator for expression evaluation.
+// The provided helper function receives the deferred flag as a closure variable. The name parameter
+// specifies the function name used in expressions, helper is the custom function, and signature defines
+// the helper's input/output signature for the evaluator's use. This allows providers and consumers to
+// extend evaluator capabilities with domain-specific helpers.
+func (e *expressionEvaluator) Register(name string, helper func(params []any, deferred bool) (any, error), signature any) {
+	e.helpers = append(e.helpers, func(deferred bool) expr.Option {
+		wrappedHelper := func(params ...any) (any, error) {
+			return helper(params, deferred)
+		}
+		return expr.Function(name, wrappedHelper, signature)
+	})
 }
 
-// =============================================================================
-// Public Methods
-// =============================================================================
-
-// Evaluate evaluates a single expression and returns the result as any type.
-// The expression can include arithmetic operations, string manipulation, array construction,
-// and nested object access. It also supports file loading functions like jsonnet("path")
-// and file("path") for dynamic content loading. The config map provides values accessible
-// in the expression, and featurePath is used to resolve relative paths in file functions.
-// Returns the evaluated value or an error if compilation or evaluation fails.
-func (e *expressionEvaluator) Evaluate(expression string, config map[string]any, featurePath string) (any, error) {
-	if expression == "" {
+// Evaluate resolves Windsor expressions in the provided string s, supporting both complete and interpolated
+// (${...}) expressions, arithmetic operations, and complex object types. The evaluation will process dynamic
+// file and jsonnet loading as needed, and can defer unresolved expressions when evaluateDeferred is false.
+// The featurePath parameter is used for relative expression resolution, and evaluateDeferred controls
+// whether to process unresolved expressions immediately. Returns the fully evaluated value, or an error if
+// evaluation fails or the input is malformed. If s is empty, an error is returned. If no evaluation is triggered,
+// or if the result is nil (such as from an undefined variable), the original string s is returned as-is.
+func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDeferred bool) (any, error) {
+	if s == "" {
 		return nil, fmt.Errorf("expression cannot be empty")
 	}
+	if strings.Contains(s, "${") {
+		result := s
+		for strings.Contains(result, "${") {
+			start := strings.Index(result, "${")
+			end := strings.Index(result[start:], "}")
+			if end == -1 {
+				return "", fmt.Errorf("unclosed expression in string: %s", s)
+			}
+			end += start
+			expr := result[start+2 : end]
+			value, err := e.evaluateExpression(expr, featurePath, evaluateDeferred)
+			if err != nil {
+				return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
+			}
+			var replacement string
+			if value == nil {
+				replacement = expr
+			} else {
+				switch value.(type) {
+				case map[string]any, []any:
+					yamlData, err := e.Shims.YamlMarshal(value)
+					if err != nil {
+						return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
+					}
+					replacement = strings.TrimSpace(string(yamlData))
+				default:
+					replacement = fmt.Sprintf("%v", value)
+				}
+			}
+			before := result[:start]
+			after := result[end+1:]
+			result = before + replacement + after
+			if before == "" && after == "" {
+				if value == nil {
+					return expr, nil
+				}
+				return value, nil
+			}
+			if !evaluateDeferred && ContainsExpression(replacement) {
+				break
+			}
+		}
+		return result, nil
+	}
+	return s, nil
+}
 
+// evaluateExpression compiles and evaluates a single expression string using the expressionEvaluator environment.
+// The expression should not include ${} bookends. Configures the evaluation context with Windsor-specific helpers
+// and config enrichment. If evaluateDeferred is false, and the result is a string matching the pattern for
+// terraform_output(), the result is returned as an unresolved expression. Returns the evaluation result or an error
+// if compilation or execution fails.
+func (e *expressionEvaluator) evaluateExpression(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+	config := e.getConfig()
 	enrichedConfig := e.enrichConfig(config)
-
-	env := e.buildExprEnvironment(enrichedConfig, featurePath)
-
+	env := e.buildExprEnvironment(enrichedConfig, featurePath, evaluateDeferred)
 	program, err := expr.Compile(expression, env...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
 	}
-
 	result, err := expr.Run(program, enrichedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
 	}
-
-	return result, nil
-}
-
-// EvaluateDefaults recursively evaluates default values in a map structure.
-// String values that are full expressions (e.g., "${value}") are evaluated as expressions,
-// while strings containing partial expressions are interpolated. Literal strings and
-// other types are preserved. The function handles nested maps and arrays recursively.
-// Keys that evaluate to DeferredValue are skipped, consistent with evaluateInputs and evaluateSubstitutions.
-// The featurePath is used for resolving relative paths in file loading functions.
-// Returns a new map with all defaults evaluated, or an error if evaluation fails.
-func (e *expressionEvaluator) EvaluateDefaults(defaults map[string]any, config map[string]any, featurePath string) (map[string]any, error) {
-	result := make(map[string]any)
-
-	for key, value := range defaults {
-		evaluated, err := e.evaluateDefaultValue(value, config, featurePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate default for key '%s': %w", key, err)
+	if !evaluateDeferred {
+		if str, isString := result.(string); isString && strings.HasPrefix(str, "terraform_output(") && strings.HasSuffix(str, ")") {
+			return fmt.Sprintf("${%s}", str), nil
 		}
-		if _, isDeferred := evaluated.(DeferredValue); isDeferred {
-			continue
-		}
-		result[key] = evaluated
-	}
-
-	return result, nil
-}
-
-// InterpolateString replaces all ${expression} occurrences in a string with their evaluated values.
-// This function processes template expressions embedded in strings, evaluating each expression
-// and replacing it with the result. Complex values like maps and arrays are serialized to YAML.
-// The function handles multiple expressions in a single string and processes them iteratively.
-// If any expression evaluates to DeferredValue, the function returns DeferredValue to indicate
-// the entire string interpolation should be deferred.
-// Returns the fully interpolated string, DeferredValue, or an error if any expression evaluation fails.
-func (e *expressionEvaluator) InterpolateString(s string, config map[string]any, featurePath string) (any, error) {
-	result := s
-	hasDeferred := false
-
-	for strings.Contains(result, "${") {
-		start := strings.Index(result, "${")
-		end := strings.Index(result[start:], "}")
-
-		if end == -1 {
-			return "", fmt.Errorf("unclosed expression in string: %s", s)
-		}
-
-		end += start
-		expr := result[start+2 : end]
-
-		value, err := e.Evaluate(expr, config, featurePath)
-		if err != nil {
-			return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
-		}
-
-		var replacement string
-		if _, isDeferred := value.(DeferredValue); isDeferred {
-			hasDeferred = true
-			replacement = ""
-		} else if value == nil {
-			replacement = ""
-		} else {
-			switch value.(type) {
-			case map[string]any, []any:
-				yamlData, err := e.Shims.YamlMarshal(value)
-				if err != nil {
-					return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
-				}
-				replacement = strings.TrimSpace(string(yamlData))
-			default:
-				replacement = fmt.Sprintf("%v", value)
-			}
-		}
-
-		result = result[:start] + replacement + result[end+1:]
-	}
-
-	if hasDeferred {
-		return DeferredValue{}, nil
-	}
-
-	return result, nil
-}
-
-// EvaluateValue evaluates a string that may contain an expression and returns a typed result.
-// If the string is purely a single expression (e.g., "${values(cluster.nodes)}"), the expression
-// is evaluated and the result is returned with its original type (map, slice, etc.). If the string
-// contains mixed content (e.g., "prefix-${value}-suffix"), it uses InterpolateString and returns
-// a string. Non-expression strings are returned unchanged. This method is useful for configuration
-// values like Terraform inputs where type preservation is important.
-func (e *expressionEvaluator) EvaluateValue(s string, config map[string]any, featurePath string) (any, error) {
-	if !strings.Contains(s, "${") {
-		return s, nil
-	}
-
-	expr := e.extractExpression(s)
-	if expr != "" {
-		return e.Evaluate(expr, config, featurePath)
-	}
-
-	result, err := e.InterpolateString(s, config, featurePath)
-	if err != nil {
-		return nil, err
 	}
 	return result, nil
 }
@@ -233,6 +184,20 @@ func (e *expressionEvaluator) EvaluateValue(s string, config map[string]any, fea
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// getConfig retrieves the current configuration context as a map of string keys to values.
+// If the config handler is not set or does not provide a configuration, an empty map is returned.
+// This method never returns a nil map, ensuring callers always receive a usable configuration structure.
+func (e *expressionEvaluator) getConfig() map[string]any {
+	if e.configHandler == nil {
+		return make(map[string]any)
+	}
+	config, _ := e.configHandler.GetContextValues()
+	if config == nil {
+		return make(map[string]any)
+	}
+	return config
+}
 
 // enrichConfig enriches the provided config map with Windsor runtime-specific values.
 // It adds "project_root" if the evaluator has a project root set, and "context_path"
@@ -260,7 +225,7 @@ func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any
 // type checking. The config and featurePath are captured in closures to provide context
 // for file resolution during expression evaluation. It also enables AsAny mode to allow
 // dynamic property access.
-func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featurePath string) []expr.Option {
+func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featurePath string, deferred bool) []expr.Option {
 	opts := []expr.Option{
 		expr.AsAny(),
 		expr.Function(
@@ -316,85 +281,39 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featur
 		),
 	}
 
-	opts = append(opts, e.helpers...)
+	for _, helperFactory := range e.helpers {
+		opts = append(opts, helperFactory(deferred))
+	}
 
 	return opts
 }
 
-// evaluateDefaultValue recursively evaluates a single default value based on its type.
-// String values are checked for full expressions (e.g., "${value}") which are evaluated
-// directly, or partial expressions which are interpolated. Map and array types are processed
-// recursively, evaluating each element. Other types are returned unchanged. This enables
-// flexible default value specification with support for dynamic evaluation and nesting.
-func (e *expressionEvaluator) evaluateDefaultValue(value any, config map[string]any, featurePath string) (any, error) {
-	switch v := value.(type) {
-	case string:
-		if expr := e.extractExpression(v); expr != "" {
-			return e.Evaluate(expr, config, featurePath)
+// EvaluateMap evaluates a map of values using this expression evaluator.
+// Each string value is evaluated as an expression; non-string values are preserved as-is.
+// When evaluateDeferred is false, evaluated values that contain unresolved expressions are
+// skipped and not included in the result. The featurePath parameter is used for context
+// during evaluation. Returns a new map containing successfully evaluated values, or an error
+// if evaluation fails.
+func (e *expressionEvaluator) EvaluateMap(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+	result := make(map[string]any)
+	for key, value := range values {
+		strVal, isString := value.(string)
+		if !isString {
+			result[key] = value
+			continue
 		}
-		if strings.Contains(v, "${") {
-			result, err := e.InterpolateString(v, config, featurePath)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
+		evaluated, err := e.Evaluate(strVal, featurePath, evaluateDeferred)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
-		return v, nil
-	case map[string]any:
-		result := make(map[string]any)
-		for k, val := range v {
-			evaluated, err := e.evaluateDefaultValue(val, config, featurePath)
-			if err != nil {
-				return nil, err
-			}
-			if _, isDeferred := evaluated.(DeferredValue); isDeferred {
+		if !evaluateDeferred {
+			if ContainsExpression(evaluated) {
 				continue
 			}
-			result[k] = evaluated
 		}
-		return result, nil
-	case []any:
-		result := make([]any, 0, len(v))
-		for _, val := range v {
-			evaluated, err := e.evaluateDefaultValue(val, config, featurePath)
-			if err != nil {
-				return nil, err
-			}
-			if _, isDeferred := evaluated.(DeferredValue); isDeferred {
-				continue
-			}
-			result = append(result, evaluated)
-		}
-		return result, nil
-	default:
-		return value, nil
+		result[key] = evaluated
 	}
-}
-
-// extractExpression checks if a string contains a single expression spanning the entire string.
-// It looks for the pattern "${...}" where the expression starts at the beginning and ends
-// at the end of the string. If found, it returns the inner expression content. For partial
-// expressions or strings with other content, it returns an empty string to indicate the
-// value should be treated as interpolation rather than a direct expression.
-func (e *expressionEvaluator) extractExpression(s string) string {
-	if !strings.Contains(s, "${") {
-		return ""
-	}
-
-	start := strings.Index(s, "${")
-	end := strings.Index(s[start:], "}")
-
-	if end == -1 {
-		return ""
-	}
-
-	end += start
-
-	if start == 0 && end == len(s)-1 {
-		return s[start+2 : end]
-	}
-
-	return ""
+	return result, nil
 }
 
 // evaluateJsonnetFunction loads and evaluates a Jsonnet file at the specified path.
@@ -715,3 +634,27 @@ func (e *expressionEvaluator) resolvePath(path string, featurePath string) strin
 // Ensure expressionEvaluator implements the ExpressionEvaluator and HelperRegistrar interfaces
 var _ ExpressionEvaluator = (*expressionEvaluator)(nil)
 var _ HelperRegistrar = (*expressionEvaluator)(nil)
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// ContainsExpression determines whether the provided value is a string that contains an unresolved expression.
+// An expression is identified by the pattern "${...}" anywhere in the string. This function returns true if
+// the value is a string containing at least one properly closed "${...}" expression pattern, and false otherwise.
+// Used to identify values containing unresolved expressions that should be skipped when evaluateDeferred is false.
+func ContainsExpression(value any) bool {
+	str, isString := value.(string)
+	if !isString {
+		return false
+	}
+	if !strings.Contains(str, "${") {
+		return false
+	}
+	start := strings.Index(str, "${")
+	if start == -1 {
+		return false
+	}
+	end := strings.Index(str[start:], "}")
+	return end != -1
+}

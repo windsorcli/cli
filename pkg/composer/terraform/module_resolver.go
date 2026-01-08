@@ -87,7 +87,18 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			componentValues = make(map[string]any)
 		}
 
-		if err := h.generateComponentTfvars(projectRoot, component, componentValues); err != nil {
+		var evaluatedValues map[string]any
+		var err error
+		if h.runtime.Evaluator == nil {
+			evaluatedValues = componentValues
+		} else {
+			evaluatedValues, err = h.runtime.Evaluator.EvaluateMap(componentValues, "", true)
+			if err != nil {
+				return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
+			}
+		}
+
+		if err := h.generateComponentTfvars(projectRoot, component, evaluatedValues); err != nil {
 			return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
 		}
 	}
@@ -255,18 +266,14 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 // For local components without a name, the path is terraform/<component.Path> (the actual module location).
 // Returns the module directory path if it exists, or an error if not found.
 func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
-	var dirName string
-	if component.Name != "" {
-		dirName = component.Name
-	} else {
-		dirName = component.Path
-	}
+	componentID := component.GetID()
 
+	useScratchPath := component.Name != "" || component.Source != ""
 	var modulePath string
-	if component.Name != "" || component.Source != "" {
-		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", dirName)
+	if useScratchPath {
+		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", componentID)
 	} else {
-		modulePath = filepath.Join(projectRoot, "terraform", component.Path)
+		modulePath = filepath.Join(projectRoot, "terraform", componentID)
 	}
 
 	if _, err := h.shims.Stat(modulePath); err != nil {
@@ -437,8 +444,10 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			}
 		}
 
+		buf := make([]byte, 0, 32)
+		buf = fmt.Appendf(buf, "# %s = null", info.Name)
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = null", info.Name))},
+			{Type: hclsyntax.TokenComment, Bytes: buf},
 		})
 		body.AppendNewline()
 	}

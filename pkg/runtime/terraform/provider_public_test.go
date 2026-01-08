@@ -155,7 +155,7 @@ func TestNewTerraformProvider(t *testing.T) {
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		registerCalled := false
 		registerName := ""
-		mockEvaluator.RegisterFunc = func(name string, helper func(params ...any) (any, error), signature any) {
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signature any) {
 			registerCalled = true
 			registerName = name
 		}
@@ -192,7 +192,7 @@ func TestNewTerraformProvider(t *testing.T) {
 		concreteProvider.cache["test-component"] = map[string]any{"test-key": "test-value"}
 		concreteProvider.mu.Unlock()
 
-		result, err := testEvaluator.Evaluate(`terraform_output("test-component", "test-key")`, map[string]any{}, "")
+		result, err := testEvaluator.Evaluate(`${terraform_output("test-component", "test-key")}`, "", false)
 
 		if err != nil {
 			t.Fatalf("Expected helper to be registered and callable, got error: %v", err)
@@ -535,7 +535,7 @@ func TestTerraformProvider_GetOutputs(t *testing.T) {
 		mocks.Provider.cache["test-component"] = expectedOutputs
 		mocks.Provider.mu.Unlock()
 
-		output1, err := mocks.Provider.getOutput("test-component", "output1")
+		output1, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -543,7 +543,7 @@ func TestTerraformProvider_GetOutputs(t *testing.T) {
 			t.Errorf("Expected output1 to be 'value1', got %v", output1)
 		}
 
-		output2, err := mocks.Provider.getOutput("test-component", "output2")
+		output2, err := mocks.Provider.getOutput("test-component", "output2", `terraform_output("test-component", "output2")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -563,12 +563,12 @@ func TestTerraformProvider_GetOutputs(t *testing.T) {
 		mocks.Provider.cache["test-component"] = expectedOutputs
 		mocks.Provider.mu.Unlock()
 
-		output1, err1 := mocks.Provider.getOutput("test-component", "output1")
+		output1, err1 := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err1 != nil {
 			t.Fatalf("Expected no error on first call, got %v", err1)
 		}
 
-		output2, err2 := mocks.Provider.getOutput("test-component", "output1")
+		output2, err2 := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err2 != nil {
 			t.Fatalf("Expected no error on second call, got %v", err2)
 		}
@@ -592,13 +592,13 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
 
-		output, err := mocks.Provider.getOutput("nonexistent-component", "any-key")
+		output, err := mocks.Provider.getOutput("nonexistent-component", "any-key", `terraform_output("nonexistent-component", "any-key")`, false)
 
 		if err != nil {
 			t.Errorf("Expected no error for nonexistent component, got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue for nonexistent component, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string for nonexistent component, got %v", output)
 		}
 	})
 
@@ -632,12 +632,12 @@ terraform:
 			t.Fatal("Expected components to be loaded from blueprint")
 		}
 
-		output1, err := mocks.Provider.getOutput("test-component", "output1")
+		output1, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		output2, err := mocks.Provider.getOutput("test-component", "output2")
+		output2, err := mocks.Provider.getOutput("test-component", "output2", `terraform_output("test-component", "output2")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -673,13 +673,13 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "any-key")
+		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, false)
 
 		if err != nil {
 			t.Errorf("Expected no error for empty outputs, got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue for missing key, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string for missing key, got %v", output)
 		}
 	})
 
@@ -709,7 +709,7 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -734,13 +734,13 @@ terraform:
 			return errors.New("setenv failed")
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "any-key")
+		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, false)
 
 		if err != nil {
 			t.Errorf("Expected no error when setenv fails (errors are swallowed), got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when setenv fails, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when setenv fails, got %v", output)
 		}
 	})
 
@@ -755,13 +755,13 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "unsupported"})
 
-		output, err := mocks.Provider.getOutput("test-component", "any-key")
+		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, false)
 
 		if err != nil {
 			t.Errorf("Expected no error when backend override fails (errors are swallowed), got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when backend override fails, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when backend override fails, got %v", output)
 		}
 	})
 
@@ -793,7 +793,7 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -825,12 +825,12 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Errorf("Expected no error when JsonUnmarshal fails (errors are swallowed), got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when JsonUnmarshal fails, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when JsonUnmarshal fails, got %v", output)
 		}
 	})
 
@@ -852,12 +852,12 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Errorf("Expected no error when output has no value field, got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when output has no value field, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when output has no value field, got %v", output)
 		}
 	})
 
@@ -879,12 +879,12 @@ terraform:
 			return "", nil
 		}
 
-		output, err := mocks.Provider.getOutput("test-component", "output1")
+		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, false)
 		if err != nil {
 			t.Errorf("Expected no error when output value is not a map, got %v", err)
 		}
-		if _, isDeferred := output.(evaluator.DeferredValue); !isDeferred {
-			t.Errorf("Expected DeferredValue when output value is not a map, got %v", output)
+		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
+			t.Errorf("Expected deferred expression string when output value is not a map, got %v", output)
 		}
 	})
 }
@@ -1364,9 +1364,6 @@ terraform:
 			t.Errorf("Expected TFDataDir %s, got %s", expectedTFDataDir, args.TFDataDir)
 		}
 
-		if args.ModulePath != modulePath {
-			t.Errorf("Expected ModulePath %s, got %s", modulePath, args.ModulePath)
-		}
 
 		if len(args.InitArgs) == 0 {
 			t.Error("Expected InitArgs to be populated")
@@ -1777,265 +1774,6 @@ terraform:
 	})
 }
 
-func TestTerraformProvider_GetEnvVarsForArgs(t *testing.T) {
-	t.Run("ReturnsBaseEnvVarsWithoutOutputs", func(t *testing.T) {
-		mocks := setupMocks(t)
-
-		configRoot := "/test/config"
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-			PlanArgs:  []string{"-out=plan.tfplan"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_DATA_DIR"] != "/test/tfdata" {
-			t.Errorf("Expected TF_DATA_DIR to be /test/tfdata, got: %s", envVars["TF_DATA_DIR"])
-		}
-
-		if envVars["TF_VAR_context_path"] != configRoot {
-			t.Errorf("Expected TF_VAR_context_path to be %s, got: %s", configRoot, envVars["TF_VAR_context_path"])
-		}
-
-		if envVars["TF_VAR_context_id"] != "test-context" {
-			t.Errorf("Expected TF_VAR_context_id to be test-context, got: %s", envVars["TF_VAR_context_id"])
-		}
-	})
-
-	t.Run("ReturnsEnvVarsWithOutputs", func(t *testing.T) {
-		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
-kind: Blueprint
-metadata:
-  name: test
-terraform:
-  - path: cluster
-    name: cluster
-  - path: gitops
-    name: gitops`
-
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		callCount := 0
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) >= 2 {
-				if args[1] == "output" {
-					callCount++
-					if callCount == 1 {
-						return `{"cluster_name": {"value": "my-cluster"}, "region": {"value": "us-west-2"}}`, nil
-					}
-					return `{"gitops_url": {"value": "https://git.example.com"}}`, nil
-				}
-			}
-			return "", nil
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, true)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_VAR_cluster_name"] != "my-cluster" {
-			t.Errorf("Expected TF_VAR_cluster_name to be my-cluster, got: %s", envVars["TF_VAR_cluster_name"])
-		}
-
-		if envVars["TF_VAR_region"] != "us-west-2" {
-			t.Errorf("Expected TF_VAR_region to be us-west-2, got: %s", envVars["TF_VAR_region"])
-		}
-	})
-
-	t.Run("HandlesNonStringOutputValues", func(t *testing.T) {
-		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
-kind: Blueprint
-metadata:
-  name: test
-terraform:
-  - path: cluster
-    name: cluster`
-
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) >= 2 {
-				if args[1] == "output" {
-					return `{"port": {"value": 8080}, "enabled": {"value": true}}`, nil
-				}
-			}
-			return "", nil
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, true)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_VAR_port"] != "8080" {
-			t.Errorf("Expected TF_VAR_port to be 8080, got: %s", envVars["TF_VAR_port"])
-		}
-
-		if envVars["TF_VAR_enabled"] != "true" {
-			t.Errorf("Expected TF_VAR_enabled to be true, got: %s", envVars["TF_VAR_enabled"])
-		}
-	})
-
-	t.Run("HandlesGetBaseEnvVarsError", func(t *testing.T) {
-		mocks := setupMocks(t)
-
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return "", fmt.Errorf("config root error")
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, false)
-		if err == nil {
-			t.Error("Expected error when GetConfigRoot fails")
-		}
-
-		if envVars != nil {
-			t.Error("Expected nil envVars on error")
-		}
-	})
-
-	t.Run("SkipsComponentsWithOutputErrors", func(t *testing.T) {
-		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
-kind: Blueprint
-metadata:
-  name: test
-terraform:
-  - path: cluster
-    name: cluster
-  - path: gitops
-    name: gitops`
-
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		callCount := 0
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) >= 2 {
-				if args[1] == "output" {
-					callCount++
-					if callCount == 1 {
-						return `{"cluster_name": {"value": "my-cluster"}}`, nil
-					}
-					return "", fmt.Errorf("output error")
-				}
-			}
-			return "", nil
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, true)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_VAR_cluster_name"] != "my-cluster" {
-			t.Errorf("Expected TF_VAR_cluster_name to be my-cluster, got: %s", envVars["TF_VAR_cluster_name"])
-		}
-	})
-
-	t.Run("HandlesWindowsOS", func(t *testing.T) {
-		mocks := setupMocks(t)
-
-		configRoot := "/test/config"
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "id" {
-				return "test-context"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mocks.Provider.Shims.Goos = func() string {
-			return "windows"
-		}
-
-		terraformArgs := &TerraformArgs{
-			TFDataDir: "/test/tfdata",
-			InitArgs:  []string{"-backend=true"},
-		}
-
-		envVars, err := mocks.Provider.GetEnvVarsForArgs(terraformArgs, false)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if envVars["TF_VAR_os_type"] != "windows" {
-			t.Errorf("Expected TF_VAR_os_type to be windows, got: %s", envVars["TF_VAR_os_type"])
-		}
-	})
-}
-
 func TestTerraformProvider_FormatArgsForEnv(t *testing.T) {
 	t.Run("FormatsVarFileArgs", func(t *testing.T) {
 		mocks := setupMocks(t)
@@ -2393,6 +2131,174 @@ terraform:
 
 		if !hasBackendConfig {
 			t.Errorf("Expected init command to include -backend-config arguments, got init args: %v", initArgs)
+		}
+	})
+}
+
+func TestTerraformProvider_GetEnvVars_OnlyIncludesRequestedOutputs(t *testing.T) {
+	t.Run("OnlyIncludesOutputsAccessedViaTerraformOutput", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: network
+    name: network
+  - path: cluster
+    name: cluster
+    inputs:
+      vpc_id: '${terraform_output("network", "vpc_id")}'`
+
+		configHandler := config.NewMockConfigHandler()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local", Evaluator: testEvaluator})
+		mocks.Provider.evaluator = testEvaluator
+
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "id" {
+				return "test-context"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 {
+				if args[1] == "output" {
+					return `{"vpc_id": {"value": "vpc-123"}, "isolated_subnet_ids": {"value": ["subnet-1"]}, "private_subnet_ids": {"value": ["subnet-2"]}, "public_subnet_ids": {"value": ["subnet-3"]}}`, nil
+				}
+				if args[1] == "init" {
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if envVars["TF_VAR_vpc_id"] != "vpc-123" {
+			t.Errorf("Expected TF_VAR_vpc_id to be 'vpc-123', got: %s", envVars["TF_VAR_vpc_id"])
+		}
+
+		unexpectedVars := []string{
+			"TF_VAR_isolated_subnet_ids",
+			"TF_VAR_private_subnet_ids",
+			"TF_VAR_public_subnet_ids",
+		}
+
+		for _, unexpectedVar := range unexpectedVars {
+			if _, exists := envVars[unexpectedVar]; exists {
+				t.Errorf("Expected %s to NOT be included (not accessed via terraform_output)", unexpectedVar)
+			}
+		}
+
+		mocks.Provider.mu.RLock()
+		networkCache := mocks.Provider.cache["network"]
+		mocks.Provider.mu.RUnlock()
+
+		if networkCache == nil {
+			t.Error("Expected network component outputs to be cached")
+		} else {
+			if networkCache["vpc_id"] != "vpc-123" {
+				t.Errorf("Expected cached vpc_id to be 'vpc-123', got: %v", networkCache["vpc_id"])
+			}
+			// All outputs are cached when fetched, even if not accessed via terraform_output()
+			if isolatedSubnets, exists := networkCache["isolated_subnet_ids"]; !exists {
+				t.Error("Expected isolated_subnet_ids to be cached (all outputs are cached when fetched)")
+			} else {
+				// Verify it's the actual value, not a deferred expression
+				expected := []any{"subnet-1"}
+				if fmt.Sprintf("%v", isolatedSubnets) != fmt.Sprintf("%v", expected) {
+					t.Errorf("Expected isolated_subnet_ids to be cached as actual value, got: %v", isolatedSubnets)
+				}
+			}
+		}
+	})
+
+	t.Run("AccumulatesMultipleRequestedOutputs", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: network
+    name: network
+  - path: cluster
+    name: cluster
+    inputs:
+      vpc_id: '${terraform_output("network", "vpc_id")}'
+      subnet_ids: '${terraform_output("network", "private_subnet_ids")}'`
+
+		configHandler := config.NewMockConfigHandler()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local", Evaluator: testEvaluator})
+		mocks.Provider.evaluator = testEvaluator
+
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "id" {
+				return "test-context"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 {
+				if args[1] == "output" {
+					return `{"vpc_id": {"value": "vpc-123"}, "private_subnet_ids": {"value": ["subnet-1", "subnet-2"]}, "public_subnet_ids": {"value": ["subnet-3"]}, "isolated_subnet_ids": {"value": ["subnet-4"]}}`, nil
+				}
+				if args[1] == "init" {
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if envVars["TF_VAR_vpc_id"] != "vpc-123" {
+			t.Errorf("Expected TF_VAR_vpc_id to be 'vpc-123', got: %s", envVars["TF_VAR_vpc_id"])
+		}
+
+		expectedSubnetIds := `["subnet-1","subnet-2"]`
+		if envVars["TF_VAR_subnet_ids"] != expectedSubnetIds {
+			t.Errorf("Expected TF_VAR_subnet_ids to be %s, got: %s", expectedSubnetIds, envVars["TF_VAR_subnet_ids"])
+		}
+
+		unexpectedVars := []string{
+			"TF_VAR_public_subnet_ids",
+			"TF_VAR_isolated_subnet_ids",
+		}
+
+		for _, unexpectedVar := range unexpectedVars {
+			if _, exists := envVars[unexpectedVar]; exists {
+				t.Errorf("Expected %s to NOT be included (not accessed via terraform_output)", unexpectedVar)
+			}
+		}
+
+		mocks.Provider.mu.RLock()
+		networkCache := mocks.Provider.cache["network"]
+		mocks.Provider.mu.RUnlock()
+
+		if networkCache == nil {
+			t.Error("Expected network component outputs to be cached")
+		} else {
+			if networkCache["vpc_id"] != "vpc-123" {
+				t.Errorf("Expected cached vpc_id to be 'vpc-123', got: %v", networkCache["vpc_id"])
+			}
+			if str, isString := networkCache["private_subnet_ids"].(string); isString && strings.HasPrefix(str, "terraform_output(") {
+				t.Errorf("Expected private_subnet_ids to be accessed (not deferred), got: %v", networkCache["private_subnet_ids"])
+			}
 		}
 	})
 }

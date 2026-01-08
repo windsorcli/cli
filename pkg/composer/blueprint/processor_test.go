@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -43,9 +44,7 @@ func setupProcessorMocks(t *testing.T) *ProcessorTestMocks {
 	mockEvaluator := evaluator.NewMockExpressionEvaluator()
 
 	mockEvaluator.EvaluateFunc = realEvaluator.Evaluate
-	mockEvaluator.EvaluateDefaultsFunc = realEvaluator.EvaluateDefaults
-	mockEvaluator.EvaluateValueFunc = realEvaluator.EvaluateValue
-	mockEvaluator.InterpolateStringFunc = realEvaluator.InterpolateString
+	mockEvaluator.EvaluateMapFunc = realEvaluator.EvaluateMap
 	mockEvaluator.SetTemplateDataFunc = realEvaluator.SetTemplateData
 	mockEvaluator.RegisterFunc = realEvaluator.Register
 
@@ -122,7 +121,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 
 		// When processing empty features
-		err := processor.ProcessFeatures(target, nil, nil)
+		err := processor.ProcessFeatures(target, nil)
 
 		// Then should return empty blueprint
 		if err != nil {
@@ -152,7 +151,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then feature components should be included
 		if err != nil {
@@ -180,11 +179,13 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 				},
 			},
 		}
-		configData := map[string]any{"enabled": true}
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": true}, nil
+		}
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, configData)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then feature should be included
 		if err != nil {
@@ -209,11 +210,10 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 				},
 			},
 		}
-		configData := map[string]any{"enabled": false}
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, configData)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then feature should be excluded
 		if err != nil {
@@ -246,7 +246,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then components should be in sorted feature order
 		if err != nil {
@@ -282,13 +282,15 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		configData := map[string]any{
-			"aws": map[string]any{"region": "us-east-1"},
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"aws": map[string]any{"region": "us-east-1"},
+			}, nil
 		}
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, configData)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then inputs should be evaluated
 		if err != nil {
@@ -319,7 +321,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then kustomization should be included
 		if err != nil {
@@ -352,11 +354,10 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 				},
 			},
 		}
-		configData := map[string]any{"include_vpc": false}
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, configData)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then only unconditional component should be included
 		if err != nil {
@@ -389,11 +390,10 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 				},
 			},
 		}
-		configData := map[string]any{"include_app": false}
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, configData)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then only unconditional kustomization should be included
 		if err != nil {
@@ -424,7 +424,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then should return error
 		if err == nil {
@@ -451,7 +451,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then should return error
 		if err == nil {
@@ -478,7 +478,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then should return error
 		if err == nil {
@@ -500,10 +500,13 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 				},
 			},
 		}
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then feature should be included (string "true" is truthy)
 		if err != nil {
@@ -536,13 +539,15 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		configData := map[string]any{
-			"dns": map[string]any{"domain": "example.com"},
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"dns": map[string]any{"domain": "example.com"},
+			}, nil
 		}
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, configData)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then substitutions should be evaluated
 		if err != nil {
@@ -585,7 +590,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then non-string inputs should be preserved
 		if err != nil {
@@ -621,7 +626,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, map[string]any{})
+		err := processor.ProcessFeatures(target, features)
 
 		// Then should return error
 		if err == nil {
@@ -650,7 +655,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, map[string]any{})
+		err := processor.ProcessFeatures(target, features)
 
 		// Then should return error
 		if err == nil {
@@ -674,7 +679,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing with sourceName
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil, "test-source")
+		err := processor.ProcessFeatures(target, features, "test-source")
 
 		// Then source should be assigned
 		if err != nil {
@@ -701,7 +706,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing with sourceName
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil, "new-source")
+		err := processor.ProcessFeatures(target, features, "new-source")
 
 		// Then existing source should be preserved
 		if err != nil {
@@ -731,7 +736,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then should return error
 		if err == nil {
@@ -761,7 +766,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing features
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, nil)
+		err := processor.ProcessFeatures(target, features)
 
 		// Then should return error
 		if err == nil {
@@ -1783,22 +1788,19 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 }
 
 func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
-	t.Run("SkipsDeferredValue", func(t *testing.T) {
-		// Given a processor with evaluator that returns DeferredValue
+	t.Run("SkipsUnresolvedExpressions", func(t *testing.T) {
+		// Given a processor with evaluator that returns unresolved expressions
 		mocks := setupProcessorMocks(t)
-		baseProcessor := &BaseBlueprintProcessor{
-			runtime:   mocks.Runtime,
-			evaluator: mocks.Evaluator,
-		}
 
-		mocks.Evaluator.EvaluateValueFunc = func(s string, config map[string]any, featurePath string) (any, error) {
-			if s == "${terraform_output('cluster', 'key')}" {
-				return evaluator.DeferredValue{}, nil
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			result := make(map[string]any)
+			for key, value := range values {
+				if key == "deferred" {
+					continue
+				}
+				result[key] = value
 			}
-			if strings.Contains(s, "${") {
-				return "evaluated-value", nil
-			}
-			return s, nil
+			return result, nil
 		}
 
 		inputs := map[string]any{
@@ -1807,15 +1809,15 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		}
 
 		// When evaluating inputs
-		result, err := baseProcessor.evaluateInputs(inputs, map[string]any{}, "")
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
 
-		// Then deferred input should be skipped
+		// Then unresolved expression input should be skipped
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
 		if _, exists := result["deferred"]; exists {
-			t.Error("Expected deferred input to be skipped")
+			t.Error("Expected unresolved expression input to be skipped")
 		}
 
 		if result["normal"] != "value" {
@@ -1823,22 +1825,19 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsDeferredValueInInterpolatedString", func(t *testing.T) {
-		// Given a processor with evaluator that returns DeferredValue for interpolated strings
+	t.Run("SkipsUnresolvedExpressionsInInterpolatedString", func(t *testing.T) {
+		// Given a processor with evaluator that returns unresolved expressions for interpolated strings
 		mocks := setupProcessorMocks(t)
-		baseProcessor := &BaseBlueprintProcessor{
-			runtime:   mocks.Runtime,
-			evaluator: mocks.Evaluator,
-		}
 
-		mocks.Evaluator.EvaluateValueFunc = func(s string, config map[string]any, featurePath string) (any, error) {
-			if s == "prefix-${terraform_output('cluster', 'key')}-suffix" {
-				return evaluator.DeferredValue{}, nil
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			result := make(map[string]any)
+			for key := range values {
+				if key == "deferred" {
+					continue
+				}
+				result[key] = values[key]
 			}
-			if strings.Contains(s, "${") {
-				return "interpolated", nil
-			}
-			return s, nil
+			return result, nil
 		}
 
 		inputs := map[string]any{
@@ -1846,36 +1845,225 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		}
 
 		// When evaluating inputs
-		result, err := baseProcessor.evaluateInputs(inputs, map[string]any{}, "")
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
 
-		// Then deferred input should be skipped
+		// Then unresolved expression input should be skipped
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
 		if _, exists := result["deferred"]; exists {
-			t.Error("Expected deferred input to be skipped")
+			t.Error("Expected unresolved expression input to be skipped")
+		}
+	})
+
+	t.Run("HandlesEmptyInputs", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			return expression, nil
+		}
+
+		inputs := map[string]any{}
+
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if len(result) != 0 {
+			t.Errorf("Expected empty result, got %d entries", len(result))
+		}
+	})
+
+	t.Run("PreservesNonStringValues", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			return expression, nil
+		}
+
+		inputs := map[string]any{
+			"count":   42,
+			"enabled": true,
+			"tags":    []string{"a", "b"},
+			"nested":  map[string]any{"key": "value"},
+		}
+
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["count"] != 42 {
+			t.Errorf("Expected count to be 42, got %v", result["count"])
+		}
+
+		if result["enabled"] != true {
+			t.Errorf("Expected enabled to be true, got %v", result["enabled"])
+		}
+
+		if tags, ok := result["tags"].([]string); !ok || len(tags) != 2 {
+			t.Errorf("Expected tags to be preserved, got %v", result["tags"])
+		}
+	})
+
+	t.Run("EvaluatesStringExpressions", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			result := make(map[string]any)
+			for key, value := range values {
+				if key == "expression" {
+					result[key] = 42
+				} else {
+					result[key] = value
+				}
+			}
+			return result, nil
+		}
+
+		inputs := map[string]any{
+			"simple":     "value",
+			"expression": "${value}",
+		}
+
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["simple"] != "value" {
+			t.Errorf("Expected simple to be 'value', got %v", result["simple"])
+		}
+
+		if result["expression"] != 42 {
+			t.Errorf("Expected expression to be 42, got %v", result["expression"])
+		}
+	})
+
+	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			return nil, fmt.Errorf("failed to evaluate 'bad': evaluation failed")
+		}
+
+		inputs := map[string]any{
+			"bad": "${invalid}",
+		}
+
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error on evaluation failure")
+		}
+
+		if result != nil {
+			t.Error("Expected nil result on error")
+		}
+
+		if !strings.Contains(err.Error(), "failed to evaluate") {
+			t.Errorf("Expected error message to contain 'failed to evaluate', got: %v", err)
+		}
+	})
+
+	t.Run("HandlesMixedInputs", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			result := make(map[string]any)
+			for key, value := range values {
+				if key == "evaluated" {
+					result[key] = "evaluated"
+				} else {
+					result[key] = value
+				}
+			}
+			return result, nil
+		}
+
+		inputs := map[string]any{
+			"string":    "plain",
+			"number":    42,
+			"boolean":   true,
+			"array":     []string{"a", "b"},
+			"evaluated": "${value}",
+		}
+
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["string"] != "plain" {
+			t.Errorf("Expected string to be 'plain', got %v", result["string"])
+		}
+
+		if result["number"] != 42 {
+			t.Errorf("Expected number to be 42, got %v", result["number"])
+		}
+
+		if result["boolean"] != true {
+			t.Errorf("Expected boolean to be true, got %v", result["boolean"])
+		}
+
+		if result["evaluated"] != "evaluated" {
+			t.Errorf("Expected evaluated to be 'evaluated', got %v", result["evaluated"])
+		}
+	})
+
+	t.Run("PassesFeaturePathToEvaluator", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		var receivedPath string
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			receivedPath = featurePath
+			return values, nil
+		}
+
+		inputs := map[string]any{
+			"test": "value",
+		}
+
+		expectedPath := "test/feature/path"
+		_, err := mocks.Evaluator.EvaluateMap(inputs, expectedPath, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if receivedPath != expectedPath {
+			t.Errorf("Expected feature path to be '%s', got '%s'", expectedPath, receivedPath)
 		}
 	})
 }
 
 func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
-	t.Run("SkipsDeferredValue", func(t *testing.T) {
-		// Given a processor with evaluator that returns DeferredValue
+	t.Run("SkipsUnresolvedExpressions", func(t *testing.T) {
+		// Given a processor with evaluator that returns unresolved expressions
 		mocks := setupProcessorMocks(t)
-		baseProcessor := &BaseBlueprintProcessor{
-			runtime:   mocks.Runtime,
-			evaluator: mocks.Evaluator,
-		}
 
-		mocks.Evaluator.InterpolateStringFunc = func(s string, config map[string]any, featurePath string) (any, error) {
-			if s == "${terraform_output('cluster', 'key')}" {
-				return evaluator.DeferredValue{}, nil
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			// Extract inner expression if wrapped in ${}
+			expr := expression
+			if strings.HasPrefix(expression, "${") && strings.HasSuffix(expression, "}") {
+				expr = expression[2 : len(expression)-1]
 			}
-			if strings.Contains(s, "${") {
-				return "interpolated-value", nil
+			if expr == "terraform_output('cluster', 'key')" {
+				return fmt.Sprintf("${%s}", expr), nil
 			}
-			return s, nil
+			if strings.Contains(expr, "terraform_output") {
+				return fmt.Sprintf("${%s}", expr), nil
+			}
+			if !strings.Contains(expression, "${") {
+				return expression, nil
+			}
+			return "interpolated-value", nil
 		}
 
 		subs := map[string]string{
@@ -1884,15 +2072,19 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 		}
 
 		// When evaluating substitutions
-		result, err := baseProcessor.evaluateSubstitutions(subs, map[string]any{}, "")
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+		result, err := baseProcessor.evaluateSubstitutions(subs, "")
 
-		// Then deferred substitution should be skipped
+		// Then unresolved expression substitution should be skipped
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
 		if _, exists := result["deferred"]; exists {
-			t.Errorf("Expected deferred substitution to be skipped, but found in result: %v", result)
+			t.Errorf("Expected unresolved expression substitution to be skipped, but found in result: %v", result)
 		}
 
 		if result["normal"] != "value" {

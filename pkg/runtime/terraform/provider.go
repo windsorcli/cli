@@ -7,6 +7,7 @@ package terraform
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,7 @@ type terraformProvider struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
 	toolsManager  tools.ToolsManager
+	evaluator     evaluator.ExpressionEvaluator
 	Shims         *Shims // Exported for testing
 	cache         map[string]map[string]any
 	components    []blueprintv1alpha1.TerraformComponent
@@ -49,7 +51,6 @@ type terraformContext struct {
 // TerraformArgs contains all the CLI arguments needed for terraform operations.
 // It does not include environment variable formatting - that is handled by the env printer.
 type TerraformArgs struct {
-	ModulePath      string
 	TFDataDir       string
 	InitArgs        []string
 	PlanArgs        []string
@@ -74,7 +75,7 @@ type TerraformProvider interface {
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetTerraformOutputs(componentID string) (map[string]any, error)
 	GetTFDataDir(componentID string) (string, error)
-	GetEnvVarsForArgs(terraformArgs *TerraformArgs, includeOutputs bool) (map[string]string, error)
+	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
 }
@@ -94,6 +95,7 @@ func NewTerraformProvider(
 		configHandler: configHandler,
 		shell:         shell,
 		toolsManager:  toolsManager,
+		evaluator:     evaluator,
 		Shims:         NewShims(),
 		cache:         make(map[string]map[string]any),
 	}
@@ -209,7 +211,7 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 // GenerateTerraformArgs constructs Terraform CLI arguments for the specified component ID, module path, and interaction mode.
 // This function discovers applicable var files, configures backend arguments, and assembles all common Terraform command
 // arguments for init, plan, apply, destroy, import, and refresh operations. The componentID is used for tfstate paths,
-// var file lookups, and backend configuration. The modulePath is the filesystem path to the terraform module.
+// var file lookups, and backend configuration. The modulePath parameter is unused and maintained for backward compatibility.
 // Returns a fully populated TerraformArgs structure or an error if processing or lookup fails.
 func (p *terraformProvider) GenerateTerraformArgs(componentID, modulePath string, interactive bool) (*TerraformArgs, error) {
 	configRoot, err := p.configHandler.GetConfigRoot()
@@ -291,7 +293,6 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID, modulePath string
 	applyArgs = append(applyArgs, tfPlanPath)
 
 	return &TerraformArgs{
-		ModulePath:      modulePath,
 		TFDataDir:       strings.TrimSpace(tfDataDir),
 		InitArgs:        initArgs,
 		PlanArgs:        planArgs,
@@ -362,44 +363,86 @@ func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 	return tfDataDir, nil
 }
 
-// GetEnvVarsForArgs formats TerraformArgs into environment variables for Terraform operations.
-// It sets up base environment variables including TF_DATA_DIR, TF_CLI_ARGS_*, and TF_VAR_context_* variables.
-// If includeOutputs is true, it also adds TF_VAR_* environment variables from all Terraform component outputs,
-// allowing downstream components to access outputs from upstream components. Complex output values are JSON-encoded.
-// Returns an error if GetConfigRoot fails, which would result in an empty TF_VAR_context_path.
-func (p *terraformProvider) GetEnvVarsForArgs(terraformArgs *TerraformArgs, includeOutputs bool) (map[string]string, error) {
+// GetEnvVars constructs the environment variables required for Terraform execution for the specified component ID.
+// It generates TerraformArgs internally and sets up base environment variables including TF_DATA_DIR,
+// TF_CLI_ARGS_*, and TF_VAR_context_* variables. Component inputs are evaluated to populate the cache via
+// terraform_output() calls, and resulting TF_VAR_* environment variables are populated from the evaluated
+// inputs of the current component only. Outputs from other components are used solely to evaluate inputs and
+// are not included as separate TF_VAR_* variables. Complex output values are JSON-encoded.
+// Returns the generated environment variables map, the TerraformArgs struct, or an error if processing fails.
+func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error) {
+	component := p.GetTerraformComponent(componentID)
+	var modulePath string
+	if component != nil {
+		var err error
+		modulePath, err = p.resolveModulePath(component)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error resolving module path for component %s: %w", componentID, err)
+		}
+	} else {
+		components := p.GetTerraformComponents()
+		for i := range components {
+			if components[i].GetID() == componentID {
+				var err error
+				modulePath, err = p.resolveModulePath(&components[i])
+				if err != nil {
+					return nil, nil, fmt.Errorf("error resolving module path for component %s: %w", componentID, err)
+				}
+				component = &components[i]
+				break
+			}
+		}
+		if modulePath == "" {
+			componentID := componentID
+			projectRoot, err := p.shell.GetProjectRoot()
+			if err == nil {
+				modulePath = filepath.Join(projectRoot, "terraform", componentID)
+			} else {
+				return nil, nil, fmt.Errorf("component %s not found and module path could not be resolved: %w", componentID, err)
+			}
+		}
+	}
+	terraformArgs, err := p.GenerateTerraformArgs(componentID, modulePath, interactive)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error generating terraform args: %w", err)
+	}
+
 	envVars, err := p.getBaseEnvVarsForComponent(terraformArgs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if !includeOutputs {
-		return envVars, nil
+	var evaluatedInputs map[string]any
+	if componentID != "" && p.evaluator != nil {
+		component := p.GetTerraformComponent(componentID)
+		if component != nil && component.Inputs != nil && len(component.Inputs) > 0 {
+			var err error
+			evaluatedInputs, err = p.evaluator.EvaluateMap(component.Inputs, "", true)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to evaluate inputs for component %s: %w", componentID, err)
+			}
+		}
 	}
 
-	for _, component := range p.GetTerraformComponents() {
-		componentID := component.GetID()
-		outputs, err := p.GetTerraformOutputs(componentID)
-		if err != nil {
+	for key, value := range evaluatedInputs {
+		if evaluator.ContainsExpression(value) {
 			continue
 		}
-		for key, value := range outputs {
-			envKey := fmt.Sprintf("TF_VAR_%s", key)
-			var envValue string
-			if valueStr, ok := value.(string); ok {
-				envValue = valueStr
-			} else {
-				valueBytes, err := json.Marshal(value)
-				if err != nil {
-					continue
-				}
-				envValue = string(valueBytes)
+		envKey := fmt.Sprintf("TF_VAR_%s", key)
+		var envValue string
+		if valueStr, ok := value.(string); ok {
+			envValue = valueStr
+		} else {
+			valueBytes, err := json.Marshal(value)
+			if err != nil {
+				continue
 			}
-			envVars[envKey] = envValue
+			envValue = string(valueBytes)
 		}
+		envVars[envKey] = envValue
 	}
 
-	return envVars, nil
+	return envVars, terraformArgs, nil
 }
 
 // FormatArgsForEnv formats CLI arguments for use in environment variables.
@@ -453,7 +496,7 @@ func (p *terraformProvider) ClearCache() {
 // the terraform_output(component, key) syntax. The helper validates that exactly two string arguments
 // are provided (component ID and output key), then delegates to getOutput to retrieve the value.
 func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.ExpressionEvaluator) {
-	evaluator.Register("terraform_output", func(params ...any) (any, error) {
+	evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		if len(params) != 2 {
 			return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments (component, key), got %d", len(params))
 		}
@@ -465,51 +508,63 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 		if !ok {
 			return nil, fmt.Errorf("terraform_output() key must be a string, got %T", params[1])
 		}
-		return p.getOutput(component, key)
+		expr := fmt.Sprintf(`terraform_output("%s", "%s")`, component, key)
+		value, err := p.getOutput(component, key, expr, deferred)
+		if err != nil {
+			return nil, err
+		}
+		return value, nil
 	}, new(func(string, string) any))
 }
 
-// getOutput fetches a single output value for a terraform component by key.
-// It first checks the cache for previously retrieved outputs, then falls back to calling GetTerraformOutputs
-// if the component is not cached. Returns the output value or DeferredValue if the component or key is not found.
-// Returns DeferredValue (not an error) when outputs don't exist to allow blueprint processing
-// to proceed during init before components have been applied, while marking the value as deferred
-// so it can be handled appropriately by the expression evaluator.
-func (p *terraformProvider) getOutput(componentID, key string) (any, error) {
+// getOutput retrieves a single output value for a Terraform component by key.
+// If outputs for the component are requested for the first time, all outputs are fetched from Terraform
+// and cached for subsequent requests. Cached values are used for later accesses to avoid redundant retrievals.
+// If the component or key is not found, the function returns either the output value, the original expression string,
+// or an error depending on the deferred flag state. When outputs do not exist and deferred is false, it returns
+// the expression so blueprint processing can proceed before components have been fully applied,
+// enabling deferred resolution by the evaluator when appropriate.
+func (p *terraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
 	p.mu.RLock()
 	if cached, exists := p.cache[componentID]; exists {
-		p.mu.RUnlock()
-		value, exists := cached[key]
-		if !exists {
-			return evaluator.DeferredValue{}, nil
+		if value, exists := cached[key]; exists {
+			p.mu.RUnlock()
+			return value, nil
 		}
-		return value, nil
 	}
 	p.mu.RUnlock()
 
-	outputs, err := p.GetTerraformOutputs(componentID)
-	if err != nil {
-		return evaluator.DeferredValue{}, nil
+	outputs, _ := p.GetTerraformOutputs(componentID)
+	if len(outputs) == 0 {
+		if deferred {
+			return nil, fmt.Errorf("terraform outputs not available for component %s", componentID)
+		}
+		return expression, nil
 	}
 
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if cached, exists := p.cache[componentID]; exists {
-		p.mu.Unlock()
-		value, exists := cached[key]
-		if !exists {
-			return evaluator.DeferredValue{}, nil
+		if value, exists := cached[key]; exists {
+			return value, nil
 		}
+	}
+
+	if p.cache[componentID] == nil {
+		p.cache[componentID] = make(map[string]any)
+	}
+
+	maps.Copy(p.cache[componentID], outputs)
+
+	if value, exists := outputs[key]; exists {
 		return value, nil
 	}
-	p.cache[componentID] = outputs
-	p.mu.Unlock()
 
-	value, exists := outputs[key]
-	if !exists {
-		return evaluator.DeferredValue{}, nil
+	if deferred {
+		return nil, fmt.Errorf("output key %s not found for component %s", key, componentID)
 	}
-
-	return value, nil
+	return expression, nil
 }
 
 // getBaseEnvVarsForComponent returns the base environment variables for a Terraform component
@@ -725,10 +780,12 @@ func (p *terraformProvider) loadTerraformComponents() []blueprintv1alpha1.Terraf
 		windsorScratchPath := filepath.Join(projectRoot, ".windsor", "contexts", context)
 		for i := range blueprint.TerraformComponents {
 			component := &blueprint.TerraformComponents[i]
-			if component.Source != "" {
-				component.FullPath = filepath.Join(windsorScratchPath, "terraform", component.Path)
+			componentID := component.GetID()
+			useScratchPath := component.Name != "" || component.Source != ""
+			if useScratchPath {
+				component.FullPath = filepath.Join(windsorScratchPath, "terraform", componentID)
 			} else {
-				component.FullPath = filepath.Join(projectRoot, "terraform", component.Path)
+				component.FullPath = filepath.Join(projectRoot, "terraform", componentID)
 			}
 		}
 	}
@@ -737,14 +794,21 @@ func (p *terraformProvider) loadTerraformComponents() []blueprintv1alpha1.Terraf
 }
 
 // resolveModulePath returns the absolute path to the Terraform module for the specified component.
-// The path resolution logic uses the component ID (Name if present, otherwise Path) as the directory name.
+// If FullPath is already set on the component, it is used directly. Otherwise, the path is computed
+// as a fallback using the component ID (Name if present, otherwise Path) as the directory name.
 // For components with a Name or Source, the path is in Windsor scratch space (.windsor/contexts/<context>/terraform/<ID>).
 // For local components without a Name or Source, the path is in the project root (terraform/<Path>).
+// In production code, FullPath should always be set, making the fallback logic primarily for edge cases.
 // Returns the computed absolute path or an error if the required project or context root cannot be determined.
 func (p *terraformProvider) resolveModulePath(component *blueprintv1alpha1.TerraformComponent) (string, error) {
+	if component.FullPath != "" {
+		return component.FullPath, nil
+	}
+
 	componentID := component.GetID()
 
-	if component.Name != "" || component.Source != "" {
+	useScratchPath := component.Name != "" || component.Source != ""
+	if useScratchPath {
 		windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
 		if err != nil {
 			return "", err
@@ -756,7 +820,7 @@ func (p *terraformProvider) resolveModulePath(component *blueprintv1alpha1.Terra
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(projectRoot, "terraform", component.Path), nil
+	return filepath.Join(projectRoot, "terraform", componentID), nil
 }
 
 // applyEnvVars applies environment variables and returns a map of original values for restoration.
