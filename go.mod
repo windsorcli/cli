@@ -14,7 +14,7 @@ require (
 	github.com/fluxcd/pkg/apis/kustomize v1.14.0
 	github.com/fluxcd/pkg/apis/meta v1.24.0
 	github.com/fluxcd/source-controller/api v1.7.4
-	github.com/goccy/go-yaml v1.19.1
+	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-containerregistry v0.20.7
 	github.com/google/go-jsonnet v0.21.0
 	github.com/hashicorp/hcl/v2 v2.24.0
