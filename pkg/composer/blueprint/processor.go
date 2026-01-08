@@ -47,7 +47,8 @@ type BaseBlueprintProcessor struct {
 // NewBlueprintProcessor creates a new BlueprintProcessor using the runtime's expression evaluator.
 // The evaluator is used to evaluate 'when' conditions on features and components. Optional
 // overrides allow replacing the evaluator for testing. The processor is stateless and can
-// be shared across multiple concurrent feature processing operations.
+// be shared across multiple concurrent feature processing operations. The evaluator must be
+// provided either via the runtime or as an override.
 func NewBlueprintProcessor(rt *runtime.Runtime, opts ...*BaseBlueprintProcessor) *BaseBlueprintProcessor {
 	processor := &BaseBlueprintProcessor{
 		runtime:   rt,
@@ -139,9 +140,6 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1a
 
 		processed := tc
 		if processed.Inputs != nil {
-			if p.evaluator == nil {
-				return fmt.Errorf("evaluator is required to evaluate inputs for component '%s'", processed.GetID())
-			}
 			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, feature.Path, false)
 			if err != nil {
 				return fmt.Errorf("error evaluating inputs for component '%s': %w", processed.GetID(), err)
