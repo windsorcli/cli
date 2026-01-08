@@ -579,6 +579,9 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 // string "true", false otherwise. Returns an error if the expression is invalid or evaluates
 // to an unexpected type.
 func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bool, error) {
+	if !evaluator.ContainsExpression(expr) {
+		expr = "${" + expr + "}"
+	}
 	evaluated, err := p.evaluator.Evaluate(expr, path, false)
 	if err != nil {
 		return false, err

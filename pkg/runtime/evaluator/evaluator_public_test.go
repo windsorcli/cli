@@ -126,7 +126,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a simple expression
-		result, err := evaluator.Evaluate("value", "", false)
+		result, err := evaluator.Evaluate("${value}", "", false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -150,7 +150,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an arithmetic expression
-		result, err := evaluator.Evaluate("a + b", "", false)
+		result, err := evaluator.Evaluate("${a + b}", "", false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -178,7 +178,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a nested map access expression
-		result, err := evaluator.Evaluate("cluster.workers.count", "", false)
+		result, err := evaluator.Evaluate("${cluster.workers.count}", "", false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -208,7 +208,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an invalid expression
-		_, err := evaluator.Evaluate("invalid +", "", false)
+		_, err := evaluator.Evaluate("${invalid +}", "", false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -221,7 +221,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an expression that uses project_root
-		result, err := evaluator.Evaluate("project_root", "", false)
+		result, err := evaluator.Evaluate("${project_root}", "", false)
 
 		// Then project_root should be available
 		if err != nil {
@@ -242,7 +242,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an expression that uses context_path
-		result, err := evaluator.Evaluate("context_path", "", false)
+		result, err := evaluator.Evaluate("${context_path}", "", false)
 
 		// Then context_path should be available
 		if err != nil {
@@ -267,7 +267,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		// When evaluating an expression
 		result, err := evaluator.Evaluate("value", "", false)
 
-		// Then evaluation should return the original string (undefined variable)
+		// Then evaluation should return the original string (no ${} means no evaluation)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -288,7 +288,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an equality expression
-		result, err := evaluator.Evaluate("provider == 'aws'", "", false)
+		result, err := evaluator.Evaluate("${provider == 'aws'}", "", false)
 
 		// Then the result should be true
 		if err != nil {
@@ -311,7 +311,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an inequality expression
-		result, err := evaluator.Evaluate("provider != 'gcp'", "", false)
+		result, err := evaluator.Evaluate("${provider != 'gcp'}", "", false)
 
 		// Then the result should be true
 		if err != nil {
@@ -337,7 +337,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a logical AND expression
-		result, err := evaluator.Evaluate("provider == 'generic' && observability.enabled == true", "", false)
+		result, err := evaluator.Evaluate("${provider == 'generic' && observability.enabled == true}", "", false)
 
 		// Then the result should be true
 		if err != nil {
@@ -360,7 +360,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a logical OR expression
-		result, err := evaluator.Evaluate("provider == 'aws' || provider == 'azure'", "", false)
+		result, err := evaluator.Evaluate("${provider == 'aws' || provider == 'azure'}", "", false)
 
 		// Then the result should be true
 		if err != nil {
@@ -390,7 +390,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an expression with parentheses
-		result, err := evaluator.Evaluate("provider == 'generic' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)", "", false)
+		result, err := evaluator.Evaluate("${provider == 'generic' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)}", "", false)
 
 		// Then the result should be true
 		if err != nil {
@@ -414,7 +414,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a string value expression
-		result, err := evaluator.Evaluate("provider", "", false)
+		result, err := evaluator.Evaluate("${provider}", "", false)
 
 		// Then the result should be the string value
 		if err != nil {
@@ -442,7 +442,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an integer value expression
-		result, err := evaluator.Evaluate("cluster.workers.count", "", false)
+		result, err := evaluator.Evaluate("${cluster.workers.count}", "", false)
 
 		// Then the result should be the integer value
 		if err != nil {
@@ -470,7 +470,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an array access expression
-		result, err := evaluator.Evaluate("cluster.workers.instance_types", "", false)
+		result, err := evaluator.Evaluate("${cluster.workers.instance_types}", "", false)
 
 		// Then the result should be the array
 		if err != nil {
@@ -502,7 +502,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an undefined variable expression
-		result, err := evaluator.Evaluate("cluster.undefined", "", false)
+		result, err := evaluator.Evaluate("${cluster.undefined}", "", false)
 
 		// Then the result should be the original string (undefined variable)
 		if err != nil {

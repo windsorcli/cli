@@ -110,10 +110,6 @@ func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDef
 		return nil, fmt.Errorf("expression cannot be empty")
 	}
 	if strings.Contains(s, "${") {
-		if strings.HasPrefix(s, "${") && strings.HasSuffix(s, "}") && strings.Count(s, "${") == 1 && strings.Count(s, "}") == 1 {
-			expr := s[2 : len(s)-1]
-			return e.evaluateExpression(expr, featurePath, evaluateDeferred)
-		}
 		result := s
 		for strings.Contains(result, "${") {
 			start := strings.Index(result, "${")
@@ -129,7 +125,7 @@ func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDef
 			}
 			var replacement string
 			if value == nil {
-				replacement = ""
+				replacement = expr
 			} else {
 				switch value.(type) {
 				case map[string]any, []any:
@@ -142,21 +138,22 @@ func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDef
 					replacement = fmt.Sprintf("%v", value)
 				}
 			}
-			result = result[:start] + replacement + result[end+1:]
+			before := result[:start]
+			after := result[end+1:]
+			result = before + replacement + after
+			if before == "" && after == "" {
+				if value == nil {
+					return expr, nil
+				}
+				return value, nil
+			}
 			if !evaluateDeferred && ContainsExpression(replacement) {
 				break
 			}
 		}
 		return result, nil
 	}
-	result, err := e.evaluateExpression(s, featurePath, evaluateDeferred)
-	if err != nil {
-		return nil, err
-	}
-	if result == nil {
-		return s, nil
-	}
-	return result, nil
+	return s, nil
 }
 
 // evaluateExpression compiles and evaluates a single expression string using the expressionEvaluator environment.
