@@ -165,11 +165,7 @@ func TestNewProject(t *testing.T) {
 	t.Run("CreatesProjectWithDependencies", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		if proj == nil {
 			t.Fatal("Expected Project to be created")
@@ -195,11 +191,7 @@ func TestNewProject(t *testing.T) {
 	t.Run("UsesProvidedContextName", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 
-		proj, err := NewProject("custom-context", &Project{Runtime: mocks.Runtime})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
+		proj := NewProject("custom-context", &Project{Runtime: mocks.Runtime})
 
 		if proj.Runtime.ContextName != "custom-context" {
 			t.Errorf("Expected ContextName to be 'custom-context', got: %s", proj.Runtime.ContextName)
@@ -209,11 +201,7 @@ func TestNewProject(t *testing.T) {
 	t.Run("UsesConfigContextWhenContextNameEmpty", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 
-		proj, err := NewProject("", &Project{Runtime: mocks.Runtime})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
+		proj := NewProject("", &Project{Runtime: mocks.Runtime})
 
 		if proj.Runtime.ContextName != "test-context" {
 			t.Errorf("Expected ContextName to be 'test-context', got: %s", proj.Runtime.ContextName)
@@ -227,11 +215,7 @@ func TestNewProject(t *testing.T) {
 			return ""
 		}
 
-		proj, err := NewProject("", &Project{Runtime: mocks.Runtime})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
+		proj := NewProject("", &Project{Runtime: mocks.Runtime})
 
 		if proj.Runtime.ContextName != "local" {
 			t.Errorf("Expected ContextName to be 'local', got: %s", proj.Runtime.ContextName)
@@ -245,11 +229,7 @@ func TestNewProject(t *testing.T) {
 			return true
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		if proj.Workstation == nil {
 			t.Error("Expected Workstation to be created in dev mode")
@@ -263,11 +243,7 @@ func TestNewProject(t *testing.T) {
 			return false
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		if proj.Workstation != nil {
 			t.Error("Expected Workstation to be nil when not in dev mode")
@@ -308,21 +284,18 @@ func TestNewProject(t *testing.T) {
 				t.Error("Expected NewComposer to panic when Shell is nil")
 			}
 		}()
-		_, _ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 	})
 
 	t.Run("HandlesComposerOverride", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockComposer := composer.NewComposer(mocks.Runtime)
 
-		proj, err := NewProject("test-context", &Project{
+		proj := NewProject("test-context", &Project{
 			Runtime:  mocks.Runtime,
 			Composer: mockComposer,
 		})
 
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
 		if proj.Composer != mockComposer {
 			t.Error("Expected Composer override to be used")
 		}
@@ -332,14 +305,11 @@ func TestNewProject(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler)
 
-		proj, err := NewProject("test-context", &Project{
+		proj := NewProject("test-context", &Project{
 			Runtime:     mocks.Runtime,
 			Provisioner: mockProvisioner,
 		})
 
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
 		if proj.Provisioner != mockProvisioner {
 			t.Error("Expected Provisioner override to be used")
 		}
@@ -357,25 +327,19 @@ func TestNewProject(t *testing.T) {
 			t.Fatal("Failed to create workstation")
 		}
 
-		proj, err := NewProject("test-context", &Project{
+		proj := NewProject("test-context", &Project{
 			Runtime:     mocks.Runtime,
 			Workstation: mockWorkstation,
 		})
 
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
 		if proj.Workstation != mockWorkstation {
 			t.Error("Expected Workstation override to be used")
 		}
 	})
 
 	t.Run("CreatesRuntimeWhenNoOverrides", func(t *testing.T) {
-		proj, err := NewProject("test-context")
+		proj := NewProject("test-context")
 
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
 		if proj == nil {
 			t.Fatal("Expected Project to be created")
 		}
@@ -391,11 +355,8 @@ func TestNewProject(t *testing.T) {
 	})
 
 	t.Run("CreatesRuntimeWhenOverridesHasNilRuntime", func(t *testing.T) {
-		proj, err := NewProject("test-context", &Project{Runtime: nil})
+		proj := NewProject("test-context", &Project{Runtime: nil})
 
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
 		if proj == nil {
 			t.Fatal("Expected Project to be created")
 		}
@@ -413,49 +374,17 @@ func TestNewProject(t *testing.T) {
 func TestProject_Configure(t *testing.T) {
 	t.Run("SuccessWithNilFlagOverrides", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
-		err = proj.Configure(nil)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
+		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 	})
 
 	t.Run("SuccessWithEmptyFlagOverrides", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
-		err = proj.Configure(make(map[string]any))
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
+		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 	})
 
 	t.Run("SuccessWithFlagOverrides", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
-		flagOverrides := map[string]any{
-			"provider": "aws",
-			"key":      "value",
-		}
-
-		err = proj.Configure(flagOverrides)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
+		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 	})
 
 	t.Run("SetsGenericProviderInDevModeWhenProviderNotSet", func(t *testing.T) {
@@ -471,11 +400,6 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		providerSet := false
 		mockConfig.SetFunc = func(key string, value any) error {
 			if key == "provider" && value == "generic" {
@@ -484,11 +408,8 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		err = proj.Configure(nil)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		_ = proj.Configure(nil)
 
 		if !providerSet {
 			t.Error("Expected provider to be set to 'generic' in dev mode")
@@ -508,10 +429,7 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		genericSet := false
 		mockConfig.SetFunc = func(key string, value any) error {
@@ -519,12 +437,6 @@ func TestProject_Configure(t *testing.T) {
 				genericSet = true
 			}
 			return nil
-		}
-
-		err = proj.Configure(nil)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
 		}
 
 		if genericSet {
@@ -542,12 +454,9 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
-		err = proj.Configure(map[string]any{"provider": "aws"})
+		err := proj.Configure(map[string]any{"provider": "aws"})
 
 		if err == nil {
 			t.Error("Expected error for ApplyProviderDefaults failure")
@@ -562,12 +471,9 @@ func TestProject_Configure(t *testing.T) {
 			return fmt.Errorf("load config failed")
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
-		err = proj.Configure(nil)
+		err := proj.Configure(nil)
 
 		if err == nil {
 			t.Error("Expected error for LoadConfig failure")
@@ -586,12 +492,9 @@ func TestProject_Configure(t *testing.T) {
 			return fmt.Errorf("set failed")
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
-		err = proj.Configure(map[string]any{"key": "value"})
+		err := proj.Configure(map[string]any{"key": "value"})
 
 		if err == nil {
 			t.Error("Expected error for Set failure")
@@ -626,10 +529,7 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		flagOverrides := map[string]any{
 			"vm.driver": "colima",
@@ -637,12 +537,9 @@ func TestProject_Configure(t *testing.T) {
 		}
 
 		// When Configure is called with flag overrides
-		err = proj.Configure(flagOverrides)
+		_ = proj.Configure(flagOverrides)
 
 		// Then ApplyConfigDefaults should be called with flag overrides, resulting in DefaultConfig_Full
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
 
 		if setDefaultConfig.Network == nil || setDefaultConfig.Network.LoadBalancerIPs == nil {
 			t.Error("Expected DefaultConfig_Full with LoadBalancerIPs to be set (colima should use Full config)")
@@ -671,13 +568,10 @@ func TestProject_Configure(t *testing.T) {
 			return fmt.Errorf("set default failed")
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		// When Configure is called
-		err = proj.Configure(nil)
+		err := proj.Configure(nil)
 
 		// Then an error should be returned
 		if err == nil {
@@ -695,16 +589,10 @@ func TestProject_Configure(t *testing.T) {
 func TestProject_Initialize(t *testing.T) {
 	t.Run("SuccessWithoutWorkstation", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
-		err = proj.Initialize(false)
+		_ = proj.Initialize(false)
 
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
 	})
 
 	t.Run("SuccessWithWorkstation", func(t *testing.T) {
@@ -714,10 +602,7 @@ func TestProject_Initialize(t *testing.T) {
 			return true
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		if err := proj.Configure(nil); err != nil {
 			t.Fatalf("Failed to configure project: %v", err)
@@ -729,11 +614,8 @@ func TestProject_Initialize(t *testing.T) {
 
 		proj.Workstation.NetworkManager = nil
 
-		err = proj.Initialize(false)
+		_ = proj.Initialize(false)
 
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
 	})
 
 	t.Run("CallsContainerRuntimeWriteConfig", func(t *testing.T) {
@@ -749,10 +631,7 @@ func TestProject_Initialize(t *testing.T) {
 			return false
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		if err := proj.Configure(nil); err != nil {
 			t.Fatalf("Failed to configure project: %v", err)
@@ -771,11 +650,7 @@ func TestProject_Initialize(t *testing.T) {
 		proj.Workstation.ContainerRuntime = mockContainerRuntime
 		proj.Workstation.NetworkManager = nil
 
-		err = proj.Initialize(false)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
+		_ = proj.Initialize(false)
 
 		if !writeConfigCalled {
 			t.Error("Expected ContainerRuntime.WriteConfig to be called")
@@ -795,10 +670,7 @@ func TestProject_Initialize(t *testing.T) {
 			return false
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		if err := proj.Configure(nil); err != nil {
 			t.Fatalf("Failed to configure project: %v", err)
@@ -815,7 +687,7 @@ func TestProject_Initialize(t *testing.T) {
 		proj.Workstation.ContainerRuntime = mockContainerRuntime
 		proj.Workstation.NetworkManager = nil
 
-		err = proj.Initialize(false)
+		err := proj.Initialize(false)
 
 		if err == nil {
 			t.Error("Expected error for ContainerRuntime.WriteConfig failure")
@@ -829,16 +701,10 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("SuccessWithOverwriteTrue", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
-		err = proj.Initialize(true)
+		_ = proj.Initialize(true)
 
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
 	})
 
 	t.Run("ErrorOnGenerateContextIDFailure", func(t *testing.T) {
@@ -848,12 +714,9 @@ func TestProject_Initialize(t *testing.T) {
 			return fmt.Errorf("generate context ID failed")
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
-		err = proj.Initialize(false)
+		err := proj.Initialize(false)
 
 		if err == nil {
 			t.Error("Expected error for GenerateContextID failure")
@@ -872,12 +735,9 @@ func TestProject_Initialize(t *testing.T) {
 			return fmt.Errorf("save config failed")
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
-		err = proj.Initialize(false)
+		err := proj.Initialize(false)
 
 		if err == nil {
 			t.Error("Expected error for SaveConfig failure")
@@ -891,10 +751,7 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("ErrorOnLoadBlueprintFailure", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 		mockBlueprintHandler.LoadBlueprintFunc = func(...string) error {
@@ -902,7 +759,7 @@ func TestProject_Initialize(t *testing.T) {
 		}
 		proj.Composer.BlueprintHandler = mockBlueprintHandler
 
-		err = proj.Initialize(false)
+		err := proj.Initialize(false)
 
 		if err == nil {
 			t.Error("Expected error for LoadBlueprint failure")
@@ -916,10 +773,7 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("ErrorOnGenerateFailure", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 		mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error {
@@ -927,7 +781,7 @@ func TestProject_Initialize(t *testing.T) {
 		}
 		proj.Composer.BlueprintHandler = mockBlueprintHandler
 
-		err = proj.Initialize(false)
+		err := proj.Initialize(false)
 
 		if err == nil {
 			t.Error("Expected error for Generate failure")
@@ -941,10 +795,9 @@ func TestProject_Initialize(t *testing.T) {
 
 	t.Run("ErrorOnPrepareToolsFailure", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		mockToolsManager := tools.NewMockToolsManager()
 		mockToolsManager.CheckFunc = func() error {
@@ -952,7 +805,7 @@ func TestProject_Initialize(t *testing.T) {
 		}
 		proj.Runtime.ToolsManager = mockToolsManager
 
-		err = proj.Initialize(false)
+		err := proj.Initialize(false)
 
 		if err == nil {
 			t.Error("Expected error for PrepareTools failure")
@@ -971,10 +824,7 @@ func TestProject_Initialize(t *testing.T) {
 			return true
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
 		if err := proj.Configure(nil); err != nil {
 			t.Fatalf("Failed to configure project: %v", err)
@@ -990,7 +840,7 @@ func TestProject_Initialize(t *testing.T) {
 		}
 		proj.Workstation.NetworkManager = mockNetworkManager
 
-		err = proj.Initialize(false)
+		err := proj.Initialize(false)
 
 		if err == nil {
 			t.Error("Expected error for AssignIPs failure")
@@ -1001,7 +851,6 @@ func TestProject_Initialize(t *testing.T) {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
-
 }
 
 func TestProject_PerformCleanup(t *testing.T) {
@@ -1014,19 +863,15 @@ func TestProject_PerformCleanup(t *testing.T) {
 			return nil
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
-		err = proj.PerformCleanup()
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
+		err := proj.PerformCleanup()
 
 		if !cleanCalled {
 			t.Error("Expected Clean to be called")
+		}
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
@@ -1037,12 +882,9 @@ func TestProject_PerformCleanup(t *testing.T) {
 			return fmt.Errorf("clean failed")
 		}
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
-		err = proj.PerformCleanup()
+		err := proj.PerformCleanup()
 
 		if err == nil {
 			t.Error("Expected error for Clean failure")
@@ -1053,5 +895,4 @@ func TestProject_PerformCleanup(t *testing.T) {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
-
 }

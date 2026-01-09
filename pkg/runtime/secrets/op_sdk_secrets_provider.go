@@ -44,6 +44,10 @@ type OnePasswordSDKSecretsProvider struct {
 
 // NewOnePasswordSDKSecretsProvider creates a new OnePasswordSDKSecretsProvider instance
 func NewOnePasswordSDKSecretsProvider(vault secretsConfigType.OnePasswordVault, shell shell.Shell) *OnePasswordSDKSecretsProvider {
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	return &OnePasswordSDKSecretsProvider{
 		BaseSecretsProvider: NewBaseSecretsProvider(shell),
 		vault:               vault,

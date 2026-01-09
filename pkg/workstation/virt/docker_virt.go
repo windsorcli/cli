@@ -36,6 +36,10 @@ type DockerVirt struct {
 
 // NewDockerVirt creates a new instance of DockerVirt
 func NewDockerVirt(rt *runtime.Runtime, serviceList []services.Service) *DockerVirt {
+	if rt == nil {
+		panic("runtime is required")
+	}
+
 	var serviceSlice []services.Service
 	if serviceList != nil {
 		// Filter out nil services and copy non-nil ones
@@ -70,7 +74,7 @@ func (v *DockerVirt) Up() error {
 			return fmt.Errorf("failed to determine compose command: %w", err)
 		}
 
-		projectRoot := v.runtime.ProjectRoot
+		projectRoot := v.projectRoot
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
@@ -125,7 +129,7 @@ func (v *DockerVirt) Down() error {
 			return fmt.Errorf("failed to determine compose command: %w", err)
 		}
 
-		projectRoot := v.runtime.ProjectRoot
+		projectRoot := v.projectRoot
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		if _, err := v.shims.Stat(composeFilePath); os.IsNotExist(err) {
@@ -150,7 +154,7 @@ func (v *DockerVirt) Down() error {
 // the full compose configuration, serializes it to YAML, and writes it to the .windsor
 // directory with appropriate permissions.
 func (v *DockerVirt) WriteConfig() error {
-	projectRoot := v.runtime.ProjectRoot
+	projectRoot := v.projectRoot
 	composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 	if err := v.shims.MkdirAll(filepath.Dir(composeFilePath), 0755); err != nil {

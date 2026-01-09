@@ -54,6 +54,10 @@ type BaseSecretsProvider struct {
 
 // NewBaseSecretsProvider creates a new BaseSecretsProvider instance
 func NewBaseSecretsProvider(shell shell.Shell) *BaseSecretsProvider {
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	return &BaseSecretsProvider{
 		secrets:  make(map[string]string),
 		unlocked: false,

@@ -37,6 +37,10 @@ type SchemaValidationResult struct {
 
 // NewSchemaValidator creates a new schema validator instance
 func NewSchemaValidator(shell shell.Shell) *SchemaValidator {
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	return &SchemaValidator{
 		shell: shell,
 		Shims: NewShims(),

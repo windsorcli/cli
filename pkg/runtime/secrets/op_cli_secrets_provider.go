@@ -29,6 +29,10 @@ type OnePasswordCLISecretsProvider struct {
 
 // NewOnePasswordCLISecretsProvider creates a new OnePasswordCLISecretsProvider instance
 func NewOnePasswordCLISecretsProvider(vault secretsConfigType.OnePasswordVault, shell shell.Shell) *OnePasswordCLISecretsProvider {
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	return &OnePasswordCLISecretsProvider{
 		BaseSecretsProvider: NewBaseSecretsProvider(shell),
 		vault:               vault,

@@ -2916,7 +2916,7 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsInitializationWhenShellIsNil", func(t *testing.T) {
+	t.Run("PanicsWhenShellIsNil", func(t *testing.T) {
 		// Given a runtime with nil shell
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -2924,13 +2924,13 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.Shell = nil
 
 		// When initializeEnvPrinters is called
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when Shell is nil")
+			}
+		}()
 		rt.initializeEnvPrinters()
-
-		// Then env printers should not be initialized
-
-		if rt.EnvPrinters.AwsEnv != nil {
-			t.Error("Expected AwsEnv not to be initialized when Shell is nil")
-		}
 	})
 
 	t.Run("PanicsWhenConfigHandlerIsNil", func(t *testing.T) {

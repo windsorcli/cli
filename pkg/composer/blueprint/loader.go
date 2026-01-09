@@ -48,6 +48,13 @@ type BaseBlueprintLoader struct {
 // if empty, the loader will use local filesystem paths based on sourceName. Optional overrides
 // allow replacing the shims for testing.
 func NewBlueprintLoader(rt *runtime.Runtime, artifactBuilder artifact.Artifact, sourceName, sourceURL string, opts ...*BaseBlueprintLoader) *BaseBlueprintLoader {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if artifactBuilder == nil {
+		panic("artifact builder is required")
+	}
+
 	loader := &BaseBlueprintLoader{
 		runtime:         rt,
 		artifactBuilder: artifactBuilder,

@@ -32,6 +32,10 @@ type BaseBlueprintComposer struct {
 // The runtime provides access to configuration and context. Optional overrides allow setting
 // common substitutions that will be applied to all kustomizations in the composed blueprint.
 func NewBlueprintComposer(rt *runtime.Runtime, opts ...*BaseBlueprintComposer) *BaseBlueprintComposer {
+	if rt == nil {
+		panic("runtime is required")
+	}
+
 	composer := &BaseBlueprintComposer{
 		runtime:             rt,
 		commonSubstitutions: make(map[string]string),

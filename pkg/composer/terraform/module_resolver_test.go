@@ -103,11 +103,15 @@ contexts:
 		return "terraform"
 	}
 
+	// Create evaluator
+	evaluator := evaluator.NewExpressionEvaluator(configHandler, tmpDir, filepath.Join(tmpDir, "contexts", "_template"))
+
 	// Create runtime
 	rt := &runtime.Runtime{
 		ConfigHandler:      configHandler,
 		ToolsManager:       mockToolsManager,
 		Shell:              mockShell,
+		Evaluator:          evaluator,
 		ProjectRoot:        tmpDir,
 		ContextName:        "local",
 		WindsorScratchPath: filepath.Join(tmpDir, ".windsor", "contexts", "local"),

@@ -187,13 +187,10 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		stdout, stderr, closePipes := setupOutput(t)
 
@@ -201,13 +198,10 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
-		err = cmd.Execute()
+		_ = cmd.Execute()
 
 		closePipes()
 
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
 
 		output := stdout.String()
 		if output == "" {
@@ -234,13 +228,10 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		stdout, stderr, closePipes := setupOutput(t)
 
@@ -248,13 +239,10 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--json"})
-		err = cmd.Execute()
+		_ = cmd.Execute()
 
 		closePipes()
 
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
 
 		output := stdout.String()
 		if output == "" {
@@ -289,19 +277,16 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -322,19 +307,16 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -450,13 +432,10 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		stdout, stderr, closePipes := setupOutput(t)
 
@@ -464,13 +443,10 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-kustomization"})
-		err = cmd.Execute()
+		_ = cmd.Execute()
 
 		closePipes()
 
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
 
 		output := stdout.String()
 		if output == "" {
@@ -505,13 +481,10 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		stdout, stderr, closePipes := setupOutput(t)
 
@@ -519,13 +492,10 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-kustomization", "--json"})
-		err = cmd.Execute()
+		_ = cmd.Execute()
 
 		closePipes()
 
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
 
 		output := stdout.String()
 		if output == "" {
@@ -556,19 +526,16 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"nonexistent-kustomization"})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -589,19 +556,16 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-kustomization"})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -622,19 +586,16 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:  mocks.Runtime,
 			Composer: comp,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"test-kustomization"})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")

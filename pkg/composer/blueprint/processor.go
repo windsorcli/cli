@@ -50,6 +50,13 @@ type BaseBlueprintProcessor struct {
 // be shared across multiple concurrent feature processing operations. The evaluator must be
 // provided either via the runtime or as an override.
 func NewBlueprintProcessor(rt *runtime.Runtime, opts ...*BaseBlueprintProcessor) *BaseBlueprintProcessor {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.Evaluator == nil {
+		panic("evaluator is required on runtime")
+	}
+
 	processor := &BaseBlueprintProcessor{
 		runtime:   rt,
 		evaluator: rt.Evaluator,

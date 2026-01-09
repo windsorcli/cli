@@ -28,6 +28,13 @@ type GcpEnvPrinter struct {
 
 // NewGcpEnvPrinter creates a new GcpEnvPrinter instance
 func NewGcpEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *GcpEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &GcpEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}

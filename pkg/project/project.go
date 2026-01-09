@@ -8,6 +8,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/workstation"
 )
 
@@ -15,20 +16,23 @@ import (
 // It coordinates context, provisioner, composer, and workstation managers
 // to provide a unified interface for project initialization and management.
 type Project struct {
-	Runtime     *runtime.Runtime
-	Provisioner *provisioner.Provisioner
-	Composer    *composer.Composer
-	Workstation *workstation.Workstation
+	Runtime       *runtime.Runtime
+	configHandler config.ConfigHandler
+	contextName   string
+	projectRoot   string
+	Provisioner   *provisioner.Provisioner
+	Composer      *composer.Composer
+	Workstation   *workstation.Workstation
 }
 
 // NewProject creates and initializes a new Project instance with all required managers.
 // It sets up the execution context, applies config defaults, and creates provisioner,
 // composer, and workstation managers. The workstation is only created if the project
-// is in dev mode. Returns the initialized Project or an error if any step fails.
+// is in dev mode. Panics if required dependencies are nil.
 // After creation, call Configure() to apply flag overrides if needed.
 // Optional overrides can be provided via opts to inject mocks for testing.
 // If opts contains a Project with Runtime set, that runtime will be reused.
-func NewProject(contextName string, opts ...*Project) (*Project, error) {
+func NewProject(contextName string, opts ...*Project) *Project {
 	var rt *runtime.Runtime
 
 	var overrides *Project
@@ -45,6 +49,13 @@ func NewProject(contextName string, opts ...*Project) (*Project, error) {
 			rtOpts = []*runtime.Runtime{overrides.Runtime}
 		}
 		rt = runtime.NewRuntime(rtOpts...)
+	}
+
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required on runtime")
 	}
 
 	if contextName == "" {
@@ -81,23 +92,26 @@ func NewProject(contextName string, opts ...*Project) (*Project, error) {
 	}
 
 	return &Project{
-		Runtime:     rt,
-		Provisioner: prov,
-		Composer:    comp,
-		Workstation: ws,
-	}, nil
+		Runtime:       rt,
+		configHandler: rt.ConfigHandler,
+		contextName:   rt.ContextName,
+		projectRoot:   rt.ProjectRoot,
+		Provisioner:   prov,
+		Composer:      comp,
+		Workstation:   ws,
+	}
 }
 
 // Configure loads configuration from disk and applies flag-based overrides.
 // This should be called after NewProject if command flags need to override
 // configuration values. Returns an error if loading or applying overrides fails.
 func (p *Project) Configure(flagOverrides map[string]any) error {
-	if p.Runtime.ConfigHandler.IsDevMode(p.Runtime.ContextName) {
+	if p.configHandler.IsDevMode(p.contextName) {
 		if flagOverrides == nil {
 			flagOverrides = make(map[string]any)
 		}
 		if _, exists := flagOverrides["provider"]; !exists {
-			if p.Runtime.ConfigHandler.GetString("provider") == "" {
+			if p.configHandler.GetString("provider") == "" {
 				flagOverrides["provider"] = "generic"
 			}
 		}
@@ -118,12 +132,12 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		return err
 	}
 
-	if err := p.Runtime.ConfigHandler.LoadConfig(); err != nil {
+	if err := p.configHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	for key, value := range flagOverrides {
-		if err := p.Runtime.ConfigHandler.Set(key, value); err != nil {
+		if err := p.configHandler.Set(key, value); err != nil {
 			return fmt.Errorf("failed to set %s: %w", key, err)
 		}
 	}
@@ -153,7 +167,7 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 		}
 	}
 
-	if err := p.Runtime.ConfigHandler.GenerateContextID(); err != nil {
+	if err := p.configHandler.GenerateContextID(); err != nil {
 		return fmt.Errorf("failed to generate context ID: %w", err)
 	}
 
@@ -161,7 +175,7 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 		return fmt.Errorf("failed to load blueprint data: %w", err)
 	}
 
-	if err := p.Runtime.ConfigHandler.SaveConfig(overwrite); err != nil {
+	if err := p.configHandler.SaveConfig(overwrite); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
@@ -185,26 +199,26 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 // saved state, then deletes the .volumes directory, .windsor/contexts/<context> directory,
 // .windsor/Corefile, and .windsor/docker-compose.yaml. Returns an error if any cleanup step fails.
 func (p *Project) PerformCleanup() error {
-	if err := p.Runtime.ConfigHandler.Clean(); err != nil {
+	if err := p.configHandler.Clean(); err != nil {
 		return fmt.Errorf("error cleaning up context specific artifacts: %w", err)
 	}
 
-	volumesPath := filepath.Join(p.Runtime.ProjectRoot, ".volumes")
+	volumesPath := filepath.Join(p.projectRoot, ".volumes")
 	if err := os.RemoveAll(volumesPath); err != nil {
 		return fmt.Errorf("error deleting .volumes folder: %w", err)
 	}
 
-	tfModulesPath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", "contexts", p.Runtime.ContextName)
+	tfModulesPath := filepath.Join(p.projectRoot, ".windsor", "contexts", p.contextName)
 	if err := os.RemoveAll(tfModulesPath); err != nil {
-		return fmt.Errorf("error deleting .windsor/contexts/%s folder: %w", p.Runtime.ContextName, err)
+		return fmt.Errorf("error deleting .windsor/contexts/%s folder: %w", p.contextName, err)
 	}
 
-	corefilePath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", "Corefile")
+	corefilePath := filepath.Join(p.projectRoot, ".windsor", "Corefile")
 	if err := os.RemoveAll(corefilePath); err != nil {
 		return fmt.Errorf("error deleting .windsor/Corefile: %w", err)
 	}
 
-	dockerComposePath := filepath.Join(p.Runtime.ProjectRoot, ".windsor", "docker-compose.yaml")
+	dockerComposePath := filepath.Join(p.projectRoot, ".windsor", "docker-compose.yaml")
 	if err := os.RemoveAll(dockerComposePath); err != nil {
 		return fmt.Errorf("error deleting .windsor/docker-compose.yaml: %w", err)
 	}

@@ -804,8 +804,20 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("PanicsWhenShellIsNil", func(t *testing.T) {
+		// When NewSchemaValidator is called with nil shell
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when shell is nil")
+			}
+		}()
+		_ = NewSchemaValidator(nil)
+	})
+
 	t.Run("HandlesNestedObjectWithEmptyDefaults", func(t *testing.T) {
-		validator := NewSchemaValidator(nil)
+		mockShell := shell.NewMockShell()
+		validator := NewSchemaValidator(mockShell)
 		validator.Schema = map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
@@ -2405,7 +2417,8 @@ func TestSchemaValidator_AdditionalProperties_SchemaObjects(t *testing.T) {
 }
 
 func TestSchemaValidator_ArrayAndIntegerValidation(t *testing.T) {
-	validator := NewSchemaValidator(nil)
+	mockShell := shell.NewMockShell()
+	validator := NewSchemaValidator(mockShell)
 
 	t.Run("ArrayValidation", func(t *testing.T) {
 		err := validator.LoadSchemaFromBytes([]byte(`$schema: https://json-schema.org/draft/2020-12/schema
@@ -2449,7 +2462,8 @@ properties:
 	})
 
 	t.Run("ValidateArrayWithNonArrayValue", func(t *testing.T) {
-		validator := NewSchemaValidator(nil)
+		mockShell := shell.NewMockShell()
+		validator := NewSchemaValidator(mockShell)
 		validator.Schema = map[string]any{
 			"type": "array",
 			"items": map[string]any{
@@ -2465,7 +2479,7 @@ properties:
 	})
 
 	t.Run("ValidateArrayWithoutItems", func(t *testing.T) {
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 		validator.Schema = map[string]any{
 			"type": "array",
 		}
@@ -2478,7 +2492,7 @@ properties:
 	})
 
 	t.Run("ValidateArrayWithNonMapItems", func(t *testing.T) {
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 		validator.Schema = map[string]any{
 			"type":  "array",
 			"items": "not_a_map",
@@ -2625,7 +2639,7 @@ additionalProperties:
 func TestSchemaValidator_mergeSchema(t *testing.T) {
 	t.Run("MergesPropertiesRecursively", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := map[string]any{
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2715,7 +2729,7 @@ func TestSchemaValidator_mergeSchema(t *testing.T) {
 
 	t.Run("MergesRequiredArrays", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := map[string]any{
 			"$schema":  "https://json-schema.org/draft/2020-12/schema",
@@ -2764,7 +2778,7 @@ func TestSchemaValidator_mergeSchema(t *testing.T) {
 
 	t.Run("OverridesNonMergedKeywords", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := map[string]any{
 			"$schema":              "https://json-schema.org/draft/2020-12/schema",
@@ -2791,7 +2805,7 @@ func TestSchemaValidator_mergeSchema(t *testing.T) {
 func TestSchemaValidator_mergeProperties(t *testing.T) {
 	t.Run("MergesPropertyMaps", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := map[string]any{
 			"provider": map[string]any{
@@ -2860,7 +2874,7 @@ func TestSchemaValidator_mergeProperties(t *testing.T) {
 
 	t.Run("OverridesNonObjectProperties", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := map[string]any{
 			"provider": map[string]any{
@@ -2894,7 +2908,7 @@ func TestSchemaValidator_mergeProperties(t *testing.T) {
 func TestSchemaValidator_mergeRequired(t *testing.T) {
 	t.Run("UnionsRequiredArrays", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := []any{"endpoint", "node"}
 		overlay := []any{"node", "hostname"}
@@ -2937,7 +2951,7 @@ func TestSchemaValidator_mergeRequired(t *testing.T) {
 
 	t.Run("HandlesEmptyArrays", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := []any{}
 		overlay := []any{"node"}
@@ -2957,7 +2971,7 @@ func TestSchemaValidator_mergeRequired(t *testing.T) {
 
 	t.Run("HandlesNilInputs", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		// When merging with nil inputs
 		merged := validator.mergeRequired(nil, nil)
@@ -2972,7 +2986,7 @@ func TestSchemaValidator_mergeRequired(t *testing.T) {
 func TestSchemaValidator_mergeItemsSchema(t *testing.T) {
 	t.Run("MergesObjectItemsSchemas", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := map[string]any{
 			"type": "object",
@@ -3035,7 +3049,7 @@ func TestSchemaValidator_mergeItemsSchema(t *testing.T) {
 
 	t.Run("OverridesNonObjectItems", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		base := map[string]any{
 			"type": "string",
@@ -3056,7 +3070,7 @@ func TestSchemaValidator_mergeItemsSchema(t *testing.T) {
 
 	t.Run("HandlesNonMapInputs", func(t *testing.T) {
 		// Given a schema validator
-		validator := NewSchemaValidator(nil)
+		validator := NewSchemaValidator(shell.NewMockShell())
 
 		// When merging with non-map inputs
 		merged := validator.mergeItemsSchema("not-a-map", map[string]any{"type": "string"})

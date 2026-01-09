@@ -844,19 +844,18 @@ metadata:
 		}
 	})
 
-	t.Run("ReturnsErrorWhenArtifactBuilderNil", func(t *testing.T) {
+	t.Run("PanicsWhenArtifactBuilderNil", func(t *testing.T) {
 		// Given an OCI URL with nil artifact builder
 		mocks := setupLoaderMocks(t)
 
-		loader := NewBlueprintLoader(mocks.Runtime, nil, "source", "oci://ghcr.io/test/repo:v1.0.0")
-
-		// When loading
-		err := loader.Load()
-
-		// Then should return error
-		if err == nil {
-			t.Error("Expected error for nil artifact builder")
-		}
+		// When NewBlueprintLoader is called with nil artifact builder
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic for nil artifact builder")
+			}
+		}()
+		_ = NewBlueprintLoader(mocks.Runtime, nil, "source", "oci://ghcr.io/test/repo:v1.0.0")
 	})
 
 	t.Run("ReturnsErrorWhenBlueprintReadFails", func(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	terraformRuntime "github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
@@ -171,12 +172,15 @@ contexts:
 		}
 	})
 
+	evaluator := evaluator.NewExpressionEvaluator(configHandler, tmpDir, filepath.Join(tmpDir, "contexts", "_template"))
+
 	rt := &runtime.Runtime{
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
+		Evaluator:     evaluator,
 	}
 
 	return &TerraformTestMocks{

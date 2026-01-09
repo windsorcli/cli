@@ -33,7 +33,18 @@ type OCIModuleResolver struct {
 // =============================================================================
 
 // NewOCIModuleResolver creates a new OCI module resolver with the provided dependencies.
+// Panics if rt, blueprintHandler, or artifactBuilder are nil.
 func NewOCIModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, artifactBuilder artifact.Artifact) *OCIModuleResolver {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if blueprintHandler == nil {
+		panic("blueprint handler is required")
+	}
+	if artifactBuilder == nil {
+		panic("artifact builder is required")
+	}
+
 	return &OCIModuleResolver{
 		BaseModuleResolver: NewBaseModuleResolver(rt, blueprintHandler),
 		artifactBuilder:    artifactBuilder,

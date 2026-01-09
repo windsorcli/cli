@@ -32,7 +32,6 @@ type NetworkManager interface {
 
 // BaseNetworkManager is a concrete implementation of NetworkManager
 type BaseNetworkManager struct {
-	runtime                  *runtime.Runtime
 	sshClient                ssh.Client
 	shell                    shell.Shell
 	secureShell              shell.Shell
@@ -49,8 +48,17 @@ type BaseNetworkManager struct {
 
 // NewNetworkManager creates a new NetworkManager
 func NewBaseNetworkManager(rt *runtime.Runtime) *BaseNetworkManager {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.Shell == nil {
+		panic("shell is required on runtime")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required on runtime")
+	}
+
 	return &BaseNetworkManager{
-		runtime:       rt,
 		shell:         rt.Shell,
 		configHandler: rt.ConfigHandler,
 		shims:         NewShims(),

@@ -158,21 +158,17 @@ func TestUpCmd(t *testing.T) {
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		// When executing the up command
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -190,21 +186,17 @@ func TestUpCmd(t *testing.T) {
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		// When executing the up command with install flag
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install"})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -222,21 +214,17 @@ func TestUpCmd(t *testing.T) {
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		// When executing the up command with wait flag
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--wait"})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then no error should occur (wait only works with install)
 		if err != nil {
@@ -254,21 +242,17 @@ func TestUpCmd(t *testing.T) {
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		// When executing the up command with both install and wait flags
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install", "--wait"})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then no error should occur
 		if err != nil {
@@ -292,21 +276,17 @@ func TestUpCmd(t *testing.T) {
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		// When executing the up command
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -334,21 +314,17 @@ func TestUpCmd(t *testing.T) {
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		// When executing the up command
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -376,21 +352,17 @@ func TestUpCmd(t *testing.T) {
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		// When executing the up command with install flag
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install"})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {
@@ -418,21 +390,17 @@ func TestUpCmd(t *testing.T) {
 			KubernetesManager: mocks.KubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
-
 		// When executing the up command with install and wait flags
 		cmd := createTestUpCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--install", "--wait"})
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		// Then an error should occur
 		if err == nil {

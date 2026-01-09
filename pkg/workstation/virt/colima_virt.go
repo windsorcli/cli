@@ -40,6 +40,10 @@ type ColimaVirt struct {
 
 // NewColimaVirt creates a new instance of ColimaVirt
 func NewColimaVirt(rt *runtime.Runtime) *ColimaVirt {
+	if rt == nil {
+		panic("runtime is required")
+	}
+
 	return &ColimaVirt{
 		BaseVirt: NewBaseVirt(rt),
 	}

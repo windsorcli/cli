@@ -136,10 +136,7 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		proj, err := project.NewProject(contextName, projectOpts)
-		if err != nil {
-			return err
-		}
+		proj := project.NewProject(contextName, projectOpts)
 
 		if err := proj.Configure(flagOverrides); err != nil {
 			return err

@@ -32,6 +32,10 @@ type BaseBlueprintWriter struct {
 // The runtime provides the config root path where blueprint.yaml will be written. Optional
 // overrides allow replacing the shims for testing file system operations.
 func NewBlueprintWriter(rt *runtime.Runtime, opts ...*BaseBlueprintWriter) *BaseBlueprintWriter {
+	if rt == nil {
+		panic("runtime is required")
+	}
+
 	writer := &BaseBlueprintWriter{
 		runtime: rt,
 		shims:   NewShims(),
