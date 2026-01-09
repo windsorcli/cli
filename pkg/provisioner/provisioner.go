@@ -40,6 +40,7 @@ type Provisioner struct {
 	contextName   string
 	projectRoot   string
 	configRoot    string
+	runtime       *runtime.Runtime
 
 	TerraformStack    terraforminfra.Stack
 	KubernetesManager kubernetes.KubernetesManager
@@ -80,6 +81,7 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		contextName:      rt.ContextName,
 		projectRoot:      rt.ProjectRoot,
 		configRoot:       rt.ConfigRoot,
+		runtime:          rt,
 		blueprintHandler: blueprintHandler,
 	}
 
@@ -390,15 +392,7 @@ func (i *Provisioner) ensureTerraformStack() error {
 		return nil
 	}
 	if i.configHandler.GetBool("terraform.enabled", false) {
-		rt := &runtime.Runtime{
-			ConfigHandler: i.configHandler,
-			Shell:         i.shell,
-			Evaluator:     i.evaluator,
-			ContextName:   i.contextName,
-			ProjectRoot:   i.projectRoot,
-			ConfigRoot:    i.configRoot,
-		}
-		i.TerraformStack = terraforminfra.NewStack(rt)
+		i.TerraformStack = terraforminfra.NewStack(i.runtime)
 	}
 	return nil
 }
