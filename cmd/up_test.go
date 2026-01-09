@@ -99,14 +99,14 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	mockKubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 	// Create runtime with all mocked dependencies
-	rt, err := runtime.NewRuntime(&runtime.Runtime{
+	rt := runtime.NewRuntime(&runtime.Runtime{
 		Shell:         baseMocks.Shell,
 		ConfigHandler: baseMocks.ConfigHandler,
 		ProjectRoot:   tmpDir,
 		ToolsManager:  baseMocks.ToolsManager,
 	})
-	if err != nil {
-		t.Fatalf("Failed to create runtime: %v", err)
+	if rt == nil {
+		t.Fatal("Failed to create runtime")
 	}
 
 	return &UpMocks{

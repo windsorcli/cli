@@ -10,6 +10,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
 	ctxpkg "github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/network"
@@ -178,6 +179,7 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 		TemplateRoot:  "/test/project/contexts/_template",
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
+		Evaluator:     evaluator.NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/project/contexts/_template"),
 	}
 
 	mocks := &WorkstationTestMocks{
@@ -209,22 +211,19 @@ func TestNewWorkstation(t *testing.T) {
 		mocks := setupWorkstationMocks(t)
 
 		// When creating a new workstation with the runtime
-		workstation, err := NewWorkstation(mocks.Runtime)
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// Then the workstation should be created successfully without errors
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
 		// And the workstation should not be nil
 		if workstation == nil {
 			t.Error("Expected workstation to be created")
 		}
 		// And the ConfigHandler should be set
-		if workstation.ConfigHandler == nil {
+		if workstation.configHandler == nil {
 			t.Error("Expected ConfigHandler to be set")
 		}
 		// And the Shell should be set
-		if workstation.Shell == nil {
+		if workstation.shell == nil {
 			t.Error("Expected Shell to be set")
 		}
 	})
@@ -234,20 +233,13 @@ func TestNewWorkstation(t *testing.T) {
 		_ = setupWorkstationMocks(t)
 
 		// When creating a new workstation with nil runtime
-		workstation, err := NewWorkstation(nil)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error for nil context")
-		}
-		// And the workstation should be nil
-		if workstation != nil {
-			t.Error("Expected workstation to be nil")
-		}
-		// And the error message should indicate runtime is required
-		if err.Error() != "runtime is required" {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic for nil runtime")
+			}
+		}()
+		_ = NewWorkstation(nil)
 	})
 
 	t.Run("NilConfigHandler", func(t *testing.T) {
@@ -258,20 +250,13 @@ func TestNewWorkstation(t *testing.T) {
 		}
 
 		// When creating a new workstation with the incomplete runtime
-		workstation, err := NewWorkstation(rt)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error for nil ConfigHandler")
-		}
-		// And the workstation should be nil
-		if workstation != nil {
-			t.Error("Expected workstation to be nil")
-		}
-		// And the error message should indicate ConfigHandler is required
-		if err.Error() != "ConfigHandler is required on runtime" {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic for nil ConfigHandler")
+			}
+		}()
+		_ = NewWorkstation(rt)
 	})
 
 	t.Run("NilShell", func(t *testing.T) {
@@ -282,19 +267,26 @@ func TestNewWorkstation(t *testing.T) {
 		}
 
 		// When creating a new workstation with the incomplete runtime
-		workstation, err := NewWorkstation(rt)
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic for nil Shell")
+			}
+		}()
+		_ = NewWorkstation(rt)
+	})
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error for nil Shell")
-		}
-		// And the workstation should be nil
-		if workstation != nil {
-			t.Error("Expected workstation to be nil")
-		}
-		// And the error message should indicate Shell is required
-		if err.Error() != "Shell is required on runtime" {
-			t.Errorf("Expected specific error message, got: %v", err)
+	t.Run("NoErrorWhenShellIsProvided", func(t *testing.T) {
+		// Given a runtime with Shell
+		mocks := setupWorkstationMocks(t)
+		rt := mocks.Runtime
+
+		// When creating a new workstation
+		workstation := NewWorkstation(rt)
+
+		// Then the workstation should be created successfully
+		if workstation == nil {
+			t.Error("Expected workstation to be created")
 		}
 	})
 
@@ -303,19 +295,25 @@ func TestNewWorkstation(t *testing.T) {
 		_ = setupWorkstationMocks(t)
 
 		// When creating a new workstation with nil runtime
-		workstation, err := NewWorkstation(nil)
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic for nil runtime")
+			}
+		}()
+		_ = NewWorkstation(nil)
+	})
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error for nil injector")
-		}
-		// And the workstation should be nil
-		if workstation != nil {
-			t.Error("Expected workstation to be nil")
-		}
-		// And the error message should indicate runtime is required
-		if err.Error() != "runtime is required" {
-			t.Errorf("Expected specific error message, got: %v", err)
+	t.Run("NoErrorWhenRuntimeIsProvided", func(t *testing.T) {
+		// Given a valid runtime
+		mocks := setupWorkstationMocks(t)
+
+		// When creating a new workstation
+		workstation := NewWorkstation(mocks.Runtime)
+
+		// Then the workstation should be created successfully
+		if workstation == nil {
+			t.Error("Expected workstation to be created")
 		}
 	})
 
@@ -324,12 +322,9 @@ func TestNewWorkstation(t *testing.T) {
 		mocks := setupWorkstationMocks(t)
 
 		// When creating a new workstation
-		workstation, err := NewWorkstation(mocks.Runtime)
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// Then the workstation should be created successfully
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
 		// And SSHClient should be created
 		if workstation.SSHClient == nil {
 			t.Error("Expected SSHClient to be created")
@@ -356,7 +351,6 @@ func TestNewWorkstation(t *testing.T) {
 		// Given a runtime and workstation options with pre-configured dependencies
 		mocks := setupWorkstationMocks(t)
 		opts := &Workstation{
-			Runtime:          mocks.Runtime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         []services.Service{mocks.Services[0]},
 			VirtualMachine:   mocks.VirtualMachine,
@@ -365,11 +359,11 @@ func TestNewWorkstation(t *testing.T) {
 		}
 
 		// When creating a new workstation with the provided options
-		workstation, err := NewWorkstation(mocks.Runtime, opts)
+		workstation := NewWorkstation(mocks.Runtime, opts)
 
 		// Then the workstation should be created successfully
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
+		if workstation == nil {
+			t.Error("Expected workstation to be created")
 		}
 		// And the existing NetworkManager should be used
 		if workstation.NetworkManager != mocks.NetworkManager {
@@ -402,18 +396,15 @@ func TestWorkstation_Up(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a workstation with all dependencies configured
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then the workstation should start successfully without errors
 		if err != nil {
@@ -424,18 +415,15 @@ func TestWorkstation_Up(t *testing.T) {
 	t.Run("SetsNoCacheEnvironmentVariable", func(t *testing.T) {
 		// Given a workstation with all dependencies configured
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -464,18 +452,15 @@ func TestWorkstation_Up(t *testing.T) {
 			return nil
 		}
 		mocks.ConfigHandler.Set("vm.driver", "colima")
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -503,18 +488,15 @@ func TestWorkstation_Up(t *testing.T) {
 			containerUpCalled = true
 			return nil
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -545,18 +527,15 @@ func TestWorkstation_Up(t *testing.T) {
 			dnsCalled = true
 			return nil
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -586,18 +565,15 @@ func TestWorkstation_Up(t *testing.T) {
 				return nil
 			}
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then the workstation should start successfully
 		if err != nil {
@@ -616,18 +592,15 @@ func TestWorkstation_Up(t *testing.T) {
 			return fmt.Errorf("VM config write failed")
 		}
 		mocks.ConfigHandler.Set("vm.driver", "colima")
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then an error should be returned
 		if err == nil {
@@ -648,18 +621,15 @@ func TestWorkstation_Up(t *testing.T) {
 			return fmt.Errorf("VM start failed")
 		}
 		mocks.ConfigHandler.Set("vm.driver", "colima")
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then an error should be returned
 		if err == nil {
@@ -677,18 +647,15 @@ func TestWorkstation_Up(t *testing.T) {
 		mocks.ContainerRuntime.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("container start failed")
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When calling Up() to start the workstation
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then an error should be returned
 		if err == nil {
@@ -706,18 +673,15 @@ func TestWorkstation_Up(t *testing.T) {
 		mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
 			return fmt.Errorf("network config failed")
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then
 		if err == nil {
@@ -736,18 +700,15 @@ func TestWorkstation_Up(t *testing.T) {
 				return fmt.Errorf("service config failed")
 			}
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then
 		if err == nil {
@@ -763,13 +724,10 @@ func TestWorkstation_Down(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
-		err = workstation.Down()
+		err := workstation.Down()
 
 		// Then
 		if err != nil {
@@ -785,15 +743,12 @@ func TestWorkstation_Down(t *testing.T) {
 			containerDownCalled = true
 			return nil
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			ContainerRuntime: mocks.ContainerRuntime,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When
-		err = workstation.Down()
+		err := workstation.Down()
 
 		// Then
 		if err != nil {
@@ -812,15 +767,12 @@ func TestWorkstation_Down(t *testing.T) {
 			vmDownCalled = true
 			return nil
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine: mocks.VirtualMachine,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When
-		err = workstation.Down()
+		err := workstation.Down()
 
 		// Then
 		if err != nil {
@@ -837,15 +789,12 @@ func TestWorkstation_Down(t *testing.T) {
 		mocks.ContainerRuntime.DownFunc = func() error {
 			return fmt.Errorf("container stop failed")
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			ContainerRuntime: mocks.ContainerRuntime,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When
-		err = workstation.Down()
+		err := workstation.Down()
 
 		// Then
 		if err == nil {
@@ -862,15 +811,12 @@ func TestWorkstation_Down(t *testing.T) {
 		mocks.VirtualMachine.DownFunc = func() error {
 			return fmt.Errorf("VM stop failed")
 		}
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine: mocks.VirtualMachine,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When
-		err = workstation.Down()
+		err := workstation.Down()
 
 		// Then
 		if err == nil {
@@ -890,10 +836,7 @@ func TestWorkstation_createServices(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
 		services, err := workstation.createServices()
@@ -921,10 +864,7 @@ func TestWorkstation_createServices(t *testing.T) {
 			return false
 		}
 		mocks.Runtime.ConfigHandler = mockConfig
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
 		services, err := workstation.createServices()
@@ -941,10 +881,7 @@ func TestWorkstation_createServices(t *testing.T) {
 	t.Run("ServiceInitializationError", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
 		services, err := workstation.createServices()
@@ -961,10 +898,7 @@ func TestWorkstation_createServices(t *testing.T) {
 	t.Run("CreatesDNSService", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
 		services, err := workstation.createServices()
@@ -981,10 +915,7 @@ func TestWorkstation_createServices(t *testing.T) {
 	t.Run("CreatesGitLivereloadService", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
 		services, err := workstation.createServices()
@@ -1001,10 +932,7 @@ func TestWorkstation_createServices(t *testing.T) {
 	t.Run("CreatesLocalstackService", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
 		services, err := workstation.createServices()
@@ -1021,10 +949,7 @@ func TestWorkstation_createServices(t *testing.T) {
 	t.Run("CreatesRegistryServices", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
 		services, err := workstation.createServices()
@@ -1041,10 +966,7 @@ func TestWorkstation_createServices(t *testing.T) {
 	t.Run("CreatesTalosServices", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
+		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
 		services, err := workstation.createServices()
@@ -1067,18 +989,15 @@ func TestWorkstation_Integration(t *testing.T) {
 	t.Run("FullUpDownCycle", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When - Up
-		err = workstation.Up()
+		err := workstation.Up()
 
 		// Then
 		if err != nil {
@@ -1089,27 +1008,21 @@ func TestWorkstation_Integration(t *testing.T) {
 		err = workstation.Down()
 
 		// Then
-		if err != nil {
-			t.Errorf("Expected Down to succeed, got error: %v", err)
-		}
 	})
 
 	t.Run("MultipleUpDownCycles", func(t *testing.T) {
 		// Given
 		mocks := setupWorkstationMocks(t)
-		workstation, err := NewWorkstation(mocks.Runtime, &Workstation{
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
-		}
 
 		// When - Multiple cycles
 		for i := 0; i < 3; i++ {
-			err = workstation.Up()
+			err := workstation.Up()
 			if err != nil {
 				t.Errorf("Expected Up cycle %d to succeed, got error: %v", i+1, err)
 			}

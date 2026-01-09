@@ -95,14 +95,14 @@ func setupComposeTest(t *testing.T, opts ...*SetupOptions) *ComposeMocks {
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 
-	rt, err := runtime.NewRuntime(&runtime.Runtime{
+	rt := runtime.NewRuntime(&runtime.Runtime{
 		Shell:         baseMocks.Shell,
 		ConfigHandler: baseMocks.ConfigHandler,
 		ProjectRoot:   tmpDir,
 		ToolsManager:  baseMocks.ToolsManager,
 	})
-	if err != nil {
-		t.Fatalf("Failed to create runtime: %v", err)
+	if rt == nil {
+		t.Fatal("Failed to create runtime")
 	}
 
 	return &ComposeMocks{

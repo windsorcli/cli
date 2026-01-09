@@ -29,10 +29,7 @@ var execCmd = &cobra.Command{
 			}
 		}
 
-		rt, err := runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return fmt.Errorf("failed to initialize context: %w", err)
-		}
+		rt := runtime.NewRuntime(rtOpts...)
 
 		rt.Shell.SetVerbosity(verbose)
 

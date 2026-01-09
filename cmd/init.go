@@ -51,10 +51,7 @@ var initCmd = &cobra.Command{
 		if changingContext {
 			contextName = args[0]
 
-			tempRt, err := runtime.NewRuntime(rtOpts...)
-			if err != nil {
-				return fmt.Errorf("failed to initialize context: %w", err)
-			}
+			tempRt := runtime.NewRuntime(rtOpts...)
 
 			if _, err := tempRt.Shell.WriteResetToken(); err != nil {
 				return fmt.Errorf("failed to write reset token: %w", err)
@@ -65,10 +62,7 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		rt, err := runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return fmt.Errorf("failed to initialize runtime: %w", err)
-		}
+		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.AddCurrentDirToTrustedFile(); err != nil {
 			return fmt.Errorf("failed to add current directory to trusted file: %w", err)

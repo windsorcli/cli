@@ -32,10 +32,7 @@ var getContextsCmd = &cobra.Command{
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		rt, err := runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return fmt.Errorf("failed to initialize runtime: %w", err)
-		}
+		rt := runtime.NewRuntime(rtOpts...)
 
 		projectRoot, err := rt.Shell.GetProjectRoot()
 		if err != nil {
@@ -126,10 +123,7 @@ var getContextCmd = &cobra.Command{
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		rt, err := runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return fmt.Errorf("failed to initialize runtime: %w", err)
-		}
+		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return fmt.Errorf("failed to load config: %w", err)

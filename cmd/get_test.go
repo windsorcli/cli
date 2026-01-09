@@ -108,9 +108,9 @@ func TestGetContextsCmd(t *testing.T) {
 			Shell:       mockShell,
 			ProjectRoot: tmpDir,
 		}
-		rt, err := runtime.NewRuntime(rtOverride)
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
+		rt := runtime.NewRuntime(rtOverride)
+		if rt == nil {
+			t.Fatal("Failed to create runtime")
 		}
 
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
@@ -118,7 +118,7 @@ func TestGetContextsCmd(t *testing.T) {
 
 		rootCmd.SetArgs([]string{"get", "contexts"})
 
-		err = Execute()
+		err := Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -178,9 +178,9 @@ func TestGetContextsCmd(t *testing.T) {
 			Shell:       mockShell,
 			ProjectRoot: tmpDir,
 		}
-		rt, err := runtime.NewRuntime(rtOverride)
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
+		rt := runtime.NewRuntime(rtOverride)
+		if rt == nil {
+			t.Fatal("Failed to create runtime")
 		}
 
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
@@ -188,7 +188,7 @@ func TestGetContextsCmd(t *testing.T) {
 
 		rootCmd.SetArgs([]string{"get", "contexts"})
 
-		err = Execute()
+		err := Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -241,9 +241,9 @@ func TestGetContextsCmd(t *testing.T) {
 			Shell:       mockShell,
 			ProjectRoot: tmpDir,
 		}
-		rt, err := runtime.NewRuntime(rtOverride)
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
+		rt := runtime.NewRuntime(rtOverride)
+		if rt == nil {
+			t.Fatal("Failed to create runtime")
 		}
 
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
@@ -251,7 +251,7 @@ func TestGetContextsCmd(t *testing.T) {
 
 		rootCmd.SetArgs([]string{"get", "contexts"})
 
-		err = Execute()
+		err := Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -306,9 +306,9 @@ func TestGetContextsCmd(t *testing.T) {
 			Shell:       mockShell,
 			ProjectRoot: tmpDir,
 		}
-		rt, err := runtime.NewRuntime(rtOverride)
-		if err != nil {
-			t.Fatalf("Failed to create runtime: %v", err)
+		rt := runtime.NewRuntime(rtOverride)
+		if rt == nil {
+			t.Fatal("Failed to create runtime")
 		}
 
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
@@ -316,7 +316,7 @@ func TestGetContextsCmd(t *testing.T) {
 
 		rootCmd.SetArgs([]string{"get", "contexts"})
 
-		err = Execute()
+		err := Execute()
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -407,26 +407,21 @@ func TestGetContextCmd(t *testing.T) {
 			Shell:       mockShell,
 			ProjectRoot: "",
 		}
-		_, err := runtime.NewRuntime(rtOverride)
-		if err == nil {
-			t.Fatal("Expected NewRuntime to fail with invalid shell")
-		}
+		// NewRuntime will panic with invalid shell, so we test that
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected NewRuntime to panic with invalid shell")
+			}
+		}()
+		_ = runtime.NewRuntime(rtOverride)
 
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
 		rootCmd.SetContext(ctx)
 
+		// Note: NewRuntime will panic, so Execute won't be reached
+		// This test needs to be updated to test for panics instead
 		rootCmd.SetArgs([]string{"get", "context"})
-
-		err = Execute()
-
-		if err == nil {
-			t.Error("Expected error when NewRuntime fails")
-			return
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize runtime") {
-			t.Errorf("Expected error about runtime initialization, got: %v", err)
-		}
+		_ = Execute()
 	})
 
 	t.Run("HandlesLoadConfigError", func(t *testing.T) {
@@ -483,26 +478,21 @@ func TestGetContextsCmd_ErrorScenarios(t *testing.T) {
 			Shell:       mockShell,
 			ProjectRoot: "",
 		}
-		_, err := runtime.NewRuntime(rtOverride)
-		if err == nil {
-			t.Fatal("Expected NewRuntime to fail with invalid shell")
-		}
+		// NewRuntime will panic with invalid shell, so we test that
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected NewRuntime to panic with invalid shell")
+			}
+		}()
+		_ = runtime.NewRuntime(rtOverride)
 
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
 		rootCmd.SetContext(ctx)
 
+		// Note: NewRuntime will panic, so Execute won't be reached
+		// This test needs to be updated to test for panics instead
 		rootCmd.SetArgs([]string{"get", "contexts"})
-
-		err = Execute()
-
-		if err == nil {
-			t.Error("Expected error when NewRuntime fails")
-			return
-		}
-
-		if !strings.Contains(err.Error(), "failed to initialize runtime") {
-			t.Errorf("Expected error about runtime initialization, got: %v", err)
-		}
+		_ = Execute()
 	})
 
 	t.Run("HandlesGetProjectRootError", func(t *testing.T) {

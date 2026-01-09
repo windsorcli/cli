@@ -128,9 +128,9 @@ func setupProjectMocks(t *testing.T, opts ...func(*ProjectTestMocks)) *ProjectTe
 		},
 	}
 
-	rt, err := runtime.NewRuntime(rtOpts...)
-	if err != nil {
-		t.Fatalf("Failed to create context: %v", err)
+	rt := runtime.NewRuntime(rtOpts...)
+	if rt == nil {
+		t.Fatal("Failed to create runtime")
 	}
 
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
@@ -281,26 +281,19 @@ func TestNewProject(t *testing.T) {
 			return "", fmt.Errorf("failed to get project root")
 		}
 
-		rt, err := runtime.NewRuntime(&runtime.Runtime{
+		// NewRuntime will panic when GetProjectRoot fails
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected NewRuntime to panic when GetProjectRoot fails")
+			}
+		}()
+		_ = runtime.NewRuntime(&runtime.Runtime{
 			Shell:       mockShell,
 			ProjectRoot: "",
 		})
-		if err == nil {
-			proj, err := NewProject("test-context", &Project{Runtime: rt})
-			if err == nil {
-				t.Error("Expected error for context initialization failure")
-				return
-			}
-			if proj != nil {
-				t.Error("Expected Project to be nil on error")
-			}
-			if !strings.Contains(err.Error(), "failed to initialize context") {
-				t.Errorf("Expected specific error message, got: %v", err)
-			}
-		}
 	})
 
-	t.Run("ErrorOnWorkstationCreationFailure", func(t *testing.T) {
+	t.Run("PanicsWhenShellIsNil", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -309,17 +302,13 @@ func TestNewProject(t *testing.T) {
 
 		mocks.Runtime.Shell = nil
 
-		proj, err := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-
-		if err == nil {
-			t.Fatal("Expected error for workstation creation failure")
-		}
-		if proj != nil {
-			t.Error("Expected Project to be nil on error")
-		}
-		if !strings.Contains(err.Error(), "failed to create workstation") {
-			t.Errorf("Expected error about workstation creation, got: %v", err)
-		}
+		// NewComposer will panic when Shell is nil
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected NewComposer to panic when Shell is nil")
+			}
+		}()
+		_, _ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 	})
 
 	t.Run("HandlesComposerOverride", func(t *testing.T) {
@@ -363,9 +352,9 @@ func TestNewProject(t *testing.T) {
 			return true
 		}
 
-		mockWorkstation, err := workstation.NewWorkstation(mocks.Runtime)
-		if err != nil {
-			t.Fatalf("Failed to create workstation: %v", err)
+		mockWorkstation := workstation.NewWorkstation(mocks.Runtime)
+		if mockWorkstation == nil {
+			t.Fatal("Failed to create workstation")
 		}
 
 		proj, err := NewProject("test-context", &Project{

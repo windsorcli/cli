@@ -30,7 +30,6 @@ type Project struct {
 // If opts contains a Project with Runtime set, that runtime will be reused.
 func NewProject(contextName string, opts ...*Project) (*Project, error) {
 	var rt *runtime.Runtime
-	var err error
 
 	var overrides *Project
 	if len(opts) > 0 && opts[0] != nil {
@@ -45,10 +44,7 @@ func NewProject(contextName string, opts ...*Project) (*Project, error) {
 		if overrides != nil && overrides.Runtime != nil {
 			rtOpts = []*runtime.Runtime{overrides.Runtime}
 		}
-		rt, err = runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize context: %w", err)
-		}
+		rt = runtime.NewRuntime(rtOpts...)
 	}
 
 	if contextName == "" {
@@ -80,10 +76,7 @@ func NewProject(contextName string, opts ...*Project) (*Project, error) {
 		if overrides != nil && overrides.Workstation != nil {
 			ws = overrides.Workstation
 		} else {
-			ws, err = workstation.NewWorkstation(rt)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create workstation: %w", err)
-			}
+			ws = workstation.NewWorkstation(rt)
 		}
 	}
 

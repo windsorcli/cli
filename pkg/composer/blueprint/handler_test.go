@@ -87,7 +87,7 @@ func TestNewBlueprintHandler(t *testing.T) {
 		mocks := setupHandlerMocks(t)
 
 		// When creating a new handler
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// Then handler should be created with defaults
 		if handler == nil {
@@ -122,7 +122,7 @@ func TestNewBlueprintHandler(t *testing.T) {
 		customProcessor := NewBlueprintProcessor(mocks.Runtime)
 
 		// When creating handler with override
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{processor: customProcessor})
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{processor: customProcessor})
 
 		// Then handler should use custom processor
 		if handler.processor != customProcessor {
@@ -136,7 +136,7 @@ func TestNewBlueprintHandler(t *testing.T) {
 		customComposer := NewBlueprintComposer(mocks.Runtime)
 
 		// When creating handler with override
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{composer: customComposer})
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{composer: customComposer})
 
 		// Then handler should use custom composer
 		if handler.composer != customComposer {
@@ -150,7 +150,7 @@ func TestNewBlueprintHandler(t *testing.T) {
 		customWriter := NewBlueprintWriter(mocks.Runtime)
 
 		// When creating handler with override
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{writer: customWriter})
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder, &BaseBlueprintHandler{writer: customWriter})
 
 		// Then handler should use custom writer
 		if handler.writer != customWriter {
@@ -180,7 +180,7 @@ terraform:
 `
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -219,7 +219,7 @@ terraform:
 `
 		os.WriteFile(filepath.Join(featuresDir, "network.yaml"), []byte(featureYaml), 0644)
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -263,7 +263,7 @@ terraform:
 `
 		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -306,7 +306,7 @@ terraform:
 			return "example.com", "blueprint", "v1.0.0", nil
 		}
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading with OCI URL
 		err := handler.LoadBlueprint("oci://example.com/blueprint:v1.0.0")
@@ -333,7 +333,7 @@ metadata:
   name: test
 `), 0644)
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -356,7 +356,7 @@ metadata:
 		os.MkdirAll(templateDir, 0755)
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte("invalid: [yaml"), 0644)
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -412,7 +412,7 @@ terraform:
 			return "example.com", "shared", "v1.0.0", nil
 		}
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -478,7 +478,7 @@ terraform:
 			return "example.com", "user-modules", "v1.0.0", nil
 		}
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -514,7 +514,7 @@ sources:
 			return nil, os.ErrNotExist
 		}
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
@@ -530,7 +530,7 @@ func TestHandler_Write(t *testing.T) {
 	t.Run("WriteDelegatesToWriter", func(t *testing.T) {
 		// Given a handler with composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 		}
@@ -559,7 +559,7 @@ func TestHandler_Write(t *testing.T) {
 	t.Run("WritePassesOverwriteFlag", func(t *testing.T) {
 		// Given a handler
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
 
 		var receivedOverwrite bool
@@ -585,7 +585,7 @@ func TestHandler_GetTerraformComponents(t *testing.T) {
 	t.Run("ReturnsNilWhenNoBlueprint", func(t *testing.T) {
 		// Given a handler with no composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When getting components
 		components := handler.GetTerraformComponents()
@@ -599,7 +599,7 @@ func TestHandler_GetTerraformComponents(t *testing.T) {
 	t.Run("ReturnsComponentsFromComposedBlueprint", func(t *testing.T) {
 		// Given a handler with composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},
@@ -622,7 +622,7 @@ func TestHandler_resolveComponentFullPath(t *testing.T) {
 		// Given a handler with a named component
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.WindsorScratchPath = "/scratch"
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		component := &blueprintv1alpha1.TerraformComponent{
 			Name: "my-component",
 			Path: "some/path",
@@ -643,7 +643,7 @@ func TestHandler_resolveComponentFullPath(t *testing.T) {
 		// Given a handler with a component having a source
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.WindsorScratchPath = "/scratch"
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		component := &blueprintv1alpha1.TerraformComponent{
 			Source: "shared-modules",
 			Path:   "vpc",
@@ -664,7 +664,7 @@ func TestHandler_resolveComponentFullPath(t *testing.T) {
 		// Given a handler with a local component (no name, no source)
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.ProjectRoot = "/project"
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		component := &blueprintv1alpha1.TerraformComponent{
 			Path: "network/vpc",
 		}
@@ -685,7 +685,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 	t.Run("ResolvesOCISourceWithTag", func(t *testing.T) {
 		// Given a handler with a composed blueprint containing an OCI source
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{
 				{Name: "core", Url: "oci://ghcr.io/windsorcli/core", Ref: blueprintv1alpha1.Reference{Tag: "v1.0.0"}},
@@ -706,7 +706,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 	t.Run("ResolvesGitSourceWithBranch", func(t *testing.T) {
 		// Given a handler with a composed blueprint containing a Git source
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{
 				{Name: "infra", Url: "https://github.com/org/infra", Ref: blueprintv1alpha1.Reference{Branch: "develop"}},
@@ -727,7 +727,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 	t.Run("UsesPathPrefixFromSource", func(t *testing.T) {
 		// Given a source with a custom path prefix
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{
 				{Name: "modules", Url: "oci://ghcr.io/org/modules", PathPrefix: "modules/tf", Ref: blueprintv1alpha1.Reference{Tag: "latest"}},
@@ -748,7 +748,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 	t.Run("UsesEmptyRefWhenNoRefSpecified", func(t *testing.T) {
 		// Given a source with no ref specified
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{
 				{Name: "lib", Url: "https://github.com/org/lib"},
@@ -769,7 +769,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 	t.Run("LeavesUnmatchedSourceUnchanged", func(t *testing.T) {
 		// Given a component referencing a non-existent source
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{},
 		}
@@ -787,7 +787,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 	t.Run("SkipsEmptySource", func(t *testing.T) {
 		// Given a component with no source
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
 		component := &blueprintv1alpha1.TerraformComponent{Path: "local"}
 
@@ -803,7 +803,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 	t.Run("SkipsWhenNoBlueprintComposed", func(t *testing.T) {
 		// Given a handler with no composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		component := &blueprintv1alpha1.TerraformComponent{Source: "core", Path: "vpc"}
 
 		// When resolving component source
@@ -819,7 +819,7 @@ func TestHandler_resolveComponentSource(t *testing.T) {
 func TestHandler_getSourceRef(t *testing.T) {
 	t.Run("ReturnsCommitWhenPresent", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Commit: "abc123", SemVer: "1.0.0", Tag: "v1.0.0", Branch: "main"}}
 
 		ref := handler.getSourceRef(source)
@@ -831,7 +831,7 @@ func TestHandler_getSourceRef(t *testing.T) {
 
 	t.Run("ReturnsSemVerWhenCommitNotPresent", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{SemVer: "1.0.0", Tag: "v1.0.0", Branch: "main"}}
 
 		ref := handler.getSourceRef(source)
@@ -843,7 +843,7 @@ func TestHandler_getSourceRef(t *testing.T) {
 
 	t.Run("ReturnsTagWhenCommitAndSemVerNotPresent", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Tag: "v1.0.0", Branch: "main"}}
 
 		ref := handler.getSourceRef(source)
@@ -855,7 +855,7 @@ func TestHandler_getSourceRef(t *testing.T) {
 
 	t.Run("ReturnsBranchWhenOnlyBranchPresent", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		source := blueprintv1alpha1.Source{Ref: blueprintv1alpha1.Reference{Branch: "develop"}}
 
 		ref := handler.getSourceRef(source)
@@ -867,7 +867,7 @@ func TestHandler_getSourceRef(t *testing.T) {
 
 	t.Run("ReturnsEmptyStringWhenNoRefFieldsPresent", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		source := blueprintv1alpha1.Source{}
 
 		ref := handler.getSourceRef(source)
@@ -882,7 +882,7 @@ func TestHandler_GetLocalTemplateData(t *testing.T) {
 	t.Run("ReturnsNilWhenNoPrimaryLoader", func(t *testing.T) {
 		// Given a handler with no primary loader
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When getting template data
 		data, err := handler.GetLocalTemplateData()
@@ -899,7 +899,7 @@ func TestHandler_GetLocalTemplateData(t *testing.T) {
 	t.Run("ReturnsDataFromPrimaryLoader", func(t *testing.T) {
 		// Given a handler with primary loader
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		mockLoader := &mockLoaderImpl{
 			getTemplateDataFunc: func() map[string][]byte {
 				return map[string][]byte{"test.yaml": []byte("content")}
@@ -924,7 +924,7 @@ func TestHandler_Generate(t *testing.T) {
 	t.Run("ReturnsNilWhenNoBlueprint", func(t *testing.T) {
 		// Given a handler with no composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When generating
 		result := handler.Generate()
@@ -938,7 +938,7 @@ func TestHandler_Generate(t *testing.T) {
 	t.Run("ReturnsComposedBlueprint", func(t *testing.T) {
 		// Given a handler with composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "generated"},
 		}
@@ -961,7 +961,7 @@ func TestHandler_getConfigValues(t *testing.T) {
 		// Given a handler with nil ConfigHandler
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.ConfigHandler = nil
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When getting config values
 		values := handler.getConfigValues()
@@ -978,7 +978,7 @@ func TestHandler_getConfigValues(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return nil, errors.New("config error")
 		}
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When getting config values
 		values := handler.getConfigValues()
@@ -995,7 +995,7 @@ func TestHandler_getConfigValues(t *testing.T) {
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"key": "value"}, nil
 		}
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When getting config values
 		values := handler.getConfigValues()
@@ -1014,7 +1014,7 @@ func TestHandler_loadSourcesFromBlueprint(t *testing.T) {
 	t.Run("SkipsLoadingWhenLoaderNil", func(t *testing.T) {
 		// Given a handler
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading sources from nil loader
 		err := handler.loadSourcesFromBlueprint(nil)
@@ -1028,7 +1028,7 @@ func TestHandler_loadSourcesFromBlueprint(t *testing.T) {
 	t.Run("SkipsLoadingWhenBlueprintNil", func(t *testing.T) {
 		// Given a handler with loader returning nil blueprint
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		mockLoader := &mockLoaderImpl{
 			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
 				return nil
@@ -1047,7 +1047,7 @@ func TestHandler_loadSourcesFromBlueprint(t *testing.T) {
 	t.Run("SkipsDuplicateSources", func(t *testing.T) {
 		// Given a handler with existing source loader
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.sourceBlueprintLoaders["existing-source"] = &mockLoaderImpl{}
 
 		mockLoader := &mockLoaderImpl{
@@ -1149,7 +1149,7 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		}
 		mocks.Runtime.ProjectRoot = "/path/to/myproject"
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.shims = &Shims{
 			FilepathBase: func(s string) string { return "myproject" },
 			TrimSpace:    func(s string) string { return s },
@@ -1188,7 +1188,7 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 			return "", nil
 		}
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.shims = &Shims{
 			TrimSpace: func(s string) string { return s },
 			HasPrefix: func(s, prefix string) bool { return false },
@@ -1220,7 +1220,7 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 			return "", nil
 		}
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.shims = NewShims()
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
 		handler.userBlueprintLoader = nil
@@ -1241,7 +1241,7 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 			return key == "dev"
 		}
 
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.shims = &Shims{
 			FilepathBase: func(s string) string { return "myproject" },
 		}
@@ -1264,7 +1264,7 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 	t.Run("HandlesNilBlueprint", func(t *testing.T) {
 		// Given a handler with nil composed blueprint
 		mocks := setupHandlerMocks(t)
-		handler, _ := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.composedBlueprint = nil
 
 		// When setting repository defaults

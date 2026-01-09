@@ -21,10 +21,7 @@ var hookCmd = &cobra.Command{
 			}
 		}
 
-		rt, err := runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return fmt.Errorf("failed to initialize context: %w", err)
-		}
+		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.InstallHook(args[0]); err != nil {
 			return fmt.Errorf("error installing hook: %w", err)

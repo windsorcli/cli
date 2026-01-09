@@ -261,10 +261,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 	rtOverride.EnvPrinters.WindsorEnv = mockWindsorEnvPrinter
 	rtOverride.EnvPrinters.DockerEnv = mockDockerEnvPrinter
-	rt, err := runtime.NewRuntime(rtOverride)
-	if err != nil {
-		t.Fatalf("Failed to create runtime: %v", err)
-	}
+	rt := runtime.NewRuntime(rtOverride)
 
 	return &Mocks{
 		ConfigHandler:    configHandler,
