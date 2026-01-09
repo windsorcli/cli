@@ -289,29 +289,16 @@ func TestBaseModuleResolver_NewBaseModuleResolver(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesShimsOverride", func(t *testing.T) {
+	t.Run("CreatesResolverWithDefaultShims", func(t *testing.T) {
 		// Given mocks
 		mocks := setupTerraformMocks(t)
 
-		// And custom shims
-		customShims := NewShims()
-		customShims.ReadFile = func(path string) ([]byte, error) {
-			return []byte("custom"), nil
-		}
-		overrideResolver := &BaseModuleResolver{
-			shims: customShims,
-		}
+		// When creating a resolver
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 
-		// When creating a resolver with shims override
-		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler, overrideResolver)
-
-		// Then the resolver should use the custom shims
+		// Then the resolver should have default shims
 		if resolver.shims == nil {
 			t.Fatal("Expected shims to be set")
-		}
-		data, _ := resolver.shims.ReadFile("test")
-		if string(data) != "custom" {
-			t.Errorf("Expected custom shims, got default")
 		}
 	})
 }

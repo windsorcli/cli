@@ -31,24 +31,15 @@ type BaseBlueprintWriter struct {
 // NewBlueprintWriter creates a new BlueprintWriter that persists blueprints to the filesystem.
 // The runtime provides the config root path where blueprint.yaml will be written. Optional
 // overrides allow replacing the shims for testing file system operations.
-func NewBlueprintWriter(rt *runtime.Runtime, opts ...*BaseBlueprintWriter) *BaseBlueprintWriter {
+func NewBlueprintWriter(rt *runtime.Runtime) *BaseBlueprintWriter {
 	if rt == nil {
 		panic("runtime is required")
 	}
 
-	writer := &BaseBlueprintWriter{
+	return &BaseBlueprintWriter{
 		runtime: rt,
 		shims:   NewShims(),
 	}
-
-	if len(opts) > 0 && opts[0] != nil {
-		overrides := opts[0]
-		if overrides.shims != nil {
-			writer.shims = overrides.shims
-		}
-	}
-
-	return writer
 }
 
 // =============================================================================

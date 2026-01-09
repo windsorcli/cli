@@ -124,17 +124,16 @@ func TestNewBlueprintLoader(t *testing.T) {
 		}
 	})
 
-	t.Run("AcceptsShimsOverride", func(t *testing.T) {
-		// Given custom shims
+	t.Run("CreatesLoaderWithDefaultShims", func(t *testing.T) {
+		// Given a loader
 		mocks := setupLoaderMocks(t)
-		customShims := NewShims()
 
-		// When creating a loader with shims override
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "", &BaseBlueprintLoader{shims: customShims})
+		// When creating a loader
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "")
 
-		// Then loader should use custom shims
-		if loader.shims != customShims {
-			t.Error("Expected custom shims to be used")
+		// Then loader should have default shims
+		if loader.shims == nil {
+			t.Error("Expected default shims to be set")
 		}
 	})
 }

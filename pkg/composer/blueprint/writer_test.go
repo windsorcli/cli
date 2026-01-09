@@ -83,17 +83,16 @@ func TestNewBlueprintWriter(t *testing.T) {
 		}
 	})
 
-	t.Run("AcceptsShimsOverride", func(t *testing.T) {
-		// Given a runtime and custom shims
+	t.Run("CreatesWriterWithDefaultShims", func(t *testing.T) {
+		// Given a writer
 		mocks := setupWriterMocks(t)
-		customShims := NewShims()
 
-		// When creating a new writer with overrides
-		writer := NewBlueprintWriter(mocks.Runtime, &BaseBlueprintWriter{shims: customShims})
+		// When creating a writer
+		writer := NewBlueprintWriter(mocks.Runtime)
 
-		// Then writer should use custom shims
-		if writer.shims != customShims {
-			t.Error("Expected custom shims to be used")
+		// Then writer should have default shims
+		if writer.shims == nil {
+			t.Error("Expected default shims to be set")
 		}
 	})
 }

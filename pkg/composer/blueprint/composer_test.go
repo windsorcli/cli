@@ -112,17 +112,19 @@ func TestNewBlueprintComposer(t *testing.T) {
 		}
 	})
 
-	t.Run("AcceptsCommonSubstitutionsOverride", func(t *testing.T) {
-		// Given custom substitutions
+	t.Run("CreatesComposerWithEmptySubstitutions", func(t *testing.T) {
+		// Given a composer
 		mocks := setupComposerMocks(t)
-		customSubs := map[string]string{"key": "value"}
 
-		// When creating a composer with overrides
-		composer := NewBlueprintComposer(mocks.Runtime, &BaseBlueprintComposer{commonSubstitutions: customSubs})
+		// When creating a composer
+		composer := NewBlueprintComposer(mocks.Runtime)
 
-		// Then composer should use custom substitutions
-		if composer.commonSubstitutions["key"] != "value" {
-			t.Error("Expected custom substitutions to be used")
+		// Then composer should have empty substitutions map
+		if composer.commonSubstitutions == nil {
+			t.Error("Expected substitutions map to be initialized")
+		}
+		if len(composer.commonSubstitutions) != 0 {
+			t.Error("Expected substitutions map to be empty")
 		}
 	})
 }

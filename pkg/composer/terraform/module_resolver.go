@@ -52,7 +52,7 @@ type BaseModuleResolver struct {
 // NewBaseModuleResolver creates a new base module resolver with the provided dependencies.
 // If overrides are provided, any non-nil component in the override BaseModuleResolver will be used instead of creating a default.
 // Panics if rt, blueprintHandler, or rt.Evaluator are nil.
-func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*BaseModuleResolver) *BaseModuleResolver {
+func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler) *BaseModuleResolver {
 	if rt == nil {
 		panic("runtime is required")
 	}
@@ -63,21 +63,12 @@ func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluep
 		panic("evaluator is required on runtime")
 	}
 
-	resolver := &BaseModuleResolver{
+	return &BaseModuleResolver{
 		shims:            NewShims(),
 		runtime:          rt,
 		blueprintHandler: blueprintHandler,
 		evaluator:        rt.Evaluator,
 	}
-
-	if len(opts) > 0 && opts[0] != nil {
-		overrides := opts[0]
-		if overrides.shims != nil {
-			resolver.shims = overrides.shims
-		}
-	}
-
-	return resolver
 }
 
 // GenerateTfvars creates Terraform configuration files, including tfvars files, for all blueprint components.

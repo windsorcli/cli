@@ -94,17 +94,19 @@ func TestNewBlueprintProcessor(t *testing.T) {
 		}
 	})
 
-	t.Run("AcceptsEvaluatorOverride", func(t *testing.T) {
-		// Given a custom evaluator
+	t.Run("UsesRuntimeEvaluator", func(t *testing.T) {
+		// Given a processor
 		mocks := setupProcessorMocks(t)
-		customEval := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, mocks.Runtime.ProjectRoot, mocks.Runtime.ConfigRoot)
 
-		// When creating a processor with override
-		processor := NewBlueprintProcessor(mocks.Runtime, &BaseBlueprintProcessor{evaluator: customEval})
+		// When creating a processor
+		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		// Then processor should use custom evaluator
-		if processor.evaluator != customEval {
-			t.Error("Expected custom evaluator to be used")
+		// Then processor should use runtime evaluator
+		if processor.evaluator == nil {
+			t.Error("Expected evaluator to be set")
+		}
+		if processor.evaluator != mocks.Runtime.Evaluator {
+			t.Error("Expected processor to use runtime evaluator")
 		}
 	})
 }
