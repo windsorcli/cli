@@ -82,17 +82,35 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		// Given a network manager with no guest IP configured
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("vm.address", "")
+		
+		// And tracking SSH configuration calls
+		sshConfigCalled := false
+		setClientConfigCalled := false
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && args[0] == "ssh-config" {
+				sshConfigCalled = true
+				return "Host test\n  HostName 192.168.1.1", nil
+			}
+			return "", nil
+		}
+		mocks.SSHClient.SetClientConfigFileFunc = func(config string, contextName string) error {
+			setClientConfigCalled = true
+			return nil
+		}
 
 		// And configuring the guest
 		err := manager.ConfigureGuest()
 
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
+		// Then no error should occur (SSH configuration is performed, but network forwarding is skipped)
+		if err != nil {
+			t.Fatalf("expected no error when guest IP is not configured, got %v", err)
 		}
-		expectedError := "guest IP is not configured"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		// And SSH configuration should still be performed
+		if !sshConfigCalled {
+			t.Error("expected SSH config to be called even when guest IP is not configured")
+		}
+		if !setClientConfigCalled {
+			t.Error("expected SetClientConfigFile to be called even when guest IP is not configured")
 		}
 	})
 
