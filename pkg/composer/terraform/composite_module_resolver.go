@@ -28,6 +28,16 @@ type CompositeModuleResolver struct {
 
 // NewCompositeModuleResolver creates a new composite module resolver with all specialized resolvers.
 func NewCompositeModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, artifactBuilder artifact.Artifact) *CompositeModuleResolver {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if blueprintHandler == nil {
+		panic("blueprint handler is required")
+	}
+	if artifactBuilder == nil {
+		panic("artifact builder is required")
+	}
+
 	return &CompositeModuleResolver{
 		ociResolver:      NewOCIModuleResolver(rt, blueprintHandler, artifactBuilder),
 		standardResolver: NewStandardModuleResolver(rt, blueprintHandler),

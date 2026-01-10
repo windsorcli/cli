@@ -37,7 +37,15 @@ type StandardModuleResolver struct {
 
 // NewStandardModuleResolver creates a new standard module resolver with the provided dependencies.
 // If overrides are provided, any non-nil component in the override StandardModuleResolver will be used instead of creating a default.
+// Panics if rt or blueprintHandler are nil.
 func NewStandardModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler) *StandardModuleResolver {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if blueprintHandler == nil {
+		panic("blueprint handler is required")
+	}
+
 	resolver := &StandardModuleResolver{
 		BaseModuleResolver: NewBaseModuleResolver(rt, blueprintHandler),
 		reset:              false,
@@ -56,10 +64,6 @@ func NewStandardModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.B
 // the module with terraform, and determines the correct module path for shimming. Errors are returned
 // if any step fails, ensuring that only valid and initialized modules are processed.
 func (h *StandardModuleResolver) ProcessModules() error {
-	if h.blueprintHandler == nil {
-		return fmt.Errorf("blueprint handler not initialized")
-	}
-
 	components := h.blueprintHandler.GetTerraformComponents()
 
 	for _, component := range components {

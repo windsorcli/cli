@@ -48,6 +48,10 @@ type TerraformStack struct {
 
 // NewStack creates a new stack of components.
 func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
+	if rt == nil {
+		panic("runtime is required")
+	}
+
 	stack := &TerraformStack{
 		runtime: rt,
 		shims:   NewShims(),

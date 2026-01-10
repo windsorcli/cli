@@ -98,18 +98,19 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesNilBlueprintHandler", func(t *testing.T) {
+	t.Run("PanicsWhenBlueprintHandlerIsNil", func(t *testing.T) {
 		// Given a resolver with nil blueprint handler
 		resolver, _ := setup(t)
 		resolver.BaseModuleResolver.blueprintHandler = nil
 
 		// When ProcessModules is called
-		err := resolver.ProcessModules()
-
-		// Then an error is returned indicating blueprint handler not initialized
-		if err == nil || !strings.Contains(err.Error(), "blueprint handler not initialized") {
-			t.Errorf("Expected blueprint handler error, got: %v", err)
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when blueprint handler is nil")
+			}
+		}()
+		_ = resolver.ProcessModules()
 	})
 
 	t.Run("HandlesMkdirAllError", func(t *testing.T) {

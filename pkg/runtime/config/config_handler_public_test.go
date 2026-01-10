@@ -1097,18 +1097,15 @@ custom_key: custom_value
 		}
 	})
 
-	t.Run("ReturnsErrorWhenShellNotInitialized", func(t *testing.T) {
-		handler := NewConfigHandler(nil)
-
-		err := handler.LoadConfigForContext("test-context")
-
-		if err == nil {
-			t.Error("Expected error when shell is nil")
-		}
-
-		if !strings.Contains(err.Error(), "shell not initialized") {
-			t.Errorf("Expected error about shell not initialized, got: %v", err)
-		}
+	t.Run("PanicsWhenShellNotInitialized", func(t *testing.T) {
+		// When NewConfigHandler is called with nil shell
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when shell is nil")
+			}
+		}()
+		_ = NewConfigHandler(nil)
 	})
 }
 

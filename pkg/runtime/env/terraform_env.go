@@ -36,6 +36,19 @@ type TerraformEnvPrinter struct {
 
 // NewTerraformEnvPrinter creates a new TerraformEnvPrinter instance
 func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, toolsManager tools.ToolsManager, terraformProvider terraform.TerraformProvider) *TerraformEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+	if toolsManager == nil {
+		panic("tools manager is required")
+	}
+	if terraformProvider == nil {
+		panic("terraform provider is required")
+	}
+
 	return &TerraformEnvPrinter{
 		BaseEnvPrinter:    *NewBaseEnvPrinter(shell, configHandler),
 		toolsManager:      toolsManager,

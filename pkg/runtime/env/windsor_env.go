@@ -53,6 +53,13 @@ type WindsorEnvPrinter struct {
 
 // NewWindsorEnvPrinter creates a new WindsorEnvPrinter instance
 func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, secretsProviders []secrets.SecretsProvider, allEnvPrinters []EnvPrinter) *WindsorEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &WindsorEnvPrinter{
 		BaseEnvPrinter:   *NewBaseEnvPrinter(shell, configHandler),
 		secretsProviders: secretsProviders,

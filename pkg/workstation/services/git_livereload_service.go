@@ -66,7 +66,7 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 		envVars["WEBHOOK_URL"] = ptrString(webhookUrl)
 	}
 
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 
 	gitFolderName := filepath.Base(projectRoot)
 	serviceName := s.name

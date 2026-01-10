@@ -55,14 +55,11 @@ func setupDownTest(t *testing.T, opts ...*SetupOptions) *DownMocks {
 		KubernetesManager: mockKubernetesManager,
 	})
 
-	proj, err := project.NewProject("", &project.Project{
+	proj := project.NewProject("", &project.Project{
 		Runtime:     baseMocks.Runtime,
 		Composer:    comp,
 		Provisioner: mockProvisioner,
 	})
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
 
 	return &DownMocks{
 		ConfigHandler: baseMocks.ConfigHandler,
@@ -143,7 +140,7 @@ func TestDownCmd(t *testing.T) {
 		}
 		mocks := setupDownTest(t, opts)
 		mocks.Runtime.Runtime.ConfigHandler = mockConfigHandler
-		mocks.Project, _ = project.NewProject("", &project.Project{Runtime: mocks.Runtime.Runtime})
+		mocks.Project = project.NewProject("", &project.Project{Runtime: mocks.Runtime.Runtime})
 
 		// When executing the down command
 		cmd := createTestDownCmd()
@@ -222,7 +219,7 @@ func TestDownCmd(t *testing.T) {
 		}
 		mocks := setupDownTest(t, opts)
 		mocks.Runtime.Runtime.ConfigHandler = mockConfigHandler
-		mocks.Project, _ = project.NewProject("", &project.Project{Runtime: mocks.Runtime.Runtime})
+		mocks.Project = project.NewProject("", &project.Project{Runtime: mocks.Runtime.Runtime})
 
 		// When executing the down command
 		cmd := createTestDownCmd()

@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -60,6 +61,7 @@ func setupComposerMocks(t *testing.T, opts ...func(*ComposerTestMocks)) *Compose
 		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
+		Evaluator:     evaluator.NewExpressionEvaluator(configHandler, tmpDir, filepath.Join(tmpDir, "contexts", "_template")),
 	}
 
 	// Create default mocks
@@ -108,11 +110,11 @@ func TestComposer_NewComposer(t *testing.T) {
 		}
 
 		// And runtime dependencies should be set
-		if composer.Runtime.Shell != mocks.Shell {
+		if composer.shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 
-		if composer.Runtime.ConfigHandler != mocks.ConfigHandler {
+		if composer.configHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 

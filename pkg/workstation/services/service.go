@@ -39,9 +39,9 @@ type Service interface {
 
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
-	runtime      *runtime.Runtime
 	configHandler config.ConfigHandler
 	shell         shell.Shell
+	projectRoot   string
 	address       string
 	name          string
 	shims         *Shims
@@ -53,10 +53,20 @@ type BaseService struct {
 
 // NewBaseService is a constructor for BaseService
 func NewBaseService(rt *runtime.Runtime) *BaseService {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required on runtime")
+	}
+	if rt.Shell == nil {
+		panic("shell is required on runtime")
+	}
+
 	return &BaseService{
-		runtime:      rt,
 		configHandler: rt.ConfigHandler,
 		shell:         rt.Shell,
+		projectRoot:   rt.ProjectRoot,
 		shims:         NewShims(),
 	}
 }

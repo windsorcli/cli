@@ -93,10 +93,7 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 		},
 	}
 
-	rt, err := NewRuntime(rtOpts...)
-	if err != nil {
-		t.Fatalf("Failed to create context: %v", err)
-	}
+	rt := NewRuntime(rtOpts...)
 
 	mocks := &RuntimeTestMocks{
 		ConfigHandler: configHandler,
@@ -198,24 +195,37 @@ func TestRuntime_NewRuntime(t *testing.T) {
 	t.Run("ErrorWhenContextIsNil", func(t *testing.T) {
 		// Given nil options
 		// When NewRuntime is called
-		_, err := NewRuntime(nil)
+		rt := NewRuntime(nil)
 
-		// Then no error should be returned
+		// Then runtime should be created
 
-		if err != nil {
-			t.Errorf("Expected no error when opts is nil, got: %v", err)
+		if rt == nil {
+			t.Error("Expected runtime to be created when opts is nil")
 		}
 	})
 
-	t.Run("ErrorWhenRuntimeIsNil", func(t *testing.T) {
+	t.Run("NoPanicWhenOptsIsNil", func(t *testing.T) {
 		// Given nil options
 		// When NewRuntime is called
-		_, err := NewRuntime(nil)
+		// Then it should create a runtime with defaults
+		rt := NewRuntime(nil)
+		if rt == nil {
+			t.Error("Expected runtime to be created")
+		}
+	})
 
-		// Then no error should be returned
+	t.Run("NoErrorWhenValidRuntime", func(t *testing.T) {
+		// Given valid runtime options
+		// When NewRuntime is called
+		rt := NewRuntime(&Runtime{
+			Shell:         shell.NewMockShell(),
+			ConfigHandler: config.NewMockConfigHandler(),
+		})
 
-		if err != nil {
-			t.Errorf("Expected no error when opts is nil, got: %v", err)
+		// Then runtime should be created
+
+		if rt == nil {
+			t.Error("Expected runtime to be created when opts is nil")
 		}
 	})
 
@@ -233,12 +243,12 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		// When NewRuntime is called
-		result, err := NewRuntime(rtOpts...)
+		result := NewRuntime(rtOpts...)
 
 		// Then shell should be created
 
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+		if result == nil {
+			t.Error("Expected runtime to be created")
 		}
 
 		if result.Shell == nil {
@@ -260,12 +270,12 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		// When NewRuntime is called
-		result, err := NewRuntime(rtOpts...)
+		result := NewRuntime(rtOpts...)
 
 		// Then config handler should be created
 
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
+		if result == nil {
+			t.Error("Expected runtime to be created")
 		}
 
 		if result.ConfigHandler == nil {
@@ -287,17 +297,13 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		// When NewRuntime is called
-		_, err := NewRuntime(rtOpts...)
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when GetProjectRoot fails")
-		}
-
-		if !strings.Contains(err.Error(), "failed to get project root") {
-			t.Errorf("Expected error about getting project root, got: %v", err)
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when GetProjectRoot fails")
+			}
+		}()
+		_ = NewRuntime(rtOpts...)
 	})
 
 	t.Run("ErrorWhenGetProjectRootFailsOnSecondCall", func(t *testing.T) {
@@ -322,16 +328,13 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		// When NewRuntime is called
-		_, err := NewRuntime(rtOpts...)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Error("Expected error when GetProjectRoot fails")
-		}
-
-		if err != nil && !strings.Contains(err.Error(), "failed to get project root") {
-			t.Errorf("Expected error about getting project root, got: %v", err)
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when GetProjectRoot fails")
+			}
+		}()
+		_ = NewRuntime(rtOpts...)
 	})
 
 	t.Run("DefaultsContextNameToLocalWhenEmpty", func(t *testing.T) {
@@ -354,13 +357,9 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		// When NewRuntime is called
-		rt, err := NewRuntime(rtOpts...)
+		rt := NewRuntime(rtOpts...)
 
 		// Then context name should default to "local"
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
 
 		if rt.ContextName != "local" {
 			t.Errorf("Expected ContextName to be 'local', got: %s", rt.ContextName)
@@ -412,13 +411,9 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		rtOpts[0].EnvPrinters.WindsorEnv = mockWindsorEnv
 
 		// When NewRuntime is called
-		rt, err := NewRuntime(rtOpts...)
+		rt := NewRuntime(rtOpts...)
 
 		// Then all overrides should be applied correctly
-
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
 
 		if rt.ContextName != "custom-context" {
 			t.Errorf("Expected ContextName to be 'custom-context', got: %s", rt.ContextName)
@@ -505,7 +500,7 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesConfigHandlerNotLoaded", func(t *testing.T) {
+	t.Run("PanicsWhenConfigHandlerIsNil", func(t *testing.T) {
 		// Given a runtime with nil config handler
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -513,13 +508,13 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 		rt.ConfigHandler = nil
 
 		// When LoadEnvironment is called
-		err := rt.LoadEnvironment(false)
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when config handler is not loaded")
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when config handler is nil")
+			}
+		}()
+		_ = rt.LoadEnvironment(false)
 	})
 
 	t.Run("HandlesEnvPrinterInitializationError", func(t *testing.T) {
@@ -926,22 +921,18 @@ func TestRuntime_HandleSessionReset(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenShellNotInitialized", func(t *testing.T) {
+	t.Run("PanicsWhenShellNotInitialized", func(t *testing.T) {
 		// Given a runtime with nil shell
 		rt := &Runtime{}
 
 		// When HandleSessionReset is called
-		err := rt.HandleSessionReset()
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when Shell is nil")
-		}
-
-		if !strings.Contains(err.Error(), "shell not initialized") {
-			t.Errorf("Expected error about shell not initialized, got: %v", err)
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when Shell is nil")
+			}
+		}()
+		_ = rt.HandleSessionReset()
 	})
 
 	t.Run("ErrorWhenCheckResetFlagsFails", func(t *testing.T) {
@@ -1042,22 +1033,18 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenConfigHandlerNotAvailable", func(t *testing.T) {
+	t.Run("PanicsWhenConfigHandlerNotAvailable", func(t *testing.T) {
 		// Given a runtime with nil config handler
 		rt := &Runtime{}
 
 		// When ApplyConfigDefaults is called
-		err := rt.ApplyConfigDefaults()
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when ConfigHandler is nil")
-		}
-
-		if !strings.Contains(err.Error(), "config handler not available") {
-			t.Errorf("Expected error about config handler not available, got: %v", err)
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when ConfigHandler is nil")
+			}
+		}()
+		_ = rt.ApplyConfigDefaults()
 	})
 
 	t.Run("ErrorWhenSetDevFails", func(t *testing.T) {
@@ -1738,22 +1725,18 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenConfigHandlerNotAvailable", func(t *testing.T) {
+	t.Run("PanicsWhenConfigHandlerNotAvailable", func(t *testing.T) {
 		// Given a runtime with nil config handler
 		rt := &Runtime{}
 
 		// When ApplyProviderDefaults is called
-		err := rt.ApplyProviderDefaults("aws")
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when ConfigHandler is nil")
-		}
-
-		if !strings.Contains(err.Error(), "config handler not available") {
-			t.Errorf("Expected error about config handler not available, got: %v", err)
-		}
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when ConfigHandler is nil")
+			}
+		}()
+		_ = rt.ApplyProviderDefaults("aws")
 	})
 
 	t.Run("ErrorWhenSetFails", func(t *testing.T) {
@@ -2933,7 +2916,7 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsInitializationWhenShellIsNil", func(t *testing.T) {
+	t.Run("PanicsWhenShellIsNil", func(t *testing.T) {
 		// Given a runtime with nil shell
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -2941,16 +2924,16 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.Shell = nil
 
 		// When initializeEnvPrinters is called
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when Shell is nil")
+			}
+		}()
 		rt.initializeEnvPrinters()
-
-		// Then env printers should not be initialized
-
-		if rt.EnvPrinters.AwsEnv != nil {
-			t.Error("Expected AwsEnv not to be initialized when Shell is nil")
-		}
 	})
 
-	t.Run("SkipsInitializationWhenConfigHandlerIsNil", func(t *testing.T) {
+	t.Run("PanicsWhenConfigHandlerIsNil", func(t *testing.T) {
 		// Given a runtime with nil config handler
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -2958,13 +2941,13 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.ConfigHandler = nil
 
 		// When initializeEnvPrinters is called
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when ConfigHandler is nil")
+			}
+		}()
 		rt.initializeEnvPrinters()
-
-		// Then env printers should not be initialized
-
-		if rt.EnvPrinters.AwsEnv != nil {
-			t.Error("Expected AwsEnv not to be initialized when ConfigHandler is nil")
-		}
 	})
 
 	t.Run("DoesNotOverrideExistingPrinters", func(t *testing.T) {

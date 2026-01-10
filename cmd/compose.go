@@ -86,10 +86,7 @@ func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error) {
 		opts = []*project.Project{overridesVal.(*project.Project)}
 	}
 
-	proj, err := project.NewProject("", opts...)
-	if err != nil {
-		return nil, err
-	}
+	proj := project.NewProject("", opts...)
 
 	proj.Runtime.Shell.SetVerbosity(verbose)
 

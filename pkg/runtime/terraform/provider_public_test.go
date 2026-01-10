@@ -82,7 +82,12 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		return "terraform"
 	}
 
-	provider := NewTerraformProvider(configHandler, mockShell, toolsManager, options.Evaluator)
+	testEvaluator := options.Evaluator
+	if testEvaluator == nil {
+		testEvaluator = evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+	}
+
+	provider := NewTerraformProvider(configHandler, mockShell, toolsManager, testEvaluator)
 	concreteProvider := provider.(*terraformProvider)
 
 	if options.BlueprintYAML != "" {
@@ -119,7 +124,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
 		ToolsManager:  toolsManager,
-		Evaluator:     options.Evaluator,
+		Evaluator:     testEvaluator,
 	}
 }
 

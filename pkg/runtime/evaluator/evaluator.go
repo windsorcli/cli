@@ -63,6 +63,10 @@ type HelperRegistrar interface {
 // The projectRoot and templateRoot paths are used for resolving relative file paths
 // in expressions. Returns a fully initialized evaluator ready for use.
 func NewExpressionEvaluator(configHandler config.ConfigHandler, projectRoot, templateRoot string) ExpressionEvaluator {
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &expressionEvaluator{
 		configHandler: configHandler,
 		projectRoot:   projectRoot,

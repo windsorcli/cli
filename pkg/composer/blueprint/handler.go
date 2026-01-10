@@ -52,8 +52,14 @@ type BaseBlueprintHandler struct {
 // NewBlueprintHandler creates a new BlueprintHandler with the provided runtime and artifact builder.
 // It initializes the internal processor, composer, and writer components with sensible defaults.
 // Optional overrides can be passed to replace any of the internal components for testing or
-// custom behavior. The error return is maintained for API compatibility but always returns nil.
-func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact, opts ...*BaseBlueprintHandler) (*BaseBlueprintHandler, error) {
+// custom behavior. Panics if runtime or artifactBuilder are nil.
+func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact, opts ...*BaseBlueprintHandler) *BaseBlueprintHandler {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if artifactBuilder == nil {
+		panic("artifact builder is required")
+	}
 	handler := &BaseBlueprintHandler{
 		runtime:                rt,
 		artifactBuilder:        artifactBuilder,
@@ -80,7 +86,7 @@ func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact,
 		}
 	}
 
-	return handler, nil
+	return handler
 }
 
 // =============================================================================

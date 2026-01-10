@@ -26,10 +26,7 @@ var downCmd = &cobra.Command{
 			opts = []*project.Project{overridesVal.(*project.Project)}
 		}
 
-		proj, err := project.NewProject("", opts...)
-		if err != nil {
-			return err
-		}
+		proj := project.NewProject("", opts...)
 
 		proj.Runtime.Shell.SetVerbosity(verbose)
 

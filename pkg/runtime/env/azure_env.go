@@ -28,6 +28,13 @@ type AzureEnvPrinter struct {
 
 // NewAzureEnvPrinter creates a new AzureEnvPrinter instance
 func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *AzureEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &AzureEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}

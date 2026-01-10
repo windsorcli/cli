@@ -32,12 +32,10 @@ Examples:
 			}
 		}
 
-		rt, err := runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return fmt.Errorf("failed to initialize context: %w", err)
-		}
+		rt := runtime.NewRuntime(rtOpts...)
 
 		var buildID string
+		var err error
 		if buildIdNewFlag {
 			buildID, err = rt.GenerateBuildID()
 		} else {

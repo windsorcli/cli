@@ -83,6 +83,10 @@ type configHandler struct {
 
 // NewConfigHandler creates a new ConfigHandler instance with default context configuration.
 func NewConfigHandler(shell shell.Shell) ConfigHandler {
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	handler := &configHandler{
 		shell:     shell,
 		shims:     NewShims(),

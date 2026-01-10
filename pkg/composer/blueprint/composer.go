@@ -31,20 +31,15 @@ type BaseBlueprintComposer struct {
 // NewBlueprintComposer creates a new BlueprintComposer that merges multiple blueprints into one.
 // The runtime provides access to configuration and context. Optional overrides allow setting
 // common substitutions that will be applied to all kustomizations in the composed blueprint.
-func NewBlueprintComposer(rt *runtime.Runtime, opts ...*BaseBlueprintComposer) *BaseBlueprintComposer {
-	composer := &BaseBlueprintComposer{
+func NewBlueprintComposer(rt *runtime.Runtime) *BaseBlueprintComposer {
+	if rt == nil {
+		panic("runtime is required")
+	}
+
+	return &BaseBlueprintComposer{
 		runtime:             rt,
 		commonSubstitutions: make(map[string]string),
 	}
-
-	if len(opts) > 0 && opts[0] != nil {
-		overrides := opts[0]
-		if overrides.commonSubstitutions != nil {
-			composer.commonSubstitutions = overrides.commonSubstitutions
-		}
-	}
-
-	return composer
 }
 
 // =============================================================================

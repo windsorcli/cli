@@ -13,6 +13,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -40,6 +41,7 @@ type BaseModuleResolver struct {
 	shims            *Shims
 	runtime          *runtime.Runtime
 	blueprintHandler blueprint.BlueprintHandler
+	evaluator        evaluator.ExpressionEvaluator
 	reset            bool
 }
 
@@ -49,21 +51,24 @@ type BaseModuleResolver struct {
 
 // NewBaseModuleResolver creates a new base module resolver with the provided dependencies.
 // If overrides are provided, any non-nil component in the override BaseModuleResolver will be used instead of creating a default.
-func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*BaseModuleResolver) *BaseModuleResolver {
-	resolver := &BaseModuleResolver{
+// Panics if rt, blueprintHandler, or rt.Evaluator are nil.
+func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler) *BaseModuleResolver {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if blueprintHandler == nil {
+		panic("blueprint handler is required")
+	}
+	if rt.Evaluator == nil {
+		panic("evaluator is required on runtime")
+	}
+
+	return &BaseModuleResolver{
 		shims:            NewShims(),
 		runtime:          rt,
 		blueprintHandler: blueprintHandler,
+		evaluator:        rt.Evaluator,
 	}
-
-	if len(opts) > 0 && opts[0] != nil {
-		overrides := opts[0]
-		if overrides.shims != nil {
-			resolver.shims = overrides.shims
-		}
-	}
-
-	return resolver
 }
 
 // GenerateTfvars creates Terraform configuration files, including tfvars files, for all blueprint components.
@@ -87,15 +92,9 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			componentValues = make(map[string]any)
 		}
 
-		var evaluatedValues map[string]any
-		var err error
-		if h.runtime.Evaluator == nil {
-			evaluatedValues = componentValues
-		} else {
-			evaluatedValues, err = h.runtime.Evaluator.EvaluateMap(componentValues, "", true)
-			if err != nil {
-				return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
-			}
+		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", true)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
 		}
 
 		if err := h.generateComponentTfvars(projectRoot, component, evaluatedValues); err != nil {

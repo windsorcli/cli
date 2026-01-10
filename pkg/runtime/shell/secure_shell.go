@@ -30,6 +30,10 @@ type SecureShell struct {
 
 // NewSecureShell creates a new instance of SecureShell.
 func NewSecureShell(sshClient ssh.Client) *SecureShell {
+	if sshClient == nil {
+		panic("ssh client is required")
+	}
+
 	defaultShell := NewDefaultShell()
 	return &SecureShell{
 		DefaultShell: *defaultShell,

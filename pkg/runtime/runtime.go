@@ -89,8 +89,8 @@ type Runtime struct {
 // The runtime also initializes envVars and aliases maps, and automatically sets up
 // ContextName, ProjectRoot, ConfigRoot, and TemplateRoot based on the current project state.
 // Optional overrides can be provided via opts to inject mocks for testing.
-// Returns the Runtime with initialized dependencies or an error if initialization fails.
-func NewRuntime(opts ...*Runtime) (*Runtime, error) {
+// Panics if Shell or ConfigHandler cannot be initialized.
+func NewRuntime(opts ...*Runtime) *Runtime {
 	rt := &Runtime{}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -161,15 +161,20 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 	if rt.ProjectRoot == "" {
 		projectRoot, err := rt.Shell.GetProjectRoot()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get project root: %w", err)
+			panic(fmt.Sprintf("failed to get project root: %v", err))
 		}
 		rt.ProjectRoot = projectRoot
 	}
 
 	if rt.ConfigHandler == nil {
-		// Only create real config handler if we have a real shell
-		// In tests, ConfigHandler should always be provided via overrides
 		rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
+	}
+
+	if rt.Shell == nil {
+		panic("shell is required")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required")
 	}
 
 	if rt.envVars == nil {
@@ -201,7 +206,7 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 		rt.WindsorScratchPath = filepath.Join(rt.ProjectRoot, ".windsor", "contexts", rt.ContextName)
 	}
 
-	return rt, nil
+	return rt
 }
 
 // =============================================================================
@@ -211,12 +216,8 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 // HandleSessionReset checks for reset flags and session tokens, then resets managed environment
 // variables if needed. It checks for WINDSOR_SESSION_TOKEN and uses the shell's CheckResetFlags
 // method to determine if a reset should occur. If reset is needed, it calls Shell.Reset() and
-// sets NO_CACHE=true. Returns an error if Shell is not initialized or if reset flag checking fails.
+// sets NO_CACHE=true. Returns an error if reset flag checking fails.
 func (rt *Runtime) HandleSessionReset() error {
-	if rt.Shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-
 	hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
 	shouldReset, err := rt.Shell.CheckResetFlags()
 	if err != nil {
@@ -239,13 +240,8 @@ func (rt *Runtime) HandleSessionReset() error {
 // LoadEnvironment loads environment variables and aliases from all configured environment printers,
 // then executes post-environment hooks. It initializes all necessary components, optionally loads
 // secrets if requested, and aggregates all environment variables and aliases into the Runtime
-// instance. Returns an error if any required dependency is missing or if any step fails. This method
-// expects the ConfigHandler to be set before invocation.
+// instance. Returns an error if any step fails.
 func (rt *Runtime) LoadEnvironment(decrypt bool) error {
-	if rt.ConfigHandler == nil {
-		return fmt.Errorf("config handler not loaded")
-	}
-
 	rt.initializeSecretsProviders()
 	rt.initializeEnvPrinters()
 	rt.initializeToolsManager()
@@ -394,10 +390,6 @@ func (rt *Runtime) GenerateBuildID() (string, error) {
 // It creates and registers the appropriate environment printers with the dependency injector
 // based on the current configuration state.
 func (rt *Runtime) initializeEnvPrinters() {
-	if rt.Shell == nil || rt.ConfigHandler == nil {
-		return
-	}
-
 	if rt.EnvPrinters.AwsEnv == nil && rt.ConfigHandler.GetBool("aws.enabled", false) {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
@@ -662,10 +654,6 @@ func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string
 // defaults depending on provider, dev mode, and vm.driver.
 // This must be called before loading from disk to ensure proper defaulting. Returns error on config operation failure.
 func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
-	if rt.ConfigHandler == nil {
-		return fmt.Errorf("config handler not available")
-	}
-
 	if !rt.ConfigHandler.IsLoaded() {
 		existingProvider := rt.ConfigHandler.GetString("provider")
 		isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
@@ -734,10 +722,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 // If no provider is set but dev mode is enabled, it defaults the cluster driver to "talos".
 // The context name is read from rt.ContextName. Returns an error if any configuration operation fails.
 func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
-	if rt.ConfigHandler == nil {
-		return fmt.Errorf("config handler not available")
-	}
-
 	provider := providerOverride
 	if provider == "" {
 		provider = rt.ConfigHandler.GetString("provider")

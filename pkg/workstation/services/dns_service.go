@@ -104,7 +104,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 // In localhost mode, it uses a template for local DNS resolution and sets up forwarding rules for DNS queries.
 // The generated Corefile is saved in the .windsor directory for CoreDNS to manage project DNS queries.
 func (s *DNSService) WriteConfig() error {
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 
 	tld := s.configHandler.GetString("dns.domain", "test")
 

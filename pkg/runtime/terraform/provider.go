@@ -85,12 +85,26 @@ type TerraformProvider interface {
 // =============================================================================
 
 // NewTerraformProvider creates a new TerraformProvider instance and registers its helper functions with the evaluator.
+// Panics if configHandler, shell, toolsManager, or evaluator are nil.
 func NewTerraformProvider(
 	configHandler config.ConfigHandler,
 	shell shell.Shell,
 	toolsManager tools.ToolsManager,
 	evaluator evaluator.ExpressionEvaluator,
 ) TerraformProvider {
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+	if shell == nil {
+		panic("shell is required")
+	}
+	if toolsManager == nil {
+		panic("tools manager is required")
+	}
+	if evaluator == nil {
+		panic("evaluator is required")
+	}
+
 	provider := &terraformProvider{
 		configHandler: configHandler,
 		shell:         shell,
@@ -100,9 +114,7 @@ func NewTerraformProvider(
 		cache:         make(map[string]map[string]any),
 	}
 
-	if evaluator != nil {
-		provider.registerTerraformOutputHelper(evaluator)
-	}
+	provider.registerTerraformOutputHelper(evaluator)
 
 	return provider
 }

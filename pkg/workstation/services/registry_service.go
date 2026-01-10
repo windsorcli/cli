@@ -157,7 +157,7 @@ func (s *RegistryService) generateRegistryService(registry docker.RegistryConfig
 	// Always set environment, even if empty
 	service.Environment = env
 
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 	cacheDir := projectRoot + "/.windsor/.docker-cache"
 	if err := s.shims.MkdirAll(cacheDir, os.ModePerm); err != nil {
 		return service, fmt.Errorf("error creating .docker-cache directory: %w", err)

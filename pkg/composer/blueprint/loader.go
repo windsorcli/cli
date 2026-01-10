@@ -47,8 +47,15 @@ type BaseBlueprintLoader struct {
 // a source name from the sources array). The sourceURL specifies an OCI artifact URL to pull;
 // if empty, the loader will use local filesystem paths based on sourceName. Optional overrides
 // allow replacing the shims for testing.
-func NewBlueprintLoader(rt *runtime.Runtime, artifactBuilder artifact.Artifact, sourceName, sourceURL string, opts ...*BaseBlueprintLoader) *BaseBlueprintLoader {
-	loader := &BaseBlueprintLoader{
+func NewBlueprintLoader(rt *runtime.Runtime, artifactBuilder artifact.Artifact, sourceName, sourceURL string) *BaseBlueprintLoader {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if artifactBuilder == nil {
+		panic("artifact builder is required")
+	}
+
+	return &BaseBlueprintLoader{
 		runtime:         rt,
 		artifactBuilder: artifactBuilder,
 		shims:           NewShims(),
@@ -56,15 +63,6 @@ func NewBlueprintLoader(rt *runtime.Runtime, artifactBuilder artifact.Artifact, 
 		sourceURL:       sourceURL,
 		templateData:    make(map[string][]byte),
 	}
-
-	if len(opts) > 0 && opts[0] != nil {
-		overrides := opts[0]
-		if overrides.shims != nil {
-			loader.shims = overrides.shims
-		}
-	}
-
-	return loader
 }
 
 // =============================================================================

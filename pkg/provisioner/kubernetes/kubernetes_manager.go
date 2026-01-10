@@ -71,6 +71,10 @@ type BaseKubernetesManager struct {
 
 // NewKubernetesManager creates a new instance of BaseKubernetesManager
 func NewKubernetesManager(kubernetesClient client.KubernetesClient) *BaseKubernetesManager {
+	if kubernetesClient == nil {
+		panic("kubernetes client is required")
+	}
+
 	manager := &BaseKubernetesManager{
 		client:                        kubernetesClient,
 		shims:                         NewShims(),

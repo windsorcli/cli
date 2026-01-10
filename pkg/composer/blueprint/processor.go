@@ -49,20 +49,18 @@ type BaseBlueprintProcessor struct {
 // overrides allow replacing the evaluator for testing. The processor is stateless and can
 // be shared across multiple concurrent feature processing operations. The evaluator must be
 // provided either via the runtime or as an override.
-func NewBlueprintProcessor(rt *runtime.Runtime, opts ...*BaseBlueprintProcessor) *BaseBlueprintProcessor {
-	processor := &BaseBlueprintProcessor{
+func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.Evaluator == nil {
+		panic("evaluator is required on runtime")
+	}
+
+	return &BaseBlueprintProcessor{
 		runtime:   rt,
 		evaluator: rt.Evaluator,
 	}
-
-	if len(opts) > 0 && opts[0] != nil {
-		overrides := opts[0]
-		if overrides.evaluator != nil {
-			processor.evaluator = overrides.evaluator
-		}
-	}
-
-	return processor
 }
 
 // =============================================================================
