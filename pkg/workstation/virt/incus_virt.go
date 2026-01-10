@@ -318,52 +318,29 @@ func (v *IncusVirt) createInstance(config *IncusInstanceConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to check if instance exists: %w", err)
 	}
-	if exists {
-		running, err := v.instanceIsRunning(config.Name)
+	if !exists {
+		message := fmt.Sprintf("📦 Creating Incus instance %s", config.Name)
+		_, err = v.secureShell.ExecProgress(message, "incus", args...)
 		if err != nil {
-			return fmt.Errorf("failed to check if instance is running: %w", err)
-		}
-		if !running {
-			_, err := v.secureShell.ExecProgress(fmt.Sprintf("📦 Starting instance %s", config.Name), "incus", "start", config.Name)
-			if err != nil {
-				if strings.Contains(err.Error(), "already running") {
-					return nil
-				}
-				return fmt.Errorf("failed to start instance: %w", err)
+			if strings.Contains(err.Error(), "already exists") {
+			} else {
+				return fmt.Errorf("failed to launch Incus instance: %w", err)
 			}
 		}
-		return nil
 	}
 
-	message := fmt.Sprintf("📦 Creating Incus instance %s", config.Name)
-	_, err = v.secureShell.ExecProgress(message, "incus", args...)
-	if err != nil {
-		if strings.Contains(err.Error(), "already exists") {
-			return nil
-		}
-		return fmt.Errorf("failed to launch Incus instance: %w", err)
-	}
-
-	needsDeviceConfig := (config.Network != "" && config.IPv4 != "") || len(config.Devices) > 0
-	if needsDeviceConfig {
-		_, err := v.secureShell.ExecSilent("incus", "stop", config.Name)
+	if config.Network != "" && config.IPv4 != "" {
+		exists, err := v.deviceExists(config.Name, "eth0")
 		if err != nil {
-			return fmt.Errorf("failed to stop instance for device configuration: %w", err)
+			return fmt.Errorf("failed to check if network device exists: %w", err)
 		}
-
-		if config.Network != "" && config.IPv4 != "" {
-			exists, err := v.deviceExists(config.Name, "eth0")
+		if !exists {
+			deviceArgs := []string{"config", "device", "add", config.Name, "eth0", "nic", fmt.Sprintf("network=%s", config.Network), fmt.Sprintf("ipv4.address=%s", config.IPv4)}
+			_, err := v.secureShell.ExecProgress(fmt.Sprintf("📦 Adding network device to %s", config.Name), "incus", deviceArgs...)
 			if err != nil {
-				return fmt.Errorf("failed to check if network device exists: %w", err)
-			}
-			if !exists {
-				deviceArgs := []string{"config", "device", "add", config.Name, "eth0", "nic", fmt.Sprintf("network=%s", config.Network), fmt.Sprintf("ipv4.address=%s", config.IPv4)}
-				_, err := v.secureShell.ExecProgress(fmt.Sprintf("📦 Adding network device to %s", config.Name), "incus", deviceArgs...)
-				if err != nil {
-					if strings.Contains(err.Error(), "already exists") {
-					} else {
-						return fmt.Errorf("failed to add network device: %w", err)
-					}
+				if strings.Contains(err.Error(), "already exists") {
+				} else {
+					return fmt.Errorf("failed to add network device: %w", err)
 				}
 			}
 		}
@@ -406,18 +383,16 @@ func (v *IncusVirt) createInstance(config *IncusInstanceConfig) error {
 		}
 	}
 
-	if needsDeviceConfig {
-		running, err := v.instanceIsRunning(config.Name)
+	running, err := v.instanceIsRunning(config.Name)
+	if err != nil {
+		return fmt.Errorf("failed to check if instance is running: %w", err)
+	}
+	if !running {
+		_, err := v.secureShell.ExecProgress(fmt.Sprintf("📦 Starting instance %s", config.Name), "incus", "start", config.Name)
 		if err != nil {
-			return fmt.Errorf("failed to check if instance is running: %w", err)
-		}
-		if !running {
-			_, err := v.secureShell.ExecProgress(fmt.Sprintf("📦 Starting instance %s", config.Name), "incus", "start", config.Name)
-			if err != nil {
-				if strings.Contains(err.Error(), "already running") {
-				} else {
-					return fmt.Errorf("failed to start instance: %w", err)
-				}
+			if strings.Contains(err.Error(), "already running") {
+			} else {
+				return fmt.Errorf("failed to start instance: %w", err)
 			}
 		}
 	}
