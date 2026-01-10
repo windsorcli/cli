@@ -107,12 +107,9 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 // file and jsonnet loading as needed, and can defer unresolved expressions when evaluateDeferred is false.
 // The featurePath parameter is used for relative expression resolution, and evaluateDeferred controls
 // whether to process unresolved expressions immediately. Returns the fully evaluated value, or an error if
-// evaluation fails or the input is malformed. If s is empty, an error is returned. If no evaluation is triggered,
-// or if the result is nil (such as from an undefined variable), the original string s is returned as-is.
+// evaluation fails or the input is malformed. Empty strings are returned as-is. If no evaluation is
+// triggered, or if the result is nil (such as from an undefined variable), the original string s is returned as-is.
 func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDeferred bool) (any, error) {
-	if s == "" {
-		return nil, fmt.Errorf("expression cannot be empty")
-	}
 	if strings.Contains(s, "${") {
 		result := s
 		for strings.Contains(result, "${") {
@@ -123,6 +120,9 @@ func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDef
 			}
 			end += start
 			expr := result[start+2 : end]
+			if expr == "" {
+				return nil, fmt.Errorf("expression cannot be empty")
+			}
 			value, err := e.evaluateExpression(expr, featurePath, evaluateDeferred)
 			if err != nil {
 				return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)

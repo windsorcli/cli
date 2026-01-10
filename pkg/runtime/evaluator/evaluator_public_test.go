@@ -190,16 +190,37 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsEmptyStringAsIs", func(t *testing.T) {
+		// Given an evaluator
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		// When evaluating an empty string
+		result, err := evaluator.Evaluate("", "", false)
+
+		// Then it should be returned as-is
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != "" {
+			t.Errorf("Expected empty string, got %v", result)
+		}
+	})
+
 	t.Run("ReturnsErrorForEmptyExpression", func(t *testing.T) {
 		// Given an evaluator
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an empty expression
-		_, err := evaluator.Evaluate("", "", false)
+		_, err := evaluator.Evaluate("${}", "", false)
 
 		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error for empty expression, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "expression cannot be empty") {
+			t.Errorf("Expected error message to contain 'expression cannot be empty', got: %v", err)
 		}
 	})
 
@@ -854,6 +875,30 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Errorf("Expected normal to be 'value', got %v", result["normal"])
 		}
 	})
+
+	t.Run("HandlesEmptyStringValues", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"empty":    "",
+			"nonEmpty": "value",
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["empty"] != "" {
+			t.Errorf("Expected empty to be empty string, got %v", result["empty"])
+		}
+
+		if result["nonEmpty"] != "value" {
+			t.Errorf("Expected nonEmpty to be 'value', got %v", result["nonEmpty"])
+		}
+	})
+
 }
 
 func TestContainsExpression(t *testing.T) {
