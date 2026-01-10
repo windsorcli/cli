@@ -167,6 +167,12 @@ func (w *Workstation) Up() error {
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
+		if w.NetworkManager != nil {
+			vmAddress := w.configHandler.GetString("vm.address")
+			if vmAddress == "" {
+				return fmt.Errorf("vm.address is required for network configuration but was not set by VirtualMachine.Up()")
+			}
+		}
 	}
 
 	if w.NetworkManager != nil && vmDriver == "colima" && vmRuntime == "incus" {

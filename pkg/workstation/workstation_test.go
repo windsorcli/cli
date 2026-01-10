@@ -68,8 +68,21 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 	// Create mock SSH client
 	mockSSHClient := &ssh.MockClient{}
 
+	// Store values set via Set() for GetString() to retrieve
+	configValues := make(map[string]any)
+
 	// Set up mock behaviors
+	mockConfigHandler.SetFunc = func(key string, value any) error {
+		configValues[key] = value
+		return nil
+	}
+
 	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if val, ok := configValues[key]; ok {
+			if strVal, ok := val.(string); ok {
+				return strVal
+			}
+		}
 		switch key {
 		case "vm.driver":
 			return "colima"
@@ -165,7 +178,12 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 	mockNetworkManager.ConfigureDNSFunc = func() error { return nil }
 
 	// Set up mock virtual machine behaviors
-	mockVirtualMachine.UpFunc = func(verbose ...bool) error { return nil }
+	mockVirtualMachine.UpFunc = func(verbose ...bool) error {
+		if err := mockConfigHandler.Set("vm.address", "192.168.1.10"); err != nil {
+			return err
+		}
+		return nil
+	}
 	mockVirtualMachine.DownFunc = func() error { return nil }
 
 	// Set up mock container runtime behaviors
@@ -441,6 +459,9 @@ func TestWorkstation_Up(t *testing.T) {
 		vmUpCalled := false
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			vmUpCalled = true
+			if err := mocks.ConfigHandler.Set("vm.address", "192.168.1.10"); err != nil {
+				return err
+			}
 			return nil
 		}
 		mocks.ConfigHandler.Set("vm.driver", "colima")
