@@ -136,5 +136,9 @@ func (s *LocalstackService) GetIncusConfig() (*IncusConfig, error) {
 	}, nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure LocalstackService implements Service interface
 var _ Service = (*LocalstackService)(nil)

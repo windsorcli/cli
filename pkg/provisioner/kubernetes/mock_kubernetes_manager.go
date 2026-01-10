@@ -47,9 +47,6 @@ func NewMockKubernetesManager() *MockKubernetesManager {
 	return &MockKubernetesManager{}
 }
 
-// Ensure MockKubernetesManager implements KubernetesManager interface
-var _ KubernetesManager = (*MockKubernetesManager)(nil)
-
 // =============================================================================
 // Public Methods
 // =============================================================================
@@ -191,3 +188,10 @@ func (m *MockKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 	}
 	return nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure MockKubernetesManager implements KubernetesManager interface
+var _ KubernetesManager = (*MockKubernetesManager)(nil)

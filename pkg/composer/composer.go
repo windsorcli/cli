@@ -10,6 +10,9 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The Composer package provides high-level resource management functionality
@@ -22,9 +25,14 @@ import (
 // =============================================================================
 
 // Composer holds the execution context for resource operations.
-// It embeds the base Runtime and includes all resource-specific dependencies.
+// It includes all resource-specific dependencies and core runtime dependencies.
 type Composer struct {
-	runtime.Runtime
+	configHandler config.ConfigHandler
+	shell         shell.Shell
+	evaluator     evaluator.ExpressionEvaluator
+	projectRoot   string
+	configRoot    string
+	templateRoot  string
 
 	// Resource-specific dependencies
 	ArtifactBuilder   artifact.Artifact
@@ -39,10 +47,28 @@ type Composer struct {
 // NewComposer creates and initializes a new Composer instance with the provided execution context.
 // It sets up all required resource handlers—artifact builder, blueprint handler, and terraform resolver.
 // If overrides are provided, any non-nil component in the override Composer will be used instead of creating a default.
-// Returns a pointer to the fully initialized Composer struct.
+// Panics if runtime or any required dependencies are nil.
 func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required on runtime")
+	}
+	if rt.Shell == nil {
+		panic("shell is required on runtime")
+	}
+	if rt.Evaluator == nil {
+		panic("evaluator is required on runtime")
+	}
+
 	composer := &Composer{
-		Runtime: *rt,
+		configHandler: rt.ConfigHandler,
+		shell:         rt.Shell,
+		evaluator:     rt.Evaluator,
+		projectRoot:   rt.ProjectRoot,
+		configRoot:    rt.ConfigRoot,
+		templateRoot:  rt.TemplateRoot,
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -63,11 +89,7 @@ func NewComposer(rt *runtime.Runtime, opts ...*Composer) *Composer {
 	}
 
 	if composer.BlueprintHandler == nil {
-		var err error
-		composer.BlueprintHandler, err = blueprint.NewBlueprintHandler(rt, composer.ArtifactBuilder)
-		if err != nil {
-			return nil
-		}
+		composer.BlueprintHandler = blueprint.NewBlueprintHandler(rt, composer.ArtifactBuilder)
 	}
 
 	if composer.TerraformResolver == nil {
@@ -144,7 +166,7 @@ func (r *Composer) Generate(overwrite ...bool) error {
 		return fmt.Errorf("failed to generate .gitignore: %w", err)
 	}
 
-	if r.Runtime.ConfigHandler.GetBool("terraform.enabled", false) {
+	if r.configHandler.GetBool("terraform.enabled", false) {
 		if err := r.TerraformResolver.GenerateTfvars(shouldOverwrite); err != nil {
 			return fmt.Errorf("failed to generate terraform files: %w", err)
 		}
@@ -173,9 +195,7 @@ func (r *Composer) generateGitignore() error {
 		"contexts/**/.gcp/",
 	}
 
-	projectRoot := r.Runtime.ProjectRoot
-
-	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+	gitignorePath := filepath.Join(r.projectRoot, ".gitignore")
 
 	// #nosec G304 - gitignorePath is constructed from trusted project root
 	content, err := os.ReadFile(gitignorePath)

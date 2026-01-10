@@ -197,5 +197,9 @@ func (s *MockShell) RegisterSecret(value string) {
 	}
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockShell implements the Shell interface
 var _ Shell = (*MockShell)(nil)

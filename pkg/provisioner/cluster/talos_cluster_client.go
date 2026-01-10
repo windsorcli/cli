@@ -267,5 +267,9 @@ func (c *TalosClusterClient) getNodeVersion(ctx context.Context, nodeAddress str
 	return strings.TrimPrefix(versionTag, "v"), nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure TalosClusterClient implements ClusterClient
 var _ ClusterClient = (*TalosClusterClient)(nil)

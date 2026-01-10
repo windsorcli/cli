@@ -44,9 +44,9 @@ type ContainerInfo struct {
 }
 
 type BaseVirt struct {
-	runtime       *runtime.Runtime
 	shell         shell.Shell
 	configHandler config.ConfigHandler
+	projectRoot   string
 	shims         *Shims
 }
 
@@ -79,10 +79,20 @@ type ContainerRuntime interface {
 
 // NewBaseVirt creates a new BaseVirt instance
 func NewBaseVirt(rt *runtime.Runtime) *BaseVirt {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.Shell == nil {
+		panic("shell is required on runtime")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required on runtime")
+	}
+
 	return &BaseVirt{
-		runtime:       rt,
 		shell:         rt.Shell,
 		configHandler: rt.ConfigHandler,
+		projectRoot:   rt.ProjectRoot,
 		shims:         NewShims(),
 	}
 }

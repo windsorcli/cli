@@ -130,7 +130,7 @@ func (p *PublicKeyAuthMethod) Method() gossh.AuthMethod {
 }
 
 // =============================================================================
-// Helpers
+// Interface Compliance
 // =============================================================================
 
 // Ensure SSHClient implements the Client interface

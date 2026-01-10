@@ -24,6 +24,13 @@ type TalosEnvPrinter struct {
 
 // NewTalosEnvPrinter creates and returns a new TalosEnvPrinter instance.
 func NewTalosEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *TalosEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &TalosEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
@@ -51,6 +58,10 @@ func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	return envVars, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // TalosEnvPrinter implements the EnvPrinter interface.
 var _ EnvPrinter = (*TalosEnvPrinter)(nil)

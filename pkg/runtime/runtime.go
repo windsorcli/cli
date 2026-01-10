@@ -15,8 +15,10 @@ import (
 	secretsConfigType "github.com/windsorcli/cli/api/v1alpha1/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
@@ -43,6 +45,7 @@ type Runtime struct {
 	// Core dependencies
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
+	Evaluator     evaluator.ExpressionEvaluator
 
 	// SecretsProviders contains providers for Sops and 1Password secrets management
 	SecretsProviders struct {
@@ -65,6 +68,9 @@ type Runtime struct {
 	// ToolsManager manages tool installation and configuration
 	ToolsManager tools.ToolsManager
 
+	// TerraformProvider provides Terraform-specific operations
+	TerraformProvider terraform.TerraformProvider
+
 	// envVars stores collected environment variables
 	envVars map[string]string
 
@@ -83,8 +89,8 @@ type Runtime struct {
 // The runtime also initializes envVars and aliases maps, and automatically sets up
 // ContextName, ProjectRoot, ConfigRoot, and TemplateRoot based on the current project state.
 // Optional overrides can be provided via opts to inject mocks for testing.
-// Returns the Runtime with initialized dependencies or an error if initialization fails.
-func NewRuntime(opts ...*Runtime) (*Runtime, error) {
+// Panics if Shell or ConfigHandler cannot be initialized.
+func NewRuntime(opts ...*Runtime) *Runtime {
 	rt := &Runtime{}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -94,6 +100,9 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 		}
 		if overrides.ConfigHandler != nil {
 			rt.ConfigHandler = overrides.ConfigHandler
+		}
+		if overrides.Evaluator != nil {
+			rt.Evaluator = overrides.Evaluator
 		}
 		if overrides.ContextName != "" {
 			rt.ContextName = overrides.ContextName
@@ -152,15 +161,20 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 	if rt.ProjectRoot == "" {
 		projectRoot, err := rt.Shell.GetProjectRoot()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get project root: %w", err)
+			panic(fmt.Sprintf("failed to get project root: %v", err))
 		}
 		rt.ProjectRoot = projectRoot
 	}
 
 	if rt.ConfigHandler == nil {
-		// Only create real config handler if we have a real shell
-		// In tests, ConfigHandler should always be provided via overrides
 		rt.ConfigHandler = config.NewConfigHandler(rt.Shell)
+	}
+
+	if rt.Shell == nil {
+		panic("shell is required")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required")
 	}
 
 	if rt.envVars == nil {
@@ -184,11 +198,15 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 	if rt.TemplateRoot == "" {
 		rt.TemplateRoot = filepath.Join(rt.ProjectRoot, "contexts", "_template")
 	}
+
+	if rt.Evaluator == nil {
+		rt.Evaluator = evaluator.NewExpressionEvaluator(rt.ConfigHandler, rt.ProjectRoot, rt.TemplateRoot)
+	}
 	if rt.WindsorScratchPath == "" {
 		rt.WindsorScratchPath = filepath.Join(rt.ProjectRoot, ".windsor", "contexts", rt.ContextName)
 	}
 
-	return rt, nil
+	return rt
 }
 
 // =============================================================================
@@ -198,12 +216,8 @@ func NewRuntime(opts ...*Runtime) (*Runtime, error) {
 // HandleSessionReset checks for reset flags and session tokens, then resets managed environment
 // variables if needed. It checks for WINDSOR_SESSION_TOKEN and uses the shell's CheckResetFlags
 // method to determine if a reset should occur. If reset is needed, it calls Shell.Reset() and
-// sets NO_CACHE=true. Returns an error if Shell is not initialized or if reset flag checking fails.
+// sets NO_CACHE=true. Returns an error if reset flag checking fails.
 func (rt *Runtime) HandleSessionReset() error {
-	if rt.Shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-
 	hasSessionToken := os.Getenv("WINDSOR_SESSION_TOKEN") != ""
 	shouldReset, err := rt.Shell.CheckResetFlags()
 	if err != nil {
@@ -226,13 +240,8 @@ func (rt *Runtime) HandleSessionReset() error {
 // LoadEnvironment loads environment variables and aliases from all configured environment printers,
 // then executes post-environment hooks. It initializes all necessary components, optionally loads
 // secrets if requested, and aggregates all environment variables and aliases into the Runtime
-// instance. Returns an error if any required dependency is missing or if any step fails. This method
-// expects the ConfigHandler to be set before invocation.
+// instance. Returns an error if any step fails.
 func (rt *Runtime) LoadEnvironment(decrypt bool) error {
-	if rt.ConfigHandler == nil {
-		return fmt.Errorf("config handler not loaded")
-	}
-
 	rt.initializeSecretsProviders()
 	rt.initializeEnvPrinters()
 	rt.initializeToolsManager()
@@ -325,8 +334,9 @@ func (rt *Runtime) CheckTools() error {
 }
 
 // GetBuildID retrieves the current build ID from the .windsor/.build-id file.
-// If no build ID exists, a new one is generated, persisted, and returned.
-// Returns the build ID string or an error if retrieval or persistence fails.
+// This is a read-only operation - it never creates a build ID.
+// Returns the build ID string if it exists, or empty string if it doesn't exist.
+// Returns an error only if file read fails (not if file doesn't exist).
 func (rt *Runtime) GetBuildID() (string, error) {
 	projectRoot := rt.ProjectRoot
 
@@ -345,30 +355,16 @@ func (rt *Runtime) GetBuildID() (string, error) {
 
 	buildIDPath := ".windsor/.build-id"
 
-	var buildID string
-
 	if _, err := root.Stat(buildIDPath); os.IsNotExist(err) {
-		buildID = ""
-	} else {
-		data, err := root.ReadFile(buildIDPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read build ID file: %w", err)
-		}
-		buildID = strings.TrimSpace(string(data))
+		return "", nil
 	}
 
-	if buildID == "" {
-		newBuildID, err := rt.generateBuildID()
-		if err != nil {
-			return "", fmt.Errorf("failed to generate build ID: %w", err)
-		}
-		if err := rt.writeBuildIDToFile(newBuildID); err != nil {
-			return "", fmt.Errorf("failed to set build ID: %w", err)
-		}
-		return newBuildID, nil
+	data, err := root.ReadFile(buildIDPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read build ID file: %w", err)
 	}
 
-	return buildID, nil
+	return strings.TrimSpace(string(data)), nil
 }
 
 // GenerateBuildID generates a new build ID and persists it to the .windsor/.build-id file,
@@ -394,10 +390,6 @@ func (rt *Runtime) GenerateBuildID() (string, error) {
 // It creates and registers the appropriate environment printers with the dependency injector
 // based on the current configuration state.
 func (rt *Runtime) initializeEnvPrinters() {
-	if rt.Shell == nil || rt.ConfigHandler == nil {
-		return
-	}
-
 	if rt.EnvPrinters.AwsEnv == nil && rt.ConfigHandler.GetBool("aws.enabled", false) {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
@@ -420,7 +412,10 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
 		rt.initializeToolsManager()
-		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager)
+		if rt.TerraformProvider == nil {
+			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
+		}
+		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager, rt.TerraformProvider)
 	}
 	if rt.EnvPrinters.WindsorEnv == nil {
 		secretsProviders := []secretsRuntime.SecretsProvider{}
@@ -505,9 +500,14 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 }
 
 // initializeComponents initializes all environment-related components required after setup.
-// This method is a placeholder for any future initialization logic that may be needed.
-// Returns nil as components are now fully initialized in their constructors.
+// Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.
 func (rt *Runtime) initializeComponents() error {
+	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
+		if rt.TerraformProvider == nil {
+			rt.initializeToolsManager()
+			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
+		}
+	}
 	return nil
 }
 
@@ -654,10 +654,6 @@ func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string
 // defaults depending on provider, dev mode, and vm.driver.
 // This must be called before loading from disk to ensure proper defaulting. Returns error on config operation failure.
 func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
-	if rt.ConfigHandler == nil {
-		return fmt.Errorf("config handler not available")
-	}
-
 	if !rt.ConfigHandler.IsLoaded() {
 		existingProvider := rt.ConfigHandler.GetString("provider")
 		isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
@@ -726,10 +722,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 // If no provider is set but dev mode is enabled, it defaults the cluster driver to "talos".
 // The context name is read from rt.ContextName. Returns an error if any configuration operation fails.
 func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
-	if rt.ConfigHandler == nil {
-		return fmt.Errorf("config handler not available")
-	}
-
 	provider := providerOverride
 	if provider == "" {
 		provider = rt.ConfigHandler.GetString("provider")

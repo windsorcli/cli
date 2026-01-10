@@ -1397,16 +1397,17 @@ func TestToolsManager_GetTerraformCommand(t *testing.T) {
 		return mocks, toolsManager
 	}
 
-	t.Run("ReturnsTerraformWhenConfigHandlerIsNil", func(t *testing.T) {
-		// Given a tools manager with nil config handler
+	t.Run("PanicsWhenConfigHandlerIsNil", func(t *testing.T) {
+		// Given a shell
 		shell := sh.NewMockShell()
-		toolsManager := NewToolsManager(nil, shell)
-		// When GetTerraformCommand is called
-		command := toolsManager.GetTerraformCommand()
-		// Then it should return "terraform"
-		if command != "terraform" {
-			t.Errorf("Expected 'terraform', got %s", command)
-		}
+		// When NewToolsManager is called with nil config handler
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when config handler is nil")
+			}
+		}()
+		_ = NewToolsManager(nil, shell)
 	})
 
 	t.Run("ReturnsTofuWhenDriverIsOpentofu", func(t *testing.T) {
@@ -1576,25 +1577,15 @@ func TestToolsManager_getTerraformDriver(t *testing.T) {
 		return mocks, toolsManager
 	}
 
-	t.Run("FallsBackToDetectionWhenShellIsNil", func(t *testing.T) {
-		// Given a tools manager with nil shell
-		toolsManager := NewToolsManager(nil, nil)
-		originalExecLookPath := execLookPath
+	t.Run("PanicsWhenConfigHandlerOrShellIsNil", func(t *testing.T) {
+		// When NewToolsManager is called with nil config handler or shell
+		// Then it should panic
 		defer func() {
-			execLookPath = originalExecLookPath
-		}()
-		execLookPath = func(name string) (string, error) {
-			if name == "terraform" {
-				return "/usr/bin/terraform", nil
+			if r := recover(); r == nil {
+				t.Error("Expected panic when config handler or shell is nil")
 			}
-			return "", exec.ErrNotFound
-		}
-		// When getTerraformDriver is called
-		driver := toolsManager.getTerraformDriver()
-		// Then it should return "terraform" (from detection)
-		if driver != "terraform" {
-			t.Errorf("Expected 'terraform', got %s", driver)
-		}
+		}()
+		_ = NewToolsManager(nil, nil)
 	})
 
 	t.Run("FallsBackToDetectionWhenGetProjectRootFails", func(t *testing.T) {

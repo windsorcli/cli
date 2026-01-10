@@ -32,6 +32,19 @@ type ColimaNetworkManager struct {
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
 func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureShell shell.Shell, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if sshClient == nil {
+		panic("ssh client is required")
+	}
+	if secureShell == nil {
+		panic("secure shell is required")
+	}
+	if networkInterfaceProvider == nil {
+		panic("network interface provider is required")
+	}
+
 	manager := &ColimaNetworkManager{
 		BaseNetworkManager:       *NewBaseNetworkManager(rt),
 		networkInterfaceProvider: networkInterfaceProvider,
@@ -208,6 +221,10 @@ func (n *ColimaNetworkManager) getHostIP() (string, error) {
 
 	return "", fmt.Errorf("failed to find host IP in the same subnet as guest IP")
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure ColimaNetworkManager implements NetworkManager
 var _ NetworkManager = (*ColimaNetworkManager)(nil)

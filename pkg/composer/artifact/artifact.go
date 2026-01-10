@@ -133,6 +133,13 @@ type ArtifactBuilder struct {
 // If overrides are provided, any non-nil component in the override ArtifactBuilder will be used instead of creating a default.
 // The shell is used for retrieving git provenance and builder information during metadata generation.
 func NewArtifactBuilder(rt *runtime.Runtime) *ArtifactBuilder {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.Shell == nil {
+		panic("shell is required on runtime")
+	}
+
 	builder := &ArtifactBuilder{
 		shims:   NewShims(),
 		files:   make(map[string]FileInfo),
@@ -1335,6 +1342,10 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 
 	return data, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure ArtifactBuilder implements Artifact interface
 var _ Artifact = (*ArtifactBuilder)(nil)

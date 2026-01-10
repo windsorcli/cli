@@ -26,6 +26,7 @@ var systemSchemasFS embed.FS
 
 type ConfigHandler interface {
 	LoadConfig() error
+	LoadConfigForContext(contextName string) error
 	LoadConfigString(content string) error
 	GetString(key string, defaultValue ...string) string
 	GetInt(key string, defaultValue ...int) int
@@ -48,6 +49,13 @@ type ConfigHandler interface {
 	LoadSchema(schemaPath string) error
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetContextValues() (map[string]any, error)
+	RegisterProvider(prefix string, provider ValueProvider)
+}
+
+// ValueProvider defines the interface for dynamic value providers that can resolve
+// configuration keys with special prefixes (e.g., terraform.*, cluster.*).
+type ValueProvider interface {
+	GetValue(key string) (any, error)
 }
 
 const (
@@ -66,6 +74,7 @@ type configHandler struct {
 	schemaValidator *SchemaValidator
 	data            map[string]any
 	defaultConfig   *v1alpha1.Context
+	providers       map[string]ValueProvider
 }
 
 // =============================================================================
@@ -74,10 +83,15 @@ type configHandler struct {
 
 // NewConfigHandler creates a new ConfigHandler instance with default context configuration.
 func NewConfigHandler(shell shell.Shell) ConfigHandler {
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	handler := &configHandler{
-		shell: shell,
-		shims: NewShims(),
-		data:  make(map[string]any),
+		shell:     shell,
+		shims:     NewShims(),
+		data:      make(map[string]any),
+		providers: make(map[string]ValueProvider),
 	}
 
 	handler.schemaValidator = NewSchemaValidator(shell)
@@ -152,13 +166,23 @@ func (c *configHandler) LoadConfig() error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
 	}
+	return c.LoadConfigForContext(c.GetContext())
+}
 
+// LoadConfigForContext loads and merges all configuration sources for the specified context into the internal data map
+// without modifying the current context state. This method performs the same actions as LoadConfig but uses the
+// provided contextName parameter directly instead of reading from the current context. It does not write to the
+// .windsor/context file or set the WINDSOR_CONTEXT environment variable, making it safe for read-only operations
+// like listing contexts. Returns an error for any I/O or validation failure.
+func (c *configHandler) LoadConfigForContext(contextName string) error {
+	if c.shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
 	projectRoot, err := c.shell.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	contextName := c.GetContext()
 	hasLoadedFiles := false
 
 	if c.schemaValidator != nil && c.schemaValidator.Schema == nil {
@@ -395,17 +419,35 @@ func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 }
 
 // Get retrieves the value at the specified configuration path from the internal data map.
-// If the value is not found in the current data, and the schema validator is available,
-// it falls back to returning a default value from the schema for the top-level key or
-// deeper nested keys as appropriate. Returns nil if the path is empty or no value is found.
+// If the value is not found in the current data, it checks registered providers for the prefix,
+// and if the schema validator is available, it falls back to returning a default value from the schema
+// for the top-level key or deeper nested keys as appropriate. Returns nil if the path is empty or no value is found.
 func (c *configHandler) Get(path string) any {
 	if path == "" {
 		return nil
 	}
-	pathKeys := parsePath(path)
-	value := getValueByPathFromMap(c.data, pathKeys)
 
-	if value == nil && len(pathKeys) > 0 && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
+	pathKeys := parsePath(path)
+	if len(pathKeys) == 0 {
+		return nil
+	}
+
+	firstKey := pathKeys[0]
+	provider, hasProvider := c.providers[firstKey]
+
+	value := getValueByPathFromMap(c.data, pathKeys)
+	if value != nil {
+		return value
+	}
+
+	if hasProvider {
+		providerValue, err := provider.GetValue(path)
+		if err == nil {
+			return providerValue
+		}
+	}
+
+	if len(pathKeys) > 0 && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
 		defaults, err := c.schemaValidator.GetSchemaDefaults()
 		if err == nil && defaults != nil {
 			if topLevelDefault, exists := defaults[pathKeys[0]]; exists {
@@ -423,7 +465,17 @@ func (c *configHandler) Get(path string) any {
 		}
 	}
 
-	return value
+	return nil
+}
+
+// RegisterProvider registers a value provider for the specified prefix.
+// When Get encounters a key starting with the prefix and the value is not found in the data map,
+// it delegates to the provider. If the provider returns an error, Get falls back to schema defaults.
+func (c *configHandler) RegisterProvider(prefix string, provider ValueProvider) {
+	if c.providers == nil {
+		c.providers = make(map[string]ValueProvider)
+	}
+	c.providers[prefix] = provider
 }
 
 // getValueByPathFromMap returns the value in a nested map[string]any at the location specified by the pathKeys slice.
@@ -883,9 +935,6 @@ func (c *configHandler) GenerateContextID() error {
 	return c.Set("id", id)
 }
 
-// Ensure configHandler implements ConfigHandler
-var _ ConfigHandler = (*configHandler)(nil)
-
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -1200,3 +1249,10 @@ func (c *configHandler) applySystemSchemaPlugins() {
 		}
 	}
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure configHandler implements ConfigHandler
+var _ ConfigHandler = (*configHandler)(nil)

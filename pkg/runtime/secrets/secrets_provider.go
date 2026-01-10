@@ -54,6 +54,10 @@ type BaseSecretsProvider struct {
 
 // NewBaseSecretsProvider creates a new BaseSecretsProvider instance
 func NewBaseSecretsProvider(shell shell.Shell) *BaseSecretsProvider {
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	return &BaseSecretsProvider{
 		secrets:  make(map[string]string),
 		unlocked: false,
@@ -81,9 +85,6 @@ func (s *BaseSecretsProvider) GetSecret(key string) (string, error) {
 func (s *BaseSecretsProvider) ParseSecrets(input string) (string, error) {
 	panic("ParseSecrets must be implemented by concrete provider")
 }
-
-// Ensure BaseSecretsProvider implements SecretsProvider
-var _ SecretsProvider = (*BaseSecretsProvider)(nil)
 
 // =============================================================================
 // Helpers
@@ -215,3 +216,10 @@ func parseKeys(path string) []string {
 
 	return keys
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure BaseSecretsProvider implements SecretsProvider
+var _ SecretsProvider = (*BaseSecretsProvider)(nil)

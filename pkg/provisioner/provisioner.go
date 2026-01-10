@@ -15,6 +15,9 @@ import (
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // The Provisioner package provides high-level infrastructure provisioning functionality
@@ -31,7 +34,13 @@ import (
 // It provides a unified interface for creating, initializing, and managing these infrastructure components
 // with proper dependency injection and error handling.
 type Provisioner struct {
-	*runtime.Runtime
+	configHandler config.ConfigHandler
+	shell         shell.Shell
+	evaluator     evaluator.ExpressionEvaluator
+	contextName   string
+	projectRoot   string
+	configRoot    string
+	runtime       *runtime.Runtime
 
 	TerraformStack    terraforminfra.Stack
 	KubernetesManager kubernetes.KubernetesManager
@@ -47,10 +56,33 @@ type Provisioner struct {
 // NewProvisioner creates a new Provisioner instance with the provided runtime and blueprint handler.
 // It sets up kubernetes manager and kubernetes client. Terraform stack and cluster client
 // are initialized lazily when needed by the Up(), Down(), and WaitForHealth() methods.
-// Returns a pointer to the Provisioner struct.
+// Panics if runtime or blueprintHandler are nil.
 func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*Provisioner) *Provisioner {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required on runtime")
+	}
+	if rt.Shell == nil {
+		panic("shell is required on runtime")
+	}
+	if rt.Evaluator == nil {
+		panic("evaluator is required on runtime")
+	}
+	if blueprintHandler == nil {
+		panic("blueprint handler is required")
+	}
+
 	provisioner := &Provisioner{
-		Runtime: rt,
+		configHandler:    rt.ConfigHandler,
+		shell:            rt.Shell,
+		evaluator:        rt.Evaluator,
+		contextName:      rt.ContextName,
+		projectRoot:      rt.ProjectRoot,
+		configRoot:       rt.ConfigRoot,
+		runtime:          rt,
+		blueprintHandler: blueprintHandler,
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -220,7 +252,7 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 
 	if hasNodeCheck {
 		if i.ClusterClient == nil {
-			clusterDriver := i.Runtime.ConfigHandler.GetString("cluster.driver", "")
+			clusterDriver := i.configHandler.GetString("cluster.driver", "")
 			if clusterDriver == "talos" || clusterDriver == "omni" {
 				i.ClusterClient = cluster.NewTalosClusterClient()
 			}
@@ -359,8 +391,8 @@ func (i *Provisioner) ensureTerraformStack() error {
 	if i.TerraformStack != nil {
 		return nil
 	}
-	if i.Runtime.ConfigHandler.GetBool("terraform.enabled", false) {
-		i.TerraformStack = terraforminfra.NewStack(i.Runtime)
+	if i.configHandler.GetBool("terraform.enabled", false) {
+		i.TerraformStack = terraforminfra.NewStack(i.runtime)
 	}
 	return nil
 }

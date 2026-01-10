@@ -37,6 +37,13 @@ type KubeEnvPrinter struct {
 
 // NewKubeEnvPrinter creates a new KubeEnvPrinter instance
 func NewKubeEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *KubeEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &KubeEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
@@ -187,6 +194,10 @@ var queryPersistentVolumeClaims = func(kubeConfigPath string) (*corev1.Persisten
 
 	return pvcs, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure KubeEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*KubeEnvPrinter)(nil)

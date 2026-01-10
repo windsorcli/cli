@@ -29,6 +29,13 @@ type AwsEnvPrinter struct {
 
 // NewAwsEnvPrinter creates a new AwsEnvPrinter instance
 func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *AwsEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &AwsEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
@@ -81,6 +88,10 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	return envVars, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure AwsEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*AwsEnvPrinter)(nil)

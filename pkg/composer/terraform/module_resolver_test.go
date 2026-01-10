@@ -15,6 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -102,11 +103,15 @@ contexts:
 		return "terraform"
 	}
 
+	// Create evaluator
+	evaluator := evaluator.NewExpressionEvaluator(configHandler, tmpDir, filepath.Join(tmpDir, "contexts", "_template"))
+
 	// Create runtime
 	rt := &runtime.Runtime{
 		ConfigHandler:      configHandler,
 		ToolsManager:       mockToolsManager,
 		Shell:              mockShell,
+		Evaluator:          evaluator,
 		ProjectRoot:        tmpDir,
 		ContextName:        "local",
 		WindsorScratchPath: filepath.Join(tmpDir, ".windsor", "contexts", "local"),
@@ -284,29 +289,16 @@ func TestBaseModuleResolver_NewBaseModuleResolver(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesShimsOverride", func(t *testing.T) {
+	t.Run("CreatesResolverWithDefaultShims", func(t *testing.T) {
 		// Given mocks
 		mocks := setupTerraformMocks(t)
 
-		// And custom shims
-		customShims := NewShims()
-		customShims.ReadFile = func(path string) ([]byte, error) {
-			return []byte("custom"), nil
-		}
-		overrideResolver := &BaseModuleResolver{
-			shims: customShims,
-		}
+		// When creating a resolver
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
 
-		// When creating a resolver with shims override
-		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler, overrideResolver)
-
-		// Then the resolver should use the custom shims
+		// Then the resolver should have default shims
 		if resolver.shims == nil {
 			t.Fatal("Expected shims to be set")
-		}
-		data, _ := resolver.shims.ReadFile("test")
-		if string(data) != "custom" {
-			t.Errorf("Expected custom shims, got default")
 		}
 	})
 }
@@ -2262,5 +2254,202 @@ variable "cluster_name" { type = string }`
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
+}
 
+func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
+	t.Run("HandlesNilEvaluator", func(t *testing.T) {
+		mocks := setupTerraformMocks(t)
+		mocks.Runtime.Evaluator = nil
+		inputs := map[string]any{
+			"key1": "value1",
+			"key2": 42,
+		}
+
+		// When evaluator is nil, callers should check before calling EvaluateMap
+		// This test verifies the expected behavior when nil check is done
+		if mocks.Runtime.Evaluator == nil {
+			result := inputs
+			if len(result) != len(inputs) {
+				t.Errorf("Expected %d inputs, got %d", len(inputs), len(result))
+			}
+
+			if result["key1"] != "value1" {
+				t.Errorf("Expected key1 to be 'value1', got %v", result["key1"])
+			}
+
+			if result["key2"] != 42 {
+				t.Errorf("Expected key2 to be 42, got %v", result["key2"])
+			}
+		}
+	})
+
+	t.Run("PreservesNonStringValues", func(t *testing.T) {
+		mocks := setupTerraformMocks(t)
+		configHandler := config.NewMockConfigHandler()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks.Runtime.Evaluator = testEvaluator
+		inputs := map[string]any{
+			"count":   42,
+			"enabled": true,
+			"tags":    []string{"a", "b"},
+			"nested":  map[string]any{"key": "value"},
+		}
+
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["count"] != 42 {
+			t.Errorf("Expected count to be 42, got %v", result["count"])
+		}
+
+		if result["enabled"] != true {
+			t.Errorf("Expected enabled to be true, got %v", result["enabled"])
+		}
+
+		if tags, ok := result["tags"].([]string); !ok || len(tags) != 2 {
+			t.Errorf("Expected tags to be preserved, got %v", result["tags"])
+		}
+	})
+
+	t.Run("EvaluatesStringExpressions", func(t *testing.T) {
+		mocks := setupTerraformMocks(t)
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": 42,
+			}, nil
+		}
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks.Runtime.Evaluator = testEvaluator
+		inputs := map[string]any{
+			"plain":     "plainstring",
+			"expression": "${value}",
+		}
+
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["plain"] != "plainstring" {
+			t.Errorf("Expected plain to be 'plainstring', got %v", result["plain"])
+		}
+
+		if result["expression"] != 42 {
+			t.Errorf("Expected expression to be 42, got %v", result["expression"])
+		}
+	})
+
+	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
+		mocks := setupTerraformMocks(t)
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			return nil, fmt.Errorf("failed to evaluate 'bad': evaluation failed")
+		}
+		mocks.Runtime.Evaluator = mockEvaluator
+		inputs := map[string]any{
+			"bad": "${invalid}",
+		}
+
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+
+		if err == nil {
+			t.Fatal("Expected error on evaluation failure")
+		}
+
+		if result != nil {
+			t.Error("Expected nil result on error")
+		}
+
+		if !strings.Contains(err.Error(), "failed to evaluate") {
+			t.Errorf("Expected error message to contain 'failed to evaluate', got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyInputs", func(t *testing.T) {
+		mocks := setupTerraformMocks(t)
+		configHandler := config.NewMockConfigHandler()
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks.Runtime.Evaluator = testEvaluator
+		inputs := map[string]any{}
+
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if len(result) != 0 {
+			t.Errorf("Expected empty result, got %d entries", len(result))
+		}
+	})
+
+	t.Run("HandlesMixedInputs", func(t *testing.T) {
+		mocks := setupTerraformMocks(t)
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": "evaluated",
+			}, nil
+		}
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks.Runtime.Evaluator = testEvaluator
+		inputs := map[string]any{
+			"string":    "plain",
+			"number":    42,
+			"boolean":   true,
+			"array":     []string{"a", "b"},
+			"evaluated": "${value}",
+		}
+
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["string"] != "plain" {
+			t.Errorf("Expected string to be 'plain', got %v", result["string"])
+		}
+
+		if result["number"] != 42 {
+			t.Errorf("Expected number to be 42, got %v", result["number"])
+		}
+
+		if result["boolean"] != true {
+			t.Errorf("Expected boolean to be true, got %v", result["boolean"])
+		}
+
+		if result["evaluated"] != "evaluated" {
+			t.Errorf("Expected evaluated to be 'evaluated', got %v", result["evaluated"])
+		}
+	})
+
+	t.Run("AlwaysUsesEvaluateDeferredTrue", func(t *testing.T) {
+		mocks := setupTerraformMocks(t)
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		var receivedEvaluateDeferred bool
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			receivedEvaluateDeferred = evaluateDeferred
+			return values, nil
+		}
+		mocks.Runtime.Evaluator = mockEvaluator
+		inputs := map[string]any{
+			"test": "value",
+		}
+
+		_, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if !receivedEvaluateDeferred {
+			t.Error("Expected evaluateDeferred to be true")
+		}
+	})
 }

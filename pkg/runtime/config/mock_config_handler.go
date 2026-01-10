@@ -10,6 +10,7 @@ import (
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
 	LoadConfigFunc            func() error
+	LoadConfigForContextFunc  func(contextName string) error
 	LoadConfigStringFunc      func(content string) error
 	IsLoadedFunc              func() bool
 	GetStringFunc             func(key string, defaultValue ...string) string
@@ -32,6 +33,7 @@ type MockConfigHandler struct {
 	LoadSchemaFunc            func(schemaPath string) error
 	LoadSchemaFromBytesFunc   func(schemaContent []byte) error
 	GetContextValuesFunc      func() (map[string]any, error)
+	RegisterProviderFunc      func(prefix string, provider ValueProvider)
 }
 
 // =============================================================================
@@ -51,6 +53,14 @@ func NewMockConfigHandler() *MockConfigHandler {
 func (m *MockConfigHandler) LoadConfig() error {
 	if m.LoadConfigFunc != nil {
 		return m.LoadConfigFunc()
+	}
+	return nil
+}
+
+// LoadConfigForContext calls the mock LoadConfigForContextFunc if set, otherwise returns nil
+func (m *MockConfigHandler) LoadConfigForContext(contextName string) error {
+	if m.LoadConfigForContextFunc != nil {
+		return m.LoadConfigForContextFunc(contextName)
 	}
 	return nil
 }
@@ -245,6 +255,17 @@ func (m *MockConfigHandler) GetContextValues() (map[string]any, error) {
 	}
 	return nil, fmt.Errorf("GetContextValuesFunc not set")
 }
+
+// RegisterProvider calls the mock RegisterProviderFunc if set, otherwise does nothing
+func (m *MockConfigHandler) RegisterProvider(prefix string, provider ValueProvider) {
+	if m.RegisterProviderFunc != nil {
+		m.RegisterProviderFunc(prefix, provider)
+	}
+}
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure MockConfigHandler implements ConfigHandler
 var _ ConfigHandler = (*MockConfigHandler)(nil)

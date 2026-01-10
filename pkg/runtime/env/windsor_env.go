@@ -53,6 +53,13 @@ type WindsorEnvPrinter struct {
 
 // NewWindsorEnvPrinter creates a new WindsorEnvPrinter instance
 func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, secretsProviders []secrets.SecretsProvider, allEnvPrinters []EnvPrinter) *WindsorEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &WindsorEnvPrinter{
 		BaseEnvPrinter:   *NewBaseEnvPrinter(shell, configHandler),
 		secretsProviders: secretsProviders,
@@ -199,8 +206,9 @@ func (e *WindsorEnvPrinter) shouldUseCache() bool {
 }
 
 // getBuildID retrieves the current build ID from the .windsor/.build-id file.
-// If no build ID exists, a new one is generated, persisted, and returned.
-// Returns the build ID string or an error if retrieval or persistence fails.
+// This is a read-only operation - it never creates a build ID.
+// Returns the build ID string if it exists, or empty string if it doesn't exist.
+// Returns an error only if file read fails (not if file doesn't exist).
 func (e *WindsorEnvPrinter) getBuildID() (string, error) {
 	projectRoot, err := e.shell.GetProjectRoot()
 	if err != nil {
@@ -208,30 +216,17 @@ func (e *WindsorEnvPrinter) getBuildID() (string, error) {
 	}
 
 	buildIDPath := filepath.Join(projectRoot, ".windsor", ".build-id")
-	var buildID string
 
 	if _, err := e.shims.Stat(buildIDPath); os.IsNotExist(err) {
-		buildID = ""
-	} else {
-		data, err := e.shims.ReadFile(buildIDPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read build ID file: %w", err)
-		}
-		buildID = strings.TrimSpace(string(data))
+		return "", nil
 	}
 
-	if buildID == "" {
-		newBuildID, err := e.generateBuildID()
-		if err != nil {
-			return "", fmt.Errorf("failed to generate build ID: %w", err)
-		}
-		if err := e.writeBuildIDToFile(newBuildID); err != nil {
-			return "", fmt.Errorf("failed to set build ID: %w", err)
-		}
-		return newBuildID, nil
+	data, err := e.shims.ReadFile(buildIDPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read build ID file: %w", err)
 	}
 
-	return buildID, nil
+	return strings.TrimSpace(string(data)), nil
 }
 
 // writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
@@ -324,6 +319,10 @@ func (e *WindsorEnvPrinter) incrementBuildID(existingBuildID, currentDate string
 	existingCounter++
 	return fmt.Sprintf("%s.%s.%d", existingDate, existingRandom, existingCounter), nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure WindsorEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*WindsorEnvPrinter)(nil)

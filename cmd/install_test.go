@@ -64,20 +64,17 @@ func TestInstallCmd(t *testing.T) {
 			KubernetesManager: mockKubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestInstallCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
@@ -113,20 +110,17 @@ func TestInstallCmd(t *testing.T) {
 			KubernetesManager: mockKubernetesManager,
 		})
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestInstallCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{"--wait"})
 		cmd.SetContext(ctx)
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
@@ -152,19 +146,16 @@ func TestInstallCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, nil)
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestInstallCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")
@@ -199,19 +190,16 @@ func TestInstallCmd(t *testing.T) {
 		comp := composer.NewComposer(mocks.Runtime)
 		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, nil)
 
-		proj, err := project.NewProject("", &project.Project{
+		proj := project.NewProject("", &project.Project{
 			Runtime:     mocks.Runtime,
 			Composer:    comp,
 			Provisioner: mockProvisioner,
 		})
-		if err != nil {
-			t.Fatalf("Failed to create project: %v", err)
-		}
 
 		cmd := createTestInstallCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
-		err = cmd.Execute()
+		err := cmd.Execute()
 
 		if err == nil {
 			t.Error("Expected error, got nil")

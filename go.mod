@@ -12,14 +12,14 @@ require (
 	github.com/fluxcd/helm-controller/api v1.4.5
 	github.com/fluxcd/kustomize-controller/api v1.7.3
 	github.com/fluxcd/pkg/apis/kustomize v1.14.0
-	github.com/fluxcd/pkg/apis/meta v1.23.0
+	github.com/fluxcd/pkg/apis/meta v1.24.0
 	github.com/fluxcd/source-controller/api v1.7.4
-	github.com/goccy/go-yaml v1.19.1
+	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-containerregistry v0.20.7
 	github.com/google/go-jsonnet v0.21.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/siderolabs/talos/pkg/machinery v1.12.0
+	github.com/siderolabs/talos/pkg/machinery v1.12.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/zclconf/go-cty v1.17.0
@@ -27,7 +27,6 @@ require (
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
-	sigs.k8s.io/controller-runtime v0.22.4
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -54,7 +53,6 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dylibso/observe-sdk/go v0.0.0-20240828172851-9145d8ad07e1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
-	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/extism/go-sdk v1.7.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
@@ -145,6 +143,7 @@ require (
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20251125145642-4e65d59e963e // indirect
 	k8s.io/utils v0.0.0-20251219084037-98d557b7f1e7 // indirect
+	sigs.k8s.io/controller-runtime v0.22.4 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.1 // indirect

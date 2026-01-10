@@ -754,9 +754,6 @@ func (s *DefaultShell) quoteValueForShell(value string, useDoubleQuotes bool) st
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
-// Ensure DefaultShell implements the Shell interface
-var _ Shell = (*DefaultShell)(nil)
-
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -790,3 +787,10 @@ func executeWithTimeout(execFn func() (string, error), cleanupFn func(), timeout
 func isClosedPipe(err error) bool {
 	return err != nil && (err == io.ErrClosedPipe || strings.Contains(err.Error(), "file already closed") || strings.Contains(err.Error(), "use of closed file"))
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure DefaultShell implements the Shell interface
+var _ Shell = (*DefaultShell)(nil)

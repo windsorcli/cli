@@ -176,7 +176,7 @@ func (m *MockPublicKeyAuthMethod) Method() gossh.AuthMethod {
 }
 
 // =============================================================================
-// Helpers
+// Interface Compliance
 // =============================================================================
 
 // Ensure MockClient implements the Client interface
@@ -193,3 +193,6 @@ var _ AuthMethod = (*MockAuthMethod)(nil)
 
 // Ensure MockPublicKeyAuthMethod implements the AuthMethod interface
 var _ AuthMethod = (*MockPublicKeyAuthMethod)(nil)
+
+// Ensure MockHostKeyCallback implements the HostKeyCallback interface
+var _ HostKeyCallback = (*MockHostKeyCallback)(nil)

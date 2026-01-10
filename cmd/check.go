@@ -31,10 +31,7 @@ var checkCmd = &cobra.Command{
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		rt, err := runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return fmt.Errorf("failed to initialize context: %w", err)
-		}
+		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
@@ -76,10 +73,7 @@ var checkNodeHealthCmd = &cobra.Command{
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		rt, err := runtime.NewRuntime(rtOpts...)
-		if err != nil {
-			return fmt.Errorf("failed to initialize context: %w", err)
-		}
+		rt := runtime.NewRuntime(rtOpts...)
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")

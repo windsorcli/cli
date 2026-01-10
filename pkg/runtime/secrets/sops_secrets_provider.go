@@ -53,6 +53,10 @@ type SopsSecretsProvider struct {
 
 // NewSopsSecretsProvider creates a new instance of SopsSecretsProvider.
 func NewSopsSecretsProvider(configPath string, shell shell.Shell) *SopsSecretsProvider {
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	return &SopsSecretsProvider{
 		BaseSecretsProvider: NewBaseSecretsProvider(shell),
 		configPath:          configPath,
@@ -217,6 +221,10 @@ func (s *SopsSecretsProvider) ParseSecrets(input string) (string, error) {
 	})
 	return result, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure SopsSecretsProvider implements the SecretsProvider interface
 var _ SecretsProvider = (*SopsSecretsProvider)(nil)

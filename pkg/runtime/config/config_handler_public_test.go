@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -980,6 +981,134 @@ contexts:
 	})
 }
 
+func TestConfigHandler_LoadConfigForContext(t *testing.T) {
+	t.Run("LoadsConfigForSpecifiedContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		rootConfig := `version: v1alpha1
+contexts:
+  test-context:
+    provider: local
+    dns:
+      domain: example.com
+`
+		os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte(rootConfig), 0644)
+
+		err := handler.LoadConfigForContext("test-context")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		provider := handler.GetString("provider")
+		if provider != "local" {
+			t.Errorf("Expected provider='local', got '%s'", provider)
+		}
+
+		domain := handler.GetString("dns.domain")
+		if domain != "example.com" {
+			t.Errorf("Expected dns.domain='example.com', got '%s'", domain)
+		}
+	})
+
+	t.Run("DoesNotChangeCurrentContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.SetContext("original-context")
+
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		rootConfig := `version: v1alpha1
+contexts:
+  other-context:
+    provider: aws
+`
+		os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte(rootConfig), 0644)
+
+		err := handler.LoadConfigForContext("other-context")
+		if err != nil {
+			t.Fatalf("LoadConfigForContext failed: %v", err)
+		}
+
+		currentContext := handler.GetContext()
+		if currentContext != "original-context" {
+			t.Errorf("Expected current context to remain 'original-context', got '%s'", currentContext)
+		}
+	})
+
+	t.Run("LoadsContextSpecificFiles", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		contextConfig := `provider: generic
+cluster:
+  enabled: true
+  driver: talos
+`
+		os.WriteFile(filepath.Join(contextDir, "windsor.yaml"), []byte(contextConfig), 0644)
+
+		err := handler.LoadConfigForContext("test-context")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		provider := handler.GetString("provider")
+		if provider != "generic" {
+			t.Errorf("Expected provider='generic', got '%s'", provider)
+		}
+
+		driver := handler.GetString("cluster.driver")
+		if driver != "talos" {
+			t.Errorf("Expected cluster.driver='talos', got '%s'", driver)
+		}
+	})
+
+	t.Run("LoadsValuesYamlForContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		valuesContent := `dev: true
+custom_key: custom_value
+`
+		os.WriteFile(filepath.Join(contextDir, "values.yaml"), []byte(valuesContent), 0644)
+
+		err := handler.LoadConfigForContext("test-context")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		dev := handler.GetBool("dev")
+		if !dev {
+			t.Error("Expected dev=true")
+		}
+
+		customKey := handler.GetString("custom_key")
+		if customKey != "custom_value" {
+			t.Errorf("Expected custom_key='custom_value', got '%s'", customKey)
+		}
+	})
+
+	t.Run("PanicsWhenShellNotInitialized", func(t *testing.T) {
+		// When NewConfigHandler is called with nil shell
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when shell is nil")
+			}
+		}()
+		_ = NewConfigHandler(nil)
+	})
+}
+
 func TestConfigHandler_LoadConfigString(t *testing.T) {
 	t.Run("ExtractsCurrentContextSection", func(t *testing.T) {
 		os.Setenv("WINDSOR_CONTEXT", "test-context")
@@ -1317,6 +1446,126 @@ properties:
 		}
 	})
 
+	t.Run("DelegatesToProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		mockProvider := &mockValueProvider{value: "provider-value"}
+		handler.RegisterProvider("test", mockProvider)
+
+		value := handler.Get("test.key")
+
+		if value != "provider-value" {
+			t.Errorf("Expected 'provider-value', got %v", value)
+		}
+	})
+
+	t.Run("ReturnsNilOnProviderError", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		mockProvider := &mockValueProvider{err: errors.New("provider error")}
+		handler.RegisterProvider("test", mockProvider)
+
+		value := handler.Get("test.key")
+
+		if value != nil {
+			t.Errorf("Expected nil on provider error, got %v", value)
+		}
+	})
+
+	t.Run("FallsBackToDataMapForNonProviderKeys", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.LoadConfigString("test: value")
+
+		value := handler.Get("test")
+
+		if value != "value" {
+			t.Errorf("Expected 'value', got %v", value)
+		}
+	})
+
+	t.Run("ConfigValuesTakePrecedenceOverProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.Set("terraform.enabled", true)
+		handler.Set("terraform.backend.type", "s3")
+		mockProvider := &mockValueProvider{value: "provider-value"}
+		handler.RegisterProvider("terraform", mockProvider)
+
+		enabled := handler.Get("terraform.enabled")
+		if enabled != true {
+			t.Errorf("Expected config value true, got %v", enabled)
+		}
+
+		backendType := handler.Get("terraform.backend.type")
+		if backendType != "s3" {
+			t.Errorf("Expected config value 's3', got %v", backendType)
+		}
+	})
+
+	t.Run("ConfigValuesTakePrecedenceOverProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		handler.Set("test.key", "config-value")
+		mockProvider := &mockValueProvider{value: "provider-value"}
+		handler.RegisterProvider("test", mockProvider)
+
+		value := handler.Get("test.key")
+		if value != "config-value" {
+			t.Errorf("Expected config value 'config-value', got %v", value)
+		}
+	})
+
+}
+
+func TestConfigHandler_RegisterProvider(t *testing.T) {
+	t.Run("RegistersProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		mockProvider := &mockValueProvider{}
+
+		handler.RegisterProvider("test", mockProvider)
+
+		value := handler.Get("test.key")
+		if value != "mock-value" {
+			t.Errorf("Expected 'mock-value', got %v", value)
+		}
+	})
+
+	t.Run("AllowsMultipleProviders", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		provider1 := &mockValueProvider{value: "value1"}
+		provider2 := &mockValueProvider{value: "value2"}
+
+		handler.RegisterProvider("provider1", provider1)
+		handler.RegisterProvider("provider2", provider2)
+
+		value1 := handler.Get("provider1.key")
+		if value1 != "value1" {
+			t.Errorf("Expected 'value1', got %v", value1)
+		}
+
+		value2 := handler.Get("provider2.key")
+		if value2 != "value2" {
+			t.Errorf("Expected 'value2', got %v", value2)
+		}
+	})
+
+	t.Run("OverwritesExistingProvider", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+		provider1 := &mockValueProvider{value: "value1"}
+		provider2 := &mockValueProvider{value: "value2"}
+
+		handler.RegisterProvider("test", provider1)
+		handler.RegisterProvider("test", provider2)
+
+		value := handler.Get("test.key")
+		if value != "value2" {
+			t.Errorf("Expected 'value2', got %v", value)
+		}
+	})
 }
 
 func TestConfigHandler_GetString(t *testing.T) {
@@ -3037,8 +3286,24 @@ func TestConfigHandler_IsDevMode(t *testing.T) {
 }
 
 // =============================================================================
+// =============================================================================
 // Test Helpers
 // =============================================================================
+
+type mockValueProvider struct {
+	value any
+	err   error
+}
+
+func (m *mockValueProvider) GetValue(key string) (any, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.value != nil {
+		return m.value, nil
+	}
+	return "mock-value", nil
+}
 
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && findSubstring(s, substr)

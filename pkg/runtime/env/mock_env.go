@@ -110,5 +110,9 @@ func (m *MockEnvPrinter) GetManagedAlias() []string {
 	return m.BaseEnvPrinter.GetManagedAlias()
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*MockEnvPrinter)(nil)

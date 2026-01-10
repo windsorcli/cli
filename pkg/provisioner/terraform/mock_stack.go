@@ -48,5 +48,9 @@ func (m *MockStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	return nil
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockStack implements Stack
 var _ Stack = (*MockStack)(nil)

@@ -69,9 +69,6 @@ func (m *MockNetworkManager) ConfigureDNS() error {
 	return nil
 }
 
-// Ensure MockNetworkManager implements the NetworkManager interface
-var _ NetworkManager = (*MockNetworkManager)(nil)
-
 // The MockNetworkInterfaceProvider is a test implementation of the NetworkInterfaceProvider interface.
 // It provides mock implementations of network interface operations for testing,
 // The MockNetworkInterfaceProvider enables controlled testing of network interface-dependent code,
@@ -117,5 +114,12 @@ func (m *MockNetworkInterfaceProvider) InterfaceAddrs(iface net.Interface) ([]ne
 	return m.InterfaceAddrsFunc(iface)
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockNetworkInterfaceProvider implements the NetworkInterfaceProvider interface
 var _ NetworkInterfaceProvider = (*MockNetworkInterfaceProvider)(nil)
+
+// Ensure MockNetworkManager implements the NetworkManager interface
+var _ NetworkManager = (*MockNetworkManager)(nil)

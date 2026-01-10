@@ -31,6 +31,13 @@ type DockerEnvPrinter struct {
 
 // NewDockerEnvPrinter creates a new DockerEnvPrinter instance
 func NewDockerEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *DockerEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &DockerEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
@@ -191,6 +198,10 @@ func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
 
 	return "", nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure DockerEnvPrinter implements the EnvPrinter interface
 var _ EnvPrinter = (*DockerEnvPrinter)(nil)

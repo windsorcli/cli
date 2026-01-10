@@ -13,6 +13,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -40,6 +41,7 @@ type BaseModuleResolver struct {
 	shims            *Shims
 	runtime          *runtime.Runtime
 	blueprintHandler blueprint.BlueprintHandler
+	evaluator        evaluator.ExpressionEvaluator
 	reset            bool
 }
 
@@ -49,21 +51,24 @@ type BaseModuleResolver struct {
 
 // NewBaseModuleResolver creates a new base module resolver with the provided dependencies.
 // If overrides are provided, any non-nil component in the override BaseModuleResolver will be used instead of creating a default.
-func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, opts ...*BaseModuleResolver) *BaseModuleResolver {
-	resolver := &BaseModuleResolver{
+// Panics if rt, blueprintHandler, or rt.Evaluator are nil.
+func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler) *BaseModuleResolver {
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if blueprintHandler == nil {
+		panic("blueprint handler is required")
+	}
+	if rt.Evaluator == nil {
+		panic("evaluator is required on runtime")
+	}
+
+	return &BaseModuleResolver{
 		shims:            NewShims(),
 		runtime:          rt,
 		blueprintHandler: blueprintHandler,
+		evaluator:        rt.Evaluator,
 	}
-
-	if len(opts) > 0 && opts[0] != nil {
-		overrides := opts[0]
-		if overrides.shims != nil {
-			resolver.shims = overrides.shims
-		}
-	}
-
-	return resolver
 }
 
 // GenerateTfvars creates Terraform configuration files, including tfvars files, for all blueprint components.
@@ -73,6 +78,7 @@ func NewBaseModuleResolver(rt *runtime.Runtime, blueprintHandler blueprint.Bluep
 // in the blueprint, it ensures a tfvars file is generated if not already handled by the input data.
 // The method uses the blueprint handler to retrieve TerraformComponents and parses variables from all
 // .tf files in the module directory based on component source (remote or local). Module resolution is handled by pkg/terraform.
+// Input expressions are evaluated against the current configuration before being written to tfvars.
 func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 	h.reset = overwrite
 
@@ -86,7 +92,12 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			componentValues = make(map[string]any)
 		}
 
-		if err := h.generateComponentTfvars(projectRoot, component, componentValues); err != nil {
+		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", true)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
+		}
+
+		if err := h.generateComponentTfvars(projectRoot, component, evaluatedValues); err != nil {
 			return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
 		}
 	}
@@ -97,77 +108,6 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// extractTarEntriesWithFilter extracts entries from a tar reader to the specified destination directory,
-// only processing entries that match the given prefix. It processes matching entries in the tar archive,
-// creating directories and files as needed, preserving file permissions and handling executable scripts.
-// Returns an error if extraction fails.
-func (h *BaseModuleResolver) extractTarEntriesWithFilter(tarReader TarReader, destDir string, targetPrefix string) error {
-	for {
-		header, err := tarReader.Next()
-		if err == h.shims.EOFError() {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("failed to read tar header: %w", err)
-		}
-
-		if !strings.HasPrefix(header.Name, targetPrefix) {
-			continue
-		}
-
-		sanitizedPath, err := h.validateAndSanitizePath(header.Name)
-		if err != nil {
-			return fmt.Errorf("invalid path in tar archive: %w", err)
-		}
-
-		destPath := filepath.Join(destDir, sanitizedPath)
-
-		if !strings.HasPrefix(destPath, destDir) {
-			return fmt.Errorf("path traversal attempt detected: %s", header.Name)
-		}
-
-		if header.Typeflag == h.shims.TypeDir() {
-			if err := h.shims.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
-			}
-			continue
-		}
-
-		if err := h.shims.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
-		}
-
-		file, err := h.shims.Create(destPath)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", destPath, err)
-		}
-
-		_, err = h.shims.Copy(file, tarReader)
-		if closeErr := file.Close(); closeErr != nil {
-			return fmt.Errorf("failed to close file %s: %w", destPath, closeErr)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to write file %s: %w", destPath, err)
-		}
-
-		modeValue := header.Mode & 0777
-		if modeValue < 0 || modeValue > 0777 {
-			return fmt.Errorf("invalid file mode %o for %s", header.Mode, destPath)
-		}
-		fileMode := os.FileMode(uint32(modeValue))
-
-		if strings.HasSuffix(destPath, ".sh") {
-			fileMode |= 0111
-		}
-
-		if err := h.shims.Chmod(destPath, fileMode); err != nil {
-			return fmt.Errorf("failed to set file permissions for %s: %w", destPath, err)
-		}
-	}
-
-	return nil
-}
 
 // validateAndSanitizePath sanitizes a file path for safe extraction by removing path traversal sequences
 // and rejecting absolute paths. Returns the cleaned path if valid, or an error if the path is unsafe.
@@ -325,18 +265,14 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 // For local components without a name, the path is terraform/<component.Path> (the actual module location).
 // Returns the module directory path if it exists, or an error if not found.
 func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
-	var dirName string
-	if component.Name != "" {
-		dirName = component.Name
-	} else {
-		dirName = component.Path
-	}
+	componentID := component.GetID()
 
+	useScratchPath := component.Name != "" || component.Source != ""
 	var modulePath string
-	if component.Name != "" || component.Source != "" {
-		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", dirName)
+	if useScratchPath {
+		modulePath = filepath.Join(projectRoot, ".windsor", "contexts", h.runtime.ContextName, "terraform", componentID)
 	} else {
-		modulePath = filepath.Join(projectRoot, "terraform", component.Path)
+		modulePath = filepath.Join(projectRoot, "terraform", componentID)
 	}
 
 	if _, err := h.shims.Stat(modulePath); err != nil {
@@ -459,6 +395,11 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			continue
 		}
 
+		val, exists := values[info.Name]
+		if exists && val == nil {
+			continue
+		}
+
 		body.AppendNewline()
 
 		if info.Description != "" {
@@ -468,7 +409,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			body.AppendNewline()
 		}
 
-		if val, exists := values[info.Name]; exists {
+		if exists {
 			writeVariable(body, info.Name, val, []VariableInfo{})
 			continue
 		}
@@ -502,8 +443,10 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 			}
 		}
 
+		buf := make([]byte, 0, 32)
+		buf = fmt.Appendf(buf, "# %s = null", info.Name)
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# %s = null", info.Name))},
+			{Type: hclsyntax.TokenComment, Bytes: buf},
 		})
 		body.AppendNewline()
 	}
@@ -652,21 +595,25 @@ func convertToCtyValue(value any) cty.Value {
 		}
 		var ctyList []cty.Value
 		var elementType cty.Type
+		hasElementType := false
+		hasMixedTypes := false
 		for _, item := range v {
 			itemVal := convertToCtyValue(item)
+			if itemVal == cty.NilVal {
+				continue
+			}
 			ctyList = append(ctyList, itemVal)
-			if !itemVal.IsNull() {
-				if elementType == cty.NilType {
-					elementType = itemVal.Type()
-				} else if !itemVal.Type().Equals(elementType) {
-					elementType = cty.DynamicPseudoType
-				}
+			if !hasElementType {
+				elementType = itemVal.Type()
+				hasElementType = true
+			} else if !elementType.Equals(itemVal.Type()) {
+				hasMixedTypes = true
 			}
 		}
-		if elementType == cty.NilType {
-			elementType = cty.DynamicPseudoType
+		if len(ctyList) == 0 {
+			return cty.ListValEmpty(cty.DynamicPseudoType)
 		}
-		if elementType == cty.DynamicPseudoType {
+		if hasMixedTypes {
 			return cty.TupleVal(ctyList)
 		}
 		return cty.ListVal(ctyList)

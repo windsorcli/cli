@@ -104,7 +104,7 @@ func (s *DNSService) GetComposeConfig() (*types.Config, error) {
 // In localhost mode, it uses a template for local DNS resolution and sets up forwarding rules for DNS queries.
 // The generated Corefile is saved in the .windsor directory for CoreDNS to manage project DNS queries.
 func (s *DNSService) WriteConfig() error {
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 
 	tld := s.configHandler.GetString("dns.domain", "test")
 
@@ -214,7 +214,7 @@ func (s *DNSService) WriteConfig() error {
 // GetIncusConfig returns the Incus configuration for the DNS service.
 // It configures a CoreDNS container with the Corefile mounted from the project root.
 func (s *DNSService) GetIncusConfig() (*IncusConfig, error) {
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
 
 	config := make(map[string]string)
@@ -236,6 +236,10 @@ func (s *DNSService) GetIncusConfig() (*IncusConfig, error) {
 		Devices: devices,
 	}, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure DNSService implements Service interface
 var _ Service = (*DNSService)(nil)

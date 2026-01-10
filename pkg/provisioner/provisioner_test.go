@@ -15,6 +15,7 @@ import (
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -111,6 +112,7 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 		TemplateRoot:  "/test/project/contexts/_template",
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
+		Evaluator:     evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/project/contexts/_template"),
 	}
 
 	terraformStack := terraforminfra.NewMockStack()
@@ -150,15 +152,11 @@ func TestNewProvisioner(t *testing.T) {
 			t.Fatal("Expected Provisioner to be created")
 		}
 
-		if provisioner.Runtime != mocks.Runtime {
-			t.Error("Expected runtime to be set")
-		}
-
-		if provisioner.Runtime.Shell != mocks.Shell {
+		if provisioner.shell != mocks.Shell {
 			t.Error("Expected shell to be set")
 		}
 
-		if provisioner.Runtime.ConfigHandler != mocks.ConfigHandler {
+		if provisioner.configHandler != mocks.ConfigHandler {
 			t.Error("Expected config handler to be set")
 		}
 

@@ -158,7 +158,7 @@ func (s *RegistryService) generateRegistryService(registry docker.RegistryConfig
 	// Always set environment, even if empty
 	service.Environment = env
 
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 	cacheDir := projectRoot + "/.windsor/.docker-cache"
 	if err := s.shims.MkdirAll(cacheDir, os.ModePerm); err != nil {
 		return service, fmt.Errorf("error creating .docker-cache directory: %w", err)
@@ -204,7 +204,7 @@ func (s *RegistryService) GetIncusConfig() (*IncusConfig, error) {
 		return nil, fmt.Errorf("no registry found with name: %s", s.name)
 	}
 
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 	cacheDir := filepath.Join(projectRoot, ".windsor", ".docker-cache")
 
 	config := make(map[string]string)
@@ -229,6 +229,10 @@ func (s *RegistryService) GetIncusConfig() (*IncusConfig, error) {
 		Devices: devices,
 	}, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure RegistryService implements Service interface
 var _ Service = (*RegistryService)(nil)

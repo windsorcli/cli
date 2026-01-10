@@ -43,6 +43,13 @@ type BaseToolsManager struct {
 
 // NewToolsManager creates a new ToolsManager instance with the given config handler and shell.
 func NewToolsManager(configHandler config.ConfigHandler, shell shell.Shell) *BaseToolsManager {
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+	if shell == nil {
+		panic("shell is required")
+	}
+
 	return &BaseToolsManager{
 		configHandler: configHandler,
 		shell:         shell,

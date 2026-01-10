@@ -17,7 +17,9 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	terraformRuntime "github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
@@ -170,12 +172,15 @@ contexts:
 		}
 	})
 
+	evaluator := evaluator.NewExpressionEvaluator(configHandler, tmpDir, filepath.Join(tmpDir, "contexts", "_template"))
+
 	rt := &runtime.Runtime{
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
 		TemplateRoot:  filepath.Join(tmpDir, "contexts", "_template"),
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
+		Evaluator:     evaluator,
 	}
 
 	return &TerraformTestMocks{
@@ -216,7 +221,9 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 		return "terraform"
 	}
 	mocks.Runtime.ToolsManager = mockToolsManager
-	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mockToolsManager)
+	mockTerraformProvider := terraformRuntime.NewTerraformProvider(mocks.ConfigHandler, mocks.Shell, mockToolsManager, mocks.Runtime.Evaluator)
+	mocks.Runtime.TerraformProvider = mockTerraformProvider
+	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mockToolsManager, mockTerraformProvider)
 	mocks.Runtime.EnvPrinters.TerraformEnv = terraformEnv
 
 	return mocks
@@ -297,18 +304,6 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGeneratingTerraformArgs", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
-
-		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
-		expectedError := "error generating terraform args"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
@@ -381,50 +376,6 @@ func TestStack_Up(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "project root is empty") {
 			t.Errorf("Expected project root error, got: %v", err)
-		}
-	})
-
-	t.Run("TerraformEnvNotAvailable", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.Runtime.EnvPrinters.TerraformEnv = nil
-		stack.terraformEnv = nil
-		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "terraform environment printer not available") {
-			t.Errorf("Expected terraform env error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorUnsettingEnvVar", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.Shims.Unsetenv = func(key string) error {
-			return fmt.Errorf("unsetenv error")
-		}
-		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error unsetting") {
-			t.Errorf("Expected unsetenv error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorSettingEnvVar", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.Shims.Setenv = func(key, value string) error {
-			return fmt.Errorf("setenv error")
-		}
-		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error setting") {
-			t.Errorf("Expected setenv error, got: %v", err)
 		}
 	})
 
@@ -576,18 +527,6 @@ func TestStack_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGeneratingTerraformArgs", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
-
-		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
-		expectedError := "error generating terraform args"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
@@ -608,20 +547,27 @@ func TestStack_Down(t *testing.T) {
 	t.Run("SkipComponentsWithDestroyFalse", func(t *testing.T) {
 		stack, mocks := setup(t)
 
+		mocks.Runtime.TerraformProvider.ClearCache()
+
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 		destroyFalse := false
 		blueprint := createTestBlueprint()
+		blueprint.Sources = append(blueprint.Sources, blueprintv1alpha1.Source{
+			Name: "source2",
+			Url:  "https://github.com/example/example2.git",
+			Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+		})
 		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
 			{
 				Source:   "source1",
 				Path:     "module/path1",
-				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path1"),
+				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "module/path1"),
 				Destroy:  &destroyFalse,
 			},
 			{
 				Source:   "source2",
 				Path:     "module/path2",
-				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path2"),
+				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "module/path2"),
 			},
 		}
 
@@ -634,8 +580,9 @@ func TestStack_Down(t *testing.T) {
 
 		var terraformCommands []string
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) > 1 {
-				terraformCommands = append(terraformCommands, fmt.Sprintf("%s %s", args[0], args[1]))
+			if command == "terraform" {
+				cmdStr := strings.Join(args, " ")
+				terraformCommands = append(terraformCommands, cmdStr)
 			}
 			return "", nil
 		}
@@ -648,19 +595,19 @@ func TestStack_Down(t *testing.T) {
 		foundPath2Commands := false
 
 		for _, cmd := range terraformCommands {
-			if strings.Contains(cmd, "path1") {
+			if strings.Contains(cmd, "module/path1") || strings.Contains(cmd, "/path1") || (strings.Contains(cmd, "path1") && !strings.Contains(cmd, "path2")) {
 				foundPath1Commands = true
 			}
-			if strings.Contains(cmd, "path2") {
+			if strings.Contains(cmd, "module/path2") || strings.Contains(cmd, "/path2") || (strings.Contains(cmd, "path2") && !strings.Contains(cmd, "path1")) {
 				foundPath2Commands = true
 			}
 		}
 
 		if foundPath1Commands {
-			t.Errorf("Expected no terraform commands for path1 (destroy: false), but found commands")
+			t.Errorf("Expected no terraform commands for path1 (destroy: false), but found commands: %v", terraformCommands)
 		}
 		if !foundPath2Commands {
-			t.Errorf("Expected terraform commands for path2 (destroy: true), but found none")
+			t.Errorf("Expected terraform commands for path2 (destroy: true), but found none. Commands executed: %v", terraformCommands)
 		}
 	})
 
@@ -702,50 +649,6 @@ func TestStack_Down(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "project root is empty") {
 			t.Errorf("Expected project root error, got: %v", err)
-		}
-	})
-
-	t.Run("TerraformEnvNotAvailable", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.Runtime.EnvPrinters.TerraformEnv = nil
-		stack.terraformEnv = nil
-		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "terraform environment printer not available") {
-			t.Errorf("Expected terraform env error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorUnsettingEnvVar", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.Shims.Unsetenv = func(key string) error {
-			return fmt.Errorf("unsetenv error")
-		}
-		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error unsetting") {
-			t.Errorf("Expected unsetenv error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorSettingEnvVar", func(t *testing.T) {
-		stack, mocks := setup(t)
-		mocks.Shims.Setenv = func(key, value string) error {
-			return fmt.Errorf("setenv error")
-		}
-		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error setting") {
-			t.Errorf("Expected setenv error, got: %v", err)
 		}
 	})
 
@@ -861,6 +764,187 @@ func TestNewShims(t *testing.T) {
 		}
 		if shims.Remove == nil {
 			t.Error("Expected Remove to be initialized")
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods
+// =============================================================================
+
+func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		stack, mocks := setup(t)
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test/path",
+			FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), "terraform", "test", "path"),
+		}
+
+		unsetEnvVars := make(map[string]bool)
+		mocks.Shims.Unsetenv = func(key string) error {
+			unsetEnvVars[key] = true
+			return nil
+		}
+
+		setEnvVars := make(map[string]string)
+		mocks.Shims.Setenv = func(key, value string) error {
+			setEnvVars[key] = value
+			return nil
+		}
+
+		terraformArgs, err := stack.setupTerraformEnvironment(component)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if terraformArgs == nil {
+			t.Error("Expected terraformArgs to be non-nil")
+		}
+
+		expectedUnsetVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
+		for _, envVar := range expectedUnsetVars {
+			if !unsetEnvVars[envVar] {
+				t.Errorf("Expected %s to be unset", envVar)
+			}
+		}
+
+		if setEnvVars["TF_DATA_DIR"] == "" {
+			t.Error("Expected TF_DATA_DIR to be set")
+		}
+
+		if setEnvVars["TF_VAR_context_path"] == "" {
+			t.Error("Expected TF_VAR_context_path to be set")
+		}
+	})
+
+	t.Run("ErrorWhenTerraformEnvIsNil", func(t *testing.T) {
+		stack, _ := setup(t)
+		stack.terraformEnv = nil
+		stack.runtime.EnvPrinters.TerraformEnv = nil
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test/path",
+			FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), "terraform", "test", "path"),
+		}
+
+		_, err := stack.setupTerraformEnvironment(component)
+		if err == nil {
+			t.Fatal("Expected error when terraformEnv is nil")
+		}
+
+		expectedError := "terraform environment printer not available"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorWhenUnsetenvFails", func(t *testing.T) {
+		stack, mocks := setup(t)
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test/path",
+			FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), "terraform", "test", "path"),
+		}
+
+		mocks.Shims.Unsetenv = func(key string) error {
+			return fmt.Errorf("unsetenv error")
+		}
+
+		_, err := stack.setupTerraformEnvironment(component)
+		if err == nil {
+			t.Fatal("Expected error when Unsetenv fails")
+		}
+
+		expectedError := "error unsetting"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorWhenGenerateTerraformArgsFails", func(t *testing.T) {
+		stack, mocks := setup(t)
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test/path",
+			FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), "terraform", "test", "path"),
+		}
+
+		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
+
+		_, err := stack.setupTerraformEnvironment(component)
+		if err == nil {
+			t.Fatal("Expected error when GenerateTerraformArgs fails")
+		}
+
+		expectedError := "error generating terraform args"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorWhenSetenvFails", func(t *testing.T) {
+		stack, mocks := setup(t)
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test/path",
+			FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), "terraform", "test", "path"),
+		}
+
+		mocks.Shims.Setenv = func(key, value string) error {
+			if key == "TF_DATA_DIR" {
+				return fmt.Errorf("setenv error")
+			}
+			return nil
+		}
+
+		_, err := stack.setupTerraformEnvironment(component)
+		if err == nil {
+			t.Fatal("Expected error when Setenv fails")
+		}
+
+		expectedError := "error setting"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("OnlySetsTFDataDirAndTFVarPrefix", func(t *testing.T) {
+		stack, mocks := setup(t)
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "test/path",
+			FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), "terraform", "test", "path"),
+		}
+
+		setEnvVars := make(map[string]string)
+		mocks.Shims.Setenv = func(key, value string) error {
+			if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_VAR_") {
+				setEnvVars[key] = value
+			} else {
+				t.Errorf("Unexpected env var set: %s", key)
+			}
+			return nil
+		}
+
+		_, err := stack.setupTerraformEnvironment(component)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if setEnvVars["TF_DATA_DIR"] == "" {
+			t.Error("Expected TF_DATA_DIR to be set")
+		}
+
+		if setEnvVars["TF_VAR_context_path"] == "" {
+			t.Error("Expected TF_VAR_context_path to be set")
+		}
+
+		if setEnvVars["TF_CLI_ARGS_init"] != "" {
+			t.Error("TF_CLI_ARGS_init should not be set, only TF_DATA_DIR and TF_VAR_* vars")
 		}
 	})
 }

@@ -44,6 +44,13 @@ type BaseEnvPrinter struct {
 
 // NewBaseEnvPrinter creates a new BaseEnvPrinter instance
 func NewBaseEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *BaseEnvPrinter {
+	if shell == nil {
+		panic("shell is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
+	}
+
 	return &BaseEnvPrinter{
 		shell:         shell,
 		configHandler: configHandler,

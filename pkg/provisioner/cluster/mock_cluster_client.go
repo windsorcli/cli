@@ -48,5 +48,9 @@ func (m *MockClusterClient) Close() {
 	}
 }
 
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
 // Ensure MockClusterClient implements ClusterClient
 var _ ClusterClient = (*MockClusterClient)(nil)

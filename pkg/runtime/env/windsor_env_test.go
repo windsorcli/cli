@@ -413,12 +413,14 @@ contexts:
 		}
 
 		// And no additional variables should be added
+		// Note: BUILD_ID is now read-only and won't be generated automatically
 		t.Logf("Environment variables: %v", envVars)
-		if len(envVars) != 7 {
-			t.Errorf("Should have seven base environment variables (including BUILD_ID which is generated if missing)")
+		if len(envVars) != 6 {
+			t.Errorf("Should have six base environment variables (BUILD_ID is read-only and not generated automatically)")
 		}
-		if envVars["BUILD_ID"] == "" {
-			t.Errorf("BUILD_ID should be generated when file doesn't exist")
+		// BUILD_ID may be empty if file doesn't exist (read-only behavior)
+		if envVars["BUILD_ID"] != "" {
+			t.Errorf("BUILD_ID should be empty when file doesn't exist (read-only behavior), got: %s", envVars["BUILD_ID"])
 		}
 	})
 
@@ -1061,27 +1063,24 @@ func TestWindsorEnv_getBuildID(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenWriteBuildIDToFileFails", func(t *testing.T) {
+	t.Run("ReturnsEmptyStringWhenBuildIDFileDoesNotExist", func(t *testing.T) {
 		// Given a WindsorEnvPrinter with no existing build ID file
+		// Note: getBuildID is now read-only and does not create files
 		printer, mocks := setup(t)
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
 
-		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
-			return fmt.Errorf("mock error creating directory")
-		}
-
 		// When getBuildID is called
-		_, err := printer.getBuildID()
+		buildID, err := printer.getBuildID()
 
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
+		// Then an empty string should be returned (read-only behavior)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "failed to set build ID") {
-			t.Errorf("Expected error about setting build ID, got %v", err)
+		if buildID != "" {
+			t.Errorf("Expected empty string when build ID file doesn't exist, got: %s", buildID)
 		}
 	})
 }

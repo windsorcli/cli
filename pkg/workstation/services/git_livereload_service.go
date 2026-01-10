@@ -67,7 +67,7 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 		envVars["WEBHOOK_URL"] = ptrString(webhookUrl)
 	}
 
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 
 	gitFolderName := filepath.Base(projectRoot)
 	serviceName := s.name
@@ -104,7 +104,7 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 // GetIncusConfig returns the Incus configuration for the Git livereload service.
 // It configures a container with project root mounted and environment variables for Git and rsync.
 func (s *GitLivereloadService) GetIncusConfig() (*IncusConfig, error) {
-	projectRoot := s.runtime.ProjectRoot
+	projectRoot := s.projectRoot
 	gitFolderName := filepath.Base(projectRoot)
 
 	rsyncInclude := s.configHandler.GetString("git.livereload.rsync_include", constants.DefaultGitLiveReloadRsyncInclude)
@@ -148,6 +148,10 @@ func (s *GitLivereloadService) GetIncusConfig() (*IncusConfig, error) {
 		Devices: devices,
 	}, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
 
 // Ensure GitService implements Service interface
 var _ Service = (*GitLivereloadService)(nil)

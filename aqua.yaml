@@ -9,13 +9,13 @@
 #     - all
 registries:
   - type: standard
-    ref: v4.448.1 # renovate: depName=aquaproj/aqua-registry
+    ref: v4.453.0 # renovate: depName=aquaproj/aqua-registry
 packages:
 - name: hashicorp/terraform@v1.14.3
-- name: siderolabs/talos@v1.12.0
-- name: siderolabs/omni/omnictl@v1.4.6
-- name: siderolabs/omni/omni@v1.4.6
-- name: kubernetes/kubectl@v1.35.0
+- name: siderolabs/talos@v1.12.1
+- name: siderolabs/omni/omnictl@v1.4.7
+- name: siderolabs/omni/omni@v1.4.7
+- name: kubernetes/kubectl@v1.34.3 # renovate: ignore
 - name: go-task/task@v3.46.4
 - name: golang/go@go1.25.5
 - name: getsops/sops@v3.11.0
@@ -28,6 +28,6 @@ packages:
 - name: helm/helm@v4.0.4
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.7.5
-- name: aws/aws-cli@2.32.24
-- name: twistedpair/google-cloud-sdk@550.0.0
+- name: aws/aws-cli@2.32.31
+- name: twistedpair/google-cloud-sdk@551.0.0
 - name: opentofu/opentofu@v1.11.1
