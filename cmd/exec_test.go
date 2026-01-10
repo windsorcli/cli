@@ -318,11 +318,11 @@ func TestExecCmd_ErrorScenarios(t *testing.T) {
 		}
 		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
 
-		mockDockerEnvPrinter := env.NewMockEnvPrinter()
-		mockDockerEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+		mockVirtEnvPrinter := env.NewMockEnvPrinter()
+		mockVirtEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
 			return nil, fmt.Errorf("failed to get env vars")
 		}
-		mockDockerEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+		mockVirtEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
 			return make(map[string]string), nil
 		}
 

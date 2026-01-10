@@ -153,16 +153,16 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	mockWindsorEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
 		return map[string]string{}, nil
 	}
-	mockDockerEnvPrinter := envvars.NewMockEnvPrinter()
-	mockDockerEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
-		return nil
-	}
-	mockDockerEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
-		return map[string]string{}, nil
-	}
-	mockDockerEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
-		return map[string]string{}, nil
-	}
+		mockVirtEnvPrinter := envvars.NewMockEnvPrinter()
+		mockVirtEnvPrinter.PostEnvHookFunc = func(directory ...string) error {
+			return nil
+		}
+		mockVirtEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockVirtEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
 
 	// Create config handler - always use mock for tests
 	var configHandler config.ConfigHandler
@@ -260,7 +260,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		ToolsManager:  mockToolsManager,
 	}
 	rtOverride.EnvPrinters.WindsorEnv = mockWindsorEnvPrinter
-	rtOverride.EnvPrinters.DockerEnv = mockDockerEnvPrinter
+		rtOverride.EnvPrinters.VirtEnv = mockVirtEnvPrinter
 	rt := runtime.NewRuntime(rtOverride)
 
 	return &Mocks{

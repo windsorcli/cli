@@ -58,7 +58,7 @@ type Runtime struct {
 		AwsEnv       env.EnvPrinter
 		AzureEnv     env.EnvPrinter
 		GcpEnv       env.EnvPrinter
-		DockerEnv    env.EnvPrinter
+		VirtEnv      env.EnvPrinter
 		KubeEnv      env.EnvPrinter
 		TalosEnv     env.EnvPrinter
 		TerraformEnv env.EnvPrinter
@@ -137,8 +137,8 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		if overrides.EnvPrinters.GcpEnv != nil {
 			rt.EnvPrinters.GcpEnv = overrides.EnvPrinters.GcpEnv
 		}
-		if overrides.EnvPrinters.DockerEnv != nil {
-			rt.EnvPrinters.DockerEnv = overrides.EnvPrinters.DockerEnv
+		if overrides.EnvPrinters.VirtEnv != nil {
+			rt.EnvPrinters.VirtEnv = overrides.EnvPrinters.VirtEnv
 		}
 		if overrides.EnvPrinters.KubeEnv != nil {
 			rt.EnvPrinters.KubeEnv = overrides.EnvPrinters.KubeEnv
@@ -399,8 +399,8 @@ func (rt *Runtime) initializeEnvPrinters() {
 	if rt.EnvPrinters.GcpEnv == nil && rt.ConfigHandler.GetBool("gcp.enabled", false) {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.DockerEnv == nil && rt.ConfigHandler.GetBool("docker.enabled", false) {
-		rt.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(rt.Shell, rt.ConfigHandler)
+	if rt.EnvPrinters.VirtEnv == nil && rt.ConfigHandler.GetBool("docker.enabled", false) {
+		rt.EnvPrinters.VirtEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.KubeEnv == nil && rt.ConfigHandler.GetBool("cluster.enabled", false) {
 		rt.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(rt.Shell, rt.ConfigHandler)
@@ -491,7 +491,7 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 		rt.EnvPrinters.AwsEnv,
 		rt.EnvPrinters.AzureEnv,
 		rt.EnvPrinters.GcpEnv,
-		rt.EnvPrinters.DockerEnv,
+		rt.EnvPrinters.VirtEnv,
 		rt.EnvPrinters.KubeEnv,
 		rt.EnvPrinters.TalosEnv,
 		rt.EnvPrinters.TerraformEnv,

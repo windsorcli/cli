@@ -383,7 +383,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mockShell)
 		mockAwsEnv := env.NewMockEnvPrinter()
 		mockAzureEnv := env.NewMockEnvPrinter()
-		mockDockerEnv := env.NewMockEnvPrinter()
+		mockVirtEnv := env.NewMockEnvPrinter()
 		mockKubeEnv := env.NewMockEnvPrinter()
 		mockTalosEnv := env.NewMockEnvPrinter()
 		mockTerraformEnv := env.NewMockEnvPrinter()
@@ -404,7 +404,7 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		rtOpts[0].SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
 		rtOpts[0].EnvPrinters.AwsEnv = mockAwsEnv
 		rtOpts[0].EnvPrinters.AzureEnv = mockAzureEnv
-		rtOpts[0].EnvPrinters.DockerEnv = mockDockerEnv
+		rtOpts[0].EnvPrinters.VirtEnv = mockVirtEnv
 		rtOpts[0].EnvPrinters.KubeEnv = mockKubeEnv
 		rtOpts[0].EnvPrinters.TalosEnv = mockTalosEnv
 		rtOpts[0].EnvPrinters.TerraformEnv = mockTerraformEnv
@@ -451,8 +451,8 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			t.Error("Expected AzureEnv to be set")
 		}
 
-		if rt.EnvPrinters.DockerEnv != mockDockerEnv {
-			t.Error("Expected DockerEnv to be set")
+		if rt.EnvPrinters.VirtEnv != mockVirtEnv {
+			t.Error("Expected VirtEnv to be set")
 		}
 
 		if rt.EnvPrinters.KubeEnv != mockKubeEnv {
@@ -2786,7 +2786,7 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesDockerEnvWhenEnabled", func(t *testing.T) {
+	t.Run("InitializesVirtEnvWhenEnabled", func(t *testing.T) {
 		// Given a runtime with Docker enabled
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -2802,10 +2802,10 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
 
-		// Then Docker env printer should be initialized
+		// Then Virt env printer should be initialized
 
-		if rt.EnvPrinters.DockerEnv == nil {
-			t.Error("Expected DockerEnv to be initialized")
+		if rt.EnvPrinters.VirtEnv == nil {
+			t.Error("Expected VirtEnv to be initialized")
 		}
 	})
 
