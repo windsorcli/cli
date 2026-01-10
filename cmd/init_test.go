@@ -240,6 +240,24 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessWithVmDriverColimaIncusFlag", func(t *testing.T) {
+		// Given a temporary directory with mocked dependencies
+		mocks := setupInitTest(t)
+
+		// When executing the init command with colima-incus VM driver flag
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-driver", "colima-incus"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
 	t.Run("SuccessWithVmCpuFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
