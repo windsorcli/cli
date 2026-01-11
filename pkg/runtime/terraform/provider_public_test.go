@@ -709,15 +709,18 @@ terraform:
 			return "", nil
 		}
 
-		// When getting output for missing key
+		// When getting output for missing key with deferred=true
 		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, true)
 
-		// Then it should return deferred expression
-		if err != nil {
-			t.Errorf("Expected no error for empty outputs, got %v", err)
+		// Then it should return an error to prevent expression strings from being passed as literal values
+		if err == nil {
+			t.Error("Expected error for empty outputs when deferred=true, got nil")
 		}
-		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
-			t.Errorf("Expected deferred expression string for missing key, got %v", output)
+		if output != nil {
+			t.Errorf("Expected nil output when error occurs, got %v", output)
+		}
+		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
+			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
 		}
 	})
 
@@ -779,12 +782,15 @@ terraform:
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, true)
 
-		// Then it should return deferred expression (errors are swallowed)
-		if err != nil {
-			t.Errorf("Expected no error when setenv fails (errors are swallowed), got %v", err)
+		// Then it should return an error to prevent expression strings from being passed as literal values
+		if err == nil {
+			t.Error("Expected error when setenv fails and outputs are unavailable, got nil")
 		}
-		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
-			t.Errorf("Expected deferred expression string when setenv fails, got %v", output)
+		if output != nil {
+			t.Errorf("Expected nil output when error occurs, got %v", output)
+		}
+		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
+			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
 		}
 	})
 
@@ -803,12 +809,15 @@ terraform:
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, true)
 
-		// Then it should return deferred expression (errors are swallowed)
-		if err != nil {
-			t.Errorf("Expected no error when backend override fails (errors are swallowed), got %v", err)
+		// Then it should return an error to prevent expression strings from being passed as literal values
+		if err == nil {
+			t.Error("Expected error when backend override fails and outputs are unavailable, got nil")
 		}
-		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
-			t.Errorf("Expected deferred expression string when backend override fails, got %v", output)
+		if output != nil {
+			t.Errorf("Expected nil output when error occurs, got %v", output)
+		}
+		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
+			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
 		}
 	})
 
@@ -878,12 +887,15 @@ terraform:
 
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, true)
-		// Then it should return deferred expression (errors are swallowed)
-		if err != nil {
-			t.Errorf("Expected no error when JsonUnmarshal fails (errors are swallowed), got %v", err)
+		// Then it should return an error to prevent expression strings from being passed as literal values
+		if err == nil {
+			t.Error("Expected error when JsonUnmarshal fails and outputs are unavailable, got nil")
 		}
-		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
-			t.Errorf("Expected deferred expression string when JsonUnmarshal fails, got %v", output)
+		if output != nil {
+			t.Errorf("Expected nil output when error occurs, got %v", output)
+		}
+		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
+			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
 		}
 	})
 
@@ -908,12 +920,15 @@ terraform:
 
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, true)
-		// Then it should return deferred expression
-		if err != nil {
-			t.Errorf("Expected no error when output has no value field, got %v", err)
+		// Then it should return an error because the key is not found in outputs (no value field means key won't be in result map)
+		if err == nil {
+			t.Error("Expected error when output key is not found, got nil")
 		}
-		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
-			t.Errorf("Expected deferred expression string when output has no value field, got %v", output)
+		if output != nil {
+			t.Errorf("Expected nil output when error occurs, got %v", output)
+		}
+		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
+			t.Errorf("Expected error message about unavailable outputs (output has no value field so outputs map is empty), got: %v", err)
 		}
 	})
 
@@ -938,12 +953,15 @@ terraform:
 
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, true)
-		// Then it should return deferred expression
-		if err != nil {
-			t.Errorf("Expected no error when output value is not a map, got %v", err)
+		// Then it should return an error because outputs are unavailable (output value is not a map so it won't be included in result)
+		if err == nil {
+			t.Error("Expected error when output value is not a map and outputs are unavailable, got nil")
 		}
-		if str, isString := output.(string); !isString || !strings.HasPrefix(str, "terraform_output(") {
-			t.Errorf("Expected deferred expression string when output value is not a map, got %v", output)
+		if output != nil {
+			t.Errorf("Expected nil output when error occurs, got %v", output)
+		}
+		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
+			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
 		}
 	})
 }
