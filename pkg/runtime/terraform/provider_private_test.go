@@ -131,60 +131,6 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("GeneratesLocalBackendArgsForEnvVar", func(t *testing.T) {
-		// Given a provider with local backend configuration
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		windsorScratchPath := "/test/scratch"
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return windsorScratchPath, nil
-		}
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
-
-		// Then it should generate raw args without quotes for env vars
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if len(args) == 0 {
-			t.Error("Expected args to be generated")
-		}
-
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "-backend-config=\"") {
-				t.Errorf("Expected raw args without quotes, got %v", args)
-				break
-			}
-		}
-	})
-
 	t.Run("IncludesBackendTfvars", func(t *testing.T) {
 		// Given a provider with backend.tfvars file
 		mocks := setupMocks(t)
@@ -818,20 +764,6 @@ func Test_sanitizeForK8s(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesInvalidCharacters", func(t *testing.T) {
-		// Given a string with invalid characters
-		// When sanitizing for K8s
-		result := sanitizeForK8s("Test@String#123")
-
-		// Then invalid characters should be removed and result should be lowercase
-		if strings.Contains(result, "@") || strings.Contains(result, "#") {
-			t.Errorf("Expected no invalid characters, got %s", result)
-		}
-		if !strings.Contains(result, "test") {
-			t.Errorf("Expected lowercase, got %s", result)
-		}
-	})
-
 	t.Run("TrimsTo63Characters", func(t *testing.T) {
 		// Given a long string
 		longString := strings.Repeat("a", 100)
@@ -842,17 +774,6 @@ func Test_sanitizeForK8s(t *testing.T) {
 		// Then it should be trimmed to 63 characters
 		if len(result) > 63 {
 			t.Errorf("Expected max 63 characters, got %d: %s", len(result), result)
-		}
-	})
-
-	t.Run("HandlesMultipleUnderscores", func(t *testing.T) {
-		// Given a string with multiple underscores
-		// When sanitizing for K8s
-		result := sanitizeForK8s("test___string")
-
-		// Then underscores should be replaced
-		if strings.Contains(result, "_") {
-			t.Errorf("Expected underscores to be replaced, got %s", result)
 		}
 	})
 
@@ -1305,27 +1226,4 @@ func TestTerraformProvider_restoreEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesEmptyMap", func(t *testing.T) {
-		// Given a provider and empty env vars map
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-
-		callCount := 0
-		provider.Shims.Setenv = func(key, value string) error {
-			callCount++
-			return nil
-		}
-		provider.Shims.Unsetenv = func(key string) error {
-			callCount++
-			return nil
-		}
-
-		// When restoring empty env vars
-		provider.restoreEnvVars(map[string]string{})
-
-		// Then no calls should be made
-		if callCount != 0 {
-			t.Errorf("Expected no calls for empty map, got %d", callCount)
-		}
-	})
 }

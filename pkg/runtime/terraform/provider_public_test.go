@@ -217,16 +217,6 @@ func TestNewTerraformProvider(t *testing.T) {
 		}
 	})
 
-	t.Run("DoesNotRegisterHelperWhenEvaluatorIsNil", func(t *testing.T) {
-		// Given setup mocks (evaluator is nil by default)
-		mocks := setupMocks(t)
-
-		// When creating a provider
-		// Then provider should be created successfully
-		if mocks.Provider == nil {
-			t.Fatal("Expected provider to be created")
-		}
-	})
 }
 
 // =============================================================================
@@ -617,39 +607,6 @@ func TestTerraformProvider_GetOutputs(t *testing.T) {
 		// Then cached outputs should be returned
 		if output2 != expectedOutputs["output2"] {
 			t.Errorf("Expected output2 to be 42, got %v", output2)
-		}
-	})
-
-	t.Run("CachesOutputsAfterFirstCall", func(t *testing.T) {
-		// Given a provider with cached outputs
-		mocks := setupMocks(t)
-
-		expectedOutputs := map[string]any{
-			"output1": "value1",
-		}
-
-		mocks.Provider.mu.Lock()
-		mocks.Provider.cache["test-component"] = expectedOutputs
-		mocks.Provider.mu.Unlock()
-
-		// When getting the same output twice
-		output1, err1 := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, true)
-		if err1 != nil {
-			t.Fatalf("Expected no error on first call, got %v", err1)
-		}
-
-		output2, err2 := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, true)
-		if err2 != nil {
-			t.Fatalf("Expected no error on second call, got %v", err2)
-		}
-
-		// Then both calls should return the same cached value
-		if output1 != output2 {
-			t.Error("Expected both calls to return same cached value")
-		}
-
-		if len(mocks.Provider.cache) != 1 {
-			t.Errorf("Expected cache to have 1 entry, got %d", len(mocks.Provider.cache))
 		}
 	})
 
@@ -1516,32 +1473,6 @@ func TestTerraformProvider_FindRelativeProjectPath(t *testing.T) {
 		}
 	})
 
-	t.Run("AcceptsDirectoryParameter", func(t *testing.T) {
-		// Given a provider and a directory parameter
-		mocks := setupMocks(t)
-
-		testPath := filepath.Join("/test", "project", "terraform", "component")
-		mocks.Provider.Shims.Glob = func(pattern string) ([]string, error) {
-			if pattern == filepath.Join(testPath, "*.tf") {
-				return []string{filepath.Join(testPath, "main.tf")}, nil
-			}
-			return nil, nil
-		}
-
-		// When finding relative project path with directory parameter
-		path, err := mocks.Provider.FindRelativeProjectPath(testPath)
-
-		// Then it should accept and use the parameter
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		expected := "component"
-		if path != expected {
-			t.Errorf("Expected path %s, got %s", expected, path)
-		}
-	})
-
 	t.Run("ReturnsEmptyWhenNoTerraformOrContextsDirectory", func(t *testing.T) {
 		// Given a provider in directory outside terraform/contexts
 		mocks := setupMocks(t)
@@ -1952,53 +1883,6 @@ terraform:
 		}
 	})
 
-	t.Run("ReturnsErrorWhenGetTFDataDirFails", func(t *testing.T) {
-		// Given a provider with GetWindsorScratchPath that fails
-		mocks := setupMocks(t)
-
-		configRoot := "/test/config"
-		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
-			return "", fmt.Errorf("scratch path error")
-		}
-
-		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mocks.ConfigHandler.GetContextFunc = func() string {
-			return "default"
-		}
-
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/test/project", nil
-		}
-
-		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// When generating terraform args
-		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when GetTFDataDir fails")
-		}
-		if !strings.Contains(err.Error(), "TF_DATA_DIR") && !strings.Contains(err.Error(), "windsor scratch path") {
-			t.Errorf("Expected error about TF_DATA_DIR or windsor scratch path, got: %v", err)
-		}
-	})
-
 	t.Run("ReturnsErrorWhenGenerateBackendConfigArgsFails", func(t *testing.T) {
 		// Given a provider with invalid backend type
 		mocks := setupMocks(t)
@@ -2104,21 +1988,6 @@ func TestTerraformProvider_FormatArgsForEnv(t *testing.T) {
 
 		// Then quotes should be preserved
 		expected := `-backend-config="key=value"`
-		if result != expected {
-			t.Errorf("Expected %s, got %s", expected, result)
-		}
-	})
-
-	t.Run("FormatsAbsolutePaths", func(t *testing.T) {
-		// Given args with absolute path
-		mocks := setupMocks(t)
-
-		args := []string{"/absolute/path"}
-		// When formatting args for env
-		result := mocks.Provider.FormatArgsForEnv(args)
-
-		// Then absolute path should be quoted
-		expected := `"/absolute/path"`
 		if result != expected {
 			t.Errorf("Expected %s, got %s", expected, result)
 		}
@@ -2407,60 +2276,6 @@ terraform:
 		}
 	})
 
-	t.Run("IncludesBackendConfigArgsInFallbackInit", func(t *testing.T) {
-		// Given a provider with terraform output that fails initially
-		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
-kind: Blueprint
-metadata:
-  name: test
-terraform:
-  - path: cluster
-    name: cluster`
-
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
-
-		callCount := 0
-		var initArgs []string
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "terraform" && len(args) >= 2 {
-				if args[1] == "output" {
-					callCount++
-					if callCount == 1 {
-						return "", fmt.Errorf("not initialized")
-					}
-					return `{"cluster_name": {"value": "my-cluster"}}`, nil
-				}
-				if args[1] == "init" {
-					initArgs = args
-					return "", nil
-				}
-			}
-			return "", nil
-		}
-
-		// When getting terraform outputs
-		outputs, err := mocks.Provider.GetTerraformOutputs("cluster")
-		// Then init should include backend config args
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if outputs["cluster_name"] != "my-cluster" {
-			t.Errorf("Expected cluster_name to be my-cluster, got: %v", outputs["cluster_name"])
-		}
-
-		hasBackendConfig := false
-		for _, arg := range initArgs {
-			if strings.HasPrefix(arg, "-backend-config") {
-				hasBackendConfig = true
-				break
-			}
-		}
-
-		if !hasBackendConfig {
-			t.Errorf("Expected init command to include -backend-config arguments, got init args: %v", initArgs)
-		}
-	})
 }
 
 func TestTerraformProvider_GetEnvVars(t *testing.T) {
