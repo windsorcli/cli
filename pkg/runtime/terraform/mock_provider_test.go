@@ -180,5 +180,3 @@ func TestMockTerraformProvider_ClearCache(t *testing.T) {
 		mock.ClearCache()
 	})
 }
-
-
