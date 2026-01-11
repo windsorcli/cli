@@ -780,11 +780,3 @@ func ContainsExpression(value any) bool {
 		return false
 	}
 }
-
-func getMapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
