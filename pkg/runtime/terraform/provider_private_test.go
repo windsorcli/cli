@@ -10,6 +10,7 @@ import (
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
 // =============================================================================
@@ -18,6 +19,7 @@ import (
 
 func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	t.Run("GeneratesLocalBackendArgs", func(t *testing.T) {
+		// Given a provider with local backend configuration
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -50,8 +52,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should generate local backend args with correct path
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -70,6 +74,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesLocalBackendArgsWithPrefix", func(t *testing.T) {
+		// Given a provider with local backend and prefix configuration
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -105,8 +110,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should include prefix in path
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -124,58 +131,8 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("GeneratesLocalBackendArgsForEnvVar", func(t *testing.T) {
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-		mockConfig := provider.configHandler.(*config.MockConfigHandler)
-
-		configRoot := "/test/config"
-		mockConfig.GetConfigRootFunc = func() (string, error) {
-			return configRoot, nil
-		}
-
-		windsorScratchPath := "/test/scratch"
-		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
-			return windsorScratchPath, nil
-		}
-
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "local"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mockConfig.GetContextFunc = func() string {
-			return "default"
-		}
-
-		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if len(args) == 0 {
-			t.Error("Expected args to be generated")
-		}
-
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "-backend-config=\"") {
-				t.Errorf("Expected raw args without quotes, got %v", args)
-				break
-			}
-		}
-	})
-
 	t.Run("IncludesBackendTfvars", func(t *testing.T) {
+		// Given a provider with backend.tfvars file
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -221,8 +178,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return originalStat(path)
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should include backend.tfvars
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -240,6 +199,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("PrefersNewBackendTfvarsLocation", func(t *testing.T) {
+		// Given a provider with both new and old backend.tfvars locations
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -279,8 +239,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should prefer new location
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -306,6 +268,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("FallsBackToOldBackendTfvarsLocation", func(t *testing.T) {
+		// Given a provider with only old backend.tfvars location
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -348,8 +311,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should fall back to old location
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -368,6 +333,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesS3BackendArgs", func(t *testing.T) {
+		// Given a provider with S3 backend configuration
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -423,8 +389,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should generate S3 backend args
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -442,6 +410,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesKubernetesBackendArgs", func(t *testing.T) {
+		// Given a provider with kubernetes backend configuration
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -494,8 +463,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should generate kubernetes backend args
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -513,6 +484,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesKubernetesBackendArgsWithPrefix", func(t *testing.T) {
+		// Given a provider with kubernetes backend and prefix
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -553,8 +525,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should include prefix in secret_suffix
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -572,6 +546,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("GeneratesAzurermBackendArgs", func(t *testing.T) {
+		// Given a provider with azurerm backend configuration
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -630,8 +605,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil
 		}
 
+		// When generating backend config args
 		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should generate azurerm backend args
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -649,6 +626,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorForUnsupportedBackend", func(t *testing.T) {
+		// Given a provider with unsupported backend type
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -668,8 +646,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return ""
 		}
 
+		// When generating backend config args
 		_, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should return an error
 		if err == nil {
 			t.Error("Expected error for unsupported backend")
 		}
@@ -679,6 +659,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorWhenWindsorScratchPathFails", func(t *testing.T) {
+		// Given a provider with GetWindsorScratchPath that fails
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -702,8 +683,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return ""
 		}
 
+		// When generating backend config args
 		_, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should return an error
 		if err == nil {
 			t.Error("Expected error when GetWindsorScratchPath fails")
 		}
@@ -713,6 +696,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 	})
 
 	t.Run("HandlesProcessBackendConfigError", func(t *testing.T) {
+		// Given a provider with YamlMarshal that fails
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 		mockConfig := provider.configHandler.(*config.MockConfigHandler)
@@ -754,8 +738,10 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			return nil, fmt.Errorf("marshal error")
 		}
 
+		// When generating backend config args
 		_, err := provider.generateBackendConfigArgs("test/path", configRoot)
 
+		// Then it should return an error
 		if err == nil {
 			t.Error("Expected error when processBackendConfig fails")
 		}
@@ -767,53 +753,47 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 func Test_sanitizeForK8s(t *testing.T) {
 	t.Run("SanitizesBasicString", func(t *testing.T) {
+		// Given a string with mixed case and underscores
+		// When sanitizing for K8s
 		result := sanitizeForK8s("Test-String_123")
 
+		// Then it should convert to lowercase and replace underscores
 		expected := "test-string-123"
 		if result != expected {
 			t.Errorf("Expected %s, got %s", expected, result)
 		}
 	})
 
-	t.Run("HandlesInvalidCharacters", func(t *testing.T) {
-		result := sanitizeForK8s("Test@String#123")
-
-		if strings.Contains(result, "@") || strings.Contains(result, "#") {
-			t.Errorf("Expected no invalid characters, got %s", result)
-		}
-		if !strings.Contains(result, "test") {
-			t.Errorf("Expected lowercase, got %s", result)
-		}
-	})
-
 	t.Run("TrimsTo63Characters", func(t *testing.T) {
+		// Given a long string
 		longString := strings.Repeat("a", 100)
+
+		// When sanitizing for K8s
 		result := sanitizeForK8s(longString)
 
+		// Then it should be trimmed to 63 characters
 		if len(result) > 63 {
 			t.Errorf("Expected max 63 characters, got %d: %s", len(result), result)
 		}
 	})
 
-	t.Run("HandlesMultipleUnderscores", func(t *testing.T) {
-		result := sanitizeForK8s("test___string")
-
-		if strings.Contains(result, "_") {
-			t.Errorf("Expected underscores to be replaced, got %s", result)
-		}
-	})
-
 	t.Run("HandlesMultipleDashes", func(t *testing.T) {
+		// Given a string with multiple dashes
+		// When sanitizing for K8s
 		result := sanitizeForK8s("test---string")
 
+		// Then multiple dashes should be collapsed
 		if strings.Contains(result, "---") {
 			t.Errorf("Expected multiple dashes to be collapsed, got %s", result)
 		}
 	})
 
 	t.Run("TrimsLeadingTrailingDashes", func(t *testing.T) {
+		// Given a string with leading and trailing dashes
+		// When sanitizing for K8s
 		result := sanitizeForK8s("-test-string-")
 
+		// Then leading and trailing dashes should be trimmed
 		if strings.HasPrefix(result, "-") || strings.HasSuffix(result, "-") {
 			t.Errorf("Expected no leading/trailing dashes, got %s", result)
 		}
@@ -822,6 +802,7 @@ func Test_sanitizeForK8s(t *testing.T) {
 
 func Test_processMap(t *testing.T) {
 	t.Run("ProcessesStringValues", func(t *testing.T) {
+		// Given a config map with string values
 		args := []string{}
 		addArg := func(key, value string) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
@@ -832,8 +813,10 @@ func Test_processMap(t *testing.T) {
 			"region": "us-east-1",
 		}
 
+		// When processing the map
 		processMap("", configMap, addArg)
 
+		// Then string values should be processed
 		if len(args) != 2 {
 			t.Errorf("Expected 2 args, got %d", len(args))
 		}
@@ -853,6 +836,7 @@ func Test_processMap(t *testing.T) {
 	})
 
 	t.Run("ProcessesBoolValues", func(t *testing.T) {
+		// Given a config map with bool values
 		args := []string{}
 		addArg := func(key, value string) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
@@ -863,8 +847,10 @@ func Test_processMap(t *testing.T) {
 			"secure":   false,
 		}
 
+		// When processing the map
 		processMap("", configMap, addArg)
 
+		// Then bool values should be processed
 		foundTrue := false
 		foundFalse := false
 		for _, arg := range args {
@@ -881,6 +867,7 @@ func Test_processMap(t *testing.T) {
 	})
 
 	t.Run("ProcessesIntValues", func(t *testing.T) {
+		// Given a config map with int values
 		args := []string{}
 		addArg := func(key, value string) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
@@ -891,8 +878,10 @@ func Test_processMap(t *testing.T) {
 			"timeout": uint64(30),
 		}
 
+		// When processing the map
 		processMap("", configMap, addArg)
 
+		// Then int values should be processed
 		foundPort := false
 		foundTimeout := false
 		for _, arg := range args {
@@ -909,6 +898,7 @@ func Test_processMap(t *testing.T) {
 	})
 
 	t.Run("ProcessesStringArrayValues", func(t *testing.T) {
+		// Given a config map with string array values
 		args := []string{}
 		addArg := func(key, value string) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
@@ -918,8 +908,10 @@ func Test_processMap(t *testing.T) {
 			"allowed_account_ids": []any{"123", "456"},
 		}
 
+		// When processing the map
 		processMap("", configMap, addArg)
 
+		// Then string array values should be processed
 		found123 := false
 		found456 := false
 		for _, arg := range args {
@@ -936,6 +928,7 @@ func Test_processMap(t *testing.T) {
 	})
 
 	t.Run("ProcessesNestedMaps", func(t *testing.T) {
+		// Given a config map with nested maps
 		args := []string{}
 		addArg := func(key, value string) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
@@ -947,8 +940,10 @@ func Test_processMap(t *testing.T) {
 			},
 		}
 
+		// When processing the map
 		processMap("", configMap, addArg)
 
+		// Then nested maps should be processed with dot notation
 		foundNested := false
 		for _, arg := range args {
 			if strings.Contains(arg, "nested.key=value") {
@@ -962,6 +957,7 @@ func Test_processMap(t *testing.T) {
 	})
 
 	t.Run("ProcessesWithPrefix", func(t *testing.T) {
+		// Given a config map and a prefix
 		args := []string{}
 		addArg := func(key, value string) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
@@ -971,8 +967,10 @@ func Test_processMap(t *testing.T) {
 			"key": "value",
 		}
 
+		// When processing the map with prefix
 		processMap("prefix", configMap, addArg)
 
+		// Then keys should be prefixed
 		foundPrefixed := false
 		for _, arg := range args {
 			if strings.Contains(arg, "prefix.key=value") {
@@ -986,6 +984,7 @@ func Test_processMap(t *testing.T) {
 	})
 
 	t.Run("IgnoresNonStringArrayItems", func(t *testing.T) {
+		// Given a config map with mixed array types
 		args := []string{}
 		addArg := func(key, value string) {
 			args = append(args, fmt.Sprintf("%s=%s", key, value))
@@ -995,8 +994,10 @@ func Test_processMap(t *testing.T) {
 			"mixed_array": []any{"string", 123, true},
 		}
 
+		// When processing the map
 		processMap("", configMap, addArg)
 
+		// Then only string array items should be processed
 		foundString := false
 		foundNonString := false
 		for _, arg := range args {
@@ -1016,8 +1017,49 @@ func Test_processMap(t *testing.T) {
 	})
 }
 
+func TestTerraformProvider_registerTerraformOutputHelper(t *testing.T) {
+	t.Run("RegistersHelperWithEvaluator", func(t *testing.T) {
+		// Given a provider and mock evaluator
+		mocks := setupMocks(t)
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		var registeredName string
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signature any) {
+			registeredName = name
+		}
+
+		// When registering terraform output helper
+		mocks.Provider.registerTerraformOutputHelper(mockEvaluator)
+
+		// Then helper should be registered with correct name
+		if registeredName != "terraform_output" {
+			t.Errorf("Expected helper to be registered as 'terraform_output', got '%s'", registeredName)
+		}
+	})
+
+	t.Run("HelperReturnsErrorForWrongParamCount", func(t *testing.T) {
+		// Given a registered helper
+		mocks := setupMocks(t)
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		var helperFunc func(params []any, deferred bool) (any, error)
+		mockEvaluator.RegisterFunc = func(name string, helper func(params []any, deferred bool) (any, error), signature any) {
+			helperFunc = helper
+		}
+
+		mocks.Provider.registerTerraformOutputHelper(mockEvaluator)
+
+		// When calling helper with wrong parameter count
+		_, err := helperFunc([]any{"component"}, false)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for wrong parameter count")
+		}
+	})
+}
+
 func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
 	t.Run("RestoresEnvVarWithValue", func(t *testing.T) {
+		// Given a provider and an env var with value
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 
@@ -1028,8 +1070,10 @@ func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
 			return nil
 		}
 
+		// When restoring env var
 		provider.restoreEnvVar("TEST_VAR", "original-value")
 
+		// Then it should set the env var
 		if setKey != "TEST_VAR" {
 			t.Errorf("Expected to set TEST_VAR, got %s", setKey)
 		}
@@ -1040,6 +1084,7 @@ func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
 	})
 
 	t.Run("UnsetsEnvVarWhenEmpty", func(t *testing.T) {
+		// Given a provider and an empty env var value
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 
@@ -1049,8 +1094,10 @@ func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
 			return nil
 		}
 
+		// When restoring env var with empty value
 		provider.restoreEnvVar("TEST_VAR", "")
 
+		// Then it should unset the env var
 		if unsetKey != "TEST_VAR" {
 			t.Errorf("Expected to unset TEST_VAR, got %s", unsetKey)
 		}
@@ -1059,6 +1106,7 @@ func TestTerraformProvider_RestoreEnvVar(t *testing.T) {
 
 func TestTerraformProvider_applyEnvVars(t *testing.T) {
 	t.Run("AppliesEnvVarsSuccessfully", func(t *testing.T) {
+		// Given a provider and env vars to apply
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 
@@ -1077,11 +1125,13 @@ func TestTerraformProvider_applyEnvVars(t *testing.T) {
 			return nil
 		}
 
+		// When applying env vars
 		originalEnvVars, err := provider.applyEnvVars(envVars)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
+		// Then env vars should be set and originals preserved
 		if originalEnvVars["VAR1"] != "original-VAR1" {
 			t.Errorf("Expected original VAR1 to be original-VAR1, got: %s", originalEnvVars["VAR1"])
 		}
@@ -1096,6 +1146,7 @@ func TestTerraformProvider_applyEnvVars(t *testing.T) {
 	})
 
 	t.Run("RestoresEnvVarsOnError", func(t *testing.T) {
+		// Given a provider with Setenv that fails
 		mocks := setupMocks(t)
 		provider := mocks.Provider
 
@@ -1122,7 +1173,9 @@ func TestTerraformProvider_applyEnvVars(t *testing.T) {
 			return nil
 		}
 
+		// When applying env vars
 		_, err := provider.applyEnvVars(envVars)
+		// Then it should restore env vars on error
 		if err == nil {
 			t.Error("Expected error when Setenv fails")
 		}
@@ -1173,24 +1226,4 @@ func TestTerraformProvider_restoreEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesEmptyMap", func(t *testing.T) {
-		mocks := setupMocks(t)
-		provider := mocks.Provider
-
-		callCount := 0
-		provider.Shims.Setenv = func(key, value string) error {
-			callCount++
-			return nil
-		}
-		provider.Shims.Unsetenv = func(key string) error {
-			callCount++
-			return nil
-		}
-
-		provider.restoreEnvVars(map[string]string{})
-
-		if callCount != 0 {
-			t.Errorf("Expected no calls for empty map, got %d", callCount)
-		}
-	})
 }

@@ -6,6 +6,7 @@
 package evaluator
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -29,6 +30,25 @@ type expressionEvaluator struct {
 	Shims         *Shims
 	templateData  map[string][]byte
 	helpers       []func(allowDeferred bool) expr.Option
+}
+
+// =============================================================================
+// Errors
+// =============================================================================
+
+// DeferredError signals that an expression is deferred and should be preserved for later evaluation.
+// This is not an error condition but a signal that the expression cannot be evaluated at this time.
+type DeferredError struct {
+	Expression string
+	Message    string
+}
+
+// Error implements the error interface for DeferredError.
+func (e *DeferredError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("deferred expression: %s", e.Expression)
 }
 
 // =============================================================================
@@ -125,6 +145,15 @@ func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDef
 			}
 			value, err := e.evaluateExpression(expr, featurePath, evaluateDeferred)
 			if err != nil {
+				if !evaluateDeferred {
+					if _, ok := err.(*DeferredError); ok {
+						return s, nil
+					}
+					var deferredErr *DeferredError
+					if errors.As(err, &deferredErr) {
+						return s, nil
+					}
+				}
 				return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
 			}
 			var replacement string
@@ -175,12 +204,14 @@ func (e *expressionEvaluator) evaluateExpression(expression string, featurePath 
 	}
 	result, err := expr.Run(program, enrichedConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
-	}
-	if !evaluateDeferred {
-		if str, isString := result.(string); isString && strings.HasPrefix(str, "terraform_output(") && strings.HasSuffix(str, ")") {
-			return fmt.Sprintf("${%s}", str), nil
+		if deferredErr, ok := err.(*DeferredError); ok {
+			return nil, deferredErr
 		}
+		var deferredErr *DeferredError
+		if errors.As(err, &deferredErr) {
+			return nil, deferredErr
+		}
+		return nil, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
 	}
 	return result, nil
 }
@@ -293,31 +324,103 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featur
 }
 
 // EvaluateMap evaluates a map of values using this expression evaluator.
-// Each string value is evaluated as an expression; non-string values are preserved as-is.
-// When evaluateDeferred is false, evaluated values that contain unresolved expressions are
-// skipped and not included in the result. The featurePath parameter is used for context
-// during evaluation. Returns a new map containing successfully evaluated values, or an error
-// if evaluation fails.
+// Each string value is evaluated as an expression; maps and arrays are recursively evaluated.
+// When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
+// is preserved in the result. The featurePath parameter is used for context during evaluation.
+// Returns a new map containing evaluated values (or original values if deferred), or an error
+// if evaluation fails with a non-deferred error.
 func (e *expressionEvaluator) EvaluateMap(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
 	result := make(map[string]any)
 	for key, value := range values {
-		strVal, isString := value.(string)
-		if !isString {
-			result[key] = value
-			continue
-		}
-		evaluated, err := e.Evaluate(strVal, featurePath, evaluateDeferred)
+		evaluated, err := e.evaluateValue(value, featurePath, evaluateDeferred)
 		if err != nil {
+			if !evaluateDeferred {
+				var deferredErr *DeferredError
+				if errors.As(err, &deferredErr) {
+					result[key] = value
+					continue
+				}
+			}
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
 		if !evaluateDeferred {
 			if ContainsExpression(evaluated) {
+				result[key] = value
 				continue
 			}
 		}
 		result[key] = evaluated
 	}
 	return result, nil
+}
+
+// evaluateValue recursively evaluates a value, handling strings, maps, and arrays.
+// When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
+// is preserved. This ensures that entire input values containing deferred expressions are
+// preserved rather than being partially evaluated or skipped.
+func (e *expressionEvaluator) evaluateValue(value any, featurePath string, evaluateDeferred bool) (any, error) {
+	switch v := value.(type) {
+	case string:
+		evaluated, err := e.Evaluate(v, featurePath, evaluateDeferred)
+		if err != nil {
+			if !evaluateDeferred {
+				var deferredErr *DeferredError
+				if errors.As(err, &deferredErr) {
+					return v, nil
+				}
+			}
+			return nil, err
+		}
+		return evaluated, nil
+	case map[string]any:
+		result := make(map[string]any)
+		for k, val := range v {
+			evaluated, err := e.evaluateValue(val, featurePath, evaluateDeferred)
+			if err != nil {
+				if !evaluateDeferred {
+					var deferredErr *DeferredError
+					if errors.As(err, &deferredErr) {
+						result[k] = val
+						continue
+					}
+				}
+				return nil, err
+			}
+			if !evaluateDeferred {
+				if ContainsExpression(evaluated) {
+					result[k] = val
+					continue
+				}
+			}
+			result[k] = evaluated
+		}
+		return result, nil
+	case []any:
+		result := make([]any, 0, len(v))
+		for _, item := range v {
+			evaluated, err := e.evaluateValue(item, featurePath, evaluateDeferred)
+			if err != nil {
+				if !evaluateDeferred {
+					var deferredErr *DeferredError
+					if errors.As(err, &deferredErr) {
+						result = append(result, item)
+						continue
+					}
+				}
+				return nil, err
+			}
+			if !evaluateDeferred {
+				if ContainsExpression(evaluated) {
+					result = append(result, item)
+					continue
+				}
+			}
+			result = append(result, evaluated)
+		}
+		return result, nil
+	default:
+		return value, nil
+	}
 }
 
 // evaluateJsonnetFunction loads and evaluates a Jsonnet file at the specified path.
@@ -648,17 +751,32 @@ var _ HelperRegistrar = (*expressionEvaluator)(nil)
 // the value is a string containing at least one properly closed "${...}" expression pattern, and false otherwise.
 // Used to identify values containing unresolved expressions that should be skipped when evaluateDeferred is false.
 func ContainsExpression(value any) bool {
-	str, isString := value.(string)
-	if !isString {
+	switch v := value.(type) {
+	case string:
+		if !strings.Contains(v, "${") {
+			return false
+		}
+		start := strings.Index(v, "${")
+		if start == -1 {
+			return false
+		}
+		end := strings.Index(v[start:], "}")
+		return end != -1
+	case map[string]any:
+		for _, val := range v {
+			if ContainsExpression(val) {
+				return true
+			}
+		}
+		return false
+	case []any:
+		for _, item := range v {
+			if ContainsExpression(item) {
+				return true
+			}
+		}
+		return false
+	default:
 		return false
 	}
-	if !strings.Contains(str, "${") {
-		return false
-	}
-	start := strings.Index(str, "${")
-	if start == -1 {
-		return false
-	}
-	end := strings.Index(str[start:], "}")
-	return end != -1
 }

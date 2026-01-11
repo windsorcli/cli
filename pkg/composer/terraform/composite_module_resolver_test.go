@@ -42,6 +42,50 @@ func TestCompositeModuleResolver_NewCompositeModuleResolver(t *testing.T) {
 			t.Error("Expected standardResolver to be set")
 		}
 	})
+
+	t.Run("PanicsWhenRuntimeIsNil", func(t *testing.T) {
+		// Given nil runtime
+		mocks := setupTerraformMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+
+		// When creating a new composite module resolver with nil runtime
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when runtime is nil")
+			}
+		}()
+		NewCompositeModuleResolver(nil, mocks.BlueprintHandler, mockArtifactBuilder)
+	})
+
+	t.Run("PanicsWhenBlueprintHandlerIsNil", func(t *testing.T) {
+		// Given nil blueprint handler
+		mocks := setupTerraformMocks(t)
+		mockArtifactBuilder := artifact.NewMockArtifact()
+
+		// When creating a new composite module resolver with nil blueprint handler
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when blueprint handler is nil")
+			}
+		}()
+		NewCompositeModuleResolver(mocks.Runtime, nil, mockArtifactBuilder)
+	})
+
+	t.Run("PanicsWhenArtifactBuilderIsNil", func(t *testing.T) {
+		// Given nil artifact builder
+		mocks := setupTerraformMocks(t)
+
+		// When creating a new composite module resolver with nil artifact builder
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when artifact builder is nil")
+			}
+		}()
+		NewCompositeModuleResolver(mocks.Runtime, mocks.BlueprintHandler, nil)
+	})
 }
 
 func TestCompositeModuleResolver_ProcessModules(t *testing.T) {

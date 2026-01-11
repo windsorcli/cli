@@ -85,6 +85,18 @@ func TestNewExpressionEvaluator(t *testing.T) {
 			t.Error("Expected Shims to be initialized")
 		}
 	})
+
+	t.Run("PanicsWhenConfigHandlerIsNil", func(t *testing.T) {
+		// Given nil config handler
+		// When creating a new evaluator
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when config handler is nil")
+			}
+		}()
+		NewExpressionEvaluator(nil, "/test/project", "/test/template")
+	})
 }
 
 // =============================================================================
@@ -110,6 +122,35 @@ func TestExpressionEvaluator_SetTemplateData(t *testing.T) {
 
 		if string(concreteEvaluator.templateData["test.jsonnet"]) != `{"key": "value"}` {
 			t.Errorf("Expected templateData to contain test.jsonnet")
+		}
+	})
+}
+
+func TestDeferredError_Error(t *testing.T) {
+	t.Run("ReturnsMessageWhenSet", func(t *testing.T) {
+		err := &DeferredError{
+			Expression: "test",
+			Message:    "custom message",
+		}
+
+		result := err.Error()
+
+		if result != "custom message" {
+			t.Errorf("Expected 'custom message', got '%s'", result)
+		}
+	})
+
+	t.Run("ReturnsDefaultMessageWhenMessageEmpty", func(t *testing.T) {
+		err := &DeferredError{
+			Expression: "test_expression",
+			Message:    "",
+		}
+
+		result := err.Error()
+
+		expected := "deferred expression: test_expression"
+		if result != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, result)
 		}
 	})
 }
@@ -737,7 +778,484 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 	})
 
+	t.Run("RecursivelyEvaluatesNestedMaps", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": "evaluated",
+			}, nil
+		}
+
+		values := map[string]any{
+			"nested": map[string]any{
+				"key": "${value}",
+			},
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		nested, ok := result["nested"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected nested to be a map, got %T", result["nested"])
+		}
+
+		if nested["key"] != "evaluated" {
+			t.Errorf("Expected nested.key to be 'evaluated', got %v", nested["key"])
+		}
+	})
+
+	t.Run("RecursivelyEvaluatesArrays", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": "evaluated",
+			}, nil
+		}
+
+		values := map[string]any{
+			"items": []any{
+				"${value}",
+				"plain",
+			},
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		items, ok := result["items"].([]any)
+		if !ok {
+			t.Fatalf("Expected items to be an array, got %T", result["items"])
+		}
+
+		if len(items) != 2 {
+			t.Fatalf("Expected 2 items, got %d", len(items))
+		}
+
+		if items[0] != "evaluated" {
+			t.Errorf("Expected items[0] to be 'evaluated', got %v", items[0])
+		}
+
+		if items[1] != "plain" {
+			t.Errorf("Expected items[1] to be 'plain', got %v", items[1])
+		}
+	})
+
+	t.Run("PreservesDeferredExpressionsInMaps", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"nested": map[string]any{
+				"deferred": "${unknown_var}",
+				"plain":    "value",
+			},
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		nested, ok := result["nested"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected nested to be a map, got %T", result["nested"])
+		}
+
+		if nested["plain"] != "value" {
+			t.Errorf("Expected plain to be 'value', got %v", nested["plain"])
+		}
+	})
+
+	t.Run("PreservesDeferredExpressionsInArrays", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"items": []any{
+				"${unknown_var}",
+				"plain",
+			},
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		items, ok := result["items"].([]any)
+		if !ok {
+			t.Fatalf("Expected items to be an array, got %T", result["items"])
+		}
+
+		if len(items) != 2 {
+			t.Fatalf("Expected 2 items, got %d", len(items))
+		}
+
+		if items[1] != "plain" {
+			t.Errorf("Expected items[1] to be 'plain', got %v", items[1])
+		}
+	})
+
+	t.Run("HandlesNonDeferredErrorInNestedMap", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"nested": map[string]any{
+				"invalid": "${invalid syntax {",
+			},
+		}
+
+		_, err := evaluator.EvaluateMap(values, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for invalid expression")
+		}
+	})
+
+	t.Run("HandlesNonDeferredErrorInNestedArray", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"items": []any{
+				"${invalid syntax {",
+			},
+		}
+
+		_, err := evaluator.EvaluateMap(values, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for invalid expression")
+		}
+	})
+
+	t.Run("HandlesDefaultCaseInEvaluateValue", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"number": 42,
+			"bool":   true,
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["number"] != 42 {
+			t.Errorf("Expected number to be 42, got %v", result["number"])
+		}
+
+		if result["bool"] != true {
+			t.Errorf("Expected bool to be true, got %v", result["bool"])
+		}
+	})
+
+	t.Run("HandlesDeferredErrorInStringEvaluation", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"deferred": "plain_string",
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["deferred"] != "plain_string" {
+			t.Errorf("Expected plain string to be preserved, got %v", result["deferred"])
+		}
+	})
+
+	t.Run("HandlesMapWithExpressionInEvaluatedValue", func(t *testing.T) {
+		// Given an evaluator with config that returns an expression
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": "${another_expr}",
+			}, nil
+		}
+
+		values := map[string]any{
+			"nested": map[string]any{
+				"key": "${value}",
+			},
+		}
+
+		// When evaluating the map
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		// Then it should preserve the original value when evaluated contains expression
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		nested, ok := result["nested"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected nested to be a map, got %T", result["nested"])
+		}
+
+		if nested["key"] != "${value}" {
+			t.Errorf("Expected nested.key to preserve original value when evaluated contains expression, got %v", nested["key"])
+		}
+	})
+
+	t.Run("HandlesArrayWithExpressionInEvaluatedValue", func(t *testing.T) {
+		// Given an evaluator with config that returns an expression
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": "${another_expr}",
+			}, nil
+		}
+
+		values := map[string]any{
+			"items": []any{
+				"${value}",
+			},
+		}
+
+		// When evaluating the map
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		// Then it should preserve the original value when evaluated contains expression
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		items, ok := result["items"].([]any)
+		if !ok {
+			t.Fatalf("Expected items to be an array, got %T", result["items"])
+		}
+
+		if items[0] != "${value}" {
+			t.Errorf("Expected items[0] to preserve original value when evaluated contains expression, got %v", items[0])
+		}
+	})
+
+	t.Run("HandlesEvaluateDeferredTrueInNestedStructures", func(t *testing.T) {
+		// Given an evaluator with config and nested map values
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": "evaluated",
+			}, nil
+		}
+
+		values := map[string]any{
+			"nested": map[string]any{
+				"key": "${value}",
+			},
+		}
+
+		// When evaluating with evaluateDeferred=true
+		result, err := evaluator.EvaluateMap(values, "", true)
+
+		// Then nested values should be evaluated
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		nested, ok := result["nested"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected nested to be a map, got %T", result["nested"])
+		}
+
+		if nested["key"] != "evaluated" {
+			t.Errorf("Expected nested.key to be 'evaluated', got %v", nested["key"])
+		}
+	})
+
+	t.Run("HandlesEvaluateDeferredTrueWithArray", func(t *testing.T) {
+		// Given an evaluator with config and array values
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": "evaluated",
+			}, nil
+		}
+
+		values := map[string]any{
+			"items": []any{
+				"${value}",
+				"plain",
+			},
+		}
+
+		// When evaluating with evaluateDeferred=true
+		result, err := evaluator.EvaluateMap(values, "", true)
+
+		// Then array values should be evaluated
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		items, ok := result["items"].([]any)
+		if !ok {
+			t.Fatalf("Expected items to be an array, got %T", result["items"])
+		}
+
+		if items[0] != "evaluated" {
+			t.Errorf("Expected items[0] to be 'evaluated', got %v", items[0])
+		}
+	})
+
+	t.Run("HandlesStringEvaluationErrorWithEvaluateDeferredTrue", func(t *testing.T) {
+		// Given an evaluator and invalid expression
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"invalid": "${invalid syntax {",
+		}
+
+		// When evaluating with evaluateDeferred=true
+		_, err := evaluator.EvaluateMap(values, "", true)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for invalid expression when evaluateDeferred is true")
+		}
+	})
+
+	t.Run("HandlesMapEvaluationErrorWithEvaluateDeferredTrue", func(t *testing.T) {
+		// Given an evaluator and nested map with invalid expression
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"nested": map[string]any{
+				"invalid": "${invalid syntax {",
+			},
+		}
+
+		// When evaluating with evaluateDeferred=true
+		_, err := evaluator.EvaluateMap(values, "", true)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for invalid expression in nested map when evaluateDeferred is true")
+		}
+	})
+
+	t.Run("HandlesArrayEvaluationErrorWithEvaluateDeferredTrue", func(t *testing.T) {
+		// Given an evaluator and array with invalid expression
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"items": []any{
+				"${invalid syntax {",
+			},
+		}
+
+		// When evaluating with evaluateDeferred=true
+		_, err := evaluator.EvaluateMap(values, "", true)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for invalid expression in array when evaluateDeferred is true")
+		}
+	})
+
+	t.Run("HandlesStringWithEvaluateDeferredTrue", func(t *testing.T) {
+		// Given an evaluator with config
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"value": "evaluated",
+			}, nil
+		}
+
+		values := map[string]any{
+			"key": "${value}",
+		}
+
+		// When evaluating with evaluateDeferred=true
+		result, err := evaluator.EvaluateMap(values, "", true)
+
+		// Then the value should be evaluated
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["key"] != "evaluated" {
+			t.Errorf("Expected key to be 'evaluated', got %v", result["key"])
+		}
+	})
+
+	t.Run("HandlesNonDeferredErrorInStringWithEvaluateDeferredFalse", func(t *testing.T) {
+		// Given an evaluator and invalid expression
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"invalid": "${invalid syntax {",
+		}
+
+		// When evaluating with evaluateDeferred=false
+		_, err := evaluator.EvaluateMap(values, "", false)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for invalid expression when evaluateDeferred is false")
+		}
+	})
+
+	t.Run("HandlesNonDeferredErrorInMapWithEvaluateDeferredFalse", func(t *testing.T) {
+		// Given an evaluator and nested map with invalid expression
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"nested": map[string]any{
+				"invalid": "${invalid syntax {",
+			},
+		}
+
+		// When evaluating with evaluateDeferred=false
+		_, err := evaluator.EvaluateMap(values, "", false)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for invalid expression in nested map when evaluateDeferred is false")
+		}
+	})
+
+	t.Run("HandlesNonDeferredErrorInArrayWithEvaluateDeferredFalse", func(t *testing.T) {
+		// Given an evaluator and array with invalid expression
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		values := map[string]any{
+			"items": []any{
+				"${invalid syntax {",
+			},
+		}
+
+		// When evaluating with evaluateDeferred=false
+		_, err := evaluator.EvaluateMap(values, "", false)
+
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for invalid expression in array when evaluateDeferred is false")
+		}
+	})
+}
+
+func TestExpressionEvaluator_EvaluateMap_Additional(t *testing.T) {
 	t.Run("PassesFeaturePathToEvaluate", func(t *testing.T) {
+		// Given a mock evaluator that captures feature path
 		mockEvaluator := NewMockExpressionEvaluator()
 		var receivedPath string
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
@@ -750,8 +1268,11 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		expectedPath := "test/feature/path"
+
+		// When evaluating with a feature path
 		_, err := mockEvaluator.EvaluateMap(values, expectedPath, false)
 
+		// Then the feature path should be passed correctly
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -762,6 +1283,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("HandlesInterpolatedStrings", func(t *testing.T) {
+		// Given an evaluator with config
 		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
@@ -774,8 +1296,10 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"greeting": "Hello ${name}!",
 		}
 
+		// When evaluating interpolated strings
 		result, err := evaluator.EvaluateMap(values, "", false)
 
+		// Then the interpolation should work
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -786,6 +1310,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("HandlesComplexTypesInExpressions", func(t *testing.T) {
+		// Given an evaluator with config containing complex types
 		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
@@ -800,8 +1325,10 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"object": "${config}",
 		}
 
+		// When evaluating expressions with complex types
 		result, err := evaluator.EvaluateMap(values, "", false)
 
+		// Then complex types should be evaluated correctly
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -816,6 +1343,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("PreventsInfiniteLoopWithDeferredTerraformOutputInInterpolation", func(t *testing.T) {
+		// Given an evaluator with terraform_output helper that returns DeferredError
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 		evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 			if len(params) != 2 {
@@ -826,23 +1354,30 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			if deferred {
 				return nil, fmt.Errorf("terraform outputs not available for component %s", component)
 			}
-			return fmt.Sprintf(`terraform_output("%s", "%s")`, component, key), nil
+			return nil, &DeferredError{
+				Expression: fmt.Sprintf(`terraform_output("%s", "%s")`, component, key),
+				Message:    fmt.Sprintf("terraform output '%s' for component %s is deferred", key, component),
+			}
 		}, new(func(string, string) any))
 
 		input := "prefix-${terraform_output('a','b')}-suffix"
+
+		// When evaluating with deferred expression
 		result, err := evaluator.Evaluate(input, "", false)
 
+		// Then the original input should be preserved
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		expected := "prefix-${terraform_output(\"a\", \"b\")}-suffix"
+		expected := input
 		if result != expected {
-			t.Errorf("Expected result to be %q, got %q", expected, result)
+			t.Errorf("Expected result to be preserved as original %q, got %q", expected, result)
 		}
 	})
 
 	t.Run("SkipsPartiallyInterpolatedStringsWithUnresolvedExpressions", func(t *testing.T) {
+		// Given an evaluator with terraform_output helper and mixed values
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 		evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 			if len(params) != 2 {
@@ -853,7 +1388,10 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			if deferred {
 				return nil, fmt.Errorf("terraform outputs not available for component %s", component)
 			}
-			return fmt.Sprintf(`terraform_output("%s", "%s")`, component, key), nil
+			return nil, &DeferredError{
+				Expression: fmt.Sprintf(`terraform_output("%s", "%s")`, component, key),
+				Message:    fmt.Sprintf("terraform output '%s' for component %s is deferred", key, component),
+			}
 		}, new(func(string, string) any))
 
 		values := map[string]any{
@@ -861,14 +1399,19 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"normal":   "value",
 		}
 
+		// When evaluating the map
 		result, err := evaluator.EvaluateMap(values, "", false)
 
+		// Then deferred values should be preserved and normal values evaluated
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if _, exists := result["deferred"]; exists {
-			t.Error("Expected partially interpolated string with unresolved expression to be skipped")
+		if _, exists := result["deferred"]; !exists {
+			t.Error("Expected deferred value to be preserved in result")
+		}
+		if result["deferred"] != values["deferred"] {
+			t.Errorf("Expected deferred to be preserved as original value, got %v", result["deferred"])
 		}
 
 		if result["normal"] != "value" {
@@ -877,6 +1420,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	})
 
 	t.Run("HandlesEmptyStringValues", func(t *testing.T) {
+		// Given an evaluator and values with empty strings
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		values := map[string]any{
@@ -884,8 +1428,10 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"nonEmpty": "value",
 		}
 
+		// When evaluating the map
 		result, err := evaluator.EvaluateMap(values, "", false)
 
+		// Then empty strings should be preserved
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -903,50 +1449,148 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 func TestContainsExpression(t *testing.T) {
 	t.Run("ReturnsTrueForFullyWrappedExpression", func(t *testing.T) {
+		// Given a fully wrapped expression
+		// When checking if it contains an expression
+		// Then it should return true
 		if !ContainsExpression("${foo.bar}") {
 			t.Error("Expected ContainsExpression to return true for fully wrapped expression")
 		}
 	})
 
 	t.Run("ReturnsTrueForPartiallyInterpolatedString", func(t *testing.T) {
+		// Given a partially interpolated string
+		// When checking if it contains an expression
+		// Then it should return true
 		if !ContainsExpression("prefix-${terraform_output('x', 'y')}-suffix") {
 			t.Error("Expected ContainsExpression to return true for partially interpolated string")
 		}
 	})
 
 	t.Run("ReturnsTrueForMultipleExpressions", func(t *testing.T) {
+		// Given a string with multiple expressions
+		// When checking if it contains an expression
+		// Then it should return true
 		if !ContainsExpression("${foo}-${bar}") {
 			t.Error("Expected ContainsExpression to return true for string with multiple expressions")
 		}
 	})
 
 	t.Run("ReturnsFalseForStringWithoutExpression", func(t *testing.T) {
+		// Given a plain string without expression
+		// When checking if it contains an expression
+		// Then it should return false
 		if ContainsExpression("plain string") {
 			t.Error("Expected ContainsExpression to return false for plain string")
 		}
 	})
 
 	t.Run("ReturnsFalseForUnclosedExpression", func(t *testing.T) {
+		// Given a string with unclosed expression
+		// When checking if it contains an expression
+		// Then it should return false
 		if ContainsExpression("${unclosed") {
 			t.Error("Expected ContainsExpression to return false for unclosed expression")
 		}
 	})
 
 	t.Run("ReturnsFalseForNonStringValue", func(t *testing.T) {
+		// Given a non-string value
+		// When checking if it contains an expression
+		// Then it should return false
 		if ContainsExpression(42) {
 			t.Error("Expected ContainsExpression to return false for non-string value")
 		}
 	})
 
 	t.Run("ReturnsFalseForNil", func(t *testing.T) {
+		// Given a nil value
+		// When checking if it contains an expression
+		// Then it should return false
 		if ContainsExpression(nil) {
 			t.Error("Expected ContainsExpression to return false for nil")
 		}
 	})
 
 	t.Run("ReturnsFalseForEmptyString", func(t *testing.T) {
+		// Given an empty string
+		// When checking if it contains an expression
+		// Then it should return false
 		if ContainsExpression("") {
 			t.Error("Expected ContainsExpression to return false for empty string")
+		}
+	})
+
+	t.Run("ReturnsTrueForMapWithExpression", func(t *testing.T) {
+		// Given a map with an expression value
+		value := map[string]any{
+			"key": "${expression}",
+		}
+
+		// When checking if it contains an expression
+		// Then it should return true
+		if !ContainsExpression(value) {
+			t.Error("Expected ContainsExpression to return true for map with expression")
+		}
+	})
+
+	t.Run("ReturnsFalseForMapWithoutExpression", func(t *testing.T) {
+		// Given a map without expression values
+		value := map[string]any{
+			"key": "plain value",
+		}
+
+		// When checking if it contains an expression
+		// Then it should return false
+		if ContainsExpression(value) {
+			t.Error("Expected ContainsExpression to return false for map without expression")
+		}
+	})
+
+	t.Run("ReturnsTrueForNestedMapWithExpression", func(t *testing.T) {
+		// Given a nested map with an expression
+		value := map[string]any{
+			"outer": map[string]any{
+				"inner": "${expression}",
+			},
+		}
+
+		// When checking if it contains an expression
+		// Then it should return true
+		if !ContainsExpression(value) {
+			t.Error("Expected ContainsExpression to return true for nested map with expression")
+		}
+	})
+
+	t.Run("ReturnsTrueForArrayWithExpression", func(t *testing.T) {
+		// Given an array with an expression
+		value := []any{"plain", "${expression}"}
+
+		// When checking if it contains an expression
+		// Then it should return true
+		if !ContainsExpression(value) {
+			t.Error("Expected ContainsExpression to return true for array with expression")
+		}
+	})
+
+	t.Run("ReturnsFalseForArrayWithoutExpression", func(t *testing.T) {
+		// Given an array without expressions
+		value := []any{"plain", "value"}
+
+		// When checking if it contains an expression
+		// Then it should return false
+		if ContainsExpression(value) {
+			t.Error("Expected ContainsExpression to return false for array without expression")
+		}
+	})
+
+	t.Run("ReturnsTrueForNestedArrayWithExpression", func(t *testing.T) {
+		// Given a nested array with an expression
+		value := []any{[]any{"${expression}"}}
+
+		// When checking if it contains an expression
+		// Then it should return true
+		if !ContainsExpression(value) {
+			t.Error("Expected ContainsExpression to return true for nested array with expression")
 		}
 	})
 }

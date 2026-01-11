@@ -3,6 +3,7 @@ package terraform
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -2254,6 +2256,105 @@ variable "cluster_name" { type = string }`
 			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
+
+	t.Run("FiltersDeferredValuesWithContainsExpression", func(t *testing.T) {
+		// Given a resolver with component inputs containing deferred expressions
+		resolver, mocks := setup(t)
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			result := make(map[string]any)
+			for key, value := range values {
+				if strVal, ok := value.(string); ok && strVal == "deferred_value" {
+					result[key] = "${terraform_output(vpc.id)}"
+				} else {
+					result[key] = value
+				}
+			}
+			return result, nil
+		}
+		resolver.evaluator = mockEvaluator
+
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		os.MkdirAll(moduleDir, 0755)
+		os.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644)
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:   "test-module",
+					Source: "git::https://github.com/test/module.git",
+					Inputs: map[string]any{
+						"cluster_name": "test-cluster",
+						"vpc_id":       "deferred_value",
+					},
+					FullPath: moduleDir,
+				},
+			}
+		}
+
+		resolver.shims.Stat = os.Stat
+		resolver.shims.ReadFile = os.ReadFile
+		resolver.shims.MkdirAll = os.MkdirAll
+		resolver.shims.WriteFile = os.WriteFile
+
+		// When generating tfvars
+		err := resolver.GenerateTfvars(false)
+
+		// Then it should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And tfvars file should only contain non-deferred values
+		tfvarsPath := filepath.Join(moduleDir, "terraform.tfvars")
+		content, err := os.ReadFile(tfvarsPath)
+		if err != nil {
+			t.Fatalf("Expected tfvars file to be created, got error: %v", err)
+		}
+		contentStr := string(content)
+		if !strings.Contains(contentStr, "cluster_name") {
+			t.Error("Expected tfvars to contain cluster_name")
+		}
+		if strings.Contains(contentStr, "vpc_id") {
+			t.Error("Expected tfvars to NOT contain deferred vpc_id")
+		}
+	})
+
+	t.Run("HandlesCheckExistingTfvarsFileStatError", func(t *testing.T) {
+		resolver, mocks := setup(t)
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		os.MkdirAll(moduleDir, 0755)
+		os.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644)
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:     "test-module",
+					Source:   "git::https://github.com/test/module.git",
+					FullPath: moduleDir,
+				},
+			}
+		}
+
+		tfvarsPath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module", "terraform.tfvars")
+		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == tfvarsPath {
+				return nil, errors.New("stat error")
+			}
+			return os.Stat(path)
+		}
+		resolver.shims.ReadFile = os.ReadFile
+		resolver.shims.MkdirAll = os.MkdirAll
+		resolver.shims.WriteFile = os.WriteFile
+
+		err := resolver.GenerateTfvars(false)
+
+		if err == nil {
+			t.Error("Expected error when stat fails with non-NotExist error")
+		}
+	})
 }
 
 func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
@@ -2325,7 +2426,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
 		mocks.Runtime.Evaluator = testEvaluator
 		inputs := map[string]any{
-			"plain":     "plainstring",
+			"plain":      "plainstring",
 			"expression": "${value}",
 		}
 
@@ -2450,6 +2551,353 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 
 		if !receivedEvaluateDeferred {
 			t.Error("Expected evaluateDeferred to be true")
+		}
+	})
+}
+
+func TestBaseModuleResolver_checkExistingTfvarsFile(t *testing.T) {
+	setup := func(t *testing.T) (*BaseModuleResolver, string) {
+		t.Helper()
+		mocks := setupTerraformMocks(t)
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
+		tmpDir := t.TempDir()
+		return resolver, tmpDir
+	}
+
+	t.Run("ReturnsNilWhenFileDoesNotExist", func(t *testing.T) {
+		// Given a resolver and a non-existent file path
+		resolver, tmpDir := setup(t)
+		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
+		resolver.shims.Stat = os.Stat
+		resolver.shims.ReadFile = os.ReadFile
+
+		// When checking existing tfvars file
+		err := resolver.checkExistingTfvarsFile(tfvarsPath)
+
+		// Then it should return nil
+		if err != nil {
+			t.Errorf("Expected nil error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrExistWhenFileExistsAndIsReadable", func(t *testing.T) {
+		// Given a resolver and an existing file
+		resolver, tmpDir := setup(t)
+		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
+		os.WriteFile(tfvarsPath, []byte("test = \"value\""), 0644)
+		resolver.shims.Stat = os.Stat
+		resolver.shims.ReadFile = os.ReadFile
+
+		// When checking existing tfvars file
+		err := resolver.checkExistingTfvarsFile(tfvarsPath)
+
+		// Then it should return os.ErrExist
+		if err != os.ErrExist {
+			t.Errorf("Expected os.ErrExist, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenFileExistsButIsNotReadable", func(t *testing.T) {
+		// Given a resolver and a file that exists but cannot be read
+		resolver, tmpDir := setup(t)
+		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
+		os.WriteFile(tfvarsPath, []byte("test = \"value\""), 0644)
+		resolver.shims.Stat = os.Stat
+		resolver.shims.ReadFile = func(string) ([]byte, error) {
+			return nil, errors.New("read error")
+		}
+
+		// When checking existing tfvars file
+		err := resolver.checkExistingTfvarsFile(tfvarsPath)
+
+		// Then it should return an error
+		if err == nil {
+			t.Error("Expected error when file cannot be read, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read existing tfvars file") {
+			t.Errorf("Expected error about reading file, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenStatFailsWithNonNotExistError", func(t *testing.T) {
+		// Given a resolver with a stat function that fails
+		resolver, tmpDir := setup(t)
+		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
+		resolver.shims.Stat = func(string) (os.FileInfo, error) {
+			return nil, errors.New("stat error")
+		}
+		resolver.shims.ReadFile = os.ReadFile
+
+		// When checking existing tfvars file
+		err := resolver.checkExistingTfvarsFile(tfvarsPath)
+
+		// Then it should return an error
+		if err == nil {
+			t.Error("Expected error when stat fails, got nil")
+		}
+		if !strings.Contains(err.Error(), "error checking tfvars file") {
+			t.Errorf("Expected error about checking file, got: %v", err)
+		}
+	})
+}
+
+func Test_formatValue(t *testing.T) {
+	t.Run("FormatsString", func(t *testing.T) {
+		// Given a string value
+		value := "test"
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be quoted
+		if result != `"test"` {
+			t.Errorf("Expected '\"test\"', got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsEmptyStringSlice", func(t *testing.T) {
+		// Given an empty string slice
+		value := []string{}
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be empty array
+		if result != "[]" {
+			t.Errorf("Expected '[]', got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsStringSlice", func(t *testing.T) {
+		// Given a string slice
+		value := []string{"a", "b", "c"}
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be formatted array
+		expected := `["a", "b", "c"]`
+		if result != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, result)
+		}
+	})
+
+	t.Run("FormatsEmptyAnySlice", func(t *testing.T) {
+		// Given an empty any slice
+		value := []any{}
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be empty array
+		if result != "[]" {
+			t.Errorf("Expected '[]', got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsAnySlice", func(t *testing.T) {
+		// Given an any slice
+		value := []any{"a", 1, true}
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be formatted array
+		if !strings.Contains(result, `"a"`) {
+			t.Errorf("Expected result to contain '\"a\"', got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsEmptyMap", func(t *testing.T) {
+		// Given an empty map
+		value := map[string]any{}
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be empty object
+		if result != "{}" {
+			t.Errorf("Expected '{}', got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsMap", func(t *testing.T) {
+		// Given a map
+		value := map[string]any{
+			"key1": "value1",
+			"key2": 42,
+		}
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be formatted object
+		if !strings.Contains(result, "key1") || !strings.Contains(result, "key2") {
+			t.Errorf("Expected result to contain keys, got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsNestedMap", func(t *testing.T) {
+		// Given a nested map
+		value := map[string]any{
+			"outer": map[string]any{
+				"inner": "value",
+			},
+		}
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be formatted nested object
+		if !strings.Contains(result, "outer") || !strings.Contains(result, "inner") {
+			t.Errorf("Expected result to contain nested keys, got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsNil", func(t *testing.T) {
+		// Given a nil value
+		var value any = nil
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be null
+		if result != "null" {
+			t.Errorf("Expected 'null', got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsNumber", func(t *testing.T) {
+		// Given a number value
+		value := 42
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be formatted as string
+		if result != "42" {
+			t.Errorf("Expected '42', got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsBoolean", func(t *testing.T) {
+		// Given a boolean value
+		value := true
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should be formatted as string
+		if result != "true" {
+			t.Errorf("Expected 'true', got '%s'", result)
+		}
+	})
+
+	t.Run("FormatsMapWithEmptyValues", func(t *testing.T) {
+		// Given a map with empty nested values
+		value := map[string]any{
+			"empty_map":   map[string]any{},
+			"empty_array": []any{},
+		}
+
+		// When formatting the value
+		result := formatValue(value)
+
+		// Then it should format empty values correctly
+		if !strings.Contains(result, "empty_map = {}") {
+			t.Errorf("Expected result to contain 'empty_map = {}', got '%s'", result)
+		}
+		if !strings.Contains(result, "empty_array = []") {
+			t.Errorf("Expected result to contain 'empty_array = []', got '%s'", result)
+		}
+	})
+}
+
+func Test_writeVariable(t *testing.T) {
+	t.Run("WritesVariableWithDescription", func(t *testing.T) {
+		// Given a body and variable info with description
+		file := hclwrite.NewEmptyFile()
+		body := file.Body()
+		variables := []VariableInfo{
+			{Name: "test", Description: "Test variable"},
+		}
+
+		// When writing variable
+		writeVariable(body, "test", "value", variables)
+
+		// Then it should include description comment
+		content := string(file.Bytes())
+		if !strings.Contains(content, "# Test variable") {
+			t.Errorf("Expected description comment, got: %s", content)
+		}
+	})
+
+	t.Run("SkipsSensitiveVariable", func(t *testing.T) {
+		// Given a body and variable info with sensitive flag
+		file := hclwrite.NewEmptyFile()
+		body := file.Body()
+		variables := []VariableInfo{
+			{Name: "test", Sensitive: true},
+		}
+
+		// When writing variable
+		writeVariable(body, "test", "value", variables)
+
+		// Then it should include sensitive comment and not write value
+		content := string(file.Bytes())
+		if !strings.Contains(content, "# test = \"(sensitive)\"") {
+			t.Errorf("Expected sensitive comment, got: %s", content)
+		}
+		if strings.Contains(content, "test = \"value\"") {
+			t.Error("Expected sensitive variable value to be skipped")
+		}
+	})
+
+	t.Run("WritesStringWithNewlinesAsHeredoc", func(t *testing.T) {
+		// Given a body and a string value with newlines
+		file := hclwrite.NewEmptyFile()
+		body := file.Body()
+		variables := []VariableInfo{}
+
+		// When writing variable with multiline string
+		writeVariable(body, "test", "line1\nline2\nline3", variables)
+
+		// Then it should use heredoc format
+		content := string(file.Bytes())
+		if !strings.Contains(content, "<<-EOT") && !strings.Contains(content, "<<EOF") {
+			t.Errorf("Expected heredoc format, got: %s", content)
+		}
+	})
+
+	t.Run("WritesMapValue", func(t *testing.T) {
+		// Given a body and a map value
+		file := hclwrite.NewEmptyFile()
+		body := file.Body()
+		variables := []VariableInfo{}
+
+		// When writing variable with map value
+		writeVariable(body, "test", map[string]any{"key": "value"}, variables)
+
+		// Then it should format as map
+		content := string(file.Bytes())
+		if !strings.Contains(content, "test =") {
+			t.Errorf("Expected map assignment, got: %s", content)
+		}
+	})
+
+	t.Run("WritesSimpleValue", func(t *testing.T) {
+		// Given a body and a simple value
+		file := hclwrite.NewEmptyFile()
+		body := file.Body()
+		variables := []VariableInfo{}
+
+		// When writing variable with simple value
+		writeVariable(body, "test", "value", variables)
+
+		// Then it should write attribute
+		content := string(file.Bytes())
+		if !strings.Contains(content, "test") {
+			t.Errorf("Expected variable assignment, got: %s", content)
 		}
 	})
 }

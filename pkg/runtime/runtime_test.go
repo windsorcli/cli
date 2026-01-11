@@ -2706,8 +2706,8 @@ func TestRuntime_initializeComponents_EdgeCases(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		// When initializeComponents is called
-		err := rt.initializeComponents()
+		// When InitializeComponents is called
+		err := rt.InitializeComponents()
 
 		// Then no error should be returned
 		if err != nil {
