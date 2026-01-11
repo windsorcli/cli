@@ -611,7 +611,8 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 // If outputs for the component are requested for the first time, all outputs are fetched from Terraform
 // and cached for subsequent requests. Cached values are used for later accesses to avoid redundant retrievals.
 // When deferred is false, this function returns a DeferredError to signal that the expression should be preserved.
-// When deferred is true, it returns the actual output value if available, or the expression string if not found.
+// When deferred is true, it returns the actual output value if available, or an error if outputs are unavailable
+// or the key is not found. This prevents expression strings from being passed as literal values to Terraform.
 func (p *terraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
 	if !deferred {
 		return nil, &evaluator.DeferredError{
@@ -631,7 +632,7 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 
 	outputs, _ := p.GetTerraformOutputs(componentID)
 	if len(outputs) == 0 {
-		return expression, nil
+		return nil, fmt.Errorf("terraform outputs unavailable for component '%s': component may not be initialized or terraform may not have been applied", componentID)
 	}
 
 	p.mu.Lock()
@@ -653,7 +654,7 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 		return value, nil
 	}
 
-	return expression, nil
+	return nil, fmt.Errorf("terraform output key '%s' not found for component '%s'", key, componentID)
 }
 
 // getBaseEnvVarsForComponent returns the base environment variables for a Terraform component
