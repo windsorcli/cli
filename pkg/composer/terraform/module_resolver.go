@@ -92,17 +92,33 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			componentValues = make(map[string]any)
 		}
 
-		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", true)
+		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", false)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
 		}
 
-		if err := h.generateComponentTfvars(projectRoot, component, evaluatedValues); err != nil {
+		nonDeferredValues := make(map[string]any)
+		for key, value := range evaluatedValues {
+			containsExpr := evaluator.ContainsExpression(value)
+			if !containsExpr {
+				nonDeferredValues[key] = value
+			}
+		}
+
+		if err := h.generateComponentTfvars(projectRoot, component, nonDeferredValues); err != nil {
 			return fmt.Errorf("failed to generate tfvars for component %s: %w", component.Path, err)
 		}
 	}
 
 	return nil
+}
+
+func getMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // =============================================================================

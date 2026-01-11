@@ -2,6 +2,7 @@ package evaluator
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,53 @@ func TestExpressionEvaluator_enrichConfig(t *testing.T) {
 
 		if result != "project_root" {
 			t.Errorf("Expected project_root to be 'project_root', got %v", result)
+		}
+	})
+
+	t.Run("HandlesGetConfigRootError", func(t *testing.T) {
+		// Given an evaluator with config handler that returns error for GetConfigRoot
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetConfigRootFunc = func() (string, error) {
+			return "", errors.New("config root error")
+		}
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		// When evaluating an expression (which enriches config)
+		result, err := evaluator.Evaluate("value", "", false)
+
+		// Then evaluation should succeed without context_path
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != "value" {
+			t.Errorf("Expected result to be 'value', got %v", result)
+		}
+	})
+
+	t.Run("HandlesNilConfigHandlerInEnrichConfig", func(t *testing.T) {
+		// Given an evaluator without config handler (but this can't happen due to panic)
+		// This test verifies enrichConfig handles nil configHandler gracefully
+		// by testing through getConfig which returns empty map when configHandler is nil
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
+
+		// When evaluating an expression
+		result, err := evaluator.Evaluate("${project_root}", "", false)
+
+		// Then project_root should still be available from projectRoot field
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != "/test/project" {
+			t.Errorf("Expected project_root to be '/test/project', got %v", result)
 		}
 	})
 }
@@ -228,6 +276,148 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 			t.Fatal("Expected error for non-string arguments, got nil")
 		}
 	})
+
+	t.Run("IncludesRegisteredHelpers", func(t *testing.T) {
+		// Given an evaluator with a registered helper
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("custom", func(params []any, deferred bool) (any, error) {
+			if len(params) != 1 {
+				return nil, fmt.Errorf("custom() requires exactly 1 argument")
+			}
+			return "custom_result", nil
+		}, new(func(string) string))
+
+		// When evaluating an expression with the custom helper
+		result, err := evaluator.Evaluate(`${custom("test")}`, "", false)
+
+		// Then it should use the custom helper
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "custom_result" {
+			t.Errorf("Expected result to be 'custom_result', got %v", result)
+		}
+	})
+
+	t.Run("IncludesMultipleRegisteredHelpers", func(t *testing.T) {
+		// Given an evaluator with multiple registered helpers
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("helper1", func(params []any, deferred bool) (any, error) {
+			return "result1", nil
+		}, new(func() string))
+		evaluator.Register("helper2", func(params []any, deferred bool) (any, error) {
+			return "result2", nil
+		}, new(func() string))
+
+		// When evaluating expressions with both helpers
+		result1, err1 := evaluator.Evaluate(`${helper1()}`, "", false)
+		result2, err2 := evaluator.Evaluate(`${helper2()}`, "", false)
+
+		// Then both helpers should work
+		if err1 != nil {
+			t.Fatalf("Expected no error for helper1, got: %v", err1)
+		}
+		if result1 != "result1" {
+			t.Errorf("Expected result1 to be 'result1', got %v", result1)
+		}
+		if err2 != nil {
+			t.Fatalf("Expected no error for helper2, got: %v", err2)
+		}
+		if result2 != "result2" {
+			t.Errorf("Expected result2 to be 'result2', got %v", result2)
+		}
+	})
+
+	t.Run("PassesDeferredFlagToHelpers", func(t *testing.T) {
+		// Given an evaluator with a helper that checks deferred flag
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		var receivedDeferred bool
+		evaluator.Register("deferredCheck", func(params []any, deferred bool) (any, error) {
+			receivedDeferred = deferred
+			return deferred, nil
+		}, new(func() bool))
+
+		// When evaluating with evaluateDeferred=true
+		result, err := evaluator.Evaluate(`${deferredCheck()}`, "", true)
+
+		// Then the helper should receive deferred=true
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !receivedDeferred {
+			t.Error("Expected helper to receive deferred=true")
+		}
+		if result != true {
+			t.Errorf("Expected result to be true, got %v", result)
+		}
+	})
+
+	t.Run("HandlesHelperErrors", func(t *testing.T) {
+		// Given an evaluator with a helper that returns an error
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("errorHelper", func(params []any, deferred bool) (any, error) {
+			return nil, fmt.Errorf("helper error")
+		}, new(func() string))
+
+		// When evaluating an expression with the error helper
+		_, err := evaluator.Evaluate(`${errorHelper()}`, "", false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error from helper, got nil")
+		}
+		if !strings.Contains(err.Error(), "helper error") {
+			t.Errorf("Expected error to contain 'helper error', got: %v", err)
+		}
+	})
+
+	t.Run("BuildsEnvironmentWithDeferredTrue", func(t *testing.T) {
+		// Given an evaluator with a helper that checks deferred flag
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		var receivedDeferred bool
+		evaluator.Register("deferredHelper", func(params []any, deferred bool) (any, error) {
+			receivedDeferred = deferred
+			return deferred, nil
+		}, new(func() bool))
+
+		// When evaluating with evaluateDeferred=true
+		result, err := evaluator.Evaluate(`${deferredHelper()}`, "", true)
+
+		// Then the helper should receive deferred=true
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !receivedDeferred {
+			t.Error("Expected helper to receive deferred=true")
+		}
+		if result != true {
+			t.Errorf("Expected result to be true, got %v", result)
+		}
+	})
+
+	t.Run("BuildsEnvironmentWithDeferredFalse", func(t *testing.T) {
+		// Given an evaluator with a helper that checks deferred flag
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		var receivedDeferred bool
+		evaluator.Register("deferredHelper", func(params []any, deferred bool) (any, error) {
+			receivedDeferred = deferred
+			return deferred, nil
+		}, new(func() bool))
+
+		// When evaluating with evaluateDeferred=false
+		result, err := evaluator.Evaluate(`${deferredHelper()}`, "", false)
+
+		// Then the helper should receive deferred=false
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if receivedDeferred {
+			t.Error("Expected helper to receive deferred=false")
+		}
+		if result != false {
+			t.Errorf("Expected result to be false, got %v", result)
+		}
+	})
 }
 
 func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
@@ -367,6 +557,146 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 			t.Errorf("Expected result.result to be 'from-template', got %v", resultMap["result"])
 		}
 	})
+
+	t.Run("HandlesJsonMarshalError", func(t *testing.T) {
+		evaluator, mockShims, _ := setupEvaluatorWithMockShims(t)
+		mockShims.JsonMarshal = func(any) ([]byte, error) {
+			return nil, errors.New("marshal error")
+		}
+		tmpDir := t.TempDir()
+		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
+		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
+		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		if err == nil {
+			t.Fatal("Expected error for JSON marshal failure, got nil")
+		}
+	})
+
+	t.Run("HandlesJsonUnmarshalError", func(t *testing.T) {
+		evaluator, mockShims, _ := setupEvaluatorWithMockShims(t)
+		mockShims.JsonUnmarshal = func([]byte, any) error {
+			return errors.New("unmarshal error")
+		}
+		tmpDir := t.TempDir()
+		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
+		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
+		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		if err == nil {
+			t.Fatal("Expected error for JSON unmarshal failure, got nil")
+		}
+	})
+
+	t.Run("HandlesJsonnetWithEmptyDir", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		tmpDir := t.TempDir()
+		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
+		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
+		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be a map, got %T", result)
+		}
+		if resultMap["result"] != "success" {
+			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
+		}
+	})
+
+	t.Run("HandlesJsonnetWithEmptyDirPath", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		tmpDir := t.TempDir()
+		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
+		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
+		featurePath := jsonnetFile
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be a map, got %T", result)
+		}
+		if resultMap["result"] != "success" {
+			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
+		}
+	})
+
+	t.Run("HandlesJsonnetWithTemplateRootFallback", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"_template/config/test.jsonnet": []byte(`{"result": "from-fallback"}`),
+		}
+		evaluator.SetTemplateData(templateData)
+		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
+		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		result, err := evaluator.Evaluate(`${jsonnet("../config/test.jsonnet")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be a map, got %T", result)
+		}
+		if resultMap["result"] != "from-fallback" {
+			t.Errorf("Expected result.result to be 'from-fallback', got %v", resultMap["result"])
+		}
+	})
+
+	t.Run("HandlesJsonnetWithTemplateRootFallbackWithoutPrefix", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"other/test.jsonnet": []byte(`{"result": "from-fallback-no-prefix"}`),
+		}
+		evaluator.SetTemplateData(templateData)
+		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
+		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		result, err := evaluator.Evaluate(`${jsonnet("../../other/test.jsonnet")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be a map, got %T", result)
+		}
+		if resultMap["result"] != "from-fallback-no-prefix" {
+			t.Errorf("Expected result.result to be 'from-fallback-no-prefix', got %v", resultMap["result"])
+		}
+	})
+
+	t.Run("HandlesJsonnetWithFilepathRelError", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{}
+		evaluator.SetTemplateData(templateData)
+		jsonnetFile := filepath.Join(templateRoot, "test.jsonnet")
+		os.MkdirAll(filepath.Dir(jsonnetFile), 0755)
+		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
+		featurePath := filepath.Join(templateRoot, "test.yaml")
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be a map, got %T", result)
+		}
+		if resultMap["result"] != "success" {
+			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
+		}
+	})
 }
 
 func TestExpressionEvaluator_buildContextMap(t *testing.T) {
@@ -487,6 +817,122 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 			t.Errorf("Expected result to be 'from-template', got '%v'", result)
 		}
 	})
+
+	t.Run("HandlesTemplateDataWithTemplateRootFallback", func(t *testing.T) {
+		// Given an evaluator with template root and template data with fallback path
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"_template/config/test.txt": []byte("from-template-fallback"),
+		}
+		evaluator.SetTemplateData(templateData)
+		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
+		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		result, err := evaluator.Evaluate(`${file("../config/test.txt")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "from-template-fallback" {
+			t.Errorf("Expected result to be 'from-template-fallback', got '%v'", result)
+		}
+	})
+
+	t.Run("HandlesTemplateDataWithTemplateRootFallbackWithoutPrefix", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"test.txt": []byte("from-template-no-prefix"),
+		}
+		evaluator.SetTemplateData(templateData)
+		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
+		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		result, err := evaluator.Evaluate(`${file("../test.txt")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "from-template-no-prefix" {
+			t.Errorf("Expected result to be 'from-template-no-prefix', got '%v'", result)
+		}
+	})
+
+	t.Run("HandlesTemplateDataWithoutTemplateRoot", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "")
+		templateData := map[string][]byte{
+			"test.txt": []byte("from-template"),
+		}
+		evaluator.SetTemplateData(templateData)
+		_, err := evaluator.Evaluate(`${file("test.txt")}`, "/test/feature.yaml", false)
+		if err == nil {
+			t.Log("File read succeeded, which is acceptable")
+		}
+	})
+
+	t.Run("HandlesPathOutsideTemplateRoot", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"_template/test.txt": []byte("from-template"),
+		}
+		evaluator.SetTemplateData(templateData)
+		outsideFile := filepath.Join(tmpDir, "outside.txt")
+		os.WriteFile(outsideFile, []byte("from-outside"), 0644)
+		featurePath := filepath.Join(templateRoot, "test.yaml")
+		escapedPath := strings.ReplaceAll(outsideFile, "\\", "\\\\")
+		result, err := evaluator.Evaluate(`${file("`+escapedPath+`")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "from-outside" {
+			t.Errorf("Expected result to be 'from-outside', got '%v'", result)
+		}
+	})
+
+	t.Run("HandlesTemplateRootFallbackWithRelativePath", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"_template/other/test.txt": []byte("from-fallback"),
+		}
+		evaluator.SetTemplateData(templateData)
+		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
+		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "from-fallback" {
+			t.Errorf("Expected result to be 'from-fallback', got '%v'", result)
+		}
+	})
+
+	t.Run("HandlesTemplateRootFallbackWithoutTemplatePrefix", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"other/test.txt": []byte("from-fallback-no-prefix"),
+		}
+		evaluator.SetTemplateData(templateData)
+		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
+		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, featurePath, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "from-fallback-no-prefix" {
+			t.Errorf("Expected result to be 'from-fallback-no-prefix', got '%v'", result)
+		}
+	})
 }
 
 func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
@@ -550,6 +996,122 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		// Then it should not find in template data
 		if err == nil {
 			t.Fatal("Expected error for empty feature path, got nil")
+		}
+	})
+
+	t.Run("HandlesNilTemplateData", func(t *testing.T) {
+		// Given an evaluator without template data
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+
+		// When looking up template data
+		result := concreteEvaluator.lookupInTemplateData("test.txt", "/test/feature.yaml")
+
+		// Then it should return nil
+		if result != nil {
+			t.Errorf("Expected nil for nil template data, got %v", result)
+		}
+	})
+
+	t.Run("HandlesAbsolutePathInLookup", func(t *testing.T) {
+		// Given an evaluator with template data and an absolute path
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		templateData := map[string][]byte{
+			"test.txt": []byte("found"),
+		}
+		evaluator.SetTemplateData(templateData)
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+
+		// When looking up with absolute path
+		result := concreteEvaluator.lookupInTemplateData("/absolute/path.txt", "/test/feature.yaml")
+
+		// Then it should return nil
+		if result != nil {
+			t.Errorf("Expected nil for absolute path, got %v", result)
+		}
+	})
+
+	t.Run("HandlesEmptyFeaturePathInLookup", func(t *testing.T) {
+		// Given an evaluator with template data and empty feature path
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		templateData := map[string][]byte{
+			"test.txt": []byte("found"),
+		}
+		evaluator.SetTemplateData(templateData)
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+
+		// When looking up with empty feature path
+		result := concreteEvaluator.lookupInTemplateData("test.txt", "")
+
+		// Then it should return nil
+		if result != nil {
+			t.Errorf("Expected nil for empty feature path, got %v", result)
+		}
+	})
+
+	t.Run("HandlesTemplateRootRelativePathError", func(t *testing.T) {
+		// Given an evaluator with template data and outside feature path
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
+		templateData := map[string][]byte{
+			"test.txt": []byte("found"),
+		}
+		evaluator.SetTemplateData(templateData)
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+
+		// When looking up with outside path
+		result := concreteEvaluator.lookupInTemplateData("test.txt", "/outside/path.yaml")
+
+		// Then lookup may or may not succeed (acceptable behavior)
+		if result != nil {
+			t.Log("Lookup succeeded with outside path, which is acceptable")
+		}
+	})
+
+	t.Run("HandlesFeatureDirAsDot", func(t *testing.T) {
+		// Given an evaluator with template data and feature dir as dot
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"_template/test.txt": []byte("found"),
+		}
+		evaluator.SetTemplateData(templateData)
+		featurePath := filepath.Join(templateRoot, "test.yaml")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+
+		// When looking up template data
+		result := concreteEvaluator.lookupInTemplateData("test.txt", featurePath)
+
+		// Then it should find the file
+		if result == nil {
+			t.Error("Expected to find file, got nil")
+		}
+	})
+
+	t.Run("HandlesTemplateDataWithoutTemplatePrefix", func(t *testing.T) {
+		// Given an evaluator with template data without _template prefix
+		mockConfigHandler := config.NewMockConfigHandler()
+		tmpDir := t.TempDir()
+		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
+		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
+		templateData := map[string][]byte{
+			"features/test.txt": []byte("found-without-prefix"),
+		}
+		evaluator.SetTemplateData(templateData)
+		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
+		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+
+		// When looking up template data
+		result := concreteEvaluator.lookupInTemplateData("test.txt", featurePath)
+
+		// Then it should find the file without prefix
+		if result == nil {
+			t.Error("Expected to find file, got nil")
+		} else if string(result) != "found-without-prefix" {
+			t.Errorf("Expected 'found-without-prefix', got '%s'", string(result))
 		}
 	})
 }
@@ -638,492 +1200,67 @@ func TestExpressionEvaluator_resolvePath(t *testing.T) {
 	})
 }
 
-func TestExpressionEvaluator_evaluateFileFunction_EdgeCases(t *testing.T) {
-	t.Run("HandlesTemplateDataWithTemplateRootFallback", func(t *testing.T) {
-		// Given an evaluator with template root and template data with fallback path
-		// The file is requested from a location where lookupInTemplateData won't find it,
-		// but the resolved path relative to templateRoot will match the template data
+func TestExpressionEvaluator_getConfig(t *testing.T) {
+	t.Run("ReturnsEmptyMapWhenGetContextValuesReturnsNil", func(t *testing.T) {
+		// Given an evaluator with config handler that returns nil
 		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"_template/config/test.txt": []byte("from-template-fallback"),
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, nil
 		}
-		evaluator.SetTemplateData(templateData)
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "", "")
 
-		// Feature path is in a different subdirectory, so lookupInTemplateData won't find it
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-
-		// When evaluating file function with path that resolves to config/test.txt relative to templateRoot
-		// lookupInTemplateData returns nil (file not in features/), so fallback is used
-		result, err := evaluator.Evaluate(`${file("../config/test.txt")}`, featurePath, false)
-
-		// Then the file should be loaded from template data fallback
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if result != "from-template-fallback" {
-			t.Errorf("Expected result to be 'from-template-fallback', got '%v'", result)
-		}
-	})
-
-	t.Run("HandlesTemplateDataWithTemplateRootFallbackWithoutPrefix", func(t *testing.T) {
-		// Given an evaluator with template root and template data without _template prefix
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"test.txt": []byte("from-template-no-prefix"),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-
-		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("../test.txt")}`, featurePath, false)
-
-		// Then the file should be loaded from template data fallback without prefix
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if result != "from-template-no-prefix" {
-			t.Errorf("Expected result to be 'from-template-no-prefix', got '%v'", result)
-		}
-	})
-
-	t.Run("HandlesTemplateDataWithoutTemplateRoot", func(t *testing.T) {
-		// Given an evaluator with template data but no template root
-		mockConfigHandler := config.NewMockConfigHandler()
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "")
-		templateData := map[string][]byte{
-			"test.txt": []byte("from-template"),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		featurePath := "/test/feature.yaml"
-
-		// When evaluating file function
-		_, err := evaluator.Evaluate(`${file("test.txt")}`, featurePath, false)
-
-		// Then it should try to read from filesystem (may fail, but should not use template root path)
-		if err == nil {
-			t.Log("File read succeeded, which is acceptable")
-		}
-	})
-
-	t.Run("HandlesPathOutsideTemplateRoot", func(t *testing.T) {
-		// Given an evaluator with template root and a path outside template root
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"_template/test.txt": []byte("from-template"),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		// Create file outside template root
-		outsideFile := filepath.Join(tmpDir, "outside.txt")
-		os.WriteFile(outsideFile, []byte("from-outside"), 0644)
-
-		featurePath := filepath.Join(templateRoot, "test.yaml")
-
-		// When evaluating file function with absolute path outside template root
-		escapedPath := strings.ReplaceAll(outsideFile, "\\", "\\\\")
-		result, err := evaluator.Evaluate(`${file("`+escapedPath+`")}`, featurePath, false)
-
-		// Then it should read from filesystem (fallback skipped because path is outside template root)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if result != "from-outside" {
-			t.Errorf("Expected result to be 'from-outside', got '%v'", result)
-		}
-	})
-
-	t.Run("HandlesTemplateRootFallbackWithRelativePath", func(t *testing.T) {
-		// Given an evaluator with template root and template data
-		// lookupInTemplateData returns nil, but fallback finds it via template root relative path
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"_template/other/test.txt": []byte("from-fallback"),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		// Feature path in a subdirectory where lookupInTemplateData won't find the file
-		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-
-		// When evaluating file function with path that resolves relative to template root
-		// lookupInTemplateData returns nil (file not in features/sub/), fallback checks template root
-		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, featurePath, false)
-
-		// Then the file should be loaded from template data fallback
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if result != "from-fallback" {
-			t.Errorf("Expected result to be 'from-fallback', got '%v'", result)
-		}
-	})
-
-	t.Run("HandlesTemplateRootFallbackWithoutTemplatePrefix", func(t *testing.T) {
-		// Given an evaluator with template root and template data without _template prefix
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"other/test.txt": []byte("from-fallback-no-prefix"),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-
-		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, featurePath, false)
-
-		// Then the file should be loaded from template data fallback without prefix
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if result != "from-fallback-no-prefix" {
-			t.Errorf("Expected result to be 'from-fallback-no-prefix', got '%v'", result)
-		}
-	})
-}
-
-func TestExpressionEvaluator_lookupInTemplateData_EdgeCases(t *testing.T) {
-	t.Run("HandlesNilTemplateData", func(t *testing.T) {
-		// Given an evaluator without template data
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-
-		// When looking up a file
+		// When getting config
 		concreteEvaluator := evaluator.(*expressionEvaluator)
-		result := concreteEvaluator.lookupInTemplateData("test.txt", "/test/feature.yaml")
+		config := concreteEvaluator.getConfig()
 
-		// Then it should return nil
-		if result != nil {
-			t.Errorf("Expected nil for nil template data, got %v", result)
+		// Then it should return empty map
+		if config == nil {
+			t.Fatal("Expected config to be non-nil empty map")
+		}
+		if len(config) != 0 {
+			t.Errorf("Expected config to be empty, got %v", config)
 		}
 	})
 
-	t.Run("HandlesAbsolutePath", func(t *testing.T) {
-		// Given an evaluator with template data
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		templateData := map[string][]byte{
-			"test.txt": []byte("found"),
+	t.Run("ReturnsEmptyMapWhenGetContextValuesReturnsError", func(t *testing.T) {
+		// Given an evaluator with config handler that returns error
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, errors.New("config error")
 		}
-		evaluator.SetTemplateData(templateData)
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "", "")
 
-		// When looking up an absolute path
+		// When getting config
 		concreteEvaluator := evaluator.(*expressionEvaluator)
-		result := concreteEvaluator.lookupInTemplateData("/absolute/path.txt", "/test/feature.yaml")
+		config := concreteEvaluator.getConfig()
 
-		// Then it should return nil (absolute paths not looked up)
-		if result != nil {
-			t.Errorf("Expected nil for absolute path, got %v", result)
+		// Then it should return empty map (error is ignored)
+		if config == nil {
+			t.Fatal("Expected config to be non-nil empty map")
+		}
+		if len(config) != 0 {
+			t.Errorf("Expected config to be empty, got %v", config)
 		}
 	})
 
-	t.Run("HandlesEmptyFeaturePath", func(t *testing.T) {
-		// Given an evaluator with template data
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		templateData := map[string][]byte{
-			"test.txt": []byte("found"),
+	t.Run("ReturnsConfigWhenGetContextValuesSucceeds", func(t *testing.T) {
+		// Given an evaluator with config handler that returns config
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"key": "value"}, nil
 		}
-		evaluator.SetTemplateData(templateData)
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "", "")
 
-		// When looking up with empty feature path
+		// When getting config
 		concreteEvaluator := evaluator.(*expressionEvaluator)
-		result := concreteEvaluator.lookupInTemplateData("test.txt", "")
+		config := concreteEvaluator.getConfig()
 
-		// Then it should return nil
-		if result != nil {
-			t.Errorf("Expected nil for empty feature path, got %v", result)
+		// Then it should return the config
+		if config == nil {
+			t.Fatal("Expected config to be non-nil")
 		}
-	})
-
-	t.Run("HandlesTemplateRootRelativePathError", func(t *testing.T) {
-		// Given an evaluator with template root and feature path outside template root
-		mockConfigHandler := config.NewMockConfigHandler()
-		evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
-		templateData := map[string][]byte{
-			"test.txt": []byte("found"),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		// When looking up with feature path outside template root
-		concreteEvaluator := evaluator.(*expressionEvaluator)
-		result := concreteEvaluator.lookupInTemplateData("test.txt", "/outside/path.yaml")
-
-		// Then it should use feature path directly
-		if result != nil {
-			t.Log("Lookup succeeded with outside path, which is acceptable")
-		}
-	})
-
-	t.Run("HandlesFeatureDirAsDot", func(t *testing.T) {
-		// Given an evaluator with template data and feature path in root
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"_template/test.txt": []byte("found"),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		featurePath := filepath.Join(templateRoot, "test.yaml")
-
-		// When looking up a file
-		concreteEvaluator := evaluator.(*expressionEvaluator)
-		result := concreteEvaluator.lookupInTemplateData("test.txt", featurePath)
-
-		// Then it should find the file
-		if result == nil {
-			t.Error("Expected to find file, got nil")
-		}
-	})
-
-	t.Run("HandlesTemplateDataWithoutTemplatePrefix", func(t *testing.T) {
-		// Given an evaluator with template data without _template prefix
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"features/test.txt": []byte("found-without-prefix"),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-
-		// When looking up a file
-		concreteEvaluator := evaluator.(*expressionEvaluator)
-		result := concreteEvaluator.lookupInTemplateData("test.txt", featurePath)
-
-		// Then it should find the file without _template prefix
-		if result == nil {
-			t.Error("Expected to find file, got nil")
-		} else if string(result) != "found-without-prefix" {
-			t.Errorf("Expected 'found-without-prefix', got '%s'", string(result))
-		}
-	})
-}
-
-func TestExpressionEvaluator_evaluateJsonnetFunction_EdgeCases(t *testing.T) {
-	t.Run("HandlesJsonMarshalError", func(t *testing.T) {
-		// Given an evaluator with mock shims that fail JSON marshal
-		evaluator, mockShims, _ := setupEvaluatorWithMockShims(t)
-		mockShims.JsonMarshal = func(any) ([]byte, error) {
-			return nil, errors.New("marshal error")
-		}
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
-
-		// When evaluating jsonnet function
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error for JSON marshal failure, got nil")
-		}
-	})
-
-	t.Run("HandlesJsonUnmarshalError", func(t *testing.T) {
-		// Given an evaluator with mock shims that fail JSON unmarshal
-		evaluator, mockShims, _ := setupEvaluatorWithMockShims(t)
-		mockShims.JsonUnmarshal = func([]byte, any) error {
-			return errors.New("unmarshal error")
-		}
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
-
-		// When evaluating jsonnet function
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error for JSON unmarshal failure, got nil")
-		}
-	})
-
-	t.Run("HandlesJsonnetWithEmptyDir", func(t *testing.T) {
-		// Given an evaluator and a jsonnet file in root
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
-
-		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
-
-		// Then it should work
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonnetWithEmptyDirPath", func(t *testing.T) {
-		// Given an evaluator and a jsonnet file where dir is empty string
-		evaluator, _, _, _ := setupEvaluatorTest(t)
-		tmpDir := t.TempDir()
-		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-
-		// Feature path is the same directory as the jsonnet file (dir will be ".")
-		featurePath := jsonnetFile
-
-		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
-
-		// Then it should work even with empty dir
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonnetWithTemplateRootFallback", func(t *testing.T) {
-		// Given an evaluator with template root and template data with fallback path
-		// The file is requested from a location where lookupInTemplateData won't find it,
-		// but the resolved path relative to templateRoot will match the template data
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"_template/config/test.jsonnet": []byte(`{"result": "from-fallback"}`),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		// Feature path is in a different subdirectory, so lookupInTemplateData won't find it
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-
-		// When evaluating jsonnet function with path that resolves to config/test.jsonnet relative to templateRoot
-		// lookupInTemplateData returns nil (file not in features/), so fallback is used
-		result, err := evaluator.Evaluate(`${jsonnet("../config/test.jsonnet")}`, featurePath, false)
-
-		// Then the jsonnet should be loaded from template data fallback
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "from-fallback" {
-			t.Errorf("Expected result.result to be 'from-fallback', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonnetWithTemplateRootFallbackWithoutPrefix", func(t *testing.T) {
-		// Given an evaluator with template root and template data without _template prefix
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{
-			"other/test.jsonnet": []byte(`{"result": "from-fallback-no-prefix"}`),
-		}
-		evaluator.SetTemplateData(templateData)
-
-		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-
-		// When evaluating jsonnet function with path that resolves relative to template root
-		result, err := evaluator.Evaluate(`${jsonnet("../../other/test.jsonnet")}`, featurePath, false)
-
-		// Then the jsonnet should be loaded from template data fallback without prefix
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "from-fallback-no-prefix" {
-			t.Errorf("Expected result.result to be 'from-fallback-no-prefix', got %v", resultMap["result"])
-		}
-	})
-
-	t.Run("HandlesJsonnetWithFilepathRelError", func(t *testing.T) {
-		// Given an evaluator with template root that causes filepath.Rel to return error
-		// This tests the error path in the template root fallback
-		mockConfigHandler := config.NewMockConfigHandler()
-		tmpDir := t.TempDir()
-		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
-		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
-		templateData := map[string][]byte{}
-		evaluator.SetTemplateData(templateData)
-
-		// Create jsonnet file in a location that will cause filepath.Rel to work
-		jsonnetFile := filepath.Join(templateRoot, "test.jsonnet")
-		os.MkdirAll(filepath.Dir(jsonnetFile), 0755)
-		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-
-		featurePath := filepath.Join(templateRoot, "test.yaml")
-
-		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
-
-		// Then it should work (filepath.Rel succeeds, but template data is empty so reads from filesystem)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("Expected result to be a map, got %T", result)
-		}
-
-		if resultMap["result"] != "success" {
-			t.Errorf("Expected result.result to be 'success', got %v", resultMap["result"])
+		if config["key"] != "value" {
+			t.Errorf("Expected config to contain 'key'='value', got %v", config)
 		}
 	})
 }

@@ -246,7 +246,7 @@ func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 	rt.initializeEnvPrinters()
 	rt.initializeToolsManager()
 
-	if err := rt.initializeComponents(); err != nil {
+	if err := rt.InitializeComponents(); err != nil {
 		return fmt.Errorf("failed to initialize environment components: %w", err)
 	}
 
@@ -382,6 +382,18 @@ func (rt *Runtime) GenerateBuildID() (string, error) {
 	return newBuildID, nil
 }
 
+// InitializeComponents initializes all environment-related components required after setup.
+// Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.
+func (rt *Runtime) InitializeComponents() error {
+	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
+		if rt.TerraformProvider == nil {
+			rt.initializeToolsManager()
+			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
+		}
+	}
+	return nil
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -497,18 +509,6 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 		rt.EnvPrinters.TerraformEnv,
 		rt.EnvPrinters.WindsorEnv,
 	}
-}
-
-// initializeComponents initializes all environment-related components required after setup.
-// Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.
-func (rt *Runtime) initializeComponents() error {
-	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
-		if rt.TerraformProvider == nil {
-			rt.initializeToolsManager()
-			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
-		}
-	}
-	return nil
 }
 
 // loadSecrets loads secrets from configured secrets providers.

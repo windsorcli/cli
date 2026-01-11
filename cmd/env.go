@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -44,6 +45,25 @@ var envCmd = &cobra.Command{
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
 			return err
+		}
+
+		if err := rt.InitializeComponents(); err != nil {
+			if hook || !verbose {
+				return nil
+			}
+			return fmt.Errorf("failed to initialize components: %w", err)
+		}
+
+		if rt.ConfigHandler.GetBool("terraform.enabled", false) {
+			if rt.TerraformProvider.IsInTerraformProject() {
+				comp := composer.NewComposer(rt)
+				if err := comp.BlueprintHandler.LoadBlueprint(); err != nil {
+					if hook || !verbose {
+						return nil
+					}
+					return fmt.Errorf("failed to load blueprint: %w", err)
+				}
+			}
 		}
 
 		if err := rt.LoadEnvironment(decrypt); err != nil {

@@ -585,14 +585,16 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bo
 		return false, err
 	}
 
+	var result bool
 	switch v := evaluated.(type) {
 	case bool:
-		return v, nil
+		result = v
 	case string:
-		return v == "true", nil
+		result = v == "true"
 	default:
 		return false, fmt.Errorf("condition must evaluate to boolean, got %T", evaluated)
 	}
+	return result, nil
 }
 
 // evaluateSubstitutions evaluates a map of string substitutions using the BaseBlueprintProcessor's expression evaluator.
