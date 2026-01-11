@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
 // BlueprintHandler manages the lifecycle of infrastructure blueprints.
@@ -31,12 +32,13 @@ type BlueprintHandler interface {
 // BaseBlueprintHandler provides the default implementation of the BlueprintHandler interface.
 // It orchestrates the pipeline: Load → Process → Compose → Write.
 type BaseBlueprintHandler struct {
-	runtime         *runtime.Runtime
-	artifactBuilder artifact.Artifact
-	processor       BlueprintProcessor
-	composer        BlueprintComposer
-	writer          BlueprintWriter
-	shims           *Shims
+	runtime           *runtime.Runtime
+	artifactBuilder   artifact.Artifact
+	terraformProvider terraform.TerraformProvider
+	processor         BlueprintProcessor
+	composer          BlueprintComposer
+	writer            BlueprintWriter
+	shims             *Shims
 
 	primaryBlueprintLoader BlueprintLoader
 	sourceBlueprintLoaders map[string]BlueprintLoader
@@ -63,6 +65,7 @@ func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact,
 	handler := &BaseBlueprintHandler{
 		runtime:                rt,
 		artifactBuilder:        artifactBuilder,
+		terraformProvider:      rt.TerraformProvider,
 		processor:              NewBlueprintProcessor(rt),
 		composer:               NewBlueprintComposer(rt),
 		writer:                 NewBlueprintWriter(rt),
@@ -279,6 +282,12 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	h.composedBlueprint = composedBp
+
+	if h.terraformProvider != nil {
+		components := h.GetTerraformComponents()
+		h.terraformProvider.SetTerraformComponents(components)
+	}
+
 	return nil
 }
 

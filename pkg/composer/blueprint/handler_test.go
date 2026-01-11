@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
 // =============================================================================
@@ -1271,5 +1272,75 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		handler.setRepositoryDefaults()
 
 		// Then no panic should occur
+	})
+}
+
+func TestHandler_processAndCompose(t *testing.T) {
+	t.Run("CallsSetTerraformComponentsWhenProviderExists", func(t *testing.T) {
+		// Given a handler with terraform provider and composed blueprint with components
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		mockTerraformProvider := &terraform.MockTerraformProvider{}
+		var setComponentsCalled bool
+		var receivedComponents []blueprintv1alpha1.TerraformComponent
+		mockTerraformProvider.SetTerraformComponentsFunc = func(components []blueprintv1alpha1.TerraformComponent) {
+			setComponentsCalled = true
+			receivedComponents = components
+		}
+		handler.terraformProvider = mockTerraformProvider
+
+		primaryBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+				{Path: "rds"},
+			},
+		}
+		handler.primaryBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return primaryBp },
+		}
+
+		// When processing and composing
+		err := handler.processAndCompose()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		// And SetTerraformComponents should be called
+		if !setComponentsCalled {
+			t.Error("Expected SetTerraformComponents to be called")
+		}
+		// And components should be passed correctly
+		if len(receivedComponents) != 2 {
+			t.Errorf("Expected 2 components to be set, got %d", len(receivedComponents))
+		}
+	})
+
+	t.Run("SkipsSetTerraformComponentsWhenProviderIsNil", func(t *testing.T) {
+		// Given a handler with no terraform provider
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.terraformProvider = nil
+
+		primaryBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		handler.primaryBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return primaryBp },
+		}
+
+		// When processing and composing
+		err := handler.processAndCompose()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		// And composed blueprint should be set
+		if handler.composedBlueprint == nil {
+			t.Error("Expected composed blueprint to be set")
+		}
 	})
 }

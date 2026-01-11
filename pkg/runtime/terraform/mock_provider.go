@@ -7,10 +7,12 @@ import (
 // MockTerraformProvider is a mock implementation of TerraformProvider for testing.
 type MockTerraformProvider struct {
 	FindRelativeProjectPathFunc func(directory ...string) (string, error)
+	IsInTerraformProjectFunc    func() bool
 	GenerateBackendOverrideFunc func(directory string) error
 	GenerateTerraformArgsFunc   func(componentID, modulePath string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponentFunc   func(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponentsFunc  func() []blueprintv1alpha1.TerraformComponent
+	SetTerraformComponentsFunc  func(components []blueprintv1alpha1.TerraformComponent)
 	GetTerraformOutputsFunc     func(componentID string) (map[string]any, error)
 	GetTFDataDirFunc            func(componentID string) (string, error)
 	GetEnvVarsFunc              func(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
@@ -24,6 +26,14 @@ func (m *MockTerraformProvider) FindRelativeProjectPath(directory ...string) (st
 		return m.FindRelativeProjectPathFunc(directory...)
 	}
 	return "", nil
+}
+
+// IsInTerraformProject implements TerraformProvider.
+func (m *MockTerraformProvider) IsInTerraformProject() bool {
+	if m.IsInTerraformProjectFunc != nil {
+		return m.IsInTerraformProjectFunc()
+	}
+	return false
 }
 
 // GenerateBackendOverride implements TerraformProvider.
@@ -56,6 +66,13 @@ func (m *MockTerraformProvider) GetTerraformComponents() []blueprintv1alpha1.Ter
 		return m.GetTerraformComponentsFunc()
 	}
 	return []blueprintv1alpha1.TerraformComponent{}
+}
+
+// SetTerraformComponents implements TerraformProvider.
+func (m *MockTerraformProvider) SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent) {
+	if m.SetTerraformComponentsFunc != nil {
+		m.SetTerraformComponentsFunc(components)
+	}
 }
 
 // GetTerraformOutputs implements TerraformProvider.

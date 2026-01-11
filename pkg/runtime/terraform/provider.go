@@ -5,7 +5,6 @@
 package terraform
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -69,10 +68,12 @@ type TerraformArgs struct {
 // TerraformProvider defines the interface for Terraform operations
 type TerraformProvider interface {
 	FindRelativeProjectPath(directory ...string) (string, error)
+	IsInTerraformProject() bool
 	GenerateBackendOverride(directory string) error
 	GenerateTerraformArgs(componentID, modulePath string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
+	SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent)
 	GetTerraformOutputs(componentID string) (map[string]any, error)
 	GetTFDataDir(componentID string) (string, error)
 	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
@@ -171,6 +172,17 @@ func (p *terraformProvider) FindRelativeProjectPath(directory ...string) (string
 	}
 
 	return "", nil
+}
+
+// IsInTerraformProject checks if the current working directory is within a Terraform project.
+// A Terraform project is identified by the presence of .tf files in the current directory or parent directories.
+// Returns true if .tf files are found and a valid project path can be resolved, false otherwise.
+func (p *terraformProvider) IsInTerraformProject() bool {
+	projectPath, err := p.FindRelativeProjectPath()
+	if err != nil {
+		return false
+	}
+	return projectPath != ""
 }
 
 // GenerateBackendOverride creates or removes the backend_override.tf file for the specified directory
@@ -335,6 +347,7 @@ func (p *terraformProvider) GetTerraformComponent(componentID string) *blueprint
 // for each Terraform component based on the presence of a Source field and the resolved project root.
 // Returns all TerraformComponent structs from blueprint.yaml with FullPath fields set.
 // Components are cached after first load to avoid repeated file I/O operations.
+// If components have been set via SetTerraformComponents, those are returned instead.
 func (p *terraformProvider) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	p.mu.RLock()
 	if p.components != nil {
@@ -352,6 +365,15 @@ func (p *terraformProvider) GetTerraformComponents() []blueprintv1alpha1.Terrafo
 
 	p.components = p.loadTerraformComponents()
 	return p.components
+}
+
+// SetTerraformComponents sets the terraform components directly, bypassing file loading.
+// This allows the provider to use in-memory components with inputs preserved from blueprint composition.
+// Components set via this method take precedence over components loaded from blueprint.yaml.
+func (p *terraformProvider) SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.components = components
 }
 
 // GetTFDataDir calculates the TF_DATA_DIR path for a given component ID.
@@ -424,34 +446,34 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 		return nil, nil, err
 	}
 
-	var evaluatedInputs map[string]any
 	if componentID != "" && p.evaluator != nil {
 		component := p.GetTerraformComponent(componentID)
 		if component != nil && component.Inputs != nil && len(component.Inputs) > 0 {
-			var err error
-			evaluatedInputs, err = p.evaluator.EvaluateMap(component.Inputs, "", true)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to evaluate inputs for component %s: %w", componentID, err)
+			for key, value := range component.Inputs {
+				if evaluator.ContainsExpression(value) {
+					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", true)
+					if err != nil {
+						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
+					}
+					evaluatedValue, exists := evaluated[key]
+					if !exists {
+						continue
+					}
+					envKey := fmt.Sprintf("TF_VAR_%s", key)
+					var envValue string
+					if valueStr, ok := evaluatedValue.(string); ok {
+						envValue = valueStr
+					} else {
+						valueBytes, err := p.Shims.JsonMarshal(evaluatedValue)
+						if err != nil {
+							continue
+						}
+						envValue = string(valueBytes)
+					}
+					envVars[envKey] = envValue
+				}
 			}
 		}
-	}
-
-	for key, value := range evaluatedInputs {
-		if evaluator.ContainsExpression(value) {
-			continue
-		}
-		envKey := fmt.Sprintf("TF_VAR_%s", key)
-		var envValue string
-		if valueStr, ok := value.(string); ok {
-			envValue = valueStr
-		} else {
-			valueBytes, err := json.Marshal(value)
-			if err != nil {
-				continue
-			}
-			envValue = string(valueBytes)
-		}
-		envVars[envKey] = envValue
 	}
 
 	return envVars, terraformArgs, nil
@@ -486,6 +508,62 @@ func (p *terraformProvider) FormatArgsForEnv(args []string) string {
 		}
 	}
 	return strings.Join(formatted, " ")
+}
+
+// GetTerraformOutputs retrieves Terraform outputs for the specified component by running 'terraform output -json'.
+// It sets up the appropriate environment (TF_DATA_DIR, backend override file) before executing the command.
+// If output fails initially, it attempts to initialize the module and retry, allowing outputs to be retrieved
+// even if the module hasn't been initialized yet. The backend override and environment variables are cleaned up
+// after execution. Returns a map of output values or an empty map on error. Only output 'value' fields are returned.
+func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]any, error) {
+	return p.withTerraformContext(componentID, func(ctx *terraformContext) (map[string]any, error) {
+		backendOverrideExists := false
+		if _, err := ctx.provider.Shims.Stat(ctx.BackendOverridePath); err == nil {
+			backendOverrideExists = true
+		}
+
+		terraformCommand := ctx.provider.toolsManager.GetTerraformCommand()
+		if terraformCommand == "" {
+			terraformCommand = "terraform"
+		}
+		outputArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "output", "-json"}
+		output, err := ctx.provider.shell.ExecSilent(terraformCommand, outputArgs...)
+		if err != nil {
+			chdirInitArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "init"}
+			if backendOverrideExists {
+				chdirInitArgs = append(chdirInitArgs, "-reconfigure")
+			}
+			chdirInitArgs = append(chdirInitArgs, ctx.TerraformArgs.InitArgs...)
+			_, initErr := ctx.provider.shell.ExecSilent(terraformCommand, chdirInitArgs...)
+			if initErr != nil {
+				return make(map[string]any), nil
+			}
+			output, err = ctx.provider.shell.ExecSilent(terraformCommand, outputArgs...)
+			if err != nil {
+				return make(map[string]any), nil
+			}
+		}
+
+		if strings.TrimSpace(output) == "" || strings.TrimSpace(output) == "{}" {
+			return make(map[string]any), nil
+		}
+
+		var outputs map[string]any
+		if err := ctx.provider.Shims.JsonUnmarshal([]byte(output), &outputs); err != nil {
+			return make(map[string]any), nil
+		}
+
+		result := make(map[string]any)
+		for key, value := range outputs {
+			if valueMap, ok := value.(map[string]any); ok {
+				if outputValue, exists := valueMap["value"]; exists {
+					result[key] = outputValue
+				}
+			}
+		}
+
+		return result, nil
+	})
 }
 
 // ClearCache clears the session cache for all components.
@@ -532,11 +610,16 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 // getOutput retrieves a single output value for a Terraform component by key.
 // If outputs for the component are requested for the first time, all outputs are fetched from Terraform
 // and cached for subsequent requests. Cached values are used for later accesses to avoid redundant retrievals.
-// If the component or key is not found, the function returns either the output value, the original expression string,
-// or an error depending on the deferred flag state. When outputs do not exist and deferred is false, it returns
-// the expression so blueprint processing can proceed before components have been fully applied,
-// enabling deferred resolution by the evaluator when appropriate.
+// When deferred is false, this function returns a DeferredError to signal that the expression should be preserved.
+// When deferred is true, it returns the actual output value if available, or the expression string if not found.
 func (p *terraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
+	if !deferred {
+		return nil, &evaluator.DeferredError{
+			Expression: expression,
+			Message:    fmt.Sprintf("terraform output '%s' for component %s is deferred", key, componentID),
+		}
+	}
+
 	p.mu.RLock()
 	if cached, exists := p.cache[componentID]; exists {
 		if value, exists := cached[key]; exists {
@@ -548,9 +631,6 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 
 	outputs, _ := p.GetTerraformOutputs(componentID)
 	if len(outputs) == 0 {
-		if deferred {
-			return nil, fmt.Errorf("terraform outputs not available for component %s", componentID)
-		}
 		return expression, nil
 	}
 
@@ -573,9 +653,6 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 		return value, nil
 	}
 
-	if deferred {
-		return nil, fmt.Errorf("output key %s not found for component %s", key, componentID)
-	}
 	return expression, nil
 }
 
@@ -706,62 +783,6 @@ func (p *terraformProvider) withTerraformContext(componentID string, fn func(*te
 	defer cleanup()
 
 	return fn(ctx)
-}
-
-// GetTerraformOutputs retrieves Terraform outputs for the specified component by running 'terraform output -json'.
-// It sets up the appropriate environment (TF_DATA_DIR, backend override file) before executing the command.
-// If output fails initially, it attempts to initialize the module and retry, allowing outputs to be retrieved
-// even if the module hasn't been initialized yet. The backend override and environment variables are cleaned up
-// after execution. Returns a map of output values or an empty map on error. Only output 'value' fields are returned.
-func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]any, error) {
-	return p.withTerraformContext(componentID, func(ctx *terraformContext) (map[string]any, error) {
-		backendOverrideExists := false
-		if _, err := ctx.provider.Shims.Stat(ctx.BackendOverridePath); err == nil {
-			backendOverrideExists = true
-		}
-
-		terraformCommand := ctx.provider.toolsManager.GetTerraformCommand()
-		if terraformCommand == "" {
-			terraformCommand = "terraform"
-		}
-		outputArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "output", "-json"}
-		output, err := ctx.provider.shell.ExecSilent(terraformCommand, outputArgs...)
-		if err != nil {
-			chdirInitArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "init"}
-			if backendOverrideExists {
-				chdirInitArgs = append(chdirInitArgs, "-reconfigure")
-			}
-			chdirInitArgs = append(chdirInitArgs, ctx.TerraformArgs.InitArgs...)
-			_, initErr := ctx.provider.shell.ExecSilent(terraformCommand, chdirInitArgs...)
-			if initErr != nil {
-				return make(map[string]any), nil
-			}
-			output, err = ctx.provider.shell.ExecSilent(terraformCommand, outputArgs...)
-			if err != nil {
-				return make(map[string]any), nil
-			}
-		}
-
-		if strings.TrimSpace(output) == "" || strings.TrimSpace(output) == "{}" {
-			return make(map[string]any), nil
-		}
-
-		var outputs map[string]any
-		if err := ctx.provider.Shims.JsonUnmarshal([]byte(output), &outputs); err != nil {
-			return make(map[string]any), nil
-		}
-
-		result := make(map[string]any)
-		for key, value := range outputs {
-			if valueMap, ok := value.(map[string]any); ok {
-				if outputValue, exists := valueMap["value"]; exists {
-					result[key] = outputValue
-				}
-			}
-		}
-
-		return result, nil
-	})
 }
 
 // loadTerraformComponents loads and parses Terraform components from a blueprint.yaml file.
