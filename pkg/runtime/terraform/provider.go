@@ -348,16 +348,9 @@ func (p *terraformProvider) GetTerraformComponent(componentID string) *blueprint
 // Returns all TerraformComponent structs from blueprint.yaml with FullPath fields set.
 // Components are cached after first load to avoid repeated file I/O operations.
 // If components have been set via SetTerraformComponents, those are returned instead.
-// If components loaded from file have no inputs, it attempts to lazy-load the blueprint to get components with inputs.
 func (p *terraformProvider) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
 	p.mu.RLock()
 	if p.components != nil {
-		componentsWithInputs := 0
-		for _, comp := range p.components {
-			if len(comp.Inputs) > 0 {
-				componentsWithInputs++
-			}
-		}
 		p.mu.RUnlock()
 		return p.components
 	}
