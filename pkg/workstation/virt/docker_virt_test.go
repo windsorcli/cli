@@ -60,6 +60,9 @@ contexts:
 			case "compose":
 				return "Docker Compose version 2.0.0", nil
 			case "info":
+				if len(args) >= 3 && args[1] == "--format" && args[2] == "json" {
+					return `{"ServerErrors":[]}`, nil
+				}
 				return "Docker info output", nil
 			case "version":
 				if len(args) >= 3 && args[1] == "--format" && args[2] == "{{.Server.Version}}" {
@@ -378,6 +381,9 @@ func TestDockerVirt_Up(t *testing.T) {
 			if command == "docker" && len(args) > 0 && args[0] == "compose" {
 				return "Docker Compose version 2.0.0", nil
 			}
+			if command == "docker" && len(args) >= 3 && args[0] == "info" && args[1] == "--format" && args[2] == "json" {
+				return `{"ServerErrors":[]}`, nil
+			}
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return "docker info output", nil
 			}
@@ -449,6 +455,9 @@ func TestDockerVirt_Up(t *testing.T) {
 				}
 			}
 			// Keep original behavior for other commands
+			if command == "docker" && len(args) >= 3 && args[0] == "info" && args[1] == "--format" && args[2] == "json" {
+				return oldExecSilent(command, args...)
+			}
 			if command == "docker" && len(args) > 0 && args[0] == "info" {
 				return oldExecSilent(command, args...)
 			}
@@ -554,15 +563,9 @@ func TestDockerVirt_Down(t *testing.T) {
 		// When calling the Down method
 		err := dockerVirt.Down()
 
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("expected an error, got nil")
-		}
-
-		// And the error should contain the expected message
-		expectedErrorMsg := "Docker daemon is not running"
-		if err != nil && !strings.Contains(err.Error(), expectedErrorMsg) {
-			t.Errorf("expected error message to contain %q, got %v", expectedErrorMsg, err)
+		// Then no error should be returned (idempotent - safe when daemon is not accessible)
+		if err != nil {
+			t.Errorf("Expected no error (idempotent), got %v", err)
 		}
 	})
 
