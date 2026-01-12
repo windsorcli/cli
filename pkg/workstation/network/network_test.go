@@ -119,7 +119,6 @@ contexts:
 		return "", nil
 	}
 
-
 	// Create a mock network interface provider with mock functions
 	mockNetworkInterfaceProvider := &MockNetworkInterfaceProvider{
 		InterfacesFunc: func() ([]net.Interface, error) {
