@@ -118,11 +118,12 @@ func (v *DockerVirt) Up() error {
 // Down stops all Docker containers managed by Windsor and removes associated volumes.
 // It ensures a clean shutdown by verifying Docker is enabled, checking the daemon status,
 // and executing docker compose down with --remove-orphans and --volumes flags. If the
-// compose file is missing, the operation is idempotent and exits without error.
+// compose file is missing or the Docker daemon is not accessible, the operation is
+// idempotent and exits without error.
 func (v *DockerVirt) Down() error {
 	if v.configHandler.GetBool("docker.enabled") {
 		if err := v.checkDockerDaemon(); err != nil {
-			return fmt.Errorf("Docker daemon is not running: %w", err)
+			return nil
 		}
 
 		if err := v.determineComposeCommand(); err != nil {
@@ -133,7 +134,6 @@ func (v *DockerVirt) Down() error {
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
 
 		if _, err := v.shims.Stat(composeFilePath); os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "⚠️  Warning: docker-compose.yaml not found at %s, skipping container cleanup\n", composeFilePath)
 			return nil
 		}
 
@@ -228,13 +228,29 @@ func (v *DockerVirt) execComposeCommandSilent(args ...string) (string, error) {
 }
 
 // checkDockerDaemon verifies that the Docker daemon is running and accessible by
-// executing the 'docker info' command. It returns an error if the daemon cannot
-// be contacted, which is used by other functions to ensure Docker is available.
+// executing 'docker info --format json'. The command outputs JSON even on connection errors,
+// so we parse the JSON and check for ServerErrors to determine if the daemon is accessible.
+// If JSON parsing fails (docker command failed, not installed, etc.), returns an error.
+// If JSON parsing succeeds, only checks ServerErrors and ignores command errors.
+// Returns an error if the daemon cannot be contacted. The error is simplified to avoid
+// printing verbose Docker error messages.
 func (v *DockerVirt) checkDockerDaemon() error {
 	command := "docker"
-	args := []string{"info"}
-	_, err := v.shell.ExecSilent(command, args...)
-	return err
+	args := []string{"info", "--format", "json"}
+	output, _ := v.shell.ExecSilent(command, args...)
+
+	var dockerInfo struct {
+		ServerErrors []string `json:"ServerErrors"`
+	}
+	if err := v.shims.UnmarshalJSON([]byte(output), &dockerInfo); err != nil {
+		return fmt.Errorf("docker daemon not accessible")
+	}
+
+	if len(dockerInfo.ServerErrors) > 0 {
+		return fmt.Errorf("docker daemon not accessible")
+	}
+
+	return nil
 }
 
 // getFullComposeConfig assembles a Docker Compose project configuration for the current Windsor context.

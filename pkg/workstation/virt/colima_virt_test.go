@@ -61,6 +61,9 @@ func setupColimaMocks(t *testing.T, opts ...func(*VirtTestMocks)) *VirtTestMocks
 	// Set up shell mock for ExecProgress
 	mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 		if command == "colima" {
+			if len(args) == 0 {
+				return "", fmt.Errorf("unexpected colima command with no args")
+			}
 			switch args[0] {
 			case "start":
 				return "", nil
@@ -633,7 +636,30 @@ func TestColimaVirt_Down(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
-		colimaVirt, _ := setup(t)
+		colimaVirt, mocks := setup(t)
+
+		// And ExecSilent returns VM exists with Running status initially, then doesn't exist after deletion
+		callCount := 0
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 4 && args[0] == "ls" && args[1] == "--profile" && args[3] == "--json" {
+				callCount++
+				if callCount == 1 {
+					return `{
+						"address": "192.168.1.2",
+						"arch": "x86_64",
+						"cpus": 2,
+						"disk": 64424509440,
+						"memory": 4294967296,
+						"name": "windsor-mock-context",
+						"runtime": "docker",
+						"status": "Running"
+					}`, nil
+				}
+				return "[]", nil
+			}
+			return originalExecSilent(command, args...)
+		}
 
 		// When calling Down
 		err := colimaVirt.Down()
@@ -644,9 +670,90 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorStopColima", func(t *testing.T) {
+	t.Run("SuccessVMNotExists", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		colimaVirt, mocks := setup(t)
+
+		// And ExecSilent returns VM doesn't exist (idempotent case)
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 4 && args[0] == "ls" && args[1] == "--profile" && args[3] == "--json" {
+				return "[]", nil
+			}
+			return originalExecSilent(command, args...)
+		}
+
+		// When calling Down
+		err := colimaVirt.Down()
+
+		// Then no error should be returned (idempotent - safe to call when VM doesn't exist)
+		if err != nil {
+			t.Errorf("Expected no error (idempotent), got %v", err)
+		}
+	})
+
+	t.Run("SuccessVMStopped", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecSilent returns VM exists but is stopped initially, then doesn't exist after deletion
+		callCount := 0
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 4 && args[0] == "ls" && args[1] == "--profile" && args[3] == "--json" {
+				callCount++
+				if callCount == 1 {
+					return `{
+						"address": "192.168.1.2",
+						"arch": "x86_64",
+						"cpus": 2,
+						"disk": 64424509440,
+						"memory": 4294967296,
+						"name": "windsor-mock-context",
+						"runtime": "docker",
+						"status": "Stopped"
+					}`, nil
+				}
+				return "[]", nil
+			}
+			return originalExecSilent(command, args...)
+		}
+
+		// When calling Down
+		err := colimaVirt.Down()
+
+		// Then no error should be returned (skips stop since VM is already stopped)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorStopColimaIgnored", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecSilent returns VM exists with Running status initially, then doesn't exist after deletion
+		callCount := 0
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 4 && args[0] == "ls" && args[1] == "--profile" && args[3] == "--json" {
+				callCount++
+				if callCount == 1 {
+					return `{
+						"address": "192.168.1.2",
+						"arch": "x86_64",
+						"cpus": 2,
+						"disk": 64424509440,
+						"memory": 4294967296,
+						"name": "windsor-mock-context",
+						"runtime": "docker",
+						"status": "Running"
+					}`, nil
+				}
+				return "[]", nil
+			}
+			return originalExecSilent(command, args...)
+		}
 
 		// Save original function to restore it in our mock
 		originalExecProgress := mocks.Shell.ExecProgressFunc
@@ -663,12 +770,9 @@ func TestColimaVirt_Down(t *testing.T) {
 		// When calling Down
 		err := colimaVirt.Down()
 
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock stop colima error") {
-			t.Errorf("Expected error containing 'mock stop colima error', got %v", err)
+		// Then no error should be returned (stop errors are ignored)
+		if err != nil {
+			t.Errorf("Expected no error (stop errors are ignored), got %v", err)
 		}
 	})
 
