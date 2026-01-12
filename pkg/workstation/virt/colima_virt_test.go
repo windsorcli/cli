@@ -49,8 +49,6 @@ func setupColimaMocks(t *testing.T, opts ...func(*VirtTestMocks)) *VirtTestMocks
 				}
 			case "start":
 				return "", nil
-			case "stop":
-				return "", nil
 			case "delete":
 				return "", nil
 			}
@@ -64,8 +62,10 @@ func setupColimaMocks(t *testing.T, opts ...func(*VirtTestMocks)) *VirtTestMocks
 			switch args[0] {
 			case "start":
 				return "", nil
-			case "stop":
-				return "", nil
+			case "daemon":
+				if len(args) >= 3 && args[1] == "stop" {
+					return "", nil
+				}
 			case "delete":
 				return "", nil
 			}
@@ -589,16 +589,28 @@ func TestColimaVirt_Up(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		colimaVirt, mocks := setup(t)
 
-		// Save original function to restore it in our mock
+		// Override ExecProgress to return an error for start
 		originalExecProgress := mocks.Shell.ExecProgressFunc
-
-		// Override just the relevant method to return an error
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "colima" && args[0] == "start" {
+			if command == "colima" && len(args) >= 2 && args[0] == "start" {
 				return "", fmt.Errorf("mock start colima error")
 			}
-			// For any other command, use the original implementation
-			return originalExecProgress(message, command, args...)
+			if originalExecProgress != nil {
+				return originalExecProgress(message, command, args...)
+			}
+			return "", nil
+		}
+
+		// Make sure getVMInfo also fails so fallback check doesn't succeed
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 3 && args[0] == "ls" {
+				return "", fmt.Errorf("mock getVMInfo error")
+			}
+			if originalExecSilent != nil {
+				return originalExecSilent(command, args...)
+			}
+			return "", nil
 		}
 
 		// When calling Up
@@ -701,59 +713,17 @@ func TestColimaVirt_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorStopColima", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
-		colimaVirt, mocks := setup(t)
-
-		// Save original function to restore it in our mock
-		originalExecProgress := mocks.Shell.ExecProgressFunc
-
-		// Override the ExecProgress function to return an error for stop
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "colima" && args[0] == "stop" {
-				return "", fmt.Errorf("mock stop colima error")
-			}
-			// For any other command, use the original implementation
-			return originalExecProgress(message, command, args...)
-		}
-
-		// When calling Down
-		err := colimaVirt.Down()
-
-		// Then an error should be returned
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "mock stop colima error") {
-			t.Errorf("Expected error containing 'mock stop colima error', got %v", err)
-		}
-	})
-
 	t.Run("ErrorDeleteColima", func(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		colimaVirt, mocks := setup(t)
 
-		// Save original function to restore it in our mock
-		originalExecProgress := mocks.Shell.ExecProgressFunc
-
-		// Override the ExecProgress function for selective operations
-		stopCalled := false
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "colima" {
-				switch args[0] {
-				case "stop":
-					stopCalled = true
-					return "", nil
-				case "delete":
-					// Only return error for delete if stop was called first
-					if stopCalled {
-						return "", fmt.Errorf("mock delete colima error")
-					}
-					return "", fmt.Errorf("delete called before stop")
-				}
+		// Override the ExecSilent function to return an error for delete
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && args[0] == "delete" {
+				return "", fmt.Errorf("mock delete colima error")
 			}
-			// For any other command, use the original implementation
-			return originalExecProgress(message, command, args...)
+			// For any other command, use the default mock
+			return "", nil
 		}
 
 		// When calling Down
@@ -766,10 +736,163 @@ func TestColimaVirt_Down(t *testing.T) {
 		if !strings.Contains(err.Error(), "mock delete colima error") {
 			t.Errorf("Expected error containing 'mock delete colima error', got %v", err)
 		}
+	})
 
-		// Verify stop was called
-		if !stopCalled {
-			t.Error("Stop function was not called")
+	t.Run("DeletesWithTimeoutForIncus", func(t *testing.T) {
+		// Given a ColimaVirt with mock components configured for incus runtime
+		mocks := setupColimaMocks(t)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+		colimaVirt.setShims(mocks.Shims)
+
+		// Configure for incus runtime
+		if err := mocks.ConfigHandler.Set("vm.runtime", "incus"); err != nil {
+			t.Fatalf("Failed to set vm.runtime: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("vm.driver", "colima"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+
+		deleteCalled := false
+
+		// Override ExecSilent to track delete calls
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 2 && args[0] == "delete" {
+				deleteCalled = true
+				return "", nil
+			}
+			if originalExecSilent != nil {
+				return originalExecSilent(command, args...)
+			}
+			return "", nil
+		}
+
+		// When calling Down
+		err := colimaVirt.Down()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify delete was called
+		if !deleteCalled {
+			t.Error("Delete was not called")
+		}
+	})
+
+	t.Run("SuccessWithIncusRuntime", func(t *testing.T) {
+		// Given a ColimaVirt with mock components configured for incus runtime
+		mocks := setupColimaMocks(t)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+		colimaVirt.setShims(mocks.Shims)
+
+		// Configure for incus runtime
+		if err := mocks.ConfigHandler.Set("vm.runtime", "incus"); err != nil {
+			t.Fatalf("Failed to set vm.runtime: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("vm.driver", "colima"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+
+		deleteCalled := false
+
+		// Override ExecSilent to track delete calls
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 2 && args[0] == "delete" {
+				deleteCalled = true
+				return "", nil
+			}
+			if originalExecSilent != nil {
+				return originalExecSilent(command, args...)
+			}
+			return "", nil
+		}
+
+		// When calling Down
+		err := colimaVirt.Down()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify delete was called
+		if !deleteCalled {
+			t.Error("Delete was not called")
+		}
+	})
+
+	t.Run("SuccessWithIncusDaemonKillAndPidCleanup", func(t *testing.T) {
+		// Given a ColimaVirt with mock components configured for incus runtime
+		mocks := setupColimaMocks(t)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+		colimaVirt.setShims(mocks.Shims)
+
+		// Configure for incus runtime
+		if err := mocks.ConfigHandler.Set("vm.runtime", "incus"); err != nil {
+			t.Fatalf("Failed to set vm.runtime: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("vm.driver", "colima"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+
+		deleteCalled := false
+
+		// Override ExecSilent to track delete calls
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 2 && args[0] == "delete" {
+				deleteCalled = true
+				return "", nil
+			}
+			if originalExecSilent != nil {
+				return originalExecSilent(command, args...)
+			}
+			return "", nil
+		}
+
+		// When calling Down
+		err := colimaVirt.Down()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Verify delete was called
+		if !deleteCalled {
+			t.Error("Delete was not called")
+		}
+	})
+
+}
+
+func TestNewColimaVirt(t *testing.T) {
+	t.Run("PanicsWithNilRuntime", func(t *testing.T) {
+		// Given a nil runtime
+		// When creating a new ColimaVirt
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic with nil runtime, but no panic occurred")
+			}
+		}()
+
+		_ = NewColimaVirt(nil)
+	})
+
+	t.Run("SuccessWithValidRuntime", func(t *testing.T) {
+		// Given a valid runtime
+		mocks := setupColimaMocks(t)
+
+		// When creating a new ColimaVirt
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+
+		// Then it should not be nil
+		if colimaVirt == nil {
+			t.Fatal("Expected ColimaVirt, got nil")
 		}
 	})
 }

@@ -49,6 +49,12 @@ func setupDefaultShims() *Shims {
 		WriteFile: func(name string, data []byte, perm os.FileMode) error {
 			return nil
 		},
+		ReadFile: func(name string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		},
+		Remove: func(name string) error {
+			return nil
+		},
 		Rename: func(oldpath, newpath string) error {
 			return nil
 		},
@@ -167,6 +173,71 @@ contexts:
 	}
 
 	return mocks
+}
+
+func TestNewBaseVirt(t *testing.T) {
+	t.Run("PanicsWithNilRuntime", func(t *testing.T) {
+		// Given a nil runtime
+		// When creating a new BaseVirt
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic with nil runtime, but no panic occurred")
+			}
+		}()
+
+		_ = NewBaseVirt(nil)
+	})
+
+	t.Run("PanicsWithNilShell", func(t *testing.T) {
+		// Given a runtime with nil shell
+		mockShell := shell.NewMockShell()
+		configHandler := config.NewConfigHandler(mockShell)
+		rt := &runtime.Runtime{
+			ConfigHandler: configHandler,
+		}
+
+		// When creating a new BaseVirt
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic with nil shell, but no panic occurred")
+			}
+		}()
+
+		_ = NewBaseVirt(rt)
+	})
+
+	t.Run("PanicsWithNilConfigHandler", func(t *testing.T) {
+		// Given a runtime with nil config handler
+		mockShell := shell.NewMockShell()
+		rt := &runtime.Runtime{
+			Shell: mockShell,
+		}
+
+		// When creating a new BaseVirt
+		// Then it should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic with nil config handler, but no panic occurred")
+			}
+		}()
+
+		_ = NewBaseVirt(rt)
+	})
+
+	t.Run("SuccessWithValidRuntime", func(t *testing.T) {
+		// Given a valid runtime
+		mocks := setupVirtMocks(t)
+
+		// When creating a new BaseVirt
+		baseVirt := NewBaseVirt(mocks.Runtime)
+
+		// Then it should not be nil
+		if baseVirt == nil {
+			t.Fatal("Expected BaseVirt, got nil")
+		}
+	})
 }
 
 // =============================================================================

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -210,6 +211,8 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 
 // ExecSilent is a method that runs a command quietly, capturing its output.
 // It returns the command's stdout as a string and any error encountered.
+// Sets SysProcAttr.Setsid to prevent the process from accessing /dev/tty,
+// ensuring all output goes through the redirected stdout/stderr buffers.
 func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error) {
 	if s.verbose {
 		return s.Exec(command, args...)
@@ -223,6 +226,9 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true,
+	}
 	// Ensure the command inherits the current environment
 	if cmd.Env == nil {
 		cmd.Env = s.shims.Environ()
@@ -238,6 +244,8 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 // ExecSilentWithTimeout executes a command with a timeout and returns the output.
 // If the command takes longer than the timeout, it kills the process and returns an error.
 // Uses ExecSilent internally but wraps it with a timeout mechanism.
+// Sets SysProcAttr.Setsid to prevent the process from accessing /dev/tty,
+// ensuring all output goes through the redirected stdout/stderr buffers.
 func (s *DefaultShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
 	if s.verbose {
 		return s.Exec(command, args...)
@@ -251,6 +259,9 @@ func (s *DefaultShell) ExecSilentWithTimeout(command string, args []string, time
 
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true,
+	}
 	if cmd.Env == nil {
 		cmd.Env = s.shims.Environ()
 	}

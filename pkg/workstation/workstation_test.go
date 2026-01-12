@@ -12,7 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -30,7 +29,6 @@ type WorkstationTestMocks struct {
 	Services         []*services.MockService
 	VirtualMachine   *virt.MockVirt
 	ContainerRuntime *virt.MockVirt
-	SSHClient        *ssh.MockClient
 }
 
 func convertToServiceSlice(mockServices []*services.MockService) []services.Service {
@@ -64,9 +62,6 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 
 	// Create mock container runtime
 	mockContainerRuntime := virt.NewMockVirt()
-
-	// Create mock SSH client
-	mockSSHClient := &ssh.MockClient{}
 
 	// Store values set via Set() for GetString() to retrieve
 	configValues := make(map[string]any)
@@ -208,7 +203,6 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 		Services:         mockServices,
 		VirtualMachine:   mockVirtualMachine,
 		ContainerRuntime: mockContainerRuntime,
-		SSHClient:        mockSSHClient,
 	}
 
 	// Apply any overrides
@@ -343,10 +337,6 @@ func TestNewWorkstation(t *testing.T) {
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// Then the workstation should be created successfully
-		// And SSHClient should be created
-		if workstation.SSHClient == nil {
-			t.Error("Expected SSHClient to be created")
-		}
 		// And NetworkManager should not be created yet (created in Prepare)
 		if workstation.NetworkManager != nil {
 			t.Error("Expected NetworkManager not to be created in NewWorkstation (created in Prepare)")
@@ -373,7 +363,6 @@ func TestNewWorkstation(t *testing.T) {
 			Services:         []services.Service{mocks.Services[0]},
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
-			SSHClient:        mocks.SSHClient,
 		}
 
 		// When creating a new workstation with the provided options
@@ -398,10 +387,6 @@ func TestNewWorkstation(t *testing.T) {
 		// And the existing ContainerRuntime should be used
 		if workstation.ContainerRuntime != mocks.ContainerRuntime {
 			t.Error("Expected existing ContainerRuntime to be used")
-		}
-		// And the existing SSHClient should be used
-		if workstation.SSHClient != mocks.SSHClient {
-			t.Error("Expected existing SSHClient to be used")
 		}
 	})
 }

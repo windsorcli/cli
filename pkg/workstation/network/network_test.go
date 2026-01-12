@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
@@ -22,8 +22,6 @@ type NetworkTestMocks struct {
 	Runtime                  *runtime.Runtime
 	ConfigHandler            config.ConfigHandler
 	Shell                    *shell.MockShell
-	SecureShell              *shell.MockShell
-	SSHClient                *ssh.MockClient
 	NetworkInterfaceProvider *MockNetworkInterfaceProvider
 	Services                 []*services.MockService
 	Shims                    *Shims
@@ -102,24 +100,21 @@ contexts:
 		}
 		return "", nil
 	}
-
-	// Create a mock secure shell
-	mockSecureShell := shell.NewMockShell()
-	mockSecureShell.ExecFunc = func(command string, args ...string) (string, error) {
+	mockShell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+		if command == "colima" && len(args) >= 7 && args[0] == "ssh" && args[3] == "--" && args[4] == "sh" && args[5] == "-c" {
+			actualCmd := args[6]
+			if actualCmd == "ls /sys/class/net" {
+				return "br-bridge0\neth0\nlo", nil
+			}
+			if strings.Contains(actualCmd, "iptables") && strings.Contains(actualCmd, "-C") {
+				return "", fmt.Errorf("Bad rule")
+			}
+			if strings.Contains(actualCmd, "sysctl") {
+				return "", nil
+			}
+		}
 		return "", nil
 	}
-	mockSecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-		if command == "ls" && args[0] == "/sys/class/net" {
-			return "br-bridge0\neth0\nlo", nil
-		}
-		if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
-			return "", fmt.Errorf("Bad rule")
-		}
-		return "", nil
-	}
-
-	// Create a mock SSH client
-	mockSSHClient := ssh.NewMockSSHClient()
 
 	// Create a mock network interface provider with mock functions
 	mockNetworkInterfaceProvider := &MockNetworkInterfaceProvider{
@@ -177,8 +172,6 @@ contexts:
 		Runtime:                  rt,
 		ConfigHandler:            configHandler,
 		Shell:                    mockShell,
-		SecureShell:              mockSecureShell,
-		SSHClient:                mockSSHClient,
 		NetworkInterfaceProvider: mockNetworkInterfaceProvider,
 		Services:                 []*services.MockService{mockService1, mockService2},
 		Shims:                    setupDefaultShims(),

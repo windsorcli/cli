@@ -98,6 +98,7 @@ var initCmd = &cobra.Command{
 			if initVmDriver == "colima-incus" {
 				flagOverrides["vm.driver"] = "colima"
 				flagOverrides["vm.runtime"] = "incus"
+				flagOverrides["provider"] = "incus"
 			} else {
 				flagOverrides["vm.driver"] = initVmDriver
 			}

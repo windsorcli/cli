@@ -32,6 +32,8 @@ type Shims struct {
 	UserHomeDir    func() (string, error)
 	MkdirAll       func(path string, perm os.FileMode) error
 	WriteFile      func(name string, data []byte, perm os.FileMode) error
+	ReadFile       func(name string) ([]byte, error)
+	Remove         func(name string) error
 	Rename         func(oldpath, newpath string) error
 	Stat           func(name string) (os.FileInfo, error)
 	GOARCH         func() string
@@ -53,6 +55,8 @@ func NewShims() *Shims {
 		UserHomeDir:   os.UserHomeDir,
 		MkdirAll:      os.MkdirAll,
 		WriteFile:     os.WriteFile,
+		ReadFile:      os.ReadFile,
+		Remove:        os.Remove,
 		Rename:        os.Rename,
 		Stat:          os.Stat,
 		GOARCH:        func() string { return runtime.GOARCH },

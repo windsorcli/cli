@@ -137,6 +137,11 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 	}
 
 	for key, value := range flagOverrides {
+		if key == "provider" {
+			if p.configHandler.GetString("provider") != "" {
+				continue
+			}
+		}
 		if err := p.configHandler.Set(key, value); err != nil {
 			return fmt.Errorf("failed to set %s: %w", key, err)
 		}

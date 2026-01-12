@@ -17,6 +17,7 @@ import (
 type MockService struct {
 	BaseService
 	GetComposeConfigFunc func() (*types.Config, error)
+	GetIncusConfigFunc   func() (*IncusConfig, error)
 	WriteConfigFunc      func() error
 	SetAddressFunc       func(address string, portAllocator *PortAllocator) error
 	GetAddressFunc       func() string
@@ -43,6 +44,14 @@ func NewMockService() *MockService {
 func (m *MockService) GetComposeConfig() (*types.Config, error) {
 	if m.GetComposeConfigFunc != nil {
 		return m.GetComposeConfigFunc()
+	}
+	return nil, nil
+}
+
+// GetIncusConfig calls the mock GetIncusConfigFunc if it is set, otherwise returns nil
+func (m *MockService) GetIncusConfig() (*IncusConfig, error) {
+	if m.GetIncusConfigFunc != nil {
+		return m.GetIncusConfigFunc()
 	}
 	return nil, nil
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -37,7 +36,6 @@ type Workstation struct {
 	Services         []services.Service
 	VirtualMachine   virt.VirtualMachine
 	ContainerRuntime virt.ContainerRuntime
-	SSHClient        ssh.Client
 }
 
 // =============================================================================
@@ -82,13 +80,6 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 		if overrides.ContainerRuntime != nil {
 			workstation.ContainerRuntime = overrides.ContainerRuntime
 		}
-		if overrides.SSHClient != nil {
-			workstation.SSHClient = overrides.SSHClient
-		}
-	}
-
-	if workstation.SSHClient == nil {
-		workstation.SSHClient = ssh.NewSSHClient()
 	}
 
 	return workstation
@@ -108,9 +99,8 @@ func (w *Workstation) Prepare() error {
 
 	if w.NetworkManager == nil {
 		if vmDriver == "colima" {
-			secureShell := shell.NewSecureShell(w.SSHClient)
 			networkInterfaceProvider := network.NewNetworkInterfaceProvider()
-			w.NetworkManager = network.NewColimaNetworkManager(w.runtime, w.SSHClient, secureShell, networkInterfaceProvider)
+			w.NetworkManager = network.NewColimaNetworkManager(w.runtime, networkInterfaceProvider)
 		} else {
 			w.NetworkManager = network.NewBaseNetworkManager(w.runtime)
 		}
@@ -137,7 +127,10 @@ func (w *Workstation) Prepare() error {
 	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
 	if vmRuntime == "incus" {
 		if w.ContainerRuntime == nil {
-			w.ContainerRuntime = virt.NewIncusVirt(w.runtime, w.Services, w.VirtualMachine, w.SSHClient)
+			w.ContainerRuntime = virt.NewIncusVirt(w.runtime, w.Services)
+			if incusVirt, ok := w.ContainerRuntime.(*virt.IncusVirt); ok {
+				w.VirtualMachine = incusVirt.ColimaVirt
+			}
 		}
 	} else {
 		containerRuntimeEnabled := w.configHandler.GetBool("docker.enabled")
@@ -172,12 +165,11 @@ func (w *Workstation) Up() error {
 			if vmAddress == "" {
 				return fmt.Errorf("vm.address is required for network configuration but was not set by VirtualMachine.Up()")
 			}
-		}
-	}
-
-	if w.NetworkManager != nil && vmDriver == "colima" && vmRuntime == "incus" {
-		if err := w.NetworkManager.ConfigureGuest(); err != nil {
-			return fmt.Errorf("error configuring guest: %w", err)
+			if vmRuntime == "incus" {
+				if err := w.NetworkManager.ConfigureGuest(); err != nil {
+					return fmt.Errorf("error configuring guest SSH: %w", err)
+				}
+			}
 		}
 	}
 
@@ -197,7 +189,7 @@ func (w *Workstation) Up() error {
 	}
 
 	if w.NetworkManager != nil {
-		if vmDriver == "colima" && vmRuntime != "incus" {
+		if vmDriver == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
 			}
@@ -217,10 +209,10 @@ func (w *Workstation) Up() error {
 	return nil
 }
 
-// Down stops the workstation environment, including services, containers, VMs, and networking.
-// It attempts to gracefully shut down the container runtime and virtual machine if they exist.
-// On success, it prints a confirmation message to standard error and returns nil. If any teardown
-// step fails, it returns an error describing the issue.
+// Down stops all components of the workstation environment including services, containers, VMs, and networking.
+// It gracefully shuts down the container runtime and virtual machine if present. On success, it prints a
+// confirmation message to standard error and returns nil. If any step of the teardown fails, it returns an error
+// describing the issue.
 func (w *Workstation) Down() error {
 	vmDriver := w.configHandler.GetString("vm.driver")
 	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
@@ -237,7 +229,7 @@ func (w *Workstation) Down() error {
 		}
 	}
 
-	if w.VirtualMachine != nil {
+	if w.VirtualMachine != nil && vmRuntime != "incus" {
 		if err := w.VirtualMachine.Down(); err != nil {
 			return fmt.Errorf("Error running virtual machine Down command: %w", err)
 		}

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // The ColimaNetworkManager is a specialized network manager for Colima-based environments.
@@ -31,15 +31,9 @@ type ColimaNetworkManager struct {
 // =============================================================================
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
-func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureShell shell.Shell, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
+func NewColimaNetworkManager(rt *runtime.Runtime, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
 	if rt == nil {
 		panic("runtime is required")
-	}
-	if sshClient == nil {
-		panic("ssh client is required")
-	}
-	if secureShell == nil {
-		panic("secure shell is required")
 	}
 	if networkInterfaceProvider == nil {
 		panic("network interface provider is required")
@@ -49,34 +43,15 @@ func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureSh
 		BaseNetworkManager:       *NewBaseNetworkManager(rt),
 		networkInterfaceProvider: networkInterfaceProvider,
 	}
-	manager.sshClient = sshClient
-	manager.secureShell = secureShell
 
 	return manager
 }
 
-// ConfigureGuest sets up forwarding of guest traffic to the container network.
-// It retrieves network CIDR and guest IP from the config, and configures SSH.
-// For Docker runtime, it identifies the Docker bridge interface and ensures iptables rules are set.
-// For incus runtime, Docker-specific configuration is skipped since incus networking is handled independently.
-// If vm.address is not configured, only SSH configuration is performed (useful for Down operations).
+// ConfigureGuest sets up guest traffic forwarding in a Colima environment.
+// Depending on the runtime, configures forwarding:
+// for Docker, iptables rules for the Docker bridge;
+// for Incus, Incus network configuration. If no guest IP is set, nothing is configured.
 func (n *ColimaNetworkManager) ConfigureGuest() error {
-	contextName := n.configHandler.GetContext()
-
-	sshConfigOutput, err := n.shell.ExecSilent(
-		"colima",
-		"ssh-config",
-		"--profile",
-		fmt.Sprintf("windsor-%s", contextName),
-	)
-	if err != nil {
-		return fmt.Errorf("error executing VM SSH config command: %w", err)
-	}
-
-	if err := n.sshClient.SetClientConfigFile(sshConfigOutput, fmt.Sprintf("colima-windsor-%s", contextName)); err != nil {
-		return fmt.Errorf("error setting SSH client config: %w", err)
-	}
-
 	guestIP := n.configHandler.GetString("vm.address")
 	if guestIP == "" {
 		return nil
@@ -89,7 +64,7 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		if err := n.configureIncusNetwork(networkCIDR); err != nil {
 			return fmt.Errorf("error configuring incus network: %w", err)
 		}
-		return n.setupForwardingRule(networkCIDR, "incusbr0")
+		return n.setupForwardingRule(networkCIDR, virt.IncusNetworkName)
 	}
 	return n.configureDockerForwarding(networkCIDR)
 }
@@ -100,10 +75,15 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 
 // configureDockerForwarding sets up iptables forwarding from col0 to the Docker bridge interface
 // It identifies the Docker bridge interface and configures forwarding rules
+// Uses colima ssh to execute the command directly, avoiding SSH session creation issues
 func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) error {
-	output, err := n.secureShell.ExecSilent(
-		"ls",
-		"/sys/class/net",
+	contextName := n.configHandler.GetContext()
+	profileName := fmt.Sprintf("windsor-%s", contextName)
+
+	output, err := n.shell.ExecSilentWithTimeout(
+		"colima",
+		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", "ls /sys/class/net"},
+		5*time.Second,
 	)
 	if err != nil {
 		return fmt.Errorf("error executing command to list network interfaces: %w", err)
@@ -125,16 +105,23 @@ func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) err
 
 // configureIncusNetwork configures the Incus bridge network with the specified CIDR
 // It calculates the gateway IP (first IP in the CIDR) and sets it on incusbr0 using the CIDR mask from the config
+// Uses colima ssh to execute the command directly, avoiding SSH session creation issues
 func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
 	_, ipNet, err := net.ParseCIDR(networkCIDR)
 	if err != nil {
 		return fmt.Errorf("error parsing network CIDR: %w", err)
 	}
 
+	contextName := n.configHandler.GetContext()
+	profileName := fmt.Sprintf("windsor-%s", contextName)
 	ones, _ := ipNet.Mask.Size()
 	gatewayIP := incrementIP(ipNet.IP).String()
-	if _, err := n.secureShell.ExecSilent(
-		"incus", "network", "set", "incusbr0", fmt.Sprintf("ipv4.address=%s/%d", gatewayIP, ones),
+
+	command := fmt.Sprintf("incus network set %s ipv4.address=%s/%d", virt.IncusNetworkName, gatewayIP, ones)
+	if _, err := n.shell.ExecSilentWithTimeout(
+		"colima",
+		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", command},
+		15*time.Second,
 	); err != nil {
 		return fmt.Errorf("error setting incus network address: %w", err)
 	}
@@ -144,35 +131,38 @@ func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
 
 // setupForwardingRule sets up iptables forwarding from col0 to the specified output interface
 // It enables IP forwarding and adds the necessary iptables rule
+// Uses colima ssh to execute the command directly, avoiding SSH session creation issues
 func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface string) error {
 	hostIP, err := n.getHostIP()
 	if err != nil {
 		return fmt.Errorf("error getting host IP: %w", err)
 	}
 
-	if _, err := n.secureShell.ExecSilent(
-		"sudo", "sysctl", "-w", "net.ipv4.ip_forward=1",
+	contextName := n.configHandler.GetContext()
+	profileName := fmt.Sprintf("windsor-%s", contextName)
+
+	if _, err := n.shell.ExecSilentWithTimeout(
+		"colima",
+		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", "sudo sysctl -w net.ipv4.ip_forward=1"},
+		10*time.Second,
 	); err != nil {
 		return fmt.Errorf("error enabling IP forwarding in VM: %w", err)
 	}
 
-	_, err = n.secureShell.ExecSilent(
-		"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
-		"-i", "col0", "-o", outputInterface,
-		"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
+	checkCommand := fmt.Sprintf("sudo iptables -t filter -C FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", outputInterface, hostIP, networkCIDR)
+	_, err = n.shell.ExecSilentWithTimeout(
+		"colima",
+		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", checkCommand},
+		10*time.Second,
 	)
 	if err != nil {
-		errStr := err.Error()
-		if strings.Contains(errStr, "No chain/target/match") || strings.Contains(errStr, "Bad rule") {
-			if _, err := n.secureShell.ExecSilent(
-				"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
-				"-i", "col0", "-o", outputInterface,
-				"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
-			); err != nil {
-				return fmt.Errorf("error setting iptables rule: %w", err)
-			}
-		} else {
-			return fmt.Errorf("error checking iptables rule: %w", err)
+		addCommand := fmt.Sprintf("sudo iptables -t filter -A FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", outputInterface, hostIP, networkCIDR)
+		if _, err := n.shell.ExecSilentWithTimeout(
+			"colima",
+			[]string{"ssh", "--profile", profileName, "--", "sh", "-c", addCommand},
+			10*time.Second,
+		); err != nil {
+			return fmt.Errorf("error setting iptables rule: %w", err)
 		}
 	}
 

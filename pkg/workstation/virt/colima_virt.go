@@ -53,13 +53,22 @@ func NewColimaVirt(rt *runtime.Runtime) *ColimaVirt {
 // Public Methods
 // =============================================================================
 
-// Up starts the Colima VM and configures its network settings
-// Initializes the VM with the appropriate configuration and waits for it to be ready
-// Sets the VM address in the configuration handler for later use
-// For incus runtime, starts the vmnet daemon and retries getting the address
-// Returns an error if the VM fails to start or if the address cannot be set
+// Up starts the Colima VM and configures its network settings.
+// It initializes the VM with the appropriate configuration and waits for it to become ready.
+// If the VM is already running, it skips the start operation and reuses the existing VM.
+// The VM address is set in the configuration handler for later use.
+// Kills stuck processes before starting if VM is not already running to prevent vmnet/daemon issues.
+// Returns an error if the VM fails to start or if the address cannot be set.
 func (v *ColimaVirt) Up() error {
-	info, err := v.startColima()
+	info, err := v.getVMInfo()
+	if err == nil && info.Address != "" {
+		if err := v.configHandler.Set("vm.address", info.Address); err != nil {
+			return fmt.Errorf("failed to set VM address in config handler: %w", err)
+		}
+		return nil
+	}
+
+	info, err = v.startColima()
 	if err != nil {
 		return fmt.Errorf("failed to start Colima VM: %w", err)
 	}
@@ -75,58 +84,26 @@ func (v *ColimaVirt) Up() error {
 	return nil
 }
 
-// Down stops and deletes the Colima VM
-// First stops the VM and then deletes it to ensure a clean shutdown
-// Returns an error if either the stop or delete operation fails
+// Down stops and deletes the Colima VM, ensuring resources are reclaimed.
+// Attempts graceful shutdown, then deletes the VM. Returns an error if deletion fails.
 func (v *ColimaVirt) Down() error {
-	if err := v.executeColimaCommand("stop"); err != nil {
+	contextName := v.configHandler.GetContext()
+	profileName := fmt.Sprintf("windsor-%s", contextName)
+
+	if v.isVerbose() {
+		_, _ = v.shell.ExecProgress("🦙 Stopping Colima VM", "colima", "stop", profileName)
+	} else {
+		fmt.Fprintf(os.Stderr, "🦙 Stopping Colima VM\n")
+		_, _ = v.shell.ExecSilent("colima", "stop", profileName)
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🦙 Stopping Colima VM - \033[32mDone\033[0m\n")
+	}
+
+	err := v.executeColimaCommand("delete", "--data")
+	if err != nil {
 		return err
 	}
 
-	return v.executeColimaCommand("delete")
-}
-
-// getVMInfo returns the information about the Colima VM
-// Retrieves the VM details from the Colima CLI and parses the JSON output
-// Converts memory and disk values from bytes to gigabytes for easier consumption
-// Returns a VMInfo struct with the parsed information or an error if retrieval fails
-func (v *ColimaVirt) getVMInfo() (VMInfo, error) {
-	contextName := v.configHandler.GetContext()
-
-	command := "colima"
-	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
-	out, err := v.shell.ExecSilent(command, args...)
-	if err != nil {
-		return VMInfo{}, err
-	}
-
-	var colimaData struct {
-		Address string `json:"address"`
-		Arch    string `json:"arch"`
-		CPUs    int    `json:"cpus"`
-		Disk    int    `json:"disk"`
-		Memory  int    `json:"memory"`
-		Name    string `json:"name"`
-		Runtime string `json:"runtime"`
-		Status  string `json:"status"`
-	}
-	if err := v.BaseVirt.shims.UnmarshalJSON([]byte(out), &colimaData); err != nil {
-		return VMInfo{}, err
-	}
-
-	memoryGB := colimaData.Memory / (1024 * 1024 * 1024)
-	diskGB := colimaData.Disk / (1024 * 1024 * 1024)
-
-	vmInfo := VMInfo{
-		Address: colimaData.Address,
-		Arch:    colimaData.Arch,
-		CPUs:    colimaData.CPUs,
-		Disk:    diskGB,
-		Memory:  memoryGB,
-		Name:    colimaData.Name,
-	}
-
-	return vmInfo, nil
+	return nil
 }
 
 // WriteConfig writes the Colima configuration file with VM settings
@@ -159,12 +136,7 @@ func (v *ColimaVirt) WriteConfig() error {
 
 	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
 	runtime := vmRuntime
-	nestedVirtualization := false
-
-	if vmRuntime == "incus" {
-		runtime = "incus"
-		nestedVirtualization = true
-	}
+	nestedVirtualization := vmRuntime == "incus"
 
 	colimaConfig := &colimaConfig.Config{
 		CPU:      cpu,
@@ -238,6 +210,50 @@ func (v *ColimaVirt) WriteConfig() error {
 // Private Methods
 // =============================================================================
 
+// getVMInfo returns the information about the Colima VM
+// Retrieves the VM details from the Colima CLI and parses the JSON output
+// Uses timeout to prevent hanging if colima ls is stuck
+// Converts memory and disk values from bytes to gigabytes for easier consumption
+// Returns a VMInfo struct with the parsed information or an error if retrieval fails
+func (v *ColimaVirt) getVMInfo() (VMInfo, error) {
+	contextName := v.configHandler.GetContext()
+
+	command := "colima"
+	args := []string{"ls", "--profile", fmt.Sprintf("windsor-%s", contextName), "--json"}
+	out, err := v.shell.ExecSilentWithTimeout(command, args, 5*time.Second)
+	if err != nil {
+		return VMInfo{}, err
+	}
+
+	var colimaData struct {
+		Address string `json:"address"`
+		Arch    string `json:"arch"`
+		CPUs    int    `json:"cpus"`
+		Disk    int    `json:"disk"`
+		Memory  int    `json:"memory"`
+		Name    string `json:"name"`
+		Runtime string `json:"runtime"`
+		Status  string `json:"status"`
+	}
+	if err := v.BaseVirt.shims.UnmarshalJSON([]byte(out), &colimaData); err != nil {
+		return VMInfo{}, err
+	}
+
+	memoryGB := colimaData.Memory / (1024 * 1024 * 1024)
+	diskGB := colimaData.Disk / (1024 * 1024 * 1024)
+
+	vmInfo := VMInfo{
+		Address: colimaData.Address,
+		Arch:    colimaData.Arch,
+		CPUs:    colimaData.CPUs,
+		Disk:    diskGB,
+		Memory:  memoryGB,
+		Name:    colimaData.Name,
+	}
+
+	return vmInfo, nil
+}
+
 // getArch retrieves the architecture of the system
 // Maps the Go architecture to the Colima architecture format
 // Handles special cases for amd64 and arm64 architectures
@@ -284,41 +300,68 @@ func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, st
 	return cpu, disk, memory, hostname, arch
 }
 
-// executeColimaCommand executes a Colima command with the given action
-// Formats the command with the appropriate context name
-// Executes the command with progress output
-// Returns an error if the command execution fails
-func (v *ColimaVirt) executeColimaCommand(action string) error {
+// executeColimaCommand executes a Colima command for the specified action and arguments, using the Windsor context profile format.
+// For "delete" actions, it appends the "--force" flag and executes the command with progress reporting when verbose,
+// or silently with a progress message when not verbose.
+// For all other actions, it executes the command with progress reporting.
+// Returns an error if the Colima command execution fails. This method is designed to be overridden by embedded types to handle specialized runtimes.
+func (v *ColimaVirt) executeColimaCommand(action string, additionalArgs ...string) error {
 	contextName := v.configHandler.GetContext()
-
 	command := "colima"
 	args := []string{action, fmt.Sprintf("windsor-%s", contextName)}
-	formattedCommand := fmt.Sprintf("%s %s", command, strings.Join(args, " "))
-	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s", formattedCommand), command, args...)
+	args = append(args, additionalArgs...)
+	if action == "delete" {
+		args = append(args, "--force")
+		if v.isVerbose() {
+			output, err := v.shell.ExecProgress("🦙 Deleting Colima VM", command, args...)
+			if err != nil {
+				return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+			}
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "🦙 Deleting Colima VM\n")
+		output, err := v.shell.ExecSilent(command, args...)
+		if err != nil {
+			return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
+		}
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🦙 Deleting Colima VM - \033[32mDone\033[0m\n")
+		return nil
+	}
+	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s", command), command, args...)
 	if err != nil {
 		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
-
 	return nil
 }
 
-// startColima starts the Colima VM and waits for it to have an assigned IP address
-// Executes the start command and waits for the VM to be ready
-// Retries a configurable number of times to get the VM information
-// Returns the VM information or an error if the VM fails to start or get an IP
+// isVerbose checks if the shell is in verbose mode by using type assertion.
+func (v *ColimaVirt) isVerbose() bool {
+	type verboseShell interface {
+		IsVerbose() bool
+	}
+	if vs, ok := v.shell.(verboseShell); ok {
+		return vs.IsVerbose()
+	}
+	return false
+}
+
+// startColima starts the Colima VM, waits for it to obtain an assigned IP address, and returns the VM information.
+// It executes the Colima start command with a timeout to prevent hanging, then retries a configurable number of times
+// to fetch the VM information. If the VM fails to start or acquire a valid IP address within the allowed attempts,
+// an error is returned describing the issue, including any Colima command output received.
 func (v *ColimaVirt) startColima() (VMInfo, error) {
 	contextName := v.configHandler.GetContext()
 
 	command := "colima"
 	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
-	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s %s", command, strings.Join(args, " ")), command, args...)
+
+	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s", command), command, args...)
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
 
 	var info VMInfo
 	var lastErr error
-	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
 	for i := range make([]int, testRetryAttempts) {
 		info, err = v.getVMInfo()
 		if err != nil {
@@ -335,9 +378,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 	if lastErr != nil {
 		return VMInfo{}, lastErr
 	}
-	if vmRuntime == "incus" {
-		return info, nil
-	}
+
 	return VMInfo{}, fmt.Errorf("Timed out waiting for Colima VM to get an IP address")
 }
 
@@ -351,19 +392,51 @@ func (v *ColimaVirt) getProvisionScripts() []colimaConfig.Provision {
 	}
 }
 
+// getProfileName returns the Colima profile name for the current context.
+func (v *ColimaVirt) getProfileName() string {
+	contextName := v.configHandler.GetContext()
+	return fmt.Sprintf("windsor-%s", contextName)
+}
+
+// execInVM executes a command in the VM via colima ssh silently and returns the output.
+// ExecSilent captures stdout and stderr to buffers at the Go level (cmd.Stdout and cmd.Stderr).
+// We also redirect stderr in the shell command to suppress colima ssh connection messages.
+// The command output is captured by ExecSilent and returned.
+func (v *ColimaVirt) execInVM(command string, args ...string) (string, error) {
+	profileName := v.getProfileName()
+	fullCommand := command
+	if len(args) > 0 {
+		fullCommand += " " + strings.Join(args, " ")
+	}
+	return v.shell.ExecSilent("colima", "ssh", "--profile", profileName, "--", "sh", "-c", fullCommand+" 2>/dev/null")
+}
+
+// execInVMQuiet executes a command in the VM via colima ssh, always suppressing output even in verbose mode.
+// Use for data queries that produce large JSON dumps.
+func (v *ColimaVirt) execInVMQuiet(command string, args []string, timeout time.Duration) (string, error) {
+	profileName := v.getProfileName()
+	fullCommand := command
+	if len(args) > 0 {
+		fullCommand += " " + strings.Join(args, " ")
+	}
+	v.shell.SetVerbosity(false)
+	defer v.shell.SetVerbosity(true)
+	return v.shell.ExecSilentWithTimeout("colima", []string{"ssh", "--profile", profileName, "--", "sh", "-c", fullCommand + " 2>/dev/null"}, timeout)
+}
+
+// execInVMProgress executes a command in the VM via colima ssh with progress reporting and returns the output.
+func (v *ColimaVirt) execInVMProgress(message string, command string, args ...string) (string, error) {
+	profileName := v.getProfileName()
+	fullCommand := command
+	if len(args) > 0 {
+		fullCommand += " " + strings.Join(args, " ")
+	}
+	return v.shell.ExecProgress(message, "colima", "ssh", "--profile", profileName, "--", "sh", "-c", fullCommand)
+}
+
 // =============================================================================
 // Interface Compliance
 // =============================================================================
-
-// GetNetworkName returns the network name for the Colima VM.
-func (v *ColimaVirt) GetNetworkName() string {
-	return v.configHandler.GetString("network.name", "incusbr0")
-}
-
-// GetIncusRemote returns the Incus remote name for the Colima VM.
-func (v *ColimaVirt) GetIncusRemote() string {
-	return v.configHandler.GetString("incus.remote", "colima-windsor-local")
-}
 
 // Ensure ColimaVirt implements Virt and VirtualMachine
 var _ Virt = (*ColimaVirt)(nil)

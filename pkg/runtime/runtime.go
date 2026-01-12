@@ -685,13 +685,30 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			}
 		}
 
-		if existingProvider == "" && isDevMode {
-			if err := rt.ConfigHandler.Set("provider", "generic"); err != nil {
-				return fmt.Errorf("failed to set provider from context name: %w", err)
+		providerFromOverrides := ""
+		if len(flagOverrides) > 0 && flagOverrides[0] != nil {
+			if prov, ok := flagOverrides[0]["provider"].(string); ok && prov != "" {
+				providerFromOverrides = prov
 			}
 		}
 
-		provider := rt.ConfigHandler.GetString("provider")
+		provider := existingProvider
+		if providerFromOverrides != "" {
+			provider = providerFromOverrides
+		} else if provider == "" && isDevMode {
+			provider = "generic"
+		}
+
+		if provider == "" {
+			provider = "none"
+		}
+
+		if provider != "" {
+			if err := rt.ConfigHandler.Set("provider", provider); err != nil {
+				return fmt.Errorf("failed to set provider: %w", err)
+			}
+		}
+
 		if provider == "none" {
 			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig); err != nil {
 				return fmt.Errorf("failed to set default config: %w", err)
@@ -751,6 +768,10 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}
 		case "generic":
+			if err := rt.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		case "incus":
 			if err := rt.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}

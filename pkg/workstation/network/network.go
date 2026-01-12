@@ -9,7 +9,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
@@ -32,9 +31,7 @@ type NetworkManager interface {
 
 // BaseNetworkManager is a concrete implementation of NetworkManager
 type BaseNetworkManager struct {
-	sshClient                ssh.Client
 	shell                    shell.Shell
-	secureShell              shell.Shell
 	configHandler            config.ConfigHandler
 	services                 []services.Service
 	shims                    *Shims
