@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 )
 
 // The ColimaNetworkManager is a specialized network manager for Colima-based environments.
@@ -31,15 +30,9 @@ type ColimaNetworkManager struct {
 // =============================================================================
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
-func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureShell shell.Shell, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
+func NewColimaNetworkManager(rt *runtime.Runtime, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
 	if rt == nil {
 		panic("runtime is required")
-	}
-	if sshClient == nil {
-		panic("ssh client is required")
-	}
-	if secureShell == nil {
-		panic("secure shell is required")
 	}
 	if networkInterfaceProvider == nil {
 		panic("network interface provider is required")
@@ -49,16 +42,15 @@ func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureSh
 		BaseNetworkManager:       *NewBaseNetworkManager(rt),
 		networkInterfaceProvider: networkInterfaceProvider,
 	}
-	manager.sshClient = sshClient
-	manager.secureShell = secureShell
 
 	return manager
 }
 
 // ConfigureGuest sets up forwarding of guest traffic to the container network.
-// It retrieves network CIDR and guest IP from the config, and configures SSH.
+// It retrieves network CIDR and guest IP from the config.
 // It identifies the Docker bridge interface and ensures iptables rules are set.
 // If the rule doesn't exist, it adds a new one to allow traffic forwarding.
+// Uses colima ssh to execute commands directly, avoiding SSH session creation issues.
 func (n *ColimaNetworkManager) ConfigureGuest() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
 
@@ -68,32 +60,19 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	}
 
 	contextName := n.configHandler.GetContext()
+	profileName := fmt.Sprintf("windsor-%s", contextName)
 
-	sshConfigOutput, err := n.shell.ExecSilent(
+	output, err := n.shell.ExecSilentWithTimeout(
 		"colima",
-		"ssh-config",
-		"--profile",
-		fmt.Sprintf("windsor-%s", contextName),
-	)
-	if err != nil {
-		return fmt.Errorf("error executing VM SSH config command: %w", err)
-	}
-
-	if err := n.sshClient.SetClientConfigFile(sshConfigOutput, fmt.Sprintf("colima-windsor-%s", contextName)); err != nil {
-		return fmt.Errorf("error setting SSH client config: %w", err)
-	}
-
-	output, err := n.secureShell.ExecSilent(
-		"ls",
-		"/sys/class/net",
+		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", "ls /sys/class/net"},
+		5*time.Second,
 	)
 	if err != nil {
 		return fmt.Errorf("error executing command to list network interfaces: %w", err)
 	}
 
 	var dockerBridgeInterface string
-	interfaces := strings.Split(output, "\n")
-	for _, iface := range interfaces {
+	for _, iface := range strings.FieldsFunc(output, func(r rune) bool { return r == '\n' }) {
 		if strings.HasPrefix(iface, "br-") {
 			dockerBridgeInterface = iface
 			break
@@ -108,22 +87,28 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error getting host IP: %w", err)
 	}
 
-	_, err = n.secureShell.ExecSilent(
-		"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
-		"-i", "col0", "-o", dockerBridgeInterface,
-		"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
+	if _, err := n.shell.ExecSilentWithTimeout(
+		"colima",
+		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", "sudo sysctl -w net.ipv4.ip_forward=1"},
+		10*time.Second,
+	); err != nil {
+		return fmt.Errorf("error enabling IP forwarding in VM: %w", err)
+	}
+
+	checkCommand := fmt.Sprintf("sudo iptables -t filter -C FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", dockerBridgeInterface, hostIP, networkCIDR)
+	_, err = n.shell.ExecSilentWithTimeout(
+		"colima",
+		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", checkCommand},
+		10*time.Second,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "Bad rule") {
-			if _, err := n.secureShell.ExecSilent(
-				"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
-				"-i", "col0", "-o", dockerBridgeInterface,
-				"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
-			); err != nil {
-				return fmt.Errorf("error setting iptables rule: %w", err)
-			}
-		} else {
-			return fmt.Errorf("error checking iptables rule: %w", err)
+		addCommand := fmt.Sprintf("sudo iptables -t filter -A FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", dockerBridgeInterface, hostIP, networkCIDR)
+		if _, err := n.shell.ExecSilentWithTimeout(
+			"colima",
+			[]string{"ssh", "--profile", profileName, "--", "sh", "-c", addCommand},
+			10*time.Second,
+		); err != nil {
+			return fmt.Errorf("error setting iptables rule: %w", err)
 		}
 	}
 

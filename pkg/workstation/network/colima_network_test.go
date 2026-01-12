@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
@@ -17,7 +18,7 @@ func TestColimaNetworkManager_AssignIPs(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
 		t.Helper()
 		mocks := setupNetworkMocks(t)
-		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
+		manager := NewColimaNetworkManager(mocks.Runtime, mocks.NetworkInterfaceProvider)
 		manager.shims = mocks.Shims
 		return manager, mocks
 	}
@@ -45,7 +46,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
 		t.Helper()
 		mocks := setupNetworkMocks(t)
-		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
+		manager := NewColimaNetworkManager(mocks.Runtime, mocks.NetworkInterfaceProvider)
 		manager.shims = mocks.Shims
 		manager.AssignIPs([]services.Service{})
 		return manager, mocks
@@ -96,67 +97,14 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorGettingSSHConfig", func(t *testing.T) {
-		// Given a network manager with SSH config error
-		manager, mocks := setup(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "colima" && args[0] == "ssh-config" {
-				return "", fmt.Errorf("mock error getting SSH config")
-			}
-			return "", nil
-		}
-
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "error executing VM SSH config command: mock error getting SSH config"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("ErrorSettingSSHClient", func(t *testing.T) {
-		// Given a network manager with SSH client error
-		manager, mocks := setup(t)
-		mocks.SSHClient.SetClientConfigFileFunc = func(config string, contextName string) error {
-			return fmt.Errorf("mock error setting SSH client config")
-		}
-
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "error setting SSH client config: mock error setting SSH client config"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("ErrorListingInterfaces", func(t *testing.T) {
 		// Given a network manager with interface listing error
 		manager, mocks := setup(t)
-		mocks.SecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "ls" && args[0] == "/sys/class/net" {
-				return "", fmt.Errorf("mock error listing interfaces")
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				if len(args) > 4 && strings.Contains(args[4], "ls /sys/class/net") {
+					return "", fmt.Errorf("mock error listing interfaces")
+				}
 			}
 			return "", nil
 		}
@@ -183,9 +131,11 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("NoDockerBridgeInterfaceFound", func(t *testing.T) {
 		// Given a network manager with no docker bridge interface
 		manager, mocks := setup(t)
-		mocks.SecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "ls" && args[0] == "/sys/class/net" {
-				return "eth0\nlo\nwlan0", nil // No "br-" interface
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				if len(args) > 4 && strings.Contains(args[4], "ls /sys/class/net") {
+					return "eth0\nlo\nwlan0", nil // No "br-" interface
+				}
 			}
 			return "", nil
 		}
@@ -212,15 +162,20 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("ErrorSettingIptablesRule", func(t *testing.T) {
 		// Given a network manager with iptables rule error
 		manager, mocks := setup(t)
-		mocks.SecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "ls" && args[0] == "/sys/class/net" {
-				return "br-1234\neth0\nlo\nwlan0", nil // Include a "br-" interface
-			}
-			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
-				return "", fmt.Errorf("Bad rule") // Simulate that the rule doesn't exist
-			}
-			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-A" {
-				return "", fmt.Errorf("mock error setting iptables rule")
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				if len(args) > 4 {
+					cmd := args[4]
+					if strings.Contains(cmd, "ls /sys/class/net") {
+						return "br-1234\neth0\nlo\nwlan0", nil // Include a "br-" interface
+					}
+					if strings.Contains(cmd, "iptables") && strings.Contains(cmd, "-C") {
+						return "", fmt.Errorf("Bad rule") // Simulate that the rule doesn't exist
+					}
+					if strings.Contains(cmd, "iptables") && strings.Contains(cmd, "-A") {
+						return "", fmt.Errorf("mock error setting iptables rule")
+					}
+				}
 			}
 			return "", nil
 		}
@@ -272,12 +227,20 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("ErrorCheckingIptablesRule", func(t *testing.T) {
 		// Given a network manager with iptables rule check error
 		manager, mocks := setup(t)
-		originalExecSilentFunc := mocks.SecureShell.ExecSilentFunc
-		mocks.SecureShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "sudo" && args[0] == "iptables" && args[1] == "-t" && args[2] == "filter" && args[3] == "-C" {
-				return "", fmt.Errorf("unexpected error checking iptables rule")
+		originalExecSilentWithTimeoutFunc := mocks.Shell.ExecSilentWithTimeoutFunc
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				if len(args) > 4 {
+					cmd := args[4]
+					if strings.Contains(cmd, "iptables") && strings.Contains(cmd, "-C") {
+						return "", fmt.Errorf("unexpected error checking iptables rule")
+					}
+				}
 			}
-			return originalExecSilentFunc(command, args...)
+			if originalExecSilentWithTimeoutFunc != nil {
+				return originalExecSilentWithTimeoutFunc(command, args, timeout)
+			}
+			return "", nil
 		}
 
 		// When initializing the network manager
@@ -303,7 +266,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
 		t.Helper()
 		mocks := setupNetworkMocks(t)
-		manager := NewColimaNetworkManager(mocks.Runtime, mocks.SSHClient, mocks.SecureShell, mocks.NetworkInterfaceProvider)
+		manager := NewColimaNetworkManager(mocks.Runtime, mocks.NetworkInterfaceProvider)
 		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
