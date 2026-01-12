@@ -54,7 +54,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a properly configured network manager
-		manager, _ := setup(t)
+		manager, mocks := setup(t)
+		// Ensure guest IP is configured
+		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
 
 		// And configuring the guest
 		err := manager.ConfigureGuest()
@@ -102,7 +104,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		manager, mocks := setup(t)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
-				if len(args) > 4 && strings.Contains(args[4], "ls /sys/class/net") {
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "ls /sys/class/net") {
 					return "", fmt.Errorf("mock error listing interfaces")
 				}
 			}
@@ -133,7 +136,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		manager, mocks := setup(t)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
-				if len(args) > 4 && strings.Contains(args[4], "ls /sys/class/net") {
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "ls /sys/class/net") {
 					return "eth0\nlo\nwlan0", nil // No "br-" interface
 				}
 			}
@@ -164,17 +168,18 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		manager, mocks := setup(t)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
-				if len(args) > 4 {
-					cmd := args[4]
-					if strings.Contains(cmd, "ls /sys/class/net") {
-						return "br-1234\neth0\nlo\nwlan0", nil // Include a "br-" interface
-					}
-					if strings.Contains(cmd, "iptables") && strings.Contains(cmd, "-C") {
-						return "", fmt.Errorf("Bad rule") // Simulate that the rule doesn't exist
-					}
-					if strings.Contains(cmd, "iptables") && strings.Contains(cmd, "-A") {
-						return "", fmt.Errorf("mock error setting iptables rule")
-					}
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "ls /sys/class/net") {
+					return "br-1234\neth0\nlo\nwlan0", nil // Include a "br-" interface
+				}
+				if strings.Contains(cmdStr, "sysctl") && strings.Contains(cmdStr, "ip_forward") {
+					return "", nil
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
+					return "", fmt.Errorf("Bad rule") // Simulate that the rule doesn't exist
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-A") {
+					return "", fmt.Errorf("mock error setting iptables rule")
 				}
 			}
 			return "", nil
@@ -230,11 +235,15 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		originalExecSilentWithTimeoutFunc := mocks.Shell.ExecSilentWithTimeoutFunc
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
-				if len(args) > 4 {
-					cmd := args[4]
-					if strings.Contains(cmd, "iptables") && strings.Contains(cmd, "-C") {
-						return "", fmt.Errorf("unexpected error checking iptables rule")
-					}
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "ls /sys/class/net") {
+					return "br-1234\neth0\nlo\nwlan0", nil
+				}
+				if strings.Contains(cmdStr, "sysctl") && strings.Contains(cmdStr, "ip_forward") {
+					return "", nil
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
+					return "", fmt.Errorf("unexpected error checking iptables rule")
 				}
 			}
 			if originalExecSilentWithTimeoutFunc != nil {
@@ -242,6 +251,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			}
 			return "", nil
 		}
+
+		// Ensure guest IP is configured
+		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
 
 		// When initializing the network manager
 		err := manager.AssignIPs([]services.Service{})

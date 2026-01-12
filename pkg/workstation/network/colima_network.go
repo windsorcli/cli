@@ -102,13 +102,17 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		10*time.Second,
 	)
 	if err != nil {
-		addCommand := fmt.Sprintf("sudo iptables -t filter -A FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", dockerBridgeInterface, hostIP, networkCIDR)
-		if _, err := n.shell.ExecSilentWithTimeout(
-			"colima",
-			[]string{"ssh", "--profile", profileName, "--", "sh", "-c", addCommand},
-			10*time.Second,
-		); err != nil {
-			return fmt.Errorf("error setting iptables rule: %w", err)
+		if strings.Contains(err.Error(), "Bad rule") {
+			addCommand := fmt.Sprintf("sudo iptables -t filter -A FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", dockerBridgeInterface, hostIP, networkCIDR)
+			if _, err := n.shell.ExecSilentWithTimeout(
+				"colima",
+				[]string{"ssh", "--profile", profileName, "--", "sh", "-c", addCommand},
+				10*time.Second,
+			); err != nil {
+				return fmt.Errorf("error setting iptables rule: %w", err)
+			}
+		} else {
+			return fmt.Errorf("error checking iptables rule: %w", err)
 		}
 	}
 

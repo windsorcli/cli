@@ -96,14 +96,18 @@ contexts:
 	}
 	mockShell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 		if command == "colima" && len(args) > 0 && args[0] == "ssh" {
-			if len(args) > 4 {
-				cmd := args[4]
-				if strings.Contains(cmd, "ls /sys/class/net") {
-					return "br-bridge0\neth0\nlo", nil
-				}
-				if strings.Contains(cmd, "iptables") && strings.Contains(cmd, "-C") {
-					return "", fmt.Errorf("Bad rule")
-				}
+			cmdStr := strings.Join(args, " ")
+			if strings.Contains(cmdStr, "ls /sys/class/net") {
+				return "br-bridge0\neth0\nlo", nil
+			}
+			if strings.Contains(cmdStr, "sysctl") && strings.Contains(cmdStr, "ip_forward") {
+				return "", nil
+			}
+			if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
+				return "", fmt.Errorf("Bad rule")
+			}
+			if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-A") {
+				return "", nil
 			}
 		}
 		return "", nil
