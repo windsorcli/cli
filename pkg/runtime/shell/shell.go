@@ -227,7 +227,8 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
+		Setsid:  true,
+		Setctty: false,
 	}
 	// Ensure the command inherits the current environment
 	if cmd.Env == nil {
@@ -260,7 +261,8 @@ func (s *DefaultShell) ExecSilentWithTimeout(command string, args []string, time
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
+		Setsid:  true,
+		Setctty: false,
 	}
 	if cmd.Env == nil {
 		cmd.Env = s.shims.Environ()

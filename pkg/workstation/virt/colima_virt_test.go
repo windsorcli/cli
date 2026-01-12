@@ -717,9 +717,9 @@ func TestColimaVirt_Down(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		colimaVirt, mocks := setup(t)
 
-		// Override the ExecSilent function to return an error for delete
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "colima" && args[0] == "delete" {
+		// Override the ExecProgress function to return an error for delete
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 2 && args[0] == "delete" {
 				return "", fmt.Errorf("mock delete colima error")
 			}
 			// For any other command, use the default mock
@@ -754,15 +754,15 @@ func TestColimaVirt_Down(t *testing.T) {
 
 		deleteCalled := false
 
-		// Override ExecSilent to track delete calls
-		originalExecSilent := mocks.Shell.ExecSilentFunc
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		// Override ExecProgress to track delete calls
+		originalExecProgress := mocks.Shell.ExecProgressFunc
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "colima" && len(args) >= 2 && args[0] == "delete" {
 				deleteCalled = true
 				return "", nil
 			}
-			if originalExecSilent != nil {
-				return originalExecSilent(command, args...)
+			if originalExecProgress != nil {
+				return originalExecProgress(message, command, args...)
 			}
 			return "", nil
 		}
@@ -797,15 +797,15 @@ func TestColimaVirt_Down(t *testing.T) {
 
 		deleteCalled := false
 
-		// Override ExecSilent to track delete calls
-		originalExecSilent := mocks.Shell.ExecSilentFunc
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		// Override ExecProgress to track delete calls
+		originalExecProgress := mocks.Shell.ExecProgressFunc
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "colima" && len(args) >= 2 && args[0] == "delete" {
 				deleteCalled = true
 				return "", nil
 			}
-			if originalExecSilent != nil {
-				return originalExecSilent(command, args...)
+			if originalExecProgress != nil {
+				return originalExecProgress(message, command, args...)
 			}
 			return "", nil
 		}
@@ -840,15 +840,15 @@ func TestColimaVirt_Down(t *testing.T) {
 
 		deleteCalled := false
 
-		// Override ExecSilent to track delete calls
-		originalExecSilent := mocks.Shell.ExecSilentFunc
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		// Override ExecProgress to track delete calls
+		originalExecProgress := mocks.Shell.ExecProgressFunc
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "colima" && len(args) >= 2 && args[0] == "delete" {
 				deleteCalled = true
 				return "", nil
 			}
-			if originalExecSilent != nil {
-				return originalExecSilent(command, args...)
+			if originalExecProgress != nil {
+				return originalExecProgress(message, command, args...)
 			}
 			return "", nil
 		}

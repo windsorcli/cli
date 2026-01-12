@@ -90,13 +90,7 @@ func (v *ColimaVirt) Down() error {
 	contextName := v.configHandler.GetContext()
 	profileName := fmt.Sprintf("windsor-%s", contextName)
 
-	if v.isVerbose() {
-		_, _ = v.shell.ExecProgress("🦙 Stopping Colima VM", "colima", "stop", profileName)
-	} else {
-		fmt.Fprintf(os.Stderr, "🦙 Stopping Colima VM\n")
-		_, _ = v.shell.ExecSilent("colima", "stop", profileName)
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🦙 Stopping Colima VM - \033[32mDone\033[0m\n")
-	}
+	_, _ = v.shell.ExecProgress("🦙 Stopping Colima VM", "colima", "stop", profileName)
 
 	err := v.executeColimaCommand("delete", "--data")
 	if err != nil {
@@ -312,19 +306,10 @@ func (v *ColimaVirt) executeColimaCommand(action string, additionalArgs ...strin
 	args = append(args, additionalArgs...)
 	if action == "delete" {
 		args = append(args, "--force")
-		if v.isVerbose() {
-			output, err := v.shell.ExecProgress("🦙 Deleting Colima VM", command, args...)
-			if err != nil {
-				return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
-			}
-			return nil
-		}
-		fmt.Fprintf(os.Stderr, "🦙 Deleting Colima VM\n")
-		output, err := v.shell.ExecSilent(command, args...)
+		output, err := v.shell.ExecProgress("🦙 Deleting Colima VM", command, args...)
 		if err != nil {
 			return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 		}
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🦙 Deleting Colima VM - \033[32mDone\033[0m\n")
 		return nil
 	}
 	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s", command), command, args...)
@@ -408,7 +393,7 @@ func (v *ColimaVirt) execInVM(command string, args ...string) (string, error) {
 	if len(args) > 0 {
 		fullCommand += " " + strings.Join(args, " ")
 	}
-	return v.shell.ExecSilent("colima", "ssh", "--profile", profileName, "--", "sh", "-c", fullCommand+" 2>/dev/null")
+	return v.shell.ExecSilent("colima", "ssh", "--profile", profileName, "--", "sh", "-c", fullCommand+" 2>/dev/null </dev/null")
 }
 
 // execInVMQuiet executes a command in the VM via colima ssh, always suppressing output even in verbose mode.
@@ -421,7 +406,8 @@ func (v *ColimaVirt) execInVMQuiet(command string, args []string, timeout time.D
 	}
 	v.shell.SetVerbosity(false)
 	defer v.shell.SetVerbosity(true)
-	return v.shell.ExecSilentWithTimeout("colima", []string{"ssh", "--profile", profileName, "--", "sh", "-c", fullCommand + " 2>/dev/null"}, timeout)
+	output, err := v.shell.ExecSilentWithTimeout("colima", []string{"ssh", "--profile", profileName, "--", "sh", "-c", fullCommand + " 2>/dev/null </dev/null"}, timeout)
+	return output, err
 }
 
 // execInVMProgress executes a command in the VM via colima ssh with progress reporting and returns the output.

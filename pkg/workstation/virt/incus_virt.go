@@ -714,7 +714,7 @@ func (v *IncusVirt) launchInstanceSilent(config *IncusInstanceConfig) error {
 	}
 
 	args := v.buildLaunchArgs(config)
-	_, err = v.execInVM("incus", args...)
+	_, err = v.execInVMQuiet("incus", args, 5*time.Minute)
 	if err != nil {
 		return v.retryInstanceLaunch(config.Name, args, err)
 	}
@@ -914,7 +914,7 @@ func (v *IncusVirt) addNetworkDevice(config *IncusInstanceConfig) error {
 func (v *IncusVirt) updateNetworkDevice(config *IncusInstanceConfig) error {
 	getArgs := []string{"config", "device", "get", config.Name, "eth0", "ipv4.address"}
 	getArgs = v.addQuietFlag(getArgs)
-	currentIP, err := v.execInVM("incus", getArgs...)
+	currentIP, err := v.execInVMQuiet("incus", getArgs, sshCommandTimeout)
 	if err == nil && strings.TrimSpace(currentIP) == config.IPv4 {
 		return nil
 	}

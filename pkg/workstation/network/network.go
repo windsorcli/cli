@@ -67,10 +67,11 @@ func NewBaseNetworkManager(rt *runtime.Runtime) *BaseNetworkManager {
 // Public Methods
 // =============================================================================
 
-// AssignIPs sorts services and assigns IPs based on network CIDR.
-// Services are passed explicitly from Workstation to ensure we work with the same instances.
+// AssignIPs assigns unique IP addresses to each service within the specified network CIDR.
+// It sorts the provided services by name for deterministic assignment, updates the base network manager's
+// service list, and assigns IPs using the network configuration. If the network CIDR is not set in configuration,
+// it sets it to the default value. Returns an error if IP assignment fails or if the CIDR is invalid.
 func (n *BaseNetworkManager) AssignIPs(serviceList []services.Service) error {
-	// Sort services by name for consistent IP assignment
 	sort.Slice(serviceList, func(i, j int) bool {
 		return serviceList[i].GetName() < serviceList[j].GetName()
 	})
