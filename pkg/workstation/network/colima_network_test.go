@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +65,43 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("IptablesRuleAlreadyExists", func(t *testing.T) {
+		// Given a network manager where the iptables rule already exists (no error from check)
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "ls /sys/class/net") {
+					return "br-1234\neth0\nlo\nwlan0", nil
+				}
+				if strings.Contains(cmdStr, "sysctl") && strings.Contains(cmdStr, "ip_forward") {
+					return "", nil
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		// Ensure guest IP is configured
+		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
+
+		// When initializing the network manager
+		err := manager.AssignIPs([]services.Service{})
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// And configuring the guest
+		err = manager.ConfigureGuest()
+
+		// Then no error should occur (rule already exists, no need to add)
+		if err != nil {
+			t.Fatalf("expected no error when rule already exists, got %v", err)
 		}
 	})
 
@@ -176,7 +214,12 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 					return "", nil
 				}
 				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
-					return "", fmt.Errorf("Bad rule") // Simulate that the rule doesn't exist
+					cmd := exec.Command("sh", "-c", "exit 1")
+					err := cmd.Run()
+					if err != nil {
+						return "", err
+					}
+					return "", fmt.Errorf("unexpected success")
 				}
 				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-A") {
 					return "", fmt.Errorf("mock error setting iptables rule")
@@ -229,8 +272,53 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 	})
 
+	t.Run("IptablesRuleDoesNotExist", func(t *testing.T) {
+		// Given a network manager where the iptables rule doesn't exist (exit code 1)
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "ls /sys/class/net") {
+					return "br-1234\neth0\nlo\nwlan0", nil
+				}
+				if strings.Contains(cmdStr, "sysctl") && strings.Contains(cmdStr, "ip_forward") {
+					return "", nil
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
+					cmd := exec.Command("sh", "-c", "exit 1")
+					err := cmd.Run()
+					if err != nil {
+						return "", err
+					}
+					return "", fmt.Errorf("unexpected success")
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-A") {
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		// Ensure guest IP is configured
+		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
+
+		// When initializing the network manager
+		err := manager.AssignIPs([]services.Service{})
+		if err != nil {
+			t.Fatalf("expected no error during initialization, got %v", err)
+		}
+
+		// And configuring the guest
+		err = manager.ConfigureGuest()
+
+		// Then no error should occur (rule should be added successfully)
+		if err != nil {
+			t.Fatalf("expected no error when rule doesn't exist (should be added), got %v", err)
+		}
+	})
+
 	t.Run("ErrorCheckingIptablesRule", func(t *testing.T) {
-		// Given a network manager with iptables rule check error
+		// Given a network manager with iptables rule check error (non-1 exit code)
 		manager, mocks := setup(t)
 		originalExecSilentWithTimeoutFunc := mocks.Shell.ExecSilentWithTimeoutFunc
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
@@ -243,7 +331,12 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 					return "", nil
 				}
 				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
-					return "", fmt.Errorf("unexpected error checking iptables rule")
+					cmd := exec.Command("sh", "-c", "exit 2")
+					err := cmd.Run()
+					if err != nil {
+						return "", err
+					}
+					return "", fmt.Errorf("unexpected success")
 				}
 			}
 			if originalExecSilentWithTimeoutFunc != nil {
@@ -270,6 +363,61 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error checking iptables rule") {
 			t.Fatalf("expected error to contain 'error checking iptables rule', got %q", err.Error())
+		}
+	})
+}
+
+func TestIsExitCode(t *testing.T) {
+	t.Run("NilError", func(t *testing.T) {
+		if isExitCode(nil, 1) {
+			t.Error("expected false for nil error")
+		}
+	})
+
+	t.Run("NonExitError", func(t *testing.T) {
+		err := fmt.Errorf("some other error")
+		if isExitCode(err, 1) {
+			t.Error("expected false for non-ExitError")
+		}
+	})
+
+	t.Run("ExitCode1", func(t *testing.T) {
+		cmd := exec.Command("sh", "-c", "exit 1")
+		err := cmd.Run()
+		if err == nil {
+			t.Fatal("expected error from exit 1 command")
+		}
+		if !isExitCode(err, 1) {
+			t.Error("expected true for exit code 1")
+		}
+		if isExitCode(err, 2) {
+			t.Error("expected false for exit code 2")
+		}
+	})
+
+	t.Run("ExitCode2", func(t *testing.T) {
+		cmd := exec.Command("sh", "-c", "exit 2")
+		err := cmd.Run()
+		if err == nil {
+			t.Fatal("expected error from exit 2 command")
+		}
+		if !isExitCode(err, 2) {
+			t.Error("expected true for exit code 2")
+		}
+		if isExitCode(err, 1) {
+			t.Error("expected false for exit code 1")
+		}
+	})
+
+	t.Run("WrappedExitError", func(t *testing.T) {
+		cmd := exec.Command("sh", "-c", "exit 1")
+		err := cmd.Run()
+		if err == nil {
+			t.Fatal("expected error from exit 1 command")
+		}
+		wrappedErr := fmt.Errorf("wrapped: %w", err)
+		if !isExitCode(wrappedErr, 1) {
+			t.Error("expected true for wrapped exit code 1")
 		}
 	})
 }

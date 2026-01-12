@@ -1,8 +1,10 @@
 package network
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -59,14 +61,7 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	contextName := n.configHandler.GetContext()
-	profileName := fmt.Sprintf("windsor-%s", contextName)
-
-	output, err := n.shell.ExecSilentWithTimeout(
-		"colima",
-		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", "ls /sys/class/net"},
-		5*time.Second,
-	)
+	output, err := n.execInVMWithTimeout("ls /sys/class/net", 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("error executing command to list network interfaces: %w", err)
 	}
@@ -87,28 +82,16 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error getting host IP: %w", err)
 	}
 
-	if _, err := n.shell.ExecSilentWithTimeout(
-		"colima",
-		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", "sudo sysctl -w net.ipv4.ip_forward=1"},
-		10*time.Second,
-	); err != nil {
+	if _, err := n.execInVMWithTimeout("sudo sysctl -w net.ipv4.ip_forward=1", 10*time.Second); err != nil {
 		return fmt.Errorf("error enabling IP forwarding in VM: %w", err)
 	}
 
 	checkCommand := fmt.Sprintf("sudo iptables -t filter -C FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", dockerBridgeInterface, hostIP, networkCIDR)
-	_, err = n.shell.ExecSilentWithTimeout(
-		"colima",
-		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", checkCommand},
-		10*time.Second,
-	)
+	_, err = n.execInVMWithTimeout(checkCommand, 10*time.Second)
 	if err != nil {
-		if strings.Contains(err.Error(), "Bad rule") {
+		if isExitCode(err, 1) {
 			addCommand := fmt.Sprintf("sudo iptables -t filter -A FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", dockerBridgeInterface, hostIP, networkCIDR)
-			if _, err := n.shell.ExecSilentWithTimeout(
-				"colima",
-				[]string{"ssh", "--profile", profileName, "--", "sh", "-c", addCommand},
-				10*time.Second,
-			); err != nil {
+			if _, err := n.execInVMWithTimeout(addCommand, 10*time.Second); err != nil {
 				return fmt.Errorf("error setting iptables rule: %w", err)
 			}
 		} else {
@@ -122,6 +105,47 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// getProfileName returns the Colima profile name for the current context.
+func (n *ColimaNetworkManager) getProfileName() string {
+	contextName := n.configHandler.GetContext()
+	return fmt.Sprintf("windsor-%s", contextName)
+}
+
+// isExitCode checks if an error is an ExitError with the specified exit code.
+// It unwraps the error chain to find the underlying ExitError.
+// For iptables -C, exit code 1 means the rule doesn't exist (expected case).
+func isExitCode(err error, code int) bool {
+	if err == nil {
+		return false
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode() == code
+	}
+	return false
+}
+
+// execInVMWithTimeout executes a command in the VM via colima ssh with a timeout and returns the output.
+// Always suppresses output even in verbose mode. Use for data queries that may produce large output.
+func (n *ColimaNetworkManager) execInVMWithTimeout(command string, timeout time.Duration) (string, error) {
+	profileName := n.getProfileName()
+	fullCommand := command + " 2>/dev/null </dev/null"
+	sshArgs := []string{"ssh", "--profile", profileName, "--", "sh", "-c", fullCommand}
+	wasVerbose := false
+	if verboseShell, ok := n.shell.(interface{ SetVerbosity(bool) }); ok {
+		type verboseChecker interface {
+			IsVerbose() bool
+		}
+		if vc, ok := n.shell.(verboseChecker); ok {
+			wasVerbose = vc.IsVerbose()
+		}
+		verboseShell.SetVerbosity(false)
+		defer verboseShell.SetVerbosity(wasVerbose)
+	}
+	output, err := n.shell.ExecSilentWithTimeout("colima", sshArgs, timeout)
+	return output, err
+}
 
 // getHostIP retrieves the host IP address that shares the same subnet as the guest IP address.
 // It first obtains and validates the guest IP from the configuration. Then, it iterates over the network interfaces

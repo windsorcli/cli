@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -104,7 +105,12 @@ contexts:
 				return "", nil
 			}
 			if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
-				return "", fmt.Errorf("Bad rule")
+				cmd := exec.Command("sh", "-c", "exit 1")
+				err := cmd.Run()
+				if err != nil {
+					return "", err
+				}
+				return "", fmt.Errorf("unexpected success")
 			}
 			if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-A") {
 				return "", nil
