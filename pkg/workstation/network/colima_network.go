@@ -112,37 +112,11 @@ func (n *ColimaNetworkManager) getProfileName() string {
 	return fmt.Sprintf("windsor-%s", contextName)
 }
 
-// isExitCode checks if an error is an ExitError with the specified exit code.
-// It unwraps the error chain to find the underlying ExitError.
-// For iptables -C, exit code 1 means the rule doesn't exist (expected case).
-func isExitCode(err error, code int) bool {
-	if err == nil {
-		return false
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode() == code
-	}
-	return false
-}
-
 // execInVMWithTimeout executes a command in the VM via colima ssh with a timeout and returns the output.
-// Always suppresses output even in verbose mode. Use for data queries that may produce large output.
+// Respects the shell's verbosity setting - if verbose mode is enabled, output will be displayed.
 func (n *ColimaNetworkManager) execInVMWithTimeout(command string, timeout time.Duration) (string, error) {
 	profileName := n.getProfileName()
-	fullCommand := command + " 2>/dev/null </dev/null"
-	sshArgs := []string{"ssh", "--profile", profileName, "--", "sh", "-c", fullCommand}
-	wasVerbose := false
-	if verboseShell, ok := n.shell.(interface{ SetVerbosity(bool) }); ok {
-		type verboseChecker interface {
-			IsVerbose() bool
-		}
-		if vc, ok := n.shell.(verboseChecker); ok {
-			wasVerbose = vc.IsVerbose()
-		}
-		verboseShell.SetVerbosity(false)
-		defer verboseShell.SetVerbosity(wasVerbose)
-	}
+	sshArgs := []string{"ssh", "--profile", profileName, "--", "sh", "-c", command}
 	output, err := n.shell.ExecSilentWithTimeout("colima", sshArgs, timeout)
 	return output, err
 }
@@ -196,3 +170,21 @@ func (n *ColimaNetworkManager) getHostIP() (string, error) {
 
 // Ensure ColimaNetworkManager implements NetworkManager
 var _ NetworkManager = (*ColimaNetworkManager)(nil)
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// isExitCode checks if an error is an ExitError with the specified exit code.
+// It unwraps the error chain to find the underlying ExitError.
+// For iptables -C, exit code 1 means the rule doesn't exist (expected case).
+func isExitCode(err error, code int) bool {
+	if err == nil {
+		return false
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode() == code
+	}
+	return false
+}
