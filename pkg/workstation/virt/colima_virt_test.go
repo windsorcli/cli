@@ -819,6 +819,46 @@ func TestColimaVirt_Down(t *testing.T) {
 			t.Error("Stop function was not called")
 		}
 	})
+
+	t.Run("ErrorVerifyingDeletion", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecSilent returns VM exists initially, then returns invalid JSON after deletion
+		callCount := 0
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 4 && args[0] == "ls" && args[1] == "--profile" && args[3] == "--json" {
+				callCount++
+				if callCount == 1 {
+					return `{
+						"address": "192.168.1.2",
+						"arch": "x86_64",
+						"cpus": 2,
+						"disk": 64424509440,
+						"memory": 4294967296,
+						"name": "windsor-mock-context",
+						"runtime": "docker",
+						"status": "Running"
+					}`, nil
+				}
+				// Return invalid JSON that cannot be parsed (simulating colima output format change)
+				return "invalid json output", nil
+			}
+			return originalExecSilent(command, args...)
+		}
+
+		// When calling Down
+		err := colimaVirt.Down()
+
+		// Then an error should be returned (error from vmExists should be propagated)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to verify VM deletion") {
+			t.Errorf("Expected error containing 'failed to verify VM deletion', got %v", err)
+		}
+	})
 }
 
 // TestColimaVirt_getArch tests the getArch method of the ColimaVirt component.

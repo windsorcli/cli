@@ -99,7 +99,7 @@ func (v *ColimaVirt) Down() error {
 
 	vmExists, _, err = v.vmExists()
 	if err != nil {
-		return nil
+		return fmt.Errorf("failed to verify VM deletion: %w", err)
 	}
 
 	if vmExists {
