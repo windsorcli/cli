@@ -30,6 +30,6 @@ packages:
 - name: helm/helm@v4.0.4
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.7.5
-- name: aws/aws-cli@2.32.32
+- name: aws/aws-cli@2.32.33
 - name: twistedpair/google-cloud-sdk@551.0.0
 - name: opentofu/opentofu@v1.11.1
