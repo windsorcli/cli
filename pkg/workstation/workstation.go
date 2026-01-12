@@ -8,14 +8,13 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // The Workstation is a core component that manages all workstation functionality including virtualization,
-// networking, services, and SSH operations.
+// networking, and services.
 // It provides a unified interface for starting, stopping, and managing workstation infrastructure,
 // The Workstation acts as the central workstation orchestrator for the application,
 // coordinating VM lifecycle, container runtime management, network configuration, and service orchestration.
@@ -25,7 +24,7 @@ import (
 // =============================================================================
 
 // Workstation manages all workstation functionality including virtualization,
-// networking, services, and SSH operations.
+// networking, and services.
 type Workstation struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
@@ -37,7 +36,6 @@ type Workstation struct {
 	Services         []services.Service
 	VirtualMachine   virt.VirtualMachine
 	ContainerRuntime virt.ContainerRuntime
-	SSHClient        ssh.Client
 }
 
 // =============================================================================
@@ -82,13 +80,6 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 		if overrides.ContainerRuntime != nil {
 			workstation.ContainerRuntime = overrides.ContainerRuntime
 		}
-		if overrides.SSHClient != nil {
-			workstation.SSHClient = overrides.SSHClient
-		}
-	}
-
-	if workstation.SSHClient == nil {
-		workstation.SSHClient = ssh.NewSSHClient()
 	}
 
 	return workstation
@@ -108,9 +99,8 @@ func (w *Workstation) Prepare() error {
 
 	if w.NetworkManager == nil {
 		if vmDriver == "colima" {
-			secureShell := shell.NewSecureShell(w.SSHClient)
 			networkInterfaceProvider := network.NewNetworkInterfaceProvider()
-			w.NetworkManager = network.NewColimaNetworkManager(w.runtime, w.SSHClient, secureShell, networkInterfaceProvider)
+			w.NetworkManager = network.NewColimaNetworkManager(w.runtime, networkInterfaceProvider)
 		} else {
 			w.NetworkManager = network.NewBaseNetworkManager(w.runtime)
 		}

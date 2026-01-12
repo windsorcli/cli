@@ -1,14 +1,15 @@
 package network
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/shell/ssh"
 )
 
 // The ColimaNetworkManager is a specialized network manager for Colima-based environments.
@@ -31,15 +32,9 @@ type ColimaNetworkManager struct {
 // =============================================================================
 
 // NewColimaNetworkManager creates a new ColimaNetworkManager
-func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureShell shell.Shell, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
+func NewColimaNetworkManager(rt *runtime.Runtime, networkInterfaceProvider NetworkInterfaceProvider) *ColimaNetworkManager {
 	if rt == nil {
 		panic("runtime is required")
-	}
-	if sshClient == nil {
-		panic("ssh client is required")
-	}
-	if secureShell == nil {
-		panic("secure shell is required")
 	}
 	if networkInterfaceProvider == nil {
 		panic("network interface provider is required")
@@ -49,16 +44,15 @@ func NewColimaNetworkManager(rt *runtime.Runtime, sshClient ssh.Client, secureSh
 		BaseNetworkManager:       *NewBaseNetworkManager(rt),
 		networkInterfaceProvider: networkInterfaceProvider,
 	}
-	manager.sshClient = sshClient
-	manager.secureShell = secureShell
 
 	return manager
 }
 
 // ConfigureGuest sets up forwarding of guest traffic to the container network.
-// It retrieves network CIDR and guest IP from the config, and configures SSH.
+// It retrieves network CIDR and guest IP from the config.
 // It identifies the Docker bridge interface and ensures iptables rules are set.
 // If the rule doesn't exist, it adds a new one to allow traffic forwarding.
+// Uses colima ssh to execute commands directly, avoiding SSH session creation issues.
 func (n *ColimaNetworkManager) ConfigureGuest() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
 
@@ -67,33 +61,13 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	contextName := n.configHandler.GetContext()
-
-	sshConfigOutput, err := n.shell.ExecSilent(
-		"colima",
-		"ssh-config",
-		"--profile",
-		fmt.Sprintf("windsor-%s", contextName),
-	)
-	if err != nil {
-		return fmt.Errorf("error executing VM SSH config command: %w", err)
-	}
-
-	if err := n.sshClient.SetClientConfigFile(sshConfigOutput, fmt.Sprintf("colima-windsor-%s", contextName)); err != nil {
-		return fmt.Errorf("error setting SSH client config: %w", err)
-	}
-
-	output, err := n.secureShell.ExecSilent(
-		"ls",
-		"/sys/class/net",
-	)
+	output, err := n.execInVMWithTimeout("ls /sys/class/net", 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("error executing command to list network interfaces: %w", err)
 	}
 
 	var dockerBridgeInterface string
-	interfaces := strings.Split(output, "\n")
-	for _, iface := range interfaces {
+	for _, iface := range strings.FieldsFunc(output, func(r rune) bool { return r == '\n' }) {
 		if strings.HasPrefix(iface, "br-") {
 			dockerBridgeInterface = iface
 			break
@@ -108,18 +82,16 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return fmt.Errorf("error getting host IP: %w", err)
 	}
 
-	_, err = n.secureShell.ExecSilent(
-		"sudo", "iptables", "-t", "filter", "-C", "FORWARD",
-		"-i", "col0", "-o", dockerBridgeInterface,
-		"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
-	)
+	if _, err := n.execInVMWithTimeout("sudo sysctl -w net.ipv4.ip_forward=1", 10*time.Second); err != nil {
+		return fmt.Errorf("error enabling IP forwarding in VM: %w", err)
+	}
+
+	checkCommand := fmt.Sprintf("sudo iptables -t filter -C FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", dockerBridgeInterface, hostIP, networkCIDR)
+	_, err = n.execInVMWithTimeout(checkCommand, 10*time.Second)
 	if err != nil {
-		if strings.Contains(err.Error(), "Bad rule") {
-			if _, err := n.secureShell.ExecSilent(
-				"sudo", "iptables", "-t", "filter", "-A", "FORWARD",
-				"-i", "col0", "-o", dockerBridgeInterface,
-				"-s", hostIP, "-d", networkCIDR, "-j", "ACCEPT",
-			); err != nil {
+		if isExitCode(err, 1) {
+			addCommand := fmt.Sprintf("sudo iptables -t filter -A FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT", dockerBridgeInterface, hostIP, networkCIDR)
+			if _, err := n.execInVMWithTimeout(addCommand, 10*time.Second); err != nil {
 				return fmt.Errorf("error setting iptables rule: %w", err)
 			}
 		} else {
@@ -133,6 +105,21 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// getProfileName returns the Colima profile name for the current context.
+func (n *ColimaNetworkManager) getProfileName() string {
+	contextName := n.configHandler.GetContext()
+	return fmt.Sprintf("windsor-%s", contextName)
+}
+
+// execInVMWithTimeout executes a command in the VM via colima ssh with a timeout and returns the output.
+// Respects the shell's verbosity setting - if verbose mode is enabled, output will be displayed.
+func (n *ColimaNetworkManager) execInVMWithTimeout(command string, timeout time.Duration) (string, error) {
+	profileName := n.getProfileName()
+	sshArgs := []string{"ssh", "--profile", profileName, "--", "sh", "-c", command}
+	output, err := n.shell.ExecSilentWithTimeout("colima", sshArgs, timeout)
+	return output, err
+}
 
 // getHostIP retrieves the host IP address that shares the same subnet as the guest IP address.
 // It first obtains and validates the guest IP from the configuration. Then, it iterates over the network interfaces
@@ -183,3 +170,21 @@ func (n *ColimaNetworkManager) getHostIP() (string, error) {
 
 // Ensure ColimaNetworkManager implements NetworkManager
 var _ NetworkManager = (*ColimaNetworkManager)(nil)
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// isExitCode checks if an error is an ExitError with the specified exit code.
+// It unwraps the error chain to find the underlying ExitError.
+// For iptables -C, exit code 1 means the rule doesn't exist (expected case).
+func isExitCode(err error, code int) bool {
+	if err == nil {
+		return false
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode() == code
+	}
+	return false
+}
