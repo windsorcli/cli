@@ -31,3 +31,4 @@ packages:
 - name: aws/aws-cli@2.32.33
 - name: twistedpair/google-cloud-sdk@551.0.0
 - name: opentofu/opentofu@v1.11.1
+- name: golang/vuln/govulncheck@v1.1.4
