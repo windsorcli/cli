@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net"
 	"path/filepath"
 	"strings"
@@ -857,13 +858,22 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 	copy(ip, ipnet.IP)
 
 	if len(ip) == net.IPv4len {
+		if hostnum < 0 || hostnum > math.MaxUint32 {
+			return "", fmt.Errorf("host number %d is out of range for IPv4 address", hostnum)
+		}
 		ipInt := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+		if ipInt > math.MaxUint32-uint32(hostnum) {
+			return "", fmt.Errorf("host number %d causes overflow for CIDR %s", hostnum, prefix)
+		}
 		ipInt += uint32(hostnum)
 		ip[0] = byte(ipInt >> 24)
 		ip[1] = byte(ipInt >> 16)
 		ip[2] = byte(ipInt >> 8)
 		ip[3] = byte(ipInt)
 	} else {
+		if hostnum < 0 {
+			return "", fmt.Errorf("host number %d is out of range for IPv6 address", hostnum)
+		}
 		hostnum64 := uint64(hostnum)
 		for i := len(ip) - 1; i >= 0 && hostnum64 > 0; i-- {
 			val := uint64(ip[i]) + (hostnum64 & 0xff)
@@ -921,13 +931,22 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 	offset := netnum * subnetSize
 
 	if len(subnetIP) == net.IPv4len {
+		if offset < 0 || offset > math.MaxUint32 {
+			return "", fmt.Errorf("offset %d is out of range for IPv4 address", offset)
+		}
 		ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
+		if ipInt > math.MaxUint32-uint32(offset) {
+			return "", fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
+		}
 		ipInt += uint32(offset)
 		subnetIP[0] = byte(ipInt >> 24)
 		subnetIP[1] = byte(ipInt >> 16)
 		subnetIP[2] = byte(ipInt >> 8)
 		subnetIP[3] = byte(ipInt)
 	} else {
+		if offset < 0 {
+			return "", fmt.Errorf("offset %d is out of range for IPv6 address", offset)
+		}
 		offset64 := uint64(offset)
 		for i := len(subnetIP) - 1; i >= 0 && offset64 > 0; i-- {
 			val := uint64(subnetIP[i]) + (offset64 & 0xff)
@@ -976,13 +995,22 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 		copy(subnetIP, baseIP)
 
 		if len(subnetIP) == net.IPv4len {
+			if offset < 0 || offset > math.MaxUint32 {
+				return nil, fmt.Errorf("offset %d is out of range for IPv4 address", offset)
+			}
 			ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
+			if ipInt > math.MaxUint32-uint32(offset) {
+				return nil, fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
+			}
 			ipInt += uint32(offset)
 			subnetIP[0] = byte(ipInt >> 24)
 			subnetIP[1] = byte(ipInt >> 16)
 			subnetIP[2] = byte(ipInt >> 8)
 			subnetIP[3] = byte(ipInt)
 		} else {
+			if offset < 0 {
+				return nil, fmt.Errorf("offset %d is out of range for IPv6 address", offset)
+			}
 			offset64 := uint64(offset)
 			for j := len(subnetIP) - 1; j >= 0 && offset64 > 0; j-- {
 				val := uint64(subnetIP[j]) + (offset64 & 0xff)
