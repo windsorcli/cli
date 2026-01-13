@@ -29,3 +29,4 @@ packages:
 - name: fluxcd/flux2@v2.9.2
 - name: aws/aws-cli@2.36.15
 - name: twistedpair/google-cloud-sdk@562.0.0
+- name: golang/vuln/govulncheck@v1.1.4
