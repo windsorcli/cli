@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -86,6 +87,60 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			return fmt.Sprintf("sops %s", constants.MinimumVersionSOPS), nil
 		}
 		return "", fmt.Errorf("command not found")
+	}
+	shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+		result, err := shell.ExecSilentFunc(command, args...)
+		if err == nil {
+			return result, err
+		}
+		if !strings.Contains(err.Error(), "command not found") {
+			return result, err
+		}
+		var legacyArgs []string
+		switch {
+		case command == "docker" && len(args) == 1 && args[0] == "--version":
+			legacyArgs = []string{"version"}
+		case command == "docker" && len(args) >= 3 && args[0] == "compose" && args[1] == "version" && args[2] == "--short":
+			legacyArgs = []string{"compose", "version"}
+		case command == "docker-compose" && len(args) >= 2 && args[0] == "version" && args[1] == "--short":
+			legacyArgs = []string{"version"}
+		default:
+			legacyArgs = nil
+		}
+		if legacyArgs != nil {
+			legacyResult, legacyErr := shell.ExecSilentFunc(command, legacyArgs...)
+			if legacyErr == nil {
+				return legacyResult, legacyErr
+			}
+			if !strings.Contains(legacyErr.Error(), "command not found") {
+				return legacyResult, legacyErr
+			}
+			return result, err
+		}
+		switch {
+		case command == "docker" && len(args) == 1 && args[0] == "--version":
+			return fmt.Sprintf("Docker version %s", constants.MinimumVersionDocker), nil
+		case command == "docker" && len(args) >= 3 && args[0] == "compose" && args[1] == "version" && args[2] == "--short":
+			return fmt.Sprintf("%s", constants.MinimumVersionDockerCompose), nil
+		case command == "docker-compose" && len(args) >= 2 && args[0] == "version" && args[1] == "--short":
+			return fmt.Sprintf("%s", constants.MinimumVersionDockerCompose), nil
+		case command == "colima" && len(args) == 1 && args[0] == "version":
+			return fmt.Sprintf("colima version %s", constants.MinimumVersionColima), nil
+		case command == "limactl" && len(args) == 1 && args[0] == "--version":
+			return fmt.Sprintf("limactl version %s", constants.MinimumVersionLima), nil
+		case command == "talosctl" && len(args) >= 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short":
+			return fmt.Sprintf("v%s", constants.MinimumVersionTalosctl), nil
+		case command == "terraform" && len(args) == 1 && args[0] == "version":
+			return fmt.Sprintf("Terraform v%s", constants.MinimumVersionTerraform), nil
+		case command == "op" && len(args) == 1 && args[0] == "--version":
+			return fmt.Sprintf("1Password CLI %s", constants.MinimumVersion1Password), nil
+		case command == "sops" && len(args) == 1 && args[0] == "--version":
+			return fmt.Sprintf("sops %s", constants.MinimumVersionSOPS), nil
+		case command == "kubelogin" && len(args) == 1 && args[0] == "--version":
+			return fmt.Sprintf("kubelogin version %s", constants.MinimumVersionKubelogin), nil
+		default:
+			return result, err
+		}
 	}
 
 	var configHandler config.ConfigHandler

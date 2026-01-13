@@ -1,8 +1,8 @@
-// The DockerEnvPrinter is a specialized component that manages Docker environment configuration.
-// It provides Docker-specific environment variable management and configuration,
-// The DockerEnvPrinter handles Docker host, context, and registry configuration settings,
-// ensuring proper Docker CLI integration and environment setup for container operations.
-
+// The VirtEnvPrinter is a specialized component that manages virtual machine and container runtime
+// environment configuration. It provides environment variable management for Docker and Incus runtimes,
+// handling Docker host, context, registry configuration, and Incus socket paths. The VirtEnvPrinter
+// ensures proper CLI integration and environment setup for container operations across different
+// virtualization backends.
 package env
 
 import (
@@ -20,8 +20,8 @@ import (
 // Types
 // =============================================================================
 
-// DockerEnvPrinter is a struct that implements Docker environment configuration
-type DockerEnvPrinter struct {
+// VirtEnvPrinter is a struct that implements virtual machine and container runtime environment configuration
+type VirtEnvPrinter struct {
 	BaseEnvPrinter
 }
 
@@ -29,8 +29,8 @@ type DockerEnvPrinter struct {
 // Constructor
 // =============================================================================
 
-// NewDockerEnvPrinter creates a new DockerEnvPrinter instance
-func NewDockerEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *DockerEnvPrinter {
+// NewVirtEnvPrinter creates a new VirtEnvPrinter instance
+func NewVirtEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *VirtEnvPrinter {
 	if shell == nil {
 		panic("shell is required")
 	}
@@ -38,7 +38,7 @@ func NewDockerEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) 
 		panic("config handler is required")
 	}
 
-	return &DockerEnvPrinter{
+	return &VirtEnvPrinter{
 		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
 	}
 }
@@ -47,14 +47,16 @@ func NewDockerEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) 
 // Public Methods
 // =============================================================================
 
-// GetEnvVars sets Docker-specific env vars, using DOCKER_HOST from vm.driver config or existing env.
-// Defaults to WINDSORCONFIG or home dir for Docker paths, ensuring config directory exists.
-// Writes config if content changes, adds DOCKER_CONFIG and REGISTRY_URL, and returns the map.
+// GetEnvVars sets environment variables for virtual machine and container runtimes, using DOCKER_HOST
+// from vm.driver config or existing env, and INCUS_SOCKET for colima-incus configurations. Defaults
+// to WINDSORCONFIG or home dir for Docker paths, ensuring config directory exists. Writes config if
+// content changes, adds DOCKER_CONFIG, REGISTRY_URL, and INCUS_SOCKET as appropriate, and returns the map.
 // Handles "colima", "docker-desktop", and "docker" vm.driver settings, defaulting to "default" if unrecognized.
-func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
+func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	vmDriver := e.configHandler.GetString("vm.driver")
+	vmRuntime := e.configHandler.GetString("vm.runtime", "docker")
 	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
 	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
 
@@ -66,7 +68,7 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	if vmDriver != "" && (!dockerHostExists || isDockerHostManaged) {
+	if vmRuntime != "incus" && vmDriver != "" && (!dockerHostExists || isDockerHostManaged) {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
@@ -79,7 +81,6 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 		dockerConfigDir := filepath.Join(windsorConfigDir, "docker")
 		dockerConfigPath := filepath.Join(dockerConfigDir, "config.json")
 
-		// Determine the Docker context name based on the VM driver
 		var contextName string
 		configContext := e.configHandler.GetContext()
 
@@ -111,7 +112,6 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 			}
 		}
 
-		// Create Docker config content with the determined context name
 		dockerConfigContent := fmt.Sprintf(`{
 			"auths": {},
 			"currentContext": "%s",
@@ -131,7 +131,7 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 		envVars["DOCKER_CONFIG"] = filepath.ToSlash(dockerConfigDir)
 		e.SetManagedEnv("DOCKER_CONFIG")
-	} else if dockerHostExists {
+	} else if vmRuntime != "incus" && dockerHostExists {
 		if dockerHostValue, _ := e.shims.LookupEnv("DOCKER_HOST"); dockerHostValue != "" {
 			envVars["DOCKER_HOST"] = dockerHostValue
 		}
@@ -143,13 +143,24 @@ func (e *DockerEnvPrinter) GetEnvVars() (map[string]string, error) {
 		e.SetManagedEnv("REGISTRY_URL")
 	}
 
+	if vmDriver == "colima" && vmRuntime == "incus" {
+		homeDir, err := e.shims.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
+		}
+		configContext := e.configHandler.GetContext()
+		incusSocketPath := filepath.Join(homeDir, ".colima", fmt.Sprintf("windsor-%s", configContext), "incus.sock")
+		envVars["INCUS_SOCKET"] = filepath.ToSlash(incusSocketPath)
+		e.SetManagedEnv("INCUS_SOCKET")
+	}
+
 	return envVars, nil
 }
 
 // GetAlias creates an alias for a command and returns it in a map. In
 // this case, it looks for docker-cli-plugin-docker-compose and creates an
 // alias for docker-compose.
-func (e *DockerEnvPrinter) GetAlias() (map[string]string, error) {
+func (e *VirtEnvPrinter) GetAlias() (map[string]string, error) {
 	aliasMap := make(map[string]string)
 	if _, err := e.shims.LookPath("docker-cli-plugin-docker-compose"); err == nil {
 		aliasMap["docker-compose"] = "docker-cli-plugin-docker-compose"
@@ -167,7 +178,7 @@ func (e *DockerEnvPrinter) GetAlias() (map[string]string, error) {
 //  2. First non-mirror registry from docker.registries
 //
 // Returns empty string if no registry is configured.
-func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
+func (e *VirtEnvPrinter) getRegistryURL() (string, error) {
 	registryURL := e.configHandler.GetString("docker.registry_url")
 	if registryURL != "" {
 		if _, _, err := net.SplitHostPort(registryURL); err == nil {
@@ -203,5 +214,5 @@ func (e *DockerEnvPrinter) getRegistryURL() (string, error) {
 // Interface Compliance
 // =============================================================================
 
-// Ensure DockerEnvPrinter implements the EnvPrinter interface
-var _ EnvPrinter = (*DockerEnvPrinter)(nil)
+// Ensure VirtEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*VirtEnvPrinter)(nil)

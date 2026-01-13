@@ -14,7 +14,7 @@ import (
 )
 
 // The Workstation is a core component that manages all workstation functionality including virtualization,
-// networking, and services.
+// networking, services, and SSH operations.
 // It provides a unified interface for starting, stopping, and managing workstation infrastructure,
 // The Workstation acts as the central workstation orchestrator for the application,
 // coordinating VM lifecycle, container runtime management, network configuration, and service orchestration.
@@ -24,7 +24,7 @@ import (
 // =============================================================================
 
 // Workstation manages all workstation functionality including virtualization,
-// networking, and services.
+// networking, services, and SSH operations.
 type Workstation struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
@@ -124,9 +124,19 @@ func (w *Workstation) Prepare() error {
 		w.VirtualMachine = virt.NewColimaVirt(w.runtime)
 	}
 
-	containerRuntimeEnabled := w.configHandler.GetBool("docker.enabled")
-	if containerRuntimeEnabled && w.ContainerRuntime == nil {
-		w.ContainerRuntime = virt.NewDockerVirt(w.runtime, w.Services)
+	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
+	if vmRuntime == "incus" {
+		if w.ContainerRuntime == nil {
+			w.ContainerRuntime = virt.NewIncusVirt(w.runtime, w.Services)
+			if incusVirt, ok := w.ContainerRuntime.(*virt.IncusVirt); ok {
+				w.VirtualMachine = incusVirt.ColimaVirt
+			}
+		}
+	} else {
+		containerRuntimeEnabled := w.configHandler.GetBool("docker.enabled")
+		if containerRuntimeEnabled && w.ContainerRuntime == nil {
+			w.ContainerRuntime = virt.NewDockerVirt(w.runtime, w.Services)
+		}
 	}
 
 	return nil
@@ -142,12 +152,22 @@ func (w *Workstation) Up() error {
 	}
 
 	vmDriver := w.configHandler.GetString("vm.driver")
+	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
 	if vmDriver == "colima" && w.VirtualMachine != nil {
 		if err := w.VirtualMachine.WriteConfig(); err != nil {
 			return fmt.Errorf("error writing virtual machine config: %w", err)
 		}
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
+		}
+		if w.NetworkManager != nil && vmRuntime == "incus" {
+			vmAddress := w.configHandler.GetString("vm.address")
+			if vmAddress == "" {
+				return fmt.Errorf("vm.address is required for network configuration but was not set by VirtualMachine.Up()")
+			}
+			if err := w.NetworkManager.ConfigureGuest(); err != nil {
+				return fmt.Errorf("error configuring guest SSH: %w", err)
+			}
 		}
 	}
 
@@ -171,6 +191,8 @@ func (w *Workstation) Up() error {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
 			}
+		}
+		if vmDriver == "colima" {
 			if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
@@ -185,18 +207,27 @@ func (w *Workstation) Up() error {
 	return nil
 }
 
-// Down stops the workstation environment, including services, containers, VMs, and networking.
-// It attempts to gracefully shut down the container runtime and virtual machine if they exist.
-// On success, it prints a confirmation message to standard error and returns nil. If any teardown
-// step fails, it returns an error describing the issue.
+// Down stops all components of the workstation environment including services, containers, VMs, and networking.
+// It gracefully shuts down the container runtime and virtual machine if present. On success, it prints a
+// confirmation message to standard error and returns nil. If any step of the teardown fails, it returns an error
+// describing the issue.
 func (w *Workstation) Down() error {
+	vmDriver := w.configHandler.GetString("vm.driver")
+	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
+
+	if w.NetworkManager != nil && vmDriver == "colima" && vmRuntime == "incus" {
+		if err := w.NetworkManager.ConfigureGuest(); err != nil {
+			return fmt.Errorf("error configuring guest: %w", err)
+		}
+	}
+
 	if w.ContainerRuntime != nil {
 		if err := w.ContainerRuntime.Down(); err != nil {
 			return fmt.Errorf("Error running container runtime Down command: %w", err)
 		}
 	}
 
-	if w.VirtualMachine != nil {
+	if w.VirtualMachine != nil && vmRuntime != "incus" {
 		if err := w.VirtualMachine.Down(); err != nil {
 			return fmt.Errorf("Error running virtual machine Down command: %w", err)
 		}
@@ -254,25 +285,29 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 		}
 	}
 
-	// Cluster Services
-	clusterDriver := w.configHandler.GetString("cluster.driver", "")
-	switch clusterDriver {
-	case "talos", "omni":
-		controlPlaneCount := w.configHandler.GetInt("cluster.controlplanes.count")
-		workerCount := w.configHandler.GetInt("cluster.workers.count")
+	// Cluster Services - only create Talos services for Docker runtime
+	// For Incus, Talos nodes are created via blueprint/terraform
+	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
+	if vmRuntime != "incus" {
+		clusterDriver := w.configHandler.GetString("cluster.driver", "")
+		switch clusterDriver {
+		case "talos", "omni":
+			controlPlaneCount := w.configHandler.GetInt("cluster.controlplanes.count")
+			workerCount := w.configHandler.GetInt("cluster.workers.count")
 
-		for i := 1; i <= controlPlaneCount; i++ {
-			service := services.NewTalosService(w.runtime, "controlplane")
-			serviceName := fmt.Sprintf("controlplane-%d", i)
-			service.SetName(serviceName)
-			serviceList = append(serviceList, service)
-		}
+			for i := 1; i <= controlPlaneCount; i++ {
+				service := services.NewTalosService(w.runtime, "controlplane")
+				serviceName := fmt.Sprintf("controlplane-%d", i)
+				service.SetName(serviceName)
+				serviceList = append(serviceList, service)
+			}
 
-		for i := 1; i <= workerCount; i++ {
-			service := services.NewTalosService(w.runtime, "worker")
-			serviceName := fmt.Sprintf("worker-%d", i)
-			service.SetName(serviceName)
-			serviceList = append(serviceList, service)
+			for i := 1; i <= workerCount; i++ {
+				service := services.NewTalosService(w.runtime, "worker")
+				serviceName := fmt.Sprintf("worker-%d", i)
+				service.SetName(serviceName)
+				serviceList = append(serviceList, service)
+			}
 		}
 	}
 

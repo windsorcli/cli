@@ -16,14 +16,14 @@ import (
 // Test Setup
 // =============================================================================
 
-// DockerEnvPrinterMocks holds all mock objects used in Docker environment tests
-type DockerEnvPrinterMocks struct {
+// VirtEnvPrinterMocks holds all mock objects used in Virtual machine and container runtime environment tests
+type VirtEnvPrinterMocks struct {
 	Shell         *shell.MockShell
 	ConfigHandler *config.MockConfigHandler
 }
 
-// setupDockerEnvMocks creates a new set of mocks for Docker environment tests
-func setupDockerEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
+// setupVirtEnvMocks creates a new set of mocks for Virtual machine and container runtime environment tests
+func setupVirtEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
 	mocks := setupEnvMocks(t, overrides...)
 
@@ -52,7 +52,7 @@ contexts:
 		mocks.ConfigHandler.SetContext("test-context")
 	}
 
-	// Set up shims for Docker operations
+	// Set up shims for Virtual machine operations
 	mocks.Shims.UserHomeDir = func() (string, error) {
 		return "/mock/home", nil
 	}
@@ -64,17 +64,17 @@ contexts:
 // Test Public Methods
 // =============================================================================
 
-// TestDockerEnvPrinter_GetEnvVars tests the GetEnvVars method of the DockerEnvPrinter
-func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
+// TestVirtEnvPrinter_GetEnvVars tests the GetEnvVars method of the VirtEnvPrinter
+func TestVirtEnvPrinter_GetEnvVars(t *testing.T) {
 	// Save original env var and restore after all tests
 	originalDockerHost := os.Getenv("DOCKER_HOST")
 	defer os.Setenv("DOCKER_HOST", originalDockerHost)
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with default configuration
-		mocks := setupDockerEnvMocks(t)
+		// Given a new VirtEnvPrinter with default configuration
+		mocks := setupVirtEnvMocks(t)
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -110,11 +110,11 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("ColimaDriver", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with Colima driver
+		// Given a new VirtEnvPrinter with Colima driver
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -150,9 +150,9 @@ func TestDockerEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("DockerDesktopDriver", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with Docker Desktop driver on Linux
+		// Given a new VirtEnvPrinter with Docker Desktop driver on Linux
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
@@ -190,7 +190,7 @@ contexts:
 			return nil
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -241,9 +241,9 @@ contexts:
 	})
 
 	t.Run("DockerDriver", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with Docker driver
+		// Given a new VirtEnvPrinter with Docker driver
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
@@ -259,7 +259,7 @@ contexts:
 			t.Fatalf("Failed to load config: %v", err)
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -289,16 +289,16 @@ contexts:
 	})
 
 	t.Run("GetUserHomeDirError", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with failing user home directory lookup
+		// Given a new VirtEnvPrinter with failing user home directory lookup
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 
 		// Override the UserHomeDir shim
 		mocks.Shims.UserHomeDir = func() (string, error) {
 			return "", errors.New("mock user home dir error")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -313,16 +313,16 @@ contexts:
 	})
 
 	t.Run("MkdirAllError", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with failing directory creation
+		// Given a new VirtEnvPrinter with failing directory creation
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 
 		// Override the MkdirAll shim
 		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return errors.New("mock mkdirAll error")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -337,16 +337,16 @@ contexts:
 	})
 
 	t.Run("WriteFileError", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with failing file write
+		// Given a new VirtEnvPrinter with failing file write
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 
 		// Override the WriteFile shim
 		mocks.Shims.WriteFile = func(filename string, data []byte, perm os.FileMode) error {
 			return errors.New("mock writeFile error")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -385,9 +385,9 @@ contexts:
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				// Given a new DockerEnvPrinter with specific OS
+				// Given a new VirtEnvPrinter with specific OS
 				os.Unsetenv("DOCKER_HOST")
-				mocks := setupDockerEnvMocks(t)
+				mocks := setupVirtEnvMocks(t)
 				configStr := `
 version: v1alpha1
 contexts:
@@ -407,7 +407,7 @@ contexts:
 					return tc.os
 				}
 
-				printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+				printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 				printer.shims = mocks.Shims
 
 				// When getting environment variables
@@ -427,11 +427,11 @@ contexts:
 	})
 
 	t.Run("DockerHostFromEnvironment", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with DOCKER_HOST environment variable
+		// Given a new VirtEnvPrinter with DOCKER_HOST environment variable
 		os.Setenv("DOCKER_HOST", "tcp://custom-docker-host:2375")
 		defer os.Unsetenv("DOCKER_HOST")
 
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
@@ -454,7 +454,7 @@ contexts:
 			return "", false
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -473,14 +473,14 @@ contexts:
 	})
 
 	t.Run("DockerHostNotSet", func(t *testing.T) {
-		// Given a new DockerEnvPrinter without DOCKER_HOST environment variable
-		mocks := setupDockerEnvMocks(t)
+		// Given a new VirtEnvPrinter without DOCKER_HOST environment variable
+		mocks := setupVirtEnvMocks(t)
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -504,8 +504,8 @@ contexts:
 	})
 
 	t.Run("DockerHostFromEnvironmentOverridesDriver", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with both DOCKER_HOST and vm driver
-		mocks := setupDockerEnvMocks(t)
+		// Given a new VirtEnvPrinter with both DOCKER_HOST and vm driver
+		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
@@ -528,7 +528,7 @@ contexts:
 			return "", false
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -560,9 +560,9 @@ contexts:
 	})
 
 	t.Run("DockerHostManagedByWindsorIsOverridden", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with DOCKER_HOST already managed by Windsor
+		// Given a new VirtEnvPrinter with DOCKER_HOST already managed by Windsor
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
@@ -595,7 +595,7 @@ contexts:
 			return ""
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -632,9 +632,9 @@ contexts:
 	})
 
 	t.Run("DockerHostUnmanagedIsPreserved", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with DOCKER_HOST set but not managed
+		// Given a new VirtEnvPrinter with DOCKER_HOST set but not managed
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
@@ -666,7 +666,7 @@ contexts:
 			return ""
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -698,9 +698,9 @@ contexts:
 	})
 
 	t.Run("DockerHostNotSetWithVmDriver", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with vm.driver set but no DOCKER_HOST
+		// Given a new VirtEnvPrinter with vm.driver set but no DOCKER_HOST
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
@@ -720,7 +720,7 @@ contexts:
 			return "", false // DOCKER_HOST doesn't exist
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -757,10 +757,10 @@ contexts:
 	})
 
 	t.Run("DockerHostNotSetWithoutVmDriver", func(t *testing.T) {
-		// Given a new DockerEnvPrinter without vm.driver and no DOCKER_HOST
+		// Given a new VirtEnvPrinter without vm.driver and no DOCKER_HOST
 		os.Unsetenv("DOCKER_HOST")
 		baseMocks := setupEnvMocks(t)
-		mocks := setupDockerEnvMocks(t, &EnvTestMocks{
+		mocks := setupVirtEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
 		configStr := `
@@ -780,7 +780,7 @@ contexts:
 			return "", false // DOCKER_HOST doesn't exist
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -811,9 +811,9 @@ contexts:
 	})
 
 	t.Run("DockerHostEmptyStringIsPreserved", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with DOCKER_HOST set to empty string (not managed)
+		// Given a new VirtEnvPrinter with DOCKER_HOST set to empty string (not managed)
 		os.Unsetenv("DOCKER_HOST")
-		mocks := setupDockerEnvMocks(t)
+		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
@@ -845,7 +845,7 @@ contexts:
 			return ""
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting environment variables
@@ -872,13 +872,117 @@ contexts:
 			// The code might not add it if it's empty
 		}
 	})
+
+	t.Run("IncusRuntimeSetsIncusSocket", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with colima driver and incus runtime
+		os.Unsetenv("DOCKER_HOST")
+		mocks := setupVirtEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    vm:
+      driver: colima
+      runtime: incus
+    docker:
+      registries:
+        mock-registry-url:
+          hostport: 5000
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// And INCUS_SOCKET should be set
+		expectedIncusSocket := filepath.ToSlash("/mock/home/.colima/windsor-test-context/incus.sock")
+		if envVars["INCUS_SOCKET"] != expectedIncusSocket {
+			t.Errorf("INCUS_SOCKET = %v, want %v", envVars["INCUS_SOCKET"], expectedIncusSocket)
+		}
+
+		// And DOCKER_HOST should not be set (since runtime is incus)
+		if _, exists := envVars["DOCKER_HOST"]; exists {
+			t.Error("Expected DOCKER_HOST not to be set when runtime is incus")
+		}
+
+		// And INCUS_SOCKET should be marked as managed
+		managedEnv := printer.GetManagedEnv()
+		isManaged := false
+		for _, env := range managedEnv {
+			if env == "INCUS_SOCKET" {
+				isManaged = true
+				break
+			}
+		}
+		if !isManaged {
+			t.Error("Expected INCUS_SOCKET to be marked as managed")
+		}
+	})
+
+	t.Run("DockerRuntimeDoesNotSetIncusSocket", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with colima driver and docker runtime (default)
+		os.Unsetenv("DOCKER_HOST")
+		mocks := setupVirtEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    vm:
+      driver: colima
+      runtime: docker
+    docker:
+      registries:
+        mock-registry-url:
+          hostport: 5000
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// And INCUS_SOCKET should not be set
+		if _, exists := envVars["INCUS_SOCKET"]; exists {
+			t.Error("Expected INCUS_SOCKET not to be set when runtime is docker")
+		}
+
+		// And DOCKER_HOST should be set
+		var expectedDockerHost string
+		if mocks.Shims.Goos() == "windows" {
+			expectedDockerHost = "npipe:////./pipe/docker_engine"
+		} else {
+			expectedDockerHost = fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
+		}
+		if envVars["DOCKER_HOST"] != expectedDockerHost {
+			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+	})
 }
 
-// TestDockerEnvPrinter_GetAlias tests the GetAlias method of the DockerEnvPrinter
-func TestDockerEnvPrinter_GetAlias(t *testing.T) {
+// TestVirtEnvPrinter_GetAlias tests the GetAlias method of the VirtEnvPrinter
+func TestVirtEnvPrinter_GetAlias(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		// Given a new DockerEnvPrinter with docker-compose plugin available
-		mocks := setupDockerEnvMocks(t)
+		// Given a new VirtEnvPrinter with docker-compose plugin available
+		mocks := setupVirtEnvMocks(t)
 
 		mocks.Shims.LookPath = func(file string) (string, error) {
 			if file == "docker-cli-plugin-docker-compose" {
@@ -887,7 +991,7 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 			return "", fmt.Errorf("not found")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting aliases
@@ -906,13 +1010,13 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 	})
 
 	t.Run("Failure", func(t *testing.T) {
-		// Given a new DockerEnvPrinter without docker-compose plugin
-		mocks := setupDockerEnvMocks(t)
+		// Given a new VirtEnvPrinter without docker-compose plugin
+		mocks := setupVirtEnvMocks(t)
 		mocks.Shims.LookPath = func(file string) (string, error) {
 			return "", fmt.Errorf("not found")
 		}
 
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting aliases
@@ -930,19 +1034,19 @@ func TestDockerEnvPrinter_GetAlias(t *testing.T) {
 	})
 }
 
-// TestDockerEnvPrinter_getRegistryURL tests the getRegistryURL method of the DockerEnvPrinter
-func TestDockerEnvPrinter_getRegistryURL(t *testing.T) {
-	// setup creates a new DockerEnvPrinter with the given configuration
-	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*DockerEnvPrinter, *EnvTestMocks) {
+// TestVirtEnvPrinter_getRegistryURL tests the getRegistryURL method of the VirtEnvPrinter
+func TestVirtEnvPrinter_getRegistryURL(t *testing.T) {
+	// setup creates a new VirtEnvPrinter with the given configuration
+	setup := func(t *testing.T, overrides ...*EnvTestMocks) (*VirtEnvPrinter, *EnvTestMocks) {
 		t.Helper()
-		mocks := setupDockerEnvMocks(t, overrides...)
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		mocks := setupVirtEnvMocks(t, overrides...)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
 
 	t.Run("ValidRegistryURL", func(t *testing.T) {
-		// Given a DockerEnvPrinter with a valid registry URL in config
+		// Given a VirtEnvPrinter with a valid registry URL in config
 		printer, mocks := setup(t)
 		configStr := `
 version: v1alpha1
@@ -974,7 +1078,7 @@ contexts:
 	})
 
 	t.Run("RegistryURLWithConfig", func(t *testing.T) {
-		// Given a DockerEnvPrinter with a registry URL and matching config
+		// Given a VirtEnvPrinter with a registry URL and matching config
 		printer, mocks := setup(t)
 		configStr := `
 version: v1alpha1
@@ -1009,7 +1113,7 @@ contexts:
 	})
 
 	t.Run("EmptyRegistryURL", func(t *testing.T) {
-		// Given a DockerEnvPrinter with no registry URL but with registries config
+		// Given a VirtEnvPrinter with no registry URL but with registries config
 		printer, mocks := setup(t)
 		configStr := `
 version: v1alpha1
@@ -1040,9 +1144,9 @@ contexts:
 	})
 
 	t.Run("EmptyConfig", func(t *testing.T) {
-		// Given a DockerEnvPrinter with empty registries config
+		// Given a VirtEnvPrinter with empty registries config
 		baseMocks := setupEnvMocks(t)
-		mocks := setupDockerEnvMocks(t, &EnvTestMocks{
+		mocks := setupVirtEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
 		configStr := `
@@ -1057,7 +1161,7 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting the registry URL
@@ -1074,7 +1178,7 @@ contexts:
 	})
 
 	t.Run("RegistryURLWithoutPortNoConfig", func(t *testing.T) {
-		// Given a DockerEnvPrinter with a registry URL without port and no matching config
+		// Given a VirtEnvPrinter with a registry URL without port and no matching config
 		printer, mocks := setup(t)
 		configStr := `
 version: v1alpha1
@@ -1109,7 +1213,7 @@ contexts:
 	})
 
 	t.Run("RegistryURLInvalidPort", func(t *testing.T) {
-		// Given a DockerEnvPrinter with a registry URL with invalid port
+		// Given a VirtEnvPrinter with a registry URL with invalid port
 		printer, mocks := setup(t)
 		configStr := `
 version: v1alpha1
@@ -1138,7 +1242,7 @@ contexts:
 	})
 
 	t.Run("RegistryURLNoPortNoHostPort", func(t *testing.T) {
-		// Given a DockerEnvPrinter with a registry URL without port and no hostport in config
+		// Given a VirtEnvPrinter with a registry URL without port and no hostport in config
 		printer, mocks := setup(t)
 		configStr := `
 version: v1alpha1
@@ -1169,7 +1273,7 @@ contexts:
 	})
 
 	t.Run("RegistryURLEmptyRegistries", func(t *testing.T) {
-		// Given a DockerEnvPrinter with a registry URL and empty registries config
+		// Given a VirtEnvPrinter with a registry URL and empty registries config
 		printer, mocks := setup(t)
 		configStr := `
 version: v1alpha1
@@ -1199,9 +1303,9 @@ contexts:
 	})
 
 	t.Run("NilDockerConfig", func(t *testing.T) {
-		// Given a DockerEnvPrinter with no Docker config
+		// Given a VirtEnvPrinter with no Docker config
 		baseMocks := setupEnvMocks(t)
-		mocks := setupDockerEnvMocks(t, &EnvTestMocks{
+		mocks := setupVirtEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
 		configStr := `
@@ -1214,7 +1318,7 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting the registry URL
@@ -1231,7 +1335,7 @@ contexts:
 	})
 
 	t.Run("NilRegistriesWithURL", func(t *testing.T) {
-		// Given a DockerEnvPrinter with a registry URL but no registries config
+		// Given a VirtEnvPrinter with a registry URL but no registries config
 		printer, mocks := setup(t)
 		configStr := `
 version: v1alpha1
@@ -1260,12 +1364,12 @@ contexts:
 	})
 
 	t.Run("RegistryWithoutHostPort", func(t *testing.T) {
-		// Given a DockerEnvPrinter with a registry without hostport in config
+		// Given a VirtEnvPrinter with a registry without hostport in config
 		baseMocks := setupEnvMocks(t)
-		mocks := setupDockerEnvMocks(t, &EnvTestMocks{
+		mocks := setupVirtEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
 		})
-		// Set the context environment variable after setup (setupDockerEnvMocks may have reset it)
+		// Set the context environment variable after setup (setupVirtEnvMocks may have reset it)
 		os.Setenv("WINDSOR_CONTEXT", "test-context")
 		
 		configStr := `
@@ -1285,7 +1389,7 @@ contexts:
 		// Set the context to ensure GetConfig() returns the right config
 		mocks.ConfigHandler.SetContext("test-context")
 		
-		printer := NewDockerEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
 		// When getting the registry URL

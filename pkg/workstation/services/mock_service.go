@@ -24,6 +24,7 @@ type MockService struct {
 	GetNameFunc          func() string
 	GetHostnameFunc      func() string
 	SupportsWildcardFunc func() bool
+	GetIncusConfigFunc   func() (*IncusConfig, error)
 }
 
 // =============================================================================
@@ -101,6 +102,14 @@ func (m *MockService) SupportsWildcard() bool {
 		return m.SupportsWildcardFunc()
 	}
 	return false
+}
+
+// GetIncusConfig calls the mock GetIncusConfigFunc if it is set, otherwise returns nil, nil
+func (m *MockService) GetIncusConfig() (*IncusConfig, error) {
+	if m.GetIncusConfigFunc != nil {
+		return m.GetIncusConfigFunc()
+	}
+	return nil, nil
 }
 
 // =============================================================================

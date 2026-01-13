@@ -1,6 +1,7 @@
 package services
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/constants"
@@ -143,6 +144,103 @@ func TestGitLivereloadService_GetComposeConfig(t *testing.T) {
 		}
 		if !rsyncIncludeFound {
 			t.Errorf("expected RSYNC_INCLUDE environment variable to be set to default value 'kustomize'")
+		}
+	})
+}
+
+func TestGitLivereloadService_GetIncusConfig(t *testing.T) {
+	setup := func(t *testing.T) (*GitLivereloadService, *ServicesTestMocks) {
+		t.Helper()
+		mocks := setupServicesMocks(t)
+		service := NewGitLivereloadService(mocks.Runtime)
+		service.SetName("git")
+		return service, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a GitLivereloadService with mock components
+		service, _ := setup(t)
+
+		// When GetIncusConfig is called
+		incusConfig, err := service.GetIncusConfig()
+		if err != nil {
+			t.Fatalf("GetIncusConfig() error = %v", err)
+		}
+
+		// Then the Incus configuration should be correctly populated
+		if incusConfig == nil {
+			t.Fatalf("expected non-nil incusConfig, got %v", incusConfig)
+		}
+		if incusConfig.Type != "container" {
+			t.Errorf("expected Type to be 'container', got %q", incusConfig.Type)
+		}
+		expectedImage := constants.DefaultGitLiveReloadImage
+		if strings.HasPrefix(expectedImage, "ghcr.io/") {
+			expectedImage = "ghcr:" + strings.TrimPrefix(expectedImage, "ghcr.io/")
+		}
+		if incusConfig.Image != expectedImage {
+			t.Errorf("expected Image to be %q, got %q", expectedImage, incusConfig.Image)
+		}
+		if incusConfig.Config["environment.RSYNC_INCLUDE"] != constants.DefaultGitLiveReloadRsyncInclude {
+			t.Errorf("expected RSYNC_INCLUDE to be %q, got %q", constants.DefaultGitLiveReloadRsyncInclude, incusConfig.Config["environment.RSYNC_INCLUDE"])
+		}
+		projectRootDevice, exists := incusConfig.Devices["project-root"]
+		if !exists {
+			t.Fatalf("expected 'project-root' device to exist")
+		}
+		if projectRootDevice["type"] != "disk" {
+			t.Errorf("expected project-root device type to be 'disk', got %q", projectRootDevice["type"])
+		}
+	})
+
+	t.Run("WithGhcrImage", func(t *testing.T) {
+		// Given a GitLivereloadService with ghcr.io image
+		service, mocks := setup(t)
+		mocks.ConfigHandler.Set("git.livereload.image", "ghcr.io/test/image:latest")
+
+		// When GetIncusConfig is called
+		incusConfig, err := service.GetIncusConfig()
+		if err != nil {
+			t.Fatalf("GetIncusConfig() error = %v", err)
+		}
+
+		// Then the image should be converted to ghcr: format
+		if incusConfig.Image != "ghcr:test/image:latest" {
+			t.Errorf("expected Image to be 'ghcr:test/image:latest', got %q", incusConfig.Image)
+		}
+	})
+
+	t.Run("WithWebhookUrl", func(t *testing.T) {
+		// Given a GitLivereloadService with webhook URL configured
+		service, mocks := setup(t)
+		mocks.ConfigHandler.Set("git.livereload.webhook_url", "https://example.com/webhook")
+
+		// When GetIncusConfig is called
+		incusConfig, err := service.GetIncusConfig()
+		if err != nil {
+			t.Fatalf("GetIncusConfig() error = %v", err)
+		}
+
+		// Then the webhook URL should be in the config
+		if incusConfig.Config["environment.WEBHOOK_URL"] != "https://example.com/webhook" {
+			t.Errorf("expected WEBHOOK_URL to be 'https://example.com/webhook', got %q", incusConfig.Config["environment.WEBHOOK_URL"])
+		}
+	})
+
+	t.Run("WithDockerHubImage", func(t *testing.T) {
+		// Given a GitLivereloadService with Docker Hub image
+		service, mocks := setup(t)
+		mocks.ConfigHandler.Set("git.livereload.image", "myuser/myimage:latest")
+
+		// When GetIncusConfig is called
+		incusConfig, err := service.GetIncusConfig()
+		if err != nil {
+			t.Fatalf("GetIncusConfig() error = %v", err)
+		}
+
+		// Then the image should have docker: prefix
+		if incusConfig.Image != "docker:myuser/myimage:latest" {
+			t.Errorf("expected Image to be 'docker:myuser/myimage:latest', got %q", incusConfig.Image)
 		}
 	})
 }

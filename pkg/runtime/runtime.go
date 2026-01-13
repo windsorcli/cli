@@ -412,7 +412,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.DockerEnv == nil && rt.ConfigHandler.GetBool("docker.enabled", false) {
-		rt.EnvPrinters.DockerEnv = env.NewDockerEnvPrinter(rt.Shell, rt.ConfigHandler)
+		rt.EnvPrinters.DockerEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.KubeEnv == nil && rt.ConfigHandler.GetBool("cluster.enabled", false) {
 		rt.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(rt.Shell, rt.ConfigHandler)
@@ -685,15 +685,34 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			}
 		}
 
+		vmRuntime := ""
+		if len(flagOverrides) > 0 && flagOverrides[0] != nil {
+			if runtime, ok := flagOverrides[0]["vm.runtime"].(string); ok && runtime != "" {
+				vmRuntime = runtime
+			}
+		}
+		if vmRuntime == "" {
+			vmRuntime = rt.ConfigHandler.GetString("vm.runtime", "docker")
+		}
+
 		if existingProvider == "" && isDevMode {
-			if err := rt.ConfigHandler.Set("provider", "generic"); err != nil {
-				return fmt.Errorf("failed to set provider from context name: %w", err)
+			if vmRuntime == "incus" {
+				if err := rt.ConfigHandler.Set("provider", "incus"); err != nil {
+					return fmt.Errorf("failed to set provider to incus: %w", err)
+				}
+			} else {
+				if err := rt.ConfigHandler.Set("provider", "generic"); err != nil {
+					return fmt.Errorf("failed to set provider from context name: %w", err)
+				}
 			}
 		}
 
 		provider := rt.ConfigHandler.GetString("provider")
 		if provider == "none" {
-			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig); err != nil {
+			defaultConfig := config.DefaultConfig
+			noneProvider := "none"
+			defaultConfig.Provider = &noneProvider
+			if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
 				return fmt.Errorf("failed to set default config: %w", err)
 			}
 		} else if vmDriver == "docker-desktop" {
@@ -751,6 +770,10 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}
 		case "generic":
+			if err := rt.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		case "incus":
 			if err := rt.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}

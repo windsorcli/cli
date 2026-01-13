@@ -41,9 +41,9 @@ const DefaultTalosWorkerCPU = 4
 
 const DefaultTalosWorkerRAM = 4
 
-const DefaultTalosControlPlaneCPU = 2
+const DefaultTalosControlPlaneCPU = 4
 
-const DefaultTalosControlPlaneRAM = 2
+const DefaultTalosControlPlaneRAM = 4
 
 const DefaultTalosAPIPort = 50000
 

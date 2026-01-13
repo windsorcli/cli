@@ -142,6 +142,18 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		}
 	}
 
+	if p.configHandler.IsDevMode(p.contextName) {
+		provider := p.configHandler.GetString("provider")
+		vmRuntime := p.configHandler.GetString("vm.runtime")
+		if provider == "" || provider == "generic" {
+			if vmRuntime == "incus" {
+				if err := p.configHandler.Set("provider", "incus"); err != nil {
+					return fmt.Errorf("failed to set provider to incus: %w", err)
+				}
+			}
+		}
+	}
+
 	if err := p.Runtime.LoadEnvironment(false); err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
