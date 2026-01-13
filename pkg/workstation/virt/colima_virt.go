@@ -385,7 +385,7 @@ func (v *ColimaVirt) execInVM(command string, args ...string) (string, error) {
 	return v.shell.ExecSilent("colima", "ssh", "--profile", profileName, "--", "sh", "-c", fullCommand+" 2>/dev/null </dev/null")
 }
 
-// execInVMQuiet executes a command in the VM via colima ssh, always suppressing output even in verbose mode.
+// execInVMQuiet executes a command in the VM via colima ssh, relying on the shell's current verbosity setting.
 // Use for data queries that produce large JSON dumps.
 func (v *ColimaVirt) execInVMQuiet(command string, args []string, timeout time.Duration) (string, error) {
 	profileName := v.getProfileName()
@@ -393,8 +393,6 @@ func (v *ColimaVirt) execInVMQuiet(command string, args []string, timeout time.D
 	if len(args) > 0 {
 		fullCommand += " " + strings.Join(args, " ")
 	}
-	v.shell.SetVerbosity(false)
-	defer v.shell.SetVerbosity(true)
 	output, err := v.shell.ExecSilentWithTimeout("colima", []string{"ssh", "--profile", profileName, "--", "sh", "-c", fullCommand + " 2>/dev/null </dev/null"}, timeout)
 	return output, err
 }

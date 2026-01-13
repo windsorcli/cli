@@ -1252,15 +1252,9 @@ func TestColimaVirt_execInVMQuiet(t *testing.T) {
 			t.Errorf("expected output 'command output', got %q", output)
 		}
 
-		// And verbosity should have been set to false and then restored to true
-		if len(verbosityCalls) != 2 {
-			t.Errorf("expected 2 verbosity calls, got %d", len(verbosityCalls))
-		}
-		if len(verbosityCalls) >= 1 && verbosityCalls[0] != false {
-			t.Error("expected first verbosity call to be false")
-		}
-		if len(verbosityCalls) >= 2 && verbosityCalls[1] != true {
-			t.Error("expected second verbosity call to be true (restored)")
+		// And verbosity should not be manipulated (relies on shell's current setting)
+		if len(verbosityCalls) != 0 {
+			t.Errorf("expected no verbosity calls, got %d", len(verbosityCalls))
 		}
 	})
 
