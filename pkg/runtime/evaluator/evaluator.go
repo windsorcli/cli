@@ -886,7 +886,7 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 // Returns the new subnet CIDR as a string (e.g., "10.5.1.0/24" for cidrsubnet("10.5.0.0/16", 8, 1)),
 // or an error if the prefix is invalid or the subnet parameters are out of range.
 func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits int, netnum int) (string, error) {
-	ip, ipnet, err := net.ParseCIDR(prefix)
+	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
 		return "", fmt.Errorf("invalid CIDR prefix: %w", err)
 	}
@@ -903,8 +903,8 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 
 	newPrefixLen := ones + newbits
 	subnetSize := 1 << (bits - newPrefixLen)
-	subnetIP := make(net.IP, len(ip))
-	copy(subnetIP, ip)
+	subnetIP := make(net.IP, len(ipnet.IP))
+	copy(subnetIP, ipnet.IP)
 
 	offset := netnum * subnetSize
 
@@ -940,15 +940,15 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 // slice of subnet CIDR strings (e.g., ["10.5.0.0/24", "10.5.1.0/24"] for cidrsubnets("10.5.0.0/16", 8, 8)),
 // or an error if the prefix is invalid or any subnet parameters are out of range.
 func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits []int) ([]any, error) {
-	ip, ipnet, err := net.ParseCIDR(prefix)
+	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
 		return nil, fmt.Errorf("invalid CIDR prefix: %w", err)
 	}
 
 	ones, bits := ipnet.Mask.Size()
 	results := make([]any, len(newbits))
-	baseIP := make(net.IP, len(ip))
-	copy(baseIP, ip)
+	baseIP := make(net.IP, len(ipnet.IP))
+	copy(baseIP, ipnet.IP)
 	cumulativeOffset := 0
 
 	for i, nb := range newbits {

@@ -352,6 +352,20 @@ func TestCidrSubnetHelper(t *testing.T) {
 			t.Errorf("Expected result to contain '/80', got '%v'", result)
 		}
 	})
+
+	t.Run("CidrSubnetWithNonCanonicalCIDR", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		result, err := evaluator.Evaluate(`${cidrsubnet("10.5.3.7/16", 8, 1)}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != "10.5.1.0/24" {
+			t.Errorf("Expected result to be '10.5.1.0/24' (using network base address), got '%v'", result)
+		}
+	})
 }
 
 func TestCidrSubnetsHelper(t *testing.T) {
@@ -495,6 +509,33 @@ func TestCidrSubnetsHelper(t *testing.T) {
 
 		if resultArray[1] != "10.16.0.0/16" {
 			t.Errorf("Expected result[1] to be '10.16.0.0/16', got '%v'", resultArray[1])
+		}
+	})
+
+	t.Run("CidrSubnetsWithNonCanonicalCIDR", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		result, err := evaluator.Evaluate(`${cidrsubnets("10.5.3.7/16", 8, 8)}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultArray, ok := result.([]any)
+		if !ok {
+			t.Fatalf("Expected result to be []any, got %T", result)
+		}
+
+		if len(resultArray) != 2 {
+			t.Fatalf("Expected result to have 2 elements, got %d", len(resultArray))
+		}
+
+		if resultArray[0] != "10.5.0.0/24" {
+			t.Errorf("Expected result[0] to be '10.5.0.0/24' (using network base address), got '%v'", resultArray[0])
+		}
+
+		if resultArray[1] != "10.5.1.0/24" {
+			t.Errorf("Expected result[1] to be '10.5.1.0/24' (using network base address), got '%v'", resultArray[1])
 		}
 	})
 }
