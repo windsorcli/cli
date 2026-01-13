@@ -958,7 +958,7 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 
 		newPrefixLen := ones + nb
 		subnetSize := 1 << (bits - newPrefixLen)
-		offset := cumulativeOffset * subnetSize
+		offset := cumulativeOffset
 
 		subnetIP := make(net.IP, len(baseIP))
 		copy(subnetIP, baseIP)
@@ -988,7 +988,7 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 
 		results[i] = fmt.Sprintf("%s/%d", subnetIP.String(), newPrefixLen)
 
-		cumulativeOffset++
+		cumulativeOffset += subnetSize
 	}
 
 	return results, nil

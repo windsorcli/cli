@@ -470,6 +470,33 @@ func TestCidrSubnetsHelper(t *testing.T) {
 			t.Errorf("Expected result[1] to contain '2001:db8', got '%v'", resultArray[1])
 		}
 	})
+
+	t.Run("CidrSubnetsWithDifferentSizes", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		result, err := evaluator.Evaluate(`${cidrsubnets("10.0.0.0/8", 4, 8)}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		resultArray, ok := result.([]any)
+		if !ok {
+			t.Fatalf("Expected result to be []any, got %T", result)
+		}
+
+		if len(resultArray) != 2 {
+			t.Fatalf("Expected result to have 2 elements, got %d", len(resultArray))
+		}
+
+		if resultArray[0] != "10.0.0.0/12" {
+			t.Errorf("Expected result[0] to be '10.0.0.0/12', got '%v'", resultArray[0])
+		}
+
+		if resultArray[1] != "10.16.0.0/16" {
+			t.Errorf("Expected result[1] to be '10.16.0.0/16', got '%v'", resultArray[1])
+		}
+	})
 }
 
 func TestCidrNetmaskHelper(t *testing.T) {
