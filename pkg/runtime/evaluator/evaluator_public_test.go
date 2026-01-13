@@ -1251,9 +1251,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Fatal("Expected error for invalid expression in array when evaluateDeferred is false")
 		}
 	})
-}
 
-func TestExpressionEvaluator_EvaluateMap_Additional(t *testing.T) {
 	t.Run("PassesFeaturePathToEvaluate", func(t *testing.T) {
 		// Given a mock evaluator that captures feature path
 		mockEvaluator := NewMockExpressionEvaluator()
