@@ -54,7 +54,9 @@ tasks:
     desc: Scan for security vulnerabilities
     cmds:
       - go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - go install golang.org/x/vuln/cmd/govulncheck@latest
       - gosec ./...
+      - govulncheck ./...
 
   run:
     desc: Run the Windsor CLI

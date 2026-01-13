@@ -134,6 +134,12 @@ jobs:
           GOTOOLCHAIN: 'auto'
           GOFLAGS: '-buildvcs=false'
 
+      - name: Run Govulncheck Security Scanner
+        run: govulncheck ./...
+        env:
+          GOTOOLCHAIN: 'auto'
+          GOFLAGS: '-buildvcs=false'
+
   release:
     runs-on: windows-latest
     needs: [build-and-test, sast-scan]
