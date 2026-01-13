@@ -127,11 +127,12 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		}
 
 		expected := map[string]string{
-			"AWS_PROFILE":      "default",
-			"AWS_ENDPOINT_URL": "https://aws.endpoint",
-			"S3_HOSTNAME":      "s3.amazonaws.com",
-			"MWAA_ENDPOINT":    "https://mwaa.endpoint",
-			"AWS_CONFIG_FILE":  "/mock/config/root/.aws/config",
+			"AWS_PROFILE":                 "default",
+			"AWS_ENDPOINT_URL":            "https://aws.endpoint",
+			"S3_HOSTNAME":                 "s3.amazonaws.com",
+			"MWAA_ENDPOINT":               "https://mwaa.endpoint",
+			"AWS_CONFIG_FILE":             "/mock/config/root/.aws/config",
+			"AWS_SHARED_CREDENTIALS_FILE": "/mock/config/root/.aws/credentials",
 		}
 
 		if !reflect.DeepEqual(envVars, expected) {
@@ -150,16 +151,19 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		// When GetEnvVars is called
 		envVars, err := env.GetEnvVars()
 
-		// Then environment variables should be returned without AWS_CONFIG_FILE
+		// Then environment variables should be returned with AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE
+		// set even when files don't exist, to allow CLIs to generate auth files in the right location
 		if err != nil {
 			t.Errorf("GetEnvVars returned an error: %v", err)
 		}
 
 		expected := map[string]string{
-			"AWS_PROFILE":      "default",
-			"AWS_ENDPOINT_URL": "https://aws.endpoint",
-			"S3_HOSTNAME":      "s3.amazonaws.com",
-			"MWAA_ENDPOINT":    "https://mwaa.endpoint",
+			"AWS_PROFILE":                 "default",
+			"AWS_ENDPOINT_URL":            "https://aws.endpoint",
+			"S3_HOSTNAME":                 "s3.amazonaws.com",
+			"MWAA_ENDPOINT":               "https://mwaa.endpoint",
+			"AWS_CONFIG_FILE":             "/mock/config/root/.aws/config",
+			"AWS_SHARED_CREDENTIALS_FILE": "/mock/config/root/.aws/credentials",
 		}
 
 		if !reflect.DeepEqual(envVars, expected) {

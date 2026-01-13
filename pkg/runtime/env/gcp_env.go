@@ -73,9 +73,7 @@ func (e *GcpEnvPrinter) GetEnvVars() (map[string]string, error) {
 				envVars["GOOGLE_APPLICATION_CREDENTIALS"] = *config.GCP.CredentialsPath
 			} else {
 				serviceAccountPath := filepath.Join(gcpConfigDir, "service-accounts", "default.json")
-				if _, err := e.shims.Stat(serviceAccountPath); err == nil {
-					envVars["GOOGLE_APPLICATION_CREDENTIALS"] = filepath.ToSlash(serviceAccountPath)
-				}
+				envVars["GOOGLE_APPLICATION_CREDENTIALS"] = filepath.ToSlash(serviceAccountPath)
 			}
 		}
 
