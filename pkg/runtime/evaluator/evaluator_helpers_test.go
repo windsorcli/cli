@@ -236,6 +236,20 @@ func TestCidrHostHelper(t *testing.T) {
 		}
 	})
 
+	t.Run("CidrHostWithIPv6Slash64", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		result, err := evaluator.Evaluate(`${cidrhost("2001:db8::/64", 0)}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error for /64 network with hostnum 0, got: %v", err)
+		}
+
+		if !strings.Contains(result.(string), "2001:db8::") {
+			t.Errorf("Expected result to contain '2001:db8::', got '%v'", result)
+		}
+	})
+
 	t.Run("CidrHostWithIPv6OutOfRange", func(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
@@ -350,6 +364,23 @@ func TestCidrSubnetHelper(t *testing.T) {
 		}
 		if !strings.Contains(result.(string), "/80") {
 			t.Errorf("Expected result to contain '/80', got '%v'", result)
+		}
+	})
+
+	t.Run("CidrSubnetWithLargeNewbits", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		result, err := evaluator.Evaluate(`${cidrsubnet("2001:db8::/32", 64, 0)}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error for /32 network with newbits=64 and netnum=0, got: %v", err)
+		}
+
+		if !strings.Contains(result.(string), "2001:db8") {
+			t.Errorf("Expected result to contain '2001:db8', got '%v'", result)
+		}
+		if !strings.Contains(result.(string), "/96") {
+			t.Errorf("Expected result to contain '/96', got '%v'", result)
 		}
 	})
 

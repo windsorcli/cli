@@ -841,10 +841,16 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 
 	ones, bits := ipnet.Mask.Size()
 	hostBits := bits - ones
-	maxHosts := 1 << hostBits
 
-	if hostnum < 0 || hostnum >= maxHosts {
-		return "", fmt.Errorf("host number %d is out of range (0-%d) for CIDR %s", hostnum, maxHosts-1, prefix)
+	if hostnum < 0 {
+		return "", fmt.Errorf("host number %d is out of range (must be non-negative) for CIDR %s", hostnum, prefix)
+	}
+
+	if hostBits < 64 {
+		maxHosts := 1 << hostBits
+		if hostnum >= maxHosts {
+			return "", fmt.Errorf("host number %d is out of range (0-%d) for CIDR %s", hostnum, maxHosts-1, prefix)
+		}
 	}
 
 	ip := make(net.IP, len(ipnet.IP))
@@ -896,9 +902,15 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 		return "", fmt.Errorf("newbits %d is invalid for CIDR %s (prefix length %d, total bits %d)", newbits, prefix, ones, bits)
 	}
 
-	maxSubnets := 1 << newbits
-	if netnum < 0 || netnum >= maxSubnets {
-		return "", fmt.Errorf("netnum %d is out of range (0-%d) for newbits %d", netnum, maxSubnets-1, newbits)
+	if netnum < 0 {
+		return "", fmt.Errorf("netnum %d is out of range (must be non-negative) for newbits %d", netnum, newbits)
+	}
+
+	if newbits < 64 {
+		maxSubnets := 1 << newbits
+		if netnum >= maxSubnets {
+			return "", fmt.Errorf("netnum %d is out of range (0-%d) for newbits %d", netnum, maxSubnets-1, newbits)
+		}
 	}
 
 	newPrefixLen := ones + newbits
