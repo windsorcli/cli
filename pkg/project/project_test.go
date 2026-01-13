@@ -584,6 +584,40 @@ func TestProject_Configure(t *testing.T) {
 		}
 	})
 
+	t.Run("SetsProviderToIncusAfterLoadConfigWhenVMRuntimeIsIncus", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return "generic"
+			}
+			if key == "vm.runtime" {
+				return "incus"
+			}
+			return ""
+		}
+		mockConfig.LoadConfigFunc = func() error {
+			return nil
+		}
+
+		var providerSet string
+		mockConfig.SetFunc = func(key string, value any) error {
+			if key == "provider" {
+				providerSet = value.(string)
+			}
+			return nil
+		}
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		_ = proj.Configure(nil)
+
+		if providerSet != "incus" {
+			t.Errorf("Expected provider to be set to 'incus' after LoadConfig when vm.runtime is 'incus', got: %s", providerSet)
+		}
+	})
 }
 
 func TestProject_Initialize(t *testing.T) {

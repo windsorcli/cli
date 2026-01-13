@@ -31,11 +31,24 @@ type Service interface {
 	GetName() string
 	SupportsWildcard() bool
 	GetHostname() string
+	GetIncusConfig() (*IncusConfig, error)
 }
 
 // =============================================================================
 // Types
 // =============================================================================
+
+// IncusConfig represents the configuration for creating an Incus instance.
+// It contains all necessary parameters including instance type, image, network settings,
+// device configurations, profiles, and resource limits required for instance creation.
+type IncusConfig struct {
+	Type      string
+	Image     string
+	Config    map[string]string
+	Devices   map[string]map[string]string
+	Profiles  []string
+	Resources map[string]string
+}
 
 // BaseService is a base implementation of the Service interface
 type BaseService struct {
@@ -135,4 +148,11 @@ func (s *BaseService) GetHostname() string {
 	}
 
 	return s.name + "." + tld
+}
+
+// GetIncusConfig returns the Incus configuration for the service.
+// The default implementation returns nil, nil indicating the service does not support Incus.
+// Services that support Incus should override this method to return their Incus configuration.
+func (s *BaseService) GetIncusConfig() (*IncusConfig, error) {
+	return nil, nil
 }

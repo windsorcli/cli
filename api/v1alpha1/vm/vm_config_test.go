@@ -14,6 +14,7 @@ func TestVMConfig_Merge(t *testing.T) {
 			Disk:    ptrInt(50),
 			Driver:  ptrString("virtualbox"),
 			Memory:  ptrInt(4096),
+			Runtime: ptrString("docker"),
 		}
 		overlay := &VMConfig{
 			Address: ptrString("192.168.1.1"),
@@ -22,6 +23,7 @@ func TestVMConfig_Merge(t *testing.T) {
 			Disk:    ptrInt(100),
 			Driver:  ptrString("kvm"),
 			Memory:  ptrInt(8192),
+			Runtime: ptrString("incus"),
 		}
 		base.Merge(overlay)
 
@@ -43,6 +45,9 @@ func TestVMConfig_Merge(t *testing.T) {
 		if base.Memory == nil || *base.Memory != 8192 {
 			t.Errorf("Memory mismatch: expected %v, got %v", 8192, base.Memory)
 		}
+		if base.Runtime == nil || *base.Runtime != "incus" {
+			t.Errorf("Runtime mismatch: expected %v, got %v", "incus", base.Runtime)
+		}
 	})
 
 	t.Run("MergeWithNilOverlay", func(t *testing.T) {
@@ -53,6 +58,7 @@ func TestVMConfig_Merge(t *testing.T) {
 			Disk:    ptrInt(50),
 			Driver:  ptrString("virtualbox"),
 			Memory:  ptrInt(4096),
+			Runtime: ptrString("docker"),
 		}
 		var overlay *VMConfig = nil
 		base.Merge(overlay)
@@ -75,6 +81,9 @@ func TestVMConfig_Merge(t *testing.T) {
 		if base.Memory == nil || *base.Memory != 4096 {
 			t.Errorf("Memory mismatch: expected %v, got %v", 4096, base.Memory)
 		}
+		if base.Runtime == nil || *base.Runtime != "docker" {
+			t.Errorf("Runtime mismatch: expected %v, got %v", "docker", base.Runtime)
+		}
 	})
 }
 
@@ -87,6 +96,7 @@ func TestVMConfig_Copy(t *testing.T) {
 			Disk:    ptrInt(100),
 			Driver:  ptrString("kvm"),
 			Memory:  ptrInt(8192),
+			Runtime: ptrString("incus"),
 		}
 
 		copy := original.Copy()
@@ -104,6 +114,10 @@ func TestVMConfig_Copy(t *testing.T) {
 		if original.Memory == nil || *original.Memory == *copy.Memory {
 			t.Errorf("Original Memory was modified: expected %v, got %v", 8192, *copy.Memory)
 		}
+		copy.Runtime = ptrString("docker")
+		if original.Runtime == nil || *original.Runtime == *copy.Runtime {
+			t.Errorf("Original Runtime was modified: expected %v, got %v", "incus", *copy.Runtime)
+		}
 	})
 
 	t.Run("CopyWithNilValues", func(t *testing.T) {
@@ -114,6 +128,7 @@ func TestVMConfig_Copy(t *testing.T) {
 			Disk:    nil,
 			Driver:  nil,
 			Memory:  nil,
+			Runtime: nil,
 		}
 
 		copy := original.Copy()

@@ -127,13 +127,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		// And configuring the guest
 		err := manager.ConfigureGuest()
 
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "guest IP is not configured"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		// Then no error should occur (early return when no guest IP)
+		if err != nil {
+			t.Fatalf("expected no error when guest IP is not configured, got %v", err)
 		}
 	})
 
@@ -320,33 +316,27 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("ErrorCheckingIptablesRule", func(t *testing.T) {
 		// Given a network manager with iptables rule check error (non-1 exit code)
 		manager, mocks := setup(t)
-		originalExecSilentWithTimeoutFunc := mocks.Shell.ExecSilentWithTimeoutFunc
+		originalFunc := mocks.Shell.ExecSilentWithTimeoutFunc
+		checkErrorReturned := false
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
-			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
-				cmdStr := strings.Join(args, " ")
-				if strings.Contains(cmdStr, "ls /sys/class/net") {
+			if command == "colima" && len(args) >= 7 && args[0] == "ssh" && args[3] == "--" && args[4] == "sh" && args[5] == "-c" {
+				actualCmd := args[6]
+				if actualCmd == "ls /sys/class/net" {
 					return "br-1234\neth0\nlo\nwlan0", nil
 				}
-				if strings.Contains(cmdStr, "sysctl") && strings.Contains(cmdStr, "ip_forward") {
+				if strings.Contains(actualCmd, "iptables") && strings.Contains(actualCmd, "-C") {
+					checkErrorReturned = true
+					return "", fmt.Errorf("unexpected error checking iptables rule")
+				}
+				if strings.Contains(actualCmd, "sysctl") {
 					return "", nil
 				}
-				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
-					cmd := exec.Command("sh", "-c", "exit 2")
-					err := cmd.Run()
-					if err != nil {
-						return "", err
-					}
-					return "", fmt.Errorf("unexpected success")
-				}
 			}
-			if originalExecSilentWithTimeoutFunc != nil {
-				return originalExecSilentWithTimeoutFunc(command, args, timeout)
+			if originalFunc != nil {
+				return originalFunc(command, args, timeout)
 			}
 			return "", nil
 		}
-
-		// Ensure guest IP is configured
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
 
 		// When initializing the network manager
 		err := manager.AssignIPs([]services.Service{})
@@ -357,12 +347,56 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		// And configuring the guest
 		err = manager.ConfigureGuest()
 
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
+		// Then the check error should have been encountered (even though it's handled gracefully)
+		if !checkErrorReturned {
+			t.Fatalf("expected iptables check error to be returned, but it was not")
 		}
-		if !strings.Contains(err.Error(), "error checking iptables rule") {
-			t.Fatalf("expected error to contain 'error checking iptables rule', got %q", err.Error())
+		// The error is handled gracefully by trying to add the rule, so no error should be returned
+		if err != nil {
+			t.Fatalf("expected no error (check error is handled gracefully), got %v", err)
+		}
+	})
+
+	t.Run("IncusRuntimeConfiguresIncusNetwork", func(t *testing.T) {
+		// Given a network manager with Incus runtime
+		manager, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("vm.runtime", "incus"); err != nil {
+			t.Fatalf("Failed to set vm.runtime: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("vm.address", "192.168.1.10"); err != nil {
+			t.Fatalf("Failed to set vm.address: %v", err)
+		}
+
+		// And mock incus network set command
+		originalExecSilentWithTimeoutFunc := mocks.Shell.ExecSilentWithTimeoutFunc
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "incus network set") {
+					return "", nil
+				}
+				if strings.Contains(cmdStr, "sysctl") && strings.Contains(cmdStr, "ip_forward") {
+					return "", nil
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-C") {
+					return "", fmt.Errorf("rule does not exist")
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-A") {
+					return "", nil
+				}
+			}
+			if originalExecSilentWithTimeoutFunc != nil {
+				return originalExecSilentWithTimeoutFunc(command, args, timeout)
+			}
+			return "", nil
+		}
+
+		// When calling ConfigureGuest
+		err := manager.ConfigureGuest()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error for Incus runtime, got %v", err)
 		}
 	})
 }

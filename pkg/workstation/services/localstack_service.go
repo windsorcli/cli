@@ -103,6 +103,39 @@ func (s *LocalstackService) SupportsWildcard() bool {
 	return true
 }
 
+// GetIncusConfig returns the Incus configuration for the Localstack service.
+// It configures a container with environment variables for AWS Localstack services.
+func (s *LocalstackService) GetIncusConfig() (*IncusConfig, error) {
+	contextConfig := s.configHandler.GetConfig()
+	localstackAuthToken := os.Getenv("LOCALSTACK_AUTH_TOKEN")
+
+	image := constants.DefaultAWSLocalstackImage
+	if localstackAuthToken != "" {
+		image = constants.DefaultAWSLocalstackProImage
+	}
+
+	servicesList := ""
+	if contextConfig != nil && contextConfig.AWS != nil && contextConfig.AWS.Localstack != nil && contextConfig.AWS.Localstack.Services != nil {
+		servicesList = strings.Join(contextConfig.AWS.Localstack.Services, ",")
+	}
+
+	config := make(map[string]string)
+	config["environment.ENFORCE_IAM"] = "1"
+	config["environment.PERSISTENCE"] = "1"
+	config["environment.IAM_SOFT_MODE"] = "0"
+	config["environment.DEBUG"] = "0"
+	config["environment.SERVICES"] = servicesList
+	if localstackAuthToken != "" {
+		config["environment.LOCALSTACK_AUTH_TOKEN"] = localstackAuthToken
+	}
+
+	return &IncusConfig{
+		Type:   "container",
+		Image:  "docker:" + image,
+		Config: config,
+	}, nil
+}
+
 // =============================================================================
 // Interface Compliance
 // =============================================================================

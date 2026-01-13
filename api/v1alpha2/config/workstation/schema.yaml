@@ -92,6 +92,13 @@ properties:
       memory:
         type: integer
         description: Memory size
+      runtime:
+        type: string
+        description: Container runtime for the VM
+        default: docker
+        enum:
+          - docker
+          - incus
     additionalProperties: false
 
   cluster:

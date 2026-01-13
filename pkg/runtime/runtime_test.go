@@ -1606,6 +1606,52 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Error("Expected SetDefault to be called even with empty flag overrides")
 		}
 	})
+
+	t.Run("SetsProviderToIncusWhenVMRuntimeIsIncusInFlagOverrides", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return ""
+			}
+			return ""
+		}
+
+		var providerSet string
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			if key == "provider" {
+				providerSet = value.(string)
+			}
+			return nil
+		}
+
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			return nil
+		}
+
+		flagOverrides := map[string]any{
+			"vm.runtime": "incus",
+		}
+
+		err := rt.ApplyConfigDefaults(flagOverrides)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if providerSet != "incus" {
+			t.Errorf("Expected provider to be set to 'incus', got: %s", providerSet)
+		}
+	})
 }
 
 func TestRuntime_ApplyProviderDefaults(t *testing.T) {

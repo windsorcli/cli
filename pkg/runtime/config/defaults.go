@@ -116,13 +116,11 @@ var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
 // Uses minimal config since non-dev contexts default to provider "none"
 // Includes cluster.enabled=true for provider-specific contexts (aws, azure)
 var DefaultConfig = v1alpha1.Context{
-	Provider:  ptrString("none"),
 	Terraform: commonTerraformConfig.Copy(),
 	Cluster:   commonClusterConfig_Minimal.Copy(),
 }
 
 var DefaultConfig_Localhost = v1alpha1.Context{
-	Provider:    ptrString("generic"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),
@@ -141,7 +139,6 @@ var DefaultConfig_Localhost = v1alpha1.Context{
 }
 
 var DefaultConfig_Full = v1alpha1.Context{
-	Provider:    ptrString("generic"),
 	Environment: map[string]string{},
 	Docker:      commonDockerConfig.Copy(),
 	Git:         commonGitConfig.Copy(),

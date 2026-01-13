@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/v2/types"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -797,6 +798,59 @@ func TestDNSService_SupportsWildcard(t *testing.T) {
 		// Then false should be returned
 		if supportsWildcard {
 			t.Fatalf("Expected false, got true")
+		}
+	})
+}
+
+func TestDNSService_GetIncusConfig(t *testing.T) {
+	setup := func(t *testing.T) (*DNSService, *ServicesTestMocks) {
+		t.Helper()
+		mocks := setupDnsMocks(t)
+		service := NewDNSService(mocks.Runtime)
+		service.SetName("dns")
+		service.shims = mocks.Shims
+
+		return service, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a DNSService with mock components
+		service, _ := setup(t)
+
+		// When GetIncusConfig is called
+		incusConfig, err := service.GetIncusConfig()
+
+		// Then no error should be returned, and config should be correctly populated
+		if err != nil {
+			t.Fatalf("GetIncusConfig() error = %v", err)
+		}
+		if incusConfig == nil {
+			t.Fatalf("Expected incusConfig to be non-nil when GetIncusConfig succeeds")
+		}
+		if incusConfig.Type != "container" {
+			t.Errorf("Expected Type to be 'container', got %q", incusConfig.Type)
+		}
+		if incusConfig.Image != "docker:"+constants.DefaultDNSImage {
+			t.Errorf("Expected Image to be 'docker:%s', got %q", constants.DefaultDNSImage, incusConfig.Image)
+		}
+		if incusConfig.Config["raw.lxc"] != "lxc.apparmor.profile=unconfined" {
+			t.Errorf("Expected raw.lxc config, got %q", incusConfig.Config["raw.lxc"])
+		}
+		if incusConfig.Config["oci.entrypoint"] != "/coredns -conf /etc/coredns/Corefile" {
+			t.Errorf("Expected oci.entrypoint config, got %q", incusConfig.Config["oci.entrypoint"])
+		}
+		corefileDevice, exists := incusConfig.Devices["corefile"]
+		if !exists {
+			t.Fatalf("Expected 'corefile' device to exist")
+		}
+		if corefileDevice["type"] != "disk" {
+			t.Errorf("Expected corefile device type to be 'disk', got %q", corefileDevice["type"])
+		}
+		if corefileDevice["path"] != "/etc/coredns/Corefile" {
+			t.Errorf("Expected corefile device path to be '/etc/coredns/Corefile', got %q", corefileDevice["path"])
+		}
+		if corefileDevice["readonly"] != "true" {
+			t.Errorf("Expected corefile device readonly to be 'true', got %q", corefileDevice["readonly"])
 		}
 	})
 }

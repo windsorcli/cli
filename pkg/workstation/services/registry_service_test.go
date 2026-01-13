@@ -681,3 +681,66 @@ func TestRegistryService_SupportsWildcard(t *testing.T) {
 		}
 	})
 }
+
+func TestRegistryService_GetIncusConfig(t *testing.T) {
+	setup := func(t *testing.T) (*RegistryService, *ServicesTestMocks) {
+		t.Helper()
+		mocks := setupServicesMocks(t)
+		service := NewRegistryService(mocks.Runtime)
+		service.shims = mocks.Shims
+		service.SetName("registry")
+		return service, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a RegistryService with mock components
+		service, _ := setup(t)
+
+		// When GetIncusConfig is called
+		incusConfig, err := service.GetIncusConfig()
+		if err != nil {
+			t.Fatalf("GetIncusConfig() error = %v", err)
+		}
+
+		// Then the Incus configuration should be correctly populated
+		if incusConfig == nil {
+			t.Fatalf("expected non-nil incusConfig, got %v", incusConfig)
+		}
+		if incusConfig.Type != "container" {
+			t.Errorf("expected Type to be 'container', got %q", incusConfig.Type)
+		}
+		if incusConfig.Image != "docker:"+constants.RegistryDefaultImage {
+			t.Errorf("expected Image to be 'docker:%s', got %q", constants.RegistryDefaultImage, incusConfig.Image)
+		}
+		if incusConfig.Config["environment.REGISTRY_PROXY_REMOTEURL"] != "registry.test" {
+			t.Errorf("expected REGISTRY_PROXY_REMOTEURL to be 'registry.test', got %q", incusConfig.Config["environment.REGISTRY_PROXY_REMOTEURL"])
+		}
+		if incusConfig.Config["environment.REGISTRY_PROXY_LOCALURL"] != "registry.test" {
+			t.Errorf("expected REGISTRY_PROXY_LOCALURL to be 'registry.test', got %q", incusConfig.Config["environment.REGISTRY_PROXY_LOCALURL"])
+		}
+		dockerCacheDevice, exists := incusConfig.Devices["docker-cache"]
+		if !exists {
+			t.Fatalf("expected 'docker-cache' device to exist")
+		}
+		if dockerCacheDevice["type"] != "disk" {
+			t.Errorf("expected docker-cache device type to be 'disk', got %q", dockerCacheDevice["type"])
+		}
+		if dockerCacheDevice["path"] != "/var/lib/registry" {
+			t.Errorf("expected docker-cache device path to be '/var/lib/registry', got %q", dockerCacheDevice["path"])
+		}
+	})
+
+	t.Run("NoRegistryFound", func(t *testing.T) {
+		// Given a RegistryService with non-existent registry name
+		service, _ := setup(t)
+		service.SetName("nonexistent-registry")
+
+		// When GetIncusConfig is called
+		_, err := service.GetIncusConfig()
+
+		// Then an error should be returned indicating no registry was found
+		if err == nil || !strings.Contains(err.Error(), "no registry found with name") {
+			t.Fatalf("expected error indicating no registry found, got %v", err)
+		}
+	})
+}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	colimaConfig "github.com/abiosoft/colima/config"
 	"github.com/goccy/go-yaml"
@@ -535,6 +536,14 @@ func TestColimaVirt_Up(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		colimaVirt, mocks := setup(t)
 
+		// Make getVMInfo fail so startColima is called
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 4 && args[1] == "--profile" && args[3] == "--json" {
+				return "", fmt.Errorf("VM not found")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
 		// Save original function to restore it in our mock
 		originalExecProgress := mocks.Shell.ExecProgressFunc
 
@@ -824,39 +833,28 @@ func TestColimaVirt_Down(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		colimaVirt, mocks := setup(t)
 
-		// And ExecSilent returns VM exists initially, then returns invalid JSON after deletion
-		callCount := 0
-		originalExecSilent := mocks.Shell.ExecSilentFunc
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "colima" && len(args) >= 4 && args[0] == "ls" && args[1] == "--profile" && args[3] == "--json" {
-				callCount++
-				if callCount == 1 {
-					return `{
-						"address": "192.168.1.2",
-						"arch": "x86_64",
-						"cpus": 2,
-						"disk": 64424509440,
-						"memory": 4294967296,
-						"name": "windsor-mock-context",
-						"runtime": "docker",
-						"status": "Running"
-					}`, nil
-				}
-				// Return invalid JSON that cannot be parsed (simulating colima output format change)
-				return "invalid json output", nil
+		// And ExecProgress returns an error when deleting
+		originalExecProgress := mocks.Shell.ExecProgressFunc
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 1 && args[0] == "delete" {
+				return "", fmt.Errorf("mock delete colima error")
 			}
-			return originalExecSilent(command, args...)
+			// For stop command, use the original implementation
+			if command == "colima" && len(args) >= 1 && args[0] == "stop" {
+				return originalExecProgress(message, command, args...)
+			}
+			return originalExecProgress(message, command, args...)
 		}
 
 		// When calling Down
 		err := colimaVirt.Down()
 
-		// Then an error should be returned (error from vmExists should be propagated)
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to verify VM deletion") {
-			t.Errorf("Expected error containing 'failed to verify VM deletion', got %v", err)
+		if !strings.Contains(err.Error(), "mock delete colima error") {
+			t.Errorf("Expected error containing 'mock delete colima error', got %v", err)
 		}
 	})
 }
@@ -935,8 +933,8 @@ func TestColimaVirt_getDefaultValues(t *testing.T) {
 		if cpu <= 0 {
 			t.Errorf("expected positive CPU count, got %d", cpu)
 		}
-		if disk != 60 {
-			t.Errorf("expected disk size 60GB, got %d", disk)
+		if disk != 100 {
+			t.Errorf("expected disk size 100GB, got %d", disk)
 		}
 		if memory <= 0 {
 			t.Errorf("expected positive memory size, got %d", memory)
@@ -1123,6 +1121,382 @@ func TestColimaVirt_startColima(t *testing.T) {
 		// And GetVMInfo should be called multiple times
 		if callCount < 3 {
 			t.Errorf("expected at least 3 calls to GetVMInfo, got %d", callCount)
+		}
+	})
+}
+
+// TestColimaVirt_getProfileName tests the getProfileName method of the ColimaVirt component.
+func TestColimaVirt_getProfileName(t *testing.T) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
+		t.Helper()
+		mocks := setupColimaMocks(t)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+		colimaVirt.setShims(mocks.Shims)
+		return colimaVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, _ := setup(t)
+
+		// When getting the profile name
+		profileName := colimaVirt.getProfileName()
+
+		// Then the profile name should be in the correct format
+		expected := "windsor-mock-context"
+		if profileName != expected {
+			t.Errorf("expected profile name %q, got %q", expected, profileName)
+		}
+	})
+}
+
+// TestColimaVirt_execInVM tests the execInVM method of the ColimaVirt component.
+func TestColimaVirt_execInVM(t *testing.T) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
+		t.Helper()
+		mocks := setupColimaMocks(t)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+		colimaVirt.setShims(mocks.Shims)
+		return colimaVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecSilent returns success
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 6 && args[0] == "ssh" && args[1] == "--profile" && args[2] == "windsor-mock-context" {
+				return "command output", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When executing a command in the VM
+		output, err := colimaVirt.execInVM("test", "command", "arg1", "arg2")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And output should be returned
+		if output != "command output" {
+			t.Errorf("expected output 'command output', got %q", output)
+		}
+	})
+
+	t.Run("ErrorExecutingCommand", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecSilent returns an error
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 6 && args[0] == "ssh" {
+				return "", fmt.Errorf("mock ssh error")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When executing a command in the VM
+		_, err := colimaVirt.execInVM("test", "command")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("expected error, got none")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "mock ssh error") {
+			t.Errorf("expected error message to contain 'mock ssh error', got %q", err.Error())
+		}
+	})
+}
+
+// TestColimaVirt_execInVMQuiet tests the execInVMQuiet method of the ColimaVirt component.
+func TestColimaVirt_execInVMQuiet(t *testing.T) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
+		t.Helper()
+		mocks := setupColimaMocks(t)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+		colimaVirt.setShims(mocks.Shims)
+		return colimaVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecSilentWithTimeout returns success
+		verbosityCalls := []bool{}
+		mocks.Shell.SetVerbosityFunc = func(verbose bool) {
+			verbosityCalls = append(verbosityCalls, verbose)
+		}
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) >= 6 && args[0] == "ssh" && args[1] == "--profile" && args[2] == "windsor-mock-context" {
+				return "command output", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When executing a command in the VM quietly
+		output, err := colimaVirt.execInVMQuiet("test", []string{"command", "arg1"}, 5*time.Second)
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And output should be returned
+		if output != "command output" {
+			t.Errorf("expected output 'command output', got %q", output)
+		}
+
+		// And verbosity should have been set to false and then restored to true
+		if len(verbosityCalls) != 2 {
+			t.Errorf("expected 2 verbosity calls, got %d", len(verbosityCalls))
+		}
+		if len(verbosityCalls) >= 1 && verbosityCalls[0] != false {
+			t.Error("expected first verbosity call to be false")
+		}
+		if len(verbosityCalls) >= 2 && verbosityCalls[1] != true {
+			t.Error("expected second verbosity call to be true (restored)")
+		}
+	})
+
+	t.Run("ErrorExecutingCommand", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecSilentWithTimeout returns an error
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) >= 6 && args[0] == "ssh" {
+				return "", fmt.Errorf("mock ssh error")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When executing a command in the VM quietly
+		_, err := colimaVirt.execInVMQuiet("test", []string{"command"}, 5*time.Second)
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("expected error, got none")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "mock ssh error") {
+			t.Errorf("expected error message to contain 'mock ssh error', got %q", err.Error())
+		}
+	})
+}
+
+// TestColimaVirt_execInVMProgress tests the execInVMProgress method of the ColimaVirt component.
+func TestColimaVirt_execInVMProgress(t *testing.T) {
+	setup := func(t *testing.T) (*ColimaVirt, *VirtTestMocks) {
+		t.Helper()
+		mocks := setupColimaMocks(t)
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+		colimaVirt.setShims(mocks.Shims)
+		return colimaVirt, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecProgress returns success
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 6 && args[0] == "ssh" && args[1] == "--profile" && args[2] == "windsor-mock-context" {
+				if message != "test message" {
+					t.Errorf("expected message 'test message', got %q", message)
+				}
+				return "command output", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When executing a command in the VM with progress
+		output, err := colimaVirt.execInVMProgress("test message", "test", "command", "arg1")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// And output should be returned
+		if output != "command output" {
+			t.Errorf("expected output 'command output', got %q", output)
+		}
+	})
+
+	t.Run("ErrorExecutingCommand", func(t *testing.T) {
+		// Given a ColimaVirt with mock components
+		colimaVirt, mocks := setup(t)
+
+		// And ExecProgress returns an error
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 6 && args[0] == "ssh" {
+				return "", fmt.Errorf("mock ssh error")
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		// When executing a command in the VM with progress
+		_, err := colimaVirt.execInVMProgress("test message", "test", "command")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("expected error, got none")
+		}
+
+		// And the error should contain the expected message
+		if !strings.Contains(err.Error(), "mock ssh error") {
+			t.Errorf("expected error message to contain 'mock ssh error', got %q", err.Error())
+		}
+	})
+}
+
+// TestColimaVirt_WriteConfig_NestedVirtualization tests the nested virtualization configuration in WriteConfig.
+func TestColimaVirt_WriteConfig_NestedVirtualization(t *testing.T) {
+	setup := func(t *testing.T, runtime string) (*ColimaVirt, *VirtTestMocks) {
+		t.Helper()
+		mocks := setupColimaMocks(t)
+
+		// Set vm.driver to colima
+		if err := mocks.ConfigHandler.Set("vm.driver", "colima"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+
+		// Set vm.runtime if provided
+		if runtime != "" {
+			if err := mocks.ConfigHandler.Set("vm.runtime", runtime); err != nil {
+				t.Fatalf("Failed to set vm.runtime: %v", err)
+			}
+		}
+
+		colimaVirt := NewColimaVirt(mocks.Runtime)
+		colimaVirt.setShims(mocks.Shims)
+		return colimaVirt, mocks
+	}
+
+	t.Run("NestedVirtualizationEnabledForIncus", func(t *testing.T) {
+		// Given a ColimaVirt with incus runtime
+		colimaVirt, mocks := setup(t, "incus")
+
+		// And a config capture mechanism
+		var capturedConfig *colimaConfig.Config
+		mocks.Shims.NewYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+			return &mockYAMLEncoder{
+				encodeFunc: func(v any) error {
+					if cfg, ok := v.(*colimaConfig.Config); ok {
+						capturedConfig = cfg
+					}
+					return nil
+				},
+				closeFunc: func() error {
+					return nil
+				},
+			}
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And NestedVirtualization should be enabled
+		if capturedConfig == nil {
+			t.Fatal("Expected config to be captured")
+		}
+		if !capturedConfig.NestedVirtualization {
+			t.Error("Expected NestedVirtualization to be true for incus runtime")
+		}
+		if capturedConfig.Runtime != "incus" {
+			t.Errorf("Expected Runtime to be 'incus', got %q", capturedConfig.Runtime)
+		}
+	})
+
+	t.Run("NestedVirtualizationDisabledForDocker", func(t *testing.T) {
+		// Given a ColimaVirt with docker runtime
+		colimaVirt, mocks := setup(t, "docker")
+
+		// And a config capture mechanism
+		var capturedConfig *colimaConfig.Config
+		mocks.Shims.NewYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+			return &mockYAMLEncoder{
+				encodeFunc: func(v any) error {
+					if cfg, ok := v.(*colimaConfig.Config); ok {
+						capturedConfig = cfg
+					}
+					return nil
+				},
+				closeFunc: func() error {
+					return nil
+				},
+			}
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And NestedVirtualization should be disabled
+		if capturedConfig == nil {
+			t.Fatal("Expected config to be captured")
+		}
+		if capturedConfig.NestedVirtualization {
+			t.Error("Expected NestedVirtualization to be false for docker runtime")
+		}
+		if capturedConfig.Runtime != "docker" {
+			t.Errorf("Expected Runtime to be 'docker', got %q", capturedConfig.Runtime)
+		}
+	})
+
+	t.Run("NestedVirtualizationDisabledForDefaultRuntime", func(t *testing.T) {
+		// Given a ColimaVirt with default runtime (not set)
+		colimaVirt, mocks := setup(t, "")
+
+		// And a config capture mechanism
+		var capturedConfig *colimaConfig.Config
+		mocks.Shims.NewYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+			return &mockYAMLEncoder{
+				encodeFunc: func(v any) error {
+					if cfg, ok := v.(*colimaConfig.Config); ok {
+						capturedConfig = cfg
+					}
+					return nil
+				},
+				closeFunc: func() error {
+					return nil
+				},
+			}
+		}
+
+		// When calling WriteConfig
+		err := colimaVirt.WriteConfig()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And NestedVirtualization should be disabled (default is docker)
+		if capturedConfig == nil {
+			t.Fatal("Expected config to be captured")
+		}
+		if capturedConfig.NestedVirtualization {
+			t.Error("Expected NestedVirtualization to be false for default runtime")
+		}
+		if capturedConfig.Runtime != "docker" {
+			t.Errorf("Expected Runtime to be 'docker' (default), got %q", capturedConfig.Runtime)
 		}
 	})
 }

@@ -83,7 +83,6 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 	if err := result.StrategicMerge(sourceBps...); err != nil {
 		return nil, err
 	}
-
 	if primary != nil {
 		if err := result.StrategicMerge(primary); err != nil {
 			return nil, err

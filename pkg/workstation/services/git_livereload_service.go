@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -97,6 +98,54 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 
 	return &types.Config{
 		Services: services,
+	}, nil
+}
+
+// GetIncusConfig returns the Incus configuration for the Git livereload service.
+// It configures a container with project root mounted and environment variables for Git and rsync.
+func (s *GitLivereloadService) GetIncusConfig() (*IncusConfig, error) {
+	projectRoot := s.projectRoot
+	gitFolderName := filepath.Base(projectRoot)
+
+	rsyncInclude := s.configHandler.GetString("git.livereload.rsync_include", constants.DefaultGitLiveReloadRsyncInclude)
+	rsyncExclude := s.configHandler.GetString("git.livereload.rsync_exclude", constants.DefaultGitLiveReloadRsyncExclude)
+	rsyncProtect := s.configHandler.GetString("git.livereload.rsync_protect", constants.DefaultGitLiveReloadRsyncProtect)
+	gitUsername := s.configHandler.GetString("git.livereload.username", constants.DefaultGitLiveReloadUsername)
+	gitPassword := s.configHandler.GetString("git.livereload.password", constants.DefaultGitLiveReloadPassword)
+	webhookUrl := s.configHandler.GetString("git.livereload.webhook_url", constants.DefaultGitLiveReloadWebhookURL)
+	verifySsl := s.configHandler.GetBool("git.livereload.verify_ssl", false)
+	image := s.configHandler.GetString("git.livereload.image", constants.DefaultGitLiveReloadImage)
+
+	config := make(map[string]string)
+	config["environment.RSYNC_INCLUDE"] = rsyncInclude
+	config["environment.RSYNC_EXCLUDE"] = rsyncExclude
+	config["environment.RSYNC_PROTECT"] = rsyncProtect
+	config["environment.GIT_USERNAME"] = gitUsername
+	config["environment.GIT_PASSWORD"] = gitPassword
+	config["environment.VERIFY_SSL"] = fmt.Sprintf("%t", verifySsl)
+	if webhookUrl != "" {
+		config["environment.WEBHOOK_URL"] = webhookUrl
+	}
+
+	devices := make(map[string]map[string]string)
+	devices["project-root"] = map[string]string{
+		"type":   "disk",
+		"source": projectRoot,
+		"path":   fmt.Sprintf("/repos/mount/%s", gitFolderName),
+	}
+
+	var finalImage string
+	if strings.HasPrefix(image, "ghcr.io/") {
+		finalImage = "ghcr:" + strings.TrimPrefix(image, "ghcr.io/")
+	} else {
+		finalImage = "docker:" + image
+	}
+
+	return &IncusConfig{
+		Type:    "container",
+		Image:   finalImage,
+		Config:  config,
+		Devices: devices,
 	}, nil
 }
 

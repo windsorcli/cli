@@ -131,31 +131,26 @@ func (s *DNSService) WriteConfig() error {
 `
 
 	for _, service := range s.services {
-		composeConfig, err := service.GetComposeConfig()
-		if err != nil || composeConfig == nil {
+		address := service.GetAddress()
+		if address == "" {
 			continue
 		}
-		for _, svc := range composeConfig.Services {
-			if svc.Name == "" {
-				continue
-			}
-			address := service.GetAddress()
-			if address == "" {
-				continue
-			}
 
-			hostname := service.GetHostname()
-			escapedHostname := strings.ReplaceAll(hostname, ".", "\\.")
+		hostname := service.GetHostname()
+		if hostname == "" {
+			continue
+		}
 
-			hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
+		escapedHostname := strings.ReplaceAll(hostname, ".", "\\.")
+
+		hostEntries += fmt.Sprintf("        %s %s\n", address, hostname)
+		if s.isLocalhostMode() {
+			localhostHostEntries += fmt.Sprintf("        127.0.0.1 %s\n", hostname)
+		}
+		if service.SupportsWildcard() {
+			wildcardEntries += fmt.Sprintf(wildcardTemplate, escapedHostname, address)
 			if s.isLocalhostMode() {
-				localhostHostEntries += fmt.Sprintf("        127.0.0.1 %s\n", hostname)
-			}
-			if service.SupportsWildcard() {
-				wildcardEntries += fmt.Sprintf(wildcardTemplate, escapedHostname, address)
-				if s.isLocalhostMode() {
-					localhostWildcardEntries += fmt.Sprintf(localhostTemplate, escapedHostname)
-				}
+				localhostWildcardEntries += fmt.Sprintf(localhostTemplate, escapedHostname)
 			}
 		}
 	}
@@ -214,6 +209,32 @@ func (s *DNSService) WriteConfig() error {
 	}
 
 	return nil
+}
+
+// GetIncusConfig returns the Incus configuration for the DNS service.
+// It configures a CoreDNS container with the Corefile mounted from the project root.
+func (s *DNSService) GetIncusConfig() (*IncusConfig, error) {
+	projectRoot := s.projectRoot
+	corefilePath := filepath.Join(projectRoot, ".windsor", "Corefile")
+
+	config := make(map[string]string)
+	config["raw.lxc"] = "lxc.apparmor.profile=unconfined"
+	config["oci.entrypoint"] = "/coredns -conf /etc/coredns/Corefile"
+
+	devices := make(map[string]map[string]string)
+	devices["corefile"] = map[string]string{
+		"type":     "disk",
+		"source":   corefilePath,
+		"path":     "/etc/coredns/Corefile",
+		"readonly": "true",
+	}
+
+	return &IncusConfig{
+		Type:    "container",
+		Image:   "docker:" + constants.DefaultDNSImage,
+		Config:  config,
+		Devices: devices,
+	}, nil
 }
 
 // =============================================================================

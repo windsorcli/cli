@@ -146,7 +146,7 @@ func (t *BaseToolsManager) checkDocker() error {
 	isColimaMode := t.configHandler.GetString("vm.driver") == "colima"
 
 	if !isColimaMode {
-		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"version", "--format", "{{.Client.Version}}"}, 5*time.Second)
+		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)
 		if err != nil {
 			return fmt.Errorf("docker version check failed: %v", err)
 		}
