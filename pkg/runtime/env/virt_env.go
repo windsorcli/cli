@@ -150,7 +150,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 		configContext := e.configHandler.GetContext()
 		incusSocketPath := filepath.Join(homeDir, ".colima", fmt.Sprintf("windsor-%s", configContext), "incus.sock")
-		envVars["INCUS_SOCKET"] = incusSocketPath
+		envVars["INCUS_SOCKET"] = filepath.ToSlash(incusSocketPath)
 		e.SetManagedEnv("INCUS_SOCKET")
 	}
 
