@@ -112,6 +112,9 @@ func TestGcpEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("SuccessWithAllConfig", func(t *testing.T) {
 		printer, mocks := setup(t)
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("Failed to get config root: %v", err)
@@ -138,6 +141,11 @@ func TestGcpEnv_GetEnvVars(t *testing.T) {
 		if envVars["GOOGLE_CLOUD_QUOTA_PROJECT"] != "billing-project" {
 			t.Errorf("GetEnvVars returned GOOGLE_CLOUD_QUOTA_PROJECT=%v, want billing-project", envVars["GOOGLE_CLOUD_QUOTA_PROJECT"])
 		}
+
+		expectedServiceAccountPath := filepath.ToSlash(filepath.Join(configRoot, ".gcp", "service-accounts", "default.json"))
+		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedServiceAccountPath {
+			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedServiceAccountPath)
+		}
 	})
 
 	t.Run("SuccessWithMinimalConfig", func(t *testing.T) {
@@ -155,6 +163,10 @@ contexts:
 		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
+
 		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
 		if err != nil {
 			t.Fatalf("Failed to get config root: %v", err)
@@ -170,8 +182,13 @@ contexts:
 			t.Errorf("GetEnvVars returned CLOUDSDK_CONFIG=%v, want %v", envVars["CLOUDSDK_CONFIG"], expectedGcloudConfigDir)
 		}
 
-		if len(envVars) != 1 {
-			t.Errorf("Expected 1 environment variable, got %d: %v", len(envVars), envVars)
+		expectedServiceAccountPath := filepath.ToSlash(filepath.Join(configRoot, ".gcp", "service-accounts", "default.json"))
+		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedServiceAccountPath {
+			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedServiceAccountPath)
+		}
+
+		if len(envVars) != 2 {
+			t.Errorf("Expected 2 environment variables, got %d: %v", len(envVars), envVars)
 		}
 	})
 
@@ -335,6 +352,8 @@ contexts:
 			t.Errorf("Expected no error, got %v", err)
 		}
 
+		// GOOGLE_APPLICATION_CREDENTIALS should be set even if file doesn't exist yet,
+		// to allow CLIs to generate auth files in the right location
 		expectedPath := filepath.ToSlash(serviceAccountPath)
 		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedPath {
 			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedPath)
@@ -390,6 +409,15 @@ contexts:
 		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
+
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("Failed to get config root: %v", err)
+		}
+
 		envVars, err := printer.GetEnvVars()
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -401,6 +429,11 @@ contexts:
 
 		if envVars["GCLOUD_PROJECT"] != "my-project" {
 			t.Errorf("GetEnvVars returned GCLOUD_PROJECT=%v, want my-project", envVars["GCLOUD_PROJECT"])
+		}
+
+		expectedServiceAccountPath := filepath.ToSlash(filepath.Join(configRoot, ".gcp", "service-accounts", "default.json"))
+		if envVars["GOOGLE_APPLICATION_CREDENTIALS"] != expectedServiceAccountPath {
+			t.Errorf("GetEnvVars returned GOOGLE_APPLICATION_CREDENTIALS=%v, want %v", envVars["GOOGLE_APPLICATION_CREDENTIALS"], expectedServiceAccountPath)
 		}
 	})
 }

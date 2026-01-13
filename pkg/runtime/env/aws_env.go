@@ -7,7 +7,6 @@ package env
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -63,16 +62,13 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
 
-	// Construct the path to the AWS configuration file and verify its existence.
-	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
-	if _, err := e.shims.Stat(awsConfigPath); os.IsNotExist(err) {
-		awsConfigPath = ""
-	}
+	// Set AWS config folder environment variables to allow CLIs to generate auth files in the right location.
+	awsConfigDir := filepath.Join(configRoot, ".aws")
+	awsConfigPath := filepath.Join(awsConfigDir, "config")
+	awsCredentialsPath := filepath.Join(awsConfigDir, "credentials")
 
-	// Populate environment variables with AWS configuration data.
-	if awsConfigPath != "" {
-		envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(awsConfigPath)
-	}
+	envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(awsConfigPath)
+	envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(awsCredentialsPath)
 	if contextConfigData.AWS.AWSProfile != nil {
 		envVars["AWS_PROFILE"] = *contextConfigData.AWS.AWSProfile
 	}
