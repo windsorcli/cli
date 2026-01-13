@@ -259,6 +259,32 @@ func TestCidrHostHelper(t *testing.T) {
 			t.Fatal("Expected error for IPv6 out of range hostnum, got nil")
 		}
 	})
+
+	t.Run("CidrHostWithHostnumExceedingMaxUint32", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${cidrhost("10.0.0.0/8", 4294967296)}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for hostnum exceeding MaxUint32, got nil")
+		}
+		if !strings.Contains(err.Error(), "out of range for IPv4 address") {
+			t.Errorf("Expected error message about out of range, got: %v", err)
+		}
+	})
+
+	t.Run("CidrHostWithOverflowDetection", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${cidrhost("255.255.255.0/24", 256)}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for overflow, got nil")
+		}
+		if !strings.Contains(err.Error(), "causes overflow") {
+			t.Errorf("Expected error message about overflow, got: %v", err)
+		}
+	})
 }
 
 func TestCidrSubnetHelper(t *testing.T) {
@@ -395,6 +421,32 @@ func TestCidrSubnetHelper(t *testing.T) {
 
 		if result != "10.5.1.0/24" {
 			t.Errorf("Expected result to be '10.5.1.0/24' (using network base address), got '%v'", result)
+		}
+	})
+
+	t.Run("CidrSubnetWithOffsetExceedingMaxUint32", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${cidrsubnet("0.0.0.0/0", 0, 1)}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for offset exceeding MaxUint32, got nil")
+		}
+		if !strings.Contains(err.Error(), "out of range for IPv4 address") {
+			t.Errorf("Expected error message about out of range, got: %v", err)
+		}
+	})
+
+	t.Run("CidrSubnetWithOverflowDetection", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${cidrsubnet("255.255.255.0/24", 0, 1)}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for overflow, got nil")
+		}
+		if !strings.Contains(err.Error(), "causes overflow") {
+			t.Errorf("Expected error message about overflow, got: %v", err)
 		}
 	})
 }

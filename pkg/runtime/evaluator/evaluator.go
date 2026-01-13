@@ -861,11 +861,12 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 		if hostnum < 0 || hostnum > math.MaxUint32 {
 			return "", fmt.Errorf("host number %d is out of range for IPv4 address", hostnum)
 		}
+		hostnumUint32 := uint32(hostnum)
 		ipInt := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
-		if ipInt > math.MaxUint32-uint32(hostnum) {
+		if ipInt > math.MaxUint32-hostnumUint32 {
 			return "", fmt.Errorf("host number %d causes overflow for CIDR %s", hostnum, prefix)
 		}
-		ipInt += uint32(hostnum)
+		ipInt += hostnumUint32
 		ip[0] = byte(ipInt >> 24)
 		ip[1] = byte(ipInt >> 16)
 		ip[2] = byte(ipInt >> 8)
@@ -934,11 +935,12 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 		if offset < 0 || offset > math.MaxUint32 {
 			return "", fmt.Errorf("offset %d is out of range for IPv4 address", offset)
 		}
+		offsetUint32 := uint32(offset)
 		ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
-		if ipInt > math.MaxUint32-uint32(offset) {
+		if ipInt > math.MaxUint32-offsetUint32 {
 			return "", fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
 		}
-		ipInt += uint32(offset)
+		ipInt += offsetUint32
 		subnetIP[0] = byte(ipInt >> 24)
 		subnetIP[1] = byte(ipInt >> 16)
 		subnetIP[2] = byte(ipInt >> 8)
@@ -998,11 +1000,12 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 			if offset < 0 || offset > math.MaxUint32 {
 				return nil, fmt.Errorf("offset %d is out of range for IPv4 address", offset)
 			}
+			offsetUint32 := uint32(offset)
 			ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
-			if ipInt > math.MaxUint32-uint32(offset) {
+			if ipInt > math.MaxUint32-offsetUint32 {
 				return nil, fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
 			}
-			ipInt += uint32(offset)
+			ipInt += offsetUint32
 			subnetIP[0] = byte(ipInt >> 24)
 			subnetIP[1] = byte(ipInt >> 16)
 			subnetIP[2] = byte(ipInt >> 8)
