@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -1516,15 +1517,15 @@ spec:
 	t.Run("HandlesReadFileError", func(t *testing.T) {
 		// Given a composer with unreadable patch file
 		mocks := setupComposerMocks(t)
-		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		patchesDir := filepath.Join(mocks.Runtime.ConfigRoot, "patches", "my-app")
 		os.MkdirAll(patchesDir, 0755)
-		patchFile := patchesDir + "/patch.yaml"
+		patchFile := filepath.Join(patchesDir, "patch.yaml")
 		os.WriteFile(patchFile, []byte("valid: patch"), 0644)
 
 		composer := NewBlueprintComposer(mocks.Runtime)
 		originalReadFile := composer.shims.ReadFile
 		composer.shims.ReadFile = func(path string) ([]byte, error) {
-			if path == patchFile {
+			if filepath.Clean(path) == filepath.Clean(patchFile) {
 				return nil, os.ErrPermission
 			}
 			return originalReadFile(path)
