@@ -173,8 +173,11 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	for i := len(components) - 1; i >= 0; i-- {
 		component := components[i]
 
-		if component.Destroy != nil && !*component.Destroy {
-			continue
+		if component.Destroy != nil {
+			destroy := component.Destroy.ToBool()
+			if destroy != nil && !*destroy {
+				continue
+			}
 		}
 
 		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {

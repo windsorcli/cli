@@ -562,7 +562,7 @@ func TestStack_Down(t *testing.T) {
 				Source:   "source1",
 				Path:     "module/path1",
 				FullPath: filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "module/path1"),
-				Destroy:  &destroyFalse,
+				Destroy:  &blueprintv1alpha1.BoolExpression{Value: &destroyFalse, IsExpr: false},
 			},
 			{
 				Source:   "source2",

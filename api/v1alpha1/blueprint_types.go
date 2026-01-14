@@ -84,6 +84,119 @@ func FromMetaV1Duration(d *metav1.Duration) *DurationString {
 	return &DurationString{Duration: d.Duration}
 }
 
+// BoolExpression represents a boolean value that can be unmarshaled from a boolean or a string expression.
+// String expressions are preserved for later evaluation during facet processing.
+type BoolExpression struct {
+	Value  *bool
+	Expr   string
+	IsExpr bool
+}
+
+// MarshalYAML implements yaml.Marshaler to write boolean as a bool or expression string.
+func (b *BoolExpression) MarshalYAML() (any, error) {
+	if b == nil || b.Value == nil {
+		return nil, nil
+	}
+	if b.IsExpr && b.Expr != "" {
+		return b.Expr, nil
+	}
+	return *b.Value, nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler to read boolean from a bool or string expression.
+func (b *BoolExpression) UnmarshalYAML(unmarshal func(any) error) error {
+	var boolVal bool
+	if err := unmarshal(&boolVal); err == nil {
+		b.Value = &boolVal
+		b.IsExpr = false
+		b.Expr = ""
+		return nil
+	}
+
+	var strVal string
+	if err := unmarshal(&strVal); err == nil {
+		if strings.Contains(strVal, "${") {
+			b.Value = nil
+			b.IsExpr = true
+			b.Expr = strVal
+		} else {
+			boolVal := strVal == "true"
+			b.Value = &boolVal
+			b.IsExpr = false
+			b.Expr = ""
+		}
+		return nil
+	}
+
+	return fmt.Errorf("bool expression must be a boolean or string")
+}
+
+// ToBool returns the boolean value, or nil if it's an expression.
+func (b *BoolExpression) ToBool() *bool {
+	if b == nil {
+		return nil
+	}
+	return b.Value
+}
+
+// IntExpression represents an integer value that can be unmarshaled from an integer or a string expression.
+// String expressions are preserved for later evaluation during facet processing.
+type IntExpression struct {
+	Value  *int
+	Expr   string
+	IsExpr bool
+}
+
+// MarshalYAML implements yaml.Marshaler to write integer as an int or expression string.
+func (i *IntExpression) MarshalYAML() (any, error) {
+	if i == nil || i.Value == nil {
+		return nil, nil
+	}
+	if i.IsExpr && i.Expr != "" {
+		return i.Expr, nil
+	}
+	return *i.Value, nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler to read integer from an int or string expression.
+func (i *IntExpression) UnmarshalYAML(unmarshal func(any) error) error {
+	var intVal int
+	if err := unmarshal(&intVal); err == nil {
+		i.Value = &intVal
+		i.IsExpr = false
+		i.Expr = ""
+		return nil
+	}
+
+	var strVal string
+	if err := unmarshal(&strVal); err == nil {
+		if strings.Contains(strVal, "${") {
+			i.Value = nil
+			i.IsExpr = true
+			i.Expr = strVal
+		} else {
+			var parsed int
+			if _, err := fmt.Sscanf(strVal, "%d", &parsed); err != nil {
+				return fmt.Errorf("invalid integer: %q", strVal)
+			}
+			i.Value = &parsed
+			i.IsExpr = false
+			i.Expr = ""
+		}
+		return nil
+	}
+
+	return fmt.Errorf("int expression must be an integer or string")
+}
+
+// ToInt returns the integer value, or nil if it's an expression.
+func (i *IntExpression) ToInt() *int {
+	if i == nil {
+		return nil
+	}
+	return i.Value
+}
+
 // Blueprint is a configuration blueprint for initializing a project.
 type Blueprint struct {
 	// Kind is the blueprint type, following Kubernetes conventions.
@@ -195,11 +308,13 @@ type TerraformComponent struct {
 
 	// Destroy determines if the component should be destroyed during down operations.
 	// Defaults to true if not specified.
-	Destroy *bool `yaml:"destroy,omitempty"`
+	// Supports expressions in facets: use "${cluster.destroy ?? true}" for dynamic values.
+	Destroy *BoolExpression `yaml:"destroy,omitempty"`
 
 	// Parallelism limits the number of concurrent operations as Terraform walks the graph.
 	// This corresponds to the -parallelism flag in terraform apply/destroy commands.
-	Parallelism *int `yaml:"parallelism,omitempty"`
+	// Supports expressions in facets: use "${cluster.parallelism ?? 10}" for dynamic values.
+	Parallelism *IntExpression `yaml:"parallelism,omitempty"`
 }
 
 // =============================================================================
@@ -295,7 +410,8 @@ type Kustomization struct {
 
 	// Destroy determines if the kustomization should be destroyed during down operations.
 	// Defaults to true if not specified.
-	Destroy *bool `yaml:"destroy,omitempty"`
+	// Supports expressions in facets: use "${cluster.destroy ?? true}" for dynamic values.
+	Destroy *BoolExpression `yaml:"destroy,omitempty"`
 
 	// Substitutions contains values for post-build variable replacement,
 	// collected and stored in ConfigMaps for use by Flux postBuild substitution.
@@ -682,7 +798,8 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	}
 
 	deletionPolicy := "MirrorPrune"
-	if k.Destroy == nil || *k.Destroy {
+	destroy := k.Destroy.ToBool()
+	if destroy == nil || *destroy {
 		deletionPolicy = "WaitForTermination"
 	}
 

@@ -1759,6 +1759,173 @@ terraform:
 		}
 	})
 
+	t.Run("HandlesIntExpressionParallelism", func(t *testing.T) {
+		mocks := setupMocks(t)
+
+		configRoot := "/test/config"
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		windsorScratchPath := "/test/scratch"
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
+
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "default"
+		}
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		parallelismValue := 10
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path
+    parallelism: 10`
+
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join(configRoot, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		component := mocks.Provider.GetTerraformComponent("test/path")
+		if component == nil {
+			t.Fatal("Expected component to be loaded")
+		}
+
+		if component.Parallelism == nil {
+			t.Fatal("Expected parallelism to be set")
+		}
+
+		parallelismInt := component.Parallelism.ToInt()
+		if parallelismInt == nil {
+			t.Fatal("Expected ToInt() to return non-nil value")
+		}
+		if *parallelismInt != parallelismValue {
+			t.Errorf("Expected parallelism to be %d, got %d", parallelismValue, *parallelismInt)
+		}
+
+		modulePath := filepath.Join("/test/project", "terraform", "test/path")
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		foundParallelismInApply := false
+		for _, arg := range args.ApplyArgs {
+			if arg == fmt.Sprintf("-parallelism=%d", parallelismValue) {
+				foundParallelismInApply = true
+				break
+			}
+		}
+		if !foundParallelismInApply {
+			t.Errorf("Expected ApplyArgs to contain -parallelism=%d, got %v", parallelismValue, args.ApplyArgs)
+		}
+
+		foundParallelismInDestroy := false
+		for _, arg := range args.DestroyArgs {
+			if arg == fmt.Sprintf("-parallelism=%d", parallelismValue) {
+				foundParallelismInDestroy = true
+				break
+			}
+		}
+		if !foundParallelismInDestroy {
+			t.Errorf("Expected DestroyArgs to contain -parallelism=%d, got %v", parallelismValue, args.DestroyArgs)
+		}
+	})
+
+	t.Run("HandlesNilParallelism", func(t *testing.T) {
+		mocks := setupMocks(t)
+
+		configRoot := "/test/config"
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		windsorScratchPath := "/test/scratch"
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
+
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "default"
+		}
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/test/project", nil
+		}
+
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path`
+
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join(configRoot, "blueprint.yaml") {
+				return []byte(blueprintYAML), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		modulePath := filepath.Join("/test/project", "terraform", "test/path")
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		for _, arg := range args.ApplyArgs {
+			if strings.Contains(arg, "-parallelism=") {
+				t.Errorf("Expected ApplyArgs to not contain parallelism arg, got %v", args.ApplyArgs)
+			}
+		}
+
+		for _, arg := range args.DestroyArgs {
+			if strings.Contains(arg, "-parallelism=") {
+				t.Errorf("Expected DestroyArgs to not contain parallelism arg, got %v", args.DestroyArgs)
+			}
+		}
+	})
+
 	t.Run("IncludesAutoApproveForNonInteractive", func(t *testing.T) {
 		// Given a provider with non-interactive mode
 		mocks := setupMocks(t)

@@ -2094,3 +2094,494 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 		}
 	})
 }
+
+func TestProcessor_ExpressionEvaluation(t *testing.T) {
+	t.Run("EvaluatesDependsOnInTerraformComponents", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"base": "network",
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-depends"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:      "cluster",
+							DependsOn: []string{"${base}", "static-dep"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(target.TerraformComponents))
+		}
+		deps := target.TerraformComponents[0].DependsOn
+		if len(deps) != 2 {
+			t.Fatalf("Expected 2 dependencies, got %d", len(deps))
+		}
+		if deps[0] != "network" {
+			t.Errorf("Expected first dep to be 'network', got '%s'", deps[0])
+		}
+		if deps[1] != "static-dep" {
+			t.Errorf("Expected second dep to be 'static-dep', got '%s'", deps[1])
+		}
+	})
+
+	t.Run("EvaluatesDependsOnInKustomizations", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"app": "nginx",
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-depends"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:      "ingress",
+							Path:      "apps/ingress",
+							DependsOn: []string{"${app}", "dns"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(target.Kustomizations))
+		}
+		deps := target.Kustomizations[0].DependsOn
+		if len(deps) != 2 {
+			t.Fatalf("Expected 2 dependencies, got %d", len(deps))
+		}
+		if deps[0] != "nginx" {
+			t.Errorf("Expected first dep to be 'nginx', got '%s'", deps[0])
+		}
+		if deps[1] != "dns" {
+			t.Errorf("Expected second dep to be 'dns', got '%s'", deps[1])
+		}
+	})
+
+	t.Run("EvaluatesComponentsInKustomizations", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"base": "nginx",
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-components"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:       "app",
+							Path:       "apps/app",
+							Components: []string{"${base}", "static-comp"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(target.Kustomizations))
+		}
+		comps := target.Kustomizations[0].Components
+		if len(comps) != 2 {
+			t.Fatalf("Expected 2 components, got %d", len(comps))
+		}
+		if comps[0] != "nginx" {
+			t.Errorf("Expected first component to be 'nginx', got '%s'", comps[0])
+		}
+		if comps[1] != "static-comp" {
+			t.Errorf("Expected second component to be 'static-comp', got '%s'", comps[1])
+		}
+	})
+
+	t.Run("FiltersEmptyComponentsFromKustomizations", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled": false,
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-empty"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:       "app",
+							Path:       "apps/app",
+							Components: []string{"nginx", "${enabled ? 'prometheus' : ''}", "cert-manager"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		comps := target.Kustomizations[0].Components
+		if len(comps) != 2 {
+			t.Fatalf("Expected 2 components (empty filtered), got %d: %v", len(comps), comps)
+		}
+		if comps[0] != "nginx" {
+			t.Errorf("Expected first component to be 'nginx', got '%s'", comps[0])
+		}
+		if comps[1] != "cert-manager" {
+			t.Errorf("Expected second component to be 'cert-manager', got '%s'", comps[1])
+		}
+	})
+
+	t.Run("FlattensArrayExpressionsInComponents", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"extra": []any{"comp1", "comp2"},
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-array"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:       "app",
+							Path:       "apps/app",
+							Components: []string{"nginx", "${extra}"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		comps := target.Kustomizations[0].Components
+		if len(comps) != 3 {
+			t.Fatalf("Expected 3 components (array flattened), got %d: %v", len(comps), comps)
+		}
+		if comps[0] != "nginx" {
+			t.Errorf("Expected first component to be 'nginx', got '%s'", comps[0])
+		}
+		if comps[1] != "comp1" {
+			t.Errorf("Expected second component to be 'comp1', got '%s'", comps[1])
+		}
+		if comps[2] != "comp2" {
+			t.Errorf("Expected third component to be 'comp2', got '%s'", comps[2])
+		}
+	})
+
+	t.Run("EvaluatesCleanupInKustomizations", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"resource": "old-service",
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-cleanup"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:    "app",
+							Path:    "apps/app",
+							Cleanup: []string{"${resource}", "static-cleanup"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		cleanup := target.Kustomizations[0].Cleanup
+		if len(cleanup) != 2 {
+			t.Fatalf("Expected 2 cleanup resources, got %d", len(cleanup))
+		}
+		if cleanup[0] != "old-service" {
+			t.Errorf("Expected first cleanup to be 'old-service', got '%s'", cleanup[0])
+		}
+		if cleanup[1] != "static-cleanup" {
+			t.Errorf("Expected second cleanup to be 'static-cleanup', got '%s'", cleanup[1])
+		}
+	})
+
+	t.Run("EvaluatesDestroyInTerraformComponents", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"shouldDestroy": false,
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-destroy"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:    "cluster",
+							Destroy: &blueprintv1alpha1.BoolExpression{Expr: "${shouldDestroy}", IsExpr: true},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		destroy := target.TerraformComponents[0].Destroy.ToBool()
+		if destroy == nil {
+			t.Fatal("Expected destroy to be set")
+		}
+		if *destroy != false {
+			t.Errorf("Expected destroy to be false, got %v", *destroy)
+		}
+	})
+
+	t.Run("EvaluatesDestroyInKustomizations", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"shouldDestroy": true,
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-destroy"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:    "app",
+							Path:    "apps/app",
+							Destroy: &blueprintv1alpha1.BoolExpression{Expr: "${shouldDestroy}", IsExpr: true},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		destroy := target.Kustomizations[0].Destroy.ToBool()
+		if destroy == nil {
+			t.Fatal("Expected destroy to be set")
+		}
+		if *destroy != true {
+			t.Errorf("Expected destroy to be true, got %v", *destroy)
+		}
+	})
+
+	t.Run("EvaluatesParallelismInTerraformComponents", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"workers": 10,
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-parallelism"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:        "cluster",
+							Parallelism: &blueprintv1alpha1.IntExpression{Expr: "${workers / 2}", IsExpr: true},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		parallelism := target.TerraformComponents[0].Parallelism.ToInt()
+		if parallelism == nil {
+			t.Fatal("Expected parallelism to be set")
+		}
+		if *parallelism != 5 {
+			t.Errorf("Expected parallelism to be 5, got %d", *parallelism)
+		}
+	})
+
+	t.Run("ReturnsErrorForDeferredExpressionsInDependsOn", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			if strings.Contains(expression, "terraform_output") {
+				return nil, &evaluator.DeferredError{Expression: expression, Message: "deferred"}
+			}
+			return "value", nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-deferred"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:      "cluster",
+							DependsOn: []string{"${terraform_output('cluster', 'key')}"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err == nil {
+			t.Error("Expected error for deferred expression in dependsOn")
+		}
+		if err != nil && !strings.Contains(err.Error(), "dependsOn") {
+			t.Errorf("Expected error about dependsOn, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForDeferredExpressionsInComponents", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			if strings.Contains(expression, "terraform_output") {
+				return nil, &evaluator.DeferredError{Expression: expression, Message: "deferred"}
+			}
+			return "value", nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-deferred"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:       "app",
+							Path:       "apps/app",
+							Components: []string{"${terraform_output('cluster', 'key')}"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err == nil {
+			t.Error("Expected error for deferred expression in components")
+		}
+		if err != nil && !strings.Contains(err.Error(), "components") {
+			t.Errorf("Expected error about components, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyDependsOn", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "empty-depends"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:      "cluster",
+							DependsOn: []string{},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents[0].DependsOn) != 0 {
+			t.Errorf("Expected empty dependsOn, got %v", target.TerraformComponents[0].DependsOn)
+		}
+	})
+}

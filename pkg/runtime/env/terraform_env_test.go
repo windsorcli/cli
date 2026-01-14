@@ -1303,7 +1303,7 @@ terraform:
 			if componentID == "test/path" {
 				return &blueprintv1alpha1.TerraformComponent{
 					Path:        "test/path",
-					Parallelism: &parallelism,
+					Parallelism: &blueprintv1alpha1.IntExpression{Value: &parallelism, IsExpr: false},
 				}
 			}
 			return nil
@@ -1731,7 +1731,7 @@ terraform:
 			if componentID == "test/path" {
 				return &blueprintv1alpha1.TerraformComponent{
 					Path:        "test/path",
-					Parallelism: &parallelism,
+					Parallelism: &blueprintv1alpha1.IntExpression{Value: &parallelism, IsExpr: false},
 				}
 			}
 			return nil
