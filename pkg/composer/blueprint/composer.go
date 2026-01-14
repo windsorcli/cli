@@ -374,10 +374,19 @@ func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alp
 // parsePatch parses a patch file and returns a BlueprintPatch. It detects whether the patch is
 // a strategic merge patch (standard Kubernetes YAML) or a JSON 6902 patch (with a patches field).
 // For JSON 6902 patches, it extracts the target selector from the resource metadata.
+// Returns nil if the patch data is empty or whitespace-only.
 func (c *BaseBlueprintComposer) parsePatch(data []byte, fileName string) (*blueprintv1alpha1.BlueprintPatch, error) {
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, nil
+	}
+
 	var patchContent map[string]any
 	if err := c.shims.YamlUnmarshal(data, &patchContent); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal patch file %s: %w", fileName, err)
+	}
+
+	if len(patchContent) == 0 {
+		return nil, nil
 	}
 
 	if patches, ok := patchContent["patches"].([]any); ok {

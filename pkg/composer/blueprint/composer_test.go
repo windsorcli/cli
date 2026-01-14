@@ -1564,9 +1564,12 @@ spec:
 		// When discovering patches
 		err := composer.discoverContextPatches(blueprint)
 
-		// Then should handle nil patch gracefully
+		// Then should handle nil patch gracefully and not add empty patches
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 0 {
+			t.Errorf("Expected 0 patches for empty file, got %d", len(blueprint.Kustomizations[0].Patches))
 		}
 	})
 }
@@ -1708,6 +1711,42 @@ patches:
 		}
 		if patch.Target != nil {
 			t.Error("Expected target to be nil when kind is missing")
+		}
+	})
+
+	t.Run("ReturnsNilForEmptyData", func(t *testing.T) {
+		// Given empty patch data
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		patchData := []byte("")
+
+		// When parsing patch
+		patch, err := composer.parsePatch(patchData, "patch.yaml")
+
+		// Then should return nil without error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if patch != nil {
+			t.Error("Expected nil patch for empty data")
+		}
+	})
+
+	t.Run("ReturnsNilForWhitespaceOnlyData", func(t *testing.T) {
+		// Given whitespace-only patch data
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		patchData := []byte("   \n\t  \n  ")
+
+		// When parsing patch
+		patch, err := composer.parsePatch(patchData, "patch.yaml")
+
+		// Then should return nil without error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if patch != nil {
+			t.Error("Expected nil patch for whitespace-only data")
 		}
 	})
 
