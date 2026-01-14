@@ -1121,7 +1121,7 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 			Source:     "new-source",
 			Components: []string{"traefik"},
 			DependsOn:  []string{"new-dependency"},
-					Destroy:    boolExprPtr(false),
+			Destroy:    boolExprPtr(false),
 		}
 
 		err := base.ReplaceKustomization(replacement)
