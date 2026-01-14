@@ -126,12 +126,12 @@ additionalProperties: false
 ```
 
 <div>
-  {{ footer('Features', '../features/index.html', 'Metadata', '../metadata/index.html') }}
+  {{ footer('Facets', '../facets/index.html', 'Metadata', '../metadata/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../features/index.html'; 
+    window.location.href = '../facets/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
     window.location.href = '../metadata/index.html'; 

@@ -20,6 +20,6 @@ nav:
     - 'Blueprint': reference/blueprint.md
     - 'Configuration': reference/configuration.md
     - 'Contexts': reference/contexts.md
-    - 'Features': reference/features.md
+    - 'Facets': reference/facets.md
     - 'Schema': reference/schema.md
     - 'Metadata': reference/metadata.md

@@ -77,7 +77,7 @@ func (m *mockBlueprintLoaderForComposer) GetBlueprint() *blueprintv1alpha1.Bluep
 	return m.blueprint
 }
 
-func (m *mockBlueprintLoaderForComposer) GetFeatures() []blueprintv1alpha1.Feature {
+func (m *mockBlueprintLoaderForComposer) GetFacets() []blueprintv1alpha1.Facet {
 	return nil
 }
 

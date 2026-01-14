@@ -195,14 +195,14 @@ terraform:
 		}
 	})
 
-	t.Run("LoadsAndProcessesFeatures", func(t *testing.T) {
-		// Given a handler with features
+	t.Run("LoadsAndProcessesFacets", func(t *testing.T) {
+		// Given a handler with facets
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
 
 		templateDir := mocks.Runtime.TemplateRoot
-		featuresDir := filepath.Join(templateDir, "features")
-		os.MkdirAll(featuresDir, 0755)
+		facetsDir := filepath.Join(templateDir, "facets")
+		os.MkdirAll(facetsDir, 0755)
 
 		blueprintYaml := `kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
@@ -211,14 +211,14 @@ metadata:
 `
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
 
-		featureYaml := `kind: Feature
+		facetYaml := `kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: network
 terraform:
   - path: vpc
 `
-		os.WriteFile(filepath.Join(featuresDir, "network.yaml"), []byte(featureYaml), 0644)
+		os.WriteFile(filepath.Join(facetsDir, "network.yaml"), []byte(facetYaml), 0644)
 
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
@@ -1092,7 +1092,7 @@ func (m *mockWriterImpl) Write(bp *blueprintv1alpha1.Blueprint, overwrite bool) 
 type mockLoaderImpl struct {
 	loadFunc            func() error
 	getBlueprintFunc    func() *blueprintv1alpha1.Blueprint
-	getFeaturesFunc     func() []blueprintv1alpha1.Feature
+	getFacetsFunc       func() []blueprintv1alpha1.Facet
 	getTemplateDataFunc func() map[string][]byte
 	getSourceNameFunc   func() string
 }
@@ -1111,9 +1111,9 @@ func (m *mockLoaderImpl) GetBlueprint() *blueprintv1alpha1.Blueprint {
 	return nil
 }
 
-func (m *mockLoaderImpl) GetFeatures() []blueprintv1alpha1.Feature {
-	if m.getFeaturesFunc != nil {
-		return m.getFeaturesFunc()
+func (m *mockLoaderImpl) GetFacets() []blueprintv1alpha1.Facet {
+	if m.getFacetsFunc != nil {
+		return m.getFacetsFunc()
 	}
 	return nil
 }

@@ -279,10 +279,10 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		}`
 		os.WriteFile(jsonnetFile, []byte(jsonnetContent), 0644)
 
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 
 		// Then the jsonnet should be evaluated
 		if err != nil {
@@ -318,10 +318,10 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		}`
 		os.WriteFile(jsonnetFile, []byte(jsonnetContent), 0644)
 
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 
 		// Then the jsonnet should have access to context
 		if err != nil {
@@ -362,10 +362,10 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`invalid jsonnet syntax {`), 0644)
 
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet function
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -380,15 +380,15 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
 		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
 		templateData := map[string][]byte{
-			"_template/features/test.jsonnet": []byte(`{"result": "from-template"}`),
+			"_template/facets/test.jsonnet": []byte(`{"result": "from-template"}`),
 		}
 		evaluator.SetTemplateData(templateData)
 
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
 
 		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 
 		// Then the jsonnet should be loaded from template data
 		if err != nil {
@@ -413,8 +413,8 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		tmpDir := t.TempDir()
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 		if err == nil {
 			t.Fatal("Expected error for JSON marshal failure, got nil")
 		}
@@ -428,8 +428,8 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		tmpDir := t.TempDir()
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 		if err == nil {
 			t.Fatal("Expected error for JSON unmarshal failure, got nil")
 		}
@@ -440,8 +440,8 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		tmpDir := t.TempDir()
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -459,8 +459,8 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		tmpDir := t.TempDir()
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		featurePath := jsonnetFile
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		facetPath := jsonnetFile
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -482,9 +482,9 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 			"_template/config/test.jsonnet": []byte(`{"result": "from-fallback"}`),
 		}
 		evaluator.SetTemplateData(templateData)
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-		result, err := evaluator.Evaluate(`${jsonnet("../config/test.jsonnet")}`, featurePath, false)
+		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
+		result, err := evaluator.Evaluate(`${jsonnet("../config/test.jsonnet")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -506,9 +506,9 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 			"other/test.jsonnet": []byte(`{"result": "from-fallback-no-prefix"}`),
 		}
 		evaluator.SetTemplateData(templateData)
-		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-		result, err := evaluator.Evaluate(`${jsonnet("../../other/test.jsonnet")}`, featurePath, false)
+		facetPath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
+		result, err := evaluator.Evaluate(`${jsonnet("../../other/test.jsonnet")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -531,8 +531,8 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		jsonnetFile := filepath.Join(templateRoot, "test.jsonnet")
 		os.MkdirAll(filepath.Dir(jsonnetFile), 0755)
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
-		featurePath := filepath.Join(templateRoot, "test.yaml")
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		facetPath := filepath.Join(templateRoot, "test.yaml")
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -562,10 +562,10 @@ func TestExpressionEvaluator_buildContextMap(t *testing.T) {
 		}`
 		os.WriteFile(jsonnetFile, []byte(jsonnetContent), 0644)
 
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet that uses context
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 
 		// Then context should be available
 		if err != nil {
@@ -590,10 +590,10 @@ func TestExpressionEvaluator_buildContextMap(t *testing.T) {
 		jsonnetContent := `std.extVar("context")`
 		os.WriteFile(jsonnetFile, []byte(jsonnetContent), 0644)
 
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 
 		// Then it should work (projectName is set in context map)
 		if err != nil {
@@ -610,10 +610,10 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		testFile := filepath.Join(tmpDir, "test.txt")
 		os.WriteFile(testFile, []byte("file content\nwith newline"), 0644)
 
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, false)
 
 		// Then the file content should be returned
 		if err != nil {
@@ -645,15 +645,15 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
 		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
 		templateData := map[string][]byte{
-			"_template/features/test.txt": []byte("from-template"),
+			"_template/facets/test.txt": []byte("from-template"),
 		}
 		evaluator.SetTemplateData(templateData)
 
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
 
 		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, false)
 
 		// Then the file should be loaded from template data
 		if err != nil {
@@ -675,9 +675,9 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 			"_template/config/test.txt": []byte("from-template-fallback"),
 		}
 		evaluator.SetTemplateData(templateData)
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-		result, err := evaluator.Evaluate(`${file("../config/test.txt")}`, featurePath, false)
+		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
+		result, err := evaluator.Evaluate(`${file("../config/test.txt")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -695,9 +695,9 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 			"test.txt": []byte("from-template-no-prefix"),
 		}
 		evaluator.SetTemplateData(templateData)
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-		result, err := evaluator.Evaluate(`${file("../test.txt")}`, featurePath, false)
+		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
+		result, err := evaluator.Evaluate(`${file("../test.txt")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -713,7 +713,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 			"test.txt": []byte("from-template"),
 		}
 		evaluator.SetTemplateData(templateData)
-		_, err := evaluator.Evaluate(`${file("test.txt")}`, "/test/feature.yaml", false)
+		_, err := evaluator.Evaluate(`${file("test.txt")}`, "/test/facet.yaml", false)
 		if err == nil {
 			t.Log("File read succeeded, which is acceptable")
 		}
@@ -730,9 +730,9 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 		outsideFile := filepath.Join(tmpDir, "outside.txt")
 		os.WriteFile(outsideFile, []byte("from-outside"), 0644)
-		featurePath := filepath.Join(templateRoot, "test.yaml")
+		facetPath := filepath.Join(templateRoot, "test.yaml")
 		escapedPath := strings.ReplaceAll(outsideFile, "\\", "\\\\")
-		result, err := evaluator.Evaluate(`${file("`+escapedPath+`")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${file("`+escapedPath+`")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -750,9 +750,9 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 			"_template/other/test.txt": []byte("from-fallback"),
 		}
 		evaluator.SetTemplateData(templateData)
-		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, featurePath, false)
+		facetPath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
+		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -770,9 +770,9 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 			"other/test.txt": []byte("from-fallback-no-prefix"),
 		}
 		evaluator.SetTemplateData(templateData)
-		featurePath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
-		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, featurePath, false)
+		facetPath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
+		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, facetPath, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -790,15 +790,15 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
 		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
 		templateData := map[string][]byte{
-			"_template/features/test.jsonnet": []byte("found"),
+			"_template/facets/test.jsonnet": []byte("found"),
 		}
 		evaluator.SetTemplateData(templateData)
 
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
 
 		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("test.jsonnet")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${file("test.jsonnet")}`, facetPath, false)
 
 		// Then the file should be found in template data
 		if err != nil {
@@ -818,10 +818,10 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		}
 		evaluator.SetTemplateData(templateData)
 
-		featurePath := "/test/feature.yaml"
+		facetPath := "/test/feature.yaml"
 
 		// When evaluating file function with absolute path
-		_, err := evaluator.Evaluate(`${file("/absolute/path.jsonnet")}`, featurePath, false)
+		_, err := evaluator.Evaluate(`${file("/absolute/path.jsonnet")}`, facetPath, false)
 
 		// Then it should not find in template data (absolute paths not looked up)
 		if err == nil {
@@ -829,7 +829,7 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesEmptyFeaturePath", func(t *testing.T) {
+	t.Run("HandlesEmptyFacetPath", func(t *testing.T) {
 		// Given an evaluator with template data
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 		templateData := map[string][]byte{
@@ -878,7 +878,7 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesEmptyFeaturePathInLookup", func(t *testing.T) {
+	t.Run("HandlesEmptyFacetPathInLookup", func(t *testing.T) {
 		// Given an evaluator with template data and empty feature path
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 		templateData := map[string][]byte{
@@ -915,7 +915,7 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesFeatureDirAsDot", func(t *testing.T) {
+	t.Run("HandlesFacetDirAsDot", func(t *testing.T) {
 		// Given an evaluator with template data and feature dir as dot
 		mockConfigHandler := config.NewMockConfigHandler()
 		tmpDir := t.TempDir()
@@ -925,11 +925,11 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 			"_template/test.txt": []byte("found"),
 		}
 		evaluator.SetTemplateData(templateData)
-		featurePath := filepath.Join(templateRoot, "test.yaml")
+		facetPath := filepath.Join(templateRoot, "test.yaml")
 		concreteEvaluator := evaluator.(*expressionEvaluator)
 
 		// When looking up template data
-		result := concreteEvaluator.lookupInTemplateData("test.txt", featurePath)
+		result := concreteEvaluator.lookupInTemplateData("test.txt", facetPath)
 
 		// Then it should find the file
 		if result == nil {
@@ -944,15 +944,15 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		templateRoot := filepath.Join(tmpDir, "contexts", "_template")
 		evaluator := NewExpressionEvaluator(mockConfigHandler, tmpDir, templateRoot)
 		templateData := map[string][]byte{
-			"features/test.txt": []byte("found-without-prefix"),
+			"facets/test.txt": []byte("found-without-prefix"),
 		}
 		evaluator.SetTemplateData(templateData)
-		featurePath := filepath.Join(templateRoot, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
 		concreteEvaluator := evaluator.(*expressionEvaluator)
 
 		// When looking up template data
-		result := concreteEvaluator.lookupInTemplateData("test.txt", featurePath)
+		result := concreteEvaluator.lookupInTemplateData("test.txt", facetPath)
 
 		// Then it should find the file without prefix
 		if result == nil {
@@ -985,17 +985,17 @@ func TestExpressionEvaluator_resolvePath(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolvesRelativePathWithFeaturePath", func(t *testing.T) {
+	t.Run("ResolvesRelativePathWithFacetPath", func(t *testing.T) {
 		// Given an evaluator
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 		tmpDir := t.TempDir()
-		featurePath := filepath.Join(tmpDir, "features", "test.yaml")
-		os.MkdirAll(filepath.Dir(featurePath), 0755)
+		facetPath := filepath.Join(tmpDir, "features", "test.yaml")
+		os.MkdirAll(filepath.Dir(facetPath), 0755)
 		testFile := filepath.Join(tmpDir, "features", "test.txt")
 		os.WriteFile(testFile, []byte("content"), 0644)
 
 		// When evaluating file function with relative path
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, false)
 
 		// Then the path should be resolved relative to feature path
 		if err != nil {

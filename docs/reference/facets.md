@@ -1,20 +1,20 @@
 ---
-title: "Features"
+title: "Facets"
 description: "Reference for conditional blueprint fragments"
 ---
-# Features
+# Facets
 
-Features are conditional blueprint fragments that enable modular composition of blueprints based on user configuration values. They allow you to conditionally include Terraform components and Kustomizations in your blueprint based on expressions evaluated against your `windsor.yaml` and `values.yaml` configurations.
+Facets are conditional blueprint fragments that enable modular composition of blueprints based on user configuration values. They allow you to conditionally include Terraform components and Kustomizations in your blueprint based on expressions evaluated against your `windsor.yaml` and `values.yaml` configurations.
 
-## Feature Definition
+## Facet Definition
 
-A Feature is defined in a YAML file, typically located in `_template/features/` directory of a blueprint:
+A Facet is defined in a YAML file, typically located in `_template/facets/` directory of a blueprint:
 
 ```yaml
-kind: Feature
+kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
-  name: aws-feature
+  name: aws-facet
   description: AWS-specific infrastructure components
 when: provider == 'aws'
 terraform:
@@ -38,18 +38,18 @@ kustomize:
 
 | Field       | Type                              | Description                                                                 |
 |-------------|-----------------------------------|-----------------------------------------------------------------------------|
-| `kind`      | `string`                          | Must be `Feature`.                                                          |
+| `kind`      | `string`                          | Must be `Facet`.                                                          |
 | `apiVersion`| `string`                          | Must be `blueprints.windsorcli.dev/v1alpha1`.                               |
-| `metadata`  | `Metadata`                        | Feature metadata including name and description.                            |
-| `when`      | `string`                          | Expression that determines if the feature should be applied. Evaluated against configuration values. If empty or evaluates to `true`, the feature is applied. |
-| `terraform` | `[]ConditionalTerraformComponent` | Terraform components to include when the feature matches.                  |
-| `kustomize` | `[]ConditionalKustomization`       | Kustomizations to include when the feature matches.                         |
+| `metadata`  | `Metadata`                        | Facet metadata including name and description.                            |
+| `when`      | `string`                          | Expression that determines if the facet should be applied. Evaluated against configuration values. If empty or evaluates to `true`, the facet is applied. |
+| `terraform` | `[]ConditionalTerraformComponent` | Terraform components to include when the facet matches.                  |
+| `kustomize` | `[]ConditionalKustomization`       | Kustomizations to include when the facet matches.                         |
 
-Features inherit Repository and Sources from the base blueprint they are merged into.
+Facets inherit Repository and Sources from the base blueprint they are merged into.
 
 ## Conditional Logic
 
-Features use the [Go expr library](https://github.com/expr-lang/expr) for expression evaluation. Expressions are evaluated against your configuration values from `windsor.yaml` and `values.yaml`.
+Facets use the [Go expr library](https://github.com/expr-lang/expr) for expression evaluation. Expressions are evaluated against your configuration values from `windsor.yaml` and `values.yaml`.
 
 ### Expression Syntax
 
@@ -96,8 +96,8 @@ Extends `TerraformComponent` with conditional logic and merge strategy support.
 | `dependsOn`| `[]string`          | Dependencies of this terraform component.                                    |
 | `destroy`  | `*bool`             | Determines if the component should be destroyed during down operations.     |
 | `parallelism`| `int`             | Limits the number of concurrent operations as Terraform walks the graph.     |
-| `when`     | `string`            | Expression that determines if this component should be applied. If empty, the component is always applied when the parent feature matches. |
-| `strategy` | `string`            | Merge strategy: `merge` (default) or `replace`. Only available in features.  |
+| `when`     | `string`            | Expression that determines if this component should be applied. If empty, the component is always applied when the parent facet matches. |
+| `strategy` | `string`            | Merge strategy: `merge` (default) or `replace`. Only available in facets.  |
 
 ### Merge Strategies
 
@@ -143,8 +143,8 @@ Extends `Kustomization` with conditional logic and merge strategy support.
 | `components`   | `[]string`          | Components to include in the kustomization.                                  |
 | `patches`      | `[]BlueprintPatch`  | Patches to apply to the kustomization.                                      |
 | `substitutions`| `map[string]string` | Values for post-build variable replacement. Supports `${}` expressions.      |
-| `when`         | `string`            | Expression that determines if this kustomization should be applied. If empty, the kustomization is always applied when the parent feature matches. |
-| `strategy`     | `string`            | Merge strategy: `merge` (default) or `replace`. Only available in features.  |
+| `when`         | `string`            | Expression that determines if this kustomization should be applied. If empty, the kustomization is always applied when the parent facet matches. |
+| `strategy`     | `string`            | Merge strategy: `merge` (default) or `replace`. Only available in facets.  |
 
 ### Merge Strategies
 
@@ -209,7 +209,7 @@ When using the `merge` strategy (default), patches are appended to existing patc
 
 ## File Loading Functions
 
-Features support two file loading functions for dynamic configuration:
+Facets support two file loading functions for dynamic configuration:
 
 ### jsonnet()
 
@@ -227,7 +227,7 @@ terraform:
 - Takes a relative path to a `.jsonnet` file
 - Evaluates the Jsonnet file with access to configuration values
 - Returns the evaluated result (can be any JSON-compatible type)
-- Paths are relative to the feature file location
+- Paths are relative to the facet file location
 
 ### file()
 
@@ -244,22 +244,22 @@ kustomize:
 
 - Takes a relative path to any file
 - Returns the file contents as a string
-- Paths are relative to the feature file location
+- Paths are relative to the facet file location
 
 ### Path Resolution
 
-Both functions resolve paths relative to the feature file location:
-- Feature at `_template/features/aws.yaml` can reference `config.jsonnet` in the same directory
+Both functions resolve paths relative to the facet file location:
+- Facet at `_template/facets/aws.yaml` can reference `config.jsonnet` in the same directory
 - Use `../configs/config.jsonnet` for files in parent directories
 - Paths work with both local filesystem and in-memory template data (from archives)
 
-## Feature Loading
+## Facet Loading
 
-Features are automatically loaded from:
-- `_template/features/*.yaml` - Individual feature files
-- `_template/features/**/*.yaml` - Nested feature directories
+Facets are automatically loaded from:
+- `_template/facets/*.yaml` - Individual facet files
+- `_template/facets/**/*.yaml` - Nested facet directories
 
-Features are processed in alphabetical order by name, then merged into the base blueprint.
+Facets are processed in alphabetical order by name, then merged into the base blueprint.
 
 <div>
   {{ footer('Contexts', '../contexts/index.html', 'Schema', '../schema/index.html') }}

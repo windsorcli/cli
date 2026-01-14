@@ -225,10 +225,10 @@ func (h *BaseBlueprintHandler) loadSourcesFromBlueprint(loader BlueprintLoader) 
 	return nil
 }
 
-// processAndCompose evaluates features from all loaded blueprints and merges them into a single
-// composed blueprint. Feature processing for each blueprint runs in parallel, with each blueprint's
-// features evaluated sequentially (sorted by name) against the current configuration values.
-// After all features are processed, the composer merges blueprints in order: sources first, then
+// processAndCompose evaluates facets from all loaded blueprints and merges them into a single
+// composed blueprint. Facet processing for each blueprint runs in parallel, with each blueprint's
+// facets evaluated sequentially (sorted by name) against the current configuration values.
+// After all facets are processed, the composer merges blueprints in order: sources first, then
 // primary, then user overlay. The user blueprint filters the final result to only include
 // components explicitly selected by the user.
 func (h *BaseBlueprintHandler) processAndCompose() error {
@@ -257,7 +257,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			defer wg.Done()
 			if err := h.processLoader(l); err != nil {
 				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to process features for '%s': %w", name, err))
+				errs = append(errs, fmt.Errorf("failed to process facets for '%s': %w", name, err))
 				mu.Unlock()
 			}
 		}(loader, loaderNames[loader])
@@ -291,30 +291,30 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	return nil
 }
 
-// processLoader evaluates all features from a single blueprint loader.
-// Features with 'when' conditions are evaluated, and only matching features contribute their
+// processLoader evaluates all facets from a single blueprint loader.
+// Facets with 'when' conditions are evaluated, and only matching facets contribute their
 // terraform components and kustomizations. The loader's source name is passed to the processor
-// to set the Source field on feature-derived components. Features are processed directly against
+// to set the Source field on facet-derived components. Facets are processed directly against
 // the loader's blueprint, modifying it in place. This ensures all merge, replace, and remove
 // operations happen against the actual blueprint state.
 func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) error {
-	features := loader.GetFeatures()
-	if len(features) == 0 {
+	facets := loader.GetFacets()
+	if len(facets) == 0 {
 		return nil
 	}
 
 	sourceName := loader.GetSourceName()
 	bp := loader.GetBlueprint()
-	if err := h.processor.ProcessFeatures(bp, features, sourceName); err != nil {
+	if err := h.processor.ProcessFacets(bp, facets, sourceName); err != nil {
 		return err
 	}
 	return nil
 }
 
 // getConfigValues retrieves the current context's configuration values from the ConfigHandler.
-// These values are used during feature evaluation to determine which features should be included
+// These values are used during facet evaluation to determine which facets should be included
 // based on their 'when' conditions. Returns nil if ConfigHandler is unavailable or if values
-// cannot be retrieved, allowing feature processing to continue with empty configuration.
+// cannot be retrieved, allowing facet processing to continue with empty configuration.
 func (h *BaseBlueprintHandler) getConfigValues() map[string]any {
 	if h.runtime.ConfigHandler == nil {
 		return nil

@@ -115,15 +115,15 @@ func TestNewBlueprintProcessor(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestProcessor_ProcessFeatures(t *testing.T) {
-	t.Run("ReturnsEmptyBlueprintForNoFeatures", func(t *testing.T) {
-		// Given a processor and empty features
+func TestProcessor_ProcessFacets(t *testing.T) {
+	t.Run("ReturnsEmptyBlueprintForNoFacets", func(t *testing.T) {
+		// Given a processor and empty facets
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 
-		// When processing empty features
-		err := processor.ProcessFeatures(target, nil)
+		// When processing empty facets
+		err := processor.ProcessFacets(target, nil)
 
 		// Then should return empty blueprint
 		if err != nil {
@@ -137,12 +137,12 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("IncludesFeatureWithoutWhenCondition", func(t *testing.T) {
-		// Given a feature without when condition
+	t.Run("IncludesFacetWithoutWhenCondition", func(t *testing.T) {
+		// Given a facet without when condition
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "always-include"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
@@ -151,11 +151,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
-		// Then feature components should be included
+		// Then facet components should be included
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -167,12 +167,12 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("IncludesFeatureWhenConditionTrue", func(t *testing.T) {
-		// Given a feature with true condition
+	t.Run("IncludesFacetWhenConditionTrue", func(t *testing.T) {
+		// Given a facet with true condition
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "conditional"},
 				When:     "enabled == true",
@@ -185,11 +185,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			return map[string]any{"enabled": true}, nil
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
-		// Then feature should be included
+		// Then facet should be included
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -198,12 +198,12 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("ExcludesFeatureWhenConditionFalse", func(t *testing.T) {
-		// Given a feature with false condition
+	t.Run("ExcludesFacetWhenConditionFalse", func(t *testing.T) {
+		// Given a facet with false condition
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "conditional"},
 				When:     "enabled == true",
@@ -213,11 +213,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
-		// Then feature should be excluded
+		// Then facet should be excluded
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -226,31 +226,31 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("ProcessesFeaturesInSortedOrder", func(t *testing.T) {
-		// Given features in unsorted order
+	t.Run("ProcessesFacetsInSortedOrder", func(t *testing.T) {
+		// Given facets in unsorted order
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "z-feature"},
+				Metadata: blueprintv1alpha1.Metadata{Name: "z-facet"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
 					{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "z-path"}},
 				},
 			},
 			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "a-feature"},
+				Metadata: blueprintv1alpha1.Metadata{Name: "a-facet"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
 					{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "a-path"}},
 				},
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
-		// Then components should be in sorted feature order
+		// Then components should be in sorted facet order
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -266,11 +266,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("EvaluatesInputExpressions", func(t *testing.T) {
-		// Given a feature with input expressions and config data
+		// Given a facet with input expressions and config data
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "with-inputs"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
@@ -290,9 +290,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			}, nil
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then inputs should be evaluated
 		if err != nil {
@@ -308,11 +308,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("IncludesKustomizationsWithoutCondition", func(t *testing.T) {
-		// Given a feature with kustomizations
+		// Given a facet with kustomizations
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "with-kustomization"},
 				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
@@ -321,9 +321,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then kustomization should be included
 		if err != nil {
@@ -338,11 +338,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("ExcludesComponentWhenComponentConditionFalse", func(t *testing.T) {
-		// Given a feature with component-level condition
+		// Given a facet with component-level condition
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "mixed"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
@@ -357,9 +357,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then only unconditional component should be included
 		if err != nil {
@@ -374,13 +374,13 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("ExcludesKustomizationWhenConditionFalse", func(t *testing.T) {
-		// Given a feature with conditional kustomization
+		// Given a facet with conditional kustomization
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "kust-feature"},
+				Metadata: blueprintv1alpha1.Metadata{Name: "kust-facet"},
 				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
 					{
 						When:          "include_app == true",
@@ -393,9 +393,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then only unconditional kustomization should be included
 		if err != nil {
@@ -409,12 +409,12 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorForInvalidFeatureCondition", func(t *testing.T) {
-		// Given a feature with invalid condition syntax
+	t.Run("ReturnsErrorForInvalidFacetCondition", func(t *testing.T) {
+		// Given a facet with invalid condition syntax
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "bad-condition"},
 				When:     "invalid syntax {{{}",
@@ -424,9 +424,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -439,9 +439,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "feature"},
+				Metadata: blueprintv1alpha1.Metadata{Name: "facet"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
 					{
 						When:               "invalid syntax {{{}",
@@ -451,9 +451,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -466,9 +466,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "feature"},
+				Metadata: blueprintv1alpha1.Metadata{Name: "facet"},
 				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
 					{
 						When:          "invalid syntax {{{}",
@@ -478,9 +478,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -493,7 +493,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "string-condition"},
 				When:     `"true"`,
@@ -506,11 +506,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			return map[string]any{}, nil
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
-		// Then feature should be included (string "true" is truthy)
+		// Then facet should be included (string "true" is truthy)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -520,11 +520,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("EvaluatesSubstitutionExpressions", func(t *testing.T) {
-		// Given a feature with substitution expressions
+		// Given a facet with substitution expressions
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "with-subs"},
 				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
@@ -547,9 +547,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			}, nil
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then substitutions should be evaluated
 		if err != nil {
@@ -568,11 +568,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("PreservesNonStringInputs", func(t *testing.T) {
-		// Given a feature with non-string inputs
+		// Given a facet with non-string inputs
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "mixed-inputs"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
@@ -590,9 +590,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then non-string inputs should be preserved
 		if err != nil {
@@ -608,11 +608,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("HandlesInputEvaluationError", func(t *testing.T) {
-		// Given a feature with invalid input expression
+		// Given a facet with invalid input expression
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "bad-input"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
@@ -626,9 +626,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -637,11 +637,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("HandlesSubstitutionEvaluationError", func(t *testing.T) {
-		// Given a feature with invalid substitution expression
+		// Given a facet with invalid substitution expression
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "bad-sub"},
 				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
@@ -655,9 +655,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -666,11 +666,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("HandlesSourceAssignment", func(t *testing.T) {
-		// Given a feature with components without source
+		// Given a facet with components without source
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "with-source"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
@@ -681,7 +681,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing with sourceName
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, "test-source")
+		err := processor.ProcessFacets(target, facets, "test-source")
 
 		// Then source should be assigned
 		if err != nil {
@@ -693,11 +693,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("PreservesExistingSource", func(t *testing.T) {
-		// Given a feature with components that already have source
+		// Given a facet with components that already have source
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "with-source"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
@@ -708,7 +708,7 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 
 		// When processing with sourceName
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features, "new-source")
+		err := processor.ProcessFacets(target, facets, "new-source")
 
 		// Then existing source should be preserved
 		if err != nil {
@@ -720,11 +720,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorForInvalidTerraformComponentStrategy", func(t *testing.T) {
-		// Given a feature with invalid strategy
+		// Given a facet with invalid strategy
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "invalid-strategy"},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
@@ -736,9 +736,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -750,11 +750,11 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorForInvalidKustomizationStrategy", func(t *testing.T) {
-		// Given a feature with invalid kustomization strategy
+		// Given a facet with invalid kustomization strategy
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		features := []blueprintv1alpha1.Feature{
+		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "invalid-strategy"},
 				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
@@ -766,9 +766,9 @@ func TestProcessor_ProcessFeatures(t *testing.T) {
 			},
 		}
 
-		// When processing features
+		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		err := processor.ProcessFeatures(target, features)
+		err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -2019,7 +2019,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		}
 	})
 
-	t.Run("PassesFeaturePathToEvaluator", func(t *testing.T) {
+	t.Run("PassesFacetPathToEvaluator", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
 		var receivedPath string
