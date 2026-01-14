@@ -456,7 +456,15 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 			}
 
 			if len(configMapData) > 0 {
-				blueprint.ConfigMaps[configMapName] = configMapData
+				if kustomizationName == "common" {
+					if existingConfigMap, exists := blueprint.ConfigMaps["values-common"]; exists {
+						maps.Copy(existingConfigMap, configMapData)
+					} else {
+						blueprint.ConfigMaps["values-common"] = configMapData
+					}
+				} else {
+					blueprint.ConfigMaps[configMapName] = configMapData
+				}
 
 				if kustomization.Substitutions == nil {
 					kustomization.Substitutions = make(map[string]string)

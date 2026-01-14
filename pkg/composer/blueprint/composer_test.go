@@ -1967,6 +1967,66 @@ func TestComposer_applyPerKustomizationSubstitutions(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesIntoExistingValuesCommonConfigMap", func(t *testing.T) {
+		// Given a composer with existing values-common ConfigMap and kustomization named "common"
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"CUSTOM_KEY": "custom-value",
+					},
+				},
+			}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {
+					"DOMAIN":                "example.com",
+					"CONTEXT":               "test-context",
+					"LOADBALANCER_IP_RANGE": "10.0.0.1-10.0.0.100",
+				},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "common"},
+			},
+		}
+
+		// When applying per-kustomization substitutions
+		err := composer.applyPerKustomizationSubstitutions(blueprint)
+
+		// Then should merge into existing values-common ConfigMap instead of overwriting
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if blueprint.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to exist")
+		}
+		configMap, exists := blueprint.ConfigMaps["values-common"]
+		if !exists {
+			t.Fatal("Expected 'values-common' ConfigMap to still exist")
+		}
+		if configMap["DOMAIN"] != "example.com" {
+			t.Errorf("Expected DOMAIN='example.com' to be preserved, got '%s'", configMap["DOMAIN"])
+		}
+		if configMap["CONTEXT"] != "test-context" {
+			t.Errorf("Expected CONTEXT='test-context' to be preserved, got '%s'", configMap["CONTEXT"])
+		}
+		if configMap["LOADBALANCER_IP_RANGE"] != "10.0.0.1-10.0.0.100" {
+			t.Errorf("Expected LOADBALANCER_IP_RANGE to be preserved, got '%s'", configMap["LOADBALANCER_IP_RANGE"])
+		}
+		if configMap["CUSTOM_KEY"] != "custom-value" {
+			t.Errorf("Expected CUSTOM_KEY='custom-value' to be merged, got '%s'", configMap["CUSTOM_KEY"])
+		}
+		if blueprint.Kustomizations[0].Substitutions == nil {
+			t.Fatal("Expected Substitutions to be initialized")
+		}
+		if blueprint.Kustomizations[0].Substitutions["CUSTOM_KEY"] != "custom-value" {
+			t.Errorf("Expected CUSTOM_KEY in kustomization Substitutions, got '%s'", blueprint.Kustomizations[0].Substitutions["CUSTOM_KEY"])
+		}
+	})
+
 	t.Run("HandlesGetContextValuesError", func(t *testing.T) {
 		// Given a composer where GetContextValues returns error
 		mocks := setupComposerMocks(t)
