@@ -847,24 +847,23 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 		return "", fmt.Errorf("host number %d is out of range (must be non-negative) for CIDR %s", hostnum, prefix)
 	}
 
-	if hostBits < 64 {
-		maxHosts := 1 << hostBits
-		if hostnum >= maxHosts {
-			return "", fmt.Errorf("host number %d is out of range (0-%d) for CIDR %s", hostnum, maxHosts-1, prefix)
-		}
-	}
-
 	ip := make(net.IP, len(ipnet.IP))
 	copy(ip, ipnet.IP)
 
 	if len(ip) == net.IPv4len {
-		if hostnum < 0 || hostnum > math.MaxUint32 {
+		if hostnum > math.MaxUint32 {
 			return "", fmt.Errorf("host number %d is out of range for IPv4 address", hostnum)
 		}
 		hostnumUint32 := uint32(hostnum)
 		ipInt := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
 		if ipInt > math.MaxUint32-hostnumUint32 {
 			return "", fmt.Errorf("host number %d causes overflow for CIDR %s", hostnum, prefix)
+		}
+		if hostBits < 64 {
+			maxHosts := 1 << hostBits
+			if hostnum >= maxHosts {
+				return "", fmt.Errorf("host number %d is out of range (0-%d) for CIDR %s", hostnum, maxHosts-1, prefix)
+			}
 		}
 		ipInt += hostnumUint32
 		ip[0] = byte(ipInt >> 24)
@@ -917,13 +916,6 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 		return "", fmt.Errorf("netnum %d is out of range (must be non-negative) for newbits %d", netnum, newbits)
 	}
 
-	if newbits < 64 {
-		maxSubnets := 1 << newbits
-		if netnum >= maxSubnets {
-			return "", fmt.Errorf("netnum %d is out of range (0-%d) for newbits %d", netnum, maxSubnets-1, newbits)
-		}
-	}
-
 	newPrefixLen := ones + newbits
 	subnetSize := 1 << (bits - newPrefixLen)
 	subnetIP := make(net.IP, len(ipnet.IP))
@@ -932,13 +924,19 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 	offset := netnum * subnetSize
 
 	if len(subnetIP) == net.IPv4len {
-		if offset < 0 || offset > math.MaxUint32 {
+		if offset > math.MaxUint32 {
 			return "", fmt.Errorf("offset %d is out of range for IPv4 address", offset)
 		}
 		offsetUint32 := uint32(offset)
 		ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
 		if ipInt > math.MaxUint32-offsetUint32 {
 			return "", fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
+		}
+		if newbits < 64 {
+			maxSubnets := 1 << newbits
+			if netnum >= maxSubnets {
+				return "", fmt.Errorf("netnum %d is out of range (0-%d) for newbits %d", netnum, maxSubnets-1, newbits)
+			}
 		}
 		ipInt += offsetUint32
 		subnetIP[0] = byte(ipInt >> 24)
