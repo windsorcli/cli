@@ -332,6 +332,114 @@ terraform:
 		}
 	})
 
+	t.Run("LoadsFeaturesFromLocalTemplateForBackwardsCompatibility", func(t *testing.T) {
+		// Given a loader with features directory (backwards compatibility)
+		mocks := setupLoaderMocks(t)
+
+		templateDir := mocks.Runtime.TemplateRoot
+		featuresDir := filepath.Join(templateDir, "features")
+		os.MkdirAll(featuresDir, 0755)
+
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+`
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+
+		featureYaml := `kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-feature
+terraform:
+  - path: vpc
+`
+		os.WriteFile(filepath.Join(featuresDir, "aws.yaml"), []byte(featureYaml), 0644)
+
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+
+		// When loading
+		err := loader.Load()
+
+		// Then features should be loaded and converted to facets
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(loader.facets) != 1 {
+			t.Fatalf("Expected 1 facet, got %d", len(loader.facets))
+		}
+		if loader.facets[0].Metadata.Name != "aws-feature" {
+			t.Errorf("Expected facet name='aws-feature', got '%s'", loader.facets[0].Metadata.Name)
+		}
+		if loader.facets[0].Kind != "Facet" {
+			t.Errorf("Expected kind to be normalized to 'Facet', got '%s'", loader.facets[0].Kind)
+		}
+	})
+
+	t.Run("LoadsBothFacetsAndFeatures", func(t *testing.T) {
+		// Given a loader with both facets and features directories
+		mocks := setupLoaderMocks(t)
+
+		templateDir := mocks.Runtime.TemplateRoot
+		facetsDir := filepath.Join(templateDir, "facets")
+		featuresDir := filepath.Join(templateDir, "features")
+		os.MkdirAll(facetsDir, 0755)
+		os.MkdirAll(featuresDir, 0755)
+
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+`
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+
+		facetYaml := `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: new-facet
+terraform:
+  - path: network
+`
+		os.WriteFile(filepath.Join(facetsDir, "network.yaml"), []byte(facetYaml), 0644)
+
+		featureYaml := `kind: Feature
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: legacy-feature
+terraform:
+  - path: legacy
+`
+		os.WriteFile(filepath.Join(featuresDir, "legacy.yaml"), []byte(featureYaml), 0644)
+
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+
+		// When loading
+		err := loader.Load()
+
+		// Then both should be loaded
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(loader.facets) != 2 {
+			t.Fatalf("Expected 2 facets, got %d", len(loader.facets))
+		}
+
+		facetNames := make(map[string]bool)
+		for _, facet := range loader.facets {
+			facetNames[facet.Metadata.Name] = true
+			if facet.Kind != "Facet" {
+				t.Errorf("Expected all kinds to be 'Facet', got '%s' for %s", facet.Kind, facet.Metadata.Name)
+			}
+		}
+
+		if !facetNames["new-facet"] {
+			t.Error("Expected 'new-facet' to be loaded")
+		}
+		if !facetNames["legacy-feature"] {
+			t.Error("Expected 'legacy-feature' to be loaded")
+		}
+	})
+
 	t.Run("LoadsUserBlueprintFromConfigRoot", func(t *testing.T) {
 		// Given a user loader with blueprint in config root
 		mocks := setupLoaderMocks(t)

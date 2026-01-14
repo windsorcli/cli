@@ -149,6 +149,10 @@ func (l *BaseBlueprintLoader) loadFromLocalTemplate() error {
 		return err
 	}
 
+	if err := l.loadFeaturesFromDirectory(templateRoot); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -216,6 +220,10 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 	}
 
 	if err := l.loadFacetsFromDirectory(templateDir); err != nil {
+		return err
+	}
+
+	if err := l.loadFeaturesFromDirectory(templateDir); err != nil {
 		return err
 	}
 
@@ -326,6 +334,49 @@ func (l *BaseBlueprintLoader) loadFacetsFromDirectory(baseDir string) error {
 		}
 
 		facet.Path = facetPath
+		l.facets = append(l.facets, facet)
+	}
+
+	return nil
+}
+
+// loadFeaturesFromDirectory scans the features/ subdirectory for YAML files and parses each
+// as a Feature definition (for backwards compatibility). Features are converted to Facets
+// internally. This maintains backwards compatibility with existing blueprints that use the
+// old features/ directory and kind: Feature. Returns nil without error if the directory
+// doesn't exist.
+func (l *BaseBlueprintLoader) loadFeaturesFromDirectory(baseDir string) error {
+	featuresDir := filepath.Join(baseDir, "features")
+	if _, err := l.shims.Stat(featuresDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	entries, err := l.shims.ReadDir(featuresDir)
+	if err != nil {
+		return fmt.Errorf("failed to read features directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+
+		featurePath := filepath.Join(featuresDir, entry.Name())
+		data, err := l.shims.ReadFile(featurePath)
+		if err != nil {
+			return fmt.Errorf("failed to read feature %s: %w", entry.Name(), err)
+		}
+
+		var facet blueprintv1alpha1.Facet
+		if err := l.shims.YamlUnmarshal(data, &facet); err != nil {
+			return fmt.Errorf("failed to parse feature %s: %w", entry.Name(), err)
+		}
+
+		if facet.Kind == "Feature" {
+			facet.Kind = "Facet"
+		}
+
+		facet.Path = featurePath
 		l.facets = append(l.facets, facet)
 	}
 
