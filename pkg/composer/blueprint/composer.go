@@ -2,8 +2,12 @@ package blueprint
 
 import (
 	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/fluxcd/pkg/apis/kustomize"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -22,6 +26,7 @@ type BlueprintComposer interface {
 type BaseBlueprintComposer struct {
 	runtime             *runtime.Runtime
 	commonSubstitutions map[string]string
+	shims               *Shims
 }
 
 // =============================================================================
@@ -39,6 +44,7 @@ func NewBlueprintComposer(rt *runtime.Runtime) *BaseBlueprintComposer {
 	return &BaseBlueprintComposer{
 		runtime:             rt,
 		commonSubstitutions: make(map[string]string),
+		shims:               NewShims(),
 	}
 }
 
@@ -96,6 +102,14 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 	c.setContextMetadata(result)
 
 	c.applyCommonSubstitutions(result)
+
+	if err := c.discoverContextPatches(result); err != nil {
+		return nil, fmt.Errorf("failed to discover context patches: %w", err)
+	}
+
+	if err := c.applyPerKustomizationSubstitutions(result); err != nil {
+		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
+	}
 
 	return result, nil
 }
@@ -284,6 +298,166 @@ func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues m
 	if err == nil && buildID != "" {
 		mergedCommonValues["BUILD_ID"] = buildID
 	}
+}
+
+// discoverContextPatches discovers and adds patches from the context directory to kustomizations.
+// Patches are discovered from contexts/<context>/patches/<kustomization-name>/ and added to the
+// corresponding kustomization. Supports both strategic merge patches (standard Kubernetes YAML)
+// and JSON 6902 patches (with a patches field containing JSON 6902 operations).
+func (c *BaseBlueprintComposer) discoverContextPatches(blueprint *blueprintv1alpha1.Blueprint) error {
+	if c.runtime == nil || c.runtime.ConfigRoot == "" {
+		return nil
+	}
+
+	patchesDir := filepath.Join(c.runtime.ConfigRoot, "patches")
+	if _, err := c.shims.Stat(patchesDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	entries, err := c.shims.ReadDir(patchesDir)
+	if err != nil {
+		return fmt.Errorf("failed to read patches directory: %w", err)
+	}
+
+	kustomizationMap := make(map[string]*blueprintv1alpha1.Kustomization)
+	for i := range blueprint.Kustomizations {
+		kustomizationMap[blueprint.Kustomizations[i].Name] = &blueprint.Kustomizations[i]
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		kustomizationName := entry.Name()
+		kustomization, exists := kustomizationMap[kustomizationName]
+		if !exists {
+			continue
+		}
+
+		kustomizationPatchesDir := filepath.Join(patchesDir, kustomizationName)
+		patchFiles, err := c.shims.ReadDir(kustomizationPatchesDir)
+		if err != nil {
+			continue
+		}
+
+		for _, patchFile := range patchFiles {
+			if patchFile.IsDir() {
+				continue
+			}
+
+			fileName := patchFile.Name()
+			if !strings.HasSuffix(fileName, ".yaml") && !strings.HasSuffix(fileName, ".yml") {
+				continue
+			}
+
+			patchPath := filepath.Join(kustomizationPatchesDir, fileName)
+			patchData, err := c.shims.ReadFile(patchPath)
+			if err != nil {
+				continue
+			}
+
+			patch, err := c.parsePatch(patchData, fileName)
+			if err != nil {
+				continue
+			}
+
+			if patch != nil {
+				kustomization.Patches = append(kustomization.Patches, *patch)
+			}
+		}
+	}
+
+	return nil
+}
+
+// parsePatch parses a patch file and returns a BlueprintPatch. It detects whether the patch is
+// a strategic merge patch (standard Kubernetes YAML) or a JSON 6902 patch (with a patches field).
+// For JSON 6902 patches, it extracts the target selector from the resource metadata.
+func (c *BaseBlueprintComposer) parsePatch(data []byte, fileName string) (*blueprintv1alpha1.BlueprintPatch, error) {
+	var patchContent map[string]any
+	if err := c.shims.YamlUnmarshal(data, &patchContent); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal patch file %s: %w", fileName, err)
+	}
+
+	if patches, ok := patchContent["patches"].([]any); ok {
+		jsonPatchOps, err := c.shims.YamlMarshal(patches)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal JSON patch operations: %w", err)
+		}
+
+		var target *kustomize.Selector
+		if kind, ok := patchContent["kind"].(string); ok && kind != "" {
+			target = &kustomize.Selector{
+				Kind: kind,
+			}
+			if metadata, ok := patchContent["metadata"].(map[string]any); ok {
+				if name, ok := metadata["name"].(string); ok {
+					target.Name = name
+				}
+				if namespace, ok := metadata["namespace"].(string); ok {
+					target.Namespace = namespace
+				}
+			}
+		}
+
+		return &blueprintv1alpha1.BlueprintPatch{
+			Patch:  string(jsonPatchOps),
+			Target: target,
+		}, nil
+	}
+
+	return &blueprintv1alpha1.BlueprintPatch{
+		Patch: string(data),
+	}, nil
+}
+
+// applyPerKustomizationSubstitutions extracts per-kustomization substitutions from values.yaml
+// and creates ConfigMaps for each kustomization. Substitutions are stored in ConfigMaps named
+// "values-<kustomization-name>" and are used for postBuild substitution in Flux kustomizations.
+func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *blueprintv1alpha1.Blueprint) error {
+	if c.runtime == nil || c.runtime.ConfigHandler == nil {
+		return nil
+	}
+
+	values, err := c.runtime.ConfigHandler.GetContextValues()
+	if err != nil {
+		return nil
+	}
+
+	substitutions, ok := values["substitutions"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	if blueprint.ConfigMaps == nil {
+		blueprint.ConfigMaps = make(map[string]map[string]string)
+	}
+
+	for i := range blueprint.Kustomizations {
+		kustomization := &blueprint.Kustomizations[i]
+		kustomizationName := kustomization.Name
+
+		if kustSubstitutions, ok := substitutions[kustomizationName].(map[string]any); ok {
+			configMapName := fmt.Sprintf("values-%s", kustomizationName)
+			configMapData := make(map[string]string)
+
+			for k, v := range kustSubstitutions {
+				configMapData[k] = fmt.Sprintf("%v", v)
+			}
+
+			if len(configMapData) > 0 {
+				blueprint.ConfigMaps[configMapName] = configMapData
+
+				if kustomization.Substitutions == nil {
+					kustomization.Substitutions = make(map[string]string)
+				}
+				maps.Copy(kustomization.Substitutions, configMapData)
+			}
+		}
+	}
+
+	return nil
 }
 
 // =============================================================================

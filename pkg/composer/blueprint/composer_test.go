@@ -1203,3 +1203,738 @@ func TestComposer_mergeLegacySpecialVariables(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test discoverContextPatches
+// =============================================================================
+
+func TestComposer_discoverContextPatches(t *testing.T) {
+	t.Run("ReturnsNilWhenConfigRootEmpty", func(t *testing.T) {
+		// Given a composer with empty ConfigRoot
+		mocks := setupComposerMocks(t)
+		mocks.Runtime.ConfigRoot = ""
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then should return nil without error
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenPatchesDirectoryDoesNotExist", func(t *testing.T) {
+		// Given a composer with ConfigRoot but no patches directory
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then should return nil without error
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("DiscoversStrategicMergePatches", func(t *testing.T) {
+		// Given a composer with patches directory containing strategic merge patch
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		patchContent := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 5
+`
+		os.WriteFile(patchesDir+"/increase-replicas.yaml", []byte(patchContent), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then patch should be added to kustomization
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 1 {
+			t.Fatalf("Expected 1 patch, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+		if blueprint.Kustomizations[0].Patches[0].Patch != patchContent {
+			t.Errorf("Expected patch content to match, got %s", blueprint.Kustomizations[0].Patches[0].Patch)
+		}
+		if blueprint.Kustomizations[0].Patches[0].Target != nil {
+			t.Error("Expected target to be nil for strategic merge patch")
+		}
+	})
+
+	t.Run("DiscoversJSON6902Patches", func(t *testing.T) {
+		// Given a composer with patches directory containing JSON 6902 patch
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		patchContent := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  namespace: default
+patches:
+  - op: replace
+    path: /spec/replicas
+    value: 5
+`
+		os.WriteFile(patchesDir+"/json-patch.yaml", []byte(patchContent), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then JSON 6902 patch should be added with target selector
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 1 {
+			t.Fatalf("Expected 1 patch, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+		patch := blueprint.Kustomizations[0].Patches[0]
+		if patch.Target == nil {
+			t.Fatal("Expected target selector for JSON 6902 patch")
+		}
+		if patch.Target.Kind != "Deployment" {
+			t.Errorf("Expected target Kind='Deployment', got '%s'", patch.Target.Kind)
+		}
+		if patch.Target.Name != "my-app" {
+			t.Errorf("Expected target Name='my-app', got '%s'", patch.Target.Name)
+		}
+		if patch.Target.Namespace != "default" {
+			t.Errorf("Expected target Namespace='default', got '%s'", patch.Target.Namespace)
+		}
+		if patch.Patch == "" {
+			t.Error("Expected patch content to be set")
+		}
+	})
+
+	t.Run("DiscoversMultiplePatchesForSameKustomization", func(t *testing.T) {
+		// Given a composer with multiple patches for same kustomization
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		patch1 := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 1
+`
+		patch2 := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 2
+`
+		patch3 := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 3
+`
+		os.WriteFile(patchesDir+"/patch1.yaml", []byte(patch1), 0644)
+		os.WriteFile(patchesDir+"/patch2.yaml", []byte(patch2), 0644)
+		os.WriteFile(patchesDir+"/patch3.yml", []byte(patch3), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then all patches should be added
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 3 {
+			t.Fatalf("Expected 3 patches, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+	})
+
+	t.Run("IgnoresPatchesForNonExistentKustomization", func(t *testing.T) {
+		// Given a composer with patches for kustomization that doesn't exist
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/non-existent"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/patch.yaml", []byte("patch"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then patches should be ignored
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 0 {
+			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+	})
+
+	t.Run("SkipsNonYamlFiles", func(t *testing.T) {
+		// Given a composer with non-YAML files in patches directory
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		patchContent := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 5
+`
+		os.WriteFile(patchesDir+"/patch.yaml", []byte(patchContent), 0644)
+		os.WriteFile(patchesDir+"/patch.txt", []byte("not a patch"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then only YAML files should be processed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 1 {
+			t.Fatalf("Expected 1 patch, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+	})
+
+	t.Run("SkipsInvalidPatchFiles", func(t *testing.T) {
+		// Given a composer with invalid YAML patch file
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/invalid.yaml", []byte("invalid: yaml: content: [unclosed"), 0644)
+		os.WriteFile(patchesDir+"/valid.yaml", []byte("valid: patch"), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then invalid patches should be skipped, valid ones processed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 1 {
+			t.Fatalf("Expected 1 patch, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+	})
+
+	t.Run("HandlesEmptyPatchesDirectory", func(t *testing.T) {
+		// Given a composer with empty patches directory
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches"
+		os.MkdirAll(patchesDir, 0755)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then should return nil without error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 0 {
+			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+	})
+
+	t.Run("HandlesReadDirErrorForKustomizationDirectory", func(t *testing.T) {
+		// Given a composer with patches directory but unreadable kustomization subdirectory
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches"
+		os.MkdirAll(patchesDir, 0755)
+		kustomizationDir := patchesDir + "/my-app"
+		os.MkdirAll(kustomizationDir, 0000)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then should skip unreadable directory without error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 0 {
+			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+
+		os.Chmod(kustomizationDir, 0755)
+	})
+
+	t.Run("HandlesReadFileError", func(t *testing.T) {
+		// Given a composer with unreadable patch file
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		patchFile := patchesDir + "/patch.yaml"
+		os.WriteFile(patchFile, []byte("valid: patch"), 0000)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then should skip unreadable file without error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(blueprint.Kustomizations[0].Patches) != 0 {
+			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
+		}
+
+		os.Chmod(patchFile, 0644)
+	})
+
+	t.Run("HandlesNilPatchFromParsePatch", func(t *testing.T) {
+		// Given a composer with patch that parsePatch returns nil for
+		mocks := setupComposerMocks(t)
+		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
+		os.MkdirAll(patchesDir, 0755)
+		os.WriteFile(patchesDir+"/patch.yaml", []byte(""), 0644)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When discovering patches
+		err := composer.discoverContextPatches(blueprint)
+
+		// Then should handle nil patch gracefully
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test parsePatch
+// =============================================================================
+
+func TestComposer_parsePatch(t *testing.T) {
+	t.Run("ParsesStrategicMergePatch", func(t *testing.T) {
+		// Given a strategic merge patch
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		patchData := []byte(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 5
+`)
+
+		// When parsing patch
+		patch, err := composer.parsePatch(patchData, "patch.yaml")
+
+		// Then should return strategic merge patch
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if patch == nil {
+			t.Fatal("Expected non-nil patch")
+		}
+		if patch.Target != nil {
+			t.Error("Expected target to be nil for strategic merge patch")
+		}
+		if patch.Patch != string(patchData) {
+			t.Error("Expected patch content to match input")
+		}
+	})
+
+	t.Run("ParsesJSON6902PatchWithFullMetadata", func(t *testing.T) {
+		// Given a JSON 6902 patch with full metadata
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		patchData := []byte(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  namespace: default
+patches:
+  - op: replace
+    path: /spec/replicas
+    value: 5
+`)
+
+		// When parsing patch
+		patch, err := composer.parsePatch(patchData, "patch.yaml")
+
+		// Then should return JSON 6902 patch with target selector
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if patch == nil {
+			t.Fatal("Expected non-nil patch")
+		}
+		if patch.Target == nil {
+			t.Fatal("Expected target selector for JSON 6902 patch")
+		}
+		if patch.Target.Kind != "Deployment" {
+			t.Errorf("Expected target Kind='Deployment', got '%s'", patch.Target.Kind)
+		}
+		if patch.Target.Name != "my-app" {
+			t.Errorf("Expected target Name='my-app', got '%s'", patch.Target.Name)
+		}
+		if patch.Target.Namespace != "default" {
+			t.Errorf("Expected target Namespace='default', got '%s'", patch.Target.Namespace)
+		}
+		if patch.Patch == "" {
+			t.Error("Expected patch content to be set")
+		}
+	})
+
+	t.Run("ParsesJSON6902PatchWithPartialMetadata", func(t *testing.T) {
+		// Given a JSON 6902 patch with partial metadata
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		patchData := []byte(`apiVersion: apps/v1
+kind: Service
+metadata:
+  name: my-service
+patches:
+  - op: add
+    path: /spec/type
+    value: ClusterIP
+`)
+
+		// When parsing patch
+		patch, err := composer.parsePatch(patchData, "patch.yaml")
+
+		// Then should return JSON 6902 patch with partial target selector
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if patch == nil {
+			t.Fatal("Expected non-nil patch")
+		}
+		if patch.Target == nil {
+			t.Fatal("Expected target selector for JSON 6902 patch")
+		}
+		if patch.Target.Kind != "Service" {
+			t.Errorf("Expected target Kind='Service', got '%s'", patch.Target.Kind)
+		}
+		if patch.Target.Name != "my-service" {
+			t.Errorf("Expected target Name='my-service', got '%s'", patch.Target.Name)
+		}
+		if patch.Target.Namespace != "" {
+			t.Errorf("Expected target Namespace to be empty, got '%s'", patch.Target.Namespace)
+		}
+	})
+
+	t.Run("ParsesJSON6902PatchWithoutKind", func(t *testing.T) {
+		// Given a JSON 6902 patch without kind (should fall back to strategic merge)
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		patchData := []byte(`patches:
+  - op: replace
+    path: /spec/replicas
+    value: 5
+`)
+
+		// When parsing patch
+		patch, err := composer.parsePatch(patchData, "patch.yaml")
+
+		// Then should treat as strategic merge patch
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if patch == nil {
+			t.Fatal("Expected non-nil patch")
+		}
+		if patch.Target != nil {
+			t.Error("Expected target to be nil when kind is missing")
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidYAML", func(t *testing.T) {
+		// Given invalid YAML content
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		patchData := []byte("invalid: yaml: content: [unclosed")
+
+		// When parsing patch
+		patch, err := composer.parsePatch(patchData, "patch.yaml")
+
+		// Then should return error
+		if err == nil {
+			t.Fatal("Expected error for invalid YAML")
+		}
+		if patch != nil {
+			t.Error("Expected nil patch on error")
+		}
+	})
+}
+
+// =============================================================================
+// Test applyPerKustomizationSubstitutions
+// =============================================================================
+
+func TestComposer_applyPerKustomizationSubstitutions(t *testing.T) {
+	t.Run("ReturnsNilWhenConfigHandlerNil", func(t *testing.T) {
+		// Given a composer with nil ConfigHandler
+		mocks := setupComposerMocks(t)
+		mocks.Runtime.ConfigHandler = nil
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying per-kustomization substitutions
+		err := composer.applyPerKustomizationSubstitutions(blueprint)
+
+		// Then should return nil without error
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoSubstitutionsInValues", func(t *testing.T) {
+		// Given a composer with no substitutions in values.yaml
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying per-kustomization substitutions
+		err := composer.applyPerKustomizationSubstitutions(blueprint)
+
+		// Then should return nil without error
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("CreatesConfigMapForKustomizationSubstitutions", func(t *testing.T) {
+		// Given a composer with per-kustomization substitutions in values.yaml
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"my-app": map[string]any{
+						"REPLICAS": "5",
+						"IMAGE":    "nginx:latest",
+					},
+				},
+			}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When applying per-kustomization substitutions
+		err := composer.applyPerKustomizationSubstitutions(blueprint)
+
+		// Then ConfigMap should be created
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if blueprint.ConfigMaps == nil {
+			t.Fatal("Expected ConfigMaps to be initialized")
+		}
+		configMap, exists := blueprint.ConfigMaps["values-my-app"]
+		if !exists {
+			t.Fatal("Expected 'values-my-app' ConfigMap to exist")
+		}
+		if configMap["REPLICAS"] != "5" {
+			t.Errorf("Expected REPLICAS='5', got '%s'", configMap["REPLICAS"])
+		}
+		if configMap["IMAGE"] != "nginx:latest" {
+			t.Errorf("Expected IMAGE='nginx:latest', got '%s'", configMap["IMAGE"])
+		}
+	})
+
+	t.Run("AddsSubstitutionsToKustomization", func(t *testing.T) {
+		// Given a composer with per-kustomization substitutions
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"my-app": map[string]any{
+						"REPLICAS": "5",
+					},
+				},
+			}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "my-app"},
+			},
+		}
+
+		// When applying per-kustomization substitutions
+		err := composer.applyPerKustomizationSubstitutions(blueprint)
+
+		// Then substitutions should be added to kustomization
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if blueprint.Kustomizations[0].Substitutions == nil {
+			t.Fatal("Expected Substitutions to be initialized")
+		}
+		if blueprint.Kustomizations[0].Substitutions["REPLICAS"] != "5" {
+			t.Errorf("Expected REPLICAS='5', got '%s'", blueprint.Kustomizations[0].Substitutions["REPLICAS"])
+		}
+	})
+
+	t.Run("HandlesMultipleKustomizations", func(t *testing.T) {
+		// Given a composer with substitutions for multiple kustomizations
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"app1": map[string]any{
+						"KEY1": "value1",
+					},
+					"app2": map[string]any{
+						"KEY2": "value2",
+					},
+				},
+			}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app1"},
+				{Name: "app2"},
+			},
+		}
+
+		// When applying per-kustomization substitutions
+		err := composer.applyPerKustomizationSubstitutions(blueprint)
+
+		// Then ConfigMaps should be created for both
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if blueprint.ConfigMaps["values-app1"]["KEY1"] != "value1" {
+			t.Error("Expected values-app1 ConfigMap to contain KEY1")
+		}
+		if blueprint.ConfigMaps["values-app2"]["KEY2"] != "value2" {
+			t.Error("Expected values-app2 ConfigMap to contain KEY2")
+		}
+		if blueprint.Kustomizations[0].Substitutions["KEY1"] != "value1" {
+			t.Error("Expected app1 Substitutions to contain KEY1")
+		}
+		if blueprint.Kustomizations[1].Substitutions["KEY2"] != "value2" {
+			t.Error("Expected app2 Substitutions to contain KEY2")
+		}
+	})
+
+	t.Run("SkipsKustomizationsWithoutSubstitutions", func(t *testing.T) {
+		// Given a composer with substitutions for only one kustomization
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"app1": map[string]any{
+						"KEY1": "value1",
+					},
+				},
+			}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app1"},
+				{Name: "app2"},
+			},
+		}
+
+		// When applying per-kustomization substitutions
+		err := composer.applyPerKustomizationSubstitutions(blueprint)
+
+		// Then only app1 should have ConfigMap and substitutions
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := blueprint.ConfigMaps["values-app1"]; !exists {
+			t.Error("Expected values-app1 ConfigMap to exist")
+		}
+		if _, exists := blueprint.ConfigMaps["values-app2"]; exists {
+			t.Error("Expected values-app2 ConfigMap to not exist")
+		}
+		if blueprint.Kustomizations[1].Substitutions != nil {
+			t.Error("Expected app2 Substitutions to be nil")
+		}
+	})
+
+	t.Run("HandlesGetContextValuesError", func(t *testing.T) {
+		// Given a composer where GetContextValues returns error
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, os.ErrNotExist
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When applying per-kustomization substitutions
+		err := composer.applyPerKustomizationSubstitutions(blueprint)
+
+		// Then should return nil without error (error is ignored)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
