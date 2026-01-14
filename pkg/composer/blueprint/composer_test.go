@@ -1713,6 +1713,9 @@ patches:
 		if patch.Target != nil {
 			t.Error("Expected target to be nil when kind is missing")
 		}
+		if patch.Patch != string(patchData) {
+			t.Error("Expected patch content to be full YAML when falling back to strategic merge")
+		}
 	})
 
 	t.Run("ReturnsNilForEmptyData", func(t *testing.T) {

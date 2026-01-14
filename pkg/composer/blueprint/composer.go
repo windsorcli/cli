@@ -390,23 +390,27 @@ func (c *BaseBlueprintComposer) parsePatch(data []byte, fileName string) (*bluep
 	}
 
 	if patches, ok := patchContent["patches"].([]any); ok {
+		kind, hasKind := patchContent["kind"].(string)
+		if !hasKind || kind == "" {
+			return &blueprintv1alpha1.BlueprintPatch{
+				Patch: string(data),
+			}, nil
+		}
+
 		jsonPatchOps, err := c.shims.YamlMarshal(patches)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal JSON patch operations: %w", err)
 		}
 
-		var target *kustomize.Selector
-		if kind, ok := patchContent["kind"].(string); ok && kind != "" {
-			target = &kustomize.Selector{
-				Kind: kind,
+		target := &kustomize.Selector{
+			Kind: kind,
+		}
+		if metadata, ok := patchContent["metadata"].(map[string]any); ok {
+			if name, ok := metadata["name"].(string); ok {
+				target.Name = name
 			}
-			if metadata, ok := patchContent["metadata"].(map[string]any); ok {
-				if name, ok := metadata["name"].(string); ok {
-					target.Name = name
-				}
-				if namespace, ok := metadata["namespace"].(string); ok {
-					target.Namespace = namespace
-				}
+			if namespace, ok := metadata["namespace"].(string); ok {
+				target.Namespace = namespace
 			}
 		}
 
