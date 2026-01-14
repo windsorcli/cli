@@ -10,14 +10,6 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
-func intPtr(i int) *int {
-	return &i
-}
-
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 func boolExprPtr(b bool) *BoolExpression {
 	return &BoolExpression{Value: &b, IsExpr: false}
 }

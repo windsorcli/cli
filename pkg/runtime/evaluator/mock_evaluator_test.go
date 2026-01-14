@@ -105,7 +105,7 @@ func TestMockExpressionEvaluator_Register(t *testing.T) {
 		mockEvaluator := setupMockEvaluatorMocks(t)
 		called := false
 		expectedName := "test_helper"
-		expectedHelper := func(params ...any) (any, error) {
+		expectedHelper := func(_ ...any) (any, error) {
 			return "result", nil
 		}
 		expectedSignature := new(func(string) any)
