@@ -16,7 +16,7 @@ import (
 type BlueprintLoader interface {
 	Load() error
 	GetBlueprint() *blueprintv1alpha1.Blueprint
-	GetFeatures() []blueprintv1alpha1.Feature
+	GetFacets() []blueprintv1alpha1.Facet
 	GetTemplateData() map[string][]byte
 	GetSourceName() string
 }
@@ -34,7 +34,7 @@ type BaseBlueprintLoader struct {
 	sourceName   string
 	sourceURL    string
 	blueprint    *blueprintv1alpha1.Blueprint
-	features     []blueprintv1alpha1.Feature
+	facets       []blueprintv1alpha1.Facet
 	templateData map[string][]byte
 }
 
@@ -87,17 +87,17 @@ func (l *BaseBlueprintLoader) Load() error {
 }
 
 // GetBlueprint returns the loaded blueprint, which may be nil if loading failed or the source
-// does not contain a blueprint. The blueprint is modified during feature processing as components
-// from evaluated features are appended to it.
+// does not contain a blueprint. The blueprint is modified during facet processing as components
+// from evaluated facets are appended to it.
 func (l *BaseBlueprintLoader) GetBlueprint() *blueprintv1alpha1.Blueprint {
 	return l.blueprint
 }
 
-// GetFeatures returns all Feature definitions loaded from this source's features directory.
-// Features are YAML files in the features/ subdirectory that define conditional terraform
-// components and kustomizations. Returns an empty slice if no features were found.
-func (l *BaseBlueprintLoader) GetFeatures() []blueprintv1alpha1.Feature {
-	return l.features
+// GetFacets returns all Facet definitions loaded from this source's facets directory.
+// Facets are YAML files in the facets/ subdirectory that define conditional terraform
+// components and kustomizations. Returns an empty slice if no facets were found.
+func (l *BaseBlueprintLoader) GetFacets() []blueprintv1alpha1.Facet {
+	return l.facets
 }
 
 // GetTemplateData returns a map of relative file paths to their contents for all files collected
@@ -120,7 +120,7 @@ func (l *BaseBlueprintLoader) GetSourceName() string {
 
 // loadFromLocalTemplate reads blueprint data from the project's _template directory. It collects
 // all template files into templateData, loads the schema.yaml into the ConfigHandler for validation,
-// parses the blueprint.yaml, and loads any feature definitions from the features subdirectory.
+// parses the blueprint.yaml, and loads any facet definitions from the facets subdirectory.
 // Returns nil without error if the template directory doesn't exist.
 func (l *BaseBlueprintLoader) loadFromLocalTemplate() error {
 	templateRoot := l.runtime.TemplateRoot
@@ -145,7 +145,7 @@ func (l *BaseBlueprintLoader) loadFromLocalTemplate() error {
 		return err
 	}
 
-	if err := l.loadFeaturesFromDirectory(templateRoot); err != nil {
+	if err := l.loadFacetsFromDirectory(templateRoot); err != nil {
 		return err
 	}
 
@@ -153,7 +153,7 @@ func (l *BaseBlueprintLoader) loadFromLocalTemplate() error {
 }
 
 // loadUserBlueprint reads the user's blueprint.yaml from the context's config root directory.
-// Unlike template loading, user blueprints do not include features or schema contributions -
+// Unlike template loading, user blueprints do not include facets or schema contributions -
 // they only specify component selections and value overrides. Returns nil without error if
 // no user blueprint exists.
 func (l *BaseBlueprintLoader) loadUserBlueprint() error {
@@ -173,7 +173,7 @@ func (l *BaseBlueprintLoader) loadUserBlueprint() error {
 // loadFromOCI pulls a blueprint artifact from an OCI registry and loads its contents. It uses
 // the artifact builder to pull and cache the artifact, then collects template data from the
 // extracted files. OCI artifacts may contain a _template subdirectory or have files directly
-// in the root. Like local templates, it loads schema.yaml, blueprint.yaml, and features. After
+// in the root. Like local templates, it loads schema.yaml, blueprint.yaml, and facets. After
 // loading, it injects the OCI source into the Sources array and sets the Source field on any
 // components/kustomizations that don't already have one.
 func (l *BaseBlueprintLoader) loadFromOCI() error {
@@ -215,7 +215,7 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 		return err
 	}
 
-	if err := l.loadFeaturesFromDirectory(templateDir); err != nil {
+	if err := l.loadFacetsFromDirectory(templateDir); err != nil {
 		return err
 	}
 
@@ -294,19 +294,19 @@ func (l *BaseBlueprintLoader) loadBlueprintFromFile(path string) error {
 	return nil
 }
 
-// loadFeaturesFromDirectory scans the features/ subdirectory for YAML files and parses each
-// as a Feature definition. Features define conditional terraform components and kustomizations
-// that are included based on 'when' conditions during processing. Each feature's Path field is
+// loadFacetsFromDirectory scans the facets/ subdirectory for YAML files and parses each
+// as a Facet definition. Facets define conditional terraform components and kustomizations
+// that are included based on 'when' conditions during processing. Each facet's Path field is
 // set to its source file location for debugging and error reporting.
-func (l *BaseBlueprintLoader) loadFeaturesFromDirectory(baseDir string) error {
-	featuresDir := filepath.Join(baseDir, "features")
-	if _, err := l.shims.Stat(featuresDir); os.IsNotExist(err) {
+func (l *BaseBlueprintLoader) loadFacetsFromDirectory(baseDir string) error {
+	facetsDir := filepath.Join(baseDir, "facets")
+	if _, err := l.shims.Stat(facetsDir); os.IsNotExist(err) {
 		return nil
 	}
 
-	entries, err := l.shims.ReadDir(featuresDir)
+	entries, err := l.shims.ReadDir(facetsDir)
 	if err != nil {
-		return fmt.Errorf("failed to read features directory: %w", err)
+		return fmt.Errorf("failed to read facets directory: %w", err)
 	}
 
 	for _, entry := range entries {
@@ -314,19 +314,19 @@ func (l *BaseBlueprintLoader) loadFeaturesFromDirectory(baseDir string) error {
 			continue
 		}
 
-		featurePath := filepath.Join(featuresDir, entry.Name())
-		data, err := l.shims.ReadFile(featurePath)
+		facetPath := filepath.Join(facetsDir, entry.Name())
+		data, err := l.shims.ReadFile(facetPath)
 		if err != nil {
-			return fmt.Errorf("failed to read feature %s: %w", entry.Name(), err)
+			return fmt.Errorf("failed to read facet %s: %w", entry.Name(), err)
 		}
 
-		var feature blueprintv1alpha1.Feature
-		if err := l.shims.YamlUnmarshal(data, &feature); err != nil {
-			return fmt.Errorf("failed to parse feature %s: %w", entry.Name(), err)
+		var facet blueprintv1alpha1.Facet
+		if err := l.shims.YamlUnmarshal(data, &facet); err != nil {
+			return fmt.Errorf("failed to parse facet %s: %w", entry.Name(), err)
 		}
 
-		feature.Path = featurePath
-		l.features = append(l.features, feature)
+		facet.Path = facetPath
+		l.facets = append(l.facets, facet)
 	}
 
 	return nil

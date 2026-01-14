@@ -656,7 +656,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("SkipsUnresolvedExpressionsWhenEvaluateDeferredIsFalse", func(t *testing.T) {
 		mockEvaluator := NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key, value := range values {
 				if key == "deferred" {
@@ -689,7 +689,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("IncludesUnresolvedExpressionsWhenEvaluateDeferredIsTrue", func(t *testing.T) {
 		mockEvaluator := NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
 			return values, nil
 		}
 
@@ -715,7 +715,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
 		mockEvaluator := NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
 			return nil, errors.New("failed to evaluate 'bad': evaluation failed")
 		}
 
@@ -1252,12 +1252,12 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 	})
 
-	t.Run("PassesFeaturePathToEvaluate", func(t *testing.T) {
+	t.Run("PassesFacetPathToEvaluate", func(t *testing.T) {
 		// Given a mock evaluator that captures feature path
 		mockEvaluator := NewMockExpressionEvaluator()
 		var receivedPath string
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
-			receivedPath = featurePath
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+			receivedPath = facetPath
 			return values, nil
 		}
 

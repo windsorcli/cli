@@ -7,22 +7,22 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-func TestFeatureDeepCopy(t *testing.T) {
-	t.Run("ReturnsNilForNilFeature", func(t *testing.T) {
-		var f *Feature
+func TestFacetDeepCopy(t *testing.T) {
+	t.Run("ReturnsNilForNilFacet", func(t *testing.T) {
+		var f *Facet
 		result := f.DeepCopy()
 		if result != nil {
 			t.Errorf("Expected nil, got %v", result)
 		}
 	})
 
-	t.Run("CreatesDeepCopyOfFeature", func(t *testing.T) {
-		original := &Feature{
-			Kind:       "Feature",
+	t.Run("CreatesDeepCopyOfFacet", func(t *testing.T) {
+		original := &Facet{
+			Kind:       "Facet",
 			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
 			Metadata: Metadata{
-				Name:        "test-feature",
-				Description: "Test feature",
+				Name:        "test-facet",
+				Description: "Test facet",
 			},
 			When: "provider == 'aws'",
 			TerraformComponents: []ConditionalTerraformComponent{
@@ -187,14 +187,14 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 	})
 }
 
-func TestFeatureYAMLTags(t *testing.T) {
-	t.Run("FeatureMarshalsAndUnmarshalsYAML", func(t *testing.T) {
-		feature := Feature{
-			Kind:       "Feature",
+func TestFacetYAMLTags(t *testing.T) {
+	t.Run("FacetMarshalsAndUnmarshalsYAML", func(t *testing.T) {
+		facet := Facet{
+			Kind:       "Facet",
 			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
 			Metadata: Metadata{
-				Name:        "test-feature",
-				Description: "Test feature description",
+				Name:        "test-facet",
+				Description: "Test facet description",
 			},
 			When: "provider == 'aws'",
 			TerraformComponents: []ConditionalTerraformComponent{
@@ -216,46 +216,46 @@ func TestFeatureYAMLTags(t *testing.T) {
 			},
 		}
 
-		data, err := yaml.Marshal(&feature)
+		data, err := yaml.Marshal(&facet)
 		if err != nil {
-			t.Fatalf("Failed to marshal Feature struct to YAML: %v", err)
+			t.Fatalf("Failed to marshal Facet struct to YAML: %v", err)
 		}
 
-		var out Feature
+		var out Facet
 		err = yaml.Unmarshal(data, &out)
 		if err != nil {
-			t.Fatalf("Failed to unmarshal YAML into Feature struct: %v", err)
+			t.Fatalf("Failed to unmarshal YAML into Facet struct: %v", err)
 		}
 
-		if out.Kind != feature.Kind {
-			t.Errorf("Expected Kind %q, got %q after YAML unmarshal", feature.Kind, out.Kind)
+		if out.Kind != facet.Kind {
+			t.Errorf("Expected Kind %q, got %q after YAML unmarshal", facet.Kind, out.Kind)
 		}
-		if out.ApiVersion != feature.ApiVersion {
-			t.Errorf("Expected ApiVersion %q, got %q after YAML unmarshal", feature.ApiVersion, out.ApiVersion)
+		if out.ApiVersion != facet.ApiVersion {
+			t.Errorf("Expected ApiVersion %q, got %q after YAML unmarshal", facet.ApiVersion, out.ApiVersion)
 		}
-		if out.Metadata.Name != feature.Metadata.Name {
-			t.Errorf("Expected Metadata.Name %q, got %q after YAML unmarshal", feature.Metadata.Name, out.Metadata.Name)
+		if out.Metadata.Name != facet.Metadata.Name {
+			t.Errorf("Expected Metadata.Name %q, got %q after YAML unmarshal", facet.Metadata.Name, out.Metadata.Name)
 		}
-		if out.Metadata.Description != feature.Metadata.Description {
-			t.Errorf("Expected Metadata.Description %q, got %q after YAML unmarshal", feature.Metadata.Description, out.Metadata.Description)
+		if out.Metadata.Description != facet.Metadata.Description {
+			t.Errorf("Expected Metadata.Description %q, got %q after YAML unmarshal", facet.Metadata.Description, out.Metadata.Description)
 		}
-		if out.When != feature.When {
-			t.Errorf("Expected When %q, got %q after YAML unmarshal", feature.When, out.When)
+		if out.When != facet.When {
+			t.Errorf("Expected When %q, got %q after YAML unmarshal", facet.When, out.When)
 		}
-		if len(out.TerraformComponents) != len(feature.TerraformComponents) {
-			t.Errorf("Expected %d TerraformComponents, got %d after YAML unmarshal", len(feature.TerraformComponents), len(out.TerraformComponents))
+		if len(out.TerraformComponents) != len(facet.TerraformComponents) {
+			t.Errorf("Expected %d TerraformComponents, got %d after YAML unmarshal", len(facet.TerraformComponents), len(out.TerraformComponents))
 		}
-		if len(out.Kustomizations) != len(feature.Kustomizations) {
-			t.Errorf("Expected %d Kustomizations, got %d after YAML unmarshal", len(feature.Kustomizations), len(out.Kustomizations))
+		if len(out.Kustomizations) != len(facet.Kustomizations) {
+			t.Errorf("Expected %d Kustomizations, got %d after YAML unmarshal", len(facet.Kustomizations), len(out.Kustomizations))
 		}
 	})
 
-	t.Run("FeatureUnmarshalsDurationStrings", func(t *testing.T) {
-		featureYAML := []byte(`kind: Feature
+	t.Run("FacetUnmarshalsDurationStrings", func(t *testing.T) {
+		facetYAML := []byte(`kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
-  name: test-feature
-  description: Test feature with durations
+  name: test-facet
+  description: Test facet with durations
 kustomize:
   - name: test-kustomization
     path: test/path
@@ -264,17 +264,17 @@ kustomize:
     timeout: 10m
 `)
 
-		var feature Feature
-		err := yaml.Unmarshal(featureYAML, &feature)
+		var facet Facet
+		err := yaml.Unmarshal(facetYAML, &facet)
 		if err != nil {
-			t.Fatalf("Failed to unmarshal Feature with duration strings: %v", err)
+			t.Fatalf("Failed to unmarshal Facet with duration strings: %v", err)
 		}
 
-		if len(feature.Kustomizations) != 1 {
-			t.Fatalf("Expected 1 kustomization, got %d", len(feature.Kustomizations))
+		if len(facet.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(facet.Kustomizations))
 		}
 
-		k := feature.Kustomizations[0]
+		k := facet.Kustomizations[0]
 		if k.Interval == nil {
 			t.Error("Expected Interval to be set, got nil")
 		} else if k.Interval.Duration != 5*time.Minute {

@@ -70,7 +70,7 @@ sources:
     url: oci://ghcr.io/myorg/myblueprint:v1.0.0
 ```
 
-When a blueprint is loaded from an OCI registry, Windsor downloads the artifact, extracts the template data, processes features, and validates the blueprint configuration and CLI version compatibility.
+When a blueprint is loaded from an OCI registry, Windsor downloads the artifact, extracts the template data, processes facets, and validates the blueprint configuration and CLI version compatibility.
 
 ### From Local Archives
 
@@ -89,7 +89,7 @@ The archive path can be:
 The archive should contain a `_template` directory with blueprint files including:
 - `_template/blueprint.yaml` - The base blueprint definition
 - `_template/schema.yaml` - JSON Schema for configuration validation (optional)
-- `_template/features/` - Feature definitions (optional)
+- `_template/facets/` - Facet definitions (optional)
 - `_template/metadata.yaml` - Blueprint metadata including CLI version compatibility (optional)
 
 ## Bundling Blueprints
@@ -119,7 +119,7 @@ The bundle includes all files from `contexts/_template/`:
 - `_template/blueprint.yaml` - Base blueprint definition
 - `_template/schema.yaml` - JSON Schema for validation (if present)
 - `_template/metadata.yaml` - Blueprint metadata (if present)
-- `_template/features/` - All feature definitions
+- `_template/facets/` - All facet definitions
 - Any additional files in `_template/` (e.g., Jsonnet configs, certificates)
 
 ### Using metadata.yaml
@@ -147,7 +147,7 @@ artifact/
 │   ├── blueprint.yaml      # Base blueprint (required)
 │   ├── schema.yaml         # JSON Schema for validation (optional)
 │   ├── metadata.yaml       # Blueprint metadata (optional)
-│   └── features/           # Feature definitions (optional)
+│   └── facets/            # Facet definitions (optional)
 │       ├── aws.yaml
 │       └── observability.yaml
 ├── terraform/          # Local Terraform modules (if present in project)
@@ -168,11 +168,11 @@ The artifact includes local Terraform modules and Kustomize components from your
 
 **`metadata.yaml`** - Blueprint metadata including name, version, and CLI version constraints. See the [Metadata Reference](../reference/metadata.md) for complete metadata options.
 
-**`features/`** - Directory containing Feature definitions that enable conditional blueprint composition based on configuration values. See the [Features Reference](../reference/features.md) for complete feature documentation.
+**`facets/`** - Directory containing Facet definitions that enable conditional blueprint composition based on configuration values. See the [Facets Reference](../reference/facets.md) for complete facet documentation.
 
 ### Additional Files
 
-You can include any additional files in `_template/` that your features reference, such as Jsonnet files, certificates, or configuration files. These are loaded via the `${jsonnet()}` and `${file()}` functions in features. See the [Features Reference](../reference/features.md#file-loading-functions) for details on file loading.
+You can include any additional files in `_template/` that your facets reference, such as Jsonnet files, certificates, or configuration files. These are loaded via the `${jsonnet()}` and `${file()}` functions in facets. See the [Facets Reference](../reference/facets.md#file-loading-functions) for details on file loading.
 
 ### Terraform and Kustomize Resources
 
@@ -234,8 +234,8 @@ CLI version 0.6.5 does not satisfy required constraint '>=0.7.1'
 
 ### Example Scenarios
 
-**Scenario 1: Using new Features syntax**
-If your blueprint uses Features with expression functions introduced in v0.8.0:
+**Scenario 1: Using new Facets syntax**
+If your blueprint uses Facets with expression functions introduced in v0.8.0:
 
 ```yaml
 cliVersion: ">=0.8.0"
@@ -269,7 +269,7 @@ If `cliVersion` is not specified in `metadata.yaml`, the CLI will:
 
 1. **Version your blueprints**: Use semantic versioning in tags (e.g., `v1.0.0`, `v1.1.0`)
 2. **Include metadata.yaml**: Always include `metadata.yaml` with `name` and `cliVersion` for better compatibility checking
-3. **Set `cliVersion` when using new features**: If your blueprint uses features introduced in a specific CLI version, set the constraint accordingly
+3. **Set `cliVersion` when using new features**: If your blueprint uses facets introduced in a specific CLI version, set the constraint accordingly
 4. **Test before sharing**: Verify your blueprint works locally before pushing, and test with the minimum specified CLI version
 5. **Use `>=` for forward compatibility**: Using `">=X.Y.Z"` allows users with newer CLI versions to use your blueprint
 6. **Document dependencies**: Ensure all referenced sources are accessible to users

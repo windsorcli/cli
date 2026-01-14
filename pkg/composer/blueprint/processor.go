@@ -23,11 +23,11 @@ var strategyPriorities = map[string]int{
 // Interface
 // =============================================================================
 
-// BlueprintProcessor evaluates when: conditions on features, terraform components, and kustomizations.
+// BlueprintProcessor evaluates when: conditions on facets, terraform components, and kustomizations.
 // It determines inclusion/exclusion based on boolean condition results.
 // The processor is stateless and shared across all loaders.
 type BlueprintProcessor interface {
-	ProcessFeatures(target *blueprintv1alpha1.Blueprint, features []blueprintv1alpha1.Feature, sourceName ...string) error
+	ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) error
 }
 
 // =============================================================================
@@ -45,9 +45,9 @@ type BaseBlueprintProcessor struct {
 // =============================================================================
 
 // NewBlueprintProcessor creates a new BlueprintProcessor using the runtime's expression evaluator.
-// The evaluator is used to evaluate 'when' conditions on features and components. Optional
+// The evaluator is used to evaluate 'when' conditions on facets and components. Optional
 // overrides allow replacing the evaluator for testing. The processor is stateless and can
-// be shared across multiple concurrent feature processing operations. The evaluator must be
+// be shared across multiple concurrent facet processing operations. The evaluator must be
 // provided either via the runtime or as an override.
 func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 	if rt == nil {
@@ -67,11 +67,11 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // Public Methods
 // =============================================================================
 
-// ProcessFeatures iterates through a list of features, evaluating each feature's 'when' condition
-// against the provided configuration data. Features whose conditions evaluate to true (or have no
+// ProcessFacets iterates through a list of facets, evaluating each facet's 'when' condition
+// against the provided configuration data. Facets whose conditions evaluate to true (or have no
 // condition) contribute their terraform components and kustomizations to the target blueprint.
-// Components within features can also have individual 'when' conditions for fine-grained control.
-// Features are sorted by metadata.name before processing to ensure deterministic output. If sourceName
+// Components within facets can also have individual 'when' conditions for fine-grained control.
+// Facets are sorted by metadata.name before processing to ensure deterministic output. If sourceName
 // is provided, it sets the Source field on components that don't already have one, linking them to
 // their originating OCI artifact. Input expressions and substitutions are preserved as-is for later
 // evaluation by their consumers. Components and kustomizations are processed according to their
@@ -79,26 +79,26 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // priority ones. When priorities are equal, strategy priority is used: "remove" (highest) > "replace" > "merge" (default, lowest).
 // When both priority and strategy are equal, components are merged, removals are accumulated, or replace wins.
 // The target blueprint is modified in place.
-func (p *BaseBlueprintProcessor) ProcessFeatures(target *blueprintv1alpha1.Blueprint, features []blueprintv1alpha1.Feature, sourceName ...string) error {
+func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) error {
 	if target == nil {
 		return fmt.Errorf("target blueprint cannot be nil")
 	}
 
-	if len(features) == 0 {
+	if len(facets) == 0 {
 		return nil
 	}
 
-	sortedFeatures := make([]blueprintv1alpha1.Feature, len(features))
-	copy(sortedFeatures, features)
-	sort.Slice(sortedFeatures, func(i, j int) bool {
-		return sortedFeatures[i].Metadata.Name < sortedFeatures[j].Metadata.Name
+	sortedFacets := make([]blueprintv1alpha1.Facet, len(facets))
+	copy(sortedFacets, facets)
+	sort.Slice(sortedFacets, func(i, j int) bool {
+		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
 	})
 
 	terraformByID := make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent)
 	kustomizationByName := make(map[string]*blueprintv1alpha1.ConditionalKustomization)
 
-	for _, feature := range sortedFeatures {
-		shouldInclude, err := p.shouldIncludeFeature(feature)
+	for _, facet := range sortedFacets {
+		shouldInclude, err := p.shouldIncludeFacet(facet)
 		if err != nil {
 			return err
 		}
@@ -106,11 +106,11 @@ func (p *BaseBlueprintProcessor) ProcessFeatures(target *blueprintv1alpha1.Bluep
 			continue
 		}
 
-		if err := p.collectTerraformComponents(feature, sourceName, terraformByID); err != nil {
+		if err := p.collectTerraformComponents(facet, sourceName, terraformByID); err != nil {
 			return err
 		}
 
-		if err := p.collectKustomizations(feature, sourceName, kustomizationByName); err != nil {
+		if err := p.collectKustomizations(facet, sourceName, kustomizationByName); err != nil {
 			return err
 		}
 	}
@@ -122,13 +122,13 @@ func (p *BaseBlueprintProcessor) ProcessFeatures(target *blueprintv1alpha1.Bluep
 // Private Methods
 // =============================================================================
 
-// collectTerraformComponents processes all terraform components from a feature, evaluating their
+// collectTerraformComponents processes all terraform components from a facet, evaluating their
 // conditions, inputs, and source assignments. Components are collected into the terraformByID map
 // with strategy priority handling. Components with matching IDs are merged or replaced based on
 // their strategy priority. Returns an error if condition evaluation or input processing fails.
-func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1alpha1.Feature, sourceName []string, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent) error {
-	for _, tc := range feature.TerraformComponents {
-		shouldInclude, err := p.shouldIncludeComponent(tc.When, feature.Path)
+func (p *BaseBlueprintProcessor) collectTerraformComponents(facet blueprintv1alpha1.Facet, sourceName []string, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent) error {
+	for _, tc := range facet.TerraformComponents {
+		shouldInclude, err := p.shouldIncludeComponent(tc.When, facet.Path)
 		if err != nil {
 			return fmt.Errorf("error evaluating terraform component condition: %w", err)
 		}
@@ -138,7 +138,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1a
 
 		processed := tc
 		if processed.Inputs != nil {
-			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, feature.Path, false)
+			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, facet.Path, false)
 			if err != nil {
 				return fmt.Errorf("error evaluating inputs for component '%s': %w", processed.GetID(), err)
 			}
@@ -166,14 +166,14 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(feature blueprintv1a
 	return nil
 }
 
-// collectKustomizations processes all kustomizations from a feature, evaluating their conditions,
+// collectKustomizations processes all kustomizations from a facet, evaluating their conditions,
 // substitutions, and source assignments. Kustomizations are collected into the kustomizationByName
 // map with strategy priority handling. Kustomizations with matching names are merged or replaced
 // based on their strategy priority. Returns an error if condition evaluation or substitution
 // processing fails.
-func (p *BaseBlueprintProcessor) collectKustomizations(feature blueprintv1alpha1.Feature, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
-	for _, k := range feature.Kustomizations {
-		shouldInclude, err := p.shouldIncludeComponent(k.When, feature.Path)
+func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
+	for _, k := range facet.Kustomizations {
+		shouldInclude, err := p.shouldIncludeComponent(k.When, facet.Path)
 		if err != nil {
 			return fmt.Errorf("error evaluating kustomization condition: %w", err)
 		}
@@ -183,7 +183,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(feature blueprintv1alpha1
 
 		processed := k
 		if processed.Substitutions != nil {
-			evaluated, err := p.evaluateSubstitutions(processed.Substitutions, feature.Path)
+			evaluated, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path)
 			if err != nil {
 				return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
 			}
@@ -210,16 +210,16 @@ func (p *BaseBlueprintProcessor) collectKustomizations(feature blueprintv1alpha1
 	return nil
 }
 
-// shouldIncludeFeature evaluates whether a feature should be included based on its 'when' condition.
-// Returns true if the feature has no condition or if the condition evaluates to true. Returns
+// shouldIncludeFacet evaluates whether a facet should be included based on its 'when' condition.
+// Returns true if the facet has no condition or if the condition evaluates to true. Returns
 // false if the condition evaluates to false. Returns an error if condition evaluation fails.
-func (p *BaseBlueprintProcessor) shouldIncludeFeature(feature blueprintv1alpha1.Feature) (bool, error) {
-	if feature.When == "" {
+func (p *BaseBlueprintProcessor) shouldIncludeFacet(facet blueprintv1alpha1.Facet) (bool, error) {
+	if facet.When == "" {
 		return true, nil
 	}
-	matches, err := p.evaluateCondition(feature.When, feature.Path)
+	matches, err := p.evaluateCondition(facet.When, facet.Path)
 	if err != nil {
-		return false, fmt.Errorf("error evaluating feature '%s' condition: %w", feature.Metadata.Name, err)
+		return false, fmt.Errorf("error evaluating facet '%s' condition: %w", facet.Metadata.Name, err)
 	}
 	return matches, nil
 }
@@ -228,11 +228,11 @@ func (p *BaseBlueprintProcessor) shouldIncludeFeature(feature blueprintv1alpha1.
 // on its 'when' condition. Returns true if there is no condition or if the condition evaluates
 // to true. Returns false if the condition evaluates to false. Returns an error if condition
 // evaluation fails.
-func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, featurePath string) (bool, error) {
+func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, facetPath string) (bool, error) {
 	if when == "" {
 		return true, nil
 	}
-	matches, err := p.evaluateCondition(when, featurePath)
+	matches, err := p.evaluateCondition(when, facetPath)
 	if err != nil {
 		return false, err
 	}
@@ -243,7 +243,7 @@ func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, featurePath
 // map based on priority and strategy. Priority is compared first: higher priority wins. If priorities
 // are equal, strategy priority is used (remove > replace > merge). If both priority and strategy
 // are equal, components are pre-merged (merge), removals are accumulated (remove), or new replaces existing
-// (replace). For replace operations with equal priority and strategy, the last processed feature
+// (replace). For replace operations with equal priority and strategy, the last processed facet
 // (alphabetically by name) wins. Users should set different priorities to make ordering explicit.
 // Returns an error if the merge operation fails.
 func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(componentID string, new *blueprintv1alpha1.ConditionalTerraformComponent, strategy string, entries map[string]*blueprintv1alpha1.ConditionalTerraformComponent) error {
@@ -319,7 +319,7 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(componentID strin
 // equal, strategy priority is used (remove > replace > merge). If both priority and strategy are
 // equal, kustomizations are pre-merged (merge), removals are accumulated (remove), or new replaces
 // existing (replace). For replace operations with equal priority and strategy, the last processed
-// feature (alphabetically by name) wins. Users should set different priorities to make ordering explicit.
+// facet (alphabetically by name) wins. Users should set different priorities to make ordering explicit.
 // Returns an error if the merge operation fails.
 func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization) error {
 	existing := entries[name]
@@ -601,10 +601,10 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bo
 // Each substitution value is evaluated; if the result contains unresolved expressions, the substitution is skipped.
 // Returned values retain their string form if possible, or are stringified if not. Returns the successfully
 // evaluated substitutions map or an error if evaluation fails for any substitution.
-func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, featurePath string) (map[string]string, error) {
+func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, facetPath string) (map[string]string, error) {
 	result := make(map[string]string)
 	for key, value := range subs {
-		evaluated, err := p.evaluator.Evaluate(value, featurePath, false)
+		evaluated, err := p.evaluator.Evaluate(value, facetPath, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}

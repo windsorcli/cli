@@ -2,32 +2,32 @@
 // +groupName=blueprints.windsorcli.dev
 package v1alpha1
 
-// Feature represents a conditional blueprint fragment that can be merged into a base blueprint.
-// Features enable modular composition of blueprints based on user configuration values.
-// Features inherit Repository and Sources from the base blueprint they are merged into.
-type Feature struct {
-	// Kind is the feature type, following Kubernetes conventions.
+// Facet represents a conditional blueprint fragment that can be merged into a base blueprint.
+// Facets enable modular composition of blueprints based on user configuration values.
+// Facets inherit Repository and Sources from the base blueprint they are merged into.
+type Facet struct {
+	// Kind is the facet type, following Kubernetes conventions.
 	Kind string `yaml:"kind"`
 
-	// ApiVersion is the API schema version of the feature.
+	// ApiVersion is the API schema version of the facet.
 	ApiVersion string `yaml:"apiVersion"`
 
-	// Metadata includes the feature's name and description.
+	// Metadata includes the facet's name and description.
 	Metadata Metadata `yaml:"metadata"`
 
-	// Path is the file path where this feature was loaded from.
+	// Path is the file path where this facet was loaded from.
 	// This is used for resolving relative paths in jsonnet() and file() functions.
 	Path string `yaml:"-"`
 
-	// When is a CEL expression that determines if this feature should be applied.
+	// When is a CEL expression that determines if this facet should be applied.
 	// The expression is evaluated against user configuration values.
 	// Examples: "provider == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
 	When string `yaml:"when,omitempty"`
 
-	// TerraformComponents are Terraform modules in the feature.
+	// TerraformComponents are Terraform modules in the facet.
 	TerraformComponents []ConditionalTerraformComponent `yaml:"terraform,omitempty"`
 
-	// Kustomizations are kustomization configs in the feature.
+	// Kustomizations are kustomization configs in the facet.
 	Kustomizations []ConditionalKustomization `yaml:"kustomize,omitempty"`
 }
 
@@ -36,7 +36,7 @@ type ConditionalTerraformComponent struct {
 	TerraformComponent `yaml:",inline"`
 
 	// When is a CEL expression that determines if this terraform component should be applied.
-	// If empty, the component is always applied when the parent feature matches.
+	// If empty, the component is always applied when the parent facet matches.
 	When string `yaml:"when,omitempty"`
 
 	// Strategy determines how this component is merged into the blueprint.
@@ -47,12 +47,12 @@ type ConditionalTerraformComponent struct {
 	// matching existing component. Remove operations are always applied last after all merge/replace operations.
 	Strategy string `yaml:"strategy,omitempty"`
 
-	// Priority determines the order in which components are processed when multiple features target the same component.
+	// Priority determines the order in which components are processed when multiple facets target the same component.
 	// Higher priority values are processed later and override lower priority components. Default is 0.
 	// When priorities are equal, strategy priority is used (remove > replace > merge).
 	// When both priority and strategy are equal, components are merged, removals are accumulated, or replace wins.
-	// For replace operations with equal priority and strategy, the last processed feature (alphabetically by name) wins.
-	// Set different priorities to make ordering explicit and avoid dependency on feature name ordering.
+	// For replace operations with equal priority and strategy, the last processed facet (alphabetically by name) wins.
+	// Set different priorities to make ordering explicit and avoid dependency on facet name ordering.
 	Priority int `yaml:"priority,omitempty"`
 }
 
@@ -61,7 +61,7 @@ type ConditionalKustomization struct {
 	Kustomization `yaml:",inline"`
 
 	// When is an expression that determines if this kustomization should be applied.
-	// If empty, the kustomization is always applied when the parent feature matches.
+	// If empty, the kustomization is always applied when the parent facet matches.
 	When string `yaml:"when,omitempty"`
 
 	// Strategy determines how this kustomization is merged into the blueprint.
@@ -72,17 +72,17 @@ type ConditionalKustomization struct {
 	// matching existing kustomization. Remove operations are always applied last after all merge/replace operations.
 	Strategy string `yaml:"strategy,omitempty"`
 
-	// Priority determines the order in which kustomizations are processed when multiple features target the same kustomization.
+	// Priority determines the order in which kustomizations are processed when multiple facets target the same kustomization.
 	// Higher priority values are processed later and override lower priority kustomizations. Default is 0.
 	// When priorities are equal, strategy priority is used (remove > replace > merge).
 	// When both priority and strategy are equal, kustomizations are merged, removals are accumulated, or replace wins.
-	// For replace operations with equal priority and strategy, the last processed feature (alphabetically by name) wins.
-	// Set different priorities to make ordering explicit and avoid dependency on feature name ordering.
+	// For replace operations with equal priority and strategy, the last processed facet (alphabetically by name) wins.
+	// Set different priorities to make ordering explicit and avoid dependency on facet name ordering.
 	Priority int `yaml:"priority,omitempty"`
 }
 
-// DeepCopy creates a deep copy of the Feature object.
-func (f *Feature) DeepCopy() *Feature {
+// DeepCopy creates a deep copy of the Facet object.
+func (f *Facet) DeepCopy() *Facet {
 	if f == nil {
 		return nil
 	}
@@ -102,7 +102,7 @@ func (f *Feature) DeepCopy() *Feature {
 		kustomizationsCopy[i] = *kustomization.DeepCopy()
 	}
 
-	return &Feature{
+	return &Facet{
 		Kind:                f.Kind,
 		ApiVersion:          f.ApiVersion,
 		Metadata:            metadataCopy,

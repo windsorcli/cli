@@ -48,8 +48,8 @@ See [Configuration Reference](configuration.md) for details.
 
 The `values.yaml` file is used for dynamic configuration values that don't match the static schema. This is particularly useful for:
 
-- Custom configuration values used by Features in blueprints
-- Values that will be evaluated by expressions in Features
+- Custom configuration values used by Facets in blueprints
+- Values that will be evaluated by expressions in Facets
 - Configuration that varies significantly between contexts
 
 Located at: `contexts/<context-name>/values.yaml`
@@ -57,7 +57,7 @@ Located at: `contexts/<context-name>/values.yaml`
 The `values.yaml` file is:
 - Automatically loaded and merged with the context configuration
 - Validated against the blueprint's JSON Schema (if provided)
-- Available to Features for conditional logic and input evaluation
+- Available to Facets for conditional logic and input evaluation
 - Merged with schema defaults to provide complete configuration values
 
 Example `values.yaml`:
@@ -138,7 +138,7 @@ windsor context get
 The current context is also available via the `WINDSOR_CONTEXT` environment variable.
 
 <div>
-  {{ footer('Configuration', '../configuration/index.html', 'Features', '../features/index.html') }}
+  {{ footer('Configuration', '../configuration/index.html', 'Facets', '../facets/index.html') }}
 </div>
 
 <script>
@@ -146,6 +146,6 @@ The current context is also available via the `WINDSOR_CONTEXT` environment vari
     window.location.href = '../configuration/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../features/index.html'; 
+    window.location.href = '../facets/index.html'; 
   });
 </script>

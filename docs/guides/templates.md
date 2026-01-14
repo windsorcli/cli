@@ -4,17 +4,17 @@ description: "Understanding how blueprint templates work in Windsor"
 ---
 # Blueprint Templates
 
-The `contexts/_template/` directory contains blueprint template files that are shared across all contexts. This directory structure allows you to define reusable blueprint components, features, and schemas that can be customized per-context.
+The `contexts/_template/` directory contains blueprint template files that are shared across all contexts. This directory structure allows you to define reusable blueprint components, facets, and schemas that can be customized per-context.
 
 ## Overview
 
 Blueprint templates provide a way to:
 - Define reusable blueprint components shared across contexts
-- Use Features for conditional blueprint composition
+- Use Facets for conditional blueprint composition
 - Validate configuration with JSON Schema
 - Specify CLI version compatibility requirements
 
-When a context is initialized, Windsor loads the base blueprint from `_template/blueprint.yaml` and processes Features from `_template/features/` to build the final blueprint for that context.
+When a context is initialized, Windsor loads the base blueprint from `_template/blueprint.yaml` and processes Facets from `_template/facets/` to build the final blueprint for that context.
 
 ## Directory Structure
 
@@ -24,7 +24,7 @@ contexts/
     ├── blueprint.yaml      # Base blueprint definition
     ├── schema.yaml         # JSON Schema for configuration validation (optional)
     ├── metadata.yaml       # Blueprint metadata including CLI version compatibility (optional)
-    └── features/           # Feature definitions (optional)
+    └── facets/            # Facet definitions (optional)
         ├── aws.yaml
         ├── observability.yaml
         └── ...
@@ -122,23 +122,23 @@ This ensures that blueprints are only used with compatible CLI versions. Version
 
 If the CLI version doesn't satisfy the constraint, blueprint loading will fail with an error.
 
-### features/
+### facets/
 
-Directory containing Feature definitions. Features enable conditional blueprint composition based on configuration values.
+Directory containing Facet definitions. Facets enable conditional blueprint composition based on configuration values.
 
-Features are automatically loaded from:
-- `_template/features/*.yaml` - Individual feature files
-- `_template/features/**/*.yaml` - Nested feature directories
+Facets are automatically loaded from:
+- `_template/facets/*.yaml` - Individual facet files
+- `_template/facets/**/*.yaml` - Nested facet directories
 
-Features are processed in alphabetical order by name, then merged into the base blueprint.
+Facets are processed in alphabetical order by name, then merged into the base blueprint.
 
-Example feature:
+Example facet:
 
 ```yaml
-kind: Feature
+kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
-  name: aws-feature
+  name: aws-facet
   description: AWS-specific infrastructure components
 when: provider == 'aws'
 terraform:
@@ -149,20 +149,20 @@ terraform:
     strategy: merge
 ```
 
-For detailed information about Features, see the [Features Reference](../reference/features.md).
+For detailed information about Facets, see the [Facets Reference](../reference/facets.md).
 
 ## How Templates Work
 
 1. **Template Loading**: When a blueprint is loaded for a context, Windsor first loads files from `contexts/_template/`
 2. **Schema Validation**: The schema from `_template/schema.yaml` (if present) validates and provides defaults for configuration values from `windsor.yaml` and `values.yaml`
-3. **Feature Processing**: Features from `_template/features/` are evaluated against the context's configuration and merged into the base blueprint
+3. **Facet Processing**: Facets from `_template/facets/` are evaluated against the context's configuration and merged into the base blueprint
 4. **Context Overrides**: Context-specific `blueprint.yaml` files can override or extend the base blueprint
 
 ## File Resolution
 
-Files referenced in features (via `jsonnet()` or `file()` functions) are resolved relative to the feature file location within `_template/`:
+Files referenced in facets (via `jsonnet()` or `file()` functions) are resolved relative to the facet file location within `_template/`:
 
-- Feature at `_template/features/aws.yaml` can reference `_template/features/config.jsonnet`
+- Facet at `_template/facets/aws.yaml` can reference `_template/facets/config.jsonnet`
 - Use `../configs/config.jsonnet` for files in parent directories
 - Paths work with both local filesystem and in-memory template data (from OCI artifacts)
 

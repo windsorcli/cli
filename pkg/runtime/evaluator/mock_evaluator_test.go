@@ -150,19 +150,19 @@ func TestMockExpressionEvaluator_Evaluate(t *testing.T) {
 		mockEvaluator := setupMockEvaluatorMocks(t)
 		expectedResult := 42
 		expectedExpression := "value"
-		expectedFeaturePath := "/test/feature.yaml"
-		mockEvaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		expectedFacetPath := "/test/facet.yaml"
+		mockEvaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
 			if expression != expectedExpression {
 				t.Errorf("Expected expression %s, got %s", expectedExpression, expression)
 			}
-			if featurePath != expectedFeaturePath {
-				t.Errorf("Expected featurePath %s, got %s", expectedFeaturePath, featurePath)
+			if facetPath != expectedFacetPath {
+				t.Errorf("Expected facetPath %s, got %s", expectedFacetPath, facetPath)
 			}
 			return expectedResult, nil
 		}
 
 		// When Evaluate is called
-		result, err := mockEvaluator.Evaluate(expectedExpression, expectedFeaturePath, false)
+		result, err := mockEvaluator.Evaluate(expectedExpression, expectedFacetPath, false)
 
 		// Then no error should be returned and the result should match
 		if err != nil {
@@ -177,7 +177,7 @@ func TestMockExpressionEvaluator_Evaluate(t *testing.T) {
 		// Given a mock evaluator with EvaluateFunc set to return an error
 		mockEvaluator := setupMockEvaluatorMocks(t)
 		expectedError := errors.New("evaluation error")
-		mockEvaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		mockEvaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
 			return nil, expectedError
 		}
 

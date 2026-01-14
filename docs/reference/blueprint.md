@@ -28,7 +28,7 @@ kustomize: #...
 | `kustomize` | `[]Kustomization`      | Contains Kustomization configurations in the blueprint.                     |
 | `configMaps`| `map[string]map[string]string` | Standalone ConfigMaps to be created, not tied to specific kustomizations. These ConfigMaps are referenced by all kustomizations in PostBuild substitution. |
 
-For information about Features, see the [Features Reference](features.md). For schema validation, see the [Schema Reference](schema.md). For blueprint metadata, see the [Metadata Reference](metadata.md).
+For information about Facets, see the [Facets Reference](facets.md). For schema validation, see the [Schema Reference](schema.md). For blueprint metadata, see the [Metadata Reference](metadata.md).
 
 ### Metadata
 Core information about the blueprint, including its identity and authors.
@@ -177,7 +177,7 @@ kustomize:
 
 #### Patches
 
-Patches are provided via Features, not directly in blueprint definitions. See the [Features Reference](features.md#kustomization-patches) for details on how to define patches in features.
+Patches are provided via Facets, not directly in blueprint definitions. See the [Facets Reference](facets.md#kustomization-patches) for details on how to define patches in facets.
 
 ## Cluster Variables
 When running `windsor install`, Kubernetes resources are applied. These resources include a configmap that introduces [post-build variables](https://fluxcd.io/flux/components/kustomize/kustomizations/#post-build-variable-substitution) into the Kubernetes manifests. These variables are outlined as follows:

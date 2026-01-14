@@ -18,9 +18,9 @@ func TestJsonnetHelper(t *testing.T) {
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
 
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		facetPath := filepath.Join(tmpDir, "facet.yaml")
 
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -64,9 +64,9 @@ func TestFileHelper(t *testing.T) {
 		testFile := filepath.Join(tmpDir, "test.txt")
 		os.WriteFile(testFile, []byte("file content"), 0644)
 
-		featurePath := filepath.Join(tmpDir, "feature.yaml")
+		facetPath := filepath.Join(tmpDir, "facet.yaml")
 
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, featurePath, false)
+		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)

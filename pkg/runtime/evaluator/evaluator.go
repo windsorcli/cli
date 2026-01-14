@@ -65,8 +65,8 @@ func (e *DeferredError) Error() string {
 type ExpressionEvaluator interface {
 	HelperRegistrar
 	SetTemplateData(templateData map[string][]byte)
-	Evaluate(expression string, featurePath string, evaluateDeferred bool) (any, error)
-	EvaluateMap(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error)
+	Evaluate(expression string, facetPath string, evaluateDeferred bool) (any, error)
+	EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error)
 }
 
 // HelperRegistrar defines the interface for registering custom helpers with the evaluator.
@@ -127,11 +127,11 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 // Evaluate resolves Windsor expressions in the provided string s, supporting both complete and interpolated
 // (${...}) expressions, arithmetic operations, and complex object types. The evaluation will process dynamic
 // file and jsonnet loading as needed, and can defer unresolved expressions when evaluateDeferred is false.
-// The featurePath parameter is used for relative expression resolution, and evaluateDeferred controls
+// The facetPath parameter is used for relative expression resolution, and evaluateDeferred controls
 // whether to process unresolved expressions immediately. Returns the fully evaluated value, or an error if
 // evaluation fails or the input is malformed. Empty strings are returned as-is. If no evaluation is
 // triggered, or if the result is nil (such as from an undefined variable), the original string s is returned as-is.
-func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDeferred bool) (any, error) {
+func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDeferred bool) (any, error) {
 	if strings.Contains(s, "${") {
 		result := s
 		for strings.Contains(result, "${") {
@@ -145,7 +145,7 @@ func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDef
 			if expr == "" {
 				return nil, fmt.Errorf("expression cannot be empty")
 			}
-			value, err := e.evaluateExpression(expr, featurePath, evaluateDeferred)
+			value, err := e.evaluateExpression(expr, facetPath, evaluateDeferred)
 			if err != nil {
 				if !evaluateDeferred {
 					if _, ok := err.(*DeferredError); ok {
@@ -196,10 +196,10 @@ func (e *expressionEvaluator) Evaluate(s string, featurePath string, evaluateDef
 // and config enrichment. If evaluateDeferred is false, and the result is a string matching the pattern for
 // terraform_output(), the result is returned as an unresolved expression. Returns the evaluation result or an error
 // if compilation or execution fails.
-func (e *expressionEvaluator) evaluateExpression(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, evaluateDeferred bool) (any, error) {
 	config := e.getConfig()
 	enrichedConfig := e.enrichConfig(config)
-	env := e.buildExprEnvironment(enrichedConfig, featurePath, evaluateDeferred)
+	env := e.buildExprEnvironment(enrichedConfig, facetPath, evaluateDeferred)
 	program, err := expr.Compile(expression, env...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
@@ -260,10 +260,10 @@ func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any
 // loading raw file content, split() for string splitting, and CIDR functions (cidrhost,
 // cidrsubnet, cidrsubnets, cidrnetmask) for IP address and network calculations. Helper
 // functions registered via Register() are also included. Each helper includes argument
-// validation and type checking. The config and featurePath are captured in closures to
+// validation and type checking. The config and facetPath are captured in closures to
 // provide context for file resolution during expression evaluation. It also enables AsAny
 // mode to allow dynamic property access.
-func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featurePath string, deferred bool) []expr.Option {
+func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetPath string, deferred bool) []expr.Option {
 	opts := []expr.Option{
 		expr.AsAny(),
 		expr.Function(
@@ -276,7 +276,7 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featur
 				if !ok {
 					return nil, fmt.Errorf("jsonnet() path must be a string, got %T", params[0])
 				}
-				return e.evaluateJsonnetFunction(path, config, featurePath)
+				return e.evaluateJsonnetFunction(path, config, facetPath)
 			},
 			new(func(string) any),
 		),
@@ -290,7 +290,7 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featur
 				if !ok {
 					return nil, fmt.Errorf("file() path must be a string, got %T", params[0])
 				}
-				return e.evaluateFileFunction(path, featurePath)
+				return e.evaluateFileFunction(path, facetPath)
 			},
 			new(func(string) string),
 		),
@@ -422,13 +422,13 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, featur
 // EvaluateMap evaluates a map of values using this expression evaluator.
 // Each string value is evaluated as an expression; maps and arrays are recursively evaluated.
 // When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
-// is preserved in the result. The featurePath parameter is used for context during evaluation.
+// is preserved in the result. The facetPath parameter is used for context during evaluation.
 // Returns a new map containing evaluated values (or original values if deferred), or an error
 // if evaluation fails with a non-deferred error.
-func (e *expressionEvaluator) EvaluateMap(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
 	result := make(map[string]any)
 	for key, value := range values {
-		evaluated, err := e.evaluateValue(value, featurePath, evaluateDeferred)
+		evaluated, err := e.evaluateValue(value, facetPath, evaluateDeferred)
 		if err != nil {
 			if !evaluateDeferred {
 				var deferredErr *DeferredError
@@ -454,10 +454,10 @@ func (e *expressionEvaluator) EvaluateMap(values map[string]any, featurePath str
 // When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
 // is preserved. This ensures that entire input values containing deferred expressions are
 // preserved rather than being partially evaluated or skipped.
-func (e *expressionEvaluator) evaluateValue(value any, featurePath string, evaluateDeferred bool) (any, error) {
+func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluateDeferred bool) (any, error) {
 	switch v := value.(type) {
 	case string:
-		evaluated, err := e.Evaluate(v, featurePath, evaluateDeferred)
+		evaluated, err := e.Evaluate(v, facetPath, evaluateDeferred)
 		if err != nil {
 			if !evaluateDeferred {
 				var deferredErr *DeferredError
@@ -471,7 +471,7 @@ func (e *expressionEvaluator) evaluateValue(value any, featurePath string, evalu
 	case map[string]any:
 		result := make(map[string]any)
 		for k, val := range v {
-			evaluated, err := e.evaluateValue(val, featurePath, evaluateDeferred)
+			evaluated, err := e.evaluateValue(val, facetPath, evaluateDeferred)
 			if err != nil {
 				if !evaluateDeferred {
 					var deferredErr *DeferredError
@@ -494,7 +494,7 @@ func (e *expressionEvaluator) evaluateValue(value any, featurePath string, evalu
 	case []any:
 		result := make([]any, 0, len(v))
 		for _, item := range v {
-			evaluated, err := e.evaluateValue(item, featurePath, evaluateDeferred)
+			evaluated, err := e.evaluateValue(item, facetPath, evaluateDeferred)
 			if err != nil {
 				if !evaluateDeferred {
 					var deferredErr *DeferredError
@@ -525,36 +525,36 @@ func (e *expressionEvaluator) evaluateValue(value any, featurePath string, evalu
 // passed to the Jsonnet VM as external code. Helper functions and import paths are
 // configured, then the Jsonnet is evaluated and the JSON output is unmarshaled.
 // Returns the evaluated value or an error if loading, evaluation, or parsing fails.
-func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map[string]any, featurePath string) (any, error) {
+func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map[string]any, facetPath string) (any, error) {
 	var content []byte
 	var err error
 
 	if e.templateData != nil {
-		content = e.lookupInTemplateData(pathArg, featurePath)
+		content = e.lookupInTemplateData(pathArg, facetPath)
 	}
 
 	var path string
 	if content == nil {
-		path = e.resolvePath(pathArg, featurePath)
+		path = e.resolvePath(pathArg, facetPath)
 		content, err = e.Shims.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
 		}
 	} else {
-		if e.templateRoot != "" && featurePath != "" {
-			featureAbsPath := featurePath
-			if !filepath.IsAbs(featurePath) {
-				featureAbsPath = filepath.Join(e.templateRoot, featurePath)
+		if e.templateRoot != "" && facetPath != "" {
+			facetAbsPath := facetPath
+			if !filepath.IsAbs(facetPath) {
+				facetAbsPath = filepath.Join(e.templateRoot, facetPath)
 			}
-			featureDir := filepath.Dir(featureAbsPath)
-			resolvedAbsPath := filepath.Clean(filepath.Join(featureDir, pathArg))
+			facetDir := filepath.Dir(facetAbsPath)
+			resolvedAbsPath := filepath.Clean(filepath.Join(facetDir, pathArg))
 			if relPath, err := filepath.Rel(e.templateRoot, resolvedAbsPath); err == nil && !strings.HasPrefix(relPath, "..") {
 				path = filepath.Join(e.templateRoot, relPath)
 			} else {
 				path = resolvedAbsPath
 			}
 		} else {
-			path = e.resolvePath(pathArg, featurePath)
+			path = e.resolvePath(pathArg, facetPath)
 		}
 	}
 
@@ -736,18 +736,18 @@ func (e *expressionEvaluator) buildHelperLibrary() string {
 // It first attempts to find the file in template data using lookupInTemplateData, then
 // tries a fallback lookup relative to the template root if available. If not found in
 // template data, it reads the file from the filesystem. The path is resolved relative
-// to the featurePath or project root as appropriate. Returns the file content as a
+// to the facetPath or project root as appropriate. Returns the file content as a
 // string or an error if the file cannot be found or read.
-func (e *expressionEvaluator) evaluateFileFunction(pathArg string, featurePath string) (any, error) {
+func (e *expressionEvaluator) evaluateFileFunction(pathArg string, facetPath string) (any, error) {
 	var content []byte
 	var err error
 
 	if e.templateData != nil {
-		content = e.lookupInTemplateData(pathArg, featurePath)
+		content = e.lookupInTemplateData(pathArg, facetPath)
 	}
 
 	if content == nil {
-		path := e.resolvePath(pathArg, featurePath)
+		path := e.resolvePath(pathArg, facetPath)
 		content, err = e.Shims.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file %s: %w", path, err)
@@ -758,12 +758,12 @@ func (e *expressionEvaluator) evaluateFileFunction(pathArg string, featurePath s
 }
 
 // lookupInTemplateData attempts to find file content in the template data map.
-// It resolves the path argument relative to the feature file's directory, converting
-// the feature path to a relative path from the template root if available. The resolved
+// It resolves the path argument relative to the facet file's directory, converting
+// the facet path to a relative path from the template root if available. The resolved
 // path is used to look up the file in template data, checking both with and without
 // the "_template/" prefix. For paths that go up directories (../), it ensures the
 // resolved path stays within the template root. Returns the file content if found, or nil if not present.
-func (e *expressionEvaluator) lookupInTemplateData(pathArg string, featurePath string) []byte {
+func (e *expressionEvaluator) lookupInTemplateData(pathArg string, facetPath string) []byte {
 	if e.templateData == nil {
 		return nil
 	}
@@ -773,7 +773,7 @@ func (e *expressionEvaluator) lookupInTemplateData(pathArg string, featurePath s
 		return nil
 	}
 
-	if featurePath == "" {
+	if facetPath == "" {
 		return nil
 	}
 
@@ -781,13 +781,13 @@ func (e *expressionEvaluator) lookupInTemplateData(pathArg string, featurePath s
 		return nil
 	}
 
-	featureAbsPath := featurePath
-	if !filepath.IsAbs(featurePath) {
-		featureAbsPath = filepath.Join(e.templateRoot, featurePath)
+	facetAbsPath := facetPath
+	if !filepath.IsAbs(facetPath) {
+		facetAbsPath = filepath.Join(e.templateRoot, facetPath)
 	}
 
-	featureDir := filepath.Dir(featureAbsPath)
-	resolvedAbsPath := filepath.Clean(filepath.Join(featureDir, pathArg))
+	facetDir := filepath.Dir(facetAbsPath)
+	resolvedAbsPath := filepath.Clean(filepath.Join(facetDir, pathArg))
 
 	if relPath, err := filepath.Rel(e.templateRoot, resolvedAbsPath); err == nil && !strings.HasPrefix(relPath, "..") {
 		resolvedRelPath := strings.ReplaceAll(relPath, "\\", "/")
@@ -808,19 +808,19 @@ func (e *expressionEvaluator) lookupInTemplateData(pathArg string, featurePath s
 
 // resolvePath resolves a file path to an absolute, cleaned path.
 // If the path is already absolute, it is cleaned and returned. For relative paths,
-// it first tries to resolve relative to the featurePath's directory if provided.
+// it first tries to resolve relative to the facetPath's directory if provided.
 // Otherwise, it falls back to the project root if set. The result is always an
 // absolute path with normalized separators and cleaned of redundant elements.
-func (e *expressionEvaluator) resolvePath(path string, featurePath string) string {
+func (e *expressionEvaluator) resolvePath(path string, facetPath string) string {
 	path = strings.TrimSpace(path)
 
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
 
-	if featurePath != "" {
-		featureDir := filepath.Dir(featurePath)
-		return filepath.Clean(filepath.Join(featureDir, path))
+	if facetPath != "" {
+		facetDir := filepath.Dir(facetPath)
+		return filepath.Clean(filepath.Join(facetDir, path))
 	}
 
 	if e.projectRoot != "" {
