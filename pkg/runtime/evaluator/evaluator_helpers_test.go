@@ -449,6 +449,19 @@ func TestCidrSubnetHelper(t *testing.T) {
 			t.Errorf("Expected error message about overflow, got: %v", err)
 		}
 	})
+
+	t.Run("CidrSubnetWithIPv6OffsetOverflow", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${cidrsubnet("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ff00/120", 0, 1)}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for IPv6 offset overflow, got nil")
+		}
+		if !strings.Contains(err.Error(), "too large") {
+			t.Errorf("Expected error message about offset being too large, got: %v", err)
+		}
+	})
 }
 
 func TestCidrSubnetsHelper(t *testing.T) {
@@ -619,6 +632,19 @@ func TestCidrSubnetsHelper(t *testing.T) {
 
 		if resultArray[1] != "10.5.1.0/24" {
 			t.Errorf("Expected result[1] to be '10.5.1.0/24' (using network base address), got '%v'", resultArray[1])
+		}
+	})
+
+	t.Run("CidrSubnetsWithIPv6OffsetOverflow", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${cidrsubnets("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ff00/120", 0, 0)}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for IPv6 offset overflow, got nil")
+		}
+		if !strings.Contains(err.Error(), "too large") {
+			t.Errorf("Expected error message about offset being too large, got: %v", err)
 		}
 	})
 }

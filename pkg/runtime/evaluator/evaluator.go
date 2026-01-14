@@ -957,6 +957,9 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 			}
 			subnetIP[i] = byte(val)
 		}
+		if offset64 > 0 {
+			return "", fmt.Errorf("offset %d is too large for CIDR %s", offset, prefix)
+		}
 	}
 
 	mask := net.CIDRMask(newPrefixLen, bits)
@@ -1021,6 +1024,9 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 					val &= 0xff
 				}
 				subnetIP[j] = byte(val)
+			}
+			if offset64 > 0 {
+				return nil, fmt.Errorf("offset %d is too large for CIDR %s", offset, prefix)
 			}
 		}
 
