@@ -1519,8 +1519,17 @@ spec:
 		patchesDir := mocks.Runtime.ConfigRoot + "/patches/my-app"
 		os.MkdirAll(patchesDir, 0755)
 		patchFile := patchesDir + "/patch.yaml"
-		os.WriteFile(patchFile, []byte("valid: patch"), 0000)
+		os.WriteFile(patchFile, []byte("valid: patch"), 0644)
+
 		composer := NewBlueprintComposer(mocks.Runtime)
+		originalReadFile := composer.shims.ReadFile
+		composer.shims.ReadFile = func(path string) ([]byte, error) {
+			if path == patchFile {
+				return nil, os.ErrPermission
+			}
+			return originalReadFile(path)
+		}
+
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "my-app"},
@@ -1537,8 +1546,6 @@ spec:
 		if len(blueprint.Kustomizations[0].Patches) != 0 {
 			t.Errorf("Expected 0 patches, got %d", len(blueprint.Kustomizations[0].Patches))
 		}
-
-		os.Chmod(patchFile, 0644)
 	})
 
 	t.Run("HandlesNilPatchFromParsePatch", func(t *testing.T) {
