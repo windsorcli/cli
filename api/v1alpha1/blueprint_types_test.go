@@ -2632,3 +2632,193 @@ timeout:
 		}
 	})
 }
+
+func TestBoolExpression_MarshalYAML(t *testing.T) {
+	t.Run("PreservesExpressionInRoundTrip", func(t *testing.T) {
+		yamlData := []byte(`destroy: "${shouldDestroy}"`)
+
+		var component struct {
+			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+		}
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Destroy == nil {
+			t.Fatal("Expected Destroy to be set")
+		}
+		if !component.Destroy.IsExpr {
+			t.Error("Expected IsExpr to be true")
+		}
+		if component.Destroy.Expr != "${shouldDestroy}" {
+			t.Errorf("Expected Expr to be '${shouldDestroy}', got %q", component.Destroy.Expr)
+		}
+		if component.Destroy.Value != nil {
+			t.Error("Expected Value to be nil for expression")
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip struct {
+			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+		}
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Destroy == nil {
+			t.Fatal("Expected Destroy to be preserved after round-trip")
+		}
+		if !roundTrip.Destroy.IsExpr {
+			t.Error("Expected IsExpr to be true after round-trip")
+		}
+		if roundTrip.Destroy.Expr != "${shouldDestroy}" {
+			t.Errorf("Expected Expr to be preserved as '${shouldDestroy}', got %q", roundTrip.Destroy.Expr)
+		}
+	})
+
+	t.Run("PreservesBooleanValueInRoundTrip", func(t *testing.T) {
+		yamlData := []byte(`destroy: true`)
+
+		var component struct {
+			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+		}
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Destroy == nil {
+			t.Fatal("Expected Destroy to be set")
+		}
+		if component.Destroy.IsExpr {
+			t.Error("Expected IsExpr to be false")
+		}
+		if component.Destroy.Value == nil || !*component.Destroy.Value {
+			t.Error("Expected Value to be true")
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip struct {
+			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+		}
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Destroy == nil {
+			t.Fatal("Expected Destroy to be preserved after round-trip")
+		}
+		if roundTrip.Destroy.IsExpr {
+			t.Error("Expected IsExpr to be false after round-trip")
+		}
+		if roundTrip.Destroy.Value == nil || !*roundTrip.Destroy.Value {
+			t.Error("Expected Value to be true after round-trip")
+		}
+	})
+}
+
+func TestIntExpression_MarshalYAML(t *testing.T) {
+	t.Run("PreservesExpressionInRoundTrip", func(t *testing.T) {
+		yamlData := []byte(`parallelism: "${cluster.parallelism ?? 10}"`)
+
+		var component struct {
+			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+		}
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Parallelism == nil {
+			t.Fatal("Expected Parallelism to be set")
+		}
+		if !component.Parallelism.IsExpr {
+			t.Error("Expected IsExpr to be true")
+		}
+		if component.Parallelism.Expr != "${cluster.parallelism ?? 10}" {
+			t.Errorf("Expected Expr to be '${cluster.parallelism ?? 10}', got %q", component.Parallelism.Expr)
+		}
+		if component.Parallelism.Value != nil {
+			t.Error("Expected Value to be nil for expression")
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip struct {
+			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+		}
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Parallelism == nil {
+			t.Fatal("Expected Parallelism to be preserved after round-trip")
+		}
+		if !roundTrip.Parallelism.IsExpr {
+			t.Error("Expected IsExpr to be true after round-trip")
+		}
+		if roundTrip.Parallelism.Expr != "${cluster.parallelism ?? 10}" {
+			t.Errorf("Expected Expr to be preserved as '${cluster.parallelism ?? 10}', got %q", roundTrip.Parallelism.Expr)
+		}
+	})
+
+	t.Run("PreservesIntegerValueInRoundTrip", func(t *testing.T) {
+		yamlData := []byte(`parallelism: 5`)
+
+		var component struct {
+			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+		}
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Parallelism == nil {
+			t.Fatal("Expected Parallelism to be set")
+		}
+		if component.Parallelism.IsExpr {
+			t.Error("Expected IsExpr to be false")
+		}
+		if component.Parallelism.Value == nil || *component.Parallelism.Value != 5 {
+			t.Error("Expected Value to be 5")
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip struct {
+			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+		}
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Parallelism == nil {
+			t.Fatal("Expected Parallelism to be preserved after round-trip")
+		}
+		if roundTrip.Parallelism.IsExpr {
+			t.Error("Expected IsExpr to be false after round-trip")
+		}
+		if roundTrip.Parallelism.Value == nil || *roundTrip.Parallelism.Value != 5 {
+			t.Error("Expected Value to be 5 after round-trip")
+		}
+	})
+}

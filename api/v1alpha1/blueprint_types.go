@@ -94,13 +94,16 @@ type BoolExpression struct {
 
 // MarshalYAML implements yaml.Marshaler to write boolean as a bool or expression string.
 func (b *BoolExpression) MarshalYAML() (any, error) {
-	if b == nil || b.Value == nil {
+	if b == nil {
 		return nil, nil
 	}
 	if b.IsExpr && b.Expr != "" {
 		return b.Expr, nil
 	}
-	return *b.Value, nil
+	if b.Value != nil {
+		return *b.Value, nil
+	}
+	return nil, nil
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler to read boolean from a bool or string expression.
@@ -149,13 +152,16 @@ type IntExpression struct {
 
 // MarshalYAML implements yaml.Marshaler to write integer as an int or expression string.
 func (i *IntExpression) MarshalYAML() (any, error) {
-	if i == nil || i.Value == nil {
+	if i == nil {
 		return nil, nil
 	}
 	if i.IsExpr && i.Expr != "" {
 		return i.Expr, nil
 	}
-	return *i.Value, nil
+	if i.Value != nil {
+		return *i.Value, nil
+	}
+	return nil, nil
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler to read integer from an int or string expression.
