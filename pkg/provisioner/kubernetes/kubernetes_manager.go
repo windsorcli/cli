@@ -694,7 +694,8 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 
 	toDelete := []blueprintv1alpha1.Kustomization{}
 	for _, kustomization := range blueprint.Kustomizations {
-		if kustomization.Destroy == nil || *kustomization.Destroy {
+		destroy := kustomization.Destroy.ToBool()
+		if destroy == nil || *destroy {
 			toDelete = append(toDelete, kustomization)
 		}
 	}

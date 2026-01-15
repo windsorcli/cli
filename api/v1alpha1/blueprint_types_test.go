@@ -10,12 +10,12 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
-func intPtr(i int) *int {
-	return &i
+func boolExprPtr(b bool) *BoolExpression {
+	return &BoolExpression{Value: &b, IsExpr: false}
 }
 
-func boolPtr(b bool) *bool {
-	return &b
+func intExprPtr(i int) *IntExpression {
+	return &IntExpression{Value: &i, IsExpr: false}
 }
 
 func TestBlueprint_StrategicMerge(t *testing.T) {
@@ -328,15 +328,15 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		base := &Blueprint{
 			TerraformComponents: []TerraformComponent{
 				{Path: "gitops/flux", Source: "core", DependsOn: []string{"cluster/talos"}},
-				{Path: "cluster/talos", Source: "core", Parallelism: intPtr(1)},
+				{Path: "cluster/talos", Source: "core", Parallelism: intExprPtr(1)},
 			},
 		}
 
 		// When strategic merging with same components but different order
 		overlay := &Blueprint{
 			TerraformComponents: []TerraformComponent{
-				{Path: "cluster/talos", Source: "core", Parallelism: intPtr(1)},
-				{Path: "gitops/flux", Source: "core", DependsOn: []string{"cluster/talos"}, Destroy: boolPtr(false)},
+				{Path: "cluster/talos", Source: "core", Parallelism: intExprPtr(1)},
+				{Path: "gitops/flux", Source: "core", DependsOn: []string{"cluster/talos"}, Destroy: boolExprPtr(false)},
 			},
 		}
 
@@ -357,12 +357,14 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 
 		// Verify properties are merged correctly
 		cluster := base.TerraformComponents[0]
-		if cluster.Parallelism == nil || *cluster.Parallelism != 1 {
+		parallelism := cluster.Parallelism.ToInt()
+		if parallelism == nil || *parallelism != 1 {
 			t.Errorf("Expected cluster parallelism to be 1")
 		}
 
 		flux := base.TerraformComponents[1]
-		if flux.Destroy == nil || *flux.Destroy != false {
+		destroy := flux.Destroy.ToBool()
+		if destroy == nil || *destroy != false {
 			t.Errorf("Expected flux destroy to be false")
 		}
 		if len(flux.DependsOn) != 1 || flux.DependsOn[0] != "cluster/talos" {
@@ -721,7 +723,7 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 					Name:    "test",
 					Path:    "original-path",
 					Source:  "original-source",
-					Destroy: ptrBool(false),
+					Destroy: boolExprPtr(false),
 				},
 			},
 		}
@@ -733,7 +735,7 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 					Name:    "test", // Same name - should merge
 					Path:    "updated-path",
 					Source:  "updated-source",
-					Destroy: ptrBool(true),
+					Destroy: boolExprPtr(true),
 					// Note: not setting Components or DependsOn - should preserve existing
 				},
 			},
@@ -749,8 +751,9 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		if kustomization.Source != "updated-source" {
 			t.Errorf("Expected source to be updated to 'updated-source', got '%s'", kustomization.Source)
 		}
-		if kustomization.Destroy == nil || *kustomization.Destroy != true {
-			t.Errorf("Expected destroy to be updated to true, got %v", kustomization.Destroy)
+		destroy := kustomization.Destroy.ToBool()
+		if destroy == nil || *destroy != true {
+			t.Errorf("Expected destroy to be updated to true, got %v", destroy)
 		}
 	})
 
@@ -949,7 +952,7 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 					Source:    "core",
 					Inputs:    map[string]any{"cidr": "10.0.0.0/16", "enable_dns": false},
 					DependsOn: []string{"backend", "security"},
-					Destroy:   ptrBool(true),
+					Destroy:   boolExprPtr(true),
 				},
 			},
 		}
@@ -960,8 +963,8 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 			Source:      "core",
 			Inputs:      map[string]any{"cidr": "172.16.0.0/16"},
 			DependsOn:   []string{"new-dependency"},
-			Destroy:     ptrBool(false),
-			Parallelism: intPtr(5),
+			Destroy:     boolExprPtr(false),
+			Parallelism: intExprPtr(5),
 		}
 
 		err := base.ReplaceTerraformComponent(replacement)
@@ -993,11 +996,13 @@ func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
 		if replaced.DependsOn[0] != "new-dependency" {
 			t.Errorf("Expected new dependency, got %v", replaced.DependsOn)
 		}
-		if replaced.Destroy == nil || *replaced.Destroy != false {
-			t.Errorf("Expected destroy=false, got %v", replaced.Destroy)
+		destroy := replaced.Destroy.ToBool()
+		if destroy == nil || *destroy != false {
+			t.Errorf("Expected destroy=false, got %v", destroy)
 		}
-		if replaced.Parallelism == nil || *replaced.Parallelism != 5 {
-			t.Errorf("Expected parallelism=5, got %v", replaced.Parallelism)
+		parallelism := replaced.Parallelism.ToInt()
+		if parallelism == nil || *parallelism != 5 {
+			t.Errorf("Expected parallelism=5, got %v", parallelism)
 		}
 	})
 
@@ -1096,7 +1101,7 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 					Source:     "original-source",
 					Components: []string{"nginx", "cert-manager"},
 					DependsOn:  []string{"pki", "dns"},
-					Destroy:    ptrBool(true),
+					Destroy:    boolExprPtr(true),
 				},
 			},
 		}
@@ -1108,7 +1113,7 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 			Source:     "new-source",
 			Components: []string{"traefik"},
 			DependsOn:  []string{"new-dependency"},
-			Destroy:    ptrBool(false),
+			Destroy:    boolExprPtr(false),
 		}
 
 		err := base.ReplaceKustomization(replacement)
@@ -1143,8 +1148,9 @@ func TestBlueprint_ReplaceKustomization(t *testing.T) {
 		if replaced.DependsOn[0] != "new-dependency" {
 			t.Errorf("Expected new dependency, got %v", replaced.DependsOn)
 		}
-		if replaced.Destroy == nil || *replaced.Destroy != false {
-			t.Errorf("Expected destroy=false, got %v", replaced.Destroy)
+		destroy := replaced.Destroy.ToBool()
+		if destroy == nil || *destroy != false {
+			t.Errorf("Expected destroy=false, got %v", destroy)
 		}
 	})
 
@@ -1819,7 +1825,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Wait:          &wait,
 			Force:         &force,
 			Prune:         &prune,
-			Destroy:       &destroy,
+			Destroy:       boolExprPtr(destroy),
 			Components:    []string{"comp1", "comp2"},
 			Patches: []BlueprintPatch{
 				{
@@ -1992,7 +1998,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		kustomization := &Kustomization{
 			Name:    "test-kustomization",
 			Path:    "test/path",
-			Destroy: &destroy,
+			Destroy: boolExprPtr(destroy),
 		}
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
@@ -2007,7 +2013,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		kustomization := &Kustomization{
 			Name:    "test-kustomization",
 			Path:    "test/path",
-			Destroy: &destroy,
+			Destroy: boolExprPtr(destroy),
 		}
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
@@ -2133,8 +2139,8 @@ func TestTerraformComponent_DeepCopy(t *testing.T) {
 			FullPath:    "/full/test/path",
 			DependsOn:   []string{"dep1", "dep2"},
 			Inputs:      map[string]any{"key1": "value1", "key2": 42},
-			Destroy:     boolPtr(true),
-			Parallelism: intPtr(3),
+			Destroy:     boolExprPtr(true),
+			Parallelism: intExprPtr(3),
 		}
 
 		copy := component.DeepCopy()
@@ -2163,11 +2169,13 @@ func TestTerraformComponent_DeepCopy(t *testing.T) {
 		if copy.Inputs["key2"] != 42 {
 			t.Errorf("Expected input key2=42, got '%v'", copy.Inputs["key2"])
 		}
-		if copy.Destroy == nil || *copy.Destroy != true {
-			t.Errorf("Expected destroy=true, got %v", copy.Destroy)
+		destroy := copy.Destroy.ToBool()
+		if destroy == nil || *destroy != true {
+			t.Errorf("Expected destroy=true, got %v", destroy)
 		}
-		if copy.Parallelism == nil || *copy.Parallelism != 3 {
-			t.Errorf("Expected parallelism=3, got %v", copy.Parallelism)
+		parallelism := copy.Parallelism.ToInt()
+		if parallelism == nil || *parallelism != 3 {
+			t.Errorf("Expected parallelism=3, got %v", parallelism)
 		}
 
 		// Verify it's a deep copy (modifying copy shouldn't affect original)
@@ -2304,7 +2312,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 			Prune:         &prune,
 			Components:    []string{"comp1", "comp2"},
 			Cleanup:       []string{"cleanup1"},
-			Destroy:       &destroy,
+			Destroy:       boolExprPtr(destroy),
 			Substitutions: map[string]string{"key1": "value1", "key2": "value2"},
 		}
 
@@ -2361,8 +2369,9 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		if copy.Cleanup[0] != "cleanup1" {
 			t.Errorf("Expected cleanup ['cleanup1'], got %v", copy.Cleanup)
 		}
-		if copy.Destroy == nil || *copy.Destroy != false {
-			t.Errorf("Expected destroy=false, got %v", copy.Destroy)
+		destroyVal := copy.Destroy.ToBool()
+		if destroyVal == nil || *destroyVal != false {
+			t.Errorf("Expected destroy=false, got %v", destroyVal)
 		}
 		if len(copy.Substitutions) != 2 {
 			t.Errorf("Expected 2 substitutions, got %d", len(copy.Substitutions))
@@ -2620,6 +2629,196 @@ timeout:
 			t.Error("Expected Timeout to be set, got nil")
 		} else if k.Timeout.Duration != 10*time.Minute {
 			t.Errorf("Expected Timeout duration 10m, got %v", k.Timeout.Duration)
+		}
+	})
+}
+
+func TestBoolExpression_MarshalYAML(t *testing.T) {
+	t.Run("PreservesExpressionInRoundTrip", func(t *testing.T) {
+		yamlData := []byte(`destroy: "${shouldDestroy}"`)
+
+		var component struct {
+			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+		}
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Destroy == nil {
+			t.Fatal("Expected Destroy to be set")
+		}
+		if !component.Destroy.IsExpr {
+			t.Error("Expected IsExpr to be true")
+		}
+		if component.Destroy.Expr != "${shouldDestroy}" {
+			t.Errorf("Expected Expr to be '${shouldDestroy}', got %q", component.Destroy.Expr)
+		}
+		if component.Destroy.Value != nil {
+			t.Error("Expected Value to be nil for expression")
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip struct {
+			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+		}
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Destroy == nil {
+			t.Fatal("Expected Destroy to be preserved after round-trip")
+		}
+		if !roundTrip.Destroy.IsExpr {
+			t.Error("Expected IsExpr to be true after round-trip")
+		}
+		if roundTrip.Destroy.Expr != "${shouldDestroy}" {
+			t.Errorf("Expected Expr to be preserved as '${shouldDestroy}', got %q", roundTrip.Destroy.Expr)
+		}
+	})
+
+	t.Run("PreservesBooleanValueInRoundTrip", func(t *testing.T) {
+		yamlData := []byte(`destroy: true`)
+
+		var component struct {
+			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+		}
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Destroy == nil {
+			t.Fatal("Expected Destroy to be set")
+		}
+		if component.Destroy.IsExpr {
+			t.Error("Expected IsExpr to be false")
+		}
+		if component.Destroy.Value == nil || !*component.Destroy.Value {
+			t.Error("Expected Value to be true")
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip struct {
+			Destroy *BoolExpression `yaml:"destroy,omitempty"`
+		}
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Destroy == nil {
+			t.Fatal("Expected Destroy to be preserved after round-trip")
+		}
+		if roundTrip.Destroy.IsExpr {
+			t.Error("Expected IsExpr to be false after round-trip")
+		}
+		if roundTrip.Destroy.Value == nil || !*roundTrip.Destroy.Value {
+			t.Error("Expected Value to be true after round-trip")
+		}
+	})
+}
+
+func TestIntExpression_MarshalYAML(t *testing.T) {
+	t.Run("PreservesExpressionInRoundTrip", func(t *testing.T) {
+		yamlData := []byte(`parallelism: "${cluster.parallelism ?? 10}"`)
+
+		var component struct {
+			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+		}
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Parallelism == nil {
+			t.Fatal("Expected Parallelism to be set")
+		}
+		if !component.Parallelism.IsExpr {
+			t.Error("Expected IsExpr to be true")
+		}
+		if component.Parallelism.Expr != "${cluster.parallelism ?? 10}" {
+			t.Errorf("Expected Expr to be '${cluster.parallelism ?? 10}', got %q", component.Parallelism.Expr)
+		}
+		if component.Parallelism.Value != nil {
+			t.Error("Expected Value to be nil for expression")
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip struct {
+			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+		}
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Parallelism == nil {
+			t.Fatal("Expected Parallelism to be preserved after round-trip")
+		}
+		if !roundTrip.Parallelism.IsExpr {
+			t.Error("Expected IsExpr to be true after round-trip")
+		}
+		if roundTrip.Parallelism.Expr != "${cluster.parallelism ?? 10}" {
+			t.Errorf("Expected Expr to be preserved as '${cluster.parallelism ?? 10}', got %q", roundTrip.Parallelism.Expr)
+		}
+	})
+
+	t.Run("PreservesIntegerValueInRoundTrip", func(t *testing.T) {
+		yamlData := []byte(`parallelism: 5`)
+
+		var component struct {
+			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+		}
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Parallelism == nil {
+			t.Fatal("Expected Parallelism to be set")
+		}
+		if component.Parallelism.IsExpr {
+			t.Error("Expected IsExpr to be false")
+		}
+		if component.Parallelism.Value == nil || *component.Parallelism.Value != 5 {
+			t.Error("Expected Value to be 5")
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip struct {
+			Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+		}
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Parallelism == nil {
+			t.Fatal("Expected Parallelism to be preserved after round-trip")
+		}
+		if roundTrip.Parallelism.IsExpr {
+			t.Error("Expected IsExpr to be false after round-trip")
+		}
+		if roundTrip.Parallelism.Value == nil || *roundTrip.Parallelism.Value != 5 {
+			t.Error("Expected Value to be 5 after round-trip")
 		}
 	})
 }

@@ -144,6 +144,27 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(facet blueprintv1alp
 			}
 			processed.Inputs = evaluated
 		}
+		if len(processed.DependsOn) > 0 {
+			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path)
+			if err != nil {
+				return fmt.Errorf("error evaluating dependsOn for component '%s': %w", processed.GetID(), err)
+			}
+			processed.DependsOn = evaluated
+		}
+		if processed.Destroy != nil && processed.Destroy.IsExpr {
+			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path)
+			if err != nil {
+				return fmt.Errorf("error evaluating destroy for component '%s': %w", processed.GetID(), err)
+			}
+			processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
+		}
+		if processed.Parallelism != nil && processed.Parallelism.IsExpr {
+			evaluated, err := p.evaluateIntegerExpression(processed.Parallelism.Expr, facet.Path)
+			if err != nil {
+				return fmt.Errorf("error evaluating parallelism for component '%s': %w", processed.GetID(), err)
+			}
+			processed.Parallelism = &blueprintv1alpha1.IntExpression{Value: evaluated, IsExpr: false}
+		}
 		if processed.Source == "" && len(sourceName) > 0 && sourceName[0] != "" && sourceName[0] != "primary" {
 			processed.Source = sourceName[0]
 		}
@@ -188,6 +209,34 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 				return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
 			}
 			processed.Substitutions = evaluated
+		}
+		if len(processed.DependsOn) > 0 {
+			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path)
+			if err != nil {
+				return fmt.Errorf("error evaluating dependsOn for kustomization '%s': %w", processed.Name, err)
+			}
+			processed.DependsOn = evaluated
+		}
+		if len(processed.Components) > 0 {
+			evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path)
+			if err != nil {
+				return fmt.Errorf("error evaluating components for kustomization '%s': %w", processed.Name, err)
+			}
+			processed.Components = evaluated
+		}
+		if len(processed.Cleanup) > 0 {
+			evaluated, err := p.evaluateStringSlice(processed.Cleanup, facet.Path)
+			if err != nil {
+				return fmt.Errorf("error evaluating cleanup for kustomization '%s': %w", processed.Name, err)
+			}
+			processed.Cleanup = evaluated
+		}
+		if processed.Destroy != nil && processed.Destroy.IsExpr {
+			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path)
+			if err != nil {
+				return fmt.Errorf("error evaluating destroy for kustomization '%s': %w", processed.Name, err)
+			}
+			processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
 		}
 		if processed.Source == "" && len(sourceName) > 0 && sourceName[0] != "" && sourceName[0] != "primary" {
 			processed.Source = sourceName[0]
@@ -618,6 +667,117 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 		}
 	}
 	return result, nil
+}
+
+// evaluateStringSlice evaluates a slice of strings, allowing expressions in each string.
+// Uses evaluateDeferred=true to disallow deferred expressions (they will error).
+// If an expression evaluates to an array, the array is flattened into the result.
+// Filters out empty strings and nil values from the result.
+// Returns the evaluated and filtered string slice, or an error if evaluation fails.
+func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath string) ([]string, error) {
+	if len(slice) == 0 {
+		return nil, nil
+	}
+
+	result := make([]string, 0, len(slice))
+	for _, s := range slice {
+		evaluated, err := p.evaluator.Evaluate(s, facetPath, true)
+		if err != nil {
+			return nil, err
+		}
+		if evaluated == nil {
+			continue
+		}
+		switch v := evaluated.(type) {
+		case string:
+			if v != "" {
+				result = append(result, v)
+			}
+		case []any:
+			for _, item := range v {
+				if item == nil {
+					continue
+				}
+				var str string
+				switch itemVal := item.(type) {
+				case string:
+					str = itemVal
+				default:
+					str = fmt.Sprintf("%v", itemVal)
+				}
+				if str != "" {
+					result = append(result, str)
+				}
+			}
+		default:
+			str := fmt.Sprintf("%v", v)
+			if str != "" {
+				result = append(result, str)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// evaluateBooleanExpression evaluates a boolean expression string.
+// Uses evaluateDeferred=true to disallow deferred expressions (they will error).
+// Returns the evaluated boolean value, or an error if evaluation fails or the result is not a boolean.
+func (p *BaseBlueprintProcessor) evaluateBooleanExpression(expr string, facetPath string) (*bool, error) {
+	if expr == "" {
+		return nil, nil
+	}
+	evaluated, err := p.evaluator.Evaluate(expr, facetPath, true)
+	if err != nil {
+		return nil, err
+	}
+	var result bool
+	switch v := evaluated.(type) {
+	case bool:
+		result = v
+	case string:
+		switch v {
+		case "true":
+			result = true
+		case "false":
+			result = false
+		default:
+			return nil, fmt.Errorf("expected boolean, got string %q", v)
+		}
+	default:
+		return nil, fmt.Errorf("expected boolean, got %T", evaluated)
+	}
+	return &result, nil
+}
+
+// evaluateIntegerExpression evaluates an integer expression string.
+// Uses evaluateDeferred=true to disallow deferred expressions (they will error).
+// Returns the evaluated integer value, or an error if evaluation fails or the result is not an integer.
+func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPath string) (*int, error) {
+	if expr == "" {
+		return nil, nil
+	}
+	evaluated, err := p.evaluator.Evaluate(expr, facetPath, true)
+	if err != nil {
+		return nil, err
+	}
+	var result int
+	switch v := evaluated.(type) {
+	case int:
+		result = v
+	case int64:
+		result = int(v)
+	case float64:
+		result = int(v)
+	case string:
+		parsed, err := fmt.Sscanf(v, "%d", &result)
+		if err != nil || parsed != 1 {
+			return nil, fmt.Errorf("expected integer, got string %q", v)
+		}
+	default:
+		return nil, fmt.Errorf("expected integer, got %T", evaluated)
+	}
+	return &result, nil
 }
 
 // =============================================================================

@@ -309,9 +309,12 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID, modulePath string
 	destroyArgs = append(destroyArgs, varFileArgs...)
 
 	if component != nil && component.Parallelism != nil {
-		parallelismArg := fmt.Sprintf("-parallelism=%d", *component.Parallelism)
-		applyArgs = append(applyArgs, parallelismArg)
-		destroyArgs = append(destroyArgs, parallelismArg)
+		parallelism := component.Parallelism.ToInt()
+		if parallelism != nil {
+			parallelismArg := fmt.Sprintf("-parallelism=%d", *parallelism)
+			applyArgs = append(applyArgs, parallelismArg)
+			destroyArgs = append(destroyArgs, parallelismArg)
+		}
 	}
 
 	applyArgs = append(applyArgs, tfPlanPath)

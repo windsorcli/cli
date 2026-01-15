@@ -2829,7 +2829,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{
 					Name:    "test-kustomization-1",
-					Destroy: &destroyFalse,
+					Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse, IsExpr: false},
 				},
 				{
 					Name:    "test-kustomization-2",
