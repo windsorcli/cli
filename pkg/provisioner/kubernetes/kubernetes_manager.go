@@ -702,6 +702,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		}
 	}
 
+	destroyOnlyKustomizations := []blueprintv1alpha1.Kustomization{}
 	for _, kustomization := range blueprint.Kustomizations {
 		if kustomization.DestroyOnly == nil || !*kustomization.DestroyOnly {
 			continue
@@ -710,7 +711,11 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		if destroy != nil && !*destroy {
 			continue
 		}
-		if errs := k.applyWaitDeleteKustomization(kustomization, blueprint, namespace, defaultSourceName); len(errs) > 0 {
+		destroyOnlyKustomizations = append(destroyOnlyKustomizations, kustomization)
+	}
+
+	if len(destroyOnlyKustomizations) > 0 {
+		if errs := k.processDestroyOnlyKustomizations(destroyOnlyKustomizations, blueprint, namespace, defaultSourceName); len(errs) > 0 {
 			return fmt.Errorf("cleanup failed: %w", errs[0])
 		}
 	}
@@ -904,91 +909,125 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 	return errors
 }
 
-// applyWaitDeleteKustomization applies a kustomization, waits for it to be ready, then deletes it.
-// Used for destroy-only kustomizations that need to run during destroy lifecycle.
+// processDestroyOnlyKustomizations applies all destroy-only kustomizations, waits for all to become ready, then deletes all.
+// This approach ensures dependencies remain available while Flux reconciles dependent kustomizations.
 // Returns a slice of errors encountered during the process, which may be empty if no errors occurred.
-func (k *BaseKubernetesManager) applyWaitDeleteKustomization(kustomization blueprintv1alpha1.Kustomization, blueprint *blueprintv1alpha1.Blueprint, namespace, defaultSourceName string) []error {
+func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations []blueprintv1alpha1.Kustomization, blueprint *blueprintv1alpha1.Blueprint, namespace, defaultSourceName string) []error {
 	var errors []error
 
-	if len(kustomization.Substitutions) > 0 {
-		configMapName := fmt.Sprintf("values-%s", kustomization.Name)
-		if err := k.ApplyConfigMap(configMapName, namespace, kustomization.Substitutions); err != nil {
-			errors = append(errors, fmt.Errorf("failed to create ConfigMap for destroy-only kustomization %s: %w", kustomization.Name, err))
-			return errors
-		}
+	destroyOnlyNames := make(map[string]bool)
+	for _, kust := range kustomizations {
+		destroyOnlyNames[kust.Name] = true
 	}
 
-	fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
-
-	if len(blueprint.ConfigMaps) > 0 {
-		if fluxKustomization.Spec.PostBuild == nil {
-			fluxKustomization.Spec.PostBuild = &kustomizev1.PostBuild{
-				SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
+	for _, kustomization := range kustomizations {
+		if len(kustomization.Substitutions) > 0 {
+			configMapName := fmt.Sprintf("values-%s", kustomization.Name)
+			if err := k.ApplyConfigMap(configMapName, namespace, kustomization.Substitutions); err != nil {
+				errors = append(errors, fmt.Errorf("failed to create ConfigMap for destroy-only kustomization %s: %w", kustomization.Name, err))
+				return errors
 			}
 		}
-		for configMapName := range blueprint.ConfigMaps {
-			fluxKustomization.Spec.PostBuild.SubstituteFrom = append(fluxKustomization.Spec.PostBuild.SubstituteFrom, kustomizev1.SubstituteReference{
-				Kind:     "ConfigMap",
-				Name:     configMapName,
-				Optional: false,
-			})
+
+		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
+
+		filteredDependsOn := make([]kustomizev1.DependencyReference, 0)
+		for _, dep := range fluxKustomization.Spec.DependsOn {
+			if destroyOnlyNames[dep.Name] {
+				filteredDependsOn = append(filteredDependsOn, dep)
+			}
 		}
-	}
+		fluxKustomization.Spec.DependsOn = filteredDependsOn
 
-	applySpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	applySpin.Suffix = fmt.Sprintf(" 🔧 Applying destroy-only kustomization %s", kustomization.Name)
-	applySpin.Start()
+		if len(blueprint.ConfigMaps) > 0 {
+			if fluxKustomization.Spec.PostBuild == nil {
+				fluxKustomization.Spec.PostBuild = &kustomizev1.PostBuild{
+					SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
+				}
+			}
+			for configMapName := range blueprint.ConfigMaps {
+				fluxKustomization.Spec.PostBuild.SubstituteFrom = append(fluxKustomization.Spec.PostBuild.SubstituteFrom, kustomizev1.SubstituteReference{
+					Kind:     "ConfigMap",
+					Name:     configMapName,
+					Optional: false,
+				})
+			}
+		}
 
-	if err := k.ApplyKustomization(fluxKustomization); err != nil {
+		applySpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+		applySpin.Suffix = fmt.Sprintf(" 🔧 Applying destroy-only kustomization %s", kustomization.Name)
+		applySpin.Start()
+
+		if err := k.ApplyKustomization(fluxKustomization); err != nil {
+			applySpin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔧 Applying destroy-only kustomization %s - Failed\033[0m\n", kustomization.Name)
+			errors = append(errors, fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err))
+			return errors
+		}
 		applySpin.Stop()
-		errors = append(errors, fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err))
-		return errors
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔧 Applied destroy-only kustomization %s\n", kustomization.Name)
 	}
+
+	kustomizationNames := make([]string, len(kustomizations))
+	for i, kust := range kustomizations {
+		kustomizationNames[i] = kust.Name
+	}
+
+	waitSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	waitSpin.Suffix = fmt.Sprintf(" ⏳ Waiting for %d destroy-only kustomization(s) to become ready", len(kustomizations))
+	waitSpin.Start()
 
 	waitTimeout := time.After(k.kustomizationReconcileTimeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
-	ready := false
+	allReady := false
 	statusCheckFailed := false
 
-applyLoop:
-	for !ready {
+waitLoop:
+	for !allReady {
 		select {
 		case <-waitTimeout:
-			break applyLoop
+			break waitLoop
 		case <-ticker.C:
-			status, err := k.GetKustomizationStatus([]string{kustomization.Name})
+			status, err := k.GetKustomizationStatus(kustomizationNames)
 			if err != nil {
-				errors = append(errors, fmt.Errorf("destroy-only kustomization %s failed: %w", kustomization.Name, err))
+				errors = append(errors, fmt.Errorf("destroy-only kustomizations failed: %w", err))
 				statusCheckFailed = true
-				break applyLoop
+				break waitLoop
 			}
-			if status[kustomization.Name] {
-				ready = true
+			allReady = true
+			for _, name := range kustomizationNames {
+				if !status[name] {
+					allReady = false
+					break
+				}
 			}
 		}
 	}
 	ticker.Stop()
-	applySpin.Stop()
+	waitSpin.Stop()
 
-	if !ready {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔧 Applying destroy-only kustomization %s - Failed\033[0m\n", kustomization.Name)
+	if !allReady {
+		fmt.Fprintf(os.Stderr, "\033[31m✗ ⏳ Waiting for destroy-only kustomizations - Failed\033[0m\n")
 		if !statusCheckFailed {
-			errors = append(errors, fmt.Errorf("destroy-only kustomization %s did not become ready within timeout - cleanup may not have completed", kustomization.Name))
+			errors = append(errors, fmt.Errorf("destroy-only kustomizations did not become ready within timeout - cleanup may not have completed"))
 		}
 		return errors
 	}
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔧 Applying destroy-only kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m ⏳ All destroy-only kustomizations ready\n")
 
-	deleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	deleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting destroy-only kustomization %s", kustomization.Name)
-	deleteSpin.Start()
+	for i := len(kustomizations) - 1; i >= 0; i-- {
+		kustomization := kustomizations[i]
+		deleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+		deleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting destroy-only kustomization %s", kustomization.Name)
+		deleteSpin.Start()
 
-	if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
-		deleteSpin.Stop()
-		errors = append(errors, fmt.Errorf("failed to delete destroy-only kustomization %s: %w", kustomization.Name, err))
-	} else {
-		deleteSpin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting destroy-only kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
+		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
+			deleteSpin.Stop()
+			errors = append(errors, fmt.Errorf("failed to delete destroy-only kustomization %s: %w", kustomization.Name, err))
+		} else {
+			deleteSpin.Stop()
+			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting destroy-only kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
+		}
 	}
 
 	return errors

@@ -3638,6 +3638,196 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("DestroyOnlyWithDependencyOnAnotherDestroyOnly", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var appliedKustomizations []map[string]any
+		deletedResources := make(map[string]bool)
+
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				spec, _ := obj.Object["spec"].(map[string]any)
+				appliedKustomizations = append(appliedKustomizations, map[string]any{
+					"name":      obj.GetName(),
+					"dependsOn": spec["dependsOn"],
+				})
+			}
+			return obj, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deletedResources[name] = true
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if deletedResources[name] {
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only-a"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
+							},
+						},
+					},
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only-b"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:        "destroy-only-a",
+					DestroyOnly: &destroyOnlyTrue,
+				},
+				{
+					Name:        "destroy-only-b",
+					DestroyOnly: &destroyOnlyTrue,
+					DependsOn:   []string{"destroy-only-a"},
+				},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if len(appliedKustomizations) != 2 {
+			t.Fatalf("Expected 2 kustomizations applied, got %d", len(appliedKustomizations))
+		}
+
+		var kustB map[string]any
+		for _, k := range appliedKustomizations {
+			if k["name"] == "destroy-only-b" {
+				kustB = k
+				break
+			}
+		}
+
+		if kustB == nil {
+			t.Fatal("Expected destroy-only-b to be applied")
+		}
+
+		dependsOn, ok := kustB["dependsOn"].([]any)
+		if !ok || len(dependsOn) != 1 {
+			t.Errorf("Expected destroy-only-b to have 1 dependency, got %v", kustB["dependsOn"])
+		}
+	})
+
+	t.Run("DestroyOnlyFiltersDependencyOnRegularKustomization", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var appliedKustomizations []map[string]any
+		deletedResources := make(map[string]bool)
+
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				spec, _ := obj.Object["spec"].(map[string]any)
+				appliedKustomizations = append(appliedKustomizations, map[string]any{
+					"name":      obj.GetName(),
+					"dependsOn": spec["dependsOn"],
+				})
+			}
+			return obj, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deletedResources[name] = true
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if deletedResources[name] {
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only-cleanup"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "regular-kustomization",
+				},
+				{
+					Name:        "destroy-only-cleanup",
+					DestroyOnly: &destroyOnlyTrue,
+					DependsOn:   []string{"regular-kustomization"},
+				},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		var destroyOnlyKust map[string]any
+		for _, k := range appliedKustomizations {
+			if k["name"] == "destroy-only-cleanup" {
+				destroyOnlyKust = k
+				break
+			}
+		}
+
+		if destroyOnlyKust == nil {
+			t.Fatal("Expected destroy-only-cleanup to be applied")
+		}
+
+		dependsOn := destroyOnlyKust["dependsOn"]
+		if dependsOn != nil {
+			deps, ok := dependsOn.([]any)
+			if ok && len(deps) > 0 {
+				t.Errorf("Expected dependency on regular kustomization to be filtered out, got %v", dependsOn)
+			}
+		}
+	})
+
 	t.Run("SuccessWithCleanupKustomizations", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
