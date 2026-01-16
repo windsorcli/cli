@@ -4372,6 +4372,101 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			t.Errorf("Expected error containing 'failed to delete cleanup kustomization', got %v", err)
 		}
 	})
+
+	t.Run("DestroyOnlyKustomizationHasCommonMetadataLabels", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var appliedKustomization kustomizev1.Kustomization
+		deletedResources := make(map[string]bool)
+
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &appliedKustomization); err != nil {
+					t.Fatalf("Failed to convert kustomization: %v", err)
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deletedResources[name] = true
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			if deletedResources[name] {
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		}
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
+		}
+
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:        "destroy-only",
+					DestroyOnly: &destroyOnlyTrue,
+					Path:        "test/path",
+				},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if appliedKustomization.Spec.CommonMetadata == nil {
+			t.Fatal("Expected CommonMetadata to be set on destroy-only kustomization")
+		}
+
+		if appliedKustomization.Spec.CommonMetadata.Labels == nil {
+			t.Fatal("Expected CommonMetadata.Labels to be set on destroy-only kustomization")
+		}
+
+		contextLabel, ok := appliedKustomization.Spec.CommonMetadata.Labels["windsorcli.dev/context"]
+		if !ok {
+			t.Error("Expected 'windsorcli.dev/context' label to be set")
+		}
+		if contextLabel != "test-context" {
+			t.Errorf("Expected 'windsorcli.dev/context' label to be 'test-context', got '%s'", contextLabel)
+		}
+
+		contextIDLabel, ok := appliedKustomization.Spec.CommonMetadata.Labels["windsorcli.dev/context-id"]
+		if !ok {
+			t.Error("Expected 'windsorcli.dev/context-id' label to be set")
+		}
+		if contextIDLabel != "test-context-id" {
+			t.Errorf("Expected 'windsorcli.dev/context-id' label to be 'test-context-id', got '%s'", contextIDLabel)
+		}
+	})
 }
 
 func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
@@ -5130,6 +5225,73 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		}
 		if appliedKustomization.Spec.PostBuild.SubstituteFrom[0].Name != "values-csi" {
 			t.Errorf("Expected SubstituteFrom to be values-csi, got '%s'", appliedKustomization.Spec.PostBuild.SubstituteFrom[0].Name)
+		}
+	})
+
+	t.Run("RegularKustomizationHasCommonMetadataLabels", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var appliedKustomization kustomizev1.Kustomization
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &appliedKustomization); err != nil {
+					t.Fatalf("Failed to convert kustomization: %v", err)
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "test-source",
+					Url:  "https://github.com/example/repo.git",
+					Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+				},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "test-kustomization",
+					Path: "test/path",
+				},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		if appliedKustomization.Spec.CommonMetadata == nil {
+			t.Fatal("Expected CommonMetadata to be set on regular kustomization")
+		}
+
+		if appliedKustomization.Spec.CommonMetadata.Labels == nil {
+			t.Fatal("Expected CommonMetadata.Labels to be set on regular kustomization")
+		}
+
+		contextLabel, ok := appliedKustomization.Spec.CommonMetadata.Labels["windsorcli.dev/context"]
+		if !ok {
+			t.Error("Expected 'windsorcli.dev/context' label to be set")
+		}
+		if contextLabel != "test-context" {
+			t.Errorf("Expected 'windsorcli.dev/context' label to be 'test-context', got '%s'", contextLabel)
+		}
+
+		contextIDLabel, ok := appliedKustomization.Spec.CommonMetadata.Labels["windsorcli.dev/context-id"]
+		if !ok {
+			t.Error("Expected 'windsorcli.dev/context-id' label to be set")
+		}
+		if contextIDLabel != "test-context-id" {
+			t.Errorf("Expected 'windsorcli.dev/context-id' label to be 'test-context-id', got '%s'", contextIDLabel)
 		}
 	})
 }

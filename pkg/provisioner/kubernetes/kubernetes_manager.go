@@ -951,6 +951,13 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 
 		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
 
+		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
+			Labels: map[string]string{
+				"windsorcli.dev/context":    k.configHandler.GetContext(),
+				"windsorcli.dev/context-id": k.configHandler.GetString("id"),
+			},
+		}
+
 		filteredDependsOn := make([]kustomizev1.DependencyReference, 0)
 		for _, dep := range fluxKustomization.Spec.DependsOn {
 			if destroyOnlyNames[dep.Name] {
