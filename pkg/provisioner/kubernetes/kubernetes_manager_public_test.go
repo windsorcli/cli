@@ -15,6 +15,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,6 +27,7 @@ import (
 type KubernetesTestMocks struct {
 	Shims            *Shims
 	KubernetesClient client.KubernetesClient
+	ConfigHandler    config.ConfigHandler
 }
 
 // setupKubernetesMocks creates mock components for testing the KubernetesManager with optional overrides
@@ -40,9 +42,24 @@ func setupKubernetesMocks(t *testing.T, opts ...func(*KubernetesTestMocks)) *Kub
 		return &unstructured.Unstructured{}, nil
 	}
 
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetContextFunc = func() string {
+		return "test-context"
+	}
+	mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+		if key == "id" {
+			return "test-context-id"
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return ""
+	}
+
 	mocks := &KubernetesTestMocks{
 		Shims:            setupDefaultShims(),
 		KubernetesClient: kubernetesClient,
+		ConfigHandler:    mockConfigHandler,
 	}
 
 	// Apply any overrides
@@ -66,7 +83,7 @@ func TestBaseKubernetesManager_ApplyKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
@@ -196,7 +213,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
@@ -326,7 +343,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
@@ -640,7 +657,7 @@ func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -683,7 +700,7 @@ func TestBaseKubernetesManager_DeleteNamespace(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -745,7 +762,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		// Use shorter timeouts for tests
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
@@ -920,7 +937,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -967,7 +984,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	t.Run("KustomizationNotReady", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -1008,7 +1025,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	t.Run("KustomizationFailed", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -1054,7 +1071,7 @@ func TestBaseKubernetesManager_ApplyConfigMap(t *testing.T) {
 	t.Run("KustomizationMissing", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -1262,7 +1279,7 @@ func TestBaseKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -1370,7 +1387,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -1465,7 +1482,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -1560,7 +1577,7 @@ func TestBaseKubernetesManager_ApplyGitRepository(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -1796,7 +1813,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -1835,7 +1852,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("ListResourcesError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -1856,7 +1873,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -1901,7 +1918,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("RepositoryNotReady", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -1943,7 +1960,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("OCIRepositoryNotReady", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -1990,7 +2007,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("OCIRepositoryListError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2016,7 +2033,7 @@ func TestBaseKubernetesManager_CheckGitRepositoryStatus(t *testing.T) {
 	t.Run("OCIRepositoryFromUnstructuredError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2056,7 +2073,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2097,7 +2114,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	t.Run("ListResourcesError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2121,7 +2138,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	t.Run("FromUnstructuredError", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2168,7 +2185,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	t.Run("KustomizationNotReady", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2209,7 +2226,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	t.Run("KustomizationFailed", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2255,7 +2272,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	t.Run("KustomizationArtifactFailed", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2301,7 +2318,7 @@ func TestBaseKubernetesManager_GetKustomizationStatus(t *testing.T) {
 	t.Run("KustomizationMissing", func(t *testing.T) {
 		manager := func(t *testing.T) *BaseKubernetesManager {
 			mocks := setupKubernetesMocks(t)
-			manager := NewKubernetesManager(mocks.KubernetesClient)
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 			return manager
 		}(t)
 		kubernetesClient := client.NewMockKubernetesClient()
@@ -2347,7 +2364,7 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		manager.healthCheckPollInterval = 50 * time.Millisecond
 		manager.nodeReadyPollInterval = 50 * time.Millisecond
 		return manager
@@ -2539,7 +2556,7 @@ func TestBaseKubernetesManager_ApplyOCIRepository(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -2696,7 +2713,7 @@ func TestBaseKubernetesManager_GetNodeReadyStatus(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -2759,7 +2776,7 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.kustomizationReconcileSleep = 50 * time.Millisecond
@@ -3252,7 +3269,7 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		manager.shims = mocks.Shims
 		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
 			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
