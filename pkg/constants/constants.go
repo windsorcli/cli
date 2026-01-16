@@ -67,6 +67,10 @@ const DefaultFluxSourceTimeout = 2 * time.Minute
 
 const DefaultFluxCleanupTimeout = 30 * time.Minute
 
+const DefaultCleanupNamespace = "system-cleanup"
+
+const DefaultCleanupSemaphoreName = "cleanup-authorized"
+
 // Used for aggregate CLI wait (not per-resource)
 const DefaultKustomizationWaitTotalTimeout = 10 * time.Minute
 

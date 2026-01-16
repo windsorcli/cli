@@ -696,6 +696,12 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 	defaultSourceName := blueprint.Metadata.Name
 	var errors []error
 
+	if k.hasCleanupOperations(blueprint) {
+		if err := k.deployCleanupSemaphore(); err != nil {
+			errors = append(errors, fmt.Errorf("failed to deploy cleanup semaphore: %w", err))
+		}
+	}
+
 	for _, kustomization := range blueprint.Kustomizations {
 		if kustomization.DestroyOnly == nil || !*kustomization.DestroyOnly {
 			continue
@@ -1004,6 +1010,43 @@ func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, 
 
 	_, err = k.client.ApplyResource(gvr, obj, opts)
 	return err
+}
+
+// hasCleanupOperations checks if any kustomization in the blueprint has destroy-only or cleanup operations.
+func (k *BaseKubernetesManager) hasCleanupOperations(blueprint *blueprintv1alpha1.Blueprint) bool {
+	for _, kustomization := range blueprint.Kustomizations {
+		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
+			destroy := kustomization.Destroy.ToBool()
+			if destroy == nil || *destroy {
+				return true
+			}
+		}
+		if len(kustomization.Cleanup) > 0 {
+			destroy := kustomization.Destroy.ToBool()
+			if destroy == nil || *destroy {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// deployCleanupSemaphore creates the cleanup namespace and authorization semaphore ConfigMap.
+func (k *BaseKubernetesManager) deployCleanupSemaphore() error {
+	if err := k.CreateNamespace(constants.DefaultCleanupNamespace); err != nil {
+		return fmt.Errorf("failed to create cleanup namespace: %w", err)
+	}
+
+	semaphoreData := map[string]string{
+		"authorized": "true",
+		"timestamp":  time.Now().Format(time.RFC3339),
+	}
+	if err := k.ApplyConfigMap(constants.DefaultCleanupSemaphoreName, constants.DefaultCleanupNamespace, semaphoreData); err != nil {
+		return fmt.Errorf("failed to create cleanup semaphore: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔓 Cleanup authorization semaphore deployed\n")
+	return nil
 }
 
 // getHelmRelease gets a HelmRelease by name and namespace
