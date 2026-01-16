@@ -732,7 +732,8 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 
 	if len(destroyOnlyKustomizations) > 0 {
 		if errs := k.processDestroyOnlyKustomizations(destroyOnlyKustomizations, blueprint, namespace, defaultSourceName); len(errs) > 0 {
-			return fmt.Errorf("cleanup failed: %w", errs[0])
+			errors = append(errors, errs...)
+			return fmt.Errorf("cleanup failed with %d error(s): %v", len(errors), errors[0])
 		}
 	}
 
