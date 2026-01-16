@@ -738,6 +738,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Components:    slices.Clone(k.Components),
 		Cleanup:       slices.Clone(k.Cleanup),
 		Destroy:       k.Destroy,
+		DestroyOnly:   k.DestroyOnly,
 		Substitutions: maps.Clone(k.Substitutions),
 	}
 }

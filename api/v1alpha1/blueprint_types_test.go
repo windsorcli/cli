@@ -2289,6 +2289,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		force := false
 		prune := true
 		destroy := false
+		destroyOnly := true
 
 		kustomization := &Kustomization{
 			Name:          "test-kustomization",
@@ -2313,6 +2314,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 			Components:    []string{"comp1", "comp2"},
 			Cleanup:       []string{"cleanup1"},
 			Destroy:       boolExprPtr(destroy),
+			DestroyOnly:   &destroyOnly,
 			Substitutions: map[string]string{"key1": "value1", "key2": "value2"},
 		}
 
@@ -2372,6 +2374,9 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		destroyVal := copy.Destroy.ToBool()
 		if destroyVal == nil || *destroyVal != false {
 			t.Errorf("Expected destroy=false, got %v", destroyVal)
+		}
+		if copy.DestroyOnly == nil || *copy.DestroyOnly != true {
+			t.Errorf("Expected destroyOnly=true, got %v", copy.DestroyOnly)
 		}
 		if len(copy.Substitutions) != 2 {
 			t.Errorf("Expected 2 substitutions, got %d", len(copy.Substitutions))
