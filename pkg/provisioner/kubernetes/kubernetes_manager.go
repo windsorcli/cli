@@ -891,6 +891,9 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 				if !cleanupStatusCheckFailed {
 					errors = append(errors, fmt.Errorf("cleanup kustomization %s did not become ready within timeout - cleanup may not have completed", cleanupKustomizationName))
 				}
+				if deleteErr := k.DeleteKustomization(cleanupKustomizationName, namespace); deleteErr != nil {
+					errors = append(errors, fmt.Errorf("failed to delete failed cleanup kustomization %s: %w", cleanupKustomizationName, deleteErr))
+				}
 				return errors
 			}
 			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", kustomization.Name)
@@ -1026,6 +1029,12 @@ waitLoop:
 		fmt.Fprintf(os.Stderr, "\033[31m✗ ⏳ Waiting for destroy-only kustomizations - Failed\033[0m\n")
 		if !statusCheckFailed {
 			errors = append(errors, fmt.Errorf("destroy-only kustomizations did not become ready within timeout - cleanup may not have completed"))
+		}
+		for i := len(kustomizations) - 1; i >= 0; i-- {
+			kustomization := kustomizations[i]
+			if deleteErr := k.DeleteKustomization(kustomization.Name, namespace); deleteErr != nil {
+				errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", kustomization.Name, deleteErr))
+			}
 		}
 		return errors
 	}

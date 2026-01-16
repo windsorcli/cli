@@ -2776,7 +2776,7 @@ func TestBaseKubernetesManager_hasCleanupOperations(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		return NewKubernetesManager(mocks.KubernetesClient)
+		return NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 	}
 
 	t.Run("ReturnsFalseForEmptyBlueprint", func(t *testing.T) {
@@ -2874,7 +2874,7 @@ func TestBaseKubernetesManager_deployCleanupSemaphore(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		return NewKubernetesManager(mocks.KubernetesClient)
+		return NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 	}
 
 	t.Run("Success", func(t *testing.T) {
