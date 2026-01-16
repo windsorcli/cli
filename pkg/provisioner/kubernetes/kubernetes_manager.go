@@ -842,6 +842,7 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 			waitTimeout := time.After(k.kustomizationReconcileTimeout)
 			ticker := time.NewTicker(k.kustomizationWaitPollInterval)
 			cleanupReady := false
+			cleanupStatusCheckFailed := false
 
 		cleanupLoop:
 			for !cleanupReady {
@@ -853,6 +854,7 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 					if err != nil {
 						cleanupSpin.Stop()
 						errors = append(errors, fmt.Errorf("cleanup kustomization %s failed: %w", cleanupKustomizationName, err))
+						cleanupStatusCheckFailed = true
 						break cleanupLoop
 					}
 					if status[cleanupKustomizationName] {
@@ -865,7 +867,9 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 
 			if !cleanupReady {
 				fmt.Fprintf(os.Stderr, "\033[31m✗ 🧹 Applying cleanup kustomization for %s - Failed\033[0m\n", kustomization.Name)
-				errors = append(errors, fmt.Errorf("cleanup kustomization %s did not become ready within timeout - cleanup may not have completed", cleanupKustomizationName))
+				if !cleanupStatusCheckFailed {
+					errors = append(errors, fmt.Errorf("cleanup kustomization %s did not become ready within timeout - cleanup may not have completed", cleanupKustomizationName))
+				}
 				return errors
 			}
 			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", kustomization.Name)
@@ -944,6 +948,7 @@ func (k *BaseKubernetesManager) applyWaitDeleteKustomization(kustomization bluep
 	waitTimeout := time.After(k.kustomizationReconcileTimeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
 	ready := false
+	statusCheckFailed := false
 
 applyLoop:
 	for !ready {
@@ -954,6 +959,7 @@ applyLoop:
 			status, err := k.GetKustomizationStatus([]string{kustomization.Name})
 			if err != nil {
 				errors = append(errors, fmt.Errorf("destroy-only kustomization %s failed: %w", kustomization.Name, err))
+				statusCheckFailed = true
 				break applyLoop
 			}
 			if status[kustomization.Name] {
@@ -966,7 +972,9 @@ applyLoop:
 
 	if !ready {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔧 Applying destroy-only kustomization %s - Failed\033[0m\n", kustomization.Name)
-		errors = append(errors, fmt.Errorf("destroy-only kustomization %s did not become ready within timeout - cleanup may not have completed", kustomization.Name))
+		if !statusCheckFailed {
+			errors = append(errors, fmt.Errorf("destroy-only kustomization %s did not become ready within timeout - cleanup may not have completed", kustomization.Name))
+		}
 		return errors
 	}
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔧 Applying destroy-only kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
