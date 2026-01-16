@@ -18,7 +18,7 @@ func TestBaseKubernetesManager_waitForNodesReady(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		manager.nodeReadyPollInterval = 50 * time.Millisecond
 		return manager
 	}
@@ -398,7 +398,7 @@ func TestBaseKubernetesManager_getHelmRelease(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 
@@ -461,7 +461,7 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
 		mocks := setupKubernetesMocks(t)
-		manager := NewKubernetesManager(mocks.KubernetesClient)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
 		return manager
 	}
 

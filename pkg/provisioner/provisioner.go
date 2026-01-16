@@ -106,7 +106,7 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 	}
 
 	if provisioner.KubernetesManager == nil {
-		provisioner.KubernetesManager = kubernetes.NewKubernetesManager(provisioner.KubernetesClient)
+		provisioner.KubernetesManager = kubernetes.NewKubernetesManager(provisioner.KubernetesClient, rt.ConfigHandler)
 	}
 
 	return provisioner

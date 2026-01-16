@@ -20,6 +20,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -58,8 +59,9 @@ type KubernetesManager interface {
 
 // BaseKubernetesManager implements KubernetesManager interface
 type BaseKubernetesManager struct {
-	shims  *Shims
-	client client.KubernetesClient
+	shims         *Shims
+	client        client.KubernetesClient
+	configHandler config.ConfigHandler
 
 	kustomizationWaitPollInterval time.Duration
 	kustomizationReconcileTimeout time.Duration
@@ -69,14 +71,19 @@ type BaseKubernetesManager struct {
 	nodeReadyPollInterval   time.Duration
 }
 
-// NewKubernetesManager creates a new instance of BaseKubernetesManager
-func NewKubernetesManager(kubernetesClient client.KubernetesClient) *BaseKubernetesManager {
+// NewKubernetesManager creates a new instance of BaseKubernetesManager.
+// The configHandler is used to retrieve context name and context ID for CommonMetadata labels.
+func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandler config.ConfigHandler) *BaseKubernetesManager {
 	if kubernetesClient == nil {
 		panic("kubernetes client is required")
+	}
+	if configHandler == nil {
+		panic("config handler is required")
 	}
 
 	manager := &BaseKubernetesManager{
 		client:                        kubernetesClient,
+		configHandler:                 configHandler,
 		shims:                         NewShims(),
 		kustomizationWaitPollInterval: 2 * time.Second,
 		kustomizationReconcileTimeout: 5 * time.Minute,
@@ -614,7 +621,9 @@ func (k *BaseKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeName
 // It creates the target namespace, applies all blueprint source repositories (Git and OCI),
 // applies all individual sources, applies any standalone ConfigMaps, and finally applies
 // all kustomizations and their associated ConfigMaps. This orchestrates a complete
-// blueprint installation following the intended order. Returns an error if any step fails.
+// blueprint installation following the intended order. CommonMetadata labels are added to all
+// kustomizations for resource provenance tracking using context info from the config handler.
+// Returns an error if any step fails.
 func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if err := k.CreateNamespace(namespace); err != nil {
 		return fmt.Errorf("failed to create namespace: %w", err)
@@ -663,6 +672,13 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 			}
 		}
 		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
+
+		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
+			Labels: map[string]string{
+				"windsorcli.dev/context":    k.configHandler.GetContext(),
+				"windsorcli.dev/context-id": k.configHandler.GetString("id"),
+			},
+		}
 
 		if len(blueprint.ConfigMaps) > 0 {
 			if fluxKustomization.Spec.PostBuild == nil {
