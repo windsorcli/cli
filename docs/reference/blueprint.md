@@ -171,8 +171,9 @@ kustomize:
 | `force`       | `*bool`             | Force apply the kustomization.                   |
 | `prune`       | `*bool`             | Enable garbage collection of resources that are no longer present in the source. |
 | `components`  | `[]string`          | Components to include in the kustomization.      |
-| `cleanup`     | `[]string`          | Resources to clean up after the kustomization is applied. |
+| `cleanup`     | `[]string`          | Components to include in a cleanup kustomization that runs before this kustomization is deleted. The cleanup kustomization uses the path `<kustomization-path>/cleanup` with these as components. |
 | `destroy`     | `*bool`             | Determines if the kustomization should be destroyed during down operations. Defaults to true if not specified. |
+| `destroyOnly` | `*bool`             | Indicates that this kustomization should only run during destroy operations. When true, the kustomization is skipped during apply/up operations and only executed during destroy. Destroy-only kustomizations run before regular kustomizations during destroy, in normal dependency order. |
 | `substitutions` | `map[string]string` | Values for post-build variable replacement, collected and stored in ConfigMaps for use by Flux postBuild substitution. All values are converted to strings. These are used for generating ConfigMaps and are not written to the final context blueprint.yaml. |
 
 #### Patches
