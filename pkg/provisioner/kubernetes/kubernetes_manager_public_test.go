@@ -3087,21 +3087,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "destroy-only-kustomization" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{
-									"type":   "Ready",
-									"status": "True",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only-kustomization"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
 								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		manager.client = kubernetesClient
 
@@ -3160,21 +3164,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "destroy-only" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{
-									"type":   "Ready",
-									"status": "True",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
 								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		manager.client = kubernetesClient
 
@@ -3232,32 +3240,31 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
-	t.Run("DestroyOnlyDeletedEvenWhenNotReady", func(t *testing.T) {
+	t.Run("DestroyOnlyFailsWhenNotReady", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-
-		var deleteCalls []string
-		deletedResources := make(map[string]bool)
 
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil
 		}
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
-			deleteCalls = append(deleteCalls, name)
-			deletedResources[name] = true
 			return nil
 		}
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			if deletedResources[name] {
-				return nil, fmt.Errorf("the server could not find the requested resource")
-			}
-			return &unstructured.Unstructured{
-				Object: map[string]any{
-					"status": map[string]any{
-						"conditions": []any{
-							map[string]any{
-								"type":   "Ready",
-								"status": "False",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "False"},
+								},
 							},
 						},
 					},
@@ -3280,19 +3287,11 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 
 		err := manager.DeleteBlueprint(blueprint, "test-namespace")
-		if err != nil {
-			t.Errorf("Expected no error (should proceed even when not ready), got %v", err)
+		if err == nil {
+			t.Error("Expected error when destroy-only kustomization does not become ready")
 		}
-
-		destroyOnlyDeleted := false
-		for _, name := range deleteCalls {
-			if name == "destroy-only" {
-				destroyOnlyDeleted = true
-				break
-			}
-		}
-		if !destroyOnlyDeleted {
-			t.Error("Expected destroy-only kustomization to be deleted even when not ready")
+		if !strings.Contains(err.Error(), "did not become ready within timeout") {
+			t.Errorf("Expected timeout error, got %v", err)
 		}
 	})
 
@@ -3317,11 +3316,21 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			return &unstructured.Unstructured{
-				Object: map[string]any{
-					"status": map[string]any{
-						"conditions": []any{
-							map[string]any{"type": "Ready", "status": "True"},
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
+							},
 						},
 					},
 				},
@@ -3380,11 +3389,21 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			return &unstructured.Unstructured{
-				Object: map[string]any{
-					"status": map[string]any{
-						"conditions": []any{
-							map[string]any{"type": "Ready", "status": "True"},
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
+							},
 						},
 					},
 				},
@@ -3449,18 +3468,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "destroy-only" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{"type": "Ready", "status": "True"},
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		manager.client = kubernetesClient
 
@@ -3534,18 +3560,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			return nil
 		}
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-			if name == "destroy-only" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{"type": "Ready", "status": "True"},
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "destroy-only"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
+								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("not found")
+				},
+			}, nil
 		}
 		manager.client = kubernetesClient
 
@@ -3621,21 +3654,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{
-									"type":   "Ready",
-									"status": "True",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "test-kustomization-cleanup"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
 								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if name, ok := obj.Object["metadata"].(map[string]any)["name"].(string); ok {
@@ -3690,21 +3727,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{
-									"type":   "Ready",
-									"status": "True",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "test-kustomization-cleanup"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
 								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if name, ok := obj.Object["metadata"].(map[string]any)["name"].(string); ok {
@@ -3753,21 +3794,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{
-									"type":   "Ready",
-									"status": "True",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "test-kustomization-cleanup"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
 								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if name, ok := obj.Object["metadata"].(map[string]any)["name"].(string); ok {
@@ -3849,21 +3894,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{
-									"type":   "Ready",
-									"status": "True",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "test-kustomization-cleanup"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
 								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if spec, ok := obj.Object["spec"].(map[string]any); ok {
@@ -3921,21 +3970,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{
-									"type":   "Ready",
-									"status": "True",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "test-kustomization-cleanup"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
 								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			if spec, ok := obj.Object["spec"].(map[string]any); ok {
@@ -4067,21 +4120,25 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 			if deletedResources[name] {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
-			if name == "test-kustomization-cleanup" {
-				return &unstructured.Unstructured{
-					Object: map[string]any{
-						"status": map[string]any{
-							"conditions": []any{
-								map[string]any{
-									"type":   "Ready",
-									"status": "True",
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.ListResourcesFunc = func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{
+				Items: []unstructured.Unstructured{
+					{
+						Object: map[string]any{
+							"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+							"kind":       "Kustomization",
+							"metadata":   map[string]any{"name": "test-kustomization-cleanup"},
+							"status": map[string]any{
+								"conditions": []any{
+									map[string]any{"type": "Ready", "status": "True"},
 								},
 							},
 						},
 					},
-				}, nil
-			}
-			return nil, fmt.Errorf("the server could not find the requested resource")
+				},
+			}, nil
 		}
 		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
 			return obj, nil

@@ -711,7 +711,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 			continue
 		}
 		if errs := k.applyWaitDeleteKustomization(kustomization, blueprint, namespace, defaultSourceName); len(errs) > 0 {
-			errors = append(errors, errs...)
+			return fmt.Errorf("cleanup failed: %w", errs[0])
 		}
 	}
 
@@ -864,10 +864,11 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 			cleanupSpin.Stop()
 
 			if !cleanupReady {
-				fmt.Fprintf(os.Stderr, "Warning: Cleanup kustomization %s did not become ready within timeout, proceeding anyway\n", cleanupKustomizationName)
-			} else {
-				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", kustomization.Name)
+				fmt.Fprintf(os.Stderr, "\033[31m✗ 🧹 Applying cleanup kustomization for %s - Failed\033[0m\n", kustomization.Name)
+				errors = append(errors, fmt.Errorf("cleanup kustomization %s did not become ready within timeout - cleanup may not have completed", cleanupKustomizationName))
+				return errors
 			}
+			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", kustomization.Name)
 
 			cleanupDeleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 			cleanupDeleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting cleanup kustomization %s", cleanupKustomizationName)
@@ -964,10 +965,11 @@ applyLoop:
 	applySpin.Stop()
 
 	if !ready {
-		fmt.Fprintf(os.Stderr, "Warning: Destroy-only kustomization %s did not become ready within timeout, proceeding anyway\n", kustomization.Name)
-	} else {
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔧 Applying destroy-only kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
+		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔧 Applying destroy-only kustomization %s - Failed\033[0m\n", kustomization.Name)
+		errors = append(errors, fmt.Errorf("destroy-only kustomization %s did not become ready within timeout - cleanup may not have completed", kustomization.Name))
+		return errors
 	}
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔧 Applying destroy-only kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
 
 	deleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	deleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting destroy-only kustomization %s", kustomization.Name)
