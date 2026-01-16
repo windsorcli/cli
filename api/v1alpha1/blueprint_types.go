@@ -979,6 +979,9 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			if kustomization.Destroy != nil {
 				existing.Destroy = kustomization.Destroy
 			}
+			if kustomization.DestroyOnly != nil {
+				existing.DestroyOnly = kustomization.DestroyOnly
+			}
 			if kustomization.Interval != nil {
 				existing.Interval = kustomization.Interval
 			}

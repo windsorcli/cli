@@ -290,6 +290,41 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesKustomizationDestroyOnlyField", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "cleanup-job",
+					Components: []string{"base"},
+				},
+			},
+		}
+
+		destroyOnlyTrue := true
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:        "cleanup-job",
+					DestroyOnly: &destroyOnlyTrue,
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		if len(base.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(base.Kustomizations))
+		}
+
+		kust := base.Kustomizations[0]
+		if kust.DestroyOnly == nil || *kust.DestroyOnly != true {
+			t.Errorf("Expected DestroyOnly to be true, got %v", kust.DestroyOnly)
+		}
+		if len(kust.Components) != 1 || kust.Components[0] != "base" {
+			t.Errorf("Expected original components preserved, got %v", kust.Components)
+		}
+	})
+
 	t.Run("HandlesDependencyAwareInsertion", func(t *testing.T) {
 		// Given a base blueprint with ordered components
 		base := &Blueprint{
