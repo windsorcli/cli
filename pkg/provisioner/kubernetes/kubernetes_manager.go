@@ -940,11 +940,19 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 		destroyOnlyNames[kust.Name] = true
 	}
 
+	appliedKustomizations := []blueprintv1alpha1.Kustomization{}
+
 	for _, kustomization := range kustomizations {
 		if len(kustomization.Substitutions) > 0 {
 			configMapName := fmt.Sprintf("values-%s", kustomization.Name)
 			if err := k.ApplyConfigMap(configMapName, namespace, kustomization.Substitutions); err != nil {
 				errors = append(errors, fmt.Errorf("failed to create ConfigMap for destroy-only kustomization %s: %w", kustomization.Name, err))
+				for i := len(appliedKustomizations) - 1; i >= 0; i-- {
+					appliedKust := appliedKustomizations[i]
+					if deleteErr := k.DeleteKustomization(appliedKust.Name, namespace); deleteErr != nil {
+						errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
+					}
+				}
 				return errors
 			}
 		}
@@ -989,10 +997,17 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 			applySpin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔧 Applying destroy-only kustomization %s - Failed\033[0m\n", kustomization.Name)
 			errors = append(errors, fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err))
+			for i := len(appliedKustomizations) - 1; i >= 0; i-- {
+				appliedKust := appliedKustomizations[i]
+				if deleteErr := k.DeleteKustomization(appliedKust.Name, namespace); deleteErr != nil {
+					errors = append(errors, fmt.Errorf("failed to delete failed destroy-only kustomization %s: %w", appliedKust.Name, deleteErr))
+				}
+			}
 			return errors
 		}
 		applySpin.Stop()
 		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔧 Applied destroy-only kustomization %s\n", kustomization.Name)
+		appliedKustomizations = append(appliedKustomizations, kustomization)
 	}
 
 	kustomizationNames := make([]string, len(kustomizations))

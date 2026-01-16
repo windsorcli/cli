@@ -3655,6 +3655,142 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("DestroyOnlyCleansUpOnApplyFailure", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		appliedKustomizations := []string{}
+		deletedKustomizations := []string{}
+
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				name := obj.GetName()
+				appliedKustomizations = append(appliedKustomizations, name)
+				if name == "destroy-only-b" {
+					return nil, fmt.Errorf("apply kustomization error")
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			if gvr.Resource == "kustomizations" {
+				deletedKustomizations = append(deletedKustomizations, name)
+			}
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:        "destroy-only-a",
+					DestroyOnly: &destroyOnlyTrue,
+				},
+				{
+					Name:        "destroy-only-b",
+					DestroyOnly: &destroyOnlyTrue,
+				},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to apply destroy-only kustomization") {
+			t.Errorf("Expected error about applying destroy-only kustomization, got %v", err)
+		}
+
+		if len(appliedKustomizations) != 2 {
+			t.Errorf("Expected 2 kustomizations to be attempted, got %d", len(appliedKustomizations))
+		}
+		if appliedKustomizations[0] != "destroy-only-a" {
+			t.Errorf("Expected first kustomization to be destroy-only-a, got %s", appliedKustomizations[0])
+		}
+		if appliedKustomizations[1] != "destroy-only-b" {
+			t.Errorf("Expected second kustomization to be destroy-only-b, got %s", appliedKustomizations[1])
+		}
+
+		if len(deletedKustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization to be cleaned up, got %d", len(deletedKustomizations))
+		}
+		if deletedKustomizations[0] != "destroy-only-a" {
+			t.Errorf("Expected destroy-only-a to be cleaned up, got %v", deletedKustomizations)
+		}
+	})
+
+	t.Run("DestroyOnlyCleansUpOnConfigMapFailure", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		appliedKustomizations := []string{}
+		deletedKustomizations := []string{}
+
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				name := obj.GetName()
+				appliedKustomizations = append(appliedKustomizations, name)
+			}
+			if gvr.Resource == "configmaps" && obj.GetName() == "values-destroy-only-b" {
+				return nil, fmt.Errorf("configmap creation error")
+			}
+			return obj, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			if gvr.Resource == "kustomizations" {
+				deletedKustomizations = append(deletedKustomizations, name)
+			}
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:        "destroy-only-a",
+					DestroyOnly: &destroyOnlyTrue,
+				},
+				{
+					Name:          "destroy-only-b",
+					DestroyOnly:   &destroyOnlyTrue,
+					Substitutions: map[string]string{"key": "value"},
+				},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create ConfigMap for destroy-only kustomization") {
+			t.Errorf("Expected error about ConfigMap creation, got %v", err)
+		}
+
+		if len(appliedKustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization to be applied, got %d", len(appliedKustomizations))
+		}
+		if appliedKustomizations[0] != "destroy-only-a" {
+			t.Errorf("Expected destroy-only-a to be applied, got %s", appliedKustomizations[0])
+		}
+
+		if len(deletedKustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization to be cleaned up, got %d", len(deletedKustomizations))
+		}
+		if deletedKustomizations[0] != "destroy-only-a" {
+			t.Errorf("Expected destroy-only-a to be cleaned up, got %v", deletedKustomizations)
+		}
+	})
+
 	t.Run("DestroyOnlyWithDependencyOnAnotherDestroyOnly", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
