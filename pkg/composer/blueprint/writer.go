@@ -82,6 +82,11 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 		return fmt.Errorf("error marshalling blueprint: %w", err)
 	}
 
+	header := []byte(`# This file selects and overrides components from underlying blueprint sources.
+# To see the fully rendered blueprint, run: windsor show blueprint
+`)
+	data = append(header, data...)
+
 	if err := w.shims.WriteFile(yamlPath, data, 0644); err != nil {
 		return fmt.Errorf("error writing blueprint.yaml: %w", err)
 	}

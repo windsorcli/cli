@@ -27,7 +27,7 @@ import (
 // Test Setup
 // =============================================================================
 
-type ComposeMocks struct {
+type ShowMocks struct {
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
 	Shims            *Shims
@@ -36,7 +36,7 @@ type ComposeMocks struct {
 	TmpDir           string
 }
 
-func setupComposeTest(t *testing.T, opts ...*SetupOptions) *ComposeMocks {
+func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 	t.Helper()
 
 	mockConfigHandler := config.NewMockConfigHandler()
@@ -75,7 +75,7 @@ func setupComposeTest(t *testing.T, opts ...*SetupOptions) *ComposeMocks {
 		ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
 		Metadata: blueprintv1alpha1.Metadata{
 			Name:        "test-blueprint",
-			Description: "Test blueprint for compose command",
+			Description: "Test blueprint for show command",
 		},
 		TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 			{
@@ -105,7 +105,7 @@ func setupComposeTest(t *testing.T, opts ...*SetupOptions) *ComposeMocks {
 		t.Fatal("Failed to create runtime")
 	}
 
-	return &ComposeMocks{
+	return &ShowMocks{
 		ConfigHandler:    baseMocks.ConfigHandler,
 		Shell:            baseMocks.Shell,
 		Shims:            baseMocks.Shims,
@@ -119,16 +119,16 @@ func setupComposeTest(t *testing.T, opts ...*SetupOptions) *ComposeMocks {
 // Test Cases
 // =============================================================================
 
-func TestComposeBlueprintCmd(t *testing.T) {
+func TestShowBlueprintCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
 		cmd := &cobra.Command{
 			Use:          "blueprint",
-			Short:        "Output the fully compiled blueprint",
-			RunE:         composeBlueprintCmd.RunE,
+			Short:        "Display the fully rendered blueprint",
+			RunE:         showBlueprintCmd.RunE,
 			SilenceUsage: true,
 		}
 
-		composeBlueprintCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		showBlueprintCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 
@@ -182,7 +182,7 @@ func TestComposeBlueprintCmd(t *testing.T) {
 	}
 
 	t.Run("SuccessWithYAMLOutput", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
@@ -201,7 +201,6 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		_ = cmd.Execute()
 
 		closePipes()
-
 
 		output := stdout.String()
 		if output == "" {
@@ -223,7 +222,7 @@ func TestComposeBlueprintCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessWithJSONOutput", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
@@ -242,7 +241,6 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		_ = cmd.Execute()
 
 		closePipes()
-
 
 		output := stdout.String()
 		if output == "" {
@@ -268,7 +266,7 @@ func TestComposeBlueprintCmd(t *testing.T) {
 	})
 
 	t.Run("CheckTrustedDirectoryError", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not in trusted directory")
@@ -298,7 +296,7 @@ func TestComposeBlueprintCmd(t *testing.T) {
 	})
 
 	t.Run("BlueprintGenerationFailure", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
 			return nil
@@ -328,7 +326,7 @@ func TestComposeBlueprintCmd(t *testing.T) {
 	})
 
 	t.Run("CommandInitialization", func(t *testing.T) {
-		cmd := composeBlueprintCmd
+		cmd := showBlueprintCmd
 
 		if cmd.Use != "blueprint" {
 			t.Errorf("Expected Use to be 'blueprint', got %q", cmd.Use)
@@ -349,11 +347,11 @@ func TestComposeBlueprintCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ComposeCommandInitialization", func(t *testing.T) {
-		cmd := composeCmd
+	t.Run("ShowCommandInitialization", func(t *testing.T) {
+		cmd := showCmd
 
-		if cmd.Use != "compose" {
-			t.Errorf("Expected Use to be 'compose', got %q", cmd.Use)
+		if cmd.Use != "show" {
+			t.Errorf("Expected Use to be 'show', got %q", cmd.Use)
 		}
 		if cmd.Short == "" {
 			t.Error("Expected non-empty Short description")
@@ -364,16 +362,16 @@ func TestComposeBlueprintCmd(t *testing.T) {
 	})
 }
 
-func TestComposeKustomizationCmd(t *testing.T) {
+func TestShowKustomizationCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
 		cmd := &cobra.Command{
 			Use:          "kustomization",
-			Short:        "Output the Flux Kustomization resource for a component",
-			RunE:         composeKustomizationCmd.RunE,
+			Short:        "Display the Flux Kustomization resource for a component",
+			RunE:         showKustomizationCmd.RunE,
 			SilenceUsage: true,
 		}
 
-		composeKustomizationCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		showKustomizationCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			cmd.Flags().AddFlag(flag)
 		})
 
@@ -427,7 +425,7 @@ func TestComposeKustomizationCmd(t *testing.T) {
 	}
 
 	t.Run("SuccessWithYAMLOutput", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
@@ -446,7 +444,6 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		_ = cmd.Execute()
 
 		closePipes()
-
 
 		output := stdout.String()
 		if output == "" {
@@ -476,7 +473,7 @@ func TestComposeKustomizationCmd(t *testing.T) {
 	})
 
 	t.Run("SuccessWithJSONOutput", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
@@ -495,7 +492,6 @@ func TestComposeKustomizationCmd(t *testing.T) {
 		_ = cmd.Execute()
 
 		closePipes()
-
 
 		output := stdout.String()
 		if output == "" {
@@ -521,7 +517,7 @@ func TestComposeKustomizationCmd(t *testing.T) {
 	})
 
 	t.Run("KustomizationNotFound", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		comp := composer.NewComposer(mocks.Runtime)
 		comp.BlueprintHandler = mocks.BlueprintHandler
@@ -547,7 +543,7 @@ func TestComposeKustomizationCmd(t *testing.T) {
 	})
 
 	t.Run("CheckTrustedDirectoryError", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
 			return fmt.Errorf("not in trusted directory")
@@ -577,7 +573,7 @@ func TestComposeKustomizationCmd(t *testing.T) {
 	})
 
 	t.Run("BlueprintGenerationFailure", func(t *testing.T) {
-		mocks := setupComposeTest(t)
+		mocks := setupShowTest(t)
 
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
 			return nil
@@ -607,7 +603,7 @@ func TestComposeKustomizationCmd(t *testing.T) {
 	})
 
 	t.Run("CommandInitialization", func(t *testing.T) {
-		cmd := composeKustomizationCmd
+		cmd := showKustomizationCmd
 
 		if cmd.Use != "kustomization <component-name>" {
 			t.Errorf("Expected Use to be 'kustomization <component-name>', got %q", cmd.Use)
