@@ -651,6 +651,70 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			t.Errorf("Expected 'blueprint not provided' error, got: %v", err)
 		}
 	})
+
+	t.Run("SkipsDestroyOnlyKustomizations", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var queriedKustomizations []string
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			queriedKustomizations = append(queriedKustomizations, name)
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
+								"type":   "Ready",
+								"status": "True",
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		destroyOnlyTrue := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "regular-kustomization",
+					Timeout: &blueprintv1alpha1.DurationString{
+						Duration: 200 * time.Millisecond,
+					},
+				},
+				{
+					Name:        "destroy-only-kustomization",
+					DestroyOnly: &destroyOnlyTrue,
+					Timeout: &blueprintv1alpha1.DurationString{
+						Duration: 200 * time.Millisecond,
+					},
+				},
+			},
+		}
+
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		for _, name := range queriedKustomizations {
+			if name == "destroy-only-kustomization" {
+				t.Error("Expected destroy-only kustomization to be skipped, but it was queried")
+			}
+		}
+
+		foundRegular := false
+		for _, name := range queriedKustomizations {
+			if name == "regular-kustomization" {
+				foundRegular = true
+				break
+			}
+		}
+		if !foundRegular {
+			t.Error("Expected regular kustomization to be queried")
+		}
+	})
 }
 
 func TestBaseKubernetesManager_CreateNamespace(t *testing.T) {
