@@ -290,6 +290,41 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesKustomizationDestroyOnlyField", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "cleanup-job",
+					Components: []string{"base"},
+				},
+			},
+		}
+
+		destroyOnlyTrue := true
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:        "cleanup-job",
+					DestroyOnly: &destroyOnlyTrue,
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		if len(base.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(base.Kustomizations))
+		}
+
+		kust := base.Kustomizations[0]
+		if kust.DestroyOnly == nil || *kust.DestroyOnly != true {
+			t.Errorf("Expected DestroyOnly to be true, got %v", kust.DestroyOnly)
+		}
+		if len(kust.Components) != 1 || kust.Components[0] != "base" {
+			t.Errorf("Expected original components preserved, got %v", kust.Components)
+		}
+	})
+
 	t.Run("HandlesDependencyAwareInsertion", func(t *testing.T) {
 		// Given a base blueprint with ordered components
 		base := &Blueprint{
@@ -2289,6 +2324,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		force := false
 		prune := true
 		destroy := false
+		destroyOnly := true
 
 		kustomization := &Kustomization{
 			Name:          "test-kustomization",
@@ -2313,6 +2349,7 @@ func TestKustomization_DeepCopy(t *testing.T) {
 			Components:    []string{"comp1", "comp2"},
 			Cleanup:       []string{"cleanup1"},
 			Destroy:       boolExprPtr(destroy),
+			DestroyOnly:   &destroyOnly,
 			Substitutions: map[string]string{"key1": "value1", "key2": "value2"},
 		}
 
@@ -2372,6 +2409,9 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		destroyVal := copy.Destroy.ToBool()
 		if destroyVal == nil || *destroyVal != false {
 			t.Errorf("Expected destroy=false, got %v", destroyVal)
+		}
+		if copy.DestroyOnly == nil || *copy.DestroyOnly != true {
+			t.Errorf("Expected destroyOnly=true, got %v", copy.DestroyOnly)
 		}
 		if len(copy.Substitutions) != 2 {
 			t.Errorf("Expected 2 substitutions, got %d", len(copy.Substitutions))

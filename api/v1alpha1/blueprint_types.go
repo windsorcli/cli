@@ -419,6 +419,11 @@ type Kustomization struct {
 	// Supports expressions in facets: use "${cluster.destroy ?? true}" for dynamic values.
 	Destroy *BoolExpression `yaml:"destroy,omitempty"`
 
+	// DestroyOnly indicates that this kustomization should only run during destroy operations.
+	// When true, the kustomization is skipped during apply/up operations and only executed during destroy.
+	// Destroy-only kustomizations run before regular kustomizations during destroy, in normal dependency order.
+	DestroyOnly *bool `yaml:"destroyOnly,omitempty"`
+
 	// Substitutions contains values for post-build variable replacement,
 	// collected and stored in ConfigMaps for use by Flux postBuild substitution.
 	// All values are converted to strings as required by Flux variable substitution.
@@ -733,6 +738,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Components:    slices.Clone(k.Components),
 		Cleanup:       slices.Clone(k.Cleanup),
 		Destroy:       k.Destroy,
+		DestroyOnly:   k.DestroyOnly,
 		Substitutions: maps.Clone(k.Substitutions),
 	}
 }
@@ -972,6 +978,9 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			}
 			if kustomization.Destroy != nil {
 				existing.Destroy = kustomization.Destroy
+			}
+			if kustomization.DestroyOnly != nil {
+				existing.DestroyOnly = kustomization.DestroyOnly
 			}
 			if kustomization.Interval != nil {
 				existing.Interval = kustomization.Interval
