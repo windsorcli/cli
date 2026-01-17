@@ -82,10 +82,8 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 		return fmt.Errorf("error marshalling blueprint: %w", err)
 	}
 
-	header := []byte(`# This file selects and overrides components from the underlying blueprint sources
-# (_template directory and/or OCI artifacts in 'sources'). To see the fully
-# rendered blueprint with all computed fields, run: windsor show blueprint
-
+	header := []byte(`# This file selects and overrides components from underlying blueprint sources.
+# To see the fully rendered blueprint, run: windsor show blueprint
 `)
 	data = append(header, data...)
 
