@@ -266,18 +266,28 @@ func (v *ColimaVirt) getArch() string {
 }
 
 // getDefaultValues retrieves the default values for the VM properties
-// Calculates CPU count as half of the system's CPU cores
+// Calculates CPU count and memory based on cluster node resources and services when cluster is enabled
+// Falls back to system-based defaults (half of system resources) when cluster is disabled
 // Sets a default disk size of 100GB
-// Calculates memory as half of the system's total memory, with a fallback to 2GB
 // Generates a hostname based on the context name
 // Returns the calculated values for CPU, disk, memory, hostname, and architecture
 func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, string) {
+	disk := 100
+	hostname := fmt.Sprintf("windsor-%s", context)
+	arch := v.getArch()
+
+	clusterEnabled := v.configHandler.GetBool("cluster.enabled", false)
+
+	if clusterEnabled {
+		cpu, memory := v.calculateVMResources()
+		return cpu, disk, memory, hostname, arch
+	}
+
 	cpu := v.BaseVirt.shims.NumCPU() / 2
-	disk := 100 // Disk size in GB
 	vmStat, err := v.BaseVirt.shims.VirtualMemory()
 	var memory int
 	if err != nil {
-		memory = 2 // Default to 2GB
+		memory = 2
 	} else {
 		totalMemoryGB := vmStat.Total / (1024 * 1024 * 1024)
 		halfMemoryGB := totalMemoryGB / 2
@@ -289,9 +299,73 @@ func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, st
 		}
 	}
 
-	hostname := fmt.Sprintf("windsor-%s", context)
-	arch := v.getArch()
 	return cpu, disk, memory, hostname, arch
+}
+
+// calculateVMResources calculates the required CPU and memory for the Colima VM
+// based on cluster node resources, Docker services, and overhead requirements
+// Formula: node resources + fixed overhead (for VM base system and services)
+// Fixed overhead is constant regardless of node count since it covers Ubuntu VM and Docker services
+// Only allocates what's needed for the workload, not maximum available resources
+// Warns if calculated resources exceed available host resources
+// Returns calculated CPU count and memory in GB
+func (v *ColimaVirt) calculateVMResources() (int, int) {
+	const (
+		vmAndServiceCPUOverhead    = 1
+		vmAndServiceMemoryOverhead = 3
+		minCPU                     = 2
+		minMemory                  = 4
+		hostMemoryReserveGB        = 4
+	)
+
+	controlPlaneCount := v.configHandler.GetInt("cluster.controlplanes.count", 0)
+	controlPlaneCPU := v.configHandler.GetInt("cluster.controlplanes.cpu", 0)
+	controlPlaneMemory := v.configHandler.GetInt("cluster.controlplanes.memory", 0)
+
+	workerCount := v.configHandler.GetInt("cluster.workers.count", 0)
+	workerCPU := v.configHandler.GetInt("cluster.workers.cpu", 0)
+	workerMemory := v.configHandler.GetInt("cluster.workers.memory", 0)
+
+	totalNodeCPU := (controlPlaneCount * controlPlaneCPU) + (workerCount * workerCPU)
+	totalNodeMemory := (controlPlaneCount * controlPlaneMemory) + (workerCount * workerMemory)
+
+	cpu := totalNodeCPU + vmAndServiceCPUOverhead
+	memory := totalNodeMemory + vmAndServiceMemoryOverhead
+
+	if cpu < minCPU {
+		cpu = minCPU
+	}
+	if memory < minMemory {
+		memory = minMemory
+	}
+
+	v.validateVMResources(cpu, memory, hostMemoryReserveGB)
+
+	return cpu, memory
+}
+
+// validateVMResources compares calculated VM resources against host system resources
+// and prints warnings if the configuration exceeds available resources
+func (v *ColimaVirt) validateVMResources(cpu, memory, hostMemoryReserveGB int) {
+	hostCPU := v.BaseVirt.shims.NumCPU()
+	vmStat, err := v.BaseVirt.shims.VirtualMemory()
+	if err != nil {
+		return
+	}
+	hostMemoryGB := int(vmStat.Total / (1024 * 1024 * 1024))
+	availableMemoryGB := hostMemoryGB - hostMemoryReserveGB
+
+	if memory > availableMemoryGB {
+		fmt.Fprintf(os.Stderr, "\033[33m⚠ Warning: Cluster configuration requires %dGB memory, but only %dGB available (host has %dGB, reserving %dGB for OS)\033[0m\n",
+			memory, availableMemoryGB, hostMemoryGB, hostMemoryReserveGB)
+		fmt.Fprintf(os.Stderr, "\033[33m  Consider reducing cluster.controlplanes.memory or cluster.workers.memory, or reducing node count\033[0m\n")
+	}
+
+	if cpu > hostCPU {
+		fmt.Fprintf(os.Stderr, "\033[33m⚠ Warning: Cluster configuration requires %d vCPUs, but host only has %d cores\033[0m\n",
+			cpu, hostCPU)
+		fmt.Fprintf(os.Stderr, "\033[33m  Consider reducing cluster.controlplanes.cpu or cluster.workers.cpu, or reducing node count\033[0m\n")
+	}
 }
 
 // executeColimaCommand executes a Colima command for the specified action and arguments, using the Windsor context profile format.
