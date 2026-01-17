@@ -1219,17 +1219,17 @@ func TestColimaVirt_validateVMResources(t *testing.T) {
 		}
 	})
 
-	t.Run("NoWarningWhenVirtualMemoryFails", func(t *testing.T) {
+	t.Run("CPUWarningStillPrintsWhenVirtualMemoryFails", func(t *testing.T) {
 		// Given a colima virt instance
 		colimaVirt, mocks := setup(t)
 
-		// And VirtualMemory returns an error
+		// And VirtualMemory returns an error but CPU exceeds host cores
 		mocks.Shims.NumCPU = func() int { return 10 }
 		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
 			return nil, fmt.Errorf("mock memory retrieval error")
 		}
 
-		// When validating resources
+		// When validating resources with CPU exceeding host cores
 		oldStderr := os.Stderr
 		r, w, _ := os.Pipe()
 		os.Stderr = w
@@ -1241,9 +1241,18 @@ func TestColimaVirt_validateVMResources(t *testing.T) {
 		_, _ = io.Copy(&buf, r)
 		os.Stderr = oldStderr
 
-		// Then no warning should be printed (silently skip validation)
-		if buf.Len() > 0 {
-			t.Errorf("expected no warning when VirtualMemory fails, got: %s", buf.String())
+		// Then CPU warning should still be printed
+		output := buf.String()
+		if !strings.Contains(output, "20 vCPUs") {
+			t.Errorf("expected warning about 20 vCPUs, got: %s", output)
+		}
+		if !strings.Contains(output, "10 cores") {
+			t.Errorf("expected warning mentioning 10 cores, got: %s", output)
+		}
+
+		// And memory warning should NOT be printed (VirtualMemory failed)
+		if strings.Contains(output, "memory") {
+			t.Errorf("expected no memory warning when VirtualMemory fails, got: %s", output)
 		}
 	})
 }

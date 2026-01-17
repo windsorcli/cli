@@ -348,6 +348,12 @@ func (v *ColimaVirt) calculateVMResources() (int, int) {
 // and prints warnings if the configuration exceeds available resources
 func (v *ColimaVirt) validateVMResources(cpu, memory, hostMemoryReserveGB int) {
 	hostCPU := v.BaseVirt.shims.NumCPU()
+	if cpu > hostCPU {
+		fmt.Fprintf(os.Stderr, "\033[33m⚠ Warning: Cluster configuration requires %d vCPUs, but host only has %d cores\033[0m\n",
+			cpu, hostCPU)
+		fmt.Fprintf(os.Stderr, "\033[33m  Consider reducing cluster.controlplanes.cpu or cluster.workers.cpu, or reducing node count\033[0m\n")
+	}
+
 	vmStat, err := v.BaseVirt.shims.VirtualMemory()
 	if err != nil {
 		return
@@ -359,12 +365,6 @@ func (v *ColimaVirt) validateVMResources(cpu, memory, hostMemoryReserveGB int) {
 		fmt.Fprintf(os.Stderr, "\033[33m⚠ Warning: Cluster configuration requires %dGB memory, but only %dGB available (host has %dGB, reserving %dGB for OS)\033[0m\n",
 			memory, availableMemoryGB, hostMemoryGB, hostMemoryReserveGB)
 		fmt.Fprintf(os.Stderr, "\033[33m  Consider reducing cluster.controlplanes.memory or cluster.workers.memory, or reducing node count\033[0m\n")
-	}
-
-	if cpu > hostCPU {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠ Warning: Cluster configuration requires %d vCPUs, but host only has %d cores\033[0m\n",
-			cpu, hostCPU)
-		fmt.Fprintf(os.Stderr, "\033[33m  Consider reducing cluster.controlplanes.cpu or cluster.workers.cpu, or reducing node count\033[0m\n")
 	}
 }
 
