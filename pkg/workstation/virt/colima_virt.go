@@ -365,7 +365,7 @@ func (v *ColimaVirt) validateVMResources(cpu, memory, hostMemoryReserveGB int) {
 	} else {
 		hostMemoryGB = int(hostMemoryGBUint64)
 	}
-	availableMemoryGB := hostMemoryGB - hostMemoryReserveGB
+	availableMemoryGB := int(math.Max(float64(hostMemoryGB-hostMemoryReserveGB), 0))
 
 	if memory > availableMemoryGB {
 		fmt.Fprintf(os.Stderr, "\033[33m⚠ Warning: Cluster configuration requires %dGB memory, but only %dGB available (host has %dGB, reserving %dGB for OS)\033[0m\n",

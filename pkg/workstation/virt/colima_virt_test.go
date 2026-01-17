@@ -1283,6 +1283,35 @@ func TestColimaVirt_validateVMResources(t *testing.T) {
 			t.Errorf("expected no warning for high memory host, got: %s", buf.String())
 		}
 	})
+
+	t.Run("LowMemoryHostClampsAvailableToZero", func(t *testing.T) {
+		// Given a colima virt instance
+		colimaVirt, mocks := setup(t)
+
+		// And host has only 2GB memory (less than 4GB reserve)
+		mocks.Shims.NumCPU = func() int { return 4 }
+		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
+			return &mem.VirtualMemoryStat{Total: 2 * 1024 * 1024 * 1024}, nil
+		}
+
+		// When validating resources
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		colimaVirt.validateVMResources(2, 4, 4)
+
+		w.Close()
+		var buf strings.Builder
+		_, _ = io.Copy(&buf, r)
+		os.Stderr = oldStderr
+
+		// Then warning should show 0GB available, not negative
+		output := buf.String()
+		if !strings.Contains(output, "0GB available") {
+			t.Errorf("expected warning to show 0GB available (not negative), got: %s", output)
+		}
+	})
 }
 
 // TestColimaVirt_startColima tests the startColima method of the ColimaVirt component.
