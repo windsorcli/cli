@@ -173,9 +173,12 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, blueprint 
 	}
 
 	timeout := k.calculateTotalWaitTime(blueprint)
-	kustomizationNames := make([]string, len(blueprint.Kustomizations))
-	for i, kustomization := range blueprint.Kustomizations {
-		kustomizationNames[i] = kustomization.Name
+	kustomizationNames := make([]string, 0, len(blueprint.Kustomizations))
+	for _, kustomization := range blueprint.Kustomizations {
+		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
+			continue
+		}
+		kustomizationNames = append(kustomizationNames, kustomization.Name)
 	}
 
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
