@@ -358,7 +358,13 @@ func (v *ColimaVirt) validateVMResources(cpu, memory, hostMemoryReserveGB int) {
 	if err != nil {
 		return
 	}
-	hostMemoryGB := int(vmStat.Total / (1024 * 1024 * 1024))
+	hostMemoryGBUint64 := vmStat.Total / (1024 * 1024 * 1024)
+	var hostMemoryGB int
+	if hostMemoryGBUint64 > uint64(math.MaxInt) {
+		hostMemoryGB = math.MaxInt
+	} else {
+		hostMemoryGB = int(hostMemoryGBUint64)
+	}
 	availableMemoryGB := hostMemoryGB - hostMemoryReserveGB
 
 	if memory > availableMemoryGB {

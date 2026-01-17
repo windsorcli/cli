@@ -1255,6 +1255,34 @@ func TestColimaVirt_validateVMResources(t *testing.T) {
 			t.Errorf("expected no memory warning when VirtualMemory fails, got: %s", output)
 		}
 	})
+
+	t.Run("HighMemoryValueHandledSafely", func(t *testing.T) {
+		// Given a colima virt instance
+		colimaVirt, mocks := setup(t)
+
+		// And host has very high memory (tests safe uint64 to int conversion)
+		mocks.Shims.NumCPU = func() int { return 128 }
+		mocks.Shims.VirtualMemory = func() (*mem.VirtualMemoryStat, error) {
+			return &mem.VirtualMemoryStat{Total: uint64(math.MaxInt64)}, nil
+		}
+
+		// When validating resources within limits
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		colimaVirt.validateVMResources(64, 1000, 4)
+
+		w.Close()
+		var buf strings.Builder
+		_, _ = io.Copy(&buf, r)
+		os.Stderr = oldStderr
+
+		// Then no warning should be printed (resources within limits)
+		if buf.Len() > 0 {
+			t.Errorf("expected no warning for high memory host, got: %s", buf.String())
+		}
+	})
 }
 
 // TestColimaVirt_startColima tests the startColima method of the ColimaVirt component.
