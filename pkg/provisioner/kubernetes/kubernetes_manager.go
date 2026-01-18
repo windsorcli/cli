@@ -404,10 +404,14 @@ func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error
 	return err
 }
 
-// getKustomizationsToDelete returns a list of kustomization names that should be deleted based on their destroy settings.
+// getKustomizationsToDelete returns a list of regular kustomization names that should be suspended and deleted.
+// Excludes destroy-only kustomizations since they need to reconcile during deletion to perform cleanup work.
 func (k *BaseKubernetesManager) getKustomizationsToDelete(blueprint *blueprintv1alpha1.Blueprint) []string {
 	var names []string
 	for _, kustomization := range blueprint.Kustomizations {
+		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
+			continue
+		}
 		destroy := kustomization.Destroy.ToBool()
 		if destroy != nil && !*destroy {
 			continue

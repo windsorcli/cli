@@ -4765,7 +4765,7 @@ func TestBaseKubernetesManager_getKustomizationsToDelete(t *testing.T) {
 		}
 	})
 
-	t.Run("IncludesDestroyOnly", func(t *testing.T) {
+	t.Run("ExcludesDestroyOnly", func(t *testing.T) {
 		manager := setup(t)
 		destroyOnly := true
 		blueprint := &blueprintv1alpha1.Blueprint{
@@ -4776,8 +4776,11 @@ func TestBaseKubernetesManager_getKustomizationsToDelete(t *testing.T) {
 		}
 
 		names := manager.getKustomizationsToDelete(blueprint)
-		if len(names) != 2 {
-			t.Errorf("Expected 2 kustomizations (includes destroy-only), got %d", len(names))
+		if len(names) != 1 {
+			t.Errorf("Expected 1 kustomization (excludes destroy-only), got %d", len(names))
+		}
+		if len(names) > 0 && names[0] != "regular-kust" {
+			t.Errorf("Expected [regular-kust], got %v", names)
 		}
 	})
 }
