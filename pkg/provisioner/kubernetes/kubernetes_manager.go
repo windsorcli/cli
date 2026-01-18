@@ -404,6 +404,50 @@ func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error
 	return err
 }
 
+// getKustomizationsToDelete returns a list of regular kustomization names that should be suspended and deleted.
+// Excludes destroy-only kustomizations since they need to reconcile during deletion to perform cleanup work.
+func (k *BaseKubernetesManager) getKustomizationsToDelete(blueprint *blueprintv1alpha1.Blueprint) []string {
+	var names []string
+	for _, kustomization := range blueprint.Kustomizations {
+		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
+			continue
+		}
+		destroy := kustomization.Destroy.ToBool()
+		if destroy != nil && !*destroy {
+			continue
+		}
+		names = append(names, kustomization.Name)
+	}
+	return names
+}
+
+// suspendKustomizations suspends all specified kustomizations in reverse order to respect dependencies.
+// Returns a slice of errors encountered during suspension; errors are non-fatal and accumulated.
+func (k *BaseKubernetesManager) suspendKustomizations(names []string, namespace string) []error {
+	var errors []error
+
+	suspendSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
+	suspendSpin.Suffix = " ⏸️  Suspending kustomizations"
+	suspendSpin.Start()
+
+	for i := len(names) - 1; i >= 0; i-- {
+		if err := k.SuspendKustomization(names[i], namespace); err != nil {
+			if !isNotFoundError(err) {
+				errors = append(errors, fmt.Errorf("failed to suspend kustomization %s: %w", names[i], err))
+			}
+		}
+	}
+
+	suspendSpin.Stop()
+	if len(errors) > 0 {
+		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m ⏸️  Suspending kustomizations - \033[33m%d error(s)\033[0m\n", len(errors))
+	} else {
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m ⏸️  Suspending kustomizations - \033[32mDone\033[0m\n")
+	}
+
+	return errors
+}
+
 // ApplyGitRepository creates or updates a GitRepository resource using SSA
 func (k *BaseKubernetesManager) ApplyGitRepository(repo *sourcev1.GitRepository) error {
 	obj := &unstructured.Unstructured{}
@@ -707,6 +751,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 }
 
 // DeleteBlueprint deletes all kustomizations defined in the given blueprint in the specified namespace.
+// All kustomizations to be deleted are suspended first to prevent reconciliation during deletion.
 // Destroy-only kustomizations are applied first (in dependency order), waited for, then deleted.
 // Regular kustomizations are then deleted in reverse dependency order. For each regular kustomization
 // with cleanup steps defined, cleanup kustomizations are applied and waited for before deletion.
@@ -718,6 +763,13 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 	if k.hasCleanupOperations(blueprint) {
 		if err := k.deployCleanupSemaphore(); err != nil {
 			errors = append(errors, fmt.Errorf("failed to deploy cleanup semaphore: %w", err))
+		}
+	}
+
+	kustomizationsToDelete := k.getKustomizationsToDelete(blueprint)
+	if len(kustomizationsToDelete) > 0 {
+		if errs := k.suspendKustomizations(kustomizationsToDelete, namespace); len(errs) > 0 {
+			errors = append(errors, errs...)
 		}
 	}
 
