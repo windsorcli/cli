@@ -75,7 +75,8 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 
 // Up creates a new stack of components by initializing and applying Terraform configurations.
 // It processes components in order, generating terraform arguments, running Terraform init,
-// plan, and apply operations, and cleaning up backend override files.
+// plan, and apply operations. Backend override files are cleaned up after all components complete,
+// ensuring they remain available for terraform_output() calls between component executions.
 // The method ensures proper directory management and terraform argument setup for each component.
 // The blueprint parameter is required to resolve terraform components.
 func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
@@ -98,6 +99,13 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
+	var backendOverridePaths []string
+	defer func() {
+		for _, path := range backendOverridePaths {
+			_ = s.shims.Remove(path)
+		}
+	}()
+
 	for _, component := range components {
 		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
@@ -106,6 +114,11 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 		terraformArgs, err := s.setupTerraformEnvironment(component)
 		if err != nil {
 			return err
+		}
+
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, err := s.shims.Stat(backendOverridePath); err == nil {
+			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
 		}
 
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
@@ -134,12 +147,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 		}
 
-		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, err := s.shims.Stat(backendOverridePath); err == nil {
-			if err := s.shims.Remove(backendOverridePath); err != nil {
-				return fmt.Errorf("error removing backend override file for %s: %w", component.Path, err)
-			}
-		}
+		_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
 	}
 
 	return nil
@@ -147,9 +155,9 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 
 // Down destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
 // For each component, Down generates Terraform arguments, sets required environment variables, unsets conflicting TF_CLI_ARGS_* variables,
-// creates backend override files, runs Terraform refresh, plan (with destroy flag), and destroy commands, and removes backend override files.
-// Components with Destroy set to false are skipped. Directory state is restored after execution. Errors are returned on any operation failure.
-// The blueprint parameter is required to resolve terraform components.
+// creates backend override files, runs Terraform refresh, plan (with destroy flag), and destroy commands. Backend override files are
+// cleaned up after all components complete. Components with Destroy set to false are skipped. Directory state is restored after execution.
+// Errors are returned on any operation failure. The blueprint parameter is required to resolve terraform components.
 func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -170,6 +178,13 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
+	var backendOverridePaths []string
+	defer func() {
+		for _, path := range backendOverridePaths {
+			_ = s.shims.Remove(path)
+		}
+	}()
+
 	for i := len(components) - 1; i >= 0; i-- {
 		component := components[i]
 
@@ -189,6 +204,11 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			return err
 		}
 
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, err := s.shims.Stat(backendOverridePath); err == nil {
+			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+		}
+
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
@@ -204,10 +224,6 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), terraformCommand, destroyArgs...); err != nil {
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
-		}
-
-		if err := s.shims.Remove(filepath.Join(component.FullPath, "backend_override.tf")); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("error removing backend_override.tf from %s: %w", component.Path, err)
 		}
 	}
 

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/hashicorp/hcl/v2"
@@ -37,6 +38,7 @@ type Shims struct {
 	Glob           func(string) ([]string, error)
 	HclParseConfig func([]byte, string, hcl.Pos) (*hclwrite.File, hcl.Diagnostics)
 	Goos           func() string
+	Sleep          func(time.Duration)
 }
 
 // =============================================================================
@@ -61,5 +63,6 @@ func NewShims() *Shims {
 		Glob:           filepath.Glob,
 		HclParseConfig: hclwrite.ParseConfig,
 		Goos:           func() string { return runtime.GOOS },
+		Sleep:          time.Sleep,
 	}
 }

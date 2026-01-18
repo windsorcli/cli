@@ -379,7 +379,8 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
+	t.Run("IgnoresErrorRemovingBackendOverride", func(t *testing.T) {
+		// Given a stack with Remove that fails
 		stack, mocks := setup(t)
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 		backendOverridePath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path", "backend_override.tf")
@@ -393,12 +394,13 @@ func TestStack_Up(t *testing.T) {
 			return fmt.Errorf("remove error")
 		}
 		blueprint := createTestBlueprint()
+
+		// When running Up
 		err := stack.Up(blueprint)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error removing backend override file") {
-			t.Errorf("Expected remove error, got: %v", err)
+
+		// Then it should succeed (cleanup errors are ignored)
+		if err != nil {
+			t.Errorf("Expected no error (cleanup is best-effort), got: %v", err)
 		}
 	})
 
@@ -652,7 +654,8 @@ func TestStack_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRemovingBackendOverride", func(t *testing.T) {
+	t.Run("IgnoresErrorRemovingBackendOverride", func(t *testing.T) {
+		// Given a stack with Remove that fails
 		stack, mocks := setup(t)
 		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 		backendOverridePath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "remote", "path", "backend_override.tf")
@@ -666,12 +669,13 @@ func TestStack_Down(t *testing.T) {
 			return fmt.Errorf("remove error")
 		}
 		blueprint := createTestBlueprint()
+
+		// When running Down
 		err := stack.Down(blueprint)
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "error removing backend_override.tf") {
-			t.Errorf("Expected remove error, got: %v", err)
+
+		// Then it should succeed (cleanup errors are ignored)
+		if err != nil {
+			t.Errorf("Expected no error (cleanup is best-effort), got: %v", err)
 		}
 	})
 
