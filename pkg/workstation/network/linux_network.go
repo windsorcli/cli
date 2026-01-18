@@ -5,6 +5,7 @@ package network
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -19,30 +20,21 @@ import (
 
 // ConfigureHostRoute sets up the local development network for Linux
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
-	// Access the Docker configuration
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
 
-	// Access the VM configuration
 	guestIP := n.configHandler.GetString("vm.address")
 	if guestIP == "" {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	// Use the shell to execute a command that checks the routing table for the specific route
-	output, err := n.shell.ExecSilent(
-		"ip",
-		"route",
-		"show",
-		networkCIDR,
-	)
+	output, err := n.shell.ExecSilent("ip", "route", "show", networkCIDR)
 	if err != nil {
 		return fmt.Errorf("failed to check if route exists: %w", err)
 	}
 
-	// Check if the output contains the guest IP, indicating the route exists
 	routeExists := false
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
@@ -56,10 +48,9 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	// Add route on the host to VM guest
-	fmt.Println("🔐 Configuring host route")
-	output, err = n.shell.ExecSilent(
-		"sudo",
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 Network configuration may require sudo password\n")
+	output, err = n.shell.ExecSudo(
+		"🔐 Adding host route",
 		"ip",
 		"route",
 		"add",
@@ -109,8 +100,10 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	_, err = n.shell.ExecSilent(
-		"sudo",
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 DNS configuration may require sudo password\n")
+
+	_, err = n.shell.ExecSudo(
+		"🔐 Creating DNS configuration directory",
 		"mkdir",
 		"-p",
 		dropInDir,
@@ -129,7 +122,6 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("failed to write DNS configuration: %w", err)
 	}
 
-	fmt.Println("🔐 Restarting systemd-resolved")
 	_, err = n.shell.ExecSudo(
 		"🔐 Restarting systemd-resolved",
 		"systemctl",

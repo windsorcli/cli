@@ -35,32 +35,34 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
+	output, err := n.shell.ExecSilent(
+		"powershell",
+		"-Command",
+		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestIP),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to check if route exists: %w", err)
+	}
+
+	if strings.TrimSpace(output) != "" {
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 Network configuration requires administrator privileges\n")
+
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
 	spin.Suffix = " 🔐 Configuring host route"
 	spin.Start()
 
-	output, err := n.shell.ExecSilent(
+	output, err = n.shell.ExecSilent(
 		"powershell",
 		"-Command",
-		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestIP),
+		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),
 	)
 	if err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring host route - Failed\033[0m\n")
-		return fmt.Errorf("failed to check if route exists: %w", err)
-	}
-
-	if output == "" {
-		output, err = n.shell.ExecSilent(
-			"powershell",
-			"-Command",
-			fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),
-		)
-		if err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring host route - Failed\033[0m\n")
-			return fmt.Errorf("failed to add route: %w, output: %s", err, output)
-		}
+		return fmt.Errorf("failed to add route: %w, output: %s", err, output)
 	}
 
 	spin.Stop()
@@ -116,8 +118,9 @@ if ($existingRule) {
 		return fmt.Errorf("failed to check existing DNS rules for %s: %w", tld, err)
 	}
 
-	// Add or update the DNS rule for the host name if necessary
 	if strings.TrimSpace(output) == "False" || output == "" {
+		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 DNS configuration requires administrator privileges\n")
+
 		addOrUpdateScript := fmt.Sprintf(`
 $namespace = '%s'
 $existingRule = Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq $namespace }

@@ -84,10 +84,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks.ConfigHandler.Set("vm.address", "192.168.1.2")
 
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "powershell" && args[0] == "-Command" {
-				if args[1] == fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", "192.168.1.0/24", "192.168.1.2") {
-					return "", fmt.Errorf("mocked shell execution error")
-				}
+			if command == "powershell" && args[0] == "-Command" && strings.Contains(args[1], "Get-NetRoute") {
+				return "", fmt.Errorf("mocked shell execution error")
 			}
 			return "", nil
 		}
@@ -114,10 +112,10 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "powershell" && args[0] == "-Command" {
-				if args[1] == fmt.Sprintf("Get-NetRoute -DestinationPrefix %s | Where-Object { $_.NextHop -eq '%s' }", "192.168.1.0/24", "192.168.1.2") {
-					return "", nil // Simulate that the route does not exist
+				if strings.Contains(args[1], "Get-NetRoute") {
+					return "", nil
 				}
-				if args[1] == fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", "192.168.1.0/24", "192.168.1.2") {
+				if strings.Contains(args[1], "New-NetRoute") {
 					return "", fmt.Errorf("mocked shell execution error")
 				}
 			}

@@ -33,27 +33,33 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest IP is not configured")
 	}
 
-	output, err := n.shell.ExecSilent("route", "get", networkCIDR)
+	networkPrefix := strings.Split(networkCIDR, "/")[0]
+	output, err := n.shell.ExecSilent("route", "-n", "get", networkPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to check if route exists: %w", err)
 	}
 
-	lines := strings.Split(output, "\n")
 	routeExists := false
-	for _, line := range lines {
-		if strings.Contains(line, "gateway:") {
-			parts := strings.Fields(line)
-			if len(parts) == 2 && parts[1] == guestIP {
-				routeExists = true
-				break
-			}
+
+	found := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+			key := strings.ToLower(strings.TrimSpace(parts[0]))
+			val := strings.TrimSpace(parts[1])
+			found[key] = val
 		}
+	}
+
+	if strings.TrimSpace(found["destination"]) == networkPrefix && strings.TrimSpace(found["gateway"]) == guestIP {
+		routeExists = true
 	}
 
 	if routeExists {
 		return nil
 	}
 
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 Network configuration may require sudo password\n")
 	output, err = n.shell.ExecSudo(
 		"🔐 Adding host route",
 		"route",
@@ -99,10 +105,11 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	// Ensure the resolver directory exists
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 DNS configuration may require sudo password\n")
+
 	if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
-		if _, err := n.shell.ExecSilent(
-			"sudo",
+		if _, err := n.shell.ExecSudo(
+			"🔐 Creating resolver directory",
 			"mkdir",
 			"-p",
 			resolverDir,
