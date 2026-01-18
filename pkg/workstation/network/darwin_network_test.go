@@ -27,7 +27,10 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a properly configured network manager
-		manager, _ := setup(t)
+		manager, mocks := setup(t)
+
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
+		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -86,8 +89,8 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		originalExecSilentFunc := mocks.Shell.ExecSilentFunc
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "route" && args[0] == "get" {
-				return "gateway: " + mocks.ConfigHandler.GetString("vm.address"), nil
+			if command == "route" && len(args) >= 3 && args[0] == "-n" && args[1] == "get" {
+				return "   route to: 192.168.1.0\ndestination: 192.168.1.0\n    gateway: 192.168.1.10\n  interface: en0", nil
 			}
 			if originalExecSilentFunc != nil {
 				return originalExecSilentFunc(command, args...)
@@ -113,7 +116,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 
 		originalExecSilentFunc := mocks.Shell.ExecSilentFunc
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "route" && args[0] == "get" {
+			if command == "route" && len(args) >= 3 && args[0] == "-n" && args[1] == "get" {
 				return "", fmt.Errorf("mock error")
 			}
 			if originalExecSilentFunc != nil {
@@ -294,8 +297,8 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 			return nil, nil
 		}
 
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "sudo" && args[0] == "mkdir" && args[1] == "-p" {
+		mocks.Shell.ExecSudoFunc = func(message, command string, args ...string) (string, error) {
+			if command == "mkdir" {
 				return "", fmt.Errorf("mock error creating resolver directory")
 			}
 			return "", nil

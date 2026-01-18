@@ -144,8 +144,8 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("AddRouteError", func(t *testing.T) {
 		// Given a network manager with route addition error
 		manager, mocks := setup(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "sudo" && args[0] == "ip" && args[1] == "route" && args[2] == "add" {
+		mocks.Shell.ExecSudoFunc = func(message, command string, args ...string) (string, error) {
+			if command == "ip" && args[0] == "route" && args[1] == "add" {
 				return "mock output", fmt.Errorf("mock error")
 			}
 			return "", nil
@@ -348,8 +348,8 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And mocking drop-in directory creation error
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "sudo" && args[0] == "mkdir" {
+		mocks.Shell.ExecSudoFunc = func(message, command string, args ...string) (string, error) {
+			if command == "mkdir" {
 				return "", fmt.Errorf("mock error creating directory")
 			}
 			return "", nil

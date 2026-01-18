@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -402,6 +403,13 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 }
 
 func TestIsExitCode(t *testing.T) {
+	exitCmd := func(code int) *exec.Cmd {
+		if runtime.GOOS == "windows" {
+			return exec.Command("cmd", "/c", fmt.Sprintf("exit %d", code))
+		}
+		return exec.Command("sh", "-c", fmt.Sprintf("exit %d", code))
+	}
+
 	t.Run("NilError", func(t *testing.T) {
 		if isExitCode(nil, 1) {
 			t.Error("expected false for nil error")
@@ -416,7 +424,7 @@ func TestIsExitCode(t *testing.T) {
 	})
 
 	t.Run("ExitCode1", func(t *testing.T) {
-		cmd := exec.Command("sh", "-c", "exit 1")
+		cmd := exitCmd(1)
 		err := cmd.Run()
 		if err == nil {
 			t.Fatal("expected error from exit 1 command")
@@ -430,7 +438,7 @@ func TestIsExitCode(t *testing.T) {
 	})
 
 	t.Run("ExitCode2", func(t *testing.T) {
-		cmd := exec.Command("sh", "-c", "exit 2")
+		cmd := exitCmd(2)
 		err := cmd.Run()
 		if err == nil {
 			t.Fatal("expected error from exit 2 command")
@@ -444,7 +452,7 @@ func TestIsExitCode(t *testing.T) {
 	})
 
 	t.Run("WrappedExitError", func(t *testing.T) {
-		cmd := exec.Command("sh", "-c", "exit 1")
+		cmd := exitCmd(1)
 		err := cmd.Run()
 		if err == nil {
 			t.Fatal("expected error from exit 1 command")
