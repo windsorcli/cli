@@ -4669,6 +4669,452 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 	})
 }
 
+func TestBaseKubernetesManager_getKustomizationsToDelete(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		return manager
+	}
+
+	t.Run("AllKustomizations", func(t *testing.T) {
+		manager := setup(t)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "kust-1"},
+				{Name: "kust-2"},
+				{Name: "kust-3"},
+			},
+		}
+
+		names := manager.getKustomizationsToDelete(blueprint)
+		if len(names) != 3 {
+			t.Errorf("Expected 3 kustomizations, got %d", len(names))
+		}
+		if names[0] != "kust-1" || names[1] != "kust-2" || names[2] != "kust-3" {
+			t.Errorf("Expected [kust-1, kust-2, kust-3], got %v", names)
+		}
+	})
+
+	t.Run("ExcludesDestroyFalse", func(t *testing.T) {
+		manager := setup(t)
+		destroyFalse := false
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "kust-1"},
+				{Name: "kust-2", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse}},
+				{Name: "kust-3"},
+			},
+		}
+
+		names := manager.getKustomizationsToDelete(blueprint)
+		if len(names) != 2 {
+			t.Errorf("Expected 2 kustomizations, got %d", len(names))
+		}
+		if names[0] != "kust-1" || names[1] != "kust-3" {
+			t.Errorf("Expected [kust-1, kust-3], got %v", names)
+		}
+	})
+
+	t.Run("IncludesDestroyTrue", func(t *testing.T) {
+		manager := setup(t)
+		destroyTrue := true
+		destroyFalse := false
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "kust-1", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyTrue}},
+				{Name: "kust-2", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse}},
+				{Name: "kust-3"},
+			},
+		}
+
+		names := manager.getKustomizationsToDelete(blueprint)
+		if len(names) != 2 {
+			t.Errorf("Expected 2 kustomizations, got %d", len(names))
+		}
+		if names[0] != "kust-1" || names[1] != "kust-3" {
+			t.Errorf("Expected [kust-1, kust-3], got %v", names)
+		}
+	})
+
+	t.Run("EmptyBlueprint", func(t *testing.T) {
+		manager := setup(t)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{},
+		}
+
+		names := manager.getKustomizationsToDelete(blueprint)
+		if len(names) != 0 {
+			t.Errorf("Expected 0 kustomizations, got %d", len(names))
+		}
+	})
+
+	t.Run("AllDestroyFalse", func(t *testing.T) {
+		manager := setup(t)
+		destroyFalse := false
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "kust-1", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse}},
+				{Name: "kust-2", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse}},
+			},
+		}
+
+		names := manager.getKustomizationsToDelete(blueprint)
+		if len(names) != 0 {
+			t.Errorf("Expected 0 kustomizations, got %d", len(names))
+		}
+	})
+
+	t.Run("IncludesDestroyOnly", func(t *testing.T) {
+		manager := setup(t)
+		destroyOnly := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "regular-kust"},
+				{Name: "destroy-only-kust", DestroyOnly: &destroyOnly},
+			},
+		}
+
+		names := manager.getKustomizationsToDelete(blueprint)
+		if len(names) != 2 {
+			t.Errorf("Expected 2 kustomizations (includes destroy-only), got %d", len(names))
+		}
+	})
+}
+
+func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		return manager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var suspendedNames []string
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			suspendedNames = append(suspendedNames, name)
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		errors := manager.suspendKustomizations([]string{"kust-1", "kust-2", "kust-3"}, "test-namespace")
+		if len(errors) != 0 {
+			t.Errorf("Expected no errors, got %v", errors)
+		}
+		if len(suspendedNames) != 3 {
+			t.Errorf("Expected 3 suspend calls, got %d", len(suspendedNames))
+		}
+		if suspendedNames[0] != "kust-3" || suspendedNames[1] != "kust-2" || suspendedNames[2] != "kust-1" {
+			t.Errorf("Expected reverse order [kust-3, kust-2, kust-1], got %v", suspendedNames)
+		}
+	})
+
+	t.Run("IgnoresNotFoundErrors", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			if name == "nonexistent" {
+				return nil, fmt.Errorf("the server could not find the requested resource")
+			}
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		errors := manager.suspendKustomizations([]string{"kust-1", "nonexistent", "kust-3"}, "test-namespace")
+		if len(errors) != 0 {
+			t.Errorf("Expected no errors (not-found should be ignored), got %v", errors)
+		}
+	})
+
+	t.Run("AccumulatesOtherErrors", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			if name == "fail-1" || name == "fail-2" {
+				return nil, fmt.Errorf("patch error for %s", name)
+			}
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		errors := manager.suspendKustomizations([]string{"kust-1", "fail-1", "kust-2", "fail-2"}, "test-namespace")
+		if len(errors) != 2 {
+			t.Errorf("Expected 2 errors, got %d: %v", len(errors), errors)
+		}
+	})
+
+	t.Run("EmptyList", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var patchCalled bool
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			patchCalled = true
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		errors := manager.suspendKustomizations([]string{}, "test-namespace")
+		if len(errors) != 0 {
+			t.Errorf("Expected no errors, got %v", errors)
+		}
+		if patchCalled {
+			t.Error("Expected no patch calls for empty list")
+		}
+	})
+
+	t.Run("SingleKustomization", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var suspendedName string
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			suspendedName = name
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		errors := manager.suspendKustomizations([]string{"only-one"}, "test-namespace")
+		if len(errors) != 0 {
+			t.Errorf("Expected no errors, got %v", errors)
+		}
+		if suspendedName != "only-one" {
+			t.Errorf("Expected 'only-one', got '%s'", suspendedName)
+		}
+	})
+
+	t.Run("CorrectNamespaceUsed", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var usedNamespace string
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			usedNamespace = namespace
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		manager.suspendKustomizations([]string{"kust-1"}, "custom-namespace")
+		if usedNamespace != "custom-namespace" {
+			t.Errorf("Expected namespace 'custom-namespace', got '%s'", usedNamespace)
+		}
+	})
+
+	t.Run("CorrectPatchData", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			expectedPatch := []byte(`{"spec":{"suspend":true}}`)
+			if !bytes.Equal(data, expectedPatch) {
+				t.Errorf("Expected patch %s, got %s", expectedPatch, data)
+			}
+			if pt != types.MergePatchType {
+				t.Errorf("Expected MergePatchType, got %v", pt)
+			}
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		manager.suspendKustomizations([]string{"kust-1"}, "test-namespace")
+	})
+
+	t.Run("ContinuesAfterError", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var suspendedNames []string
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			suspendedNames = append(suspendedNames, name)
+			if name == "kust-2" {
+				return nil, fmt.Errorf("patch error")
+			}
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		errors := manager.suspendKustomizations([]string{"kust-1", "kust-2", "kust-3"}, "test-namespace")
+		if len(errors) != 1 {
+			t.Errorf("Expected 1 error, got %d", len(errors))
+		}
+		if len(suspendedNames) != 3 {
+			t.Errorf("Expected all 3 kustomizations to be attempted, got %d", len(suspendedNames))
+		}
+	})
+}
+
+func TestBaseKubernetesManager_DeleteBlueprint_SuspendIntegration(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationReconcileSleep = 50 * time.Millisecond
+		return manager
+	}
+
+	t.Run("SuspendsBeforeDeleting", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var operations []string
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			operations = append(operations, "suspend:"+name)
+			return &unstructured.Unstructured{}, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			operations = append(operations, "delete:"+name)
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "kust-1"},
+				{Name: "kust-2"},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		suspendIdx1 := -1
+		suspendIdx2 := -1
+		deleteIdx1 := -1
+		deleteIdx2 := -1
+		for i, op := range operations {
+			switch op {
+			case "suspend:kust-1":
+				suspendIdx1 = i
+			case "suspend:kust-2":
+				suspendIdx2 = i
+			case "delete:kust-1":
+				deleteIdx1 = i
+			case "delete:kust-2":
+				deleteIdx2 = i
+			}
+		}
+
+		if suspendIdx1 == -1 || suspendIdx2 == -1 {
+			t.Error("Expected both kustomizations to be suspended")
+		}
+		if deleteIdx1 == -1 || deleteIdx2 == -1 {
+			t.Error("Expected both kustomizations to be deleted")
+		}
+		if suspendIdx1 > deleteIdx1 || suspendIdx2 > deleteIdx2 {
+			t.Errorf("Expected all suspends before deletes, operations: %v", operations)
+		}
+	})
+
+	t.Run("SuspendErrorsContinueToDelete", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("suspend error")
+		}
+
+		var deleteCalls []string
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleteCalls = append(deleteCalls, name)
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "kust-1"},
+				{Name: "kust-2"},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Error("Expected error due to suspend failures, got nil")
+		}
+		if len(deleteCalls) != 2 {
+			t.Errorf("Expected deletion to continue despite suspend errors, got %d delete calls", len(deleteCalls))
+		}
+	})
+
+	t.Run("NoSuspendForEmptyBlueprint", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var patchCalled bool
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			patchCalled = true
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "empty-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if patchCalled {
+			t.Error("Expected no patch calls for empty blueprint")
+		}
+	})
+
+	t.Run("SuspendsInReverseOrder", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var suspendOrder []string
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			suspendOrder = append(suspendOrder, name)
+			return &unstructured.Unstructured{}, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "kust-a"},
+				{Name: "kust-b"},
+				{Name: "kust-c"},
+			},
+		}
+
+		manager.DeleteBlueprint(blueprint, "test-namespace")
+		if len(suspendOrder) != 3 {
+			t.Errorf("Expected 3 suspend calls, got %d", len(suspendOrder))
+		}
+		if suspendOrder[0] != "kust-c" || suspendOrder[1] != "kust-b" || suspendOrder[2] != "kust-a" {
+			t.Errorf("Expected reverse order [kust-c, kust-b, kust-a], got %v", suspendOrder)
+		}
+	})
+}
+
 func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
