@@ -732,7 +732,7 @@ func (v *IncusVirt) launchInstanceSilent(config *IncusInstanceConfig) error {
 // proper quoting of config values that contain spaces. Adds --quiet flag when not verbose.
 func (v *IncusVirt) buildLaunchArgs(config *IncusInstanceConfig) []string {
 	args := []string{"launch", config.Image, config.Name}
-	if !v.isVerbose() {
+	if !v.shell.IsVerbose() {
 		args = append(args, "--quiet")
 	}
 
@@ -1195,12 +1195,19 @@ func (v *IncusVirt) deleteInstanceSilent(name string) error {
 	return nil
 }
 
+// addQuietFlag adds --quiet to incus command args when not verbose.
+func (v *IncusVirt) addQuietFlag(args []string) []string {
+	if !v.shell.IsVerbose() {
+		return append(args, "--quiet")
+	}
+	return args
+}
+
 // withProgress executes a function with a spinner progress indicator.
-// If verbose mode is enabled, prints the message and executes without spinner, preserving verbosity.
-// Otherwise, shows a spinner during execution and temporarily suppresses verbosity to prevent
-// command output from interfering with the spinner. Verbosity is restored after execution.
+// If verbose mode is enabled, prints the message and executes without spinner.
+// Otherwise, shows a spinner during execution and prints success/failure status after.
 func (v *IncusVirt) withProgress(message string, fn func() error) error {
-	if v.isVerbose() {
+	if v.shell.IsVerbose() {
 		fmt.Fprintln(os.Stderr, message)
 		return fn()
 	}
@@ -1209,14 +1216,7 @@ func (v *IncusVirt) withProgress(message string, fn func() error) error {
 	spin.Suffix = " " + message
 	spin.Start()
 
-	originalVerbose := v.isVerbose()
-	v.shell.SetVerbosity(false)
 	err := fn()
-	if originalVerbose {
-		v.shell.SetVerbosity(true)
-	} else {
-		v.shell.SetVerbosity(false)
-	}
 
 	spin.Stop()
 
@@ -1227,25 +1227,6 @@ func (v *IncusVirt) withProgress(message string, fn func() error) error {
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	return nil
-}
-
-// isVerbose checks if the shell is in verbose mode by using type assertion.
-func (v *IncusVirt) isVerbose() bool {
-	type verboseShell interface {
-		IsVerbose() bool
-	}
-	if vs, ok := v.shell.(verboseShell); ok {
-		return vs.IsVerbose()
-	}
-	return false
-}
-
-// addQuietFlag adds --quiet to incus command args when not verbose.
-func (v *IncusVirt) addQuietFlag(args []string) []string {
-	if !v.isVerbose() {
-		return append(args, "--quiet")
-	}
-	return args
 }
 
 // =============================================================================

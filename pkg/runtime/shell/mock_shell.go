@@ -26,6 +26,7 @@ type MockShell struct {
 	ExecSudoFunc                   func(message string, command string, args ...string) (string, error)
 	InstallHookFunc                func(shellName string) error
 	SetVerbosityFunc               func(verbose bool)
+	IsVerboseFunc                  func() bool
 	AddCurrentDirToTrustedFileFunc func() error
 	CheckTrustedDirectoryFunc      func() error
 	UnsetEnvsFunc                  func(envVars []string)
@@ -127,6 +128,14 @@ func (s *MockShell) SetVerbosity(verbose bool) {
 	if s.SetVerbosityFunc != nil {
 		s.SetVerbosityFunc(verbose)
 	}
+}
+
+// IsVerbose calls the custom IsVerboseFunc if provided.
+func (s *MockShell) IsVerbose() bool {
+	if s.IsVerboseFunc != nil {
+		return s.IsVerboseFunc()
+	}
+	return false
 }
 
 // AddCurrentDirToTrustedFile calls the custom AddCurrentDirToTrustedFileFunc if provided.

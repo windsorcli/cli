@@ -44,6 +44,7 @@ type HookContext struct {
 // Shell is the interface that defines shell operations.
 type Shell interface {
 	SetVerbosity(verbose bool)
+	IsVerbose() bool
 	RenderEnvVars(envVars map[string]string, export bool) string
 	RenderAliases(aliases map[string]string) string
 	GetProjectRoot() (string, error)
@@ -89,6 +90,11 @@ func NewDefaultShell() *DefaultShell {
 // SetVerbosity sets the verbosity flag
 func (s *DefaultShell) SetVerbosity(verbose bool) {
 	s.verbose = verbose
+}
+
+// IsVerbose returns the current verbosity flag value.
+func (s *DefaultShell) IsVerbose() bool {
+	return s.verbose
 }
 
 // GetProjectRoot finds the project root. It checks for a cached root first.
@@ -156,17 +162,20 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 }
 
 // ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
-// connecting to the terminal and captures the command's output. If verbose mode is enabled, it prints
-// a message to stderr. The function returns the command's stdout or an error if execution fails.
+// connecting to the terminal and captures the command's output. If verbose mode is enabled or no TTY
+// is available (CI/CD environments), it uses direct execution. Otherwise, it connects to /dev/tty for
+// interactive password prompts. The function returns the command's stdout or an error if execution fails.
 func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
-	if s.verbose {
-		fmt.Fprintln(os.Stderr, message)
-		return s.Exec("sudo", append([]string{command}, args...)...)
-	}
-
 	if command != "sudo" {
 		args = append([]string{command}, args...)
 		command = "sudo"
+	}
+
+	if s.verbose || !s.shims.IsTerminal(int(os.Stdin.Fd())) {
+		if s.verbose {
+			fmt.Fprintln(os.Stderr, message)
+		}
+		return s.Exec(command, args...)
 	}
 
 	cmd := s.shims.Command(command, args...)
@@ -174,7 +183,6 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 		return "", fmt.Errorf("failed to create command")
 	}
 
-	// Ensure the command inherits the current environment
 	if cmd.Env == nil {
 		cmd.Env = s.shims.Environ()
 	}
