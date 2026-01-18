@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"text/template"
+
+	"golang.org/x/term"
 )
 
 // =============================================================================
@@ -79,6 +81,9 @@ type Shims struct {
 
 	// Random operations
 	RandRead func(b []byte) (n int, err error)
+
+	// Terminal operations
+	IsTerminal func(fd int) bool
 }
 
 // =============================================================================
@@ -168,6 +173,9 @@ func NewShims() *Shims {
 		RandRead: func(b []byte) (n int, err error) {
 			return rand.Read(b)
 		},
+
+		// Terminal operations
+		IsTerminal: term.IsTerminal,
 	}
 	return s
 }

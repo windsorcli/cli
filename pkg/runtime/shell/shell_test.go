@@ -187,6 +187,10 @@ func setupDefaultShims(tmpDir string) *Shims {
 		return scanner.Text()
 	}
 
+	shims.IsTerminal = func(fd int) bool {
+		return true
+	}
+
 	return shims
 }
 
@@ -571,6 +575,42 @@ func TestShell_ExecSudo(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessWithNoTTY", func(t *testing.T) {
+		shell, mocks := setup(t)
+
+		mocks.Shims.IsTerminal = func(fd int) bool {
+			return false
+		}
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			cmd := &exec.Cmd{
+				Path:   name,
+				Args:   append([]string{name}, args...),
+				Stdout: new(bytes.Buffer),
+				Stderr: new(bytes.Buffer),
+			}
+			return cmd
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				if _, err := cmd.Stdout.Write([]byte("test output\n")); err != nil {
+					return fmt.Errorf("failed to write to stdout: %v", err)
+				}
+			}
+			return nil
+		}
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
+			return nil
+		}
+
+		output, err := shell.ExecSudo("Running test", "test", "arg")
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if output != "test output\n" {
+			t.Errorf("Expected output 'test output\\n', got: %q", output)
+		}
+	})
+
 	t.Run("ErrorOnOpenTTY", func(t *testing.T) {
 		shell, mocks := setup(t)
 		mocks.Shims.OpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
@@ -608,20 +648,16 @@ func TestShell_ExecSudo(t *testing.T) {
 	})
 
 	t.Run("ErrorOnWait", func(t *testing.T) {
-		// Setup
-		shims := NewShims()
-		sh := NewDefaultShell()
-		sh.shims = shims
+		shell, mocks := setup(t)
 
 		expectedOutput := "test output"
 		expectedErr := fmt.Errorf("wait error")
 
-		// Mock command execution
-		shims.Command = func(name string, args ...string) *exec.Cmd {
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
 			cmd := exec.Command("echo", "test")
 			return cmd
 		}
-		shims.CmdStart = func(cmd *exec.Cmd) error {
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
 			if cmd.Stdout != nil {
 				if w, ok := cmd.Stdout.(*bytes.Buffer); ok {
 					w.WriteString(expectedOutput)
@@ -629,17 +665,15 @@ func TestShell_ExecSudo(t *testing.T) {
 			}
 			return nil
 		}
-		shims.CmdWait = func(cmd *exec.Cmd) error {
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
 			return expectedErr
 		}
-		shims.OpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		mocks.Shims.OpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
 			return os.NewFile(0, "test"), nil
 		}
 
-		// Execute
-		output, err := sh.ExecSudo("test", "test", "arg")
+		output, err := shell.ExecSudo("test", "test", "arg")
 
-		// Assert
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
