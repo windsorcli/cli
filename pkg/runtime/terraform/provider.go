@@ -418,27 +418,11 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 			return nil, nil, fmt.Errorf("error resolving module path for component %s: %w", componentID, err)
 		}
 	} else {
-		components := p.GetTerraformComponents()
-		for i := range components {
-			if components[i].GetID() == componentID {
-				var err error
-				modulePath, err = p.resolveModulePath(&components[i])
-				if err != nil {
-					return nil, nil, fmt.Errorf("error resolving module path for component %s: %w", componentID, err)
-				}
-				component = &components[i]
-				break
-			}
+		projectRoot, err := p.shell.GetProjectRoot()
+		if err != nil {
+			return nil, nil, fmt.Errorf("component %s not found and module path could not be resolved: %w", componentID, err)
 		}
-		if modulePath == "" {
-			componentID := componentID
-			projectRoot, err := p.shell.GetProjectRoot()
-			if err == nil {
-				modulePath = filepath.Join(projectRoot, "terraform", componentID)
-			} else {
-				return nil, nil, fmt.Errorf("component %s not found and module path could not be resolved: %w", componentID, err)
-			}
-		}
+		modulePath = filepath.Join(projectRoot, "terraform", componentID)
 	}
 	terraformArgs, err := p.GenerateTerraformArgs(componentID, modulePath, interactive)
 	if err != nil {

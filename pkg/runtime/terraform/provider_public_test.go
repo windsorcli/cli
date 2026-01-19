@@ -2857,4 +2857,104 @@ terraform:
 			t.Error("Expected TF_VAR_vpc_id to not be set when JSON marshal fails")
 		}
 	})
+
+	t.Run("HandlesResolveModulePathErrorForDirectComponent", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Name:   "cluster",
+			Source: "./modules/cluster",
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return "", errors.New("scratch path error")
+		}
+
+		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		if err == nil {
+			t.Fatal("Expected error when resolveModulePath fails")
+		}
+		if !strings.Contains(err.Error(), "error resolving module path") {
+			t.Errorf("Expected error to mention resolving module path, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesGenerateTerraformArgsError", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "cluster",
+			FullPath: "/test/project/terraform/cluster",
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return "", errors.New("scratch path error")
+		}
+
+		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		if err == nil {
+			t.Fatal("Expected error when GenerateTerraformArgs fails")
+		}
+		if !strings.Contains(err.Error(), "error generating terraform args") {
+			t.Errorf("Expected error to mention generating terraform args, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesGetBaseEnvVarsForComponentError", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "cluster",
+			FullPath: "/test/project/terraform/cluster",
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		callCount := 0
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
+			callCount++
+			if callCount <= 1 {
+				return "/test/config", nil
+			}
+			return "", errors.New("config root error")
+		}
+
+		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		if err == nil {
+			t.Fatal("Expected error when getBaseEnvVarsForComponent fails")
+		}
+		if !strings.Contains(err.Error(), "config root") {
+			t.Errorf("Expected error to mention config root, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEvaluatedKeyNotExist", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+terraform:
+  - path: cluster
+    inputs:
+      vpc_id: "${terraform_output('vpc', 'id')}"`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := envVars["TF_VAR_vpc_id"]; exists {
+			t.Error("Expected TF_VAR_vpc_id to not be set when key doesn't exist in evaluated result")
+		}
+	})
 }
