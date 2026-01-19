@@ -584,8 +584,20 @@ func convertToCtyValue(value any) cty.Value {
 		return cty.StringVal(v)
 	case int:
 		return cty.NumberIntVal(int64(v))
+	case int64:
+		return cty.NumberIntVal(v)
+	case int32:
+		return cty.NumberIntVal(int64(v))
+	case uint:
+		return cty.NumberIntVal(int64(v))
+	case uint64:
+		return cty.NumberIntVal(int64(v))
+	case uint32:
+		return cty.NumberIntVal(int64(v))
 	case float64:
 		return cty.NumberFloatVal(v)
+	case float32:
+		return cty.NumberFloatVal(float64(v))
 	case bool:
 		return cty.BoolVal(v)
 	case []string:
