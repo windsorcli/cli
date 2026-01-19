@@ -21,13 +21,14 @@ type NodeConfig struct {
 
 // NodeGroupConfig represents the configuration for a group of nodes
 type NodeGroupConfig struct {
-	Count     *int                  `yaml:"count,omitempty"`
-	CPU       *int                  `yaml:"cpu,omitempty"`
-	Memory    *int                  `yaml:"memory,omitempty"`
-	Image     *string               `yaml:"image,omitempty"`
-	Nodes     map[string]NodeConfig `yaml:"nodes,omitempty"`
-	HostPorts []string              `yaml:"hostports,omitempty"`
-	Volumes   []string              `yaml:"volumes,omitempty"`
+	Count       *int                  `yaml:"count,omitempty"`
+	CPU         *int                  `yaml:"cpu,omitempty"`
+	Memory      *int                  `yaml:"memory,omitempty"`
+	Image       *string               `yaml:"image,omitempty"`
+	Schedulable *bool                 `yaml:"schedulable,omitempty"`
+	Nodes       map[string]NodeConfig `yaml:"nodes,omitempty"`
+	HostPorts   []string              `yaml:"hostports,omitempty"`
+	Volumes     []string              `yaml:"volumes,omitempty"`
 }
 
 // Merge performs a deep merge of the current ClusterConfig with another ClusterConfig.
@@ -59,6 +60,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 	if overlay.ControlPlanes.Image != nil {
 		base.ControlPlanes.Image = overlay.ControlPlanes.Image
 	}
+	if overlay.ControlPlanes.Schedulable != nil {
+		base.ControlPlanes.Schedulable = overlay.ControlPlanes.Schedulable
+	}
 	if overlay.ControlPlanes.Nodes != nil {
 		base.ControlPlanes.Nodes = make(map[string]NodeConfig, len(overlay.ControlPlanes.Nodes))
 		for key, node := range overlay.ControlPlanes.Nodes {
@@ -84,6 +88,9 @@ func (base *ClusterConfig) Merge(overlay *ClusterConfig) {
 	}
 	if overlay.Workers.Image != nil {
 		base.Workers.Image = overlay.Workers.Image
+	}
+	if overlay.Workers.Schedulable != nil {
+		base.Workers.Schedulable = overlay.Workers.Schedulable
 	}
 	if overlay.Workers.Nodes != nil {
 		base.Workers.Nodes = make(map[string]NodeConfig, len(overlay.Workers.Nodes))
@@ -250,6 +257,13 @@ func (c *ClusterConfig) DeepCopy() *ClusterConfig {
 				}
 				return nil
 			}(),
+			Schedulable: func() *bool {
+				if c.ControlPlanes.Schedulable != nil {
+					schedulable := *c.ControlPlanes.Schedulable
+					return &schedulable
+				}
+				return nil
+			}(),
 			Nodes:     controlPlanesNodesCopy,
 			HostPorts: controlPlanesHostPortsCopy,
 			Volumes:   controlPlanesVolumesCopy,
@@ -280,6 +294,13 @@ func (c *ClusterConfig) DeepCopy() *ClusterConfig {
 				if c.Workers.Image != nil {
 					image := *c.Workers.Image
 					return &image
+				}
+				return nil
+			}(),
+			Schedulable: func() *bool {
+				if c.Workers.Schedulable != nil {
+					schedulable := *c.Workers.Schedulable
+					return &schedulable
 				}
 				return nil
 			}(),

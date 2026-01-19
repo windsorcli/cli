@@ -1465,7 +1465,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		if setDefaultConfig.Cluster == nil || len(setDefaultConfig.Cluster.Workers.HostPorts) == 0 {
+		if setDefaultConfig.Cluster == nil || len(setDefaultConfig.Cluster.ControlPlanes.HostPorts) == 0 {
 			t.Error("Expected DefaultConfig_Localhost with hostports to be set")
 		}
 	})

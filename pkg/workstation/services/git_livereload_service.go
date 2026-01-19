@@ -50,7 +50,7 @@ func (s *GitLivereloadService) GetComposeConfig() (*types.Config, error) {
 	rsyncProtect := s.configHandler.GetString("git.livereload.rsync_protect", constants.DefaultGitLiveReloadRsyncProtect)
 	gitUsername := s.configHandler.GetString("git.livereload.username", constants.DefaultGitLiveReloadUsername)
 	gitPassword := s.configHandler.GetString("git.livereload.password", constants.DefaultGitLiveReloadPassword)
-	webhookUrl := s.configHandler.GetString("git.livereload.webhook_url", constants.DefaultGitLiveReloadWebhookURL)
+	webhookUrl := s.configHandler.GetString("git.livereload.webhook_url", s.computeDefaultWebhookURL())
 	verifySsl := s.configHandler.GetBool("git.livereload.verify_ssl", false)
 	image := s.configHandler.GetString("git.livereload.image", constants.DefaultGitLiveReloadImage)
 
@@ -112,7 +112,7 @@ func (s *GitLivereloadService) GetIncusConfig() (*IncusConfig, error) {
 	rsyncProtect := s.configHandler.GetString("git.livereload.rsync_protect", constants.DefaultGitLiveReloadRsyncProtect)
 	gitUsername := s.configHandler.GetString("git.livereload.username", constants.DefaultGitLiveReloadUsername)
 	gitPassword := s.configHandler.GetString("git.livereload.password", constants.DefaultGitLiveReloadPassword)
-	webhookUrl := s.configHandler.GetString("git.livereload.webhook_url", constants.DefaultGitLiveReloadWebhookURL)
+	webhookUrl := s.configHandler.GetString("git.livereload.webhook_url", s.computeDefaultWebhookURL())
 	verifySsl := s.configHandler.GetBool("git.livereload.verify_ssl", false)
 	image := s.configHandler.GetString("git.livereload.image", constants.DefaultGitLiveReloadImage)
 
@@ -147,6 +147,33 @@ func (s *GitLivereloadService) GetIncusConfig() (*IncusConfig, error) {
 		Config:  config,
 		Devices: devices,
 	}, nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// computeDefaultWebhookURL dynamically computes the webhook URL based on cluster configuration.
+// For LoadBalancer mode (colima/incus): uses LoadBalancer IP on port 9292.
+// For NodePort mode (docker-desktop): uses node hostname on port 30292.
+// If workers exist (workers.count > 0), uses worker-1; otherwise uses controlplane-1.
+func (s *GitLivereloadService) computeDefaultWebhookURL() string {
+	lbIP := s.configHandler.GetString("network.loadbalancer_ips.start", "")
+	if lbIP != "" {
+		return fmt.Sprintf("http://%s:%d%s", lbIP, constants.DefaultGitLiveReloadWebhookLBPort, constants.DefaultGitLiveReloadWebhookPath)
+	}
+
+	domain := s.configHandler.GetString("dns.domain", "test")
+	workersCount := s.configHandler.GetInt("cluster.workers.count", 0)
+
+	var nodeHost string
+	if workersCount > 0 {
+		nodeHost = fmt.Sprintf("worker-1.%s", domain)
+	} else {
+		nodeHost = fmt.Sprintf("controlplane-1.%s", domain)
+	}
+
+	return fmt.Sprintf("http://%s:%d%s", nodeHost, constants.DefaultGitLiveReloadWebhookNodePort, constants.DefaultGitLiveReloadWebhookPath)
 }
 
 // =============================================================================

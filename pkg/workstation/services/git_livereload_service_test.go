@@ -243,4 +243,73 @@ func TestGitLivereloadService_GetIncusConfig(t *testing.T) {
 			t.Errorf("expected Image to be 'docker:myuser/myimage:latest', got %q", incusConfig.Image)
 		}
 	})
+
+}
+
+func TestGitLivereloadService_computeDefaultWebhookURL(t *testing.T) {
+	setup := func(t *testing.T) (*GitLivereloadService, *ServicesTestMocks) {
+		t.Helper()
+		mocks := setupServicesMocks(t)
+		service := NewGitLivereloadService(mocks.Runtime)
+		service.SetName("git")
+		return service, mocks
+	}
+
+	t.Run("UsesLoadBalancerWhenConfigured", func(t *testing.T) {
+		service, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.loadbalancer_ips.start", "10.5.1.1")
+
+		url := service.computeDefaultWebhookURL()
+
+		if !strings.Contains(url, "10.5.1.1:9292") {
+			t.Errorf("expected URL to contain '10.5.1.1:9292', got %q", url)
+		}
+	})
+
+	t.Run("UsesNodePortWhenNoLoadBalancer", func(t *testing.T) {
+		service, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "test")
+
+		url := service.computeDefaultWebhookURL()
+
+		if !strings.Contains(url, ":30292") {
+			t.Errorf("expected URL to contain ':30292', got %q", url)
+		}
+	})
+
+	t.Run("UsesControlplaneWhenNoWorkers", func(t *testing.T) {
+		service, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "test")
+		mocks.ConfigHandler.Set("cluster.workers.count", 0)
+
+		url := service.computeDefaultWebhookURL()
+
+		if !strings.Contains(url, "controlplane-1.test") {
+			t.Errorf("expected URL to contain 'controlplane-1.test', got %q", url)
+		}
+	})
+
+	t.Run("UsesWorkerWhenWorkersExist", func(t *testing.T) {
+		service, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "test")
+		mocks.ConfigHandler.Set("cluster.workers.count", 1)
+
+		url := service.computeDefaultWebhookURL()
+
+		if !strings.Contains(url, "worker-1.test") {
+			t.Errorf("expected URL to contain 'worker-1.test', got %q", url)
+		}
+	})
+
+	t.Run("UsesCustomDomain", func(t *testing.T) {
+		service, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "mydomain.local")
+		mocks.ConfigHandler.Set("cluster.workers.count", 0)
+
+		url := service.computeDefaultWebhookURL()
+
+		if !strings.Contains(url, "controlplane-1.mydomain.local") {
+			t.Errorf("expected URL to contain 'controlplane-1.mydomain.local', got %q", url)
+		}
+	})
 }
