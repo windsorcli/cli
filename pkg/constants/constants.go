@@ -30,16 +30,23 @@ const DefaultGitLiveReloadUsername = "local"
 
 const DefaultGitLiveReloadPassword = "local"
 
-// Hook URL corresponds to the webhook token "abcdef123456".
+// DefaultGitLiveReloadWebhookNodePort is the NodePort for the Flux webhook receiver (docker-desktop mode).
+const DefaultGitLiveReloadWebhookNodePort = 30292
+
+// DefaultGitLiveReloadWebhookLBPort is the LoadBalancer port for the Flux webhook receiver.
+const DefaultGitLiveReloadWebhookLBPort = 9292
+
+// DefaultGitLiveReloadWebhookPath is the webhook path with token.
+// Hook path corresponds to the webhook token "abcdef123456".
 // see: https://fluxcd.io/flux/components/notification/receivers/
-const DefaultGitLiveReloadWebhookURL = "http://worker-1.test:30292/hook/5dc88e45e809fb0872b749c0969067e2c1fd142e17aed07573fad20553cc0c59"
+const DefaultGitLiveReloadWebhookPath = "/hook/5dc88e45e809fb0872b749c0969067e2c1fd142e17aed07573fad20553cc0c59"
 
 // renovate: datasource=github-releases depName=siderolabs/talos
 const DefaultTalosImage = "ghcr.io/siderolabs/talos:v1.12.1"
 
 const DefaultTalosWorkerCPU = 4
 
-const DefaultTalosWorkerRAM = 4
+const DefaultTalosWorkerRAM = 6
 
 const DefaultTalosControlPlaneCPU = 4
 

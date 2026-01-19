@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// Helper functions to create pointers for basic types
 func ptrString(s string) *string {
 	return &s
 }
@@ -24,15 +23,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 			Driver:   ptrString("base-driver"),
 			Endpoint: ptrString("base-endpoint"),
 			Image:    ptrString("base-image"),
-			ControlPlanes: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
+			ControlPlanes: NodeGroupConfig{
 				Count:  ptrInt(3),
 				CPU:    ptrInt(4),
 				Memory: ptrInt(8192),
@@ -46,15 +37,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				HostPorts: []string{"1000:1000/tcp", "2000:2000/tcp"},
 				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/base/volume1:/var/local/base1"},
 			},
-			Workers: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
+			Workers: NodeGroupConfig{
 				Count:  ptrInt(5),
 				CPU:    ptrInt(2),
 				Memory: ptrInt(4096),
@@ -75,15 +58,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 			Driver:   ptrString("overlay-driver"),
 			Endpoint: ptrString("overlay-endpoint"),
 			Image:    ptrString("overlay-image"),
-			ControlPlanes: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
+			ControlPlanes: NodeGroupConfig{
 				Count:  ptrInt(1),
 				CPU:    ptrInt(2),
 				Memory: ptrInt(4096),
@@ -97,15 +72,7 @@ func TestClusterConfig_Merge(t *testing.T) {
 				HostPorts: []string{"3000:3000/tcp", "4000:4000/tcp"},
 				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/overlay/volume2:/var/local/overlay2"},
 			},
-			Workers: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
+			Workers: NodeGroupConfig{
 				Count:  ptrInt(3),
 				CPU:    ptrInt(1),
 				Memory: ptrInt(2048),
@@ -184,85 +151,21 @@ func TestClusterConfig_Merge(t *testing.T) {
 
 	t.Run("MergeWithAllNils", func(t *testing.T) {
 		base := &ClusterConfig{
-			Enabled:  nil,
-			Driver:   nil,
-			Endpoint: nil,
-			Image:    nil,
-			ControlPlanes: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
-				Count:     nil,
-				CPU:       nil,
-				Memory:    nil,
-				Image:     nil,
-				Nodes:     nil,
-				HostPorts: nil,
-				Volumes:   nil,
-			},
-			Workers: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
-				Count:     nil,
-				CPU:       nil,
-				Memory:    nil,
-				Image:     nil,
-				Nodes:     nil,
-				HostPorts: nil,
-				Volumes:   nil,
-			},
+			Enabled:       nil,
+			Driver:        nil,
+			Endpoint:      nil,
+			Image:         nil,
+			ControlPlanes: NodeGroupConfig{},
+			Workers:       NodeGroupConfig{},
 		}
 
 		overlay := &ClusterConfig{
-			Enabled:  nil,
-			Driver:   nil,
-			Endpoint: nil,
-			Image:    nil,
-			ControlPlanes: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
-				Count:     nil,
-				CPU:       nil,
-				Memory:    nil,
-				Image:     nil,
-				Nodes:     nil,
-				HostPorts: nil,
-				Volumes:   nil,
-			},
-			Workers: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
-				Count:     nil,
-				CPU:       nil,
-				Memory:    nil,
-				Image:     nil,
-				Nodes:     nil,
-				HostPorts: nil,
-				Volumes:   nil,
-			},
+			Enabled:       nil,
+			Driver:        nil,
+			Endpoint:      nil,
+			Image:         nil,
+			ControlPlanes: NodeGroupConfig{},
+			Workers:       NodeGroupConfig{},
 		}
 
 		base.Merge(overlay)
@@ -319,6 +222,33 @@ func TestClusterConfig_Merge(t *testing.T) {
 			t.Errorf("Workers Volumes mismatch: expected nil, got %v", base.Workers.Volumes)
 		}
 	})
+
+	t.Run("MergeSchedulable", func(t *testing.T) {
+		base := &ClusterConfig{
+			ControlPlanes: NodeGroupConfig{
+				Schedulable: ptrBool(false),
+			},
+			Workers: NodeGroupConfig{},
+		}
+
+		overlay := &ClusterConfig{
+			ControlPlanes: NodeGroupConfig{
+				Schedulable: ptrBool(true),
+			},
+			Workers: NodeGroupConfig{
+				Schedulable: ptrBool(true),
+			},
+		}
+
+		base.Merge(overlay)
+
+		if base.ControlPlanes.Schedulable == nil || *base.ControlPlanes.Schedulable != true {
+			t.Errorf("ControlPlanes Schedulable mismatch: expected true, got %v", base.ControlPlanes.Schedulable)
+		}
+		if base.Workers.Schedulable == nil || *base.Workers.Schedulable != true {
+			t.Errorf("Workers Schedulable mismatch: expected true, got %v", base.Workers.Schedulable)
+		}
+	})
 }
 
 func TestClusterConfig_Copy(t *testing.T) {
@@ -328,19 +258,12 @@ func TestClusterConfig_Copy(t *testing.T) {
 			Driver:   ptrString("original-driver"),
 			Endpoint: ptrString("original-endpoint"),
 			Image:    ptrString("original-image"),
-			ControlPlanes: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
-				Count:  ptrInt(3),
-				CPU:    ptrInt(4),
-				Memory: ptrInt(8192),
-				Image:  ptrString("original-controlplane-image"),
+			ControlPlanes: NodeGroupConfig{
+				Count:       ptrInt(3),
+				CPU:         ptrInt(4),
+				Memory:      ptrInt(8192),
+				Image:       ptrString("original-controlplane-image"),
+				Schedulable: ptrBool(true),
 				Nodes: map[string]NodeConfig{
 					"node1": {
 						Hostname: ptrString("original-node1"),
@@ -350,19 +273,12 @@ func TestClusterConfig_Copy(t *testing.T) {
 				HostPorts: []string{"1000:1000/tcp", "2000:2000/tcp"},
 				Volumes:   []string{"${WINDSOR_PROJECT_ROOT}/original/volume1:/var/local/original1"},
 			},
-			Workers: struct {
-				Count     *int                  `yaml:"count,omitempty"`
-				CPU       *int                  `yaml:"cpu,omitempty"`
-				Memory    *int                  `yaml:"memory,omitempty"`
-				Image     *string               `yaml:"image,omitempty"`
-				Nodes     map[string]NodeConfig `yaml:"-"`
-				HostPorts []string              `yaml:"hostports,omitempty"`
-				Volumes   []string              `yaml:"volumes,omitempty"`
-			}{
-				Count:  ptrInt(5),
-				CPU:    ptrInt(2),
-				Memory: ptrInt(4096),
-				Image:  ptrString("original-worker-image"),
+			Workers: NodeGroupConfig{
+				Count:       ptrInt(5),
+				CPU:         ptrInt(2),
+				Memory:      ptrInt(4096),
+				Image:       ptrString("original-worker-image"),
+				Schedulable: ptrBool(false),
 				Nodes: map[string]NodeConfig{
 					"worker1": {
 						Hostname: ptrString("original-worker1"),
@@ -374,111 +290,93 @@ func TestClusterConfig_Copy(t *testing.T) {
 			},
 		}
 
-		copy := original.Copy()
+		cpy := original.Copy()
 
-		if original.Enabled == nil || copy.Enabled == nil || *original.Enabled != *copy.Enabled {
-			t.Errorf("Enabled mismatch: expected %v, got %v", *original.Enabled, *copy.Enabled)
+		if original.Enabled == nil || cpy.Enabled == nil || *original.Enabled != *cpy.Enabled {
+			t.Errorf("Enabled mismatch: expected %v, got %v", *original.Enabled, *cpy.Enabled)
 		}
-		if original.Driver == nil || copy.Driver == nil || *original.Driver != *copy.Driver {
-			t.Errorf("Driver mismatch: expected %v, got %v", *original.Driver, *copy.Driver)
+		if original.Driver == nil || cpy.Driver == nil || *original.Driver != *cpy.Driver {
+			t.Errorf("Driver mismatch: expected %v, got %v", *original.Driver, *cpy.Driver)
 		}
-		if original.Endpoint == nil || copy.Endpoint == nil || *original.Endpoint != *copy.Endpoint {
-			t.Errorf("Endpoint mismatch: expected %v, got %v", *original.Endpoint, *copy.Endpoint)
+		if original.Endpoint == nil || cpy.Endpoint == nil || *original.Endpoint != *cpy.Endpoint {
+			t.Errorf("Endpoint mismatch: expected %v, got %v", *original.Endpoint, *cpy.Endpoint)
 		}
-		if original.Image == nil || copy.Image == nil || *original.Image != *copy.Image {
-			t.Errorf("Image mismatch: expected %v, got %v", *original.Image, *copy.Image)
+		if original.Image == nil || cpy.Image == nil || *original.Image != *cpy.Image {
+			t.Errorf("Image mismatch: expected %v, got %v", *original.Image, *cpy.Image)
 		}
-		if len(original.Workers.HostPorts) != len(copy.Workers.HostPorts) {
-			t.Errorf("Workers HostPorts length mismatch: expected %d, got %d", len(original.Workers.HostPorts), len(copy.Workers.HostPorts))
+		if original.ControlPlanes.Schedulable == nil || cpy.ControlPlanes.Schedulable == nil || *original.ControlPlanes.Schedulable != *cpy.ControlPlanes.Schedulable {
+			t.Errorf("ControlPlanes Schedulable mismatch: expected %v, got %v", *original.ControlPlanes.Schedulable, *cpy.ControlPlanes.Schedulable)
+		}
+		if original.Workers.Schedulable == nil || cpy.Workers.Schedulable == nil || *original.Workers.Schedulable != *cpy.Workers.Schedulable {
+			t.Errorf("Workers Schedulable mismatch: expected %v, got %v", *original.Workers.Schedulable, *cpy.Workers.Schedulable)
+		}
+		if len(original.Workers.HostPorts) != len(cpy.Workers.HostPorts) {
+			t.Errorf("Workers HostPorts length mismatch: expected %d, got %d", len(original.Workers.HostPorts), len(cpy.Workers.HostPorts))
 		}
 		for i, port := range original.Workers.HostPorts {
-			if port != copy.Workers.HostPorts[i] {
-				t.Errorf("Workers HostPorts mismatch at index %d: expected %v, got %v", i, port, copy.Workers.HostPorts[i])
+			if port != cpy.Workers.HostPorts[i] {
+				t.Errorf("Workers HostPorts mismatch at index %d: expected %v, got %v", i, port, cpy.Workers.HostPorts[i])
 			}
 		}
-		if original.Workers.Count == nil || copy.Workers.Count == nil || *original.Workers.Count != *copy.Workers.Count {
-			t.Errorf("Workers Count mismatch: expected %v, got %v", *original.Workers.Count, *copy.Workers.Count)
+		if original.Workers.Count == nil || cpy.Workers.Count == nil || *original.Workers.Count != *cpy.Workers.Count {
+			t.Errorf("Workers Count mismatch: expected %v, got %v", *original.Workers.Count, *cpy.Workers.Count)
 		}
-		if original.Workers.CPU == nil || copy.Workers.CPU == nil || *original.Workers.CPU != *copy.Workers.CPU {
-			t.Errorf("Workers CPU mismatch: expected %v, got %v", *original.Workers.CPU, *copy.Workers.CPU)
+		if original.Workers.CPU == nil || cpy.Workers.CPU == nil || *original.Workers.CPU != *cpy.Workers.CPU {
+			t.Errorf("Workers CPU mismatch: expected %v, got %v", *original.Workers.CPU, *cpy.Workers.CPU)
 		}
-		if original.Workers.Memory == nil || copy.Workers.Memory == nil || *original.Workers.Memory != *copy.Workers.Memory {
-			t.Errorf("Workers Memory mismatch: expected %v, got %v", *original.Workers.Memory, *copy.Workers.Memory)
+		if original.Workers.Memory == nil || cpy.Workers.Memory == nil || *original.Workers.Memory != *cpy.Workers.Memory {
+			t.Errorf("Workers Memory mismatch: expected %v, got %v", *original.Workers.Memory, *cpy.Workers.Memory)
 		}
-		if original.Workers.Image == nil || copy.Workers.Image == nil || *original.Workers.Image != *copy.Workers.Image {
-			t.Errorf("Workers Image mismatch: expected %v, got %v", *original.Workers.Image, *copy.Workers.Image)
+		if original.Workers.Image == nil || cpy.Workers.Image == nil || *original.Workers.Image != *cpy.Workers.Image {
+			t.Errorf("Workers Image mismatch: expected %v, got %v", *original.Workers.Image, *cpy.Workers.Image)
 		}
-		if len(original.Workers.Nodes) != len(copy.Workers.Nodes) {
-			t.Errorf("Workers Nodes length mismatch: expected %d, got %d", len(original.Workers.Nodes), len(copy.Workers.Nodes))
+		if len(original.Workers.Nodes) != len(cpy.Workers.Nodes) {
+			t.Errorf("Workers Nodes length mismatch: expected %d, got %d", len(original.Workers.Nodes), len(cpy.Workers.Nodes))
 		}
 		for key, node := range original.Workers.Nodes {
-			if node.Hostname == nil || copy.Workers.Nodes[key].Hostname == nil || *node.Hostname != *copy.Workers.Nodes[key].Hostname {
-				t.Errorf("Workers Nodes mismatch for key %s: expected %v, got %v", key, *node.Hostname, *copy.Workers.Nodes[key].Hostname)
+			if node.Hostname == nil || cpy.Workers.Nodes[key].Hostname == nil || *node.Hostname != *cpy.Workers.Nodes[key].Hostname {
+				t.Errorf("Workers Nodes mismatch for key %s: expected %v, got %v", key, *node.Hostname, *cpy.Workers.Nodes[key].Hostname)
 			}
 		}
 
-		if len(original.Workers.HostPorts) != len(copy.Workers.HostPorts) || original.Workers.HostPorts[0] != copy.Workers.HostPorts[0] || original.Workers.HostPorts[1] != copy.Workers.HostPorts[1] {
-			t.Errorf("HostPorts mismatch: expected %v, got %v", original.Workers.HostPorts, copy.Workers.HostPorts)
+		if len(original.Workers.HostPorts) != len(cpy.Workers.HostPorts) || original.Workers.HostPorts[0] != cpy.Workers.HostPorts[0] || original.Workers.HostPorts[1] != cpy.Workers.HostPorts[1] {
+			t.Errorf("HostPorts mismatch: expected %v, got %v", original.Workers.HostPorts, cpy.Workers.HostPorts)
 		}
-		if original.ControlPlanes.Count == nil || copy.ControlPlanes.Count == nil || *original.ControlPlanes.Count != *copy.ControlPlanes.Count {
-			t.Errorf("ControlPlanes Count mismatch: expected %v, got %v", *original.ControlPlanes.Count, *copy.ControlPlanes.Count)
+		if original.ControlPlanes.Count == nil || cpy.ControlPlanes.Count == nil || *original.ControlPlanes.Count != *cpy.ControlPlanes.Count {
+			t.Errorf("ControlPlanes Count mismatch: expected %v, got %v", *original.ControlPlanes.Count, *cpy.ControlPlanes.Count)
 		}
-		if original.ControlPlanes.CPU == nil || copy.ControlPlanes.CPU == nil || *original.ControlPlanes.CPU != *copy.ControlPlanes.CPU {
-			t.Errorf("ControlPlanes CPU mismatch: expected %v, got %v", *original.ControlPlanes.CPU, *copy.ControlPlanes.CPU)
+		if original.ControlPlanes.CPU == nil || cpy.ControlPlanes.CPU == nil || *original.ControlPlanes.CPU != *cpy.ControlPlanes.CPU {
+			t.Errorf("ControlPlanes CPU mismatch: expected %v, got %v", *original.ControlPlanes.CPU, *cpy.ControlPlanes.CPU)
 		}
-		if original.ControlPlanes.Memory == nil || copy.ControlPlanes.Memory == nil || *original.ControlPlanes.Memory != *copy.ControlPlanes.Memory {
-			t.Errorf("ControlPlanes Memory mismatch: expected %v, got %v", *original.ControlPlanes.Memory, *copy.ControlPlanes.Memory)
+		if original.ControlPlanes.Memory == nil || cpy.ControlPlanes.Memory == nil || *original.ControlPlanes.Memory != *cpy.ControlPlanes.Memory {
+			t.Errorf("ControlPlanes Memory mismatch: expected %v, got %v", *original.ControlPlanes.Memory, *cpy.ControlPlanes.Memory)
 		}
-		if original.ControlPlanes.Image == nil || copy.ControlPlanes.Image == nil || *original.ControlPlanes.Image != *copy.ControlPlanes.Image {
-			t.Errorf("ControlPlanes Image mismatch: expected %v, got %v", *original.ControlPlanes.Image, *copy.ControlPlanes.Image)
+		if original.ControlPlanes.Image == nil || cpy.ControlPlanes.Image == nil || *original.ControlPlanes.Image != *cpy.ControlPlanes.Image {
+			t.Errorf("ControlPlanes Image mismatch: expected %v, got %v", *original.ControlPlanes.Image, *cpy.ControlPlanes.Image)
 		}
-		if len(original.ControlPlanes.Nodes) != len(copy.ControlPlanes.Nodes) {
-			t.Errorf("ControlPlanes Nodes length mismatch: expected %d, got %d", len(original.ControlPlanes.Nodes), len(copy.ControlPlanes.Nodes))
+		if len(original.ControlPlanes.Nodes) != len(cpy.ControlPlanes.Nodes) {
+			t.Errorf("ControlPlanes Nodes length mismatch: expected %d, got %d", len(original.ControlPlanes.Nodes), len(cpy.ControlPlanes.Nodes))
 		}
 		for key, node := range original.ControlPlanes.Nodes {
-			if node.Hostname == nil || copy.ControlPlanes.Nodes[key].Hostname == nil || *node.Hostname != *copy.ControlPlanes.Nodes[key].Hostname {
-				t.Errorf("ControlPlanes Nodes mismatch for key %s: expected %v, got %v", key, *node.Hostname, *copy.ControlPlanes.Nodes[key].Hostname)
+			if node.Hostname == nil || cpy.ControlPlanes.Nodes[key].Hostname == nil || *node.Hostname != *cpy.ControlPlanes.Nodes[key].Hostname {
+				t.Errorf("ControlPlanes Nodes mismatch for key %s: expected %v, got %v", key, *node.Hostname, *cpy.ControlPlanes.Nodes[key].Hostname)
 			}
 		}
-		if original.ControlPlanes.Nodes["node1"].Image == nil || copy.ControlPlanes.Nodes["node1"].Image == nil || *original.ControlPlanes.Nodes["node1"].Image != *copy.ControlPlanes.Nodes["node1"].Image {
-			t.Errorf("ControlPlanes Nodes Image mismatch: expected %v, got %v", *original.ControlPlanes.Nodes["node1"].Image, *copy.ControlPlanes.Nodes["node1"].Image)
+		if original.ControlPlanes.Nodes["node1"].Image == nil || cpy.ControlPlanes.Nodes["node1"].Image == nil || *original.ControlPlanes.Nodes["node1"].Image != *cpy.ControlPlanes.Nodes["node1"].Image {
+			t.Errorf("ControlPlanes Nodes Image mismatch: expected %v, got %v", *original.ControlPlanes.Nodes["node1"].Image, *cpy.ControlPlanes.Nodes["node1"].Image)
 		}
-		if original.Workers.Count == nil || copy.Workers.Count == nil || *original.Workers.Count != *copy.Workers.Count {
-			t.Errorf("Workers Count mismatch: expected %v, got %v", *original.Workers.Count, *copy.Workers.Count)
-		}
-		if original.Workers.CPU == nil || copy.Workers.CPU == nil || *original.Workers.CPU != *copy.Workers.CPU {
-			t.Errorf("Workers CPU mismatch: expected %v, got %v", *original.Workers.CPU, *copy.Workers.CPU)
-		}
-		if original.Workers.Memory == nil || copy.Workers.Memory == nil || *original.Workers.Memory != *copy.Workers.Memory {
-			t.Errorf("Workers Memory mismatch: expected %v, got %v", *original.Workers.Memory, *copy.Workers.Memory)
-		}
-		if original.Workers.Image == nil || copy.Workers.Image == nil || *original.Workers.Image != *copy.Workers.Image {
-			t.Errorf("Workers Image mismatch: expected %v, got %v", *original.Workers.Image, *copy.Workers.Image)
-		}
-		if len(original.Workers.Nodes) != len(copy.Workers.Nodes) {
-			t.Errorf("Workers Nodes length mismatch: expected %d, got %d", len(original.Workers.Nodes), len(copy.Workers.Nodes))
-		}
-		for key, node := range original.Workers.Nodes {
-			if node.Hostname == nil || copy.Workers.Nodes[key].Hostname == nil || *node.Hostname != *copy.Workers.Nodes[key].Hostname {
-				t.Errorf("Workers Nodes mismatch for key %s: expected %v, got %v", key, *node.Hostname, *copy.Workers.Nodes[key].Hostname)
-			}
-		}
-		if original.ControlPlanes.Nodes["node1"].Image == nil || copy.ControlPlanes.Nodes["node1"].Image == nil || *original.ControlPlanes.Nodes["node1"].Image != *copy.ControlPlanes.Nodes["node1"].Image {
-			t.Errorf("ControlPlanes Nodes Image mismatch: expected %v, got %v", *original.ControlPlanes.Nodes["node1"].Image, *copy.ControlPlanes.Nodes["node1"].Image)
-		}
-		if original.Workers.Nodes["worker1"].Image == nil || copy.Workers.Nodes["worker1"].Image == nil || *original.Workers.Nodes["worker1"].Image != *copy.Workers.Nodes["worker1"].Image {
-			t.Errorf("Workers Nodes Image mismatch: expected %v, got %v", *original.Workers.Nodes["worker1"].Image, *copy.Workers.Nodes["worker1"].Image)
+		if original.Workers.Nodes["worker1"].Image == nil || cpy.Workers.Nodes["worker1"].Image == nil || *original.Workers.Nodes["worker1"].Image != *cpy.Workers.Nodes["worker1"].Image {
+			t.Errorf("Workers Nodes Image mismatch: expected %v, got %v", *original.Workers.Nodes["worker1"].Image, *cpy.Workers.Nodes["worker1"].Image)
 		}
 
-		// Modify the copy and ensure original is unchanged
-		copy.Enabled = ptrBool(false)
-		if original.Enabled == nil || *original.Enabled == *copy.Enabled {
-			t.Errorf("Original Enabled was modified: expected %v, got %v", true, *copy.Enabled)
+		cpy.Enabled = ptrBool(false)
+		if original.Enabled == nil || *original.Enabled == *cpy.Enabled {
+			t.Errorf("Original Enabled was modified: expected %v, got %v", true, *cpy.Enabled)
 		}
 
-		copy.ControlPlanes.Nodes["node1"] = NodeConfig{Hostname: ptrString("modified-node1")}
-		if original.ControlPlanes.Nodes["node1"].Hostname == nil || *original.ControlPlanes.Nodes["node1"].Hostname == *copy.ControlPlanes.Nodes["node1"].Hostname {
-			t.Errorf("Original ControlPlanes Nodes was modified: expected %v, got %v", "original-node1", *copy.ControlPlanes.Nodes["node1"].Hostname)
+		cpy.ControlPlanes.Nodes["node1"] = NodeConfig{Hostname: ptrString("modified-node1")}
+		if original.ControlPlanes.Nodes["node1"].Hostname == nil || *original.ControlPlanes.Nodes["node1"].Hostname == *cpy.ControlPlanes.Nodes["node1"].Hostname {
+			t.Errorf("Original ControlPlanes Nodes was modified: expected %v, got %v", "original-node1", *cpy.ControlPlanes.Nodes["node1"].Hostname)
 		}
 	})
 
