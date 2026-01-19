@@ -224,10 +224,12 @@ func (v *IncusVirt) startIncusContainers() error {
 	return nil
 }
 
-// Down stops and deletes all Incus instances, then calls parent ColimaVirt.Down to clean up the VM.
-// Attempts graceful shutdown first, falling back to cleanup as a failsafe if the VM won't stop cleanly.
-// If the VM is unreachable or SSH connections fail, cleanup is skipped gracefully to allow
-// VM deletion to proceed. This ensures idempotent teardown even when the VM is in a bad state.
+// Down stops and deletes all Incus instances, then cleans up the VM.
+// For Incus runtime, runs `colima daemon stop` before the parent's Down() since the
+// colima-incus driver runs as a daemon rather than a standard VM. The parent's
+// `colima stop` becomes a harmless no-op after the daemon is stopped, then proceeds
+// with `colima delete`. Attempts graceful shutdown first, falling back to cleanup
+// as a failsafe if the VM won't stop cleanly.
 func (v *IncusVirt) Down() error {
 	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
 	if vmRuntime == "incus" {
@@ -252,6 +254,10 @@ func (v *IncusVirt) Down() error {
 				return err
 			}
 		}
+
+		contextName := v.configHandler.GetContext()
+		profileName := fmt.Sprintf("windsor-%s", contextName)
+		_, _ = v.shell.ExecProgress("🦙 Stopping Colima daemon", "colima", "daemon", "stop", profileName)
 	}
 
 	err := v.ColimaVirt.Down()

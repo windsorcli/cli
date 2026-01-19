@@ -642,6 +642,56 @@ func TestIncusVirt_Down(t *testing.T) {
 			t.Errorf("Expected error about deleting instance, got %v", err)
 		}
 	})
+
+	t.Run("StopsColimaDaemonWithCorrectProfile", func(t *testing.T) {
+		incusVirt, mocks := setup(t)
+		originalExecSilentWithTimeout := mocks.Shell.ExecSilentWithTimeoutFunc
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "colima" && len(args) >= 7 && args[0] == "ssh" && args[3] == "--" && args[4] == "sh" && args[5] == "-c" {
+				actualCmd := args[6]
+				if strings.Contains(actualCmd, "incus list --format json") {
+					return `[{"name":"test-service","status":"Running","status_code":103,"type":"container","expanded_devices":{}}]`, nil
+				}
+			}
+			if originalExecSilentWithTimeout != nil {
+				return originalExecSilentWithTimeout(command, args, timeout)
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		daemonStopCalled := false
+		daemonStopProfile := ""
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "colima" && len(args) >= 3 && args[0] == "daemon" && args[1] == "stop" {
+				daemonStopCalled = true
+				daemonStopProfile = args[2]
+				return "", nil
+			}
+			if command == "incus" && len(args) >= 2 && args[0] == "delete" {
+				return "", nil
+			}
+			if command == "colima" && len(args) >= 1 && args[0] == "stop" {
+				return "", nil
+			}
+			if command == "colima" && len(args) >= 1 && args[0] == "delete" {
+				return "", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s %v", command, args)
+		}
+
+		err := incusVirt.Down()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !daemonStopCalled {
+			t.Error("Expected colima daemon stop to be called")
+		}
+		expectedProfile := "windsor-mock-context"
+		if daemonStopProfile != expectedProfile {
+			t.Errorf("Expected daemon stop profile %q, got %q", expectedProfile, daemonStopProfile)
+		}
+	})
 }
 
 func TestIncusVirt_WriteConfig(t *testing.T) {
