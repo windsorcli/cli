@@ -629,8 +629,9 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 // If outputs for the component are requested for the first time, all outputs are fetched from Terraform
 // and cached for subsequent requests. Cached values are used for later accesses to avoid redundant retrievals.
 // When deferred is false, this function returns a DeferredError to signal that the expression should be preserved.
-// When deferred is true, it returns the actual output value if available, or nil if outputs are unavailable
-// or the key is not found (enabling ?? fallback in expressions). Only returns error for JSON parse failures.
+// When deferred is true, it returns the actual output value if available, or nil if the component has no outputs
+// (enabling ?? fallback when component is not yet applied). Returns an error if the component has outputs but
+// the requested key is not found, enabling fail-fast detection of typos or misconfiguration.
 func (p *terraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
 	if !deferred {
 		return nil, &evaluator.DeferredError{
