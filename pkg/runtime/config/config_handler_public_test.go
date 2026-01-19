@@ -2481,6 +2481,99 @@ properties:
 			t.Error("Expected config to be overwritten with new value")
 		}
 	})
+
+	t.Run("DoesNotOverwriteExistingValuesYaml", func(t *testing.T) {
+		handler, tmpDir := setupPrivateTestHandler(t)
+		handler.SetContext("test-context")
+
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		existingContent := "existing_key: old_value\n"
+		os.WriteFile(valuesPath, []byte(existingContent), 0644)
+
+		handler.Set("dynamic_key", "new_value")
+		err := handler.SaveConfig()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		content, _ := os.ReadFile(valuesPath)
+		if string(content) != existingContent {
+			t.Errorf("Expected values.yaml to be preserved, got:\n%s", string(content))
+		}
+	})
+
+	t.Run("OverwritesExistingValuesYaml", func(t *testing.T) {
+		handler, tmpDir := setupPrivateTestHandler(t)
+		handler.SetContext("test-context")
+
+		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
+		os.MkdirAll(contextDir, 0755)
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		os.WriteFile(valuesPath, []byte("existing_key: old_value\n"), 0644)
+
+		handler.Set("dynamic_key", "new_value")
+		err := handler.SaveConfig(true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		content, _ := os.ReadFile(valuesPath)
+		if !contains(string(content), "dynamic_key") || !contains(string(content), "new_value") {
+			t.Errorf("Expected values.yaml to be overwritten with new value, got:\n%s", string(content))
+		}
+	})
+
+	t.Run("HandlesDynamicFieldsMarshalError", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		handler.SetContext("test-context")
+		handler.Set("dynamic_key", "value")
+
+		callCount := 0
+		handler.shims.YamlMarshal = func(v any) ([]byte, error) {
+			callCount++
+			if callCount == 1 {
+				return []byte("version: v1alpha1\n"), nil
+			}
+			return nil, fmt.Errorf("marshal error for values.yaml")
+		}
+
+		err := handler.SaveConfig()
+
+		if err == nil {
+			t.Error("Expected marshal error for values.yaml")
+		}
+		if !contains(err.Error(), "error marshalling values.yaml") {
+			t.Errorf("Expected 'error marshalling values.yaml' in error, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesValuesYamlWriteError", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		handler.SetContext("test-context")
+		handler.Set("dynamic_key", "value")
+
+		callCount := 0
+		handler.shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			callCount++
+			if callCount == 1 {
+				return nil
+			}
+			return fmt.Errorf("write error for values.yaml")
+		}
+
+		err := handler.SaveConfig()
+
+		if err == nil {
+			t.Error("Expected write error for values.yaml")
+		}
+		if !contains(err.Error(), "error writing values.yaml") {
+			t.Errorf("Expected 'error writing values.yaml' in error, got: %v", err)
+		}
+	})
 }
 
 func TestConfigHandler_SetDefault(t *testing.T) {

@@ -295,9 +295,9 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 // This function separates the configuration fields of the active context into two distinct files
 // within the context directory under the project root. Static fields that match the v1alpha1.Context
 // schema are written to a windsor.yaml file, and dynamic fields that do not match the static schema are
-// written to a values.yaml file. If overwrite is specified, existing windsor.yaml will be overwritten;
-// otherwise, it is only created if missing. Returns an error if writing fails, or if required shims
-// or shell are not initialized.
+// written to a values.yaml file. If overwrite is specified, existing windsor.yaml and values.yaml will
+// be overwritten; otherwise, they are only created if missing. Returns an error if writing fails, or
+// if required shims or shell are not initialized.
 func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
@@ -381,13 +381,20 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 
 	if len(dynamicFields) > 0 {
 		valuesPath := filepath.Join(contextDir, "values.yaml")
-		data, err := c.shims.YamlMarshal(dynamicFields)
-		if err != nil {
-			return fmt.Errorf("error marshalling values.yaml: %w", err)
+		valuesExists := false
+		if _, err := c.shims.Stat(valuesPath); err == nil {
+			valuesExists = true
 		}
 
-		if err := c.shims.WriteFile(valuesPath, data, 0644); err != nil {
-			return fmt.Errorf("error writing values.yaml: %w", err)
+		if !valuesExists || shouldOverwrite {
+			data, err := c.shims.YamlMarshal(dynamicFields)
+			if err != nil {
+				return fmt.Errorf("error marshalling values.yaml: %w", err)
+			}
+
+			if err := c.shims.WriteFile(valuesPath, data, 0644); err != nil {
+				return fmt.Errorf("error writing values.yaml: %w", err)
+			}
 		}
 	}
 
