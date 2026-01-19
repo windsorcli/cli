@@ -75,6 +75,7 @@ type TerraformProvider interface {
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent)
 	GetTerraformOutputs(componentID string) (map[string]any, error)
+	CacheOutputs(componentID string) error
 	GetTFDataDir(componentID string) (string, error)
 	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
@@ -417,27 +418,11 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 			return nil, nil, fmt.Errorf("error resolving module path for component %s: %w", componentID, err)
 		}
 	} else {
-		components := p.GetTerraformComponents()
-		for i := range components {
-			if components[i].GetID() == componentID {
-				var err error
-				modulePath, err = p.resolveModulePath(&components[i])
-				if err != nil {
-					return nil, nil, fmt.Errorf("error resolving module path for component %s: %w", componentID, err)
-				}
-				component = &components[i]
-				break
-			}
+		projectRoot, err := p.shell.GetProjectRoot()
+		if err != nil {
+			return nil, nil, fmt.Errorf("component %s not found and module path could not be resolved: %w", componentID, err)
 		}
-		if modulePath == "" {
-			componentID := componentID
-			projectRoot, err := p.shell.GetProjectRoot()
-			if err == nil {
-				modulePath = filepath.Join(projectRoot, "terraform", componentID)
-			} else {
-				return nil, nil, fmt.Errorf("component %s not found and module path could not be resolved: %w", componentID, err)
-			}
-		}
+		modulePath = filepath.Join(projectRoot, "terraform", componentID)
 	}
 	terraformArgs, err := p.GenerateTerraformArgs(componentID, modulePath, interactive)
 	if err != nil {
@@ -516,26 +501,20 @@ func (p *terraformProvider) FormatArgsForEnv(args []string) string {
 // GetTerraformOutputs retrieves Terraform outputs for the specified component by running 'terraform output -json'.
 // It sets up the appropriate environment (TF_DATA_DIR, backend override file) before executing the command.
 // If output fails initially, it attempts to initialize the module and retry, allowing outputs to be retrieved
-// even if the module hasn't been initialized yet. The backend override and environment variables are cleaned up
-// after execution. Returns a map of output values or an empty map on error. Only output 'value' fields are returned.
+// even if the module hasn't been initialized yet. Returns empty map without error if outputs cannot be retrieved
+// (component not ready), enabling graceful fallback via ?? operator. Only returns error for JSON parse failures
+// indicating state corruption. Only output 'value' fields are returned.
 func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]any, error) {
 	return p.withTerraformContext(componentID, func(ctx *terraformContext) (map[string]any, error) {
-		backendOverrideExists := false
-		if _, err := ctx.provider.Shims.Stat(ctx.BackendOverridePath); err == nil {
-			backendOverrideExists = true
-		}
-
 		terraformCommand := ctx.provider.toolsManager.GetTerraformCommand()
 		if terraformCommand == "" {
 			terraformCommand = "terraform"
 		}
+
 		outputArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "output", "-json"}
 		output, err := ctx.provider.shell.ExecSilent(terraformCommand, outputArgs...)
 		if err != nil {
-			chdirInitArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "init"}
-			if backendOverrideExists {
-				chdirInitArgs = append(chdirInitArgs, "-reconfigure")
-			}
+			chdirInitArgs := []string{fmt.Sprintf("-chdir=%s", ctx.AbsModulePath), "init", "-reconfigure"}
 			chdirInitArgs = append(chdirInitArgs, ctx.TerraformArgs.InitArgs...)
 			_, initErr := ctx.provider.shell.ExecSilent(terraformCommand, chdirInitArgs...)
 			if initErr != nil {
@@ -553,7 +532,7 @@ func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]
 
 		var outputs map[string]any
 		if err := ctx.provider.Shims.JsonUnmarshal([]byte(output), &outputs); err != nil {
-			return make(map[string]any), nil
+			return make(map[string]any), fmt.Errorf("failed to parse terraform output JSON for component '%s': %w", componentID, err)
 		}
 
 		result := make(map[string]any)
@@ -567,6 +546,26 @@ func (p *terraformProvider) GetTerraformOutputs(componentID string) (map[string]
 
 		return result, nil
 	})
+}
+
+// CacheOutputs proactively fetches and caches all outputs for a component.
+// This is called after terraform apply to warm the cache, so subsequent terraform_output()
+// calls for this component will hit the cache instead of running terraform output again.
+func (p *terraformProvider) CacheOutputs(componentID string) error {
+	outputs, err := p.GetTerraformOutputs(componentID)
+	if err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.cache[componentID] == nil {
+		p.cache[componentID] = make(map[string]any)
+	}
+	maps.Copy(p.cache[componentID], outputs)
+
+	return nil
 }
 
 // ClearCache clears the session cache for all components.
@@ -614,8 +613,9 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 // If outputs for the component are requested for the first time, all outputs are fetched from Terraform
 // and cached for subsequent requests. Cached values are used for later accesses to avoid redundant retrievals.
 // When deferred is false, this function returns a DeferredError to signal that the expression should be preserved.
-// When deferred is true, it returns the actual output value if available, or an error if outputs are unavailable
-// or the key is not found. This prevents expression strings from being passed as literal values to Terraform.
+// When deferred is true, it returns the actual output value if available, or nil if the component has no outputs
+// (enabling ?? fallback when component is not yet applied). Returns an error if the component has outputs but
+// the requested key is not found, enabling fail-fast detection of typos or misconfiguration.
 func (p *terraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
 	if !deferred {
 		return nil, &evaluator.DeferredError{
@@ -633,9 +633,12 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 	}
 	p.mu.RUnlock()
 
-	outputs, _ := p.GetTerraformOutputs(componentID)
+	outputs, err := p.GetTerraformOutputs(componentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get terraform outputs for component '%s': %w", componentID, err)
+	}
 	if len(outputs) == 0 {
-		return nil, fmt.Errorf("terraform outputs unavailable for component '%s': component may not be initialized or terraform may not have been applied", componentID)
+		return nil, nil
 	}
 
 	p.mu.Lock()
@@ -771,7 +774,8 @@ func (p *terraformProvider) prepareTerraformContext(componentID string) (*terraf
 // and ensures cleanup. This helper ensures that environment variables are properly set, backend overrides
 // are created, and all resources are cleaned up after the function completes, even if it returns an error.
 // This pattern provides a safe way to execute Terraform operations in an isolated environment context.
-// Returns the result of the function and any error encountered during setup or execution.
+// Returns the result of the function. Returns empty map without error if context cannot be prepared
+// (component not found, etc.), enabling graceful fallback via ?? operator in expressions.
 func (p *terraformProvider) withTerraformContext(componentID string, fn func(*terraformContext) (map[string]any, error)) (map[string]any, error) {
 	ctx, originalEnvVars, err := p.prepareTerraformContext(componentID)
 	if err != nil {

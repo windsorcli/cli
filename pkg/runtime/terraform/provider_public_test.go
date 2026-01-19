@@ -248,6 +248,53 @@ func TestTerraformProvider_ClearCache(t *testing.T) {
 	})
 }
 
+func TestTerraformProvider_CacheOutputs(t *testing.T) {
+	t.Run("CachesOutputsForComponent", func(t *testing.T) {
+		mocks := setupMocks(t)
+		mocks.Provider.mu.Lock()
+		mocks.Provider.components = []blueprintv1alpha1.TerraformComponent{
+			{Path: "test-component"},
+		}
+		mocks.Provider.mu.Unlock()
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return `{"output1": {"value": "cached-value"}, "output2": {"value": 42}}`, nil
+			}
+			return "", nil
+		}
+
+		err := mocks.Provider.CacheOutputs("test-component")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		mocks.Provider.mu.RLock()
+		cached := mocks.Provider.cache["test-component"]
+		mocks.Provider.mu.RUnlock()
+
+		if cached == nil {
+			t.Fatal("Expected outputs to be cached")
+		}
+		if cached["output1"] != "cached-value" {
+			t.Errorf("Expected output1 to be 'cached-value', got %v", cached["output1"])
+		}
+		if cached["output2"] != float64(42) {
+			t.Errorf("Expected output2 to be 42, got %v", cached["output2"])
+		}
+	})
+
+	t.Run("ReturnsNoErrorWhenComponentNotFound", func(t *testing.T) {
+		mocks := setupMocks(t)
+
+		err := mocks.Provider.CacheOutputs("nonexistent-component")
+
+		if err != nil {
+			t.Errorf("Expected no error for nonexistent component (graceful fallback), got: %v", err)
+		}
+	})
+}
+
 func TestTerraformProvider_GetTerraformComponents(t *testing.T) {
 	t.Run("ReturnsCachedComponents", func(t *testing.T) {
 		// Given a provider with cached components
@@ -712,15 +759,12 @@ terraform:
 		// When getting output for missing key with deferred=true
 		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, true)
 
-		// Then it should return an error to prevent expression strings from being passed as literal values
-		if err == nil {
-			t.Error("Expected error for empty outputs when deferred=true, got nil")
+		// Then it should return nil without error (enables ?? fallback in expressions)
+		if err != nil {
+			t.Errorf("Expected no error for graceful fallback, got: %v", err)
 		}
 		if output != nil {
-			t.Errorf("Expected nil output when error occurs, got %v", output)
-		}
-		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
-			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
+			t.Errorf("Expected nil output for missing key, got %v", output)
 		}
 	})
 
@@ -782,15 +826,12 @@ terraform:
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, true)
 
-		// Then it should return an error to prevent expression strings from being passed as literal values
-		if err == nil {
-			t.Error("Expected error when setenv fails and outputs are unavailable, got nil")
+		// Then it should return nil without error (graceful fallback)
+		if err != nil {
+			t.Errorf("Expected no error for graceful fallback, got: %v", err)
 		}
 		if output != nil {
-			t.Errorf("Expected nil output when error occurs, got %v", output)
-		}
-		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
-			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
+			t.Errorf("Expected nil output when context prep fails, got %v", output)
 		}
 	})
 
@@ -809,15 +850,12 @@ terraform:
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, true)
 
-		// Then it should return an error to prevent expression strings from being passed as literal values
-		if err == nil {
-			t.Error("Expected error when backend override fails and outputs are unavailable, got nil")
+		// Then it should return nil without error (graceful fallback)
+		if err != nil {
+			t.Errorf("Expected no error for graceful fallback, got: %v", err)
 		}
 		if output != nil {
-			t.Errorf("Expected nil output when error occurs, got %v", output)
-		}
-		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
-			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
+			t.Errorf("Expected nil output when context prep fails, got %v", output)
 		}
 	})
 
@@ -872,7 +910,7 @@ terraform:
   - path: test/path
     name: test-component`
 
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
 
 		mocks.Provider.Shims.JsonUnmarshal = func(data []byte, v any) error {
 			return errors.New("json unmarshal error")
@@ -887,15 +925,15 @@ terraform:
 
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, true)
-		// Then it should return an error to prevent expression strings from being passed as literal values
+		// Then it should return an error with the JSON parse error in the chain
 		if err == nil {
-			t.Error("Expected error when JsonUnmarshal fails and outputs are unavailable, got nil")
+			t.Error("Expected error when JsonUnmarshal fails, got nil")
 		}
 		if output != nil {
 			t.Errorf("Expected nil output when error occurs, got %v", output)
 		}
-		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
-			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to parse terraform output JSON") {
+			t.Errorf("Expected error message about JSON parse failure, got: %v", err)
 		}
 	})
 
@@ -909,7 +947,7 @@ terraform:
   - path: test/path
     name: test-component`
 
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
 
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
@@ -920,15 +958,12 @@ terraform:
 
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, true)
-		// Then it should return an error because the key is not found in outputs (no value field means key won't be in result map)
-		if err == nil {
-			t.Error("Expected error when output key is not found, got nil")
+		// Then it should return nil without error (enables ?? fallback)
+		if err != nil {
+			t.Errorf("Expected no error for graceful fallback, got: %v", err)
 		}
 		if output != nil {
-			t.Errorf("Expected nil output when error occurs, got %v", output)
-		}
-		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
-			t.Errorf("Expected error message about unavailable outputs (output has no value field so outputs map is empty), got: %v", err)
+			t.Errorf("Expected nil output for missing key, got %v", output)
 		}
 	})
 
@@ -942,7 +977,7 @@ terraform:
   - path: test/path
     name: test-component`
 
-		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML})
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
 
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
@@ -953,15 +988,12 @@ terraform:
 
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "output1", `terraform_output("test-component", "output1")`, true)
-		// Then it should return an error because outputs are unavailable (output value is not a map so it won't be included in result)
-		if err == nil {
-			t.Error("Expected error when output value is not a map and outputs are unavailable, got nil")
+		// Then it should return nil without error (enables ?? fallback)
+		if err != nil {
+			t.Errorf("Expected no error for graceful fallback, got: %v", err)
 		}
 		if output != nil {
-			t.Errorf("Expected nil output when error occurs, got %v", output)
-		}
-		if !strings.Contains(err.Error(), "terraform outputs unavailable") {
-			t.Errorf("Expected error message about unavailable outputs, got: %v", err)
+			t.Errorf("Expected nil output for malformed output, got %v", output)
 		}
 	})
 }
@@ -2375,11 +2407,11 @@ terraform:
 		// Given a provider with nonexistent component
 		mocks := setupMocks(t)
 
-		// When getting terraform outputs
+		// When getting terraform outputs for nonexistent component
 		outputs, err := mocks.Provider.GetTerraformOutputs("nonexistent")
-		// Then it should return empty map
+		// Then it should return empty map without error (enables ?? fallback)
 		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
+			t.Fatalf("Expected no error for graceful fallback, got: %v", err)
 		}
 
 		if len(outputs) != 0 {
@@ -2823,6 +2855,106 @@ terraform:
 
 		if _, exists := envVars["TF_VAR_vpc_id"]; exists {
 			t.Error("Expected TF_VAR_vpc_id to not be set when JSON marshal fails")
+		}
+	})
+
+	t.Run("HandlesResolveModulePathErrorForDirectComponent", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Name:   "cluster",
+			Source: "./modules/cluster",
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return "", errors.New("scratch path error")
+		}
+
+		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		if err == nil {
+			t.Fatal("Expected error when resolveModulePath fails")
+		}
+		if !strings.Contains(err.Error(), "error resolving module path") {
+			t.Errorf("Expected error to mention resolving module path, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesGenerateTerraformArgsError", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "cluster",
+			FullPath: "/test/project/terraform/cluster",
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
+			return "", errors.New("scratch path error")
+		}
+
+		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		if err == nil {
+			t.Fatal("Expected error when GenerateTerraformArgs fails")
+		}
+		if !strings.Contains(err.Error(), "error generating terraform args") {
+			t.Errorf("Expected error to mention generating terraform args, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesGetBaseEnvVarsForComponentError", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		component := blueprintv1alpha1.TerraformComponent{
+			Path:     "cluster",
+			FullPath: "/test/project/terraform/cluster",
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		callCount := 0
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) {
+			callCount++
+			if callCount <= 1 {
+				return "/test/config", nil
+			}
+			return "", errors.New("config root error")
+		}
+
+		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		if err == nil {
+			t.Fatal("Expected error when getBaseEnvVarsForComponent fails")
+		}
+		if !strings.Contains(err.Error(), "config root") {
+			t.Errorf("Expected error to mention config root, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEvaluatedKeyNotExist", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+terraform:
+  - path: cluster
+    inputs:
+      vpc_id: "${terraform_output('vpc', 'id')}"`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := envVars["TF_VAR_vpc_id"]; exists {
+			t.Error("Expected TF_VAR_vpc_id to not be set when key doesn't exist in evaluated result")
 		}
 	})
 }

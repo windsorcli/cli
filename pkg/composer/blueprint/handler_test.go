@@ -1279,7 +1279,6 @@ func TestHandler_processAndCompose(t *testing.T) {
 	t.Run("CallsSetTerraformComponentsWhenProviderExists", func(t *testing.T) {
 		// Given a handler with terraform provider and composed blueprint with components
 		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		mockTerraformProvider := &terraform.MockTerraformProvider{}
 		var setComponentsCalled bool
 		var receivedComponents []blueprintv1alpha1.TerraformComponent
@@ -1287,7 +1286,8 @@ func TestHandler_processAndCompose(t *testing.T) {
 			setComponentsCalled = true
 			receivedComponents = components
 		}
-		handler.terraformProvider = mockTerraformProvider
+		mocks.Runtime.TerraformProvider = mockTerraformProvider
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		primaryBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -1319,8 +1319,8 @@ func TestHandler_processAndCompose(t *testing.T) {
 	t.Run("SkipsSetTerraformComponentsWhenProviderIsNil", func(t *testing.T) {
 		// Given a handler with no terraform provider
 		mocks := setupHandlerMocks(t)
+		mocks.Runtime.TerraformProvider = nil
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.terraformProvider = nil
 
 		primaryBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
