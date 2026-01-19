@@ -2,6 +2,7 @@ package terraform
 
 import (
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -589,9 +590,9 @@ func convertToCtyValue(value any) cty.Value {
 	case int32:
 		return cty.NumberIntVal(int64(v))
 	case uint:
-		return cty.NumberIntVal(int64(v))
+		return cty.NumberVal(new(big.Float).SetUint64(uint64(v)))
 	case uint64:
-		return cty.NumberIntVal(int64(v))
+		return cty.NumberVal(new(big.Float).SetUint64(v))
 	case uint32:
 		return cty.NumberIntVal(int64(v))
 	case float64:
