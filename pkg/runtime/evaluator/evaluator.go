@@ -154,8 +154,9 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 // file and jsonnet loading as needed, and can defer unresolved expressions when evaluateDeferred is false.
 // The facetPath parameter is used for relative expression resolution, and evaluateDeferred controls
 // whether to process unresolved expressions immediately. Returns the fully evaluated value, or an error if
-// evaluation fails or the input is malformed. Empty strings are returned as-is. If no evaluation is
-// triggered, or if the result is nil (such as from an undefined variable), the original string s is returned as-is.
+// evaluation fails or the input is malformed. Empty strings are returned as-is. If the result is nil (such
+// as from an undefined variable without a ?? fallback), nil is returned for complete expressions or an empty
+// string is used for interpolation.
 func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDeferred bool) (any, error) {
 	if strings.Contains(s, "${") {
 		result := s
@@ -183,9 +184,14 @@ func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDefer
 				}
 				return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
 			}
+			before := result[:start]
+			after := result[end+1:]
+			if before == "" && after == "" {
+				return value, nil
+			}
 			var replacement string
 			if value == nil {
-				replacement = expr
+				replacement = ""
 			} else {
 				switch value.(type) {
 				case map[string]any, []any:
@@ -198,15 +204,7 @@ func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDefer
 					replacement = fmt.Sprintf("%v", value)
 				}
 			}
-			before := result[:start]
-			after := result[end+1:]
 			result = before + replacement + after
-			if before == "" && after == "" {
-				if value == nil {
-					return expr, nil
-				}
-				return value, nil
-			}
 			if !evaluateDeferred && ContainsExpression(replacement) {
 				break
 			}

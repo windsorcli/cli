@@ -253,8 +253,36 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 	})
 
+	t.Run("ExcludesFacetWhenConditionReferencesUndefinedVariable", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-undefined"},
+				When:     "undefined_feature",
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "eks"}},
+				},
+			},
+		}
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			return nil, nil
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components for undefined condition, got %d", len(target.TerraformComponents))
+		}
+	})
+
 	t.Run("ProcessesFacetsInSortedOrder", func(t *testing.T) {
-		// Given facets in unsorted order
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
@@ -591,6 +619,98 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 		if subs["static"] != "unchanged" {
 			t.Errorf("Expected 'unchanged', got '%v'", subs["static"])
+		}
+	})
+
+	t.Run("IncludesSubstitutionKeysForUndefinedPaths", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-undefined"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name: "app",
+							Substitutions: map[string]string{
+								"domain":   "${dns.domain}",
+								"timezone": "${timezone}",
+								"static":   "unchanged",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(target.Kustomizations))
+		}
+		subs := target.Kustomizations[0].Substitutions
+		if _, exists := subs["domain"]; !exists {
+			t.Error("Expected 'domain' key to exist even when undefined")
+		}
+		if _, exists := subs["timezone"]; !exists {
+			t.Error("Expected 'timezone' key to exist even when undefined")
+		}
+		if subs["static"] != "unchanged" {
+			t.Errorf("Expected 'unchanged', got '%v'", subs["static"])
+		}
+	})
+
+	t.Run("CoalesceOperatorReturnsDefaultInSubstitutions", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-coalesce"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name: "observability",
+							Substitutions: map[string]string{
+								"admin_password": `${addons.observability.admin_password ?? "grafana"}`,
+								"port":           `${addons.observability.port ?? "3000"}`,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"addons": map[string]any{},
+			}, nil
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(target.Kustomizations))
+		}
+		subs := target.Kustomizations[0].Substitutions
+		if subs["admin_password"] != "grafana" {
+			t.Errorf("Expected 'grafana' from coalesce, got '%v'", subs["admin_password"])
+		}
+		if subs["port"] != "3000" {
+			t.Errorf("Expected '3000' from coalesce, got '%v'", subs["port"])
 		}
 	})
 
@@ -2071,12 +2191,10 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 }
 
 func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
-	t.Run("SkipsUnresolvedExpressions", func(t *testing.T) {
-		// Given a processor with evaluator that returns unresolved expressions
+	t.Run("PreservesUnresolvedExpressions", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
 		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
-			// Extract inner expression if wrapped in ${}
 			expr := expression
 			if strings.HasPrefix(expression, "${") && strings.HasSuffix(expression, "}") {
 				expr = expression[2 : len(expression)-1]
@@ -2098,24 +2216,128 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			"normal":   "value",
 		}
 
-		// When evaluating substitutions
 		baseProcessor := &BaseBlueprintProcessor{
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
 		result, err := baseProcessor.evaluateSubstitutions(subs, "")
 
-		// Then unresolved expression substitution should be skipped
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if _, exists := result["deferred"]; exists {
-			t.Errorf("Expected unresolved expression substitution to be skipped, but found in result: %v", result)
+		if result["deferred"] != "${terraform_output('cluster', 'key')}" {
+			t.Errorf("Expected deferred substitution to preserve original expression, got %v", result["deferred"])
 		}
 
 		if result["normal"] != "value" {
 			t.Errorf("Expected normal substitution to be preserved, got %v", result["normal"])
+		}
+	})
+
+	t.Run("IncludesEmptyStringForNilResults", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			if expression == "${undefined.path}" {
+				return nil, nil
+			}
+			return "resolved", nil
+		}
+
+		subs := map[string]string{
+			"undefined": "${undefined.path}",
+			"defined":   "${defined.path}",
+		}
+
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+		result, err := baseProcessor.evaluateSubstitutions(subs, "")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["undefined"] != "" {
+			t.Errorf("Expected undefined substitution to be empty string, got %q", result["undefined"])
+		}
+
+		if result["defined"] != "resolved" {
+			t.Errorf("Expected defined substitution to be 'resolved', got %v", result["defined"])
+		}
+	})
+
+	t.Run("CoalesceOperatorReturnsDefaultForUndefinedPath", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			if expression == `${addons.observability.admin_password ?? "grafana"}` {
+				return "grafana", nil
+			}
+			return "resolved", nil
+		}
+
+		subs := map[string]string{
+			"password": `${addons.observability.admin_password ?? "grafana"}`,
+		}
+
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+		result, err := baseProcessor.evaluateSubstitutions(subs, "")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["password"] != "grafana" {
+			t.Errorf("Expected 'grafana' from coalesce operator, got %q", result["password"])
+		}
+	})
+
+	t.Run("AllKeysIncludedEvenWhenUndefined", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			switch expression {
+			case "${dns.domain}":
+				return nil, nil
+			case "${timezone}":
+				return nil, nil
+			case "${defined.value}":
+				return "exists", nil
+			default:
+				return nil, nil
+			}
+		}
+
+		subs := map[string]string{
+			"domain":   "${dns.domain}",
+			"timezone": "${timezone}",
+			"defined":  "${defined.value}",
+		}
+
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+		result, err := baseProcessor.evaluateSubstitutions(subs, "")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := result["domain"]; !exists {
+			t.Error("Expected 'domain' key to exist in result")
+		}
+		if _, exists := result["timezone"]; !exists {
+			t.Error("Expected 'timezone' key to exist in result")
+		}
+		if result["defined"] != "exists" {
+			t.Errorf("Expected 'exists', got %q", result["defined"])
 		}
 	})
 }

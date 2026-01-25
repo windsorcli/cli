@@ -759,8 +759,8 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
 // the provided configuration data. The path parameter provides context for error messages and
 // helper function resolution. Returns true if the expression evaluates to boolean true or the
-// string "true", false otherwise. Returns an error if the expression is invalid or evaluates
-// to an unexpected type.
+// string "true". Returns false for nil (undefined variables) or boolean false. Returns an error
+// if the expression is invalid or evaluates to an unexpected type.
 func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bool, error) {
 	if !evaluator.ContainsExpression(expr) {
 		expr = "${" + expr + "}"
@@ -772,6 +772,8 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bo
 
 	var result bool
 	switch v := evaluated.(type) {
+	case nil:
+		result = false
 	case bool:
 		result = v
 	case string:
@@ -783,9 +785,10 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bo
 }
 
 // evaluateSubstitutions evaluates a map of string substitutions using the BaseBlueprintProcessor's expression evaluator.
-// Each substitution value is evaluated; if the result contains unresolved expressions, the substitution is skipped.
-// Returned values retain their string form if possible, or are stringified if not. Returns the successfully
-// evaluated substitutions map or an error if evaluation fails for any substitution.
+// Each substitution value is evaluated. If the result is nil (undefined path without ?? fallback), the key is
+// included with an empty string value. If the result contains unresolved deferred expressions, the original
+// expression is preserved for later evaluation. Returns the evaluated substitutions map or an error if
+// evaluation fails for any substitution.
 func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, facetPath string) (map[string]string, error) {
 	result := make(map[string]string)
 	for key, value := range subs {
@@ -794,9 +797,12 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
 		if evaluator.ContainsExpression(evaluated) {
+			result[key] = value
 			continue
 		}
-		if str, ok := evaluated.(string); ok {
+		if evaluated == nil {
+			result[key] = ""
+		} else if str, ok := evaluated.(string); ok {
 			result[key] = str
 		} else {
 			result[key] = fmt.Sprintf("%v", evaluated)
