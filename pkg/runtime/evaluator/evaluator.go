@@ -15,10 +15,35 @@ import (
 	"strings"
 
 	"github.com/expr-lang/expr"
+	"github.com/expr-lang/expr/ast"
 	"github.com/google/go-jsonnet"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
+
+// optionalChainPatcher wraps member access chains in ChainNode and sets the Optional flag.
+// This ensures that expressions like "addons.database.enabled" behave as if written
+// "addons?.database?.enabled", returning nil instead of erroring when intermediate
+// properties are missing.
+type optionalChainPatcher struct{}
+
+// Visit implements the ast.Visitor interface, wrapping MemberNode chains in ChainNode.
+func (p *optionalChainPatcher) Visit(node *ast.Node) {
+	if member, ok := (*node).(*ast.MemberNode); ok {
+		member.Optional = true
+		p.setNestedOptional(member.Node)
+		chain := &ast.ChainNode{Node: member}
+		ast.Patch(node, chain)
+	}
+}
+
+// setNestedOptional recursively sets Optional=true on all nested MemberNodes.
+func (p *optionalChainPatcher) setNestedOptional(node ast.Node) {
+	if member, ok := node.(*ast.MemberNode); ok {
+		member.Optional = true
+		p.setNestedOptional(member.Node)
+	}
+}
 
 // =============================================================================
 // Types
@@ -266,6 +291,7 @@ func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any
 func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetPath string, deferred bool) []expr.Option {
 	opts := []expr.Option{
 		expr.AsAny(),
+		expr.Patch(&optionalChainPatcher{}),
 		expr.Function(
 			"jsonnet",
 			func(params ...any) (any, error) {

@@ -635,7 +635,6 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	})
 
 	t.Run("HandlesInputEvaluationError", func(t *testing.T) {
-		// Given a facet with invalid input expression syntax
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
@@ -646,7 +645,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 					{
 						TerraformComponent: blueprintv1alpha1.TerraformComponent{
 							Path:   "vpc",
-							Inputs: map[string]any{"bad": "${invalid syntax {{{}"},
+							Inputs: map[string]any{"bad": "${unclosed"},
 						},
 					},
 				},
@@ -657,14 +656,13 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		err := processor.ProcessFacets(target, facets)
 
-		// Then should return error
+		// Then should return error for malformed expression
 		if err == nil {
-			t.Error("Expected error for invalid expression")
+			t.Error("Expected error for malformed expression")
 		}
 	})
 
 	t.Run("HandlesSubstitutionEvaluationError", func(t *testing.T) {
-		// Given a facet with invalid substitution expression syntax
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
@@ -675,7 +673,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 					{
 						Kustomization: blueprintv1alpha1.Kustomization{
 							Name:          "test",
-							Substitutions: map[string]string{"bad": "${invalid syntax {{{}"},
+							Substitutions: map[string]string{"bad": "${unclosed"},
 						},
 					},
 				},
@@ -686,9 +684,9 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		err := processor.ProcessFacets(target, facets)
 
-		// Then should return error
+		// Then should return error for malformed expression
 		if err == nil {
-			t.Error("Expected error for invalid substitution expression")
+			t.Error("Expected error for malformed substitution expression")
 		}
 	})
 

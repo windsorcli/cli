@@ -9,10 +9,10 @@
 #     - all
 registries:
   - type: standard
-    ref: v4.458.0 # renovate: depName=aquaproj/aqua-registry
+    ref: v4.461.0 # renovate: depName=aquaproj/aqua-registry
 packages:
 - name: hashicorp/terraform@v1.14.3
-- name: siderolabs/talos@v1.12.1
+- name: siderolabs/talos@v1.12.2
 - name: siderolabs/omni/omnictl@v1.4.7
 - name: siderolabs/omni/omni@v1.4.7
 - name: kubernetes/kubectl@v1.34.3 # renovate: ignore
@@ -21,13 +21,13 @@ packages:
 - name: getsops/sops@v3.11.0
 - name: docker/cli@v27.4.1
 - name: securego/gosec@v2.22.11
-- name: docker/compose@v5.0.1
+- name: docker/compose@v5.0.2
 - name: google/go-jsonnet@v0.21.0
 - name: mikefarah/yq@v4.50.1
 - name: goreleaser/goreleaser@v2.13.3
-- name: helm/helm@v4.0.5
+- name: helm/helm@v4.1.0
 - name: 1password/cli@v2.30.3
 - name: fluxcd/flux2@v2.7.5
-- name: aws/aws-cli@2.33.2
-- name: twistedpair/google-cloud-sdk@552.0.0
-- name: opentofu/opentofu@v1.11.3
+- name: aws/aws-cli@2.33.6
+- name: twistedpair/google-cloud-sdk@553.0.0
+- name: opentofu/opentofu@v1.11.4
