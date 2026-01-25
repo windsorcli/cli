@@ -1462,6 +1462,91 @@ func TestTestRunner_matchTerraformComponent(t *testing.T) {
 			t.Errorf("Expected 1 diff, got: %d", len(diffs))
 		}
 	})
+
+	t.Run("ReturnsNoDiffsWhenInputsMatch", func(t *testing.T) {
+		// Given component with matching inputs
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.TerraformComponent{
+			Name: "cluster",
+			Inputs: map[string]any{
+				"region":      "us-west-2",
+				"node_count":  3,
+				"tags":        map[string]any{"env": "prod"},
+			},
+		}
+
+		expect := blueprintv1alpha1.TerraformComponent{
+			Name: "cluster",
+			Inputs: map[string]any{
+				"region":     "us-west-2",
+				"node_count": 3,
+			},
+		}
+
+		// When matching
+		diffs := runner.matchTerraformComponent(actual, expect)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenInputValueMismatches", func(t *testing.T) {
+		// Given component with mismatched input value
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.TerraformComponent{
+			Name: "cluster",
+			Inputs: map[string]any{
+				"region": "us-east-1",
+			},
+		}
+
+		expect := blueprintv1alpha1.TerraformComponent{
+			Name: "cluster",
+			Inputs: map[string]any{
+				"region": "us-west-2",
+			},
+		}
+
+		// When matching
+		diffs := runner.matchTerraformComponent(actual, expect)
+
+		// Then diffs should indicate value mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenInputKeyMissing", func(t *testing.T) {
+		// Given component missing an input key
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.TerraformComponent{
+			Name:   "cluster",
+			Inputs: map[string]any{},
+		}
+
+		expect := blueprintv1alpha1.TerraformComponent{
+			Name: "cluster",
+			Inputs: map[string]any{
+				"region": "us-west-2",
+			},
+		}
+
+		// When matching
+		diffs := runner.matchTerraformComponent(actual, expect)
+
+		// Then diffs should indicate missing key
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
 }
 
 func TestTestRunner_matchKustomization(t *testing.T) {
@@ -1586,6 +1671,89 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 		diffs := runner.matchKustomization(actual, expect)
 
 		// Then diffs should indicate missing component
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsNoDiffsWhenSubstitutionsMatch", func(t *testing.T) {
+		// Given kustomization with matching substitutions
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name: "metallb",
+			Substitutions: map[string]string{
+				"loadbalancer_ip_range": "10.10.1.10-10.10.1.100",
+				"namespace":             "metallb-system",
+			},
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name: "metallb",
+			Substitutions: map[string]string{
+				"loadbalancer_ip_range": "10.10.1.10-10.10.1.100",
+			},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenSubstitutionValueMismatches", func(t *testing.T) {
+		// Given kustomization with mismatched substitution value
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name: "metallb",
+			Substitutions: map[string]string{
+				"loadbalancer_ip_range": "10.5.1.10-10.5.1.100",
+			},
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name: "metallb",
+			Substitutions: map[string]string{
+				"loadbalancer_ip_range": "10.10.1.10-10.10.1.100",
+			},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect)
+
+		// Then diffs should indicate value mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenSubstitutionKeyMissing", func(t *testing.T) {
+		// Given kustomization missing a substitution key
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:          "metallb",
+			Substitutions: map[string]string{},
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name: "metallb",
+			Substitutions: map[string]string{
+				"loadbalancer_ip_range": "10.10.1.10-10.10.1.100",
+			},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect)
+
+		// Then diffs should indicate missing key
 		if len(diffs) != 1 {
 			t.Errorf("Expected 1 diff, got: %d", len(diffs))
 		}
@@ -2260,6 +2428,133 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "cannot use int") && !strings.Contains(err.Error(), "key must be a string") {
 			t.Errorf("Expected error about string key, got: %v", err)
+		}
+	})
+}
+
+func TestDeepEqual(t *testing.T) {
+	t.Run("ReturnsTrueForEqualStrings", func(t *testing.T) {
+		if !deepEqual("hello", "hello") {
+			t.Error("Expected true for equal strings")
+		}
+	})
+
+	t.Run("ReturnsFalseForUnequalStrings", func(t *testing.T) {
+		if deepEqual("hello", "world") {
+			t.Error("Expected false for unequal strings")
+		}
+	})
+
+	t.Run("ReturnsTrueForEqualIntegers", func(t *testing.T) {
+		if !deepEqual(42, 42) {
+			t.Error("Expected true for equal integers")
+		}
+	})
+
+	t.Run("ReturnsTrueForBothNil", func(t *testing.T) {
+		if !deepEqual(nil, nil) {
+			t.Error("Expected true for both nil")
+		}
+	})
+
+	t.Run("ReturnsFalseForOneNil", func(t *testing.T) {
+		if deepEqual("hello", nil) {
+			t.Error("Expected false when one is nil")
+		}
+		if deepEqual(nil, "hello") {
+			t.Error("Expected false when one is nil")
+		}
+	})
+
+	t.Run("ReturnsTrueForEqualMaps", func(t *testing.T) {
+		a := map[string]any{"key": "value", "num": 42}
+		b := map[string]any{"key": "value", "num": 42}
+		if !deepEqual(a, b) {
+			t.Error("Expected true for equal maps")
+		}
+	})
+
+	t.Run("ReturnsFalseForUnequalMaps", func(t *testing.T) {
+		a := map[string]any{"key": "value1"}
+		b := map[string]any{"key": "value2"}
+		if deepEqual(a, b) {
+			t.Error("Expected false for unequal maps")
+		}
+	})
+
+	t.Run("ReturnsFalseForMapsDifferentLength", func(t *testing.T) {
+		a := map[string]any{"key": "value", "extra": "field"}
+		b := map[string]any{"key": "value"}
+		if deepEqual(a, b) {
+			t.Error("Expected false for maps with different length")
+		}
+	})
+
+	t.Run("ReturnsFalseForMapMissingKey", func(t *testing.T) {
+		a := map[string]any{"key1": "value"}
+		b := map[string]any{"key2": "value"}
+		if deepEqual(a, b) {
+			t.Error("Expected false for maps with different keys")
+		}
+	})
+
+	t.Run("ReturnsTrueForEqualSlices", func(t *testing.T) {
+		a := []any{"one", "two", 3}
+		b := []any{"one", "two", 3}
+		if !deepEqual(a, b) {
+			t.Error("Expected true for equal slices")
+		}
+	})
+
+	t.Run("ReturnsFalseForUnequalSlices", func(t *testing.T) {
+		a := []any{"one", "two"}
+		b := []any{"one", "three"}
+		if deepEqual(a, b) {
+			t.Error("Expected false for unequal slices")
+		}
+	})
+
+	t.Run("ReturnsFalseForSlicesDifferentLength", func(t *testing.T) {
+		a := []any{"one", "two", "three"}
+		b := []any{"one", "two"}
+		if deepEqual(a, b) {
+			t.Error("Expected false for slices with different length")
+		}
+	})
+
+	t.Run("ReturnsTrueForNestedStructures", func(t *testing.T) {
+		a := map[string]any{
+			"nested": map[string]any{"inner": "value"},
+			"list":   []any{1, 2, 3},
+		}
+		b := map[string]any{
+			"nested": map[string]any{"inner": "value"},
+			"list":   []any{1, 2, 3},
+		}
+		if !deepEqual(a, b) {
+			t.Error("Expected true for equal nested structures")
+		}
+	})
+
+	t.Run("ReturnsTrueForEquivalentNumericTypes", func(t *testing.T) {
+		if !deepEqual(42, 42.0) {
+			t.Error("Expected true for equivalent numeric values via string comparison")
+		}
+	})
+
+	t.Run("ReturnsFalseForMapVsNonMap", func(t *testing.T) {
+		a := map[string]any{"key": "value"}
+		b := "not a map"
+		if deepEqual(a, b) {
+			t.Error("Expected false for map vs non-map")
+		}
+	})
+
+	t.Run("ReturnsFalseForSliceVsNonSlice", func(t *testing.T) {
+		a := []any{"one", "two"}
+		b := "not a slice"
+		if deepEqual(a, b) {
+			t.Error("Expected false for slice vs non-slice")
 		}
 	})
 }

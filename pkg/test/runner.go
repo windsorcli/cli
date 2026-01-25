@@ -548,9 +548,10 @@ func (r *TestRunner) findKustomization(bp *blueprintv1alpha1.Blueprint, expect b
 
 // matchTerraformComponent compares an actual Terraform component against expected properties and returns
 // a list of differences. It uses partial matching: only properties explicitly set in the expect component
-// are validated. The function checks source, path, and dependsOn fields. For dependsOn, it verifies that
-// all expected dependencies are present in the actual component's dependency list. Returns an empty slice
-// if all specified properties match, or a list of formatted difference messages describing mismatches.
+// are validated. The function checks source, path, dependsOn, and inputs fields. For dependsOn, it verifies that
+// all expected dependencies are present in the actual component's dependency list. For inputs, it performs
+// strict value equality checking - each expected key must exist with the exact expected value. Returns an empty
+// slice if all specified properties match, or a list of formatted difference messages describing mismatches.
 func (r *TestRunner) matchTerraformComponent(actual *blueprintv1alpha1.TerraformComponent, expect blueprintv1alpha1.TerraformComponent) []string {
 	var diffs []string
 	identifier := expect.Name
@@ -574,15 +575,30 @@ func (r *TestRunner) matchTerraformComponent(actual *blueprintv1alpha1.Terraform
 		}
 	}
 
+	if len(expect.Inputs) > 0 {
+		for key, expectedValue := range expect.Inputs {
+			actualValue, exists := actual.Inputs[key]
+			if !exists {
+				diffs = append(diffs, fmt.Sprintf("terraform[%s].inputs[%s]: key not found", identifier, key))
+				continue
+			}
+			if !deepEqual(expectedValue, actualValue) {
+				diffs = append(diffs, fmt.Sprintf("terraform[%s].inputs[%s]: expected %v, got %v", identifier, key, expectedValue, actualValue))
+			}
+		}
+	}
+
 	return diffs
 }
 
 // matchKustomization compares an actual Kustomization against expected properties and returns a list
 // of differences. It uses partial matching: only properties explicitly set in the expect kustomization
-// are validated. The function checks path, source, dependsOn, and components fields. For dependsOn and
-// components, it verifies that all expected items are present in the actual kustomization's lists.
-// Returns an empty slice if all specified properties match, or a list of formatted difference messages
-// describing mismatches, with each message prefixed by the kustomization name for clarity.
+// are validated. The function checks path, source, dependsOn, components, and substitutions fields. For
+// dependsOn and components, it verifies that all expected items are present in the actual kustomization's
+// lists. For substitutions, it performs strict value equality checking - each expected key must exist with
+// the exact expected value. Returns an empty slice if all specified properties match, or a list of
+// formatted difference messages describing mismatches, with each message prefixed by the kustomization
+// name for clarity.
 func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization, expect blueprintv1alpha1.Kustomization) []string {
 	var diffs []string
 
@@ -606,6 +622,19 @@ func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization,
 		for _, comp := range expect.Components {
 			if !contains(actual.Components, comp) {
 				diffs = append(diffs, fmt.Sprintf("kustomize[%s].components: missing %q", expect.Name, comp))
+			}
+		}
+	}
+
+	if len(expect.Substitutions) > 0 {
+		for key, expectedValue := range expect.Substitutions {
+			actualValue, exists := actual.Substitutions[key]
+			if !exists {
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].substitutions[%s]: key not found", expect.Name, key))
+				continue
+			}
+			if expectedValue != actualValue {
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].substitutions[%s]: expected %q, got %q", expect.Name, key, expectedValue, actualValue))
 			}
 		}
 	}
@@ -864,4 +893,58 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// deepEqual performs deep equality comparison between two arbitrary values.
+// It handles maps, slices, and scalar values recursively, returning true if the values
+// are structurally and value-equal. For maps, both must have the same keys with equal values.
+// For slices, both must have the same length with equal elements in the same order.
+// For scalar values, it uses standard Go equality comparison with fmt.Sprintf fallback
+// to handle type differences (e.g., int vs float64 from YAML parsing).
+func deepEqual(expected, actual any) bool {
+	if expected == nil && actual == nil {
+		return true
+	}
+	if expected == nil || actual == nil {
+		return false
+	}
+
+	switch e := expected.(type) {
+	case map[string]any:
+		a, ok := actual.(map[string]any)
+		if !ok {
+			return false
+		}
+		if len(e) != len(a) {
+			return false
+		}
+		for k, ev := range e {
+			av, exists := a[k]
+			if !exists || !deepEqual(ev, av) {
+				return false
+			}
+		}
+		return true
+
+	case []any:
+		a, ok := actual.([]any)
+		if !ok {
+			return false
+		}
+		if len(e) != len(a) {
+			return false
+		}
+		for i := range e {
+			if !deepEqual(e[i], a[i]) {
+				return false
+			}
+		}
+		return true
+
+	default:
+		if expected == actual {
+			return true
+		}
+		return fmt.Sprintf("%v", expected) == fmt.Sprintf("%v", actual)
+	}
 }
