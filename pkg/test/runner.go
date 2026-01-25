@@ -257,7 +257,6 @@ func (r *TestRunner) printResults(results []TestResult) error {
 
 	passed := 0
 	failed := 0
-	var failedTests []TestResult
 
 	for _, result := range results {
 		if result.Passed {
@@ -265,7 +264,6 @@ func (r *TestRunner) printResults(results []TestResult) error {
 			fmt.Fprintf(os.Stdout, "✓ %s\n", result.Name)
 		} else {
 			failed++
-			failedTests = append(failedTests, result)
 			fmt.Fprintf(os.Stdout, "✗ %s\n", result.Name)
 			for _, diff := range result.Diffs {
 				fmt.Fprintf(os.Stdout, "  %s\n", diff)
@@ -292,7 +290,6 @@ func (r *TestRunner) printResults(results []TestResult) error {
 func (r *TestRunner) runTestsSequentially(testCasesWithFiles []testCaseWithFile) error {
 	passed := 0
 	failed := 0
-	var failedTests []TestResult
 
 	currentFile := ""
 	for _, tcf := range testCasesWithFiles {
@@ -318,7 +315,6 @@ func (r *TestRunner) runTestsSequentially(testCasesWithFiles []testCaseWithFile)
 			fmt.Fprintf(os.Stdout, "✓ %s\n", result.Name)
 		} else {
 			failed++
-			failedTests = append(failedTests, result)
 			fmt.Fprintf(os.Stdout, "✗ %s\n", result.Name)
 			for _, diff := range result.Diffs {
 				fmt.Fprintf(os.Stdout, "  %s\n", diff)
