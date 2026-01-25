@@ -575,6 +575,172 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Errorf("Expected result to be 'cluster.undefined', got %v", result)
 		}
 	})
+
+	t.Run("DoesNotErrorForMissingNestedProperty", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"addons": map[string]any{},
+			}, nil
+		}
+
+		result, err := evaluator.Evaluate("${addons.database.enabled}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error for missing nested property, got: %v", err)
+		}
+
+		if result != "addons.database.enabled" {
+			t.Errorf("Expected expression string for missing nested property, got %v", result)
+		}
+	})
+
+	t.Run("DoesNotErrorForDeeplyNestedMissingProperty", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"config": map[string]any{
+					"level1": map[string]any{},
+				},
+			}, nil
+		}
+
+		result, err := evaluator.Evaluate("${config.level1.level2.level3.value}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error for deeply nested missing property, got: %v", err)
+		}
+
+		if result != "config.level1.level2.level3.value" {
+			t.Errorf("Expected expression string for deeply nested missing property, got %v", result)
+		}
+	})
+
+	t.Run("DoesNotErrorWhenIntermediatePropertyIsMissing", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"services": map[string]any{
+					"api": map[string]any{
+						"enabled": true,
+					},
+				},
+			}, nil
+		}
+
+		result, err := evaluator.Evaluate("${services.database.connection.host}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error when intermediate property is missing, got: %v", err)
+		}
+
+		if result != "services.database.connection.host" {
+			t.Errorf("Expected expression string when intermediate property is missing, got %v", result)
+		}
+	})
+
+	t.Run("CoalesceOperatorWorksWithMissingNestedProperty", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"settings": map[string]any{},
+			}, nil
+		}
+
+		result, err := evaluator.Evaluate("${settings.database.port ?? 5432}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error with coalesce operator, got: %v", err)
+		}
+
+		if result != 5432 {
+			t.Errorf("Expected coalesce to return 5432, got %v", result)
+		}
+	})
+
+	t.Run("CoalesceOperatorReturnsExistingValue", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"settings": map[string]any{
+					"database": map[string]any{
+						"port": 3306,
+					},
+				},
+			}, nil
+		}
+
+		result, err := evaluator.Evaluate("${settings.database.port ?? 5432}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error with coalesce operator, got: %v", err)
+		}
+
+		if result != 3306 {
+			t.Errorf("Expected coalesce to return existing value 3306, got %v", result)
+		}
+	})
+
+	t.Run("DoesNotErrorWhenRootPropertyIsMissing", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		result, err := evaluator.Evaluate("${nonexistent.nested.property}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error when root property is missing, got: %v", err)
+		}
+
+		if result != "nonexistent.nested.property" {
+			t.Errorf("Expected expression string when root property is missing, got %v", result)
+		}
+	})
+
+	t.Run("CoalesceOperatorWorksWhenRootPropertyIsMissing", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		result, err := evaluator.Evaluate("${nonexistent.nested.property ?? \"default\"}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error with coalesce on missing root property, got: %v", err)
+		}
+
+		if result != "default" {
+			t.Errorf("Expected coalesce to return 'default', got %v", result)
+		}
+	})
+
+	t.Run("BooleanExpressionWithMissingPropertyReturnsFalse", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"features": map[string]any{},
+			}, nil
+		}
+
+		result, err := evaluator.Evaluate("${features.experimental.enabled ?? false}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error with boolean coalesce, got: %v", err)
+		}
+
+		if result != false {
+			t.Errorf("Expected false for missing boolean with coalesce, got %v", result)
+		}
+	})
 }
 
 func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
