@@ -2974,3 +2974,405 @@ func TestIntExpression_MarshalYAML(t *testing.T) {
 		}
 	})
 }
+
+func TestSource_Deploy(t *testing.T) {
+	t.Run("IsNilWhenNotSet", func(t *testing.T) {
+		source := Source{
+			Name: "test-source",
+			Url:  "oci://example.com/repo:tag",
+		}
+
+		if source.Deploy != nil {
+			t.Error("Expected Deploy to be nil when not set")
+		}
+	})
+
+	t.Run("CanBeSetToFalse", func(t *testing.T) {
+		falseVal := false
+		source := Source{
+			Name:   "test-source",
+			Url:    "oci://example.com/repo:tag",
+			Deploy: &BoolExpression{Value: &falseVal, IsExpr: false},
+		}
+
+		if source.Deploy == nil {
+			t.Fatal("Expected Deploy to be set")
+		}
+		if source.Deploy.Value == nil || *source.Deploy.Value {
+			t.Error("Expected Deploy to be false")
+		}
+	})
+
+	t.Run("SupportsExpression", func(t *testing.T) {
+		yamlData := []byte(`name: test-source
+url: oci://example.com/repo:tag
+deploy: "${some.condition ?? true}"`)
+
+		var source Source
+		err := yaml.Unmarshal(yamlData, &source)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if source.Deploy == nil {
+			t.Fatal("Expected Deploy to be set")
+		}
+		if !source.Deploy.IsExpr {
+			t.Error("Expected IsExpr to be true")
+		}
+		if source.Deploy.Expr != "${some.condition ?? true}" {
+			t.Errorf("Expected Expr to be '${some.condition ?? true}', got %q", source.Deploy.Expr)
+		}
+		if source.Deploy.Value != nil {
+			t.Error("Expected Value to be nil for expression")
+		}
+	})
+
+	t.Run("PreservesValueInRoundTrip", func(t *testing.T) {
+		falseVal := false
+		source := Source{
+			Name:   "test-source",
+			Url:    "oci://example.com/repo:tag",
+			Deploy: &BoolExpression{Value: &falseVal, IsExpr: false},
+		}
+
+		marshaled, err := yaml.Marshal(&source)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip Source
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Deploy == nil {
+			t.Fatal("Expected Deploy to be preserved after round-trip")
+		}
+		if roundTrip.Deploy.Value == nil || *roundTrip.Deploy.Value {
+			t.Error("Expected Deploy to be false after round-trip")
+		}
+	})
+}
+
+func TestTerraformComponent_Enabled(t *testing.T) {
+	t.Run("IsNilWhenNotSet", func(t *testing.T) {
+		component := TerraformComponent{
+			Path: "test/path",
+		}
+
+		if component.Enabled != nil {
+			t.Error("Expected Enabled to be nil when not set")
+		}
+	})
+
+	t.Run("CanBeSetToFalse", func(t *testing.T) {
+		falseVal := false
+		component := TerraformComponent{
+			Path:    "test/path",
+			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+		}
+
+		if component.Enabled == nil {
+			t.Fatal("Expected Enabled to be set")
+		}
+		if component.Enabled.Value == nil || *component.Enabled.Value {
+			t.Error("Expected Enabled to be false")
+		}
+	})
+
+	t.Run("SupportsExpression", func(t *testing.T) {
+		yamlData := []byte(`path: test/path
+enabled: "${cluster.enabled ?? true}"`)
+
+		var component TerraformComponent
+		err := yaml.Unmarshal(yamlData, &component)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if component.Enabled == nil {
+			t.Fatal("Expected Enabled to be set")
+		}
+		if !component.Enabled.IsExpr {
+			t.Error("Expected IsExpr to be true")
+		}
+		if component.Enabled.Expr != "${cluster.enabled ?? true}" {
+			t.Errorf("Expected Expr to be '${cluster.enabled ?? true}', got %q", component.Enabled.Expr)
+		}
+		if component.Enabled.Value != nil {
+			t.Error("Expected Value to be nil for expression")
+		}
+	})
+
+	t.Run("PreservesValueInRoundTrip", func(t *testing.T) {
+		falseVal := false
+		component := TerraformComponent{
+			Path:    "test/path",
+			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+		}
+
+		marshaled, err := yaml.Marshal(&component)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip TerraformComponent
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Enabled == nil {
+			t.Fatal("Expected Enabled to be preserved after round-trip")
+		}
+		if roundTrip.Enabled.Value == nil || *roundTrip.Enabled.Value {
+			t.Error("Expected Enabled to be false after round-trip")
+		}
+	})
+
+	t.Run("IsCopiedInDeepCopy", func(t *testing.T) {
+		falseVal := false
+		original := &TerraformComponent{
+			Path:    "test/path",
+			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+		}
+
+		copy := original.DeepCopy()
+		if copy == nil {
+			t.Fatal("Expected DeepCopy to return non-nil")
+		}
+		if copy.Enabled == nil {
+			t.Fatal("Expected Enabled to be copied")
+		}
+		if copy.Enabled.Value == nil || *copy.Enabled.Value {
+			t.Error("Expected Enabled to be false in copy")
+		}
+
+		trueVal := true
+		original.Enabled.Value = &trueVal
+		if copy.Enabled == nil || copy.Enabled.Value == nil || *copy.Enabled.Value {
+			t.Error("Expected copy to be independent - modifying original should not affect copy")
+		}
+		if copy.Enabled.Value == nil || *copy.Enabled.Value {
+			t.Error("Expected copy to still have false value after modifying original")
+		}
+	})
+}
+
+func TestKustomization_Enabled(t *testing.T) {
+	t.Run("IsNilWhenNotSet", func(t *testing.T) {
+		kustomization := Kustomization{
+			Name: "test-kustomization",
+		}
+
+		if kustomization.Enabled != nil {
+			t.Error("Expected Enabled to be nil when not set")
+		}
+	})
+
+	t.Run("CanBeSetToFalse", func(t *testing.T) {
+		falseVal := false
+		kustomization := Kustomization{
+			Name:    "test-kustomization",
+			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+		}
+
+		if kustomization.Enabled == nil {
+			t.Fatal("Expected Enabled to be set")
+		}
+		if kustomization.Enabled.Value == nil || *kustomization.Enabled.Value {
+			t.Error("Expected Enabled to be false")
+		}
+	})
+
+	t.Run("SupportsExpression", func(t *testing.T) {
+		yamlData := []byte(`name: test-kustomization
+enabled: "${observability.enabled ?? true}"`)
+
+		var kustomization Kustomization
+		err := yaml.Unmarshal(yamlData, &kustomization)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+
+		if kustomization.Enabled == nil {
+			t.Fatal("Expected Enabled to be set")
+		}
+		if !kustomization.Enabled.IsExpr {
+			t.Error("Expected IsExpr to be true")
+		}
+		if kustomization.Enabled.Expr != "${observability.enabled ?? true}" {
+			t.Errorf("Expected Expr to be '${observability.enabled ?? true}', got %q", kustomization.Enabled.Expr)
+		}
+		if kustomization.Enabled.Value != nil {
+			t.Error("Expected Value to be nil for expression")
+		}
+	})
+
+	t.Run("PreservesValueInRoundTrip", func(t *testing.T) {
+		falseVal := false
+		kustomization := Kustomization{
+			Name:    "test-kustomization",
+			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+		}
+
+		marshaled, err := yaml.Marshal(&kustomization)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+
+		var roundTrip Kustomization
+		err = yaml.Unmarshal(marshaled, &roundTrip)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal round-trip: %v", err)
+		}
+
+		if roundTrip.Enabled == nil {
+			t.Fatal("Expected Enabled to be preserved after round-trip")
+		}
+		if roundTrip.Enabled.Value == nil || *roundTrip.Enabled.Value {
+			t.Error("Expected Enabled to be false after round-trip")
+		}
+	})
+
+	t.Run("IsCopiedInDeepCopy", func(t *testing.T) {
+		falseVal := false
+		original := &Kustomization{
+			Name:    "test-kustomization",
+			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+		}
+
+		copy := original.DeepCopy()
+		if copy == nil {
+			t.Fatal("Expected DeepCopy to return non-nil")
+		}
+		if copy.Enabled == nil {
+			t.Fatal("Expected Enabled to be copied")
+		}
+		if copy.Enabled.Value == nil || *copy.Enabled.Value {
+			t.Error("Expected Enabled to be false in copy")
+		}
+
+		trueVal := true
+		original.Enabled.Value = &trueVal
+		if copy.Enabled == nil || copy.Enabled.Value == nil || *copy.Enabled.Value {
+			t.Error("Expected copy to be independent - modifying original should not affect copy")
+		}
+		if copy.Enabled.Value == nil || *copy.Enabled.Value {
+			t.Error("Expected copy to still have false value after modifying original")
+		}
+	})
+}
+
+func TestBoolExpression_IsEnabled(t *testing.T) {
+	t.Run("ReturnsTrueWhenNil", func(t *testing.T) {
+		var expr *BoolExpression
+		if !expr.IsEnabled() {
+			t.Error("Expected IsEnabled to return true when nil")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenValueIsTrue", func(t *testing.T) {
+		trueVal := true
+		expr := &BoolExpression{Value: &trueVal, IsExpr: false}
+		if !expr.IsEnabled() {
+			t.Error("Expected IsEnabled to return true when value is true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenValueIsFalse", func(t *testing.T) {
+		falseVal := false
+		expr := &BoolExpression{Value: &falseVal, IsExpr: false}
+		if expr.IsEnabled() {
+			t.Error("Expected IsEnabled to return false when value is false")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenIsExpression", func(t *testing.T) {
+		expr := &BoolExpression{IsExpr: true, Expr: "${some.condition ?? true}"}
+		if !expr.IsEnabled() {
+			t.Error("Expected IsEnabled to return true when IsExpr is true")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenValueIsNilButNotExpression", func(t *testing.T) {
+		expr := &BoolExpression{Value: nil, IsExpr: false}
+		if !expr.IsEnabled() {
+			t.Error("Expected IsEnabled to return true when Value is nil and not expression")
+		}
+	})
+}
+
+func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
+	t.Run("CopiesSourceDeployField", func(t *testing.T) {
+		falseVal := false
+		blueprint := &Blueprint{
+			Sources: []Source{
+				{
+					Name:   "test-source",
+					Url:    "oci://example.com/repo:tag",
+					Deploy: &BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+			},
+		}
+
+		copy := blueprint.DeepCopy()
+		if len(copy.Sources) != 1 {
+			t.Fatalf("Expected 1 source, got %d", len(copy.Sources))
+		}
+		if copy.Sources[0].Deploy == nil {
+			t.Fatal("Expected Deploy to be copied")
+		}
+		if copy.Sources[0].Deploy.Value == nil || *copy.Sources[0].Deploy.Value {
+			t.Error("Expected Deploy to be false in copy")
+		}
+	})
+
+	t.Run("CopiesTerraformComponentEnabledField", func(t *testing.T) {
+		falseVal := false
+		blueprint := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:    "test/path",
+					Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+			},
+		}
+
+		copy := blueprint.DeepCopy()
+		if len(copy.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(copy.TerraformComponents))
+		}
+		if copy.TerraformComponents[0].Enabled == nil {
+			t.Fatal("Expected Enabled to be copied")
+		}
+		if copy.TerraformComponents[0].Enabled.Value == nil || *copy.TerraformComponents[0].Enabled.Value {
+			t.Error("Expected Enabled to be false in copy")
+		}
+	})
+
+	t.Run("CopiesKustomizationEnabledField", func(t *testing.T) {
+		falseVal := false
+		blueprint := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:    "test-kustomization",
+					Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+			},
+		}
+
+		copy := blueprint.DeepCopy()
+		if len(copy.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(copy.Kustomizations))
+		}
+		if copy.Kustomizations[0].Enabled == nil {
+			t.Fatal("Expected Enabled to be copied")
+		}
+		if copy.Kustomizations[0].Enabled.Value == nil || *copy.Kustomizations[0].Enabled.Value {
+			t.Error("Expected Enabled to be false in copy")
+		}
+	})
+}

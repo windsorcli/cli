@@ -554,4 +554,245 @@ func TestWriter_Write(t *testing.T) {
 			t.Errorf("Expected user-config KEY='value', got '%s'", userConfig["KEY"])
 		}
 	})
+
+	t.Run("StripsEnabledTrueFromTerraformComponents", func(t *testing.T) {
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var marshalledBlueprint *blueprintv1alpha1.Blueprint
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
+				marshalledBlueprint = bp
+			}
+			return []byte("test yaml"), nil
+		}
+
+		trueVal := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:    "test/path",
+					Enabled: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				},
+			},
+		}
+
+		err := writer.Write(blueprint, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if marshalledBlueprint == nil {
+			t.Fatal("Expected blueprint to be marshalled")
+		}
+		if len(marshalledBlueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(marshalledBlueprint.TerraformComponents))
+		}
+		if marshalledBlueprint.TerraformComponents[0].Enabled != nil {
+			t.Error("Expected enabled: true to be stripped from terraform component")
+		}
+	})
+
+	t.Run("PreservesEnabledFalseFromTerraformComponents", func(t *testing.T) {
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var marshalledBlueprint *blueprintv1alpha1.Blueprint
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
+				marshalledBlueprint = bp
+			}
+			return []byte("test yaml"), nil
+		}
+
+		falseVal := false
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:    "test/path",
+					Enabled: &blueprintv1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+			},
+		}
+
+		err := writer.Write(blueprint, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if marshalledBlueprint == nil {
+			t.Fatal("Expected blueprint to be marshalled")
+		}
+		if len(marshalledBlueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(marshalledBlueprint.TerraformComponents))
+		}
+		if marshalledBlueprint.TerraformComponents[0].Enabled == nil {
+			t.Error("Expected enabled: false to be preserved")
+		} else if marshalledBlueprint.TerraformComponents[0].Enabled.Value == nil || *marshalledBlueprint.TerraformComponents[0].Enabled.Value {
+			t.Error("Expected enabled value to be false")
+		}
+	})
+
+	t.Run("PreservesEnabledExpressionFromTerraformComponents", func(t *testing.T) {
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var marshalledBlueprint *blueprintv1alpha1.Blueprint
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
+				marshalledBlueprint = bp
+			}
+			return []byte("test yaml"), nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:    "test/path",
+					Enabled: &blueprintv1alpha1.BoolExpression{IsExpr: true, Expr: "${some.condition ?? true}"},
+				},
+			},
+		}
+
+		err := writer.Write(blueprint, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if marshalledBlueprint == nil {
+			t.Fatal("Expected blueprint to be marshalled")
+		}
+		if len(marshalledBlueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 component, got %d", len(marshalledBlueprint.TerraformComponents))
+		}
+		if marshalledBlueprint.TerraformComponents[0].Enabled == nil {
+			t.Error("Expected enabled expression to be preserved")
+		} else if !marshalledBlueprint.TerraformComponents[0].Enabled.IsExpr {
+			t.Error("Expected enabled to be an expression")
+		} else if marshalledBlueprint.TerraformComponents[0].Enabled.Expr != "${some.condition ?? true}" {
+			t.Errorf("Expected expression to be preserved, got %q", marshalledBlueprint.TerraformComponents[0].Enabled.Expr)
+		}
+	})
+
+	t.Run("StripsEnabledTrueFromKustomizations", func(t *testing.T) {
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var marshalledBlueprint *blueprintv1alpha1.Blueprint
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
+				marshalledBlueprint = bp
+			}
+			return []byte("test yaml"), nil
+		}
+
+		trueVal := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "test-kustomization",
+					Enabled: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				},
+			},
+		}
+
+		err := writer.Write(blueprint, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if marshalledBlueprint == nil {
+			t.Fatal("Expected blueprint to be marshalled")
+		}
+		if len(marshalledBlueprint.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(marshalledBlueprint.Kustomizations))
+		}
+		if marshalledBlueprint.Kustomizations[0].Enabled != nil {
+			t.Error("Expected enabled: true to be stripped from kustomization")
+		}
+	})
+
+	t.Run("StripsDeployTrueFromSources", func(t *testing.T) {
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var marshalledBlueprint *blueprintv1alpha1.Blueprint
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.YamlMarshal = func(v interface{}) ([]byte, error) {
+			if bp, ok := v.(*blueprintv1alpha1.Blueprint); ok {
+				marshalledBlueprint = bp
+			}
+			return []byte("test yaml"), nil
+		}
+
+		trueVal := true
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name:   "test-source",
+					Url:    "oci://example.com/repo:tag",
+					Deploy: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				},
+			},
+		}
+
+		err := writer.Write(blueprint, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if marshalledBlueprint == nil {
+			t.Fatal("Expected blueprint to be marshalled")
+		}
+		if len(marshalledBlueprint.Sources) != 1 {
+			t.Fatalf("Expected 1 source, got %d", len(marshalledBlueprint.Sources))
+		}
+		if marshalledBlueprint.Sources[0].Deploy != nil {
+			t.Error("Expected deploy: true to be stripped from source")
+		}
+	})
 }
