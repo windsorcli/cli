@@ -54,9 +54,9 @@ type testCaseWithFile struct {
 // Constructor
 // =============================================================================
 
-// NewTestRunner creates a new TestRunner using the provided runtime, blueprint handler, and artifact builder.
+// NewTestRunner creates a new TestRunner using the provided runtime and artifact builder.
 // It stores base dependencies for creating isolated runtime instances for each test case, ensuring test isolation.
-func NewTestRunner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, artifactBuilder artifact.Artifact) *TestRunner {
+func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *TestRunner {
 	return &TestRunner{
 		projectRoot:       rt.ProjectRoot,
 		baseShell:         rt.Shell,

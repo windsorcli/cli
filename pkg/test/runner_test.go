@@ -11,7 +11,6 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -140,10 +139,8 @@ func TestNewTestRunner(t *testing.T) {
 			ProjectRoot:   tmpDir,
 		})
 
-		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
-
 		// When creating a new test runner
-		runner := NewTestRunner(rt, mockBlueprintHandler, mockArtifact)
+		runner := NewTestRunner(rt, mockArtifact)
 
 		// Then runner should be created with correct fields
 		if runner == nil {
