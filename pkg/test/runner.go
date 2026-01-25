@@ -792,10 +792,10 @@ func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint
 // registerTerraformOutputHelperForMock registers a mock implementation of the terraform_output() expression helper
 // for use in test scenarios. This allows tests to provide mock Terraform output values without requiring actual
 // Terraform state or infrastructure. The helper validates that exactly two string arguments (component ID and output key)
-// are provided, and returns a DeferredError if called without the deferred flag to match production behavior.
-// When called with deferred=true, it retrieves the output value from the mock provider. If the key exists in the
-// component's outputs, it returns the value (which can be any type: string, array, object, etc.). If the key does
-// not exist, it returns nil (not an error), enabling the ?? fallback operator to work correctly in expressions.
+// are provided. Unlike production, it always evaluates immediately (ignores the deferred flag) since mock outputs
+// are always available during test execution. If the key exists in the component's outputs, it returns the value
+// (which can be any type: string, array, object, etc.). If the key does not exist, it returns nil (not an error),
+// enabling the ?? fallback operator to work correctly in expressions.
 func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformProvider, eval evaluator.ExpressionEvaluator) {
 	eval.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		if len(params) != 2 {
@@ -808,13 +808,6 @@ func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformP
 		key, ok := params[1].(string)
 		if !ok {
 			return nil, fmt.Errorf("terraform_output() key must be a string, got %T", params[1])
-		}
-
-		if !deferred {
-			return nil, &evaluator.DeferredError{
-				Expression: fmt.Sprintf(`terraform_output("%s", "%s")`, component, key),
-				Message:    fmt.Sprintf("terraform output '%s' for component %s is deferred", key, component),
-			}
 		}
 
 		outputs, err := mockProvider.GetTerraformOutputs(component)
