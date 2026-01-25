@@ -109,6 +109,33 @@ func TestNewBlueprintProcessor(t *testing.T) {
 			t.Error("Expected processor to use runtime evaluator")
 		}
 	})
+
+	t.Run("PanicsWhenRuntimeIsNil", func(t *testing.T) {
+		// Given a nil runtime
+		// When creating a processor
+		// Then should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when runtime is nil")
+			}
+		}()
+		NewBlueprintProcessor(nil)
+	})
+
+	t.Run("PanicsWhenEvaluatorIsNil", func(t *testing.T) {
+		// Given a runtime without evaluator
+		mocks := setupProcessorMocks(t)
+		mocks.Runtime.Evaluator = nil
+
+		// When creating a processor
+		// Then should panic
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when evaluator is nil")
+			}
+		}()
+		NewBlueprintProcessor(mocks.Runtime)
+	})
 }
 
 // =============================================================================
@@ -2582,6 +2609,1293 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 		if len(target.TerraformComponents[0].DependsOn) != 0 {
 			t.Errorf("Expected empty dependsOn, got %v", target.TerraformComponents[0].DependsOn)
+		}
+	})
+}
+
+// =============================================================================
+// Test Component Condition Inheritance
+// =============================================================================
+
+func TestProcessor_ComponentConditionInheritance(t *testing.T) {
+	t.Run("TerraformComponentInheritsFacetWhenCondition", func(t *testing.T) {
+		// Given a facet with when condition and component without when
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-facet"},
+				When:     "enabled == true",
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+					},
+				},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": true}, nil
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		// Then component should be included (inherited facet condition is true)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+	})
+
+	t.Run("TerraformComponentExcludedWhenInheritedFacetConditionFalse", func(t *testing.T) {
+		// Given a facet with when condition and component without when
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-facet"},
+				When:     "enabled == true",
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+					},
+				},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		// Then component should be excluded (inherited facet condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components, got %d", len(target.TerraformComponents))
+		}
+	})
+
+	t.Run("KustomizationInheritsFacetWhenCondition", func(t *testing.T) {
+		// Given a facet with when condition and kustomization without when
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-facet"},
+				When:     "enabled == true",
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+					},
+				},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": true}, nil
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		// Then kustomization should be included (inherited facet condition is true)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(target.Kustomizations))
+		}
+	})
+
+	t.Run("ComponentWithOwnWhenDoesNotInheritFacetWhen", func(t *testing.T) {
+		// Given a facet with when condition and component with its own when
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-facet"},
+				When:     "facet_enabled == true",
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						When:               "component_enabled == true",
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+					},
+				},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"facet_enabled":     true,
+				"component_enabled": false,
+			}, nil
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		// Then component should be excluded (its own condition is false, even though facet condition is true)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components, got %d", len(target.TerraformComponents))
+		}
+	})
+}
+
+// =============================================================================
+// Test Condition Re-evaluation During Merge
+// =============================================================================
+
+func TestProcessor_ConditionReevaluationDuringMerge(t *testing.T) {
+	t.Run("RemovesComponentWhenExistingConditionBecomesFalse", func(t *testing.T) {
+		// Given an existing component with a condition that becomes false
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "enabled == true",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+
+		// When updating with a new component
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then component should be removed (existing condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := entries["vpc"]; exists {
+			t.Error("Expected component to be removed when existing condition is false")
+		}
+	})
+
+	t.Run("RemovesComponentWhenNewConditionIsFalse", func(t *testing.T) {
+		// Given an existing component without condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+
+		// When updating with a new component that has false condition
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			When:               "enabled == true",
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then component should be removed (new condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := entries["vpc"]; exists {
+			t.Error("Expected component to be removed when new condition is false")
+		}
+	})
+
+	t.Run("RemovesComponentWhenBothConditionsAreFalse", func(t *testing.T) {
+		// Given an existing component with condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "enabled1 == true",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled1": false,
+				"enabled2": false,
+			}, nil
+		}
+
+		// When updating with a new component that also has false condition
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			When:               "enabled2 == true",
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then component should be removed (existing condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := entries["vpc"]; exists {
+			t.Error("Expected component to be removed when existing condition is false")
+		}
+	})
+
+	t.Run("PreservesComponentWhenBothConditionsAreTrue", func(t *testing.T) {
+		// Given an existing component with condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "enabled1 == true",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"old": "value"}},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled1": true,
+				"enabled2": true,
+			}, nil
+		}
+
+		// When updating with a new component that also has true condition
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			When:               "enabled2 == true",
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then component should be preserved and merged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := entries["vpc"]; !exists {
+			t.Fatal("Expected component to be preserved when both conditions are true")
+		}
+		if entries["vpc"].Inputs["old"] != "value" {
+			t.Error("Expected old inputs to be preserved")
+		}
+		if entries["vpc"].Inputs["new"] != "value" {
+			t.Error("Expected new inputs to be added")
+		}
+	})
+
+	t.Run("KustomizationRemovedWhenConditionBecomesFalse", func(t *testing.T) {
+		// Given an existing kustomization with condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				When:          "enabled == true",
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+
+		// When updating with a new kustomization
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then kustomization should be removed (existing condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := entries["app"]; exists {
+			t.Error("Expected kustomization to be removed when existing condition is false")
+		}
+	})
+}
+
+// =============================================================================
+// Test Preserving When Field During Merge
+// =============================================================================
+
+func TestProcessor_PreservingWhenFieldDuringMerge(t *testing.T) {
+	t.Run("CombinesWhenConditionsWithAndForMerge", func(t *testing.T) {
+		// Given existing and new components with different when conditions
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "enabled1 == true",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"old": "value"}},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled1": true,
+				"enabled2": true,
+			}, nil
+		}
+
+		// When updating with merge strategy
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			When:               "enabled2 == true",
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then When field should be combined with &&
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedWhen := "(enabled1 == true) && (enabled2 == true)"
+		if entries["vpc"].When != expectedWhen {
+			t.Errorf("Expected When to be '%s', got '%s'", expectedWhen, entries["vpc"].When)
+		}
+	})
+
+	t.Run("PreservesExistingWhenWhenNewHasNoWhen", func(t *testing.T) {
+		// Given existing component with when condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "enabled == true",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": true}, nil
+		}
+
+		// When updating with component without when
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then existing When should be preserved
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].When != "enabled == true" {
+			t.Errorf("Expected When to be 'enabled == true', got '%s'", entries["vpc"].When)
+		}
+	})
+
+	t.Run("UsesNewWhenWhenExistingHasNoWhen", func(t *testing.T) {
+		// Given existing component without when condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": true}, nil
+		}
+
+		// When updating with component with when
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			When:               "enabled == true",
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+
+		// Then new When should be used
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if entries["vpc"].When != "enabled == true" {
+			t.Errorf("Expected When to be 'enabled == true', got '%s'", entries["vpc"].When)
+		}
+	})
+
+	t.Run("CombinesWhenConditionsForRemoveStrategy", func(t *testing.T) {
+		// Given existing component with when condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "enabled1 == true",
+				Strategy:           "remove",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key1": nil}},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled1": true,
+				"enabled2": true,
+			}, nil
+		}
+
+		// When updating with remove strategy
+		new := &blueprintv1alpha1.ConditionalTerraformComponent{
+			When:               "enabled2 == true",
+			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": nil}},
+		}
+		err := processor.updateTerraformComponentEntry("vpc", new, "remove", entries)
+
+		// Then When field should be combined with &&
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedWhen := "(enabled1 == true) && (enabled2 == true)"
+		if entries["vpc"].When != expectedWhen {
+			t.Errorf("Expected When to be '%s', got '%s'", expectedWhen, entries["vpc"].When)
+		}
+	})
+
+	t.Run("KustomizationCombinesWhenConditions", func(t *testing.T) {
+		// Given existing kustomization with when condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				When:          "enabled1 == true",
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled1": true,
+				"enabled2": true,
+			}, nil
+		}
+
+		// When updating with merge strategy
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			When:          "enabled2 == true",
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then When field should be combined with &&
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expectedWhen := "(enabled1 == true) && (enabled2 == true)"
+		if entries["app"].When != expectedWhen {
+			t.Errorf("Expected When to be '%s', got '%s'", expectedWhen, entries["app"].When)
+		}
+	})
+}
+
+// =============================================================================
+// Test Post-Processing Condition Evaluation
+// =============================================================================
+
+func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
+	t.Run("RemovesTerraformComponentWithFalseConditionAfterMerge", func(t *testing.T) {
+		// Given collected components with a condition that will be false
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		target := &blueprintv1alpha1.Blueprint{}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "enabled == true",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+
+		// Then component should be removed (condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components, got %d", len(target.TerraformComponents))
+		}
+	})
+
+	t.Run("RemovesKustomizationWithFalseConditionAfterMerge", func(t *testing.T) {
+		// Given collected kustomizations with a condition that will be false
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		target := &blueprintv1alpha1.Blueprint{}
+
+		kustomizationByName := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				When:          "enabled == true",
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, nil, kustomizationByName)
+
+		// Then kustomization should be removed (condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Kustomizations) != 0 {
+			t.Errorf("Expected 0 kustomizations, got %d", len(target.Kustomizations))
+		}
+	})
+
+	t.Run("PreservesComponentWithTrueConditionAfterMerge", func(t *testing.T) {
+		// Given collected components with a condition that will be true
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		target := &blueprintv1alpha1.Blueprint{}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "enabled == true",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": true}, nil
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+
+		// Then component should be preserved (condition is true)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		if target.TerraformComponents[0].Path != "vpc" {
+			t.Errorf("Expected path='vpc', got '%s'", target.TerraformComponents[0].Path)
+		}
+	})
+
+	t.Run("RemovesComponentWithCombinedFalseCondition", func(t *testing.T) {
+		// Given collected components with combined condition that will be false
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		target := &blueprintv1alpha1.Blueprint{}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "(enabled1 == true) && (enabled2 == true)",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled1": true,
+				"enabled2": false,
+			}, nil
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+
+		// Then component should be removed (combined condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components, got %d", len(target.TerraformComponents))
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidConditionDuringPostProcessing", func(t *testing.T) {
+		// Given collected components with invalid condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		target := &blueprintv1alpha1.Blueprint{}
+
+		terraformByID := map[string]*blueprintv1alpha1.ConditionalTerraformComponent{
+			"vpc": {
+				When:               "invalid syntax {{{}",
+				Strategy:           "merge",
+				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
+			},
+		}
+
+		// When applying collected components
+		err := processor.applyCollectedComponents(target, terraformByID, nil)
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid condition during post-processing")
+		}
+		if err != nil && !strings.Contains(err.Error(), "re-evaluating") {
+			t.Errorf("Expected error about re-evaluating, got: %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Additional Coverage for updateKustomizationEntry
+// =============================================================================
+
+func TestProcessor_updateKustomizationEntry_AdditionalCoverage(t *testing.T) {
+	t.Run("RemovesKustomizationWhenNewConditionIsFalse", func(t *testing.T) {
+		// Given an existing kustomization without condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+
+		// When updating with a new kustomization that has false condition
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			When:          "enabled == true",
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then kustomization should be removed (new condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := entries["app"]; exists {
+			t.Error("Expected kustomization to be removed when new condition is false")
+		}
+	})
+
+	t.Run("PreservesKustomizationWhenBothConditionsAreTrue", func(t *testing.T) {
+		// Given an existing kustomization with condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				When:          "enabled1 == true",
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "old-path"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled1": true,
+				"enabled2": true,
+			}, nil
+		}
+
+		// When updating with a new kustomization that also has true condition
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			When:          "enabled2 == true",
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then kustomization should be preserved and merged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := entries["app"]; !exists {
+			t.Fatal("Expected kustomization to be preserved when both conditions are true")
+		}
+		if entries["app"].Path != "new-path" {
+			t.Errorf("Expected path to be updated to 'new-path', got '%s'", entries["app"].Path)
+		}
+	})
+
+	t.Run("RemovesKustomizationWhenBothConditionsAreFalse", func(t *testing.T) {
+		// Given an existing kustomization with condition
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
+			"app": {
+				When:          "enabled1 == true",
+				Strategy:      "merge",
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
+			},
+		}
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"enabled1": false,
+				"enabled2": false,
+			}, nil
+		}
+
+		// When updating with a new kustomization that also has false condition
+		new := &blueprintv1alpha1.ConditionalKustomization{
+			When:          "enabled2 == true",
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
+		}
+		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+
+		// Then kustomization should be removed (existing condition is false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := entries["app"]; exists {
+			t.Error("Expected kustomization to be removed when existing condition is false")
+		}
+	})
+}
+
+// =============================================================================
+// Test evaluateStringSlice Edge Cases
+// =============================================================================
+
+func TestProcessor_evaluateStringSlice(t *testing.T) {
+	t.Run("ReturnsNilForEmptySlice", func(t *testing.T) {
+		// Given an empty slice
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating empty slice
+		result, err := processor.evaluateStringSlice([]string{}, "")
+
+		// Then should return nil
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result != nil {
+			t.Errorf("Expected nil for empty slice, got %v", result)
+		}
+	})
+
+	t.Run("FiltersEmptyStrings", func(t *testing.T) {
+		// Given a slice with empty strings
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return expression, nil
+		}
+
+		// When evaluating slice with empty strings
+		result, err := processor.evaluateStringSlice([]string{"value1", "", "value2", ""}, "")
+
+		// Then empty strings should be filtered
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result) != 2 {
+			t.Errorf("Expected 2 values, got %d: %v", len(result), result)
+		}
+		if result[0] != "value1" || result[1] != "value2" {
+			t.Errorf("Expected ['value1', 'value2'], got %v", result)
+		}
+	})
+
+	t.Run("HandlesNilEvaluationResult", func(t *testing.T) {
+		// Given a slice with expressions that evaluate to nil
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			if expression == "nil" {
+				return nil, nil
+			}
+			return expression, nil
+		}
+
+		// When evaluating slice with nil results
+		result, err := processor.evaluateStringSlice([]string{"value1", "nil", "value2"}, "")
+
+		// Then nil results should be filtered
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result) != 2 {
+			t.Errorf("Expected 2 values, got %d: %v", len(result), result)
+		}
+	})
+
+	t.Run("FlattensArrayResults", func(t *testing.T) {
+		// Given a slice with expression that evaluates to array
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			if expression == "${array}" {
+				return []any{"item1", "item2", "item3"}, nil
+			}
+			return expression, nil
+		}
+
+		// When evaluating slice with array expression
+		result, err := processor.evaluateStringSlice([]string{"value1", "${array}", "value2"}, "")
+
+		// Then array should be flattened
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result) != 5 {
+			t.Errorf("Expected 5 values (flattened array), got %d: %v", len(result), result)
+		}
+		if result[0] != "value1" || result[1] != "item1" || result[2] != "item2" || result[3] != "item3" || result[4] != "value2" {
+			t.Errorf("Expected ['value1', 'item1', 'item2', 'item3', 'value2'], got %v", result)
+		}
+	})
+
+	t.Run("HandlesNonStringTypes", func(t *testing.T) {
+		// Given a slice with expression that evaluates to non-string
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			if expression == "${number}" {
+				return 42, nil
+			}
+			if expression == "${bool}" {
+				return true, nil
+			}
+			return expression, nil
+		}
+
+		// When evaluating slice with non-string expressions
+		result, err := processor.evaluateStringSlice([]string{"value1", "${number}", "${bool}"}, "")
+
+		// Then non-string values should be converted to strings
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result) != 3 {
+			t.Errorf("Expected 3 values, got %d: %v", len(result), result)
+		}
+		if result[0] != "value1" || result[1] != "42" || result[2] != "true" {
+			t.Errorf("Expected ['value1', '42', 'true'], got %v", result)
+		}
+	})
+
+	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
+		// Given a slice with expression that fails
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			if expression == "${error}" {
+				return nil, fmt.Errorf("evaluation failed")
+			}
+			return expression, nil
+		}
+
+		// When evaluating slice with failing expression
+		result, err := processor.evaluateStringSlice([]string{"value1", "${error}"}, "")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for evaluation failure")
+		}
+		if result != nil {
+			t.Error("Expected nil result on error")
+		}
+	})
+}
+
+// =============================================================================
+// Test evaluateBooleanExpression
+// =============================================================================
+
+func TestProcessor_evaluateBooleanExpression(t *testing.T) {
+	t.Run("ReturnsNilForEmptyExpression", func(t *testing.T) {
+		// Given an empty expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating empty expression
+		result, err := processor.evaluateBooleanExpression("", "")
+
+		// Then should return nil
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result != nil {
+			t.Errorf("Expected nil for empty expression, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesBooleanTrue", func(t *testing.T) {
+		// Given a boolean true expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return true, nil
+		}
+
+		// When evaluating boolean expression
+		result, err := processor.evaluateBooleanExpression("enabled == true", "")
+
+		// Then should return true
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result == nil || *result != true {
+			t.Errorf("Expected true, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesBooleanFalse", func(t *testing.T) {
+		// Given a boolean false expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return false, nil
+		}
+
+		// When evaluating boolean expression
+		result, err := processor.evaluateBooleanExpression("enabled == false", "")
+
+		// Then should return false
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result == nil || *result != false {
+			t.Errorf("Expected false, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesStringInteger", func(t *testing.T) {
+		// Given a string integer expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return "42", nil
+		}
+
+		// When evaluating string integer expression
+		result, err := processor.evaluateIntegerExpression("workers", "")
+
+		// Then should return int
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result == nil || *result != 42 {
+			t.Errorf("Expected 42, got %v", result)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidStringInteger", func(t *testing.T) {
+		// Given a string that's not a valid integer
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return "not-a-number", nil
+		}
+
+		// When evaluating invalid string integer expression
+		result, err := processor.evaluateIntegerExpression("workers", "")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid string integer")
+		}
+		if result != nil {
+			t.Error("Expected nil result on error")
+		}
+		if !strings.Contains(err.Error(), "expected integer") {
+			t.Errorf("Expected error about expected integer, got: %v", err)
+		}
+	})
+
+	t.Run("EvaluatesStringTrue", func(t *testing.T) {
+		// Given a string "true" expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return "true", nil
+		}
+
+		// When evaluating string expression
+		result, err := processor.evaluateBooleanExpression("enabled", "")
+
+		// Then should return true
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result == nil || *result != true {
+			t.Errorf("Expected true, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesStringFalse", func(t *testing.T) {
+		// Given a string "false" expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return "false", nil
+		}
+
+		// When evaluating string expression
+		result, err := processor.evaluateBooleanExpression("enabled", "")
+
+		// Then should return false
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result == nil || *result != false {
+			t.Errorf("Expected false, got %v", result)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidString", func(t *testing.T) {
+		// Given a string that's not "true" or "false"
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return "maybe", nil
+		}
+
+		// When evaluating invalid string expression
+		result, err := processor.evaluateBooleanExpression("enabled", "")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid string")
+		}
+		if result != nil {
+			t.Error("Expected nil result on error")
+		}
+		if !strings.Contains(err.Error(), "expected boolean") {
+			t.Errorf("Expected error about expected boolean, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidType", func(t *testing.T) {
+		// Given an expression that evaluates to invalid type
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return 42, nil
+		}
+
+		// When evaluating invalid type expression
+		result, err := processor.evaluateBooleanExpression("enabled", "")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid type")
+		}
+		if result != nil {
+			t.Error("Expected nil result on error")
+		}
+		if !strings.Contains(err.Error(), "expected boolean") {
+			t.Errorf("Expected error about expected boolean, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
+		// Given an expression that fails to evaluate
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return nil, fmt.Errorf("evaluation failed")
+		}
+
+		// When evaluating failing expression
+		result, err := processor.evaluateBooleanExpression("invalid", "")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for evaluation failure")
+		}
+		if result != nil {
+			t.Error("Expected nil result on error")
+		}
+	})
+}
+
+// =============================================================================
+// Test evaluateIntegerExpression
+// =============================================================================
+
+func TestProcessor_evaluateIntegerExpression(t *testing.T) {
+	t.Run("ReturnsNilForEmptyExpression", func(t *testing.T) {
+		// Given an empty expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		// When evaluating empty expression
+		result, err := processor.evaluateIntegerExpression("", "")
+
+		// Then should return nil
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result != nil {
+			t.Errorf("Expected nil for empty expression, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesInt", func(t *testing.T) {
+		// Given an int expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return 42, nil
+		}
+
+		// When evaluating int expression
+		result, err := processor.evaluateIntegerExpression("workers", "")
+
+		// Then should return int
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result == nil || *result != 42 {
+			t.Errorf("Expected 42, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesInt64", func(t *testing.T) {
+		// Given an int64 expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return int64(42), nil
+		}
+
+		// When evaluating int64 expression
+		result, err := processor.evaluateIntegerExpression("workers", "")
+
+		// Then should return int
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result == nil || *result != 42 {
+			t.Errorf("Expected 42, got %v", result)
+		}
+	})
+
+	t.Run("EvaluatesFloat64", func(t *testing.T) {
+		// Given a float64 expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return 42.5, nil
+		}
+
+		// When evaluating float64 expression
+		result, err := processor.evaluateIntegerExpression("workers", "")
+
+		// Then should return int (truncated)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result == nil || *result != 42 {
+			t.Errorf("Expected 42, got %v", result)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidType", func(t *testing.T) {
+		// Given an expression that evaluates to invalid type
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return "not a number", nil
+		}
+
+		// When evaluating invalid type expression
+		result, err := processor.evaluateIntegerExpression("workers", "")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for invalid type")
+		}
+		if result != nil {
+			t.Error("Expected nil result on error")
+		}
+		if !strings.Contains(err.Error(), "expected integer") {
+			t.Errorf("Expected error about expected integer, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
+		// Given an expression that fails to evaluate
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+			return nil, fmt.Errorf("evaluation failed")
+		}
+
+		// When evaluating failing expression
+		result, err := processor.evaluateIntegerExpression("invalid", "")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error for evaluation failure")
+		}
+		if result != nil {
+			t.Error("Expected nil result on error")
 		}
 	})
 }

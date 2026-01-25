@@ -1,0 +1,881 @@
+package test
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/goccy/go-yaml"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
+)
+
+// The TestRunner is a static test execution engine for Windsor blueprint composition.
+// It provides discovery and execution of test cases defined in YAML files,
+// validating that blueprint composition produces expected outputs given specific inputs.
+// It enables regression testing of facet logic and blueprint composition without live infrastructure.
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// TestResult represents the result of running a single test case.
+type TestResult struct {
+	Name   string
+	Passed bool
+	Diffs  []string
+}
+
+// TestRunner discovers and executes blueprint composition tests.
+type TestRunner struct {
+	projectRoot       string
+	baseShell         shell.Shell
+	baseConfigHandler config.ConfigHandler
+	baseProjectRoot   string
+	artifactBuilder   artifact.Artifact
+	RunFunc           func(filter string, update bool) ([]TestResult, error)
+}
+
+type testCaseWithFile struct {
+	testCase blueprintv1alpha1.TestCase
+	filePath string
+	fileName string
+}
+
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewTestRunner creates a new TestRunner using the provided runtime, blueprint handler, and artifact builder.
+// It stores base dependencies for creating isolated runtime instances for each test case, ensuring test isolation.
+func NewTestRunner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHandler, artifactBuilder artifact.Artifact) *TestRunner {
+	return &TestRunner{
+		projectRoot:       rt.ProjectRoot,
+		baseShell:         rt.Shell,
+		baseConfigHandler: rt.ConfigHandler,
+		baseProjectRoot:   rt.ProjectRoot,
+		artifactBuilder:   artifactBuilder,
+	}
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// createGenerator creates a function that generates blueprints from test values.
+// It sets up an isolated runtime environment for each test case, ensuring complete test isolation by creating
+// a fresh ConfigHandler instance and configuring the runtime to use only the _template directory. The generator
+// applies test values directly without loading any context files, ensuring tests only use explicitly provided inputs.
+// If terraformOutputs are provided, it registers a mock TerraformProvider to supply mock outputs for terraform_output()
+// expressions. This allows tests to validate blueprint composition that depends on Terraform outputs without requiring
+// actual Terraform state. Returns a function that takes test values and returns a composed blueprint or an error.
+func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any) func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
+	return func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
+		freshConfigHandler := config.NewConfigHandler(r.baseShell)
+
+		rt := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         r.baseShell,
+			ConfigHandler: freshConfigHandler,
+			ProjectRoot:   r.baseProjectRoot,
+			ContextName:   "test",
+			ConfigRoot:    filepath.Join(r.baseProjectRoot, "contexts", "_template"),
+			TemplateRoot:  filepath.Join(r.baseProjectRoot, "contexts", "_template"),
+		})
+
+		if err := rt.ConfigHandler.SetContext("test"); err != nil {
+			return nil, fmt.Errorf("failed to set test context: %w", err)
+		}
+
+		if rt.ConfigHandler != nil {
+			schemaPath := filepath.Join(r.baseProjectRoot, "contexts", "_template", "schema.yaml")
+			if err := rt.ConfigHandler.LoadSchema(schemaPath); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return nil, fmt.Errorf("failed to load schema: %w", err)
+				}
+			}
+		}
+
+		for key, value := range values {
+			if key == "_testName" || key == "context" {
+				continue
+			}
+			if err := rt.ConfigHandler.Set(key, value); err != nil {
+				return nil, fmt.Errorf("failed to set value %s: %w", key, err)
+			}
+		}
+		if rt.ConfigHandler.GetBool("terraform.enabled", false) {
+			if len(terraformOutputs) > 0 {
+				mockProvider := &terraform.MockTerraformProvider{
+					GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+						if outputs, exists := terraformOutputs[componentID]; exists {
+							return outputs, nil
+						}
+						return make(map[string]any), nil
+					},
+				}
+				rt.TerraformProvider = mockProvider
+				registerTerraformOutputHelperForMock(mockProvider, rt.Evaluator)
+			} else {
+				if err := rt.InitializeComponents(); err != nil {
+					return nil, fmt.Errorf("failed to initialize components: %w", err)
+				}
+			}
+		} else {
+			if err := rt.InitializeComponents(); err != nil {
+				return nil, fmt.Errorf("failed to initialize components: %w", err)
+			}
+		}
+
+		testBlueprintHandler := blueprint.NewBlueprintHandler(rt, r.artifactBuilder)
+
+		if err := testBlueprintHandler.LoadBlueprint(); err != nil {
+			return nil, fmt.Errorf("failed to load blueprint: %w", err)
+		}
+
+		blueprint := testBlueprintHandler.Generate()
+		if blueprint == nil {
+			return nil, fmt.Errorf("failed to generate blueprint")
+		}
+
+		return blueprint, nil
+	}
+}
+
+// registerTerraformOutputHelperForMock registers a mock implementation of the terraform_output() expression helper
+// for use in test scenarios. This allows tests to provide mock Terraform output values without requiring actual
+// Terraform state or infrastructure. The helper validates that exactly two string arguments (component ID and output key)
+// are provided, and returns a DeferredError if called without the deferred flag to match production behavior.
+// When called with deferred=true, it retrieves the output value from the mock provider or returns nil if not found.
+func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformProvider, eval evaluator.ExpressionEvaluator) {
+	eval.Register("terraform_output", func(params []any, deferred bool) (any, error) {
+		if len(params) != 2 {
+			return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments (component, key), got %d", len(params))
+		}
+		component, ok := params[0].(string)
+		if !ok {
+			return nil, fmt.Errorf("terraform_output() component must be a string, got %T", params[0])
+		}
+		key, ok := params[1].(string)
+		if !ok {
+			return nil, fmt.Errorf("terraform_output() key must be a string, got %T", params[1])
+		}
+
+		if !deferred {
+			return nil, &evaluator.DeferredError{
+				Expression: fmt.Sprintf(`terraform_output("%s", "%s")`, component, key),
+				Message:    fmt.Sprintf("terraform output '%s' for component %s is deferred", key, component),
+			}
+		}
+
+		outputs, err := mockProvider.GetTerraformOutputs(component)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get terraform outputs for component '%s': %w", component, err)
+		}
+
+		if value, exists := outputs[key]; exists {
+			return value, nil
+		}
+
+		return nil, nil
+	}, new(func(string, string) any))
+}
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// RunAndPrint discovers and executes test cases, printing results to stdout.
+// If filter is provided, only tests matching the filter name are executed.
+// If update is true, expected outputs are updated instead of compared.
+// Returns an error if tests fail or execution encounters an error.
+func (r *TestRunner) RunAndPrint(filter string, update bool) error {
+	if r.RunFunc != nil {
+		results, err := r.RunFunc(filter, update)
+		if err != nil {
+			return err
+		}
+		return r.printResults(results)
+	}
+
+	testsDir := filepath.Join(r.projectRoot, "contexts", "_template", "tests")
+
+	testFiles, err := r.discoverTestFiles(testsDir)
+	if err != nil {
+		return fmt.Errorf("failed to discover test files: %w", err)
+	}
+
+	if len(testFiles) == 0 {
+		return fmt.Errorf("no test files found in %s", testsDir)
+	}
+
+	var testCasesWithFiles []testCaseWithFile
+	for _, testFilePath := range testFiles {
+		testFile, err := r.parseTestFile(testFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to parse test file %s: %w", testFilePath, err)
+		}
+
+		fileName := filepath.Base(testFilePath)
+		for _, tc := range testFile.Cases {
+			if filter != "" && tc.Name != filter {
+				continue
+			}
+			testCasesWithFiles = append(testCasesWithFiles, testCaseWithFile{
+				testCase: tc,
+				filePath: testFilePath,
+				fileName: fileName,
+			})
+		}
+	}
+
+	if len(testCasesWithFiles) == 0 {
+		if filter != "" {
+			return fmt.Errorf("no test cases found matching filter: %s", filter)
+		}
+		return nil
+	}
+
+	return r.runTestsSequentially(testCasesWithFiles, update)
+}
+
+// Run discovers and executes test cases, returning results for each test.
+// If filter is provided, only tests matching the filter name are executed.
+// If update is true, expected outputs are updated instead of compared.
+func (r *TestRunner) Run(filter string, update bool) ([]TestResult, error) {
+	if r.RunFunc != nil {
+		return r.RunFunc(filter, update)
+	}
+
+	testsDir := filepath.Join(r.projectRoot, "contexts", "_template", "tests")
+
+	testFiles, err := r.discoverTestFiles(testsDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover test files: %w", err)
+	}
+
+	if len(testFiles) == 0 {
+		return nil, fmt.Errorf("no test files found in %s", testsDir)
+	}
+
+	var results []TestResult
+
+	for _, testFilePath := range testFiles {
+		testFile, err := r.parseTestFile(testFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse test file %s: %w", testFilePath, err)
+		}
+
+		for _, tc := range testFile.Cases {
+			if filter != "" && tc.Name != filter {
+				continue
+			}
+
+			result, err := r.runTestCase(tc, update)
+			if err != nil {
+				return nil, fmt.Errorf("failed to run test case %s: %w", tc.Name, err)
+			}
+			results = append(results, result)
+		}
+	}
+
+	if len(results) == 0 && filter != "" {
+		return nil, fmt.Errorf("no test cases found matching filter: %s", filter)
+	}
+
+	return results, nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// printResults formats and prints test results to stdout in a human-readable format.
+// It displays passing tests with a checkmark (✓) and failing tests with an X (✗), along with
+// any differences or error messages for failed tests. After printing all results, it displays
+// a summary showing the total number of passed and failed tests. Returns an error if any tests
+// failed, allowing callers to propagate test failures up the call stack.
+func (r *TestRunner) printResults(results []TestResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+
+	passed := 0
+	failed := 0
+	var failedTests []TestResult
+
+	for _, result := range results {
+		if result.Passed {
+			passed++
+			fmt.Fprintf(os.Stdout, "✓ %s\n", result.Name)
+		} else {
+			failed++
+			failedTests = append(failedTests, result)
+			fmt.Fprintf(os.Stdout, "✗ %s\n", result.Name)
+			for _, diff := range result.Diffs {
+				fmt.Fprintf(os.Stdout, "  %s\n", diff)
+			}
+		}
+	}
+
+	fmt.Fprintf(os.Stdout, "\n")
+	if failed > 0 {
+		fmt.Fprintf(os.Stdout, "FAIL: %d of %d test(s) failed\n", failed, len(results))
+		return fmt.Errorf("%d test(s) failed", failed)
+	}
+
+	fmt.Fprintf(os.Stdout, "PASS: %d test(s) passed\n", passed)
+	return nil
+}
+
+// runTestsSequentially executes test cases one at a time and streams results to stdout as they complete.
+// This sequential execution avoids resource contention that occurs when multiple tests run in parallel,
+// as each test case creates a new Runtime instance and performs heavy I/O operations including config loading,
+// schema parsing, blueprint loading, and Jsonnet evaluation. The function groups test output by source file,
+// printing a file header (=== filename ===) when encountering tests from a new file. It tracks passing and
+// failing tests, prints results immediately as they complete, and returns an error if any tests fail.
+func (r *TestRunner) runTestsSequentially(testCasesWithFiles []testCaseWithFile, update bool) error {
+	passed := 0
+	failed := 0
+	var failedTests []TestResult
+
+	currentFile := ""
+	for _, tcf := range testCasesWithFiles {
+		if tcf.fileName != currentFile {
+			if currentFile != "" {
+				fmt.Fprintf(os.Stdout, "\n")
+			}
+			fmt.Fprintf(os.Stdout, "=== %s ===\n", tcf.fileName)
+			currentFile = tcf.fileName
+		}
+
+		result, err := r.runTestCase(tcf.testCase, update)
+		if err != nil {
+			result = TestResult{
+				Name:   tcf.testCase.Name,
+				Passed: false,
+				Diffs:  []string{fmt.Sprintf("test execution error: %v", err)},
+			}
+		}
+
+		if result.Passed {
+			passed++
+			fmt.Fprintf(os.Stdout, "✓ %s\n", result.Name)
+		} else {
+			failed++
+			failedTests = append(failedTests, result)
+			fmt.Fprintf(os.Stdout, "✗ %s\n", result.Name)
+			for _, diff := range result.Diffs {
+				fmt.Fprintf(os.Stdout, "  %s\n", diff)
+			}
+		}
+	}
+
+	fmt.Fprintf(os.Stdout, "\n")
+	if failed > 0 {
+		fmt.Fprintf(os.Stdout, "FAIL: %d of %d test(s) failed\n", failed, len(testCasesWithFiles))
+		return fmt.Errorf("%d test(s) failed", failed)
+	}
+
+	fmt.Fprintf(os.Stdout, "PASS: %d test(s) passed\n", passed)
+	return nil
+}
+
+// discoverTestFiles recursively searches the tests directory for all files matching the .test.yaml pattern.
+// It walks the directory tree starting from testsDir and collects all file paths that end with .test.yaml.
+// If the tests directory does not exist, it returns an empty slice and no error, allowing callers to handle
+// the missing directory case gracefully. Returns a slice of absolute file paths to test files, or an error
+// if the directory walk encounters a filesystem error.
+func (r *TestRunner) discoverTestFiles(testsDir string) ([]string, error) {
+	if _, err := os.Stat(testsDir); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	var testFiles []string
+
+	err := filepath.Walk(testsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".test.yaml") {
+			testFiles = append(testFiles, path)
+		}
+		return nil
+	})
+
+	return testFiles, err
+}
+
+// parseTestFile reads a YAML test file from disk and unmarshals it into a TestFile structure.
+// It handles file I/O errors and YAML parsing errors, returning descriptive errors that include
+// the file path for easier debugging. The parsed TestFile contains all test cases defined in
+// the file, which can then be executed by the test runner.
+func (r *TestRunner) parseTestFile(path string) (*blueprintv1alpha1.TestFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var testFile blueprintv1alpha1.TestFile
+	if err := yaml.Unmarshal(data, &testFile); err != nil {
+		return nil, err
+	}
+
+	return &testFile, nil
+}
+
+// runTestCase executes a single test case by generating a blueprint from test values and validating it.
+// It creates an isolated blueprint generator, applies test values, and composes a blueprint. If the test
+// case expects an error (ExpectError=true), it verifies that composition fails. Otherwise, it validates
+// the composed blueprint structure, checks for expected components and properties, verifies excluded
+// components are absent, and performs automatic validation checks (duplicates, circular dependencies, etc.).
+// Returns a TestResult indicating whether the test passed and any differences or errors found.
+func (r *TestRunner) runTestCase(tc blueprintv1alpha1.TestCase, _ bool) (TestResult, error) {
+	result := TestResult{
+		Name:   tc.Name,
+		Passed: true,
+	}
+
+	testValues := make(map[string]any)
+	for k, v := range tc.Values {
+		testValues[k] = v
+	}
+	testValues["_testName"] = tc.Name
+
+	generator := r.createGenerator(tc.TerraformOutputs)
+	blueprint, err := generator(testValues)
+
+	if tc.ExpectError {
+		if err == nil {
+			result.Passed = false
+			result.Diffs = append(result.Diffs, "expected composition to fail, but it succeeded")
+			return result, nil
+		}
+		return result, nil
+	}
+
+	if err != nil {
+		result.Passed = false
+		result.Diffs = append(result.Diffs, fmt.Sprintf("composition error: %v", err))
+		return result, nil
+	}
+
+	validationErrors := r.validateBlueprint(blueprint)
+	if len(validationErrors) > 0 {
+		result.Passed = false
+		result.Diffs = append(result.Diffs, validationErrors...)
+	}
+
+	if tc.Expect != nil {
+		diffs := r.matchBlueprint(blueprint, tc.Expect)
+		if len(diffs) > 0 {
+			result.Passed = false
+			result.Diffs = append(result.Diffs, diffs...)
+		}
+	}
+
+	if tc.Exclude != nil {
+		diffs := r.matchExclusions(blueprint, tc.Exclude)
+		if len(diffs) > 0 {
+			result.Passed = false
+			result.Diffs = append(result.Diffs, diffs...)
+		}
+	}
+
+	return result, nil
+}
+
+// matchBlueprint compares the actual composed blueprint against expected blueprint structure and returns
+// a list of differences. It uses partial matching semantics: only fields explicitly specified in the expect
+// blueprint are validated, allowing tests to focus on specific aspects without asserting the entire structure.
+// The function validates both Terraform components and Kustomizations, checking for presence and matching
+// properties. For each expected component, it searches the actual blueprint, reports missing components,
+// and compares specified properties (source, path, dependsOn, etc.). Returns an empty slice if all
+// expectations are met, or a list of descriptive difference messages if mismatches are found.
+func (r *TestRunner) matchBlueprint(blueprint *blueprintv1alpha1.Blueprint, expect *blueprintv1alpha1.Blueprint) []string {
+	var diffs []string
+
+	if expect == nil {
+		return diffs
+	}
+
+	for _, expectTf := range expect.TerraformComponents {
+		found := r.findTerraformComponent(blueprint, expectTf)
+		if found == nil {
+			identifier := expectTf.Name
+			if identifier == "" {
+				identifier = expectTf.Path
+			}
+			diffs = append(diffs, fmt.Sprintf("terraform component not found: %s", identifier))
+			continue
+		}
+
+		componentDiffs := r.matchTerraformComponent(found, expectTf)
+		diffs = append(diffs, componentDiffs...)
+	}
+
+	for _, expectK := range expect.Kustomizations {
+		found := r.findKustomization(blueprint, expectK)
+		if found == nil {
+			diffs = append(diffs, fmt.Sprintf("kustomization not found: %s", expectK.Name))
+			continue
+		}
+
+		kustomizeDiffs := r.matchKustomization(found, expectK)
+		diffs = append(diffs, kustomizeDiffs...)
+	}
+
+	return diffs
+}
+
+// matchExclusions verifies that components specified in the exclude blueprint are NOT present in the
+// actual composed blueprint. This allows tests to assert that certain components should be excluded
+// based on test conditions (e.g., a component should not exist when a feature flag is disabled).
+// Uses partial matching: components are identified by name or path for Terraform components, and by
+// name for Kustomizations. If any excluded component is found in the blueprint, a descriptive error
+// message is added to the differences list. Returns an empty slice if all exclusions are satisfied.
+func (r *TestRunner) matchExclusions(blueprint *blueprintv1alpha1.Blueprint, exclude *blueprintv1alpha1.Blueprint) []string {
+	var diffs []string
+
+	if exclude == nil {
+		return diffs
+	}
+
+	for _, excludeTf := range exclude.TerraformComponents {
+		found := r.findTerraformComponent(blueprint, excludeTf)
+		if found != nil {
+			identifier := excludeTf.Name
+			if identifier == "" {
+				identifier = excludeTf.Path
+			}
+			diffs = append(diffs, fmt.Sprintf("terraform component should not exist: %s", identifier))
+		}
+	}
+
+	for _, excludeK := range exclude.Kustomizations {
+		found := r.findKustomization(blueprint, excludeK)
+		if found != nil {
+			diffs = append(diffs, fmt.Sprintf("kustomization should not exist: %s", excludeK.Name))
+		}
+	}
+
+	return diffs
+}
+
+// findTerraformComponent searches the blueprint's Terraform components for a component matching the
+// expected component's name or path. It performs a linear search through all Terraform components,
+// checking first for a name match (if expect.Name is non-empty), then for a path match (if expect.Path
+// is non-empty). This allows tests to identify components by either identifier. Returns a pointer to
+// the matching component if found, or nil if no match exists.
+func (r *TestRunner) findTerraformComponent(blueprint *blueprintv1alpha1.Blueprint, expect blueprintv1alpha1.TerraformComponent) *blueprintv1alpha1.TerraformComponent {
+	for i := range blueprint.TerraformComponents {
+		tc := &blueprint.TerraformComponents[i]
+		if expect.Name != "" && tc.Name == expect.Name {
+			return tc
+		}
+		if expect.Path != "" && tc.Path == expect.Path {
+			return tc
+		}
+	}
+	return nil
+}
+
+// findKustomization searches the blueprint's Kustomizations for a kustomization matching the expected
+// kustomization's name. It performs a linear search through all Kustomizations, comparing names exactly.
+// Returns a pointer to the matching kustomization if found, or nil if no kustomization with the
+// specified name exists in the blueprint.
+func (r *TestRunner) findKustomization(blueprint *blueprintv1alpha1.Blueprint, expect blueprintv1alpha1.Kustomization) *blueprintv1alpha1.Kustomization {
+	for i := range blueprint.Kustomizations {
+		k := &blueprint.Kustomizations[i]
+		if k.Name == expect.Name {
+			return k
+		}
+	}
+	return nil
+}
+
+// matchTerraformComponent compares an actual Terraform component against expected properties and returns
+// a list of differences. It uses partial matching: only properties explicitly set in the expect component
+// are validated. The function checks source, path, and dependsOn fields. For dependsOn, it verifies that
+// all expected dependencies are present in the actual component's dependency list. Returns an empty slice
+// if all specified properties match, or a list of formatted difference messages describing mismatches.
+func (r *TestRunner) matchTerraformComponent(actual *blueprintv1alpha1.TerraformComponent, expect blueprintv1alpha1.TerraformComponent) []string {
+	var diffs []string
+	identifier := expect.Name
+	if identifier == "" {
+		identifier = expect.Path
+	}
+
+	if expect.Source != "" && actual.Source != expect.Source {
+		diffs = append(diffs, fmt.Sprintf("terraform[%s].source: expected %q, got %q", identifier, expect.Source, actual.Source))
+	}
+
+	if expect.Path != "" && actual.Path != expect.Path {
+		diffs = append(diffs, fmt.Sprintf("terraform[%s].path: expected %q, got %q", identifier, expect.Path, actual.Path))
+	}
+
+	if len(expect.DependsOn) > 0 {
+		for _, dep := range expect.DependsOn {
+			if !contains(actual.DependsOn, dep) {
+				diffs = append(diffs, fmt.Sprintf("terraform[%s].dependsOn: missing %q", identifier, dep))
+			}
+		}
+	}
+
+	return diffs
+}
+
+// matchKustomization compares an actual Kustomization against expected properties and returns a list
+// of differences. It uses partial matching: only properties explicitly set in the expect kustomization
+// are validated. The function checks path, source, dependsOn, and components fields. For dependsOn and
+// components, it verifies that all expected items are present in the actual kustomization's lists.
+// Returns an empty slice if all specified properties match, or a list of formatted difference messages
+// describing mismatches, with each message prefixed by the kustomization name for clarity.
+func (r *TestRunner) matchKustomization(actual *blueprintv1alpha1.Kustomization, expect blueprintv1alpha1.Kustomization) []string {
+	var diffs []string
+
+	if expect.Path != "" && actual.Path != expect.Path {
+		diffs = append(diffs, fmt.Sprintf("kustomize[%s].path: expected %q, got %q", expect.Name, expect.Path, actual.Path))
+	}
+
+	if expect.Source != "" && actual.Source != expect.Source {
+		diffs = append(diffs, fmt.Sprintf("kustomize[%s].source: expected %q, got %q", expect.Name, expect.Source, actual.Source))
+	}
+
+	if len(expect.DependsOn) > 0 {
+		for _, dep := range expect.DependsOn {
+			if !contains(actual.DependsOn, dep) {
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].dependsOn: missing %q", expect.Name, dep))
+			}
+		}
+	}
+
+	if len(expect.Components) > 0 {
+		for _, comp := range expect.Components {
+			if !contains(actual.Components, comp) {
+				diffs = append(diffs, fmt.Sprintf("kustomize[%s].components: missing %q", expect.Name, comp))
+			}
+		}
+	}
+
+	return diffs
+}
+
+// validateBlueprint performs comprehensive structural validation on a composed blueprint to ensure
+// it meets integrity requirements. It checks for duplicate Terraform components (by ID), duplicate
+// Kustomizations (by name), duplicate components within Kustomization component lists, circular
+// dependencies in both Terraform and Kustomization dependency graphs, and invalid dependencies
+// (components that reference non-existent dependencies). These validations catch composition errors
+// and blueprint configuration mistakes early. Returns a slice of descriptive error messages for
+// each validation failure found, or an empty slice if the blueprint is valid.
+func (r *TestRunner) validateBlueprint(bp *blueprintv1alpha1.Blueprint) []string {
+	var errors []string
+
+	errors = append(errors, r.validateDuplicateTerraformComponents(bp)...)
+	errors = append(errors, r.validateDuplicateKustomizations(bp)...)
+	errors = append(errors, r.validateDuplicateKustomizationComponents(bp)...)
+	errors = append(errors, r.validateCircularDependencies(bp)...)
+	errors = append(errors, r.validateInvalidDependencies(bp)...)
+
+	return errors
+}
+
+// validateDuplicateTerraformComponents checks for duplicate Terraform components in the blueprint by
+// comparing component IDs (which are derived from Name or Path via GetID()). It maintains a set of
+// seen component IDs and reports an error for each duplicate encountered. Duplicate components indicate
+// a composition error where multiple facets or configurations contributed the same component without
+// proper merging or replacement. Returns a slice of error messages, one for each duplicate found.
+func (r *TestRunner) validateDuplicateTerraformComponents(bp *blueprintv1alpha1.Blueprint) []string {
+	var errors []string
+	ids := make(map[string]struct{})
+	for _, tf := range bp.TerraformComponents {
+		id := tf.GetID()
+		if _, exists := ids[id]; exists {
+			errors = append(errors, fmt.Sprintf("duplicate terraform component ID: %s", id))
+		}
+		ids[id] = struct{}{}
+	}
+	return errors
+}
+
+// validateDuplicateKustomizations checks for duplicate Kustomizations in the blueprint by comparing
+// kustomization names. It maintains a set of seen names and reports an error for each duplicate
+// encountered. Duplicate kustomizations indicate a composition error where multiple facets contributed
+// the same kustomization without proper merging or replacement. Returns a slice of error messages,
+// one for each duplicate found.
+func (r *TestRunner) validateDuplicateKustomizations(bp *blueprintv1alpha1.Blueprint) []string {
+	var errors []string
+	names := make(map[string]struct{})
+	for _, k := range bp.Kustomizations {
+		if _, exists := names[k.Name]; exists {
+			errors = append(errors, fmt.Sprintf("duplicate kustomization name: %s", k.Name))
+		}
+		names[k.Name] = struct{}{}
+	}
+	return errors
+}
+
+// validateDuplicateKustomizationComponents checks for duplicate component references within each
+// Kustomization's Components list. It iterates through all kustomizations and validates that each
+// component name appears only once in each kustomization's component list. Duplicate component
+// references within a single kustomization indicate a configuration error. Returns a slice of
+// error messages, one for each duplicate found, with each message identifying both the duplicate
+// component and the kustomization containing it.
+func (r *TestRunner) validateDuplicateKustomizationComponents(bp *blueprintv1alpha1.Blueprint) []string {
+	var errors []string
+	for _, k := range bp.Kustomizations {
+		components := make(map[string]struct{})
+		for _, comp := range k.Components {
+			if _, exists := components[comp]; exists {
+				errors = append(errors, fmt.Sprintf("duplicate component %q in kustomization %q", comp, k.Name))
+			}
+			components[comp] = struct{}{}
+		}
+	}
+	return errors
+}
+
+// validateCircularDependencies checks for circular dependency chains in both Terraform components
+// and Kustomizations. It builds dependency graphs for each component type and uses depth-first search
+// to detect cycles. Circular dependencies would cause infinite loops or undefined ordering during
+// blueprint application, so they must be caught and reported. The function validates Terraform
+// components separately from Kustomizations, as they have independent dependency graphs. Returns a
+// slice of error messages describing each circular dependency found, including the full cycle path.
+func (r *TestRunner) validateCircularDependencies(bp *blueprintv1alpha1.Blueprint) []string {
+	var errors []string
+
+	tfGraph := make(map[string][]string)
+	tfIDs := make(map[string]struct{})
+	for _, tf := range bp.TerraformComponents {
+		id := tf.GetID()
+		tfIDs[id] = struct{}{}
+		tfGraph[id] = tf.DependsOn
+	}
+	errors = append(errors, detectCycles(tfGraph, tfIDs, "terraform component")...)
+
+	kGraph := make(map[string][]string)
+	kNames := make(map[string]struct{})
+	for _, k := range bp.Kustomizations {
+		kNames[k.Name] = struct{}{}
+		kGraph[k.Name] = k.DependsOn
+	}
+	errors = append(errors, detectCycles(kGraph, kNames, "kustomization")...)
+
+	return errors
+}
+
+// detectCycles performs a depth-first search to detect cycles in a dependency graph represented
+// as a map from node names to their dependency lists. It uses a recursion stack to track the current
+// path and identify back edges that indicate cycles. The validNodes set filters out references to
+// non-existent nodes (which are handled by validateInvalidDependencies). When a cycle is detected,
+// it constructs a readable cycle path showing the circular dependency chain. The nodeType parameter
+// is used in error messages to indicate whether the cycle is in Terraform components or Kustomizations.
+// Returns a slice of error messages, one for each cycle found.
+func detectCycles(graph map[string][]string, validNodes map[string]struct{}, nodeType string) []string {
+	var errors []string
+	visited := make(map[string]bool)
+	recursionStack := make(map[string]bool)
+
+	var dfs func(node string, path []string)
+	dfs = func(node string, path []string) {
+		visited[node] = true
+		recursionStack[node] = true
+		path = append(path, node)
+
+		for _, neighbor := range graph[node] {
+			if _, exists := validNodes[neighbor]; !exists {
+				continue
+			}
+			if recursionStack[neighbor] {
+				cyclePath := []string{}
+				found := false
+				for _, pNode := range path {
+					if pNode == neighbor {
+						found = true
+					}
+					if found {
+						cyclePath = append(cyclePath, pNode)
+					}
+				}
+				cyclePath = append(cyclePath, neighbor) // Complete the cycle
+				errors = append(errors, fmt.Sprintf("circular dependency detected in %s: %s", nodeType, strings.Join(cyclePath, " -> ")))
+				continue
+			}
+			if !visited[neighbor] {
+				dfs(neighbor, path)
+			}
+		}
+		recursionStack[node] = false
+	}
+
+	for node := range graph {
+		if !visited[node] {
+			dfs(node, []string{})
+		}
+	}
+	return errors
+}
+
+// validateInvalidDependencies checks that all components referenced in DependsOn fields actually
+// exist in the composed blueprint. It builds sets of valid Terraform component IDs and Kustomization
+// names, then validates that every dependency reference points to an existing component. After blueprint
+// composition completes, invalid dependencies should have been filtered out by the composer's validation
+// logic, so any remaining invalid dependencies indicate a bug in the composition or validation code.
+// This check serves as a safety net to catch composition errors. Returns a slice of error messages
+// describing each invalid dependency found, identifying both the component with the invalid dependency
+// and the non-existent component it references.
+func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint) []string {
+	var errors []string
+
+	tfIDs := make(map[string]struct{})
+	for _, tf := range bp.TerraformComponents {
+		tfIDs[tf.GetID()] = struct{}{}
+	}
+
+	kNames := make(map[string]struct{})
+	for _, k := range bp.Kustomizations {
+		kNames[k.Name] = struct{}{}
+	}
+
+	for _, tf := range bp.TerraformComponents {
+		for _, dep := range tf.DependsOn {
+			if _, exists := tfIDs[dep]; !exists {
+				errors = append(errors, fmt.Sprintf("terraform component %q depends on non-existent component %q", tf.GetID(), dep))
+			}
+		}
+	}
+
+	for _, k := range bp.Kustomizations {
+		for _, dep := range k.DependsOn {
+			if _, exists := kNames[dep]; !exists {
+				errors = append(errors, fmt.Sprintf("kustomization %q depends on non-existent kustomization %q", k.Name, dep))
+			}
+		}
+	}
+
+	return errors
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// contains checks whether a string slice contains a specific string value.
+// It performs a linear search through the slice, returning true if the item is found
+// and false otherwise. This is a simple utility function used throughout the test runner
+// for checking membership in dependency lists, component lists, and other string collections.
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}

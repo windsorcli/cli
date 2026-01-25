@@ -3,6 +3,7 @@ package blueprint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -2045,6 +2046,174 @@ func TestComposer_applyPerKustomizationSubstitutions(t *testing.T) {
 		// Then should return nil without error (error is ignored)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test validateDependencies
+// =============================================================================
+
+func TestComposer_validateDependencies(t *testing.T) {
+	t.Run("ReturnsNilForValidTerraformDependencies", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "network", Path: "network/vpc"},
+				{Name: "cluster", Path: "cluster/eks", DependsOn: []string{"network"}},
+			},
+		}
+
+		err := composer.validateDependencies(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error for valid dependencies, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidTerraformDependency", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "cluster/eks", DependsOn: []string{"nonexistent"}},
+			},
+		}
+
+		err := composer.validateDependencies(bp)
+
+		if err == nil {
+			t.Error("Expected error for invalid terraform dependency")
+		}
+		if !strings.Contains(err.Error(), "depends on non-existent component") {
+			t.Errorf("Expected error message about non-existent component, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "cluster") {
+			t.Errorf("Expected error to mention component name, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilForValidKustomizationDependencies", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "base"},
+				{Name: "app", DependsOn: []string{"base"}},
+			},
+		}
+
+		err := composer.validateDependencies(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error for valid dependencies, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidKustomizationDependency", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", DependsOn: []string{"nonexistent"}},
+			},
+		}
+
+		err := composer.validateDependencies(bp)
+
+		if err == nil {
+			t.Error("Expected error for invalid kustomization dependency")
+		}
+		if !strings.Contains(err.Error(), "depends on non-existent kustomization") {
+			t.Errorf("Expected error message about non-existent kustomization, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "app") {
+			t.Errorf("Expected error to mention kustomization name, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilForEmptyBlueprint", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{}
+
+		err := composer.validateDependencies(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error for empty blueprint, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilForComponentsWithNoDependencies", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "network", Path: "network/vpc"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app"},
+			},
+		}
+
+		err := composer.validateDependencies(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error for components with no dependencies, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForMultipleInvalidDependencies", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "cluster/eks", DependsOn: []string{"missing1", "missing2"}},
+			},
+		}
+
+		err := composer.validateDependencies(bp)
+
+		if err == nil {
+			t.Error("Expected error for invalid dependencies")
+		}
+		if !strings.Contains(err.Error(), "missing1") && !strings.Contains(err.Error(), "missing2") {
+			t.Errorf("Expected error to mention at least one missing dependency, got: %v", err)
+		}
+	})
+
+	t.Run("ValidatesTerraformDependenciesByID", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network/vpc"},
+				{Path: "cluster/eks", DependsOn: []string{"network/vpc"}},
+			},
+		}
+
+		err := composer.validateDependencies(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error when dependency matches by path (ID), got %v", err)
+		}
+	})
+
+	t.Run("ValidatesKustomizationDependenciesByName", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "base", Path: "base"},
+				{Name: "app", Path: "app", DependsOn: []string{"base"}},
+			},
+		}
+
+		err := composer.validateDependencies(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error when dependency matches by name, got %v", err)
 		}
 	})
 }

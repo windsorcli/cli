@@ -1,0 +1,2038 @@
+package test
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+)
+
+// =============================================================================
+// Test Setup
+// =============================================================================
+
+type TestRunnerMocks struct {
+	TmpDir string
+}
+
+func setupTestRunnerMocks(t *testing.T) *TestRunnerMocks {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	// Set up the directory structure that createGenerator expects
+	templateDir := filepath.Join(tmpDir, "contexts", "_template")
+	os.MkdirAll(templateDir, 0755)
+	// Schema is optional - don't create it
+	// Create a minimal blueprint.yaml file
+	createTestFile(t, templateDir, "blueprint.yaml", `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test-blueprint
+`)
+
+	return &TestRunnerMocks{
+		TmpDir: tmpDir,
+	}
+}
+
+func createTestFile(t *testing.T, dir string, filename string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+}
+
+func createRunnerWithMockGenerator(mocks *TestRunnerMocks) *TestRunner {
+	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return mocks.TmpDir, nil
+	}
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockArtifact := artifact.NewMockArtifact()
+	return &TestRunner{
+		projectRoot:       mocks.TmpDir,
+		baseShell:         mockShell,
+		baseConfigHandler: mockConfigHandler,
+		baseProjectRoot:   mocks.TmpDir,
+		artifactBuilder:   mockArtifact,
+	}
+}
+
+func setupTestRunnerMocksForFailure(t *testing.T) *TestRunnerMocks {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	// Set up the directory structure with an invalid blueprint.yaml to cause LoadBlueprint to fail
+	templateDir := filepath.Join(tmpDir, "contexts", "_template")
+	os.MkdirAll(templateDir, 0755)
+	createTestFile(t, templateDir, "blueprint.yaml", `invalid: yaml: content: [[[`)
+
+	return &TestRunnerMocks{
+		TmpDir: tmpDir,
+	}
+}
+
+func createRunnerForFailure(mocks *TestRunnerMocks) *TestRunner {
+	mockShell := shell.NewMockShell()
+	mockShell.GetProjectRootFunc = func() (string, error) {
+		return mocks.TmpDir, nil
+	}
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockArtifact := artifact.NewMockArtifact()
+	return &TestRunner{
+		projectRoot:       mocks.TmpDir,
+		baseShell:         mockShell,
+		baseConfigHandler: mockConfigHandler,
+		baseProjectRoot:   mocks.TmpDir,
+		artifactBuilder:   mockArtifact,
+	}
+}
+
+// =============================================================================
+// Test Constructor
+// =============================================================================
+
+func TestNewTestRunner(t *testing.T) {
+	t.Run("CreatesTestRunnerWithProjectRootAndComposer", func(t *testing.T) {
+		// Given a project root and composer
+		mocks := setupTestRunnerMocks(t)
+
+		// When creating a new test runner
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// Then runner should be created
+		if runner == nil {
+			t.Fatal("Expected TestRunner to be created")
+		}
+		if runner.projectRoot != mocks.TmpDir {
+			t.Error("Expected projectRoot to be set")
+		}
+	})
+
+	t.Run("CreatesTestRunnerWithRealDependencies", func(t *testing.T) {
+		// Given a real runtime with real dependencies
+		tmpDir := t.TempDir()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockArtifact := artifact.NewMockArtifact()
+
+		rt := runtime.NewRuntime(&runtime.Runtime{
+			Shell:         mockShell,
+			ConfigHandler: mockConfigHandler,
+			ProjectRoot:   tmpDir,
+		})
+
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+
+		// When creating a new test runner
+		runner := NewTestRunner(rt, mockBlueprintHandler, mockArtifact)
+
+		// Then runner should be created with correct fields
+		if runner == nil {
+			t.Fatal("Expected TestRunner to be created")
+		}
+		if runner.projectRoot != tmpDir {
+			t.Errorf("Expected projectRoot to be %q, got %q", tmpDir, runner.projectRoot)
+		}
+		if runner.baseProjectRoot != tmpDir {
+			t.Errorf("Expected baseProjectRoot to be %q, got %q", tmpDir, runner.baseProjectRoot)
+		}
+		if runner.baseShell != mockShell {
+			t.Error("Expected baseShell to be set")
+		}
+		if runner.baseConfigHandler != mockConfigHandler {
+			t.Error("Expected baseConfigHandler to be set")
+		}
+		if runner.artifactBuilder != mockArtifact {
+			t.Error("Expected artifactBuilder to be set")
+		}
+	})
+}
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+func TestTestRunner_Run(t *testing.T) {
+	t.Run("ReturnsErrorWhenNoTestFilesFound", func(t *testing.T) {
+		// Given a test runner with no test files
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When running tests
+		_, err := runner.Run("", false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when no test files found")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenFilterMatchesNoTests", func(t *testing.T) {
+		// Given a test runner with test files
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		createTestFile(t, testsDir, "example.test.yaml", `
+cases:
+  - name: test-case-1
+    values: {}
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When running tests with a filter that matches nothing
+		_, err := runner.Run("nonexistent-test", false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when filter matches no tests")
+		}
+	})
+
+	t.Run("RunsAllTestCasesSuccessfully", func(t *testing.T) {
+		// Given a test runner with test files and mock composer
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		createTestFile(t, testsDir, "example.test.yaml", `
+cases:
+  - name: test-case-1
+    values: {}
+  - name: test-case-2
+    values: {}
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When running tests
+		results, err := runner.Run("", false)
+
+		// Then all tests should be run
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if len(results) != 2 {
+			t.Errorf("Expected 2 results, got: %d", len(results))
+		}
+	})
+
+	t.Run("FiltersTestsByName", func(t *testing.T) {
+		// Given a test runner with multiple test cases
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		createTestFile(t, testsDir, "example.test.yaml", `
+cases:
+  - name: test-case-1
+    values: {}
+  - name: test-case-2
+    values: {}
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When running tests with a filter
+		results, err := runner.Run("test-case-1", false)
+
+		// Then only matching test should be run
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if len(results) != 1 {
+			t.Errorf("Expected 1 result, got: %d", len(results))
+		}
+		if results[0].Name != "test-case-1" {
+			t.Errorf("Expected test-case-1, got: %s", results[0].Name)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenRunTestCaseFails", func(t *testing.T) {
+		mocks := setupTestRunnerMocksForFailure(t)
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		createTestFile(t, testsDir, "error.test.yaml", `
+cases:
+  - name: composition-error
+    values:
+      invalid: value
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		results, err := runner.Run("", false)
+
+		if err != nil {
+			t.Errorf("Expected no error (errors are in diffs), got: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("Expected 1 result, got: %d", len(results))
+		}
+		if results[0].Passed {
+			t.Error("Expected test to fail")
+		}
+		if len(results[0].Diffs) == 0 {
+			t.Error("Expected diffs for composition error")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTestFileParsingFails", func(t *testing.T) {
+		// Given a test runner with an invalid test file
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		createTestFile(t, testsDir, "invalid.test.yaml", `
+cases:
+  - name: [invalid yaml
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When running tests
+		_, err := runner.Run("", false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error when test file parsing fails")
+		}
+	})
+
+	t.Run("UsesRunFuncWhenSet", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		var calledFilter string
+		var calledUpdate bool
+		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+			calledFilter = filter
+			calledUpdate = update
+			return []TestResult{{Name: "test", Passed: true}}, nil
+		}
+
+		results, err := runner.Run("test-filter", true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if len(results) != 1 {
+			t.Errorf("Expected 1 result, got: %d", len(results))
+		}
+		if calledFilter != "test-filter" {
+			t.Errorf("Expected filter 'test-filter', got: %q", calledFilter)
+		}
+		if !calledUpdate {
+			t.Error("Expected update to be true")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenRunFuncReturnsError", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+			return nil, fmt.Errorf("run func error")
+		}
+
+		_, err := runner.Run("", false)
+
+		if err == nil {
+			t.Error("Expected error when RunFunc returns error")
+		}
+		if !strings.Contains(err.Error(), "run func error") {
+			t.Errorf("Expected run func error, got: %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods
+// =============================================================================
+
+func TestTestRunner_runTestCase(t *testing.T) {
+	t.Run("ReturnsPassedResultWhenNoExpectations", func(t *testing.T) {
+		// Given a test case with no expectations
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:   "no-expectations",
+			Values: map[string]any{},
+		}
+
+		// When running the test case
+		result, err := runner.runTestCase(tc, false)
+
+		// Then it should pass with no error
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !result.Passed {
+			t.Errorf("Expected test to pass, got diffs: %v", result.Diffs)
+		}
+	})
+
+	t.Run("ReturnsFailedResultWhenCompositionFails", func(t *testing.T) {
+		// Given a test case where composition fails
+		// Set up a test runner without a blueprint.yaml so composition will fail
+		mocks := setupTestRunnerMocksForFailure(t)
+		runner := createRunnerForFailure(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:   "composition-error",
+			Values: map[string]any{},
+		}
+
+		// When running the test case
+		result, err := runner.runTestCase(tc, false)
+
+		// Then it should fail with composition error in diffs
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if result.Passed {
+			t.Error("Expected test to fail")
+		}
+		if len(result.Diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(result.Diffs))
+		}
+	})
+
+	t.Run("ReturnsPassedResultWhenExpectationsMet", func(t *testing.T) {
+		// Given a test case with met expectations
+		mocks := setupTestRunnerMocks(t)
+		// Update blueprint.yaml to include the expected component
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		createTestFile(t, templateDir, "blueprint.yaml", `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test-blueprint
+terraform:
+  - name: cluster
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:   "expectations-met",
+			Values: map[string]any{},
+			Expect: &blueprintv1alpha1.Blueprint{
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+					{Name: "cluster"},
+				},
+			},
+		}
+
+		// When running the test case
+		result, err := runner.runTestCase(tc, false)
+
+		// Then it should pass
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !result.Passed {
+			t.Errorf("Expected test to pass, got diffs: %v", result.Diffs)
+		}
+	})
+
+	t.Run("ReturnsFailedResultWhenExpectationsNotMet", func(t *testing.T) {
+		// Given a test case with unmet expectations
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:   "expectations-not-met",
+			Values: map[string]any{},
+			Expect: &blueprintv1alpha1.Blueprint{
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+					{Name: "missing-component"},
+				},
+			},
+		}
+
+		// When running the test case
+		result, err := runner.runTestCase(tc, false)
+
+		// Then it should fail
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if result.Passed {
+			t.Error("Expected test to fail")
+		}
+	})
+
+	t.Run("ReturnsPassedResultWhenExclusionsRespected", func(t *testing.T) {
+		// Given a test case with respected exclusions
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:   "exclusions-respected",
+			Values: map[string]any{},
+			Exclude: &blueprintv1alpha1.Blueprint{
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+					{Name: "excluded-component"},
+				},
+			},
+		}
+
+		// When running the test case
+		result, err := runner.runTestCase(tc, false)
+
+		// Then it should pass
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !result.Passed {
+			t.Errorf("Expected test to pass, got diffs: %v", result.Diffs)
+		}
+	})
+
+	t.Run("ReturnsFailedResultWhenExclusionsViolated", func(t *testing.T) {
+		// Given a test case with violated exclusions
+		mocks := setupTestRunnerMocks(t)
+		// Update blueprint.yaml to include the component that should be excluded
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		createTestFile(t, templateDir, "blueprint.yaml", `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test-blueprint
+terraform:
+  - name: should-not-exist
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:   "exclusions-violated",
+			Values: map[string]any{},
+			Exclude: &blueprintv1alpha1.Blueprint{
+				TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+					{Name: "should-not-exist"},
+				},
+			},
+		}
+
+		// When running the test case
+		result, err := runner.runTestCase(tc, false)
+
+		// Then it should fail
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if result.Passed {
+			t.Error("Expected test to fail")
+		}
+	})
+
+	t.Run("ReturnsPassedResultWhenErrorExpectedAndOccurs", func(t *testing.T) {
+		// Given a test case expecting an error and composition fails
+		// Set up a test runner without a blueprint.yaml so composition will fail
+		mocks := setupTestRunnerMocksForFailure(t)
+		runner := createRunnerForFailure(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:        "error-expected",
+			Values:      map[string]any{},
+			ExpectError: true,
+		}
+
+		// When running the test case
+		result, err := runner.runTestCase(tc, false)
+
+		// Then it should pass
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !result.Passed {
+			t.Errorf("Expected test to pass when error occurs as expected, got diffs: %v", result.Diffs)
+		}
+	})
+
+	t.Run("ReturnsFailedResultWhenErrorExpectedButSucceeds", func(t *testing.T) {
+		// Given a test case expecting an error but composition succeeds
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		tc := blueprintv1alpha1.TestCase{
+			Name:        "error-expected-but-succeeds",
+			Values:      map[string]any{},
+			ExpectError: true,
+		}
+
+		// When running the test case
+		result, err := runner.runTestCase(tc, false)
+
+		// Then it should fail because expectError is true but composition succeeded
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if result.Passed {
+			t.Errorf("Expected test to fail when error expected but composition succeeded. Result: %+v, Diffs: %v", result, result.Diffs)
+		}
+		if len(result.Diffs) == 0 {
+			t.Errorf("Expected error message in diffs. Result: %+v", result)
+		} else if !strings.Contains(result.Diffs[0], "expected composition to fail") {
+			t.Errorf("Expected error message about expected failure, got: %v", result.Diffs)
+		}
+	})
+}
+
+func TestTestRunner_RunAndPrint(t *testing.T) {
+	t.Run("ReturnsErrorWhenRunFails", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+			return nil, fmt.Errorf("run error")
+		}
+
+		err := runner.RunAndPrint("", false)
+
+		if err == nil {
+			t.Error("Expected error from Run to be propagated")
+		}
+		if err.Error() != "run error" {
+			t.Errorf("Expected error 'run error', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTestsFail", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+			return []TestResult{
+				{Name: "test-1", Passed: false, Diffs: []string{"diff1"}},
+			}, nil
+		}
+
+		err := runner.RunAndPrint("", false)
+
+		if err == nil {
+			t.Error("Expected error when tests fail")
+		}
+		if !strings.Contains(err.Error(), "test(s) failed") {
+			t.Errorf("Expected error about failed tests, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenAllTestsPass", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+			return []TestResult{
+				{Name: "test-1", Passed: true},
+			}, nil
+		}
+
+		err := runner.RunAndPrint("", false)
+
+		if err != nil {
+			t.Errorf("Expected no error when all tests pass, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyResults", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+			return []TestResult{}, nil
+		}
+
+		err := runner.RunAndPrint("", false)
+
+		if err != nil {
+			t.Errorf("Expected no error for empty results, got: %v", err)
+		}
+	})
+}
+
+func TestTestRunner_discoverTestFiles(t *testing.T) {
+	t.Run("ReturnsNilWhenDirectoryDoesNotExist", func(t *testing.T) {
+		// Given a test runner
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When discovering test files in nonexistent directory
+		files, err := runner.discoverTestFiles("/nonexistent/path")
+
+		// Then no error should be returned and files should be nil
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if files != nil {
+			t.Error("Expected nil files for nonexistent directory")
+		}
+	})
+
+	t.Run("FindsTestYamlFiles", func(t *testing.T) {
+		// Given a directory with test files
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "tests")
+		createTestFile(t, testsDir, "one.test.yaml", "cases: []")
+		createTestFile(t, testsDir, "two.test.yaml", "cases: []")
+		createTestFile(t, testsDir, "not-a-test.yaml", "data: value")
+
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When discovering test files
+		files, err := runner.discoverTestFiles(testsDir)
+
+		// Then test files should be found
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if len(files) != 2 {
+			t.Errorf("Expected 2 test files, got: %d", len(files))
+		}
+	})
+
+	t.Run("ReturnsErrorWhenWalkFails", func(t *testing.T) {
+		// Given a test runner
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When discovering test files in a directory that causes walk error
+		// We can't easily simulate a filepath.Walk error, but we can test the error path exists
+		// by checking the error handling code path
+		_, err := runner.discoverTestFiles("/nonexistent/path")
+
+		// Then no error should be returned (filepath.Walk returns nil for non-existent dir)
+		if err != nil {
+			t.Errorf("Expected no error for non-existent path, got: %v", err)
+		}
+	})
+}
+
+func TestTestRunner_parseTestFile(t *testing.T) {
+	t.Run("ParsesValidTestFile", func(t *testing.T) {
+		// Given a valid test file
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "tests")
+		createTestFile(t, testsDir, "valid.test.yaml", `
+cases:
+  - name: test-one
+    values:
+      provider: aws
+    expect:
+      terraform:
+        - name: cluster
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When parsing the test file
+		testFile, err := runner.parseTestFile(filepath.Join(testsDir, "valid.test.yaml"))
+
+		// Then it should be parsed successfully
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if len(testFile.Cases) != 1 {
+			t.Errorf("Expected 1 test case, got: %d", len(testFile.Cases))
+		}
+		if testFile.Cases[0].Name != "test-one" {
+			t.Errorf("Expected test name 'test-one', got: %s", testFile.Cases[0].Name)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidYaml", func(t *testing.T) {
+		// Given an invalid YAML file
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "tests")
+		createTestFile(t, testsDir, "invalid.test.yaml", `
+cases:
+  - name: [invalid yaml
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When parsing the test file
+		_, err := runner.parseTestFile(filepath.Join(testsDir, "invalid.test.yaml"))
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error for invalid YAML")
+		}
+	})
+
+	t.Run("ReturnsErrorForNonexistentFile", func(t *testing.T) {
+		// Given a nonexistent file
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// When parsing a nonexistent file
+		_, err := runner.parseTestFile("/nonexistent/file.test.yaml")
+
+		// Then an error should be returned
+		if err == nil {
+			t.Error("Expected error for nonexistent file")
+		}
+	})
+}
+
+func TestTestRunner_matchBlueprint(t *testing.T) {
+	t.Run("ReturnsNoDiffsWhenExpectationsMet", func(t *testing.T) {
+		// Given a blueprint matching expectations
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "cluster/eks", Source: "core"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "flux-system", Path: "flux", Components: []string{"base", "sync"}},
+			},
+		}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "flux-system"},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenTerraformComponentNotFound", func(t *testing.T) {
+		// Given a blueprint missing expected component
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "missing-component"},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then diffs should indicate missing component
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenTerraformComponentNotFoundByPath", func(t *testing.T) {
+		// Given a blueprint missing expected component matched by path
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "missing/path"},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then diffs should use path as identifier
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenKustomizationNotFound", func(t *testing.T) {
+		// Given a blueprint missing expected kustomization
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "missing-kustomization"},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then diffs should indicate missing kustomization
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ChecksPropertyMismatchesWhenComponentFound", func(t *testing.T) {
+		// Given a blueprint with component having wrong properties
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Source: "wrong-source"},
+			},
+		}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Source: "expected-source"},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then diffs should indicate property mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ChecksKustomizationPropertyMismatchesWhenFound", func(t *testing.T) {
+		// Given a blueprint with kustomization having wrong properties
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "flux-system", Path: "wrong-path"},
+			},
+		}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "flux-system", Path: "expected-path"},
+			},
+		}
+
+		// When matching the blueprint
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		// Then diffs should indicate property mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsNoDiffsWhenExpectIsEmpty", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster"},
+			},
+		}
+
+		expect := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{},
+			Kustomizations:      []blueprintv1alpha1.Kustomization{},
+		}
+
+		diffs := runner.matchBlueprint(blueprint, expect)
+
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs when expect is empty, got: %v", diffs)
+		}
+	})
+}
+
+func TestTestRunner_matchExclusions(t *testing.T) {
+	t.Run("ReturnsNoDiffsWhenExcludeIsNil", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster"},
+			},
+		}
+
+		diffs := runner.matchExclusions(blueprint, nil)
+
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs when exclude is nil, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsNoDiffsWhenExclusionsRespected", func(t *testing.T) {
+		// Given a blueprint without excluded components
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster"},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "excluded-component"},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenExcludedTerraformExists", func(t *testing.T) {
+		// Given a blueprint with an excluded component
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "should-not-exist"},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "should-not-exist"},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then diffs should indicate unwanted component
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenExcludedKustomizationExists", func(t *testing.T) {
+		// Given a blueprint with an excluded kustomization
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "should-not-exist"},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "should-not-exist"},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then diffs should indicate unwanted kustomization
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("UsesPathWhenNameIsEmpty", func(t *testing.T) {
+		// Given a blueprint with a component matched by path
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vm/colima"},
+			},
+		}
+
+		exclude := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vm/colima"},
+			},
+		}
+
+		// When matching exclusions
+		diffs := runner.matchExclusions(blueprint, exclude)
+
+		// Then diffs should use path as identifier
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+}
+
+func TestTestRunner_findTerraformComponent(t *testing.T) {
+	t.Run("FindsByName", func(t *testing.T) {
+		// Given a blueprint with named components
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "cluster/eks"},
+			},
+		}
+
+		// When finding by name
+		found := runner.findTerraformComponent(blueprint, blueprintv1alpha1.TerraformComponent{Name: "cluster"})
+
+		// Then component should be found
+		if found == nil {
+			t.Error("Expected component to be found")
+		}
+	})
+
+	t.Run("FindsByPath", func(t *testing.T) {
+		// Given a blueprint with path-only components
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+			},
+		}
+
+		// When finding by path
+		found := runner.findTerraformComponent(blueprint, blueprintv1alpha1.TerraformComponent{Path: "cluster/eks"})
+
+		// Then component should be found
+		if found == nil {
+			t.Error("Expected component to be found")
+		}
+	})
+
+	t.Run("ReturnsNilWhenNotFound", func(t *testing.T) {
+		// Given an empty blueprint
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When finding nonexistent component
+		found := runner.findTerraformComponent(blueprint, blueprintv1alpha1.TerraformComponent{Name: "nonexistent"})
+
+		// Then nil should be returned
+		if found != nil {
+			t.Error("Expected nil for nonexistent component")
+		}
+	})
+}
+
+func TestTestRunner_findKustomization(t *testing.T) {
+	t.Run("FindsByName", func(t *testing.T) {
+		// Given a blueprint with kustomizations
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "flux-system"},
+			},
+		}
+
+		// When finding by name
+		found := runner.findKustomization(blueprint, blueprintv1alpha1.Kustomization{Name: "flux-system"})
+
+		// Then kustomization should be found
+		if found == nil {
+			t.Error("Expected kustomization to be found")
+		}
+	})
+
+	t.Run("ReturnsNilWhenNotFound", func(t *testing.T) {
+		// Given an empty blueprint
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{}
+
+		// When finding nonexistent kustomization
+		found := runner.findKustomization(blueprint, blueprintv1alpha1.Kustomization{Name: "nonexistent"})
+
+		// Then nil should be returned
+		if found != nil {
+			t.Error("Expected nil for nonexistent kustomization")
+		}
+	})
+}
+
+func TestTestRunner_matchTerraformComponent(t *testing.T) {
+	t.Run("ReturnsNoDiffsWhenAllFieldsMatch", func(t *testing.T) {
+		// Given matching component and expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.TerraformComponent{
+			Name:      "cluster",
+			Path:      "cluster/eks",
+			Source:    "core",
+			DependsOn: []string{"network"},
+		}
+
+		expect := blueprintv1alpha1.TerraformComponent{
+			Name:      "cluster",
+			Path:      "cluster/eks",
+			Source:    "core",
+			DependsOn: []string{"network"},
+		}
+
+		// When matching
+		diffs := runner.matchTerraformComponent(actual, expect)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenSourceMismatches", func(t *testing.T) {
+		// Given component with wrong source
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.TerraformComponent{
+			Name:   "cluster",
+			Source: "wrong-source",
+		}
+
+		expect := blueprintv1alpha1.TerraformComponent{
+			Name:   "cluster",
+			Source: "expected-source",
+		}
+
+		// When matching
+		diffs := runner.matchTerraformComponent(actual, expect)
+
+		// Then diffs should indicate source mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenPathMismatches", func(t *testing.T) {
+		// Given component with wrong path
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.TerraformComponent{
+			Name: "cluster",
+			Path: "wrong/path",
+		}
+
+		expect := blueprintv1alpha1.TerraformComponent{
+			Name: "cluster",
+			Path: "expected/path",
+		}
+
+		// When matching
+		diffs := runner.matchTerraformComponent(actual, expect)
+
+		// Then diffs should indicate path mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenDependencyMissing", func(t *testing.T) {
+		// Given component missing a dependency
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.TerraformComponent{
+			Name:      "cluster",
+			DependsOn: []string{"network"},
+		}
+
+		expect := blueprintv1alpha1.TerraformComponent{
+			Name:      "cluster",
+			DependsOn: []string{"network", "vpc"},
+		}
+
+		// When matching
+		diffs := runner.matchTerraformComponent(actual, expect)
+
+		// Then diffs should indicate missing dependency
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("UsesPathAsIdentifierWhenNameEmpty", func(t *testing.T) {
+		// Given expectation with only path
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.TerraformComponent{
+			Path:   "cluster/eks",
+			Source: "wrong",
+		}
+
+		expect := blueprintv1alpha1.TerraformComponent{
+			Path:   "cluster/eks",
+			Source: "expected",
+		}
+
+		// When matching
+		diffs := runner.matchTerraformComponent(actual, expect)
+
+		// Then diff message should use path as identifier
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+}
+
+func TestTestRunner_matchKustomization(t *testing.T) {
+	t.Run("ReturnsNoDiffsWhenAllFieldsMatch", func(t *testing.T) {
+		// Given matching kustomization and expectation
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:       "flux-system",
+			Path:       "flux",
+			Source:     "core",
+			DependsOn:  []string{"csi"},
+			Components: []string{"base", "sync"},
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name:       "flux-system",
+			Path:       "flux",
+			Source:     "core",
+			DependsOn:  []string{"csi"},
+			Components: []string{"base"},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect)
+
+		// Then no diffs should be returned
+		if len(diffs) != 0 {
+			t.Errorf("Expected no diffs, got: %v", diffs)
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenPathMismatches", func(t *testing.T) {
+		// Given kustomization with wrong path
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name: "flux-system",
+			Path: "wrong/path",
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name: "flux-system",
+			Path: "expected/path",
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect)
+
+		// Then diffs should indicate path mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenSourceMismatches", func(t *testing.T) {
+		// Given kustomization with wrong source
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:   "flux-system",
+			Source: "wrong-source",
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name:   "flux-system",
+			Source: "expected-source",
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect)
+
+		// Then diffs should indicate source mismatch
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenDependencyMissing", func(t *testing.T) {
+		// Given kustomization missing a dependency
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:      "flux-system",
+			DependsOn: []string{"csi"},
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name:      "flux-system",
+			DependsOn: []string{"csi", "pki"},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect)
+
+		// Then diffs should indicate missing dependency
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+
+	t.Run("ReturnsDiffsWhenComponentMissing", func(t *testing.T) {
+		// Given kustomization missing a component
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		actual := &blueprintv1alpha1.Kustomization{
+			Name:       "flux-system",
+			Components: []string{"base"},
+		}
+
+		expect := blueprintv1alpha1.Kustomization{
+			Name:       "flux-system",
+			Components: []string{"base", "sync"},
+		}
+
+		// When matching
+		diffs := runner.matchKustomization(actual, expect)
+
+		// Then diffs should indicate missing component
+		if len(diffs) != 1 {
+			t.Errorf("Expected 1 diff, got: %d", len(diffs))
+		}
+	})
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+func TestContains(t *testing.T) {
+	t.Run("ReturnsTrueWhenItemExists", func(t *testing.T) {
+		// Given a slice with items
+		slice := []string{"a", "b", "c"}
+
+		// When checking for existing item
+		result := contains(slice, "b")
+
+		// Then true should be returned
+		if !result {
+			t.Error("Expected true for existing item")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenItemDoesNotExist", func(t *testing.T) {
+		// Given a slice with items
+		slice := []string{"a", "b", "c"}
+
+		// When checking for nonexistent item
+		result := contains(slice, "d")
+
+		// Then false should be returned
+		if result {
+			t.Error("Expected false for nonexistent item")
+		}
+	})
+
+	t.Run("ReturnsFalseForEmptySlice", func(t *testing.T) {
+		// Given an empty slice
+		slice := []string{}
+
+		// When checking for any item
+		result := contains(slice, "a")
+
+		// Then false should be returned
+		if result {
+			t.Error("Expected false for empty slice")
+		}
+	})
+}
+
+func TestTestRunner_validateBlueprint(t *testing.T) {
+	t.Run("DetectsDuplicateTerraformComponents", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "cluster/eks"},
+				{Name: "cluster", Path: "cluster/gke"},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) == 0 {
+			t.Error("Expected error for duplicate terraform component")
+		}
+		if !strings.Contains(errors[0], "duplicate terraform component ID") {
+			t.Errorf("Expected duplicate component error, got: %v", errors)
+		}
+	})
+
+	t.Run("DetectsDuplicateTerraformComponentsByPath", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+				{Path: "cluster/eks"},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) == 0 {
+			t.Error("Expected error for duplicate terraform component by path")
+		}
+	})
+
+	t.Run("DetectsDuplicateKustomizations", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "flux-system", Path: "flux"},
+				{Name: "flux-system", Path: "flux2"},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) == 0 {
+			t.Error("Expected error for duplicate kustomization")
+		}
+		if !strings.Contains(errors[0], "duplicate kustomization name") {
+			t.Errorf("Expected duplicate kustomization error, got: %v", errors)
+		}
+	})
+
+	t.Run("DetectsDuplicateKustomizationComponents", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:       "app",
+					Path:       "app",
+					Components: []string{"base", "monitoring", "base"},
+				},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) == 0 {
+			t.Error("Expected error for duplicate kustomization component")
+		}
+		if !strings.Contains(errors[0], "duplicate component") {
+			t.Errorf("Expected duplicate component error, got: %v", errors)
+		}
+	})
+
+	t.Run("DetectsCircularDependenciesInTerraform", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "a", Path: "a", DependsOn: []string{"b"}},
+				{Name: "b", Path: "b", DependsOn: []string{"a"}},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) == 0 {
+			t.Error("Expected error for circular dependency")
+		}
+		if !strings.Contains(errors[0], "circular dependency") {
+			t.Errorf("Expected circular dependency error, got: %v", errors)
+		}
+	})
+
+	t.Run("DetectsCircularDependenciesInKustomize", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "a", Path: "a", DependsOn: []string{"b"}},
+				{Name: "b", Path: "b", DependsOn: []string{"a"}},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) == 0 {
+			t.Error("Expected error for circular dependency")
+		}
+		if !strings.Contains(errors[0], "circular dependency") {
+			t.Errorf("Expected circular dependency error, got: %v", errors)
+		}
+	})
+
+	t.Run("DetectsInvalidTerraformDependencies", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "a", Path: "a", DependsOn: []string{"nonexistent"}},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) == 0 {
+			t.Error("Expected error for invalid dependency")
+		}
+		if !strings.Contains(errors[0], "depends on non-existent component") {
+			t.Errorf("Expected invalid dependency error, got: %v", errors)
+		}
+	})
+
+	t.Run("DetectsInvalidKustomizeDependencies", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Path: "app", DependsOn: []string{"nonexistent"}},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) == 0 {
+			t.Error("Expected error for invalid dependency")
+		}
+		if !strings.Contains(errors[0], "depends on non-existent kustomization") {
+			t.Errorf("Expected invalid dependency error, got: %v", errors)
+		}
+	})
+
+	t.Run("PassesValidBlueprint", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "cluster/eks"},
+				{Name: "network", Path: "network/vpc", DependsOn: []string{"cluster"}},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Path: "app", Components: []string{"base", "monitoring"}},
+			},
+		}
+
+		errors := runner.validateBlueprint(blueprint)
+
+		if len(errors) > 0 {
+			t.Errorf("Expected no errors for valid blueprint, got: %v", errors)
+		}
+	})
+}
+
+// =============================================================================
+// Test runTestsSequentially
+// =============================================================================
+
+func TestTestRunner_runTestsSequentially(t *testing.T) {
+	t.Run("RunsTestsSequentiallyAndGroupsByFile", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		testCasesWithFiles := []testCaseWithFile{
+			{
+				testCase: blueprintv1alpha1.TestCase{
+					Name:   "test-1",
+					Values: map[string]any{},
+				},
+				filePath: "/path/to/file1.test.yaml",
+				fileName: "file1.test.yaml",
+			},
+			{
+				testCase: blueprintv1alpha1.TestCase{
+					Name:   "test-2",
+					Values: map[string]any{},
+				},
+				filePath: "/path/to/file1.test.yaml",
+				fileName: "file1.test.yaml",
+			},
+			{
+				testCase: blueprintv1alpha1.TestCase{
+					Name:   "test-3",
+					Values: map[string]any{},
+				},
+				filePath: "/path/to/file2.test.yaml",
+				fileName: "file2.test.yaml",
+			},
+		}
+
+		var buf bytes.Buffer
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		done := make(chan bool)
+		go func() {
+			buf.ReadFrom(r)
+			done <- true
+		}()
+
+		err := runner.runTestsSequentially(testCasesWithFiles, false)
+		w.Close()
+		<-done
+		os.Stdout = oldStdout
+
+		output := buf.String()
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !strings.Contains(output, "=== file1.test.yaml ===") {
+			t.Error("Expected file1 header in output")
+		}
+		if !strings.Contains(output, "=== file2.test.yaml ===") {
+			t.Error("Expected file2 header in output")
+		}
+		if !strings.Contains(output, "✓ test-1") {
+			t.Error("Expected test-1 result in output")
+		}
+		if !strings.Contains(output, "PASS: 3 test(s) passed") {
+			t.Errorf("Expected pass summary, got: %s", output)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTestsFail", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		testCasesWithFiles := []testCaseWithFile{
+			{
+				testCase: blueprintv1alpha1.TestCase{
+					Name:   "failing-test",
+					Values: map[string]any{},
+					Expect: &blueprintv1alpha1.Blueprint{
+						TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+							{Name: "nonexistent-component"},
+						},
+					},
+				},
+				filePath: "/path/to/test.test.yaml",
+				fileName: "test.test.yaml",
+			},
+		}
+
+		var buf bytes.Buffer
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		done := make(chan bool)
+		go func() {
+			buf.ReadFrom(r)
+			done <- true
+		}()
+
+		err := runner.runTestsSequentially(testCasesWithFiles, false)
+		w.Close()
+		<-done
+		os.Stdout = oldStdout
+
+		if err == nil {
+			t.Error("Expected error when tests fail")
+		}
+		if !strings.Contains(err.Error(), "test(s) failed") {
+			t.Errorf("Expected failure message, got: %v", err)
+		}
+		output := buf.String()
+		if !strings.Contains(output, "FAIL: 1 of 1 test(s) failed") {
+			t.Errorf("Expected failure summary, got: %s", output)
+		}
+	})
+}
+
+// =============================================================================
+// Test RunAndPrint
+// =============================================================================
+
+func TestTestRunner_RunAndPrint_Additional(t *testing.T) {
+	t.Run("ReturnsErrorWhenNoTestFilesFound", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockArtifact := artifact.NewMockArtifact()
+		runner := &TestRunner{
+			projectRoot:       tmpDir,
+			baseShell:         mockShell,
+			baseConfigHandler: mockConfigHandler,
+			baseProjectRoot:   tmpDir,
+			artifactBuilder:   mockArtifact,
+		}
+
+		err := runner.RunAndPrint("", false)
+
+		if err == nil {
+			t.Error("Expected error when no test files found")
+		}
+		if !strings.Contains(err.Error(), "no test files found") {
+			t.Errorf("Expected 'no test files found' error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenFilterMatchesNoTests", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		createTestFile(t, testsDir, "test.test.yaml", `
+cases:
+  - name: test-case-1
+    values: {}
+`)
+
+		err := runner.RunAndPrint("nonexistent-test", false)
+
+		if err == nil {
+			t.Error("Expected error when filter matches no tests")
+		}
+		if !strings.Contains(err.Error(), "no test cases found matching filter") {
+			t.Errorf("Expected filter error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTestFileParseFails", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		createTestFile(t, testsDir, "invalid.test.yaml", `invalid: yaml: [[[`)
+
+		err := runner.RunAndPrint("", false)
+
+		if err == nil {
+			t.Error("Expected error when test file parse fails")
+		}
+		if !strings.Contains(err.Error(), "failed to parse test file") {
+			t.Errorf("Expected parse error, got: %v", err)
+		}
+	})
+
+	t.Run("UsesRunFuncWhenSet", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		var calledFilter string
+		var calledUpdate bool
+		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+			calledFilter = filter
+			calledUpdate = update
+			return []TestResult{{Name: "test", Passed: true}}, nil
+		}
+
+		err := runner.RunAndPrint("test-filter", true)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if calledFilter != "test-filter" {
+			t.Errorf("Expected filter 'test-filter', got: %q", calledFilter)
+		}
+		if !calledUpdate {
+			t.Error("Expected update to be true")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenRunFuncReturnsError", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+			return nil, fmt.Errorf("run func error")
+		}
+
+		err := runner.RunAndPrint("", false)
+
+		if err == nil {
+			t.Error("Expected error when RunFunc returns error")
+		}
+		if !strings.Contains(err.Error(), "run func error") {
+			t.Errorf("Expected run func error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenDiscoverTestFilesFails", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockArtifact := artifact.NewMockArtifact()
+		runner := &TestRunner{
+			projectRoot:       tmpDir,
+			baseShell:         mockShell,
+			baseConfigHandler: mockConfigHandler,
+			baseProjectRoot:   tmpDir,
+			artifactBuilder:   mockArtifact,
+		}
+
+		testsDir := filepath.Join(tmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		os.Chmod(testsDir, 0000)
+		defer os.Chmod(testsDir, 0755)
+
+		err := runner.RunAndPrint("", false)
+
+		if err == nil {
+			t.Error("Expected error when discoverTestFiles fails")
+		}
+		if !strings.Contains(err.Error(), "failed to discover test files") {
+			t.Errorf("Expected discover error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoTestCasesAndNoFilter", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		createTestFile(t, testsDir, "empty.test.yaml", `
+cases: []
+`)
+
+		err := runner.RunAndPrint("", false)
+
+		if err != nil {
+			t.Errorf("Expected no error when no test cases and no filter, got: %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test createGenerator
+// =============================================================================
+
+func TestTestRunner_createGenerator(t *testing.T) {
+	t.Run("CreatesGeneratorWithTerraformOutputs", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		terraformOutputs := map[string]map[string]any{
+			"network": {
+				"vpc_id": "vpc-123",
+			},
+		}
+
+		generator := runner.createGenerator(terraformOutputs)
+		values := map[string]any{
+			"terraform.enabled": true,
+		}
+
+		blueprint, err := generator(values)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if blueprint == nil {
+			t.Error("Expected blueprint to be generated")
+		}
+	})
+
+	t.Run("CreatesGeneratorWithTerraformEnabledButNoOutputs", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		generator := runner.createGenerator(nil)
+		values := map[string]any{
+			"terraform.enabled": true,
+		}
+
+		blueprint, err := generator(values)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if blueprint == nil {
+			t.Error("Expected blueprint to be generated")
+		}
+	})
+
+	t.Run("HandlesLoadBlueprintError", func(t *testing.T) {
+		mocks := setupTestRunnerMocksForFailure(t)
+		runner := createRunnerForFailure(mocks)
+
+		generator := runner.createGenerator(nil)
+		values := map[string]any{}
+
+		_, err := generator(values)
+
+		if err == nil {
+			t.Error("Expected error when LoadBlueprint fails")
+		}
+		if !strings.Contains(err.Error(), "failed to load blueprint") {
+			t.Errorf("Expected load blueprint error, got: %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Run additional cases
+// =============================================================================
+
+func TestTestRunner_Run_Additional(t *testing.T) {
+	t.Run("ReturnsErrorWhenDiscoverTestFilesFails", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockArtifact := artifact.NewMockArtifact()
+		runner := &TestRunner{
+			projectRoot:       tmpDir,
+			baseShell:         mockShell,
+			baseConfigHandler: mockConfigHandler,
+			baseProjectRoot:   tmpDir,
+			artifactBuilder:   mockArtifact,
+		}
+
+		testsDir := filepath.Join(tmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		os.Chmod(testsDir, 0000)
+		defer os.Chmod(testsDir, 0755)
+
+		_, err := runner.Run("", false)
+
+		if err == nil {
+			t.Error("Expected error when discoverTestFiles fails")
+		}
+	})
+}

@@ -11,6 +11,7 @@ nav:
     - 'Secrets Management': guides/secrets-management.md
     - 'Blueprint Templates': guides/templates.md
     - 'Sharing Blueprints': guides/sharing.md
+    - 'Blueprint Testing': guides/testing.md
   - 'Tutorial': 
     - 'Hello, World!': tutorial/hello-world.md
   - 'Security':
