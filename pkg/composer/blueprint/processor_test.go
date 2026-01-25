@@ -635,7 +635,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	})
 
 	t.Run("HandlesInputEvaluationError", func(t *testing.T) {
-		// Given a facet with invalid input expression
+		// Given a facet with invalid input expression syntax
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
@@ -646,7 +646,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 					{
 						TerraformComponent: blueprintv1alpha1.TerraformComponent{
 							Path:   "vpc",
-							Inputs: map[string]any{"bad": "${undefined.value}"},
+							Inputs: map[string]any{"bad": "${invalid syntax {{{}"},
 						},
 					},
 				},
@@ -664,7 +664,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 	})
 
 	t.Run("HandlesSubstitutionEvaluationError", func(t *testing.T) {
-		// Given a facet with invalid substitution expression
+		// Given a facet with invalid substitution expression syntax
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
@@ -675,7 +675,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 					{
 						Kustomization: blueprintv1alpha1.Kustomization{
 							Name:          "test",
-							Substitutions: map[string]string{"bad": "${undefined.value}"},
+							Substitutions: map[string]string{"bad": "${invalid syntax {{{}"},
 						},
 					},
 				},
