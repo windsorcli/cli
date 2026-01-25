@@ -426,7 +426,7 @@ func TestWriter_Write(t *testing.T) {
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			ConfigMaps: map[string]map[string]string{
 				"values-common": {
-					"DOMAIN": "example.com",
+					"DOMAIN":  "example.com",
 					"CONTEXT": "test",
 				},
 			},

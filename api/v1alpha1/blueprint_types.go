@@ -561,6 +561,10 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	sourcesCopy := make([]Source, len(b.Sources))
 	for i, source := range b.Sources {
+		var deployCopy *BoolExpression
+		if source.Deploy != nil {
+			deployCopy = source.Deploy.DeepCopy()
+		}
 		sourcesCopy[i] = Source{
 			Name:       source.Name,
 			Url:        source.Url,
@@ -573,7 +577,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 				Commit: source.Ref.Commit,
 			},
 			SecretName: source.SecretName,
-			Deploy:     source.Deploy,
+			Deploy:     deployCopy,
 		}
 	}
 
