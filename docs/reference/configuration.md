@@ -29,7 +29,7 @@ Windsor applies default values for various configuration options when they are n
 - **Cluster**: `cluster.enabled` defaults to `true` for all contexts. This ensures that cluster resources are available by default.
 - **Terraform**: `terraform.enabled` defaults to `true` with a `local` backend.
 - **Docker**: Docker is enabled by default with common registry configurations.
-- **Provider**: Defaults to `"none"` for non-dev contexts, `"generic"` for localhost contexts.
+- **Provider**: Defaults to `"none"` for non-dev contexts, `"docker"` for dev contexts (or `"incus"` when using colima-incus vm-driver).
 
 These defaults ensure that basic functionality is available without requiring explicit configuration. You can override any default by explicitly setting the value in your `windsor.yaml` file.
 

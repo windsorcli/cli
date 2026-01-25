@@ -387,7 +387,7 @@ func TestProject_Configure(t *testing.T) {
 		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 	})
 
-	t.Run("SetsGenericProviderInDevModeWhenProviderNotSet", func(t *testing.T) {
+	t.Run("SetsDockerProviderInDevModeWhenProviderNotSet", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -397,12 +397,18 @@ func TestProject_Configure(t *testing.T) {
 			if key == "provider" {
 				return ""
 			}
+			if key == "vm.driver" {
+				return ""
+			}
+			if key == "vm.runtime" {
+				return "docker"
+			}
 			return ""
 		}
 
 		providerSet := false
 		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "provider" && value == "generic" {
+			if key == "provider" && value == "docker" {
 				providerSet = true
 			}
 			return nil
@@ -412,11 +418,49 @@ func TestProject_Configure(t *testing.T) {
 		_ = proj.Configure(nil)
 
 		if !providerSet {
-			t.Error("Expected provider to be set to 'generic' in dev mode")
+			t.Error("Expected provider to be set to 'docker' in dev mode")
 		}
 	})
 
-	t.Run("SkipsGenericProviderWhenProviderAlreadySet", func(t *testing.T) {
+	t.Run("SetsIncusProviderInDevModeWhenColimaIncus", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return ""
+			}
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if key == "vm.runtime" {
+				return "incus"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		providerSet := false
+		mockConfig.SetFunc = func(key string, value any) error {
+			if key == "provider" && value == "incus" {
+				providerSet = true
+			}
+			return nil
+		}
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+		_ = proj.Configure(nil)
+
+		if !providerSet {
+			t.Error("Expected provider to be set to 'incus' in dev mode when vm.driver is colima and vm.runtime is incus")
+		}
+	})
+
+	t.Run("SkipsDockerProviderWhenProviderAlreadySet", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -431,16 +475,16 @@ func TestProject_Configure(t *testing.T) {
 
 		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
-		genericSet := false
+		dockerSet := false
 		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "provider" && value == "generic" {
-				genericSet = true
+			if key == "provider" && value == "docker" {
+				dockerSet = true
 			}
 			return nil
 		}
 
-		if genericSet {
-			t.Error("Expected provider not to be set to 'generic' when already set")
+		if dockerSet {
+			t.Error("Expected provider not to be set to 'docker' when already set")
 		}
 	})
 
@@ -533,7 +577,7 @@ func TestProject_Configure(t *testing.T) {
 
 		flagOverrides := map[string]any{
 			"vm.driver": "colima",
-			"provider":  "generic",
+			"provider":  "docker",
 		}
 
 		// When Configure is called with flag overrides
@@ -584,7 +628,7 @@ func TestProject_Configure(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsProviderToIncusAfterLoadConfigWhenVMRuntimeIsIncus", func(t *testing.T) {
+	t.Run("SetsProviderToIncusAfterLoadConfigWhenColimaIncus", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -592,7 +636,10 @@ func TestProject_Configure(t *testing.T) {
 		}
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "provider" {
-				return "generic"
+				return "docker"
+			}
+			if key == "vm.driver" {
+				return "colima"
 			}
 			if key == "vm.runtime" {
 				return "incus"
@@ -615,7 +662,7 @@ func TestProject_Configure(t *testing.T) {
 		_ = proj.Configure(nil)
 
 		if providerSet != "incus" {
-			t.Errorf("Expected provider to be set to 'incus' after LoadConfig when vm.runtime is 'incus', got: %s", providerSet)
+			t.Errorf("Expected provider to be set to 'incus' after LoadConfig when vm.driver is 'colima' and vm.runtime is 'incus', got: %s", providerSet)
 		}
 	})
 }

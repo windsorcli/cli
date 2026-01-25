@@ -142,7 +142,7 @@ type: object
 properties:
   provider:
     type: string
-    default: generic
+    default: docker
   network:
     type: object
     properties:
@@ -192,8 +192,8 @@ additionalProperties: false
 			t.Fatalf("Failed to get defaults: %v", err)
 		}
 
-		if defaults["provider"] != "generic" {
-			t.Errorf("Expected provider default 'generic', got %v", defaults["provider"])
+		if defaults["provider"] != "docker" {
+			t.Errorf("Expected provider default 'docker', got %v", defaults["provider"])
 		}
 
 		network, ok := defaults["network"].(map[string]any)
@@ -312,8 +312,8 @@ type: object
 properties:
   provider:
     type: string
-    enum: [generic, aws]
-    default: generic
+    enum: [docker, aws]
+    default: docker
 additionalProperties: true
 `
 
@@ -349,7 +349,7 @@ additionalProperties: false
 		}
 
 		values := map[string]any{
-			"provider": "generic",
+			"provider": "docker",
 			"extra":    "field",
 		}
 
@@ -359,7 +359,7 @@ additionalProperties: false
 		}
 
 		if result.Valid {
-			t.Error("Expected validation to fail - 'generic' not in overlay enum and 'extra' field not allowed")
+			t.Error("Expected validation to fail - 'docker' not in overlay enum and 'extra' field not allowed")
 		}
 	})
 }
@@ -377,7 +377,7 @@ func TestSchemaValidator_ExtractDefaults(t *testing.T) {
 			"properties": map[string]any{
 				"provider": map[string]any{
 					"type":    "string",
-					"default": "generic",
+					"default": "docker",
 				},
 				"port": map[string]any{
 					"type":    "integer",
@@ -395,8 +395,8 @@ func TestSchemaValidator_ExtractDefaults(t *testing.T) {
 		}
 
 		// And defaults should be extracted
-		if defaults["provider"] != "generic" {
-			t.Errorf("Expected provider default to be 'generic', got: %v", defaults["provider"])
+		if defaults["provider"] != "docker" {
+			t.Errorf("Expected provider default to be 'docker', got: %v", defaults["provider"])
 		}
 
 		if defaults["port"] != float64(8080) {
@@ -465,7 +465,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 			"properties": map[string]any{
 				"provider": map[string]any{
 					"type": "string",
-					"enum": []any{"generic", "aws", "azure"},
+					"enum": []any{"docker", "aws", "azure"},
 				},
 				"port": map[string]any{
 					"type":    "integer",
@@ -479,7 +479,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 
 		// And valid values
 		values := map[string]any{
-			"provider": "generic",
+			"provider": "docker",
 			"port":     8080,
 		}
 
@@ -609,7 +609,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 			"properties": map[string]any{
 				"provider": map[string]any{
 					"type": "string",
-					"enum": []any{"generic", "aws", "azure"},
+					"enum": []any{"docker", "aws", "azure"},
 				},
 			},
 			"additionalProperties": false,
@@ -651,7 +651,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 		validator := NewSchemaValidator(mockShell)
 
 		values := map[string]any{
-			"provider": "generic",
+			"provider": "docker",
 		}
 
 		// When validating values
@@ -1064,7 +1064,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 
 		// And values with additional property
 		values := map[string]any{
-			"provider":   "generic",
+			"provider":   "docker",
 			"extraField": "not-allowed",
 		}
 
@@ -1111,7 +1111,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 
 		// And values with additional property
 		values := map[string]any{
-			"provider":   "generic",
+			"provider":   "docker",
 			"extraField": "allowed",
 		}
 
@@ -1145,7 +1145,7 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 
 		// And values with additional property
 		values := map[string]any{
-			"provider":   "generic",
+			"provider":   "docker",
 			"extraField": "should-be-allowed",
 		}
 
@@ -1351,7 +1351,7 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 
 		// And valid values
 		values := map[string]any{
-			"provider": "generic",
+			"provider": "docker",
 		}
 
 		// When validating values
@@ -1385,7 +1385,7 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 
 		// And valid values
 		values := map[string]any{
-			"provider": "generic",
+			"provider": "docker",
 		}
 
 		// When validating values
@@ -1416,8 +1416,8 @@ type: object
 properties:
   provider:
     type: string
-    enum: [generic, aws, azure, metal]
-    default: generic
+    enum: [docker, metal, aws, azure]
+    default: docker
   name:
     type: string
     default: template
@@ -1500,7 +1500,7 @@ additionalProperties: false
 
 		// And should extract nested defaults properly
 		expectedDefaults := map[string]any{
-			"provider": "generic",
+			"provider": "docker",
 			"name":     "template",
 			"network": map[string]any{
 				"cidr_block": "10.0.0.0/16",
@@ -1571,8 +1571,8 @@ type: object
 properties:
   provider:
     type: string
-    enum: [generic, aws, azure]
-    default: generic
+    enum: [docker, metal, aws, azure]
+    default: docker
   network:
     type: object
     properties:
@@ -1620,7 +1620,7 @@ type: object
 properties:
   provider:
     type: string
-    enum: [generic, aws, azure]
+    enum: [docker, metal, aws, azure]
   network:
     type: object
     properties:
@@ -2647,7 +2647,7 @@ func TestSchemaValidator_mergeSchema(t *testing.T) {
 			"properties": map[string]any{
 				"provider": map[string]any{
 					"type":    "string",
-					"default": "generic",
+					"default": "docker",
 				},
 				"network": map[string]any{
 					"type": "object",

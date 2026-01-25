@@ -140,7 +140,7 @@ contexts:
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
 		os.MkdirAll(contextDir, 0755)
-		contextConfig := `provider: generic
+		contextConfig := `provider: docker
 cluster:
   enabled: true
   driver: talos
@@ -154,8 +154,8 @@ cluster:
 		}
 
 		provider := handler.GetString("provider")
-		if provider != "generic" {
-			t.Errorf("Expected provider='generic', got '%s'", provider)
+		if provider != "docker" {
+			t.Errorf("Expected provider='docker', got '%s'", provider)
 		}
 
 		driver := handler.GetString("cluster.driver")
@@ -1044,7 +1044,7 @@ contexts:
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
 		os.MkdirAll(contextDir, 0755)
-		contextConfig := `provider: generic
+		contextConfig := `provider: docker
 cluster:
   enabled: true
   driver: talos
@@ -1058,8 +1058,8 @@ cluster:
 		}
 
 		provider := handler.GetString("provider")
-		if provider != "generic" {
-			t.Errorf("Expected provider='generic', got '%s'", provider)
+		if provider != "docker" {
+			t.Errorf("Expected provider='docker', got '%s'", provider)
 		}
 
 		driver := handler.GetString("cluster.driver")
@@ -1148,7 +1148,7 @@ contexts:
 		mocks := setupConfigMocks(t)
 		handler := NewConfigHandler(mocks.Shell)
 
-		yaml := `provider: generic
+		yaml := `provider: docker
 custom_key: custom_value
 `
 
@@ -1159,8 +1159,8 @@ custom_key: custom_value
 		}
 
 		provider := handler.GetString("provider")
-		if provider != "generic" {
-			t.Errorf("Expected provider='generic', got '%s'", provider)
+		if provider != "docker" {
+			t.Errorf("Expected provider='docker', got '%s'", provider)
 		}
 
 		customKey := handler.GetString("custom_key")
@@ -2063,7 +2063,7 @@ additionalProperties: false
 		os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644)
 		handler.LoadSchema(filepath.Join(schemaDir, "schema.yaml"))
 
-		err := handler.Set("provider", "generic")
+		err := handler.Set("provider", "docker")
 
 		if err != nil {
 			t.Errorf("Expected no error for static field, got %v", err)
@@ -2312,7 +2312,7 @@ properties:
 		handler, tmpDir := setupPrivateTestHandler(t)
 		handler.SetContext("save-test")
 
-		handler.Set("provider", "generic")
+		handler.Set("provider", "docker")
 		handler.Set("cluster.enabled", true)
 		handler.Set("cluster.workers.count", 2)
 		handler.Set("custom_dynamic", "dynamic_value")
@@ -2334,7 +2334,7 @@ properties:
 
 		// Then data should be preserved
 		provider := newHandler.GetString("provider")
-		if provider != "generic" {
+		if provider != "docker" {
 			t.Errorf("Expected provider to be preserved, got '%s'", provider)
 		}
 

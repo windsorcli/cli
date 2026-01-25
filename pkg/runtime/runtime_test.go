@@ -1028,8 +1028,56 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Error("Expected dev to be set to true")
 		}
 
-		if setCalls["provider"] != "generic" {
-			t.Error("Expected provider to be set to generic")
+		if setCalls["provider"] != "docker" {
+			t.Error("Expected provider to be set to docker")
+		}
+	})
+
+	t.Run("SetsIncusProviderInDevModeWhenColimaIncus", func(t *testing.T) {
+		// Given a runtime in dev mode with colima-incus configuration
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool {
+			return false
+		}
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if key == "vm.runtime" {
+				return "incus"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
+			return nil
+		}
+
+		// When ApplyConfigDefaults is called
+		err := rt.ApplyConfigDefaults()
+
+		// Then provider should be set to incus
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setCalls["provider"] != "incus" {
+			t.Errorf("Expected provider to be set to incus, got: %v", setCalls["provider"])
 		}
 	})
 
@@ -1607,7 +1655,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsProviderToIncusWhenVMRuntimeIsIncusInFlagOverrides", func(t *testing.T) {
+	t.Run("SetsProviderToIncusWhenColimaIncusInFlagOverrides", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "local"
@@ -1639,6 +1687,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		flagOverrides := map[string]any{
+			"vm.driver":  "colima",
 			"vm.runtime": "incus",
 		}
 
@@ -1745,8 +1794,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsGenericDefaults", func(t *testing.T) {
-		// Given a runtime with generic provider
+	t.Run("SetsDockerDefaults", func(t *testing.T) {
+		// Given a runtime with docker provider
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "local"
@@ -1758,10 +1807,36 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with "generic"
-		err := rt.ApplyProviderDefaults("generic")
+		// When ApplyProviderDefaults is called with "docker"
+		err := rt.ApplyProviderDefaults("docker")
 
-		// Then generic defaults should be set
+		// Then docker defaults should be set
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if setCalls["cluster.driver"] != "talos" {
+			t.Error("Expected cluster.driver to be set to talos")
+		}
+	})
+
+	t.Run("SetsMetalDefaults", func(t *testing.T) {
+		// Given a runtime with metal provider
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		// When ApplyProviderDefaults is called with "metal"
+		err := rt.ApplyProviderDefaults("metal")
+
+		// Then metal defaults should be set
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -1908,7 +1983,7 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 		}
 
 		// When ApplyProviderDefaults is called
-		err := rt.ApplyProviderDefaults("generic")
+		err := rt.ApplyProviderDefaults("docker")
 
 		// Then an error should be returned
 
