@@ -9,6 +9,11 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
+// The BaseBlueprintProcessor is a core component that processes blueprint facets and evaluates conditional logic.
+// It provides functionality for evaluating 'when' conditions on facets, terraform components, and kustomizations.
+// The BaseBlueprintProcessor orchestrates the collection, merging, and application of components based on priority
+// and strategy, ensuring deterministic and predictable blueprint composition from multiple facet sources.
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -122,13 +127,23 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // Private Methods
 // =============================================================================
 
-// collectTerraformComponents processes all terraform components from a facet, evaluating their
-// conditions, inputs, and source assignments. Components are collected into the terraformByID map
-// with strategy priority handling. Components with matching IDs are merged or replaced based on
-// their strategy priority. Returns an error if condition evaluation or input processing fails.
-func (p *BaseBlueprintProcessor) collectTerraformComponents(facet blueprintv1alpha1.Facet, sourceName []string, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent) error {
+// collectTerraformComponents processes and collects all Terraform components from the provided facet.
+// It evaluates conditions, inputs, and source assignments for each component, collects them into the
+// terraformByID map, and handles merging or replacement based on strategy priorities. If a component
+// has an empty 'when' condition, it inherits the facet-level condition. Returns an error if
+// condition evaluation or input processing fails.
+func (p *BaseBlueprintProcessor) collectTerraformComponents(
+	facet blueprintv1alpha1.Facet,
+	sourceName []string,
+	terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent,
+) error {
 	for _, tc := range facet.TerraformComponents {
-		shouldInclude, err := p.shouldIncludeComponent(tc.When, facet.Path)
+		componentWhen := tc.When
+		if componentWhen == "" && facet.When != "" {
+			componentWhen = facet.When
+		}
+
+		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path)
 		if err != nil {
 			return fmt.Errorf("error evaluating terraform component condition: %w", err)
 		}
@@ -137,6 +152,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(facet blueprintv1alp
 		}
 
 		processed := tc
+		processed.When = componentWhen
 		if processed.Inputs != nil {
 			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, facet.Path, false)
 			if err != nil {
@@ -190,11 +206,16 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(facet blueprintv1alp
 // collectKustomizations processes all kustomizations from a facet, evaluating their conditions,
 // substitutions, and source assignments. Kustomizations are collected into the kustomizationByName
 // map with strategy priority handling. Kustomizations with matching names are merged or replaced
-// based on their strategy priority. Returns an error if condition evaluation or substitution
-// processing fails.
+// based on their strategy priority. If a kustomization has an empty 'when' condition, it inherits
+// the facet-level condition. Returns an error if condition evaluation or substitution processing fails.
 func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
 	for _, k := range facet.Kustomizations {
-		shouldInclude, err := p.shouldIncludeComponent(k.When, facet.Path)
+		componentWhen := k.When
+		if componentWhen == "" && facet.When != "" {
+			componentWhen = facet.When
+		}
+
+		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path)
 		if err != nil {
 			return fmt.Errorf("error evaluating kustomization condition: %w", err)
 		}
@@ -203,6 +224,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		}
 
 		processed := k
+		processed.When = componentWhen
 		if processed.Substitutions != nil {
 			evaluated, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path)
 			if err != nil {
@@ -288,18 +310,49 @@ func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, facetPath s
 	return matches, nil
 }
 
-// updateTerraformComponentEntry updates an existing terraform component entry in the collection
-// map based on priority and strategy. Priority is compared first: higher priority wins. If priorities
-// are equal, strategy priority is used (remove > replace > merge). If both priority and strategy
-// are equal, components are pre-merged (merge), removals are accumulated (remove), or new replaces existing
-// (replace). For replace operations with equal priority and strategy, the last processed facet
-// (alphabetically by name) wins. Users should set different priorities to make ordering explicit.
-// Returns an error if the merge operation fails.
-func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(componentID string, new *blueprintv1alpha1.ConditionalTerraformComponent, strategy string, entries map[string]*blueprintv1alpha1.ConditionalTerraformComponent) error {
+// updateTerraformComponentEntry updates or merges a single ConditionalTerraformComponent entry in the component
+// collection based on priority, strategy, and conditional 'when' expressions, ensuring consistent and predictable
+// handling of multiple definitions for the same component. It provides robust conflict resolution logic by considering
+// component priority (higher priority always wins), then strategy precedence ('remove' > 'replace' > 'merge'), and
+// finally merge behavior for equal priority and strategy. The function also rigorously re-evaluates 'when' conditions for
+// both the new and existing entries, removing entries from the collection if any relevant condition now resolves to false.
+// When the strategy is 'merge', it performs a strategic pre-merge and logically ANDs 'when' conditions. For 'remove',
+// component removals are accumulated, and for 'replace', the most recent definition takes precedence if priorities
+// and strategies are equal. Only valid strategies are allowed; otherwise, an error is returned, as is the case for merge
+// failures. This function is critical to the blueprint processor’s ability to aggregate, override, conditionally include
+// or exclude, and deconflict terraform components efficiently, making it safe to combine blueprint facets or overrides
+// without unintended duplication or omission. Returns an error if strategies are invalid or pre-merge fails.
+func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
+	componentID string,
+	new *blueprintv1alpha1.ConditionalTerraformComponent,
+	strategy string,
+	entries map[string]*blueprintv1alpha1.ConditionalTerraformComponent,
+) error {
 	existing := entries[componentID]
 	existingStrategy := existing.Strategy
 	if existingStrategy == "" {
 		existingStrategy = "merge"
+	}
+
+	if existing.When == "" && new.When != "" {
+		shouldInclude, err := p.shouldIncludeComponent(new.When, "")
+		if err == nil && !shouldInclude {
+			delete(entries, componentID)
+			return nil
+		}
+	} else if existing.When != "" {
+		shouldInclude, err := p.shouldIncludeComponent(existing.When, "")
+		if err == nil && !shouldInclude {
+			delete(entries, componentID)
+			return nil
+		}
+		if new.When != "" {
+			shouldInclude, err := p.shouldIncludeComponent(new.When, "")
+			if err == nil && !shouldInclude {
+				delete(entries, componentID)
+				return nil
+			}
+		}
 	}
 
 	newStrategyPriority, exists := strategyPriorities[strategy]
@@ -341,18 +394,36 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(componentID strin
 		if err := tempBp.StrategicMerge(mergedBp); err != nil {
 			return fmt.Errorf("error pre-merging terraform component '%s': %w", componentID, err)
 		}
+		combinedWhen := ""
+		if existing.When != "" && new.When != "" {
+			combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
+		} else if existing.When != "" {
+			combinedWhen = existing.When
+		} else if new.When != "" {
+			combinedWhen = new.When
+		}
 		merged := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: tempBp.TerraformComponents[0],
 			Strategy:           "merge",
 			Priority:           newPriority,
+			When:               combinedWhen,
 		}
 		entries[componentID] = merged
 	case "remove":
 		accumulated := p.accumulateTerraformRemovals(existing.TerraformComponent, new.TerraformComponent)
+		combinedWhen := ""
+		if existing.When != "" && new.When != "" {
+			combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
+		} else if existing.When != "" {
+			combinedWhen = existing.When
+		} else if new.When != "" {
+			combinedWhen = new.When
+		}
 		entries[componentID] = &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: accumulated,
 			Strategy:           "remove",
 			Priority:           newPriority,
+			When:               combinedWhen,
 		}
 	case "replace":
 		new.Strategy = strategy
@@ -375,6 +446,27 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	existingStrategy := existing.Strategy
 	if existingStrategy == "" {
 		existingStrategy = "merge"
+	}
+
+	if existing.When == "" && new.When != "" {
+		shouldInclude, err := p.shouldIncludeComponent(new.When, "")
+		if err == nil && !shouldInclude {
+			delete(entries, name)
+			return nil
+		}
+	} else if existing.When != "" {
+		shouldInclude, err := p.shouldIncludeComponent(existing.When, "")
+		if err == nil && !shouldInclude {
+			delete(entries, name)
+			return nil
+		}
+		if new.When != "" {
+			shouldInclude, err := p.shouldIncludeComponent(new.When, "")
+			if err == nil && !shouldInclude {
+				delete(entries, name)
+				return nil
+			}
+		}
 	}
 
 	newStrategyPriority, exists := strategyPriorities[strategy]
@@ -416,18 +508,36 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		if err := tempBp.StrategicMerge(mergedBp); err != nil {
 			return fmt.Errorf("error pre-merging kustomization '%s': %w", name, err)
 		}
+		combinedWhen := ""
+		if existing.When != "" && new.When != "" {
+			combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
+		} else if existing.When != "" {
+			combinedWhen = existing.When
+		} else if new.When != "" {
+			combinedWhen = new.When
+		}
 		merged := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: tempBp.Kustomizations[0],
 			Strategy:      "merge",
 			Priority:      newPriority,
+			When:          combinedWhen,
 		}
 		entries[name] = merged
 	case "remove":
 		accumulated := p.accumulateKustomizationRemovals(existing.Kustomization, new.Kustomization)
+		combinedWhen := ""
+		if existing.When != "" && new.When != "" {
+			combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
+		} else if existing.When != "" {
+			combinedWhen = existing.When
+		} else if new.When != "" {
+			combinedWhen = new.When
+		}
 		entries[name] = &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: accumulated,
 			Strategy:      "remove",
 			Priority:      newPriority,
+			When:          combinedWhen,
 		}
 	case "replace":
 		new.Strategy = strategy
@@ -443,6 +553,30 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 // operations last. This ensures that remove operations are applied after all merge/replace
 // operations, as documented. Returns an error if any application operation fails.
 func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alpha1.Blueprint, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
+	for componentID, entry := range terraformByID {
+		if entry.When != "" {
+			shouldInclude, err := p.shouldIncludeComponent(entry.When, "")
+			if err != nil {
+				return fmt.Errorf("error re-evaluating terraform component '%s' condition: %w", componentID, err)
+			}
+			if !shouldInclude {
+				delete(terraformByID, componentID)
+			}
+		}
+	}
+
+	for name, entry := range kustomizationByName {
+		if entry.When != "" {
+			shouldInclude, err := p.shouldIncludeComponent(entry.When, "")
+			if err != nil {
+				return fmt.Errorf("error re-evaluating kustomization '%s' condition: %w", name, err)
+			}
+			if !shouldInclude {
+				delete(kustomizationByName, name)
+			}
+		}
+	}
+
 	var terraformRemovals, terraformReplaces, terraformMerges []blueprintv1alpha1.TerraformComponent
 	var kustomizationRemovals, kustomizationReplaces, kustomizationMerges []blueprintv1alpha1.Kustomization
 
@@ -458,6 +592,7 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		if strategy == "" {
 			strategy = "merge"
 		}
+
 		switch strategy {
 		case "remove":
 			terraformRemovals = append(terraformRemovals, entry.TerraformComponent)
@@ -482,6 +617,7 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		if strategy == "" {
 			strategy = "merge"
 		}
+
 		switch strategy {
 		case "remove":
 			kustomizationRemovals = append(kustomizationRemovals, entry.Kustomization)

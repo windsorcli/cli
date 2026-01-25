@@ -2739,6 +2739,8 @@ func TestConfigHandler_GetContextValues(t *testing.T) {
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
 		handler := NewConfigHandler(mocks.Shell)
+		// Set a context that doesn't start with "test-" so schema defaults are not skipped
+		handler.SetContext("local")
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		os.MkdirAll(schemaDir, 0755)
@@ -2749,8 +2751,13 @@ properties:
     type: string
     default: schema_value
 `
-		os.WriteFile(filepath.Join(schemaDir, "schema.yaml"), []byte(schemaContent), 0644)
+		schemaPath := filepath.Join(schemaDir, "schema.yaml")
+		os.WriteFile(schemaPath, []byte(schemaContent), 0644)
 		handler.LoadConfig()
+		// Explicitly load the schema to ensure it's loaded
+		if err := handler.LoadSchema(schemaPath); err != nil {
+			t.Fatalf("Failed to load schema: %v", err)
+		}
 		handler.Set("user_key", "user_value")
 
 		values, err := handler.GetContextValues()

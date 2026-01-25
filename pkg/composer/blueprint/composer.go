@@ -111,6 +111,10 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
 	}
 
+	if err := c.validateDependencies(result); err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 
@@ -474,6 +478,38 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 					kustomization.Substitutions = make(map[string]string)
 				}
 				maps.Copy(kustomization.Substitutions, configMapData)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateDependencies checks that all component dependencies reference components that exist in the final blueprint.
+// This validation happens after all composition is complete to ensure dependencies are valid in the final state.
+func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Blueprint) error {
+	tfIDs := make(map[string]struct{})
+	for _, tf := range bp.TerraformComponents {
+		tfIDs[tf.GetID()] = struct{}{}
+	}
+
+	kNames := make(map[string]struct{})
+	for _, k := range bp.Kustomizations {
+		kNames[k.Name] = struct{}{}
+	}
+
+	for _, tf := range bp.TerraformComponents {
+		for _, dep := range tf.DependsOn {
+			if _, exists := tfIDs[dep]; !exists {
+				return fmt.Errorf("terraform component %q depends on non-existent component %q", tf.GetID(), dep)
+			}
+		}
+	}
+
+	for _, k := range bp.Kustomizations {
+		for _, dep := range k.DependsOn {
+			if _, exists := kNames[dep]; !exists {
+				return fmt.Errorf("kustomization %q depends on non-existent kustomization %q", k.Name, dep)
 			}
 		}
 	}

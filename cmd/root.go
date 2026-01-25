@@ -15,6 +15,7 @@ type contextKey string
 const projectOverridesKey = contextKey("projectOverrides")
 const composerOverridesKey = contextKey("composerOverrides")
 const runtimeOverridesKey = contextKey("runtimeOverrides")
+const testRunnerOverridesKey = contextKey("testRunnerOverrides")
 
 var shims = NewShims()
 

@@ -873,9 +873,14 @@ func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 // If the schema validator or schema is unavailable, only the currently loaded data is returned.
 // It also ensures that cluster.controlplanes.nodes and cluster.workers.nodes are initialized as empty maps
 // even though they are not serialized to YAML, so template expressions can safely evaluate them.
+// For test contexts, schema defaults are skipped to ensure tests only use explicitly provided values.
 func (c *configHandler) GetContextValues() (map[string]any, error) {
 	result := make(map[string]any)
-	if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
+	
+	contextName := c.GetContext()
+	skipSchemaDefaults := contextName == "test" || strings.HasPrefix(contextName, "test-")
+	
+	if !skipSchemaDefaults && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
 		defaults, err := c.schemaValidator.GetSchemaDefaults()
 		if err == nil && defaults != nil {
 			result = c.deepMerge(result, defaults)
