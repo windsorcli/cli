@@ -268,7 +268,7 @@ func TestConfigHandler_separateStaticAndDynamicFields(t *testing.T) {
 		handler, _ := setupPrivateTestHandler(t)
 
 		data := map[string]any{
-			"provider":    "generic",
+			"provider":    "docker",
 			"cluster":     map[string]any{"enabled": true},
 			"custom_key":  "custom_value",
 			"another_key": "another_value",
@@ -276,7 +276,7 @@ func TestConfigHandler_separateStaticAndDynamicFields(t *testing.T) {
 
 		staticFields, dynamicFields := handler.separateStaticAndDynamicFields(data)
 
-		if staticFields["provider"] != "generic" {
+		if staticFields["provider"] != "docker" {
 			t.Error("Expected provider in static fields")
 		}
 		if staticFields["cluster"] == nil {

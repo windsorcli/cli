@@ -479,7 +479,7 @@ func TestInitCmd(t *testing.T) {
 
 		// If context is "local" and neither provider nor blueprint is set, set both
 		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "generic"
+			initProvider = "docker"
 			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
@@ -494,8 +494,8 @@ func TestInitCmd(t *testing.T) {
 		}
 
 		// Then both provider and blueprint should be set correctly
-		if initProvider != "generic" {
-			t.Errorf("Expected provider to be 'generic', got %s", initProvider)
+		if initProvider != "docker" {
+			t.Errorf("Expected provider to be 'docker', got %s", initProvider)
 		}
 
 		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
@@ -1011,7 +1011,7 @@ func TestInitCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error should occur and "generic" should be used as provider
+		// Then no error should occur and "docker" should be used as provider
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}

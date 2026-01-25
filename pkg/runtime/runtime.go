@@ -649,7 +649,8 @@ func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string
 
 // ApplyConfigDefaults applies base configuration defaults if no config is currently loaded.
 // It sets "dev" mode in config if the context is a dev context, chooses a default VM driver
-// (optionally honoring a value from flagOverrides), and sets provider to "generic" in dev mode if not already set.
+// (optionally honoring a value from flagOverrides), and sets provider to "docker" in dev mode if not already set,
+// or "incus" if vm.driver is "colima" and vm.runtime is "incus".
 // After those, it loads a default configuration set, choosing among standard, full, localhost, or none
 // defaults depending on provider, dev mode, and vm.driver.
 // This must be called before loading from disk to ensure proper defaulting. Returns error on config operation failure.
@@ -696,12 +697,12 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 		}
 
 		if existingProvider == "" && isDevMode {
-			if vmRuntime == "incus" {
+			if vmDriver == "colima" && vmRuntime == "incus" {
 				if err := rt.ConfigHandler.Set("provider", "incus"); err != nil {
 					return fmt.Errorf("failed to set provider to incus: %w", err)
 				}
 			} else {
-				if err := rt.ConfigHandler.Set("provider", "generic"); err != nil {
+				if err := rt.ConfigHandler.Set("provider", "docker"); err != nil {
 					return fmt.Errorf("failed to set provider from context name: %w", err)
 				}
 			}
@@ -737,7 +738,9 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 // For "aws", it enables AWS and sets the cluster driver to "eks".
 // For "azure", it enables Azure and sets the cluster driver to "aks".
 // For "gcp", it enables GCP and sets the cluster driver to "gke".
-// For "generic", it sets the cluster driver to "talos".
+// For "docker", it sets the cluster driver to "talos".
+// For "metal", it sets the cluster driver to "talos".
+// For "incus", it sets the cluster driver to "talos".
 // If no provider is set but dev mode is enabled, it defaults the cluster driver to "talos".
 // The context name is read from rt.ContextName. Returns an error if any configuration operation fails.
 func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
@@ -769,7 +772,11 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 			if err := rt.ConfigHandler.Set("cluster.driver", "gke"); err != nil {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}
-		case "generic":
+		case "docker":
+			if err := rt.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
+				return fmt.Errorf("failed to set cluster.driver: %w", err)
+			}
+		case "metal":
 			if err := rt.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
 				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}

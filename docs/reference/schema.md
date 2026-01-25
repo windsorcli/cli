@@ -96,7 +96,7 @@ properties:
   provider:
     type: string
     default: "none"
-    enum: ["none", "aws", "azure", "generic"]
+    enum: ["none", "metal", "docker", "aws", "azure", "gcp"]
   observability:
     type: object
     properties:

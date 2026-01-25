@@ -46,9 +46,9 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 		return printer, mocks
 	}
 
-	t.Run("GenericProvider", func(t *testing.T) {
-		// Given a new TalosOmniEnvPrinter with generic provider
-		printer, mocks := setup(t, "generic")
+	t.Run("DockerProvider", func(t *testing.T) {
+		// Given a new TalosOmniEnvPrinter with docker provider
+		printer, mocks := setup(t, "docker")
 
 		// Get the project root path
 		projectRoot, err := mocks.Shell.GetProjectRoot()
@@ -77,9 +77,9 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedTalosPath)
 		}
 
-		// And OMNICONFIG should not be set for generic provider
+		// And OMNICONFIG should not be set for docker provider
 		if _, exists := envVars["OMNICONFIG"]; exists {
-			t.Error("OMNICONFIG should not be set for generic provider")
+			t.Error("OMNICONFIG should not be set for docker provider")
 		}
 	})
 
@@ -123,7 +123,7 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("NoConfigFiles", func(t *testing.T) {
 		// Given a new TalosOmniEnvPrinter without existing config files
-		printer, mocks := setup(t, "generic")
+		printer, mocks := setup(t, "docker")
 
 		// Get the project root path
 		projectRoot, err := mocks.Shell.GetProjectRoot()

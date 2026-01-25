@@ -112,7 +112,29 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		}
 		if _, exists := flagOverrides["provider"]; !exists {
 			if p.configHandler.GetString("provider") == "" {
-				flagOverrides["provider"] = "generic"
+				vmDriver := ""
+				if flagOverrides != nil {
+					if driver, ok := flagOverrides["vm.driver"].(string); ok {
+						vmDriver = driver
+					}
+				}
+				if vmDriver == "" {
+					vmDriver = p.configHandler.GetString("vm.driver")
+				}
+				vmRuntime := ""
+				if flagOverrides != nil {
+					if runtime, ok := flagOverrides["vm.runtime"].(string); ok {
+						vmRuntime = runtime
+					}
+				}
+				if vmRuntime == "" {
+					vmRuntime = p.configHandler.GetString("vm.runtime", "docker")
+				}
+				if vmDriver == "colima" && vmRuntime == "incus" {
+					flagOverrides["provider"] = "incus"
+				} else {
+					flagOverrides["provider"] = "docker"
+				}
 			}
 		}
 	}
@@ -144,9 +166,10 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 
 	if p.configHandler.IsDevMode(p.contextName) {
 		provider := p.configHandler.GetString("provider")
+		vmDriver := p.configHandler.GetString("vm.driver")
 		vmRuntime := p.configHandler.GetString("vm.runtime")
-		if provider == "" || provider == "generic" {
-			if vmRuntime == "incus" {
+		if provider == "" || provider == "docker" {
+			if vmDriver == "colima" && vmRuntime == "incus" {
 				if err := p.configHandler.Set("provider", "incus"); err != nil {
 					return fmt.Errorf("failed to set provider to incus: %w", err)
 				}
