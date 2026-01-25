@@ -13,7 +13,9 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
 // =============================================================================
@@ -1999,6 +2001,275 @@ func TestTestRunner_createGenerator(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to load blueprint") {
 			t.Errorf("Expected load blueprint error, got: %v", err)
+		}
+	})
+
+	t.Run("RegistersMockHelperWhenTerraformOutputsProvided", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		terraformOutputs := map[string]map[string]any{
+			"compute": {
+				"controlplanes": []map[string]any{
+					{"endpoint": "10.5.0.10:6443", "hostname": "controlplane-1"},
+				},
+			},
+		}
+
+		generator := runner.createGenerator(terraformOutputs)
+		values := map[string]any{}
+
+		blueprint, err := generator(values)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if blueprint == nil {
+			t.Error("Expected blueprint to be generated")
+		}
+	})
+
+	t.Run("RegistersMockHelperEvenWhenTerraformDisabled", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		terraformOutputs := map[string]map[string]any{
+			"network": {
+				"vpc_id": "vpc-123",
+			},
+		}
+
+		generator := runner.createGenerator(terraformOutputs)
+		values := map[string]any{
+			"terraform.enabled": false,
+		}
+
+		blueprint, err := generator(values)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if blueprint == nil {
+			t.Error("Expected blueprint to be generated")
+		}
+	})
+}
+
+// =============================================================================
+// Test registerTerraformOutputHelperForMock
+// =============================================================================
+
+func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
+	setupEvaluatorForHelperTest := func(t *testing.T) evaluator.ExpressionEvaluator {
+		t.Helper()
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return make(map[string]any), nil
+		}
+		return evaluator.NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
+	}
+
+	t.Run("ReturnsMockedValueWhenKeyExists", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				if componentID == "compute" {
+					return map[string]any{
+						"controlplanes": []map[string]any{
+							{"endpoint": "10.5.0.10:6443", "hostname": "controlplane-1"},
+						},
+					}, nil
+				}
+				return make(map[string]any), nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		result, err := eval.Evaluate(`${terraform_output("compute", "controlplanes")}`, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		controlplanes, ok := result.([]map[string]any)
+		if !ok {
+			t.Fatalf("Expected array of maps, got %T: %v", result, result)
+		}
+		if len(controlplanes) != 1 {
+			t.Errorf("Expected 1 controlplane, got %d", len(controlplanes))
+		}
+		if controlplanes[0]["endpoint"] != "10.5.0.10:6443" {
+			t.Errorf("Expected endpoint '10.5.0.10:6443', got '%v'", controlplanes[0]["endpoint"])
+		}
+		if controlplanes[0]["hostname"] != "controlplane-1" {
+			t.Errorf("Expected hostname 'controlplane-1', got '%v'", controlplanes[0]["hostname"])
+		}
+	})
+
+	t.Run("ReturnsNilWhenKeyDoesNotExist", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				return map[string]any{
+					"vpc_id": "vpc-123",
+				}, nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		result, err := eval.Evaluate(`${terraform_output("network", "nonexistent") ?? "default"}`, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error (nil return enables ?? fallback), got: %v", err)
+		}
+		if result != "default" {
+			t.Errorf("Expected 'default' from ?? fallback when key doesn't exist, got: %v", result)
+		}
+	})
+
+	t.Run("ReturnsNilWhenComponentDoesNotExist", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				return make(map[string]any), nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		result, err := eval.Evaluate(`${terraform_output("nonexistent", "key") ?? "fallback"}`, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error (nil return enables ?? fallback), got: %v", err)
+		}
+		if result != "fallback" {
+			t.Errorf("Expected 'fallback' from ?? fallback when component doesn't exist, got: %v", result)
+		}
+	})
+
+	t.Run("ReturnsDeferredErrorWhenDeferredIsFalse", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				return map[string]any{"key": "value"}, nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		result, err := eval.Evaluate(`prefix-${terraform_output("component", "key")}-suffix`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error (expression preserved), got: %v", err)
+		}
+		if result != `prefix-${terraform_output("component", "key")}-suffix` {
+			t.Errorf("Expected expression to be preserved when deferred=false, got: %v", result)
+		}
+	})
+
+	t.Run("HandlesNestedArrayValues", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				if componentID == "compute" {
+					return map[string]any{
+						"controlplanes": []any{
+							map[string]any{"endpoint": "10.5.0.10:6443", "hostname": "controlplane-1"},
+							map[string]any{"endpoint": "10.5.0.11:6443", "hostname": "controlplane-2"},
+						},
+					}, nil
+				}
+				return make(map[string]any), nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		result, err := eval.Evaluate(`${terraform_output("compute", "controlplanes")}`, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		controlplanes, ok := result.([]any)
+		if !ok {
+			t.Fatalf("Expected array, got %T: %v", result, result)
+		}
+		if len(controlplanes) != 2 {
+			t.Errorf("Expected 2 controlplanes, got %d", len(controlplanes))
+		}
+	})
+
+	t.Run("HandlesStringValues", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				return map[string]any{
+					"vpc_id": "vpc-123",
+				}, nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		result, err := eval.Evaluate(`${terraform_output("network", "vpc_id")}`, "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "vpc-123" {
+			t.Errorf("Expected 'vpc-123', got: %v", result)
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidArguments", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				return make(map[string]any), nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		_, err := eval.Evaluate(`${terraform_output("component")}`, "", true)
+
+		if err == nil {
+			t.Error("Expected error for invalid number of arguments")
+		}
+		if !strings.Contains(err.Error(), "not enough arguments") && !strings.Contains(err.Error(), "exactly 2 arguments") {
+			t.Errorf("Expected error about arguments, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForNonStringComponent", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				return make(map[string]any), nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		_, err := eval.Evaluate(`${terraform_output(123, "key")}`, "", true)
+
+		if err == nil {
+			t.Error("Expected error for non-string component")
+		}
+		if !strings.Contains(err.Error(), "cannot use int") && !strings.Contains(err.Error(), "component must be a string") {
+			t.Errorf("Expected error about string component, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorForNonStringKey", func(t *testing.T) {
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				return make(map[string]any), nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		registerTerraformOutputHelperForMock(mockProvider, eval)
+
+		_, err := eval.Evaluate(`${terraform_output("component", 456)}`, "", true)
+
+		if err == nil {
+			t.Error("Expected error for non-string key")
+		}
+		if !strings.Contains(err.Error(), "cannot use int") && !strings.Contains(err.Error(), "key must be a string") {
+			t.Errorf("Expected error about string key, got: %v", err)
 		}
 	})
 }

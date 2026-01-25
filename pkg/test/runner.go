@@ -111,27 +111,24 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 				return nil, fmt.Errorf("failed to set value %s: %w", key, err)
 			}
 		}
-		if rt.ConfigHandler.GetBool("terraform.enabled", false) {
-			if len(terraformOutputs) > 0 {
-				mockProvider := &terraform.MockTerraformProvider{
-					GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
-						if outputs, exists := terraformOutputs[componentID]; exists {
-							return outputs, nil
-						}
-						return make(map[string]any), nil
-					},
-				}
+
+		if err := rt.InitializeComponents(); err != nil {
+			return nil, fmt.Errorf("failed to initialize components: %w", err)
+		}
+
+		if len(terraformOutputs) > 0 {
+			mockProvider := &terraform.MockTerraformProvider{
+				GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+					if outputs, exists := terraformOutputs[componentID]; exists {
+						return outputs, nil
+					}
+					return make(map[string]any), nil
+				},
+			}
+			if rt.ConfigHandler.GetBool("terraform.enabled", false) {
 				rt.TerraformProvider = mockProvider
-				registerTerraformOutputHelperForMock(mockProvider, rt.Evaluator)
-			} else {
-				if err := rt.InitializeComponents(); err != nil {
-					return nil, fmt.Errorf("failed to initialize components: %w", err)
-				}
 			}
-		} else {
-			if err := rt.InitializeComponents(); err != nil {
-				return nil, fmt.Errorf("failed to initialize components: %w", err)
-			}
+			registerTerraformOutputHelperForMock(mockProvider, rt.Evaluator)
 		}
 
 		testBlueprintHandler := blueprint.NewBlueprintHandler(rt, r.artifactBuilder)
@@ -153,7 +150,9 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 // for use in test scenarios. This allows tests to provide mock Terraform output values without requiring actual
 // Terraform state or infrastructure. The helper validates that exactly two string arguments (component ID and output key)
 // are provided, and returns a DeferredError if called without the deferred flag to match production behavior.
-// When called with deferred=true, it retrieves the output value from the mock provider or returns nil if not found.
+// When called with deferred=true, it retrieves the output value from the mock provider. If the key exists in the
+// component's outputs, it returns the value (which can be any type: string, array, object, etc.). If the key does
+// not exist, it returns nil (not an error), enabling the ?? fallback operator to work correctly in expressions.
 func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformProvider, eval evaluator.ExpressionEvaluator) {
 	eval.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		if len(params) != 2 {
