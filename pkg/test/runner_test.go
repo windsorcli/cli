@@ -168,7 +168,7 @@ func TestTestRunner_Run(t *testing.T) {
 		runner := createRunnerWithMockGenerator(mocks)
 
 		// When running tests
-		_, err := runner.Run("", false)
+		_, err := runner.Run("")
 
 		// Then an error should be returned
 		if err == nil {
@@ -188,7 +188,7 @@ cases:
 		runner := createRunnerWithMockGenerator(mocks)
 
 		// When running tests with a filter that matches nothing
-		_, err := runner.Run("nonexistent-test", false)
+		_, err := runner.Run("nonexistent-test")
 
 		// Then an error should be returned
 		if err == nil {
@@ -210,7 +210,7 @@ cases:
 		runner := createRunnerWithMockGenerator(mocks)
 
 		// When running tests
-		results, err := runner.Run("", false)
+		results, err := runner.Run("")
 
 		// Then all tests should be run
 		if err != nil {
@@ -235,7 +235,7 @@ cases:
 		runner := createRunnerWithMockGenerator(mocks)
 
 		// When running tests with a filter
-		results, err := runner.Run("test-case-1", false)
+		results, err := runner.Run("test-case-1")
 
 		// Then only matching test should be run
 		if err != nil {
@@ -260,7 +260,7 @@ cases:
 `)
 		runner := createRunnerWithMockGenerator(mocks)
 
-		results, err := runner.Run("", false)
+		results, err := runner.Run("")
 
 		if err != nil {
 			t.Errorf("Expected no error (errors are in diffs), got: %v", err)
@@ -287,7 +287,7 @@ cases:
 		runner := createRunnerWithMockGenerator(mocks)
 
 		// When running tests
-		_, err := runner.Run("", false)
+		_, err := runner.Run("")
 
 		// Then an error should be returned
 		if err == nil {
@@ -300,14 +300,12 @@ cases:
 		runner := createRunnerWithMockGenerator(mocks)
 
 		var calledFilter string
-		var calledUpdate bool
-		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+		runner.RunFunc = func(filter string) ([]TestResult, error) {
 			calledFilter = filter
-			calledUpdate = update
 			return []TestResult{{Name: "test", Passed: true}}, nil
 		}
 
-		results, err := runner.Run("test-filter", true)
+		results, err := runner.Run("test-filter")
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -318,8 +316,209 @@ cases:
 		if calledFilter != "test-filter" {
 			t.Errorf("Expected filter 'test-filter', got: %q", calledFilter)
 		}
-		if !calledUpdate {
-			t.Error("Expected update to be true")
+	})
+
+	t.Run("ReturnsErrorWhenRunFuncReturnsError", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string) ([]TestResult, error) {
+			return nil, fmt.Errorf("run func error")
+		}
+
+		_, err := runner.Run("")
+
+		if err == nil {
+			t.Error("Expected error when RunFunc returns error")
+		}
+		if !strings.Contains(err.Error(), "run func error") {
+			t.Errorf("Expected run func error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenDiscoverTestFilesFails", func(t *testing.T) {
+		if goruntime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent directory operations")
+		}
+
+		tmpDir := t.TempDir()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockArtifact := artifact.NewMockArtifact()
+		runner := &TestRunner{
+			projectRoot:     tmpDir,
+			baseShell:       mockShell,
+			baseProjectRoot: tmpDir,
+			artifactBuilder: mockArtifact,
+		}
+
+		testsDir := filepath.Join(tmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		os.Chmod(testsDir, 0000)
+		defer os.Chmod(testsDir, 0755)
+
+		_, err := runner.Run("")
+
+		if err == nil {
+			t.Error("Expected error when discoverTestFiles fails")
+		}
+	})
+}
+
+func TestTestRunner_RunAndPrint(t *testing.T) {
+	t.Run("ReturnsErrorWhenRunFails", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string) ([]TestResult, error) {
+			return nil, fmt.Errorf("run error")
+		}
+
+		err := runner.RunAndPrint("")
+
+		if err == nil {
+			t.Error("Expected error from Run to be propagated")
+		}
+		if err.Error() != "run error" {
+			t.Errorf("Expected error 'run error', got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTestsFail", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string) ([]TestResult, error) {
+			return []TestResult{
+				{Name: "test-1", Passed: false, Diffs: []string{"diff1"}},
+			}, nil
+		}
+
+		err := runner.RunAndPrint("")
+
+		if err == nil {
+			t.Error("Expected error when tests fail")
+		}
+		if !strings.Contains(err.Error(), "test(s) failed") {
+			t.Errorf("Expected error about failed tests, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenAllTestsPass", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string) ([]TestResult, error) {
+			return []TestResult{
+				{Name: "test-1", Passed: true},
+			}, nil
+		}
+
+		err := runner.RunAndPrint("")
+
+		if err != nil {
+			t.Errorf("Expected no error when all tests pass, got: %v", err)
+		}
+	})
+
+	t.Run("HandlesEmptyResults", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		runner.RunFunc = func(filter string) ([]TestResult, error) {
+			return []TestResult{}, nil
+		}
+
+		err := runner.RunAndPrint("")
+
+		if err != nil {
+			t.Errorf("Expected no error for empty results, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenNoTestFilesFound", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockArtifact := artifact.NewMockArtifact()
+		runner := &TestRunner{
+			projectRoot:     tmpDir,
+			baseShell:       mockShell,
+			baseProjectRoot: tmpDir,
+			artifactBuilder: mockArtifact,
+		}
+
+		err := runner.RunAndPrint("")
+
+		if err == nil {
+			t.Error("Expected error when no test files found")
+		}
+		if !strings.Contains(err.Error(), "no test files found") {
+			t.Errorf("Expected 'no test files found' error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenFilterMatchesNoTests", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		createTestFile(t, testsDir, "test.test.yaml", `
+cases:
+  - name: test-case-1
+    values: {}
+`)
+
+		err := runner.RunAndPrint("nonexistent-test")
+
+		if err == nil {
+			t.Error("Expected error when filter matches no tests")
+		}
+		if !strings.Contains(err.Error(), "no test cases found matching filter") {
+			t.Errorf("Expected filter error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTestFileParseFails", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		createTestFile(t, testsDir, "invalid.test.yaml", `invalid: yaml: [[[`)
+
+		err := runner.RunAndPrint("")
+
+		if err == nil {
+			t.Error("Expected error when test file parse fails")
+		}
+		if !strings.Contains(err.Error(), "failed to parse test file") {
+			t.Errorf("Expected parse error, got: %v", err)
+		}
+	})
+
+	t.Run("UsesRunFuncWhenSet", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		var calledFilter string
+		runner.RunFunc = func(filter string) ([]TestResult, error) {
+			calledFilter = filter
+			return []TestResult{{Name: "test", Passed: true}}, nil
+		}
+
+		err := runner.RunAndPrint("test-filter")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if calledFilter != "test-filter" {
+			t.Errorf("Expected filter 'test-filter', got: %q", calledFilter)
 		}
 	})
 
@@ -327,17 +526,67 @@ cases:
 		mocks := setupTestRunnerMocks(t)
 		runner := createRunnerWithMockGenerator(mocks)
 
-		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
+		runner.RunFunc = func(filter string) ([]TestResult, error) {
 			return nil, fmt.Errorf("run func error")
 		}
 
-		_, err := runner.Run("", false)
+		err := runner.RunAndPrint("")
 
 		if err == nil {
 			t.Error("Expected error when RunFunc returns error")
 		}
 		if !strings.Contains(err.Error(), "run func error") {
 			t.Errorf("Expected run func error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenDiscoverTestFilesFails", func(t *testing.T) {
+		if goruntime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent directory operations")
+		}
+
+		tmpDir := t.TempDir()
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		mockArtifact := artifact.NewMockArtifact()
+		runner := &TestRunner{
+			projectRoot:     tmpDir,
+			baseShell:       mockShell,
+			baseProjectRoot: tmpDir,
+			artifactBuilder: mockArtifact,
+		}
+
+		testsDir := filepath.Join(tmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		os.Chmod(testsDir, 0000)
+		defer os.Chmod(testsDir, 0755)
+
+		err := runner.RunAndPrint("")
+
+		if err == nil {
+			t.Error("Expected error when discoverTestFiles fails")
+		}
+		if !strings.Contains(err.Error(), "failed to discover test files") {
+			t.Errorf("Expected discover error, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoTestCasesAndNoFilter", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		os.MkdirAll(testsDir, 0755)
+		createTestFile(t, testsDir, "empty.test.yaml", `
+cases: []
+`)
+
+		err := runner.RunAndPrint("")
+
+		if err != nil {
+			t.Errorf("Expected no error when no test cases and no filter, got: %v", err)
 		}
 	})
 }
@@ -358,7 +607,7 @@ func TestTestRunner_runTestCase(t *testing.T) {
 		}
 
 		// When running the test case
-		result, err := runner.runTestCase(tc, false)
+		result, err := runner.runTestCase(tc)
 
 		// Then it should pass with no error
 		if err != nil {
@@ -381,7 +630,7 @@ func TestTestRunner_runTestCase(t *testing.T) {
 		}
 
 		// When running the test case
-		result, err := runner.runTestCase(tc, false)
+		result, err := runner.runTestCase(tc)
 
 		// Then it should fail with composition error in diffs
 		if err != nil {
@@ -420,7 +669,7 @@ terraform:
 		}
 
 		// When running the test case
-		result, err := runner.runTestCase(tc, false)
+		result, err := runner.runTestCase(tc)
 
 		// Then it should pass
 		if err != nil {
@@ -447,7 +696,7 @@ terraform:
 		}
 
 		// When running the test case
-		result, err := runner.runTestCase(tc, false)
+		result, err := runner.runTestCase(tc)
 
 		// Then it should fail
 		if err != nil {
@@ -474,7 +723,7 @@ terraform:
 		}
 
 		// When running the test case
-		result, err := runner.runTestCase(tc, false)
+		result, err := runner.runTestCase(tc)
 
 		// Then it should pass
 		if err != nil {
@@ -510,7 +759,7 @@ terraform:
 		}
 
 		// When running the test case
-		result, err := runner.runTestCase(tc, false)
+		result, err := runner.runTestCase(tc)
 
 		// Then it should fail
 		if err != nil {
@@ -534,7 +783,7 @@ terraform:
 		}
 
 		// When running the test case
-		result, err := runner.runTestCase(tc, false)
+		result, err := runner.runTestCase(tc)
 
 		// Then it should pass
 		if err != nil {
@@ -557,7 +806,7 @@ terraform:
 		}
 
 		// When running the test case
-		result, err := runner.runTestCase(tc, false)
+		result, err := runner.runTestCase(tc)
 
 		// Then it should fail because expectError is true but composition succeeded
 		if err != nil {
@@ -570,78 +819,6 @@ terraform:
 			t.Errorf("Expected error message in diffs. Result: %+v", result)
 		} else if !strings.Contains(result.Diffs[0], "expected composition to fail") {
 			t.Errorf("Expected error message about expected failure, got: %v", result.Diffs)
-		}
-	})
-}
-
-func TestTestRunner_RunAndPrint(t *testing.T) {
-	t.Run("ReturnsErrorWhenRunFails", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
-			return nil, fmt.Errorf("run error")
-		}
-
-		err := runner.RunAndPrint("", false)
-
-		if err == nil {
-			t.Error("Expected error from Run to be propagated")
-		}
-		if err.Error() != "run error" {
-			t.Errorf("Expected error 'run error', got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenTestsFail", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
-			return []TestResult{
-				{Name: "test-1", Passed: false, Diffs: []string{"diff1"}},
-			}, nil
-		}
-
-		err := runner.RunAndPrint("", false)
-
-		if err == nil {
-			t.Error("Expected error when tests fail")
-		}
-		if !strings.Contains(err.Error(), "test(s) failed") {
-			t.Errorf("Expected error about failed tests, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsNilWhenAllTestsPass", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
-			return []TestResult{
-				{Name: "test-1", Passed: true},
-			}, nil
-		}
-
-		err := runner.RunAndPrint("", false)
-
-		if err != nil {
-			t.Errorf("Expected no error when all tests pass, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesEmptyResults", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
-			return []TestResult{}, nil
-		}
-
-		err := runner.RunAndPrint("", false)
-
-		if err != nil {
-			t.Errorf("Expected no error for empty results, got: %v", err)
 		}
 	})
 }
@@ -1415,51 +1592,6 @@ func TestTestRunner_matchKustomization(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestContains(t *testing.T) {
-	t.Run("ReturnsTrueWhenItemExists", func(t *testing.T) {
-		// Given a slice with items
-		slice := []string{"a", "b", "c"}
-
-		// When checking for existing item
-		result := contains(slice, "b")
-
-		// Then true should be returned
-		if !result {
-			t.Error("Expected true for existing item")
-		}
-	})
-
-	t.Run("ReturnsFalseWhenItemDoesNotExist", func(t *testing.T) {
-		// Given a slice with items
-		slice := []string{"a", "b", "c"}
-
-		// When checking for nonexistent item
-		result := contains(slice, "d")
-
-		// Then false should be returned
-		if result {
-			t.Error("Expected false for nonexistent item")
-		}
-	})
-
-	t.Run("ReturnsFalseForEmptySlice", func(t *testing.T) {
-		// Given an empty slice
-		slice := []string{}
-
-		// When checking for any item
-		result := contains(slice, "a")
-
-		// Then false should be returned
-		if result {
-			t.Error("Expected false for empty slice")
-		}
-	})
-}
-
 func TestTestRunner_validateBlueprint(t *testing.T) {
 	t.Run("DetectsDuplicateTerraformComponents", func(t *testing.T) {
 		mocks := setupTestRunnerMocks(t)
@@ -1649,9 +1781,6 @@ func TestTestRunner_validateBlueprint(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test runTestsSequentially
-// =============================================================================
 
 func TestTestRunner_runTestsSequentially(t *testing.T) {
 	t.Run("RunsTestsSequentiallyAndGroupsByFile", func(t *testing.T) {
@@ -1664,7 +1793,6 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 					Name:   "test-1",
 					Values: map[string]any{},
 				},
-				filePath: "/path/to/file1.test.yaml",
 				fileName: "file1.test.yaml",
 			},
 			{
@@ -1672,7 +1800,6 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 					Name:   "test-2",
 					Values: map[string]any{},
 				},
-				filePath: "/path/to/file1.test.yaml",
 				fileName: "file1.test.yaml",
 			},
 			{
@@ -1680,7 +1807,6 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 					Name:   "test-3",
 					Values: map[string]any{},
 				},
-				filePath: "/path/to/file2.test.yaml",
 				fileName: "file2.test.yaml",
 			},
 		}
@@ -1695,7 +1821,7 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 			done <- true
 		}()
 
-		err := runner.runTestsSequentially(testCasesWithFiles, false)
+		err := runner.runTestsSequentially(testCasesWithFiles)
 		w.Close()
 		<-done
 		os.Stdout = oldStdout
@@ -1733,7 +1859,6 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 						},
 					},
 				},
-				filePath: "/path/to/test.test.yaml",
 				fileName: "test.test.yaml",
 			},
 		}
@@ -1748,7 +1873,7 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 			done <- true
 		}()
 
-		err := runner.runTestsSequentially(testCasesWithFiles, false)
+		err := runner.runTestsSequentially(testCasesWithFiles)
 		w.Close()
 		<-done
 		os.Stdout = oldStdout
@@ -1765,173 +1890,6 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// Test RunAndPrint
-// =============================================================================
-
-func TestTestRunner_RunAndPrint_Additional(t *testing.T) {
-	t.Run("ReturnsErrorWhenNoTestFilesFound", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		mockArtifact := artifact.NewMockArtifact()
-		runner := &TestRunner{
-			projectRoot:     tmpDir,
-			baseShell:       mockShell,
-			baseProjectRoot: tmpDir,
-			artifactBuilder: mockArtifact,
-		}
-
-		err := runner.RunAndPrint("", false)
-
-		if err == nil {
-			t.Error("Expected error when no test files found")
-		}
-		if !strings.Contains(err.Error(), "no test files found") {
-			t.Errorf("Expected 'no test files found' error, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenFilterMatchesNoTests", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
-		os.MkdirAll(testsDir, 0755)
-		createTestFile(t, testsDir, "test.test.yaml", `
-cases:
-  - name: test-case-1
-    values: {}
-`)
-
-		err := runner.RunAndPrint("nonexistent-test", false)
-
-		if err == nil {
-			t.Error("Expected error when filter matches no tests")
-		}
-		if !strings.Contains(err.Error(), "no test cases found matching filter") {
-			t.Errorf("Expected filter error, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenTestFileParseFails", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
-		os.MkdirAll(testsDir, 0755)
-		createTestFile(t, testsDir, "invalid.test.yaml", `invalid: yaml: [[[`)
-
-		err := runner.RunAndPrint("", false)
-
-		if err == nil {
-			t.Error("Expected error when test file parse fails")
-		}
-		if !strings.Contains(err.Error(), "failed to parse test file") {
-			t.Errorf("Expected parse error, got: %v", err)
-		}
-	})
-
-	t.Run("UsesRunFuncWhenSet", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		var calledFilter string
-		var calledUpdate bool
-		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
-			calledFilter = filter
-			calledUpdate = update
-			return []TestResult{{Name: "test", Passed: true}}, nil
-		}
-
-		err := runner.RunAndPrint("test-filter", true)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if calledFilter != "test-filter" {
-			t.Errorf("Expected filter 'test-filter', got: %q", calledFilter)
-		}
-		if !calledUpdate {
-			t.Error("Expected update to be true")
-		}
-	})
-
-	t.Run("ReturnsErrorWhenRunFuncReturnsError", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		runner.RunFunc = func(filter string, update bool) ([]TestResult, error) {
-			return nil, fmt.Errorf("run func error")
-		}
-
-		err := runner.RunAndPrint("", false)
-
-		if err == nil {
-			t.Error("Expected error when RunFunc returns error")
-		}
-		if !strings.Contains(err.Error(), "run func error") {
-			t.Errorf("Expected run func error, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenDiscoverTestFilesFails", func(t *testing.T) {
-		if goruntime.GOOS == "windows" {
-			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent directory operations")
-		}
-
-		tmpDir := t.TempDir()
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		mockArtifact := artifact.NewMockArtifact()
-		runner := &TestRunner{
-			projectRoot:     tmpDir,
-			baseShell:       mockShell,
-			baseProjectRoot: tmpDir,
-			artifactBuilder: mockArtifact,
-		}
-
-		testsDir := filepath.Join(tmpDir, "contexts", "_template", "tests")
-		os.MkdirAll(testsDir, 0755)
-		os.Chmod(testsDir, 0000)
-		defer os.Chmod(testsDir, 0755)
-
-		err := runner.RunAndPrint("", false)
-
-		if err == nil {
-			t.Error("Expected error when discoverTestFiles fails")
-		}
-		if !strings.Contains(err.Error(), "failed to discover test files") {
-			t.Errorf("Expected discover error, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsNilWhenNoTestCasesAndNoFilter", func(t *testing.T) {
-		mocks := setupTestRunnerMocks(t)
-		runner := createRunnerWithMockGenerator(mocks)
-
-		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
-		os.MkdirAll(testsDir, 0755)
-		createTestFile(t, testsDir, "empty.test.yaml", `
-cases: []
-`)
-
-		err := runner.RunAndPrint("", false)
-
-		if err != nil {
-			t.Errorf("Expected no error when no test cases and no filter, got: %v", err)
-		}
-	})
-}
-
-// =============================================================================
-// Test createGenerator
-// =============================================================================
 
 func TestTestRunner_createGenerator(t *testing.T) {
 	t.Run("CreatesGeneratorWithTerraformOutputs", func(t *testing.T) {
@@ -2047,8 +2005,49 @@ func TestTestRunner_createGenerator(t *testing.T) {
 }
 
 // =============================================================================
-// Test registerTerraformOutputHelperForMock
+// Test Helpers
 // =============================================================================
+
+func TestContains(t *testing.T) {
+	t.Run("ReturnsTrueWhenItemExists", func(t *testing.T) {
+		// Given a slice with items
+		slice := []string{"a", "b", "c"}
+
+		// When checking for existing item
+		result := contains(slice, "b")
+
+		// Then true should be returned
+		if !result {
+			t.Error("Expected true for existing item")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenItemDoesNotExist", func(t *testing.T) {
+		// Given a slice with items
+		slice := []string{"a", "b", "c"}
+
+		// When checking for nonexistent item
+		result := contains(slice, "d")
+
+		// Then false should be returned
+		if result {
+			t.Error("Expected false for nonexistent item")
+		}
+	})
+
+	t.Run("ReturnsFalseForEmptySlice", func(t *testing.T) {
+		// Given an empty slice
+		slice := []string{}
+
+		// When checking for any item
+		result := contains(slice, "a")
+
+		// Then false should be returned
+		if result {
+			t.Error("Expected false for empty slice")
+		}
+	})
+}
 
 func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 	setupEvaluatorForHelperTest := func(t *testing.T) evaluator.ExpressionEvaluator {
@@ -2261,42 +2260,6 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "cannot use int") && !strings.Contains(err.Error(), "key must be a string") {
 			t.Errorf("Expected error about string key, got: %v", err)
-		}
-	})
-}
-
-// =============================================================================
-// Test Run additional cases
-// =============================================================================
-
-func TestTestRunner_Run_Additional(t *testing.T) {
-	t.Run("ReturnsErrorWhenDiscoverTestFilesFails", func(t *testing.T) {
-		if goruntime.GOOS == "windows" {
-			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent directory operations")
-		}
-
-		tmpDir := t.TempDir()
-		mockShell := shell.NewMockShell()
-		mockShell.GetProjectRootFunc = func() (string, error) {
-			return tmpDir, nil
-		}
-		mockArtifact := artifact.NewMockArtifact()
-		runner := &TestRunner{
-			projectRoot:     tmpDir,
-			baseShell:       mockShell,
-			baseProjectRoot: tmpDir,
-			artifactBuilder: mockArtifact,
-		}
-
-		testsDir := filepath.Join(tmpDir, "contexts", "_template", "tests")
-		os.MkdirAll(testsDir, 0755)
-		os.Chmod(testsDir, 0000)
-		defer os.Chmod(testsDir, 0755)
-
-		_, err := runner.Run("", false)
-
-		if err == nil {
-			t.Error("Expected error when discoverTestFiles fails")
 		}
 	})
 }

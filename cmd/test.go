@@ -9,10 +9,6 @@ import (
 	"github.com/windsorcli/cli/pkg/test"
 )
 
-var (
-	testUpdate bool
-)
-
 var testCmd = &cobra.Command{
 	Use:          "test [test-name]",
 	Short:        "Run blueprint composition tests",
@@ -49,11 +45,10 @@ var testCmd = &cobra.Command{
 			testFilter = args[0]
 		}
 
-		return testRunner.RunAndPrint(testFilter, testUpdate)
+		return testRunner.RunAndPrint(testFilter)
 	},
 }
 
 func init() {
-	testCmd.Flags().BoolVar(&testUpdate, "update", false, "Update expected outputs instead of comparing")
 	rootCmd.AddCommand(testCmd)
 }

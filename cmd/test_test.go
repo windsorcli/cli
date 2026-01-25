@@ -74,7 +74,7 @@ func setupTestCmdMocks(t *testing.T, opts ...*SetupOptions) *TestCmdMocks {
 	}
 
 	mockTestRunner := &test.TestRunner{
-		RunFunc: func(filter string, update bool) ([]test.TestResult, error) {
+		RunFunc: func(filter string) ([]test.TestResult, error) {
 			return []test.TestResult{}, nil
 		},
 	}
@@ -121,7 +121,7 @@ func TestTestCmd(t *testing.T) {
 	t.Run("SuccessWithAllTestsPassing", func(t *testing.T) {
 		mocks := setupTestCmdMocks(t)
 
-		mocks.TestRunner.RunFunc = func(filter string, update bool) ([]test.TestResult, error) {
+		mocks.TestRunner.RunFunc = func(filter string) ([]test.TestResult, error) {
 			return []test.TestResult{
 				{Name: "test-1", Passed: true},
 				{Name: "test-2", Passed: true},
@@ -153,7 +153,7 @@ func TestTestCmd(t *testing.T) {
 	t.Run("FailsWithFailingTests", func(t *testing.T) {
 		mocks := setupTestCmdMocks(t)
 
-		mocks.TestRunner.RunFunc = func(filter string, update bool) ([]test.TestResult, error) {
+		mocks.TestRunner.RunFunc = func(filter string) ([]test.TestResult, error) {
 			return []test.TestResult{
 				{Name: "test-1", Passed: true},
 				{Name: "test-2", Passed: false, Diffs: []string{"expected X, got Y"}},
@@ -190,7 +190,7 @@ func TestTestCmd(t *testing.T) {
 		mocks := setupTestCmdMocks(t)
 
 		var capturedFilter string
-		mocks.TestRunner.RunFunc = func(filter string, update bool) ([]test.TestResult, error) {
+		mocks.TestRunner.RunFunc = func(filter string) ([]test.TestResult, error) {
 			capturedFilter = filter
 			return []test.TestResult{
 				{Name: "specific-test", Passed: true},
@@ -211,32 +211,6 @@ func TestTestCmd(t *testing.T) {
 
 		if capturedFilter != "specific-test" {
 			t.Errorf("Expected filter 'specific-test', got: %q", capturedFilter)
-		}
-	})
-
-	t.Run("PassesUpdateFlagToTestRunner", func(t *testing.T) {
-		mocks := setupTestCmdMocks(t)
-
-		var capturedUpdate bool
-		mocks.TestRunner.RunFunc = func(filter string, update bool) ([]test.TestResult, error) {
-			capturedUpdate = update
-			return []test.TestResult{}, nil
-		}
-
-		proj := project.NewProject("", &project.Project{
-			Runtime: mocks.Runtime,
-		})
-
-		cmd := createTestCommand()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		ctx = context.WithValue(ctx, testRunnerOverridesKey, mocks.TestRunner)
-		cmd.SetContext(ctx)
-		cmd.SetArgs([]string{"--update"})
-
-		_ = cmd.Execute()
-
-		if !capturedUpdate {
-			t.Error("Expected update flag to be true")
 		}
 	})
 
@@ -319,7 +293,7 @@ func TestTestCmd_ErrorScenarios(t *testing.T) {
 	t.Run("HandlesTestRunnerError", func(t *testing.T) {
 		mocks := setupTestCmdMocks(t)
 
-		mocks.TestRunner.RunFunc = func(filter string, update bool) ([]test.TestResult, error) {
+		mocks.TestRunner.RunFunc = func(filter string) ([]test.TestResult, error) {
 			return nil, fmt.Errorf("no test files found")
 		}
 
@@ -347,7 +321,7 @@ func TestTestCmd_ErrorScenarios(t *testing.T) {
 	t.Run("HandlesFilterMatchingNoTests", func(t *testing.T) {
 		mocks := setupTestCmdMocks(t)
 
-		mocks.TestRunner.RunFunc = func(filter string, update bool) ([]test.TestResult, error) {
+		mocks.TestRunner.RunFunc = func(filter string) ([]test.TestResult, error) {
 			return nil, fmt.Errorf("no test cases found matching filter: %s", filter)
 		}
 
