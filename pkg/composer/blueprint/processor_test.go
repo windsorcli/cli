@@ -253,8 +253,36 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 	})
 
+	t.Run("ExcludesFacetWhenConditionReferencesUndefinedVariable", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-undefined"},
+				When:     "undefined_feature",
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "eks"}},
+				},
+			},
+		}
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			return nil, nil
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 0 {
+			t.Errorf("Expected 0 terraform components for undefined condition, got %d", len(target.TerraformComponents))
+		}
+	})
+
 	t.Run("ProcessesFacetsInSortedOrder", func(t *testing.T) {
-		// Given facets in unsorted order
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 

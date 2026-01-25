@@ -759,8 +759,8 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
 // the provided configuration data. The path parameter provides context for error messages and
 // helper function resolution. Returns true if the expression evaluates to boolean true or the
-// string "true", false otherwise. Returns an error if the expression is invalid or evaluates
-// to an unexpected type.
+// string "true". Returns false for nil (undefined variables) or boolean false. Returns an error
+// if the expression is invalid or evaluates to an unexpected type.
 func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bool, error) {
 	if !evaluator.ContainsExpression(expr) {
 		expr = "${" + expr + "}"
@@ -772,6 +772,8 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bo
 
 	var result bool
 	switch v := evaluated.(type) {
+	case nil:
+		result = false
 	case bool:
 		result = v
 	case string:
