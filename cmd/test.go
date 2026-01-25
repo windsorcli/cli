@@ -41,7 +41,7 @@ var testCmd = &cobra.Command{
 		if overrideVal := cmd.Context().Value(testRunnerOverridesKey); overrideVal != nil {
 			testRunner = overrideVal.(*test.TestRunner)
 		} else {
-			testRunner = test.NewTestRunner(proj.Runtime, comp.BlueprintHandler, comp.ArtifactBuilder)
+			testRunner = test.NewTestRunner(proj.Runtime, comp.ArtifactBuilder)
 		}
 
 		var testFilter string
