@@ -417,6 +417,7 @@ func (r *TestRunner) discoverTestFiles(testsDir string) ([]string, error) {
 // the file path for easier debugging. The parsed TestFile contains all test cases defined in
 // the file, which can then be executed by the test runner.
 func (r *TestRunner) parseTestFile(path string) (*blueprintv1alpha1.TestFile, error) {
+	// #nosec G304 - Test file paths are derived from walking the project directory, intentional CLI behavior
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

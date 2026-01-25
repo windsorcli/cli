@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -1890,6 +1891,10 @@ cases:
 	})
 
 	t.Run("ReturnsErrorWhenDiscoverTestFilesFails", func(t *testing.T) {
+		if goruntime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent directory operations")
+		}
+
 		tmpDir := t.TempDir()
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
@@ -2280,6 +2285,10 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 
 func TestTestRunner_Run_Additional(t *testing.T) {
 	t.Run("ReturnsErrorWhenDiscoverTestFilesFails", func(t *testing.T) {
+		if goruntime.GOOS == "windows" {
+			t.Skip("Skipping on Windows: os.Chmod with 0000 does not prevent directory operations")
+		}
+
 		tmpDir := t.TempDir()
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
