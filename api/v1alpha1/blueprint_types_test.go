@@ -325,6 +325,118 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesKustomizationSubstitutions", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "observability",
+					Substitutions: map[string]string{
+						"external_domain": "example.com",
+						"timezone":        "UTC",
+					},
+				},
+			},
+		}
+
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "observability",
+					Substitutions: map[string]string{
+						"admin_password": "grafana",
+					},
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		if len(base.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(base.Kustomizations))
+		}
+
+		subs := base.Kustomizations[0].Substitutions
+		if subs["external_domain"] != "example.com" {
+			t.Errorf("Expected external_domain='example.com', got %q", subs["external_domain"])
+		}
+		if subs["timezone"] != "UTC" {
+			t.Errorf("Expected timezone='UTC', got %q", subs["timezone"])
+		}
+		if subs["admin_password"] != "grafana" {
+			t.Errorf("Expected admin_password='grafana', got %q", subs["admin_password"])
+		}
+	})
+
+	t.Run("MergesKustomizationSubstitutionsOverwritesExisting", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "app",
+					Substitutions: map[string]string{
+						"replicas": "3",
+						"env":      "dev",
+					},
+				},
+			},
+		}
+
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "app",
+					Substitutions: map[string]string{
+						"replicas": "5",
+						"region":   "us-west",
+					},
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		subs := base.Kustomizations[0].Substitutions
+		if subs["replicas"] != "5" {
+			t.Errorf("Expected replicas='5' (overwritten), got %q", subs["replicas"])
+		}
+		if subs["env"] != "dev" {
+			t.Errorf("Expected env='dev' (preserved), got %q", subs["env"])
+		}
+		if subs["region"] != "us-west" {
+			t.Errorf("Expected region='us-west' (added), got %q", subs["region"])
+		}
+	})
+
+	t.Run("MergesKustomizationSubstitutionsIntoNilMap", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "app",
+				},
+			},
+		}
+
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name: "app",
+					Substitutions: map[string]string{
+						"key": "value",
+					},
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		subs := base.Kustomizations[0].Substitutions
+		if subs == nil {
+			t.Fatal("Expected Substitutions to be initialized")
+		}
+		if subs["key"] != "value" {
+			t.Errorf("Expected key='value', got %q", subs["key"])
+		}
+	})
+
 	t.Run("HandlesDependencyAwareInsertion", func(t *testing.T) {
 		// Given a base blueprint with ordered components
 		base := &Blueprint{
