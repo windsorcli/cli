@@ -2303,7 +2303,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsDeferredErrorWhenDeferredIsFalse", func(t *testing.T) {
+	t.Run("EvaluatesImmediatelyEvenWhenDeferredIsFalse", func(t *testing.T) {
 		mockProvider := &terraform.MockTerraformProvider{
 			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
 				return map[string]any{"key": "value"}, nil
@@ -2315,10 +2315,10 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		result, err := eval.Evaluate(`prefix-${terraform_output("component", "key")}-suffix`, "", false)
 
 		if err != nil {
-			t.Fatalf("Expected no error (expression preserved), got: %v", err)
+			t.Fatalf("Expected no error, got: %v", err)
 		}
-		if result != `prefix-${terraform_output("component", "key")}-suffix` {
-			t.Errorf("Expected expression to be preserved when deferred=false, got: %v", result)
+		if result != "prefix-value-suffix" {
+			t.Errorf("Expected 'prefix-value-suffix', got: %v", result)
 		}
 	})
 
