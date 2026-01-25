@@ -994,6 +994,12 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			if len(kustomization.Patches) > 0 {
 				existing.Patches = append(existing.Patches, kustomization.Patches...)
 			}
+			if len(kustomization.Substitutions) > 0 {
+				if existing.Substitutions == nil {
+					existing.Substitutions = make(map[string]string)
+				}
+				maps.Copy(existing.Substitutions, kustomization.Substitutions)
+			}
 			b.Kustomizations[i] = existing
 			return b.sortKustomize()
 		}
