@@ -2071,12 +2071,10 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 }
 
 func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
-	t.Run("SkipsUnresolvedExpressions", func(t *testing.T) {
-		// Given a processor with evaluator that returns unresolved expressions
+	t.Run("PreservesUnresolvedExpressions", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
 		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
-			// Extract inner expression if wrapped in ${}
 			expr := expression
 			if strings.HasPrefix(expression, "${") && strings.HasSuffix(expression, "}") {
 				expr = expression[2 : len(expression)-1]
@@ -2098,24 +2096,56 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			"normal":   "value",
 		}
 
-		// When evaluating substitutions
 		baseProcessor := &BaseBlueprintProcessor{
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
 		result, err := baseProcessor.evaluateSubstitutions(subs, "")
 
-		// Then unresolved expression substitution should be skipped
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if _, exists := result["deferred"]; exists {
-			t.Errorf("Expected unresolved expression substitution to be skipped, but found in result: %v", result)
+		if result["deferred"] != "${terraform_output('cluster', 'key')}" {
+			t.Errorf("Expected deferred substitution to preserve original expression, got %v", result["deferred"])
 		}
 
 		if result["normal"] != "value" {
 			t.Errorf("Expected normal substitution to be preserved, got %v", result["normal"])
+		}
+	})
+
+	t.Run("IncludesEmptyStringForNilResults", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+			if expression == "${undefined.path}" {
+				return nil, nil
+			}
+			return "resolved", nil
+		}
+
+		subs := map[string]string{
+			"undefined": "${undefined.path}",
+			"defined":   "${defined.path}",
+		}
+
+		baseProcessor := &BaseBlueprintProcessor{
+			runtime:   mocks.Runtime,
+			evaluator: mocks.Evaluator,
+		}
+		result, err := baseProcessor.evaluateSubstitutions(subs, "")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result["undefined"] != "" {
+			t.Errorf("Expected undefined substitution to be empty string, got %q", result["undefined"])
+		}
+
+		if result["defined"] != "resolved" {
+			t.Errorf("Expected defined substitution to be 'resolved', got %v", result["defined"])
 		}
 	})
 }

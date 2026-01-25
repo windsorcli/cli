@@ -550,7 +550,6 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	})
 
 	t.Run("ReturnsNilForUndefinedVariable", func(t *testing.T) {
-		// Given an evaluator and config without the variable
 		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
 		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
 		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
@@ -563,16 +562,37 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		// When evaluating an undefined variable expression
 		result, err := evaluator.Evaluate("${cluster.undefined}", "", false)
 
-		// Then the result should be the original string (undefined variable)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != nil {
+			t.Errorf("Expected nil for undefined variable, got %v", result)
+		}
+	})
+
+	t.Run("ReturnsEmptyStringForUndefinedVariableInInterpolation", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"cluster": map[string]any{
+					"workers": map[string]any{
+						"count": 3,
+					},
+				},
+			}, nil
+		}
+
+		result, err := evaluator.Evaluate("prefix-${cluster.undefined}-suffix", "", false)
+
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if result != "cluster.undefined" {
-			t.Errorf("Expected result to be 'cluster.undefined', got %v", result)
+		if result != "prefix--suffix" {
+			t.Errorf("Expected result to be 'prefix--suffix', got %v", result)
 		}
 	})
 
@@ -591,8 +611,8 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Fatalf("Expected no error for missing nested property, got: %v", err)
 		}
 
-		if result != "addons.database.enabled" {
-			t.Errorf("Expected expression string for missing nested property, got %v", result)
+		if result != nil {
+			t.Errorf("Expected nil for missing nested property, got %v", result)
 		}
 	})
 
@@ -613,8 +633,8 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Fatalf("Expected no error for deeply nested missing property, got: %v", err)
 		}
 
-		if result != "config.level1.level2.level3.value" {
-			t.Errorf("Expected expression string for deeply nested missing property, got %v", result)
+		if result != nil {
+			t.Errorf("Expected nil for deeply nested missing property, got %v", result)
 		}
 	})
 
@@ -637,8 +657,8 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Fatalf("Expected no error when intermediate property is missing, got: %v", err)
 		}
 
-		if result != "services.database.connection.host" {
-			t.Errorf("Expected expression string when intermediate property is missing, got %v", result)
+		if result != nil {
+			t.Errorf("Expected nil when intermediate property is missing, got %v", result)
 		}
 	})
 
@@ -699,8 +719,8 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Fatalf("Expected no error when root property is missing, got: %v", err)
 		}
 
-		if result != "nonexistent.nested.property" {
-			t.Errorf("Expected expression string when root property is missing, got %v", result)
+		if result != nil {
+			t.Errorf("Expected nil when root property is missing, got %v", result)
 		}
 	})
 
