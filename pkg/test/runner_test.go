@@ -2558,3 +2558,98 @@ func TestDeepEqual(t *testing.T) {
 		}
 	})
 }
+
+func TestTestRunner_DoesNotPersistContext(t *testing.T) {
+	t.Run("DoesNotWriteContextFile", func(t *testing.T) {
+		// Given a test runner with test files
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		createTestFile(t, testsDir, "example.test.yaml", `
+cases:
+  - name: test-case-1
+    values: {}
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// And an existing context file with a different context
+		windsorDir := filepath.Join(mocks.TmpDir, ".windsor")
+		os.MkdirAll(windsorDir, 0755)
+		contextFile := filepath.Join(windsorDir, "context")
+		originalContext := "original-context"
+		os.WriteFile(contextFile, []byte(originalContext), 0644)
+
+		// And an original environment variable
+		originalEnvContext := os.Getenv("WINDSOR_CONTEXT")
+		defer func() {
+			if originalEnvContext != "" {
+				os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+			} else {
+				os.Unsetenv("WINDSOR_CONTEXT")
+			}
+		}()
+
+		// When running tests (may fail due to composition, but that's okay)
+		_, _ = runner.Run("")
+
+		// Then the context file should still contain the original context
+		data, err := os.ReadFile(contextFile)
+		if err != nil {
+			t.Fatalf("Failed to read context file: %v", err)
+		}
+		if string(data) != originalContext {
+			t.Errorf("Expected context file to contain %q, got %q", originalContext, string(data))
+		}
+	})
+
+	t.Run("RestoresOriginalEnvironmentVariable", func(t *testing.T) {
+		// Given a test runner with test files
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		createTestFile(t, testsDir, "example.test.yaml", `
+cases:
+  - name: test-case-1
+    values: {}
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// And an original environment variable set
+		originalEnvContext := "my-original-context"
+		os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+		defer func() {
+			os.Setenv("WINDSOR_CONTEXT", originalEnvContext)
+		}()
+
+		// When running tests (may fail due to composition, but that's okay)
+		_, _ = runner.Run("")
+
+		// Then the environment variable should be restored
+		restoredContext := os.Getenv("WINDSOR_CONTEXT")
+		if restoredContext != originalEnvContext {
+			t.Errorf("Expected WINDSOR_CONTEXT to be restored to %q, got %q", originalEnvContext, restoredContext)
+		}
+	})
+
+	t.Run("RestoresUnsetEnvironmentVariable", func(t *testing.T) {
+		// Given a test runner with test files
+		mocks := setupTestRunnerMocks(t)
+		testsDir := filepath.Join(mocks.TmpDir, "contexts", "_template", "tests")
+		createTestFile(t, testsDir, "example.test.yaml", `
+cases:
+  - name: test-case-1
+    values: {}
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// And no original environment variable set
+		os.Unsetenv("WINDSOR_CONTEXT")
+
+		// When running tests (may fail due to composition, but that's okay)
+		_, _ = runner.Run("")
+
+		// Then the environment variable should be unset after tests
+		restoredContext := os.Getenv("WINDSOR_CONTEXT")
+		if restoredContext != "" {
+			t.Errorf("Expected WINDSOR_CONTEXT to be unset after tests, got %q", restoredContext)
+		}
+	})
+}

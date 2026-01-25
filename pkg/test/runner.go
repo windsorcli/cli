@@ -71,6 +71,16 @@ func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *Test
 // If filter is provided, only tests matching the filter name are executed.
 // Returns an error if tests fail or execution encounters an error.
 func (r *TestRunner) RunAndPrint(filter string) error {
+	originalContext := os.Getenv("WINDSOR_CONTEXT")
+	_ = os.Setenv("WINDSOR_CONTEXT", "test")
+	defer func() {
+		if originalContext != "" {
+			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
+		} else {
+			_ = os.Unsetenv("WINDSOR_CONTEXT")
+		}
+	}()
+
 	if r.RunFunc != nil {
 		results, err := r.RunFunc(filter)
 		if err != nil {
@@ -122,6 +132,16 @@ func (r *TestRunner) RunAndPrint(filter string) error {
 // Run discovers and executes test cases, returning results for each test.
 // If filter is provided, only tests matching the filter name are executed.
 func (r *TestRunner) Run(filter string) ([]TestResult, error) {
+	originalContext := os.Getenv("WINDSOR_CONTEXT")
+	_ = os.Setenv("WINDSOR_CONTEXT", "test")
+	defer func() {
+		if originalContext != "" {
+			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
+		} else {
+			_ = os.Unsetenv("WINDSOR_CONTEXT")
+		}
+	}()
+
 	if r.RunFunc != nil {
 		return r.RunFunc(filter)
 	}
@@ -188,10 +208,6 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 			ConfigRoot:    filepath.Join(r.baseProjectRoot, "contexts", "_template"),
 			TemplateRoot:  filepath.Join(r.baseProjectRoot, "contexts", "_template"),
 		})
-
-		if err := rt.ConfigHandler.SetContext("test"); err != nil {
-			return nil, fmt.Errorf("failed to set test context: %w", err)
-		}
 
 		if rt.ConfigHandler != nil {
 			schemaPath := filepath.Join(r.baseProjectRoot, "contexts", "_template", "schema.yaml")
