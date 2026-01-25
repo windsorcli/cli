@@ -36,12 +36,11 @@ type TestResult struct {
 
 // TestRunner discovers and executes blueprint composition tests.
 type TestRunner struct {
-	projectRoot       string
-	baseShell         shell.Shell
-	baseConfigHandler config.ConfigHandler
-	baseProjectRoot   string
-	artifactBuilder   artifact.Artifact
-	RunFunc           func(filter string, update bool) ([]TestResult, error)
+	projectRoot     string
+	baseShell       shell.Shell
+	baseProjectRoot string
+	artifactBuilder artifact.Artifact
+	RunFunc         func(filter string, update bool) ([]TestResult, error)
 }
 
 type testCaseWithFile struct {
@@ -58,11 +57,10 @@ type testCaseWithFile struct {
 // It stores base dependencies for creating isolated runtime instances for each test case, ensuring test isolation.
 func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *TestRunner {
 	return &TestRunner{
-		projectRoot:       rt.ProjectRoot,
-		baseShell:         rt.Shell,
-		baseConfigHandler: rt.ConfigHandler,
-		baseProjectRoot:   rt.ProjectRoot,
-		artifactBuilder:   artifactBuilder,
+		projectRoot:     rt.ProjectRoot,
+		baseShell:       rt.Shell,
+		baseProjectRoot: rt.ProjectRoot,
+		artifactBuilder: artifactBuilder,
 	}
 }
 

@@ -61,14 +61,12 @@ func createRunnerWithMockGenerator(mocks *TestRunnerMocks) *TestRunner {
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return mocks.TmpDir, nil
 	}
-	mockConfigHandler := config.NewMockConfigHandler()
 	mockArtifact := artifact.NewMockArtifact()
 	return &TestRunner{
-		projectRoot:       mocks.TmpDir,
-		baseShell:         mockShell,
-		baseConfigHandler: mockConfigHandler,
-		baseProjectRoot:   mocks.TmpDir,
-		artifactBuilder:   mockArtifact,
+		projectRoot:     mocks.TmpDir,
+		baseShell:       mockShell,
+		baseProjectRoot: mocks.TmpDir,
+		artifactBuilder: mockArtifact,
 	}
 }
 
@@ -91,14 +89,12 @@ func createRunnerForFailure(mocks *TestRunnerMocks) *TestRunner {
 	mockShell.GetProjectRootFunc = func() (string, error) {
 		return mocks.TmpDir, nil
 	}
-	mockConfigHandler := config.NewMockConfigHandler()
 	mockArtifact := artifact.NewMockArtifact()
 	return &TestRunner{
-		projectRoot:       mocks.TmpDir,
-		baseShell:         mockShell,
-		baseConfigHandler: mockConfigHandler,
-		baseProjectRoot:   mocks.TmpDir,
-		artifactBuilder:   mockArtifact,
+		projectRoot:     mocks.TmpDir,
+		baseShell:       mockShell,
+		baseProjectRoot: mocks.TmpDir,
+		artifactBuilder: mockArtifact,
 	}
 }
 
@@ -154,9 +150,6 @@ func TestNewTestRunner(t *testing.T) {
 		}
 		if runner.baseShell != mockShell {
 			t.Error("Expected baseShell to be set")
-		}
-		if runner.baseConfigHandler != mockConfigHandler {
-			t.Error("Expected baseConfigHandler to be set")
 		}
 		if runner.artifactBuilder != mockArtifact {
 			t.Error("Expected artifactBuilder to be set")
@@ -1784,14 +1777,12 @@ func TestTestRunner_RunAndPrint_Additional(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockArtifact := artifact.NewMockArtifact()
 		runner := &TestRunner{
-			projectRoot:       tmpDir,
-			baseShell:         mockShell,
-			baseConfigHandler: mockConfigHandler,
-			baseProjectRoot:   tmpDir,
-			artifactBuilder:   mockArtifact,
+			projectRoot:     tmpDir,
+			baseShell:       mockShell,
+			baseProjectRoot: tmpDir,
+			artifactBuilder: mockArtifact,
 		}
 
 		err := runner.RunAndPrint("", false)
@@ -1897,14 +1888,12 @@ cases:
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockArtifact := artifact.NewMockArtifact()
 		runner := &TestRunner{
-			projectRoot:       tmpDir,
-			baseShell:         mockShell,
-			baseConfigHandler: mockConfigHandler,
-			baseProjectRoot:   tmpDir,
-			artifactBuilder:   mockArtifact,
+			projectRoot:     tmpDir,
+			baseShell:       mockShell,
+			baseProjectRoot: tmpDir,
+			artifactBuilder: mockArtifact,
 		}
 
 		testsDir := filepath.Join(tmpDir, "contexts", "_template", "tests")
@@ -2291,14 +2280,12 @@ func TestTestRunner_Run_Additional(t *testing.T) {
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return tmpDir, nil
 		}
-		mockConfigHandler := config.NewMockConfigHandler()
 		mockArtifact := artifact.NewMockArtifact()
 		runner := &TestRunner{
-			projectRoot:       tmpDir,
-			baseShell:         mockShell,
-			baseConfigHandler: mockConfigHandler,
-			baseProjectRoot:   tmpDir,
-			artifactBuilder:   mockArtifact,
+			projectRoot:     tmpDir,
+			baseShell:       mockShell,
+			baseProjectRoot: tmpDir,
+			artifactBuilder: mockArtifact,
 		}
 
 		testsDir := filepath.Join(tmpDir, "contexts", "_template", "tests")
