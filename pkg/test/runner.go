@@ -72,12 +72,12 @@ func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *Test
 // Returns an error if tests fail or execution encounters an error.
 func (r *TestRunner) RunAndPrint(filter string) error {
 	originalContext := os.Getenv("WINDSOR_CONTEXT")
-	os.Setenv("WINDSOR_CONTEXT", "test")
+	_ = os.Setenv("WINDSOR_CONTEXT", "test")
 	defer func() {
 		if originalContext != "" {
-			os.Setenv("WINDSOR_CONTEXT", originalContext)
+			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
 		} else {
-			os.Unsetenv("WINDSOR_CONTEXT")
+			_ = os.Unsetenv("WINDSOR_CONTEXT")
 		}
 	}()
 
@@ -133,12 +133,12 @@ func (r *TestRunner) RunAndPrint(filter string) error {
 // If filter is provided, only tests matching the filter name are executed.
 func (r *TestRunner) Run(filter string) ([]TestResult, error) {
 	originalContext := os.Getenv("WINDSOR_CONTEXT")
-	os.Setenv("WINDSOR_CONTEXT", "test")
+	_ = os.Setenv("WINDSOR_CONTEXT", "test")
 	defer func() {
 		if originalContext != "" {
-			os.Setenv("WINDSOR_CONTEXT", originalContext)
+			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
 		} else {
-			os.Unsetenv("WINDSOR_CONTEXT")
+			_ = os.Unsetenv("WINDSOR_CONTEXT")
 		}
 	}()
 
