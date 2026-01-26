@@ -142,6 +142,38 @@ func (b *BoolExpression) ToBool() *bool {
 	return b.Value
 }
 
+// DeepCopy creates a deep copy of the BoolExpression.
+func (b *BoolExpression) DeepCopy() *BoolExpression {
+	if b == nil {
+		return nil
+	}
+	copy := &BoolExpression{
+		IsExpr: b.IsExpr,
+		Expr:   b.Expr,
+	}
+	if b.Value != nil {
+		valueCopy := *b.Value
+		copy.Value = &valueCopy
+	}
+	return copy
+}
+
+// IsEnabled returns true if the BoolExpression is nil (default) or if its value is true.
+// Returns false only if the value is explicitly set to false.
+// This is used for fields like Enabled and Deploy that default to true.
+func (b *BoolExpression) IsEnabled() bool {
+	if b == nil {
+		return true
+	}
+	if b.IsExpr {
+		return true
+	}
+	if b.Value == nil {
+		return true
+	}
+	return *b.Value
+}
+
 // IntExpression represents an integer value that can be unmarshaled from an integer or a string expression.
 // String expressions are preserved for later evaluation during facet processing.
 type IntExpression struct {
@@ -201,6 +233,22 @@ func (i *IntExpression) ToInt() *int {
 		return nil
 	}
 	return i.Value
+}
+
+// DeepCopy creates a deep copy of the IntExpression.
+func (i *IntExpression) DeepCopy() *IntExpression {
+	if i == nil {
+		return nil
+	}
+	copy := &IntExpression{
+		IsExpr: i.IsExpr,
+		Expr:   i.Expr,
+	}
+	if i.Value != nil {
+		valueCopy := *i.Value
+		copy.Value = &valueCopy
+	}
+	return copy
 }
 
 // Blueprint is a configuration blueprint for initializing a project.
@@ -268,6 +316,11 @@ type Source struct {
 
 	// SecretName is the secret for source access.
 	SecretName string `yaml:"secretName,omitempty"`
+
+	// Deploy determines if the source should be unfurled (components merged into final blueprint).
+	// Defaults to true if not specified.
+	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
+	Deploy *BoolExpression `yaml:"deploy,omitempty"`
 }
 
 // Reference details a specific version or state of a repository or source.
@@ -321,6 +374,11 @@ type TerraformComponent struct {
 	// This corresponds to the -parallelism flag in terraform apply/destroy commands.
 	// Supports expressions in facets: use "${cluster.parallelism ?? 10}" for dynamic values.
 	Parallelism *IntExpression `yaml:"parallelism,omitempty"`
+
+	// Enabled determines if the component should be included in the final blueprint.
+	// Defaults to true if not specified.
+	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
+	Enabled *BoolExpression `yaml:"enabled,omitempty"`
 }
 
 // =============================================================================
@@ -347,6 +405,19 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 	dependsOnCopy := make([]string, len(t.DependsOn))
 	copy(dependsOnCopy, t.DependsOn)
 
+	var destroyCopy *BoolExpression
+	if t.Destroy != nil {
+		destroyCopy = t.Destroy.DeepCopy()
+	}
+	var parallelismCopy *IntExpression
+	if t.Parallelism != nil {
+		parallelismCopy = t.Parallelism.DeepCopy()
+	}
+	var enabledCopy *BoolExpression
+	if t.Enabled != nil {
+		enabledCopy = t.Enabled.DeepCopy()
+	}
+
 	return &TerraformComponent{
 		Name:        t.Name,
 		Source:      t.Source,
@@ -354,8 +425,9 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 		FullPath:    t.FullPath,
 		DependsOn:   dependsOnCopy,
 		Inputs:      inputsCopy,
-		Destroy:     t.Destroy,
-		Parallelism: t.Parallelism,
+		Destroy:     destroyCopy,
+		Parallelism: parallelismCopy,
+		Enabled:     enabledCopy,
 	}
 }
 
@@ -424,6 +496,11 @@ type Kustomization struct {
 	// Destroy-only kustomizations run before regular kustomizations during destroy, in normal dependency order.
 	DestroyOnly *bool `yaml:"destroyOnly,omitempty"`
 
+	// Enabled determines if the kustomization should be included in the final blueprint.
+	// Defaults to true if not specified.
+	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
+	Enabled *BoolExpression `yaml:"enabled,omitempty"`
+
 	// Substitutions contains values for post-build variable replacement,
 	// collected and stored in ConfigMaps for use by Flux postBuild substitution.
 	// All values are converted to strings as required by Flux variable substitution.
@@ -484,6 +561,10 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	sourcesCopy := make([]Source, len(b.Sources))
 	for i, source := range b.Sources {
+		var deployCopy *BoolExpression
+		if source.Deploy != nil {
+			deployCopy = source.Deploy.DeepCopy()
+		}
 		sourcesCopy[i] = Source{
 			Name:       source.Name,
 			Url:        source.Url,
@@ -496,6 +577,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 				Commit: source.Ref.Commit,
 			},
 			SecretName: source.SecretName,
+			Deploy:     deployCopy,
 		}
 	}
 
@@ -723,6 +805,15 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		return nil
 	}
 
+	var destroyCopy *BoolExpression
+	if k.Destroy != nil {
+		destroyCopy = k.Destroy.DeepCopy()
+	}
+	var enabledCopy *BoolExpression
+	if k.Enabled != nil {
+		enabledCopy = k.Enabled.DeepCopy()
+	}
+
 	return &Kustomization{
 		Name:          k.Name,
 		Path:          k.Path,
@@ -737,8 +828,9 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Prune:         k.Prune,
 		Components:    slices.Clone(k.Components),
 		Cleanup:       slices.Clone(k.Cleanup),
-		Destroy:       k.Destroy,
+		Destroy:       destroyCopy,
 		DestroyOnly:   k.DestroyOnly,
+		Enabled:       enabledCopy,
 		Substitutions: maps.Clone(k.Substitutions),
 	}
 }
@@ -930,6 +1022,9 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 			if component.Parallelism != nil {
 				existing.Parallelism = component.Parallelism
 			}
+			if component.Enabled != nil {
+				existing.Enabled = component.Enabled
+			}
 			if component.Name != "" {
 				existing.Name = component.Name
 			}
@@ -978,6 +1073,9 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			}
 			if kustomization.Destroy != nil {
 				existing.Destroy = kustomization.Destroy
+			}
+			if kustomization.Enabled != nil {
+				existing.Enabled = kustomization.Enabled
 			}
 			if kustomization.DestroyOnly != nil {
 				existing.DestroyOnly = kustomization.DestroyOnly

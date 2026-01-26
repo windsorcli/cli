@@ -115,6 +115,11 @@ func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.
 	for i := range cleaned.TerraformComponents {
 		cleaned.TerraformComponents[i].Inputs = nil
 		cleaned.TerraformComponents[i].Parallelism = nil
+		if cleaned.TerraformComponents[i].Enabled != nil && !cleaned.TerraformComponents[i].Enabled.IsExpr {
+			if cleaned.TerraformComponents[i].Enabled.Value != nil && *cleaned.TerraformComponents[i].Enabled.Value {
+				cleaned.TerraformComponents[i].Enabled = nil
+			}
+		}
 	}
 
 	for i := range cleaned.Kustomizations {
@@ -126,6 +131,19 @@ func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.
 		cleaned.Kustomizations[i].Wait = nil
 		cleaned.Kustomizations[i].Force = nil
 		cleaned.Kustomizations[i].Prune = nil
+		if cleaned.Kustomizations[i].Enabled != nil && !cleaned.Kustomizations[i].Enabled.IsExpr {
+			if cleaned.Kustomizations[i].Enabled.Value != nil && *cleaned.Kustomizations[i].Enabled.Value {
+				cleaned.Kustomizations[i].Enabled = nil
+			}
+		}
+	}
+
+	for i := range cleaned.Sources {
+		if cleaned.Sources[i].Deploy != nil && !cleaned.Sources[i].Deploy.IsExpr {
+			if cleaned.Sources[i].Deploy.Value != nil && *cleaned.Sources[i].Deploy.Value {
+				cleaned.Sources[i].Deploy = nil
+			}
+		}
 	}
 
 	if cleaned.ConfigMaps != nil {
