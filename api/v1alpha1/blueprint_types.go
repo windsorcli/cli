@@ -1022,6 +1022,9 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 			if component.Parallelism != nil {
 				existing.Parallelism = component.Parallelism
 			}
+			if component.Enabled != nil {
+				existing.Enabled = component.Enabled
+			}
 			if component.Name != "" {
 				existing.Name = component.Name
 			}
@@ -1070,6 +1073,9 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			}
 			if kustomization.Destroy != nil {
 				existing.Destroy = kustomization.Destroy
+			}
+			if kustomization.Enabled != nil {
+				existing.Enabled = kustomization.Enabled
 			}
 			if kustomization.DestroyOnly != nil {
 				existing.DestroyOnly = kustomization.DestroyOnly

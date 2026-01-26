@@ -325,6 +325,82 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesKustomizationEnabledField", func(t *testing.T) {
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:       "observability",
+					Components: []string{"base"},
+				},
+			},
+		}
+
+		falseVal := false
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{
+					Name:    "observability",
+					Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		if len(base.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(base.Kustomizations))
+		}
+
+		kust := base.Kustomizations[0]
+		if kust.Enabled == nil {
+			t.Error("Expected Enabled to be set")
+		}
+		if kust.Enabled.Value == nil || *kust.Enabled.Value != false {
+			t.Errorf("Expected Enabled to be false, got %v", kust.Enabled)
+		}
+		if len(kust.Components) != 1 || kust.Components[0] != "base" {
+			t.Errorf("Expected original components preserved, got %v", kust.Components)
+		}
+	})
+
+	t.Run("MergesTerraformComponentEnabledField", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path: "cluster/talos",
+					Source: "core",
+				},
+			},
+		}
+
+		falseVal := false
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Path:    "cluster/talos",
+					Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		if len(base.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 component, got %d", len(base.TerraformComponents))
+		}
+
+		component := base.TerraformComponents[0]
+		if component.Enabled == nil {
+			t.Error("Expected Enabled to be set")
+		}
+		if component.Enabled.Value == nil || *component.Enabled.Value != false {
+			t.Errorf("Expected Enabled to be false, got %v", component.Enabled)
+		}
+		if component.Path != "cluster/talos" {
+			t.Errorf("Expected original path preserved, got %v", component.Path)
+		}
+	})
+
 	t.Run("MergesKustomizationSubstitutions", func(t *testing.T) {
 		base := &Blueprint{
 			Kustomizations: []Kustomization{
