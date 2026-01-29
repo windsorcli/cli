@@ -492,6 +492,34 @@ terraform:
 		}
 	})
 
+	t.Run("PreservesRefWhenOCIURLHasPortInAuthority", func(t *testing.T) {
+		mocks := setupLoaderMocks(t)
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+sources:
+  - name: registry
+    url: oci://localhost:5000/repo
+    ref:
+      tag: v1.0.0
+`
+		os.WriteFile(filepath.Join(mocks.TmpDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+
+		err := loader.Load("user", "")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		bp := loader.GetBlueprint()
+		if bp == nil || len(bp.Sources) != 1 {
+			t.Fatalf("Expected one source, got blueprint=%v", bp)
+		}
+		if bp.Sources[0].Ref.Tag != "v1.0.0" {
+			t.Errorf("Expected Ref.Tag preserved (port in URL is not a tag), got %q", bp.Sources[0].Ref.Tag)
+		}
+	})
+
 	t.Run("CollectsTemplateData", func(t *testing.T) {
 		// Given a loader with template files
 		mocks := setupLoaderMocks(t)

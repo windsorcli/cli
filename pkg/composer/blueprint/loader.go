@@ -275,7 +275,8 @@ func (l *BaseBlueprintLoader) injectOCISource() {
 }
 
 // normalizeOCISourceRefs zeros Ref on sources whose OCI URL already includes the tag, so ref is
-// not duplicated. Called after loading blueprint from file so downstream writers never see redundant ref.
+// not duplicated. Only the path (after the first slash) is checked for a tag; colons in the
+// authority (e.g. localhost:5000) are not treated as tags.
 func (l *BaseBlueprintLoader) normalizeOCISourceRefs(bp *blueprintv1alpha1.Blueprint) {
 	if bp == nil {
 		return
@@ -285,7 +286,13 @@ func (l *BaseBlueprintLoader) normalizeOCISourceRefs(bp *blueprintv1alpha1.Bluep
 		if s.Url == "" || !strings.HasPrefix(s.Url, "oci://") {
 			continue
 		}
-		if strings.Contains(s.Url[7:], ":") {
+		afterScheme := s.Url[7:]
+		firstSlash := strings.Index(afterScheme, "/")
+		if firstSlash == -1 {
+			continue
+		}
+		pathPart := afterScheme[firstSlash+1:]
+		if strings.Contains(pathPart, ":") {
 			s.Ref = blueprintv1alpha1.Reference{}
 		}
 	}
