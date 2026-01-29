@@ -251,15 +251,11 @@ func (h *BaseBlueprintHandler) loadInitBlueprints() error {
 
 // getTempSourceName generates a temporary source name from a URL for loading purposes.
 // This is only used during initial loading; the actual metadata name will be used after loading.
+// Uses artifact.ParseOCIReference for OCI URLs; returns "init-blueprint" when parsing fails or URL is not OCI.
 func (h *BaseBlueprintHandler) getTempSourceName(url string) string {
-	if strings.HasPrefix(url, "oci://") {
-		remaining := strings.TrimPrefix(url, "oci://")
-		if lastColon := strings.LastIndex(remaining, ":"); lastColon > 0 {
-			pathPart := remaining[:lastColon]
-			if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
-				return pathPart[lastSlash+1:]
-			}
-		}
+	info, _ := artifact.ParseOCIReference(url)
+	if info != nil {
+		return info.Name
 	}
 	return "init-blueprint"
 }

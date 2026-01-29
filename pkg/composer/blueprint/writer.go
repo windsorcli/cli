@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -303,17 +304,12 @@ func (w *BaseBlueprintWriter) normalizeURL(url string) string {
 }
 
 // getSourceNameFromURL extracts a source name from a blueprint URL. For OCI URLs, it uses the
-// repository name. For other URLs, it generates a name based on the URL path. This is a fallback
-// when the source cannot be found in the composed blueprint.
+// repository name via artifact.ParseOCIReference. This is a fallback when the source cannot be
+// found in the composed blueprint. Returns "blueprint" when parsing fails or URL is not OCI.
 func (w *BaseBlueprintWriter) getSourceNameFromURL(url string) string {
-	if strings.HasPrefix(url, "oci://") {
-		remaining := strings.TrimPrefix(url, "oci://")
-		if lastColon := strings.LastIndex(remaining, ":"); lastColon > 0 {
-			pathPart := remaining[:lastColon]
-			if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
-				return pathPart[lastSlash+1:]
-			}
-		}
+	info, _ := artifact.ParseOCIReference(url)
+	if info != nil {
+		return info.Name
 	}
 	return "blueprint"
 }
