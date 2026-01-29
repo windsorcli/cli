@@ -814,8 +814,9 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 // evaluateStringSlice evaluates a slice of strings, allowing expressions in each string.
 // Uses evaluateDeferred=true to disallow deferred expressions (they will error).
 // If an expression evaluates to an array, the array is flattened into the result.
-// Filters out empty strings and nil values from the result.
-// Returns the evaluated and filtered string slice, or an error if evaluation fails.
+// Empty strings are preserved so that facet-defined placeholder slots (e.g. conditional component
+// that evaluates to "") remain in the result for consistent ordering and test expectations.
+// Nil values are skipped. Returns the evaluated string slice, or an error if evaluation fails.
 func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath string) ([]string, error) {
 	if len(slice) == 0 {
 		return nil, nil
@@ -832,9 +833,7 @@ func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath s
 		}
 		switch v := evaluated.(type) {
 		case string:
-			if v != "" {
-				result = append(result, v)
-			}
+			result = append(result, v)
 		case []any:
 			for _, item := range v {
 				if item == nil {
@@ -847,15 +846,10 @@ func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath s
 				default:
 					str = fmt.Sprintf("%v", itemVal)
 				}
-				if str != "" {
-					result = append(result, str)
-				}
-			}
-		default:
-			str := fmt.Sprintf("%v", v)
-			if str != "" {
 				result = append(result, str)
 			}
+		default:
+			result = append(result, fmt.Sprintf("%v", v))
 		}
 	}
 

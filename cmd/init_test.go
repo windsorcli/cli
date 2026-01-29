@@ -466,50 +466,30 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("LocalContextAutoProviderBlueprint", func(t *testing.T) {
+	t.Run("LocalContextNoDefaultBlueprint", func(t *testing.T) {
 		// Given a local context with no explicit provider or blueprint
-		args := []string{"local"}
 		initProvider = ""
 		initBlueprint = ""
 
-		// When processing the init logic
+		// When processing the init logic (no default blueprint for local-only; only when provider is set)
 		ctx := context.Background()
 		ctx = context.WithValue(ctx, "reset", false)
 		ctx = context.WithValue(ctx, "trust", true)
 
-		// If context is "local" and neither provider nor blueprint is set, set both
-		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "docker"
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-
-		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
 			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
-
-		// If blueprint is set, use it (overrides all)
 		if initBlueprint != "" {
 			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
 		}
 
-		// Then both provider and blueprint should be set correctly
-		if initProvider != "docker" {
-			t.Errorf("Expected provider to be 'docker', got %s", initProvider)
-		}
-
-		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
-			t.Errorf("Expected blueprint to be set in context for local context")
-		} else if blueprint, ok := blueprintCtx.(string); !ok {
-			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DefaultOCIBlueprintURL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
+		// Then blueprint should not be in context (local with no --blueprint and no provider)
+		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
+			t.Errorf("Expected blueprint not to be set for local context without --blueprint or provider, got %v", blueprintCtx)
 		}
 	})
 
 	t.Run("LocalContextWithExplicitProvider", func(t *testing.T) {
-		// Given a local context with explicit provider
-		args := []string{"local"}
 		initProvider = "aws"
 		initBlueprint = ""
 
@@ -518,18 +498,10 @@ func TestInitCmd(t *testing.T) {
 		ctx = context.WithValue(ctx, "reset", false)
 		ctx = context.WithValue(ctx, "trust", true)
 
-		// If context is "local" and neither provider nor blueprint is set, set both
-		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "generic"
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-
-		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
+		// If provider is set and blueprint is not set, set blueprint
 		if initProvider != "" && initBlueprint == "" {
 			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
-
-		// If blueprint is set, use it (overrides all)
 		if initBlueprint != "" {
 			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
 		}
@@ -549,28 +521,16 @@ func TestInitCmd(t *testing.T) {
 	})
 
 	t.Run("LocalContextWithExplicitBlueprint", func(t *testing.T) {
-		// Given a local context with explicit blueprint
-		args := []string{"local"}
 		initProvider = ""
 		initBlueprint = "oci://custom/blueprint:v1.0.0"
 
-		// When processing the init logic
 		ctx := context.Background()
 		ctx = context.WithValue(ctx, "reset", false)
 		ctx = context.WithValue(ctx, "trust", true)
 
-		// If context is "local" and neither provider nor blueprint is set, set both
-		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "generic"
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-
-		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 		if initProvider != "" && initBlueprint == "" {
 			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
-
-		// If blueprint is set, use it (overrides all)
 		if initBlueprint != "" {
 			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
 		}
@@ -725,7 +685,7 @@ func TestInitCmd(t *testing.T) {
 				provider:          "",
 				blueprint:         "",
 				expectedProvider:  "local",
-				expectedBlueprint: constants.DefaultOCIBlueprintURL,
+				expectedBlueprint: "",
 			},
 			{
 				name:              "local-dev context with no flags",
@@ -733,7 +693,7 @@ func TestInitCmd(t *testing.T) {
 				provider:          "",
 				blueprint:         "",
 				expectedProvider:  "local",
-				expectedBlueprint: constants.DefaultOCIBlueprintURL,
+				expectedBlueprint: "",
 			},
 			{
 				name:              "local context with explicit provider",
@@ -767,25 +727,19 @@ func TestInitCmd(t *testing.T) {
 				initProvider = tc.provider
 				initBlueprint = tc.blueprint
 
-				// When processing the init logic
 				ctx := context.Background()
 				ctx = context.WithValue(ctx, "reset", false)
 				ctx = context.WithValue(ctx, "trust", true)
 
-				// If context is "local" and neither provider nor blueprint is set, set both
-				if len(tc.args) > 0 && strings.HasPrefix(tc.args[0], "local") && initProvider == "" && initBlueprint == "" {
-					initProvider = "local"
-					initBlueprint = constants.DefaultOCIBlueprintURL
-				}
-
-				// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
 				if initProvider != "" && initBlueprint == "" {
 					initBlueprint = constants.DefaultOCIBlueprintURL
 				}
-
-				// If blueprint is set, use it (overrides all)
 				if initBlueprint != "" {
 					ctx = context.WithValue(ctx, "blueprint", initBlueprint)
+				}
+
+				if len(tc.args) > 0 && strings.HasPrefix(tc.args[0], "local") && initProvider == "" && tc.expectedProvider != "" {
+					initProvider = tc.expectedProvider
 				}
 
 				// Then verify the results

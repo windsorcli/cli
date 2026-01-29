@@ -1069,9 +1069,10 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 }
 
 // strategicMergeKustomization performs a strategic merge of the provided Kustomization into the Blueprint.
-// It merges unique components and dependencies, updates fields if provided, and maintains dependency order.
-// Patches from the provided kustomization are appended to existing patches.
-// Returns an error if a dependency cycle is detected during sorting.
+// It merges components and dependencies, updates fields if provided, and maintains dependency order.
+// Empty-string components are always appended so facet-defined placeholder slots are preserved;
+// other components are appended only when not already present. Patches from the provided
+// kustomization are appended to existing patches. Returns an error if a dependency cycle is detected during sorting.
 func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) error {
 	if kustomization.Name == "" {
 		return nil
@@ -1080,7 +1081,7 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 	for i, existing := range b.Kustomizations {
 		if existing.Name == kustomization.Name {
 			for _, component := range kustomization.Components {
-				if !slices.Contains(existing.Components, component) {
+				if component == "" || !slices.Contains(existing.Components, component) {
 					existing.Components = append(existing.Components, component)
 				}
 			}

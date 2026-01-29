@@ -436,14 +436,33 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		return errors.Join(errs...)
 	}
 
-	var loaders []BlueprintLoader
-	loaders = append(loaders, loadersToProcess...)
+	initLoaderNames := make([]string, 0, len(h.initBlueprintURLs))
+	for _, url := range h.initBlueprintURLs {
+		if url != "" && strings.HasPrefix(url, "oci://") {
+			initLoaderNames = append(initLoaderNames, h.getTempSourceName(url))
+		}
+	}
+	initNamesSet := make(map[string]bool)
+	for _, n := range initLoaderNames {
+		initNamesSet[n] = true
+	}
 
+	var loaders []BlueprintLoader
+	for _, loader := range loadersToProcess {
+		if initNamesSet[loader.GetSourceName()] {
+			loaders = append(loaders, loader)
+		}
+	}
+	for _, loader := range loadersToProcess {
+		if !initNamesSet[loader.GetSourceName()] {
+			loaders = append(loaders, loader)
+		}
+	}
 	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
 		loaders = append(loaders, h.userBlueprintLoader)
 	}
 
-	composedBp, err := h.composer.Compose(loaders)
+	composedBp, err := h.composer.Compose(loaders, initLoaderNames)
 	h.composedBlueprint = composedBp
 	if err != nil {
 		return err

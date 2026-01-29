@@ -158,8 +158,6 @@ var initCmd = &cobra.Command{
 		var blueprintURL []string
 		if initBlueprint != "" {
 			blueprintURL = []string{initBlueprint}
-		} else if strings.HasPrefix(contextName, "local") && initProvider == "" {
-			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
 		} else if initProvider != "" {
 			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
 		}

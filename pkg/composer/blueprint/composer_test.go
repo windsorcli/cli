@@ -142,7 +142,7 @@ func TestComposer_Compose(t *testing.T) {
 		composer := NewBlueprintComposer(mocks.Runtime)
 
 		// When composing
-		result, err := composer.Compose(nil)
+		result, err := composer.Compose(nil, nil)
 
 		// Then should return empty blueprint
 		if err != nil {
@@ -177,7 +177,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then should merge template
 		if err != nil {
@@ -219,7 +219,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then source components should be merged
 		if err != nil {
@@ -268,7 +268,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then core source components should be merged into result
 		if err != nil {
@@ -333,7 +333,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then reference source components should NOT be merged
 		if err != nil {
@@ -382,7 +382,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then component should be able to reference the source
 		if err != nil {
@@ -408,8 +408,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 	})
 
-	t.Run("DoesNotMergeSourcesWithoutInstallFlagDefaultsToFalse", func(t *testing.T) {
-		// Given a user blueprint with a source that has no install flag (defaults to false)
+	t.Run("MergesOCISourcesWhenInstallOmittedForBackwardCompat", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
@@ -440,10 +439,59 @@ func TestComposer_Compose(t *testing.T) {
 			createMockBlueprintLoader("user", userBp),
 		}
 
-		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 terraform components (vpc + cluster/eks), got %d", len(result.TerraformComponents))
+		}
+		componentPaths := make(map[string]bool)
+		for _, comp := range result.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if !componentPaths["vpc"] {
+			t.Error("Expected 'vpc' component from template")
+		}
+		if !componentPaths["cluster/eks"] {
+			t.Error("Expected 'cluster/eks' from OCI source when install omitted (backward compat)")
+		}
+	})
 
-		// Then core source components should NOT be merged (defaults to false)
+	t.Run("DoesNotMergeOCISourceWhenInstallFalse", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		templateBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		coreSourceBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+			},
+		}
+		trueVal := true
+		falseVal := false
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name:    "core",
+					Url:     "oci://example.com/core:latest",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("template", templateBp),
+			createMockBlueprintLoader("core", coreSourceBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		result, err := composer.Compose(loaders, nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -458,7 +506,7 @@ func TestComposer_Compose(t *testing.T) {
 			t.Error("Expected 'vpc' component from template")
 		}
 		if componentPaths["cluster/eks"] {
-			t.Error("Expected 'cluster/eks' component to NOT be merged (default install:false)")
+			t.Error("Expected 'cluster/eks' to NOT be merged when install: false")
 		}
 	})
 
@@ -500,7 +548,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then both sources should be merged
 		if err != nil {
@@ -546,7 +594,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then user values should override
 		if err != nil {
@@ -581,7 +629,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then should match by name and merge
 		if err != nil {
@@ -619,7 +667,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then should still compose successfully with template merged
 		if err != nil {
@@ -671,7 +719,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then values-common ConfigMap should be created with legacy variables
 		if err != nil {
@@ -751,7 +799,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then all kustomizations should remain (no filtering), with user override applied
 		if err != nil {
@@ -800,7 +848,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then all components should remain (no filtering)
 		if err != nil {
@@ -844,7 +892,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then all components should remain (no filtering), with user overrides applied
 		if err != nil {

@@ -2480,7 +2480,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 	})
 
-	t.Run("FiltersEmptyComponentsFromKustomizations", func(t *testing.T) {
+	t.Run("PreservesEmptyStringsInComponents", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
@@ -2512,14 +2512,17 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		comps := target.Kustomizations[0].Components
-		if len(comps) != 2 {
-			t.Fatalf("Expected 2 components (empty filtered), got %d: %v", len(comps), comps)
+		if len(comps) != 3 {
+			t.Fatalf("Expected 3 components (empty preserved), got %d: %v", len(comps), comps)
 		}
 		if comps[0] != "nginx" {
 			t.Errorf("Expected first component to be 'nginx', got '%s'", comps[0])
 		}
-		if comps[1] != "cert-manager" {
-			t.Errorf("Expected second component to be 'cert-manager', got '%s'", comps[1])
+		if comps[1] != "" {
+			t.Errorf("Expected second component to be empty string, got %q", comps[1])
+		}
+		if comps[2] != "cert-manager" {
+			t.Errorf("Expected third component to be 'cert-manager', got '%s'", comps[2])
 		}
 	})
 
@@ -3638,8 +3641,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		}
 	})
 
-	t.Run("FiltersEmptyStrings", func(t *testing.T) {
-		// Given a slice with empty strings
+	t.Run("PreservesEmptyStrings", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
@@ -3647,18 +3649,16 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 			return expression, nil
 		}
 
-		// When evaluating slice with empty strings
 		result, err := processor.evaluateStringSlice([]string{"value1", "", "value2", ""}, "")
 
-		// Then empty strings should be filtered
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result) != 2 {
-			t.Errorf("Expected 2 values, got %d: %v", len(result), result)
+		if len(result) != 4 {
+			t.Errorf("Expected 4 values (empty preserved), got %d: %v", len(result), result)
 		}
-		if result[0] != "value1" || result[1] != "value2" {
-			t.Errorf("Expected ['value1', 'value2'], got %v", result)
+		if result[0] != "value1" || result[1] != "" || result[2] != "value2" || result[3] != "" {
+			t.Errorf("Expected ['value1', '', 'value2', ''], got %v", result)
 		}
 	})
 

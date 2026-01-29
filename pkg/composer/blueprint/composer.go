@@ -16,7 +16,7 @@ import (
 // BlueprintComposer combines processed blueprints from multiple loaders into a final composed blueprint.
 // It applies the composition algorithm: Sources (in order) → Template (if not in sources) → User overlay.
 type BlueprintComposer interface {
-	Compose(loaders []BlueprintLoader) (*blueprintv1alpha1.Blueprint, error)
+	Compose(loaders []BlueprintLoader, initLoaderNames []string) (*blueprintv1alpha1.Blueprint, error)
 }
 
 // =============================================================================
@@ -62,7 +62,7 @@ func NewBlueprintComposer(rt *runtime.Runtime) *BaseBlueprintComposer {
 // directory exists. Missing sources are added from the loader's blueprint or as minimal entries;
 // for OCI loaders without a matching source entry, URL and Ref are taken from any OCI source in
 // the loader's blueprint.
-func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1alpha1.Blueprint, error) {
+func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNames []string) (*blueprintv1alpha1.Blueprint, error) {
 	result := DefaultBlueprint.DeepCopy()
 
 	if len(loaders) == 0 {
@@ -89,7 +89,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 		}
 	}
 
-	orderedSourceBlueprints := c.orderSources(userBlueprint, sourceLoaders)
+	orderedSourceBlueprints := c.orderSources(userBlueprint, sourceLoaders, initLoaderNames)
 
 	if err := result.StrategicMerge(orderedSourceBlueprints...); err != nil {
 		return nil, err
@@ -197,13 +197,28 @@ func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]
 // Private Methods
 // =============================================================================
 
-// orderSources orders source blueprints according to their appearance in the user blueprint's
-// Sources array. Only sources with install:true are included. Sources are merged in the order they appear.
-// If userBlueprint is nil (first-time init), all source loaders are included in the order they were loaded.
-func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader) []*blueprintv1alpha1.Blueprint {
+// orderSources orders source blueprints according to the user blueprint's Sources array, then
+// appends init-loaded blueprints (names in initLoaderNames) that are not listed in the user blueprint.
+// OCI sources with install omitted (nil) are merged for backward compatibility; otherwise only
+// sources with install:true are included. If userBlueprint is nil (first-time init), all loaders are included.
+func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader, initLoaderNames []string) []*blueprintv1alpha1.Blueprint {
 	loaderMap := make(map[string]BlueprintLoader)
 	for _, loader := range sourceLoaders {
 		loaderMap[loader.GetSourceName()] = loader
+	}
+
+	initNamesSet := make(map[string]bool)
+	for _, n := range initLoaderNames {
+		initNamesSet[n] = true
+	}
+
+	userSourceNames := make(map[string]bool)
+	if userBlueprint != nil {
+		for _, s := range userBlueprint.Sources {
+			if s.Name != "" {
+				userSourceNames[s.Name] = true
+			}
+		}
 	}
 
 	var orderedBps []*blueprintv1alpha1.Blueprint
@@ -214,7 +229,7 @@ func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Bl
 			if source.Name == "" {
 				continue
 			}
-			if !source.Install.IsInstalled() {
+			if !c.sourceShouldBeMerged(source) {
 				continue
 			}
 			if loader, exists := loaderMap[source.Name]; exists && !added[source.Name] {
@@ -222,6 +237,19 @@ func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Bl
 					orderedBps = append(orderedBps, bp)
 					added[source.Name] = true
 				}
+			}
+		}
+		for _, loader := range sourceLoaders {
+			name := loader.GetSourceName()
+			if added[name] {
+				continue
+			}
+			if !initNamesSet[name] || userSourceNames[name] {
+				continue
+			}
+			if bp := loader.GetBlueprint(); bp != nil {
+				orderedBps = append(orderedBps, bp)
+				added[name] = true
 			}
 		}
 	} else {
@@ -237,6 +265,15 @@ func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Bl
 	}
 
 	return orderedBps
+}
+
+// sourceShouldBeMerged returns true if the source's components should be merged into the composed blueprint.
+// OCI sources with Install omitted (nil) are treated as merge for backward compatibility; otherwise Install must be true.
+func (c *BaseBlueprintComposer) sourceShouldBeMerged(source blueprintv1alpha1.Source) bool {
+	if source.Install == nil && strings.HasPrefix(source.Url, "oci://") {
+		return true
+	}
+	return source.Install != nil && source.Install.IsInstalled()
 }
 
 // applyUserBlueprint applies the user blueprint to the composed result as an override layer.

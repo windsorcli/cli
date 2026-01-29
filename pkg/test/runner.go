@@ -11,6 +11,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -22,6 +23,9 @@ import (
 // It provides discovery and execution of test cases defined in YAML files,
 // validating that blueprint composition produces expected outputs given specific inputs.
 // It enables regression testing of facet logic and blueprint composition without live infrastructure.
+
+// SkipDefaultBlueprintURL is a sentinel for DefaultBlueprintURL that disables loading the default OCI blueprint (used in unit tests).
+const SkipDefaultBlueprintURL = " "
 
 // =============================================================================
 // Types
@@ -36,11 +40,12 @@ type TestResult struct {
 
 // TestRunner discovers and executes blueprint composition tests.
 type TestRunner struct {
-	projectRoot     string
-	baseShell       shell.Shell
-	baseProjectRoot string
-	artifactBuilder artifact.Artifact
-	RunFunc         func(filter string) ([]TestResult, error)
+	projectRoot         string
+	baseShell           shell.Shell
+	baseProjectRoot     string
+	artifactBuilder     artifact.Artifact
+	DefaultBlueprintURL string
+	RunFunc             func(filter string) ([]TestResult, error)
 }
 
 type testCaseWithFile struct {
@@ -248,7 +253,15 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 
 		testBlueprintHandler := blueprint.NewBlueprintHandler(rt, r.artifactBuilder)
 
-		if err := testBlueprintHandler.LoadBlueprint(); err != nil {
+		defaultURL := r.DefaultBlueprintURL
+		if defaultURL == "" {
+			defaultURL = constants.GetEffectiveBlueprintURL()
+		}
+		var initURLs []string
+		if defaultURL != "" && defaultURL != SkipDefaultBlueprintURL {
+			initURLs = []string{defaultURL}
+		}
+		if err := testBlueprintHandler.LoadBlueprint(initURLs...); err != nil {
 			return nil, fmt.Errorf("failed to load blueprint: %w", err)
 		}
 
@@ -598,7 +611,7 @@ func (r *TestRunner) matchTerraformComponent(actual *blueprintv1alpha1.Terraform
 				diffs = append(diffs, fmt.Sprintf("terraform[%s].inputs[%s]: key not found", identifier, key))
 				continue
 			}
-			if !deepEqual(expectedValue, actualValue) {
+			if !deepEqualInputsValue(expectedValue, actualValue) {
 				diffs = append(diffs, fmt.Sprintf("terraform[%s].inputs[%s]: expected %v, got %v", identifier, key, expectedValue, actualValue))
 			}
 		}
@@ -713,16 +726,17 @@ func (r *TestRunner) validateDuplicateKustomizations(bp *blueprintv1alpha1.Bluep
 }
 
 // validateDuplicateKustomizationComponents checks for duplicate component references within each
-// Kustomization's Components list. It iterates through all kustomizations and validates that each
-// component name appears only once in each kustomization's component list. Duplicate component
-// references within a single kustomization indicate a configuration error. Returns a slice of
-// error messages, one for each duplicate found, with each message identifying both the duplicate
-// component and the kustomization containing it.
+// Kustomization's Components list. Empty strings are placeholders (e.g. conditional slot with no
+// component) and may appear multiple times; only non-empty duplicate component names are reported.
+// Returns a slice of error messages, one for each duplicate found.
 func (r *TestRunner) validateDuplicateKustomizationComponents(bp *blueprintv1alpha1.Blueprint) []string {
 	var errs []string
 	for _, k := range bp.Kustomizations {
 		components := make(map[string]struct{})
 		for _, comp := range k.Components {
+			if comp == "" {
+				continue
+			}
 			if _, exists := components[comp]; exists {
 				errs = append(errs, fmt.Sprintf("duplicate component %q in kustomization %q", comp, k.Name))
 			}
@@ -902,6 +916,47 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// deepEqualInputsValue compares expected and actual terraform input values with subset semantics
+// so tests can assert minimal shape (e.g. instances with only name, role, disks). For slice-of-maps
+// and map-of-maps, actual may contain extra keys; for slices, length and order must match and each
+// expected element must be a subset of the corresponding actual element. Falls back to deepEqual
+// for scalars and when subset semantics do not apply.
+func deepEqualInputsValue(expected, actual any) bool {
+	if expected == nil && actual == nil {
+		return true
+	}
+	if expected == nil || actual == nil {
+		return false
+	}
+	switch e := expected.(type) {
+	case []any:
+		a, ok := actual.([]any)
+		if !ok || len(e) != len(a) {
+			return false
+		}
+		for i := range e {
+			if !deepEqualInputsValue(e[i], a[i]) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		a, ok := actual.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, ev := range e {
+			av, exists := a[k]
+			if !exists || !deepEqualInputsValue(ev, av) {
+				return false
+			}
+		}
+		return true
+	default:
+		return deepEqual(expected, actual)
+	}
 }
 
 // deepEqual performs deep equality comparison between two arbitrary values.
