@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -164,7 +165,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
 	}
 
-	validationErr := c.validateDependencies(result)
+	validationErr := errors.Join(c.validateSources(result), c.validateDependencies(result))
 
 	return result, validationErr
 }
@@ -528,6 +529,26 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 		}
 	}
 
+	return nil
+}
+
+// validateSources checks that install is only used on OCI sources. Git and other non-OCI sources
+// cannot be installed (merged); install is supported only for oci:// URLs.
+func (c *BaseBlueprintComposer) validateSources(bp *blueprintv1alpha1.Blueprint) error {
+	for _, s := range bp.Sources {
+		if s.Name == "" {
+			continue
+		}
+		if !s.Install.IsInstalled() {
+			continue
+		}
+		if s.Url == "" {
+			continue
+		}
+		if !strings.HasPrefix(s.Url, "oci://") {
+			return fmt.Errorf("source %q has install: true but URL %q is not an OCI source (oci://); install is only supported for OCI sources", s.Name, s.Url)
+		}
+	}
 	return nil
 }
 

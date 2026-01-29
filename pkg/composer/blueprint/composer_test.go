@@ -2436,6 +2436,71 @@ func TestComposer_applyPerKustomizationSubstitutions(t *testing.T) {
 }
 
 // =============================================================================
+// Test validateSources
+// =============================================================================
+
+func TestComposer_validateSources(t *testing.T) {
+	t.Run("ReturnsNilWhenNoInstallSources", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "modules", Url: "github.com/org/terraform-modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+			},
+		}
+
+		err := composer.validateSources(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error when no source has install: true, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenOCISourceHasInstallTrue", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		trueVal := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v1.0.0", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+
+		err := composer.validateSources(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error for OCI source with install: true, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGitSourceHasInstallTrue", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		trueVal := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "modules", Url: "github.com/org/terraform-modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}, Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+
+		err := composer.validateSources(bp)
+
+		if err == nil {
+			t.Error("Expected error when git source has install: true")
+		}
+		if !strings.Contains(err.Error(), "install: true") {
+			t.Errorf("Expected error to mention install, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "modules") {
+			t.Errorf("Expected error to mention source name, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "OCI") {
+			t.Errorf("Expected error to mention OCI, got: %v", err)
+		}
+	})
+}
+
+// =============================================================================
 // Test validateDependencies
 // =============================================================================
 
