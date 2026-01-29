@@ -2,8 +2,10 @@ package blueprint
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -220,6 +222,14 @@ terraform:
 `
 		os.WriteFile(filepath.Join(facetsDir, "network.yaml"), []byte(facetYaml), 0644)
 
+		userYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+sources:
+  - name: template
+    install: true
+`
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
+
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
@@ -237,28 +247,31 @@ terraform:
 		}
 	})
 
-	t.Run("MergesUserBlueprintOverPrimary", func(t *testing.T) {
-		// Given primary and user blueprints
+	t.Run("MergesUserBlueprintOverTemplate", func(t *testing.T) {
+		// Given template and user blueprints
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
 
 		templateDir := mocks.Runtime.TemplateRoot
 		os.MkdirAll(templateDir, 0755)
 
-		primaryYaml := `kind: Blueprint
+		templateYaml := `kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
-  name: primary
+  name: template
 terraform:
   - path: vpc
   - path: rds
 `
-		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(primaryYaml), 0644)
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(templateYaml), 0644)
 
 		userYaml := `kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: user
+sources:
+  - name: template
+    install: true
 terraform:
   - path: vpc
 `
@@ -269,15 +282,25 @@ terraform:
 		// When loading blueprint
 		err := handler.LoadBlueprint()
 
-		// Then user should filter components
+		// Then all components should remain (user blueprint acts as override, not filter)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if handler.composedBlueprint == nil {
 			t.Fatal("Expected composed blueprint")
 		}
-		if len(handler.composedBlueprint.TerraformComponents) != 1 {
-			t.Errorf("Expected 1 component (filtered by user), got %d", len(handler.composedBlueprint.TerraformComponents))
+		if len(handler.composedBlueprint.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 components (no filtering), got %d", len(handler.composedBlueprint.TerraformComponents))
+		}
+		componentPaths := make(map[string]bool)
+		for _, comp := range handler.composedBlueprint.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if !componentPaths["vpc"] {
+			t.Error("Expected 'vpc' component to exist")
+		}
+		if !componentPaths["rds"] {
+			t.Error("Expected 'rds' component to remain (no filtering)")
 		}
 	})
 
@@ -321,8 +344,8 @@ terraform:
 		}
 	})
 
-	t.Run("SetsPrimaryLoader", func(t *testing.T) {
-		// Given a handler with local template
+	t.Run("LoadsTemplateWhenInUserSources", func(t *testing.T) {
+		// Given a handler with local template and user blueprint referencing it
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
 
@@ -334,28 +357,44 @@ metadata:
   name: test
 `), 0644)
 
+		userYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: user
+sources:
+  - name: template
+`
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
+
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading blueprint
 		err := handler.LoadBlueprint()
 
-		// Then primary loader should be set
+		// Then template should be loaded as a source
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if handler.primaryBlueprintLoader == nil {
-			t.Error("Expected primary loader to be set")
+		if _, exists := handler.sourceBlueprintLoaders["template"]; !exists {
+			t.Error("Expected template source to be loaded")
 		}
 	})
 
-	t.Run("ReturnsErrorWhenPrimaryLoadFails", func(t *testing.T) {
-		// Given a handler with invalid template
+	t.Run("ReturnsErrorWhenTemplateLoadFails", func(t *testing.T) {
+		// Given a handler with invalid template and user blueprint referencing it
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
 
 		templateDir := mocks.Runtime.TemplateRoot
 		os.MkdirAll(templateDir, 0755)
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte("invalid: [yaml"), 0644)
+
+		userYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+sources:
+  - name: template
+`
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
 
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
@@ -368,26 +407,9 @@ metadata:
 		}
 	})
 
-	t.Run("LoadsSourcesFromPrimaryBlueprint", func(t *testing.T) {
-		// Given a primary blueprint with sources
+	t.Run("LoadsSourcesFromUserBlueprint", func(t *testing.T) {
+		// Given a user blueprint with sources
 		mocks := setupHandlerMocks(t)
-		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
-
-		templateDir := mocks.Runtime.TemplateRoot
-		os.MkdirAll(templateDir, 0755)
-
-		primaryYaml := `kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: primary
-sources:
-  - name: shared-modules
-    url: oci://example.com/shared:v1.0.0
-terraform:
-  - path: vpc
-    source: shared-modules
-`
-		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(primaryYaml), 0644)
 
 		sourceCacheDir := filepath.Join(mocks.Runtime.ProjectRoot, "source-cache")
 		sourceTemplateDir := filepath.Join(sourceCacheDir, "_template")
@@ -403,6 +425,16 @@ terraform:
       region: us-east-1
 `
 		os.WriteFile(filepath.Join(sourceTemplateDir, "blueprint.yaml"), []byte(sourceYaml), 0644)
+
+		userYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: user
+sources:
+  - name: shared-modules
+    url: oci://example.com/shared:v1.0.0
+`
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
 
 		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
 			return map[string]string{
@@ -422,40 +454,39 @@ terraform:
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(handler.sourceBlueprintLoaders) != 1 {
-			t.Errorf("Expected 1 source loader, got %d", len(handler.sourceBlueprintLoaders))
+		if len(handler.sourceBlueprintLoaders) < 1 {
+			t.Errorf("Expected at least 1 source loader, got %d", len(handler.sourceBlueprintLoaders))
 		}
 		if _, exists := handler.sourceBlueprintLoaders["shared-modules"]; !exists {
 			t.Error("Expected 'shared-modules' source loader")
 		}
 	})
 
-	t.Run("LoadsSourcesFromUserBlueprint", func(t *testing.T) {
-		// Given a user blueprint with sources and a local primary template
+	t.Run("LoadsMultipleSourcesFromUserBlueprint", func(t *testing.T) {
+		// Given a user blueprint with multiple sources
 		mocks := setupHandlerMocks(t)
-		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
-
-		templateDir := mocks.Runtime.TemplateRoot
-		os.MkdirAll(templateDir, 0755)
-		primaryYaml := `kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: primary
-`
-		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(primaryYaml), 0644)
 
 		userYaml := `kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: user
 sources:
+  - name: primary-source
+    url: oci://example.com/primary:v1.0.0
   - name: user-source
     url: oci://example.com/user-modules:v1.0.0
-terraform:
-  - path: custom
-    source: user-source
 `
 		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
+
+		primaryCacheDir := filepath.Join(mocks.Runtime.ProjectRoot, "primary-cache")
+		primaryTemplateDir := filepath.Join(primaryCacheDir, "_template")
+		os.MkdirAll(primaryTemplateDir, 0755)
+		primaryYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: primary
+`
+		os.WriteFile(filepath.Join(primaryTemplateDir, "blueprint.yaml"), []byte(primaryYaml), 0644)
 
 		sourceCacheDir := filepath.Join(mocks.Runtime.ProjectRoot, "user-source-cache")
 		sourceTemplateDir := filepath.Join(sourceCacheDir, "_template")
@@ -465,17 +496,24 @@ terraform:
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: user-source
-terraform:
-  - path: custom
 `
 		os.WriteFile(filepath.Join(sourceTemplateDir, "blueprint.yaml"), []byte(sourceYaml), 0644)
 
 		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
-			return map[string]string{
-				"example.com/user-modules:v1.0.0": sourceCacheDir,
-			}, nil
+			result := make(map[string]string)
+			for _, ref := range refs {
+				if strings.Contains(ref, "primary") {
+					result["example.com/primary:v1.0.0"] = primaryCacheDir
+				} else if strings.Contains(ref, "user-modules") {
+					result["example.com/user-modules:v1.0.0"] = sourceCacheDir
+				}
+			}
+			return result, nil
 		}
 		mocks.ArtifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			if strings.Contains(ref, "primary") {
+				return "example.com", "primary", "v1.0.0", nil
+			}
 			return "example.com", "user-modules", "v1.0.0", nil
 		}
 
@@ -484,32 +522,26 @@ terraform:
 		// When loading blueprint
 		err := handler.LoadBlueprint()
 
-		// Then user sources should be loaded
+		// Then both sources should be loaded
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(handler.sourceBlueprintLoaders) != 1 {
-			t.Errorf("Expected 1 source loader, got %d", len(handler.sourceBlueprintLoaders))
+		if len(handler.sourceBlueprintLoaders) < 2 {
+			t.Errorf("Expected at least 2 source loaders, got %d", len(handler.sourceBlueprintLoaders))
 		}
 	})
 
 	t.Run("ReturnsErrorWhenSourceLoadFails", func(t *testing.T) {
-		// Given a blueprint with invalid source
+		// Given a user blueprint with invalid source
 		mocks := setupHandlerMocks(t)
-		mocks.Runtime.TemplateRoot = filepath.Join(mocks.Runtime.ProjectRoot, "_template")
 
-		templateDir := mocks.Runtime.TemplateRoot
-		os.MkdirAll(templateDir, 0755)
-
-		primaryYaml := `kind: Blueprint
+		userYaml := `kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: primary
 sources:
   - name: bad-source
     url: oci://example.com/bad:v1.0.0
 `
-		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(primaryYaml), 0644)
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
 
 		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
 			return nil, os.ErrNotExist
@@ -525,6 +557,163 @@ sources:
 			t.Error("Expected error when source load fails")
 		}
 	})
+
+	t.Run("SkipsNonOCISourcesForBlueprintLoading", func(t *testing.T) {
+		// Given a user blueprint with both OCI and non-OCI sources
+		mocks := setupHandlerMocks(t)
+
+		userYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: user
+sources:
+  - name: oci-source
+    url: oci://example.com/oci:v1.0.0
+    install: true
+  - name: git-source
+    url: https://github.com/org/terraform-modules.git
+    ref:
+      branch: main
+terraform:
+  - path: vpc
+    source: git-source
+`
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
+
+		sourceCacheDir := filepath.Join(mocks.Runtime.ProjectRoot, "source-cache")
+		sourceTemplateDir := filepath.Join(sourceCacheDir, "_template")
+		os.MkdirAll(sourceTemplateDir, 0755)
+
+		sourceYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: oci-source
+terraform:
+  - path: cluster
+`
+		os.WriteFile(filepath.Join(sourceTemplateDir, "blueprint.yaml"), []byte(sourceYaml), 0644)
+
+		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			if len(refs) != 1 || refs[0] != "oci://example.com/oci:v1.0.0" {
+				return nil, fmt.Errorf("unexpected refs: %v", refs)
+			}
+			return map[string]string{"example.com/oci:v1.0.0": sourceCacheDir}, nil
+		}
+		mocks.ArtifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			return "example.com", "oci", "v1.0.0", nil
+		}
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When loading blueprint
+		err := handler.LoadBlueprint()
+
+		// Then should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// And only OCI source should be loaded as blueprint (recursive loading may add more if oci-source has sources)
+		if len(handler.sourceBlueprintLoaders) < 1 {
+			t.Errorf("Expected at least 1 source loader, got %d", len(handler.sourceBlueprintLoaders))
+		}
+		if _, exists := handler.sourceBlueprintLoaders["oci-source"]; !exists {
+			t.Error("Expected oci-source to be loaded")
+		}
+		if _, exists := handler.sourceBlueprintLoaders["git-source"]; exists {
+			t.Error("Expected git-source to NOT be loaded as blueprint")
+		}
+
+		// And composed blueprint should have components from OCI source and user
+		if handler.composedBlueprint == nil {
+			t.Fatal("Expected composed blueprint to exist")
+		}
+		components := handler.GetTerraformComponents()
+		if len(components) != 2 {
+			t.Errorf("Expected 2 components (cluster from oci-source + vpc from user), got %d", len(components))
+		}
+		componentPaths := make(map[string]bool)
+		for _, comp := range components {
+			componentPaths[comp.Path] = true
+		}
+		if !componentPaths["cluster"] {
+			t.Error("Expected 'cluster' component from oci-source")
+		}
+		if !componentPaths["vpc"] {
+			t.Error("Expected 'vpc' component from user blueprint")
+		}
+	})
+
+	t.Run("LoadsOCISourceAndMergesComponents", func(t *testing.T) {
+		// Given a user blueprint with an OCI source
+		mocks := setupHandlerMocks(t)
+
+		userYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: user
+sources:
+  - name: public-blueprint
+    url: oci://example.com/public:v1.0.0
+    install: true
+terraform:
+  - path: custom
+`
+		os.WriteFile(filepath.Join(mocks.Runtime.ConfigRoot, "blueprint.yaml"), []byte(userYaml), 0644)
+
+		publicCacheDir := filepath.Join(mocks.Runtime.ProjectRoot, "public-cache")
+		publicTemplateDir := filepath.Join(publicCacheDir, "_template")
+		os.MkdirAll(publicTemplateDir, 0755)
+
+		publicYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: public-blueprint
+terraform:
+  - path: base-component
+`
+		os.WriteFile(filepath.Join(publicTemplateDir, "blueprint.yaml"), []byte(publicYaml), 0644)
+
+		mocks.ArtifactBuilder.PullFunc = func(refs []string) (map[string]string, error) {
+			return map[string]string{
+				"example.com/public:v1.0.0": publicCacheDir,
+			}, nil
+		}
+		mocks.ArtifactBuilder.ParseOCIRefFunc = func(ref string) (string, string, string, error) {
+			return "example.com", "public", "v1.0.0", nil
+		}
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When loading blueprint
+		err := handler.LoadBlueprint()
+
+		// Then source should be loaded
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, exists := handler.sourceBlueprintLoaders["public-blueprint"]; !exists {
+			t.Fatal("Expected public-blueprint source to be loaded")
+		}
+
+		// And the composed blueprint should have components from both source and user
+		if handler.composedBlueprint == nil {
+			t.Fatal("Expected composed blueprint to exist")
+		}
+		componentPaths := make(map[string]bool)
+		for _, comp := range handler.composedBlueprint.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if len(handler.composedBlueprint.TerraformComponents) == 0 {
+			t.Errorf("Expected components in composed blueprint, got none. Composed blueprint: %+v", handler.composedBlueprint)
+		}
+		if !componentPaths["base-component"] {
+			t.Errorf("Expected 'base-component' from public-blueprint. Found components: %v", componentPaths)
+		}
+		if !componentPaths["custom"] {
+			t.Errorf("Expected 'custom' from user blueprint. Found components: %v", componentPaths)
+		}
+	})
 }
 
 func TestHandler_Write(t *testing.T) {
@@ -538,7 +727,7 @@ func TestHandler_Write(t *testing.T) {
 
 		writeCalled := false
 		mockWriter := &mockWriterImpl{
-			writeFunc: func(bp *blueprintv1alpha1.Blueprint, overwrite bool) error {
+			writeFunc: func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
 				writeCalled = true
 				return nil
 			},
@@ -565,7 +754,7 @@ func TestHandler_Write(t *testing.T) {
 
 		var receivedOverwrite bool
 		mockWriter := &mockWriterImpl{
-			writeFunc: func(bp *blueprintv1alpha1.Blueprint, overwrite bool) error {
+			writeFunc: func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
 				receivedOverwrite = overwrite
 				return nil
 			},
@@ -880,8 +1069,8 @@ func TestHandler_getSourceRef(t *testing.T) {
 }
 
 func TestHandler_GetLocalTemplateData(t *testing.T) {
-	t.Run("ReturnsNilWhenNoPrimaryLoader", func(t *testing.T) {
-		// Given a handler with no primary loader
+	t.Run("ReturnsNilWhenNoTemplateSource", func(t *testing.T) {
+		// Given a handler with no template source
 		mocks := setupHandlerMocks(t)
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
@@ -893,12 +1082,12 @@ func TestHandler_GetLocalTemplateData(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if data != nil {
-			t.Error("Expected nil when no primary loader")
+			t.Error("Expected nil when no template source")
 		}
 	})
 
-	t.Run("ReturnsDataFromPrimaryLoader", func(t *testing.T) {
-		// Given a handler with primary loader
+	t.Run("ReturnsDataFromTemplateSource", func(t *testing.T) {
+		// Given a handler with template source
 		mocks := setupHandlerMocks(t)
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		mockLoader := &mockLoaderImpl{
@@ -906,7 +1095,7 @@ func TestHandler_GetLocalTemplateData(t *testing.T) {
 				return map[string][]byte{"test.yaml": []byte("content")}
 			},
 		}
-		handler.primaryBlueprintLoader = mockLoader
+		handler.sourceBlueprintLoaders["template"] = mockLoader
 
 		// When getting template data
 		data, err := handler.GetLocalTemplateData()
@@ -1011,95 +1200,32 @@ func TestHandler_getConfigValues(t *testing.T) {
 	})
 }
 
-func TestHandler_loadSourcesFromBlueprint(t *testing.T) {
-	t.Run("SkipsLoadingWhenLoaderNil", func(t *testing.T) {
-		// Given a handler
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-
-		// When loading sources from nil loader
-		err := handler.loadSourcesFromBlueprint(nil)
-
-		// Then should not error
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SkipsLoadingWhenBlueprintNil", func(t *testing.T) {
-		// Given a handler with loader returning nil blueprint
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		mockLoader := &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return nil
-			},
-		}
-
-		// When loading sources
-		err := handler.loadSourcesFromBlueprint(mockLoader)
-
-		// Then should not error
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SkipsDuplicateSources", func(t *testing.T) {
-		// Given a handler with existing source loader
-		mocks := setupHandlerMocks(t)
-		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.sourceBlueprintLoaders["existing-source"] = &mockLoaderImpl{}
-
-		mockLoader := &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
-				return &blueprintv1alpha1.Blueprint{
-					Sources: []blueprintv1alpha1.Source{
-						{Name: "existing-source", Url: "oci://example.com/test:v1"},
-					},
-				}
-			},
-		}
-
-		// When loading sources
-		err := handler.loadSourcesFromBlueprint(mockLoader)
-
-		// Then should skip duplicate and not error
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if len(handler.sourceBlueprintLoaders) != 1 {
-			t.Errorf("Expected 1 source loader, got %d", len(handler.sourceBlueprintLoaders))
-		}
-	})
-}
-
 // =============================================================================
 // Test Helpers
 // =============================================================================
 
 type mockWriterImpl struct {
-	writeFunc func(bp *blueprintv1alpha1.Blueprint, overwrite bool) error
+	writeFunc func(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error
 }
 
-func (m *mockWriterImpl) Write(bp *blueprintv1alpha1.Blueprint, overwrite bool) error {
+func (m *mockWriterImpl) Write(bp *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
 	if m.writeFunc != nil {
-		return m.writeFunc(bp, overwrite)
+		return m.writeFunc(bp, overwrite, initBlueprintURLs...)
 	}
 	return nil
 }
 
 type mockLoaderImpl struct {
-	loadFunc            func() error
+	loadFunc            func(sourceName, sourceURL string) error
 	getBlueprintFunc    func() *blueprintv1alpha1.Blueprint
 	getFacetsFunc       func() []blueprintv1alpha1.Facet
 	getTemplateDataFunc func() map[string][]byte
 	getSourceNameFunc   func() string
 }
 
-func (m *mockLoaderImpl) Load() error {
+func (m *mockLoaderImpl) Load(sourceName, sourceURL string) error {
 	if m.loadFunc != nil {
-		return m.loadFunc()
+		return m.loadFunc(sourceName, sourceURL)
 	}
 	return nil
 }
@@ -1289,14 +1415,26 @@ func TestHandler_processAndCompose(t *testing.T) {
 		mocks.Runtime.TerraformProvider = mockTerraformProvider
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		trueVal := true
+		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},
 				{Path: "rds"},
 			},
 		}
-		handler.primaryBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return primaryBp },
+		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
+			getSourceNameFunc: func() string { return "template" },
+		}
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Sources: []blueprintv1alpha1.Source{
+						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+					},
+				}
+			},
+			getSourceNameFunc: func() string { return "user" },
 		}
 
 		// When processing and composing
@@ -1322,13 +1460,25 @@ func TestHandler_processAndCompose(t *testing.T) {
 		mocks.Runtime.TerraformProvider = nil
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},
 			},
 		}
-		handler.primaryBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return primaryBp },
+		trueVal := true
+		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
+			getSourceNameFunc: func() string { return "template" },
+		}
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Sources: []blueprintv1alpha1.Source{
+						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+					},
+				}
+			},
+			getSourceNameFunc: func() string { return "user" },
 		}
 
 		// When processing and composing

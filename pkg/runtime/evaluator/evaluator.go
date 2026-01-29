@@ -17,7 +17,6 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/ast"
 	"github.com/google/go-jsonnet"
-	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -594,7 +593,6 @@ func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map
 	helpersLibrary := e.buildHelperLibrary()
 	vm.ExtCode("helpers", helpersLibrary)
 	vm.ExtCode("context", string(configJSON))
-	vm.ExtCode("ociUrl", fmt.Sprintf("%q", constants.GetEffectiveBlueprintURL()))
 
 	if dir := filepath.Dir(path); dir != "" {
 		vm.Importer(&jsonnet.FileImporter{

@@ -57,9 +57,7 @@ repository:
     branch: main
 sources:
   - name: core
-    url: github.com/windsorcli/core
-    ref:
-      tag: v0.5.0
+    url: oci://ghcr.io/windsorcli/core:v0.5.0
 terraform:
   - source: core
     path: cluster/talos
@@ -157,6 +155,20 @@ For detailed information about Facets, see the [Facets Reference](../reference/f
 2. **Schema Validation**: The schema from `_template/schema.yaml` (if present) validates and provides defaults for configuration values from `windsor.yaml` and `values.yaml`
 3. **Facet Processing**: Facets from `_template/facets/` are evaluated against the context's configuration and merged into the base blueprint
 4. **Context Overrides**: Context-specific `blueprint.yaml` files can override or extend the base blueprint
+
+## Blueprint Composition Order
+
+When Windsor composes the final blueprint, it merges layers in this specific order:
+
+1. **Deployed Sources** - OCI sources with `deploy: true` (or no `deploy` flag, which defaults to `true`) have their components merged directly into the result. Sources with `deploy: false` are not merged but remain available for component reference.
+2. **Base Template** - The `_template/blueprint.yaml` is always fully merged. This serves as the foundation layer and is never filtered or conditionally included.
+3. **User Blueprint** - Context-specific `blueprint.yaml` files override and extend the result. The user blueprint acts as an override layer without filtering - all components from previous layers are retained unless explicitly disabled.
+
+**Important Notes:**
+- The `_template/` directory is always included in full - there is no `deploy` flag for the base template
+- Only OCI sources (those with `oci://` URLs) can have their components merged. Non-OCI sources (Git URLs, etc.) remain in the Sources array for component reference but are not loaded as blueprints
+- The `deploy` flag on sources only applies to OCI sources. It defaults to `true` if not specified
+- Sources with `deploy: false` are "index-only" - their components aren't merged, but components can still reference them via `source: <name>`
 
 ## File Resolution
 

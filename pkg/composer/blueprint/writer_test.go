@@ -3,7 +3,9 @@ package blueprint
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -14,6 +16,15 @@ import (
 // =============================================================================
 // Test Setup
 // =============================================================================
+
+type mockFileInfo struct{}
+
+func (m *mockFileInfo) Name() string       { return "blueprint.yaml" }
+func (m *mockFileInfo) Size() int64        { return 0 }
+func (m *mockFileInfo) Mode() os.FileMode  { return 0644 }
+func (m *mockFileInfo) ModTime() time.Time { return time.Now() }
+func (m *mockFileInfo) IsDir() bool        { return false }
+func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type WriterTestMocks struct {
 	Shell         *shell.MockShell
@@ -130,7 +141,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then the file should be written
 		if err != nil {
@@ -141,6 +152,53 @@ func TestWriter_Write(t *testing.T) {
 		}
 		if len(writtenData) == 0 {
 			t.Error("Expected data to be written")
+		}
+	})
+
+	t.Run("WritesMinimalBlueprintWithInitURLsWhenFileDoesNotExist", func(t *testing.T) {
+		// Given a writer, no existing file, and initBlueprintURLs
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var writtenData []byte
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata:   blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Sources:    []blueprintv1alpha1.Source{},
+		}
+		initURL := "oci://ghcr.io/windsorcli/core:v1.0.0"
+
+		// When writing with file not existing and initBlueprintURLs
+		err := writer.Write(blueprint, true, initURL)
+
+		// Then minimal blueprint should be written with source from init URL
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(writtenData) == 0 {
+			t.Fatal("Expected data to be written")
+		}
+		writtenStr := string(writtenData)
+		if !strings.Contains(writtenStr, "name: core") {
+			t.Error("Expected written blueprint to contain source name 'core' from init URL")
+		}
+		if !strings.Contains(writtenStr, "oci://ghcr.io/windsorcli/core:v1.0.0") {
+			t.Error("Expected written blueprint to contain init URL")
+		}
+		if !strings.Contains(writtenStr, "install: true") {
+			t.Error("Expected written blueprint to contain install: true for init source")
 		}
 	})
 
@@ -223,7 +281,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then an error should be returned
 		if err == nil {
@@ -248,7 +306,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then an error should be returned
 		if err == nil {
@@ -276,7 +334,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then an error should be returned
 		if err == nil {
@@ -312,7 +370,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then transient fields should be cleaned
 		if err != nil {
@@ -353,7 +411,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then kustomization transient fields should be cleaned
 		if err != nil {
@@ -392,7 +450,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then an error should be returned
 		if err == nil {
@@ -433,7 +491,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then values-common should be stripped and ConfigMaps should be nil
 		if err != nil {
@@ -454,7 +512,8 @@ func TestWriter_Write(t *testing.T) {
 
 		var marshalledBlueprint *blueprintv1alpha1.Blueprint
 		writer.shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
+			// File exists - should write full blueprint
+			return &mockFileInfo{}, nil
 		}
 		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
@@ -482,7 +541,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then values-common should be stripped but user-config preserved
 		if err != nil {
@@ -511,7 +570,8 @@ func TestWriter_Write(t *testing.T) {
 
 		var marshalledBlueprint *blueprintv1alpha1.Blueprint
 		writer.shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
+			// File exists - should write full blueprint
+			return &mockFileInfo{}, nil
 		}
 		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
@@ -536,7 +596,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 
 		// When writing the blueprint
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 
 		// Then user-config should be preserved
 		if err != nil {
@@ -561,7 +621,8 @@ func TestWriter_Write(t *testing.T) {
 
 		var marshalledBlueprint *blueprintv1alpha1.Blueprint
 		writer.shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
+			// File exists - should write full blueprint
+			return &mockFileInfo{}, nil
 		}
 		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
@@ -587,7 +648,7 @@ func TestWriter_Write(t *testing.T) {
 			},
 		}
 
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -608,7 +669,8 @@ func TestWriter_Write(t *testing.T) {
 
 		var marshalledBlueprint *blueprintv1alpha1.Blueprint
 		writer.shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
+			// File exists - should write full blueprint
+			return &mockFileInfo{}, nil
 		}
 		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
@@ -634,7 +696,7 @@ func TestWriter_Write(t *testing.T) {
 			},
 		}
 
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -657,7 +719,8 @@ func TestWriter_Write(t *testing.T) {
 
 		var marshalledBlueprint *blueprintv1alpha1.Blueprint
 		writer.shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
+			// File exists - should write full blueprint
+			return &mockFileInfo{}, nil
 		}
 		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
@@ -682,7 +745,7 @@ func TestWriter_Write(t *testing.T) {
 			},
 		}
 
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -707,7 +770,8 @@ func TestWriter_Write(t *testing.T) {
 
 		var marshalledBlueprint *blueprintv1alpha1.Blueprint
 		writer.shims.Stat = func(path string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
+			// File exists - should write full blueprint
+			return &mockFileInfo{}, nil
 		}
 		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
 			return nil
@@ -733,7 +797,7 @@ func TestWriter_Write(t *testing.T) {
 			},
 		}
 
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -748,7 +812,7 @@ func TestWriter_Write(t *testing.T) {
 		}
 	})
 
-	t.Run("StripsDeployTrueFromSources", func(t *testing.T) {
+	t.Run("StripsInstallFalseFromSources", func(t *testing.T) {
 		mocks := setupWriterMocks(t)
 		writer := NewBlueprintWriter(mocks.Runtime)
 
@@ -769,19 +833,19 @@ func TestWriter_Write(t *testing.T) {
 			return []byte("test yaml"), nil
 		}
 
-		trueVal := true
+		falseVal := false
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			Sources: []blueprintv1alpha1.Source{
 				{
-					Name:   "test-source",
-					Url:    "oci://example.com/repo:tag",
-					Deploy: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+					Name:    "test-source",
+					Url:     "oci://example.com/repo:tag",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
 				},
 			},
 		}
 
-		err := writer.Write(blueprint, false)
+		err := writer.Write(blueprint, true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -791,8 +855,8 @@ func TestWriter_Write(t *testing.T) {
 		if len(marshalledBlueprint.Sources) != 1 {
 			t.Fatalf("Expected 1 source, got %d", len(marshalledBlueprint.Sources))
 		}
-		if marshalledBlueprint.Sources[0].Deploy != nil {
-			t.Error("Expected deploy: true to be stripped from source")
+		if marshalledBlueprint.Sources[0].Install != nil {
+			t.Error("Expected install: false to be stripped from source")
 		}
 	})
 }

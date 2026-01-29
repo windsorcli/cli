@@ -272,9 +272,22 @@ func (h *BaseModuleResolver) generateComponentTfvars(projectRoot string, compone
 // For components with a name, the path is .windsor/contexts/<context>/terraform/<name> (where the shim is located).
 // For components without a name but with a Source, the path is .windsor/contexts/<context>/terraform/<component.Path>.
 // For local components without a name, the path is terraform/<component.Path> (the actual module location).
+// For template sources (absolute paths containing contexts/_template), returns the actual template module path.
 // Returns the module directory path if it exists, or an error if not found.
 func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, component blueprintv1alpha1.TerraformComponent) (string, error) {
 	componentID := component.GetID()
+
+	if filepath.IsAbs(component.Source) && (strings.Contains(component.Source, filepath.Join("contexts", "_template")) || strings.HasPrefix(component.Source, filepath.Join(projectRoot, "terraform"))) {
+		modulePath := component.Source
+
+		if _, err := h.shims.Stat(modulePath); err != nil {
+			if os.IsNotExist(err) {
+				_, _ = h.shims.ReadDir(filepath.Dir(modulePath))
+			}
+			return "", fmt.Errorf("module directory not found for component %s at %s", component.GetID(), modulePath)
+		}
+		return modulePath, nil
+	}
 
 	useScratchPath := component.Name != "" || component.Source != ""
 	var modulePath string
