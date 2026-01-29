@@ -14,7 +14,7 @@ import (
 // BlueprintLoader holds individual blueprint state in-memory through the processing lifecycle.
 // One BlueprintLoader is created per blueprint source (primary, each OCI source, user).
 type BlueprintLoader interface {
-	Load() error
+	Load(sourceName, sourceURL string) error
 	GetBlueprint() *blueprintv1alpha1.Blueprint
 	GetFacets() []blueprintv1alpha1.Facet
 	GetTemplateData() map[string][]byte
@@ -42,25 +42,17 @@ type BaseBlueprintLoader struct {
 // Constructor
 // =============================================================================
 
-// NewBlueprintLoader creates a new BlueprintLoader for loading blueprints from a specific source.
-// The sourceName identifies this loader in logs and error messages (e.g., "primary", "user", or
-// a source name from the sources array). The sourceURL specifies an OCI artifact URL to pull;
-// if empty, the loader will use local filesystem paths based on sourceName. Optional overrides
-// allow replacing the shims for testing.
-func NewBlueprintLoader(rt *runtime.Runtime, artifactBuilder artifact.Artifact, sourceName, sourceURL string) *BaseBlueprintLoader {
+// NewBlueprintLoader creates a new BlueprintLoader. The sourceName and sourceURL are provided
+// when calling Load(), not during construction. The artifactBuilder is required for OCI sources
+// but may be nil for local sources.
+func NewBlueprintLoader(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *BaseBlueprintLoader {
 	if rt == nil {
 		panic("runtime is required")
 	}
-	if artifactBuilder == nil {
-		panic("artifact builder is required")
-	}
-
 	return &BaseBlueprintLoader{
 		runtime:         rt,
 		artifactBuilder: artifactBuilder,
 		shims:           NewShims(),
-		sourceName:      sourceName,
-		sourceURL:       sourceURL,
 		templateData:    make(map[string][]byte),
 	}
 }
@@ -69,17 +61,22 @@ func NewBlueprintLoader(rt *runtime.Runtime, artifactBuilder artifact.Artifact, 
 // Public Methods
 // =============================================================================
 
-// Load determines the appropriate loading strategy based on sourceName and sourceURL, then
-// executes it. For OCI sources (non-empty sourceURL), it pulls the artifact and extracts
-// blueprint data. For the "user" source, it loads only the blueprint.yaml from config root.
-// For local templates, it reads from the _template directory. Each strategy collects the
-// blueprint, features, schema, and template data appropriate to that source type.
-func (l *BaseBlueprintLoader) Load() error {
-	if l.sourceURL != "" {
+// Load loads the blueprint from the specified source. The sourceName identifies this loader
+// (e.g., "user", "template", or a source name from the sources array). The sourceURL specifies
+// an OCI artifact URL to pull; if empty, the loader will use local filesystem paths based on
+// sourceName. For "user", it loads from config root. For other names, it loads from _template.
+func (l *BaseBlueprintLoader) Load(sourceName, sourceURL string) error {
+	l.sourceName = sourceName
+	l.sourceURL = sourceURL
+
+	if sourceURL != "" {
+		if l.artifactBuilder == nil {
+			return fmt.Errorf("artifact builder is required for OCI sources")
+		}
 		return l.loadFromOCI()
 	}
 
-	if l.sourceName == "user" {
+	if sourceName == "user" {
 		return l.loadUserBlueprint()
 	}
 
@@ -233,10 +230,10 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 }
 
 // injectOCISource adds the OCI artifact as a source in the blueprint and sets the Source field
-// on any terraform components and kustomizations that don't already have one. The source name is
-// extracted from the OCI URL (e.g., "core" from "oci://ghcr.io/windsorcli/core:latest") rather
-// than using the loader's original sourceName. This extracted name is stored back in l.sourceName
-// so that GetSourceName() returns the correct OCI artifact name for use in feature processing.
+// on any terraform components and kustomizations that don't already have one. The source name
+// uses the loader's sourceName (which was set when the loader was created based on the user's
+// sources array) rather than extracting from the OCI URL. This ensures consistent matching
+// between user blueprint sources and loaded blueprints during composition.
 func (l *BaseBlueprintLoader) injectOCISource() {
 	if l.blueprint == nil {
 		return
@@ -247,17 +244,14 @@ func (l *BaseBlueprintLoader) injectOCISource() {
 		return
 	}
 
-	l.sourceName = ociInfo.Name
-
 	ociSource := blueprintv1alpha1.Source{
-		Name: ociInfo.Name,
+		Name: l.sourceName,
 		Url:  ociInfo.URL,
-		Ref:  blueprintv1alpha1.Reference{Tag: ociInfo.Tag},
 	}
 
 	sourceExists := false
 	for i, source := range l.blueprint.Sources {
-		if source.Name == ociInfo.Name {
+		if source.Name == l.sourceName {
 			l.blueprint.Sources[i] = ociSource
 			sourceExists = true
 			break
@@ -269,13 +263,30 @@ func (l *BaseBlueprintLoader) injectOCISource() {
 
 	for i := range l.blueprint.TerraformComponents {
 		if l.blueprint.TerraformComponents[i].Source == "" {
-			l.blueprint.TerraformComponents[i].Source = ociInfo.Name
+			l.blueprint.TerraformComponents[i].Source = l.sourceName
 		}
 	}
 
 	for i := range l.blueprint.Kustomizations {
 		if l.blueprint.Kustomizations[i].Source == "" {
-			l.blueprint.Kustomizations[i].Source = ociInfo.Name
+			l.blueprint.Kustomizations[i].Source = l.sourceName
+		}
+	}
+}
+
+// normalizeOCISourceRefs zeros Ref on sources whose OCI URL already includes the tag, so ref is
+// not duplicated. Called after loading blueprint from file so downstream writers never see redundant ref.
+func (l *BaseBlueprintLoader) normalizeOCISourceRefs(bp *blueprintv1alpha1.Blueprint) {
+	if bp == nil {
+		return
+	}
+	for i := range bp.Sources {
+		s := &bp.Sources[i]
+		if s.Url == "" || !strings.HasPrefix(s.Url, "oci://") {
+			continue
+		}
+		if strings.Contains(s.Url[7:], ":") {
+			s.Ref = blueprintv1alpha1.Reference{}
 		}
 	}
 }
@@ -298,6 +309,7 @@ func (l *BaseBlueprintLoader) loadBlueprintFromFile(path string) error {
 		return fmt.Errorf("failed to parse blueprint.yaml: %w", err)
 	}
 
+	l.normalizeOCISourceRefs(&bp)
 	l.blueprint = &bp
 	return nil
 }

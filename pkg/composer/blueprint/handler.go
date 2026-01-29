@@ -3,14 +3,12 @@ package blueprint
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -38,11 +36,10 @@ type BaseBlueprintHandler struct {
 	writer          BlueprintWriter
 	shims           *Shims
 
-	primaryBlueprintLoader BlueprintLoader
 	sourceBlueprintLoaders map[string]BlueprintLoader
 	userBlueprintLoader    BlueprintLoader
-
-	composedBlueprint *blueprintv1alpha1.Blueprint
+	composedBlueprint      *blueprintv1alpha1.Blueprint
+	initBlueprintURLs      []string
 }
 
 // =============================================================================
@@ -93,28 +90,25 @@ func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact,
 // Public Methods
 // =============================================================================
 
-// LoadBlueprint orchestrates the complete blueprint loading pipeline. It first loads the primary
-// blueprint from a local template directory or OCI artifact, then loads any sources referenced
-// by the primary blueprint in parallel. Next, it loads the user's blueprint.yaml from the config
-// root (if present) and any additional sources it references. Finally, it processes features for
-// all blueprints in parallel and composes them into a single unified blueprint. The optional
-// blueprintURL parameter specifies an OCI artifact URL for the primary blueprint; if omitted,
-// the handler falls back to the local _template directory.
+// LoadBlueprint orchestrates the complete blueprint loading pipeline. It loads the user blueprint
+// first, then loads all sources from the user's sources array (including "name: template" for local
+// _template). Sources are loaded recursively to discover nested sources. Finally, it processes facets
+// for all source blueprints and composes them into a single unified blueprint, applying the user
+// blueprint as the final override layer. The blueprintURL parameter stores URLs that should be added
+// to sources during initialization. These URLs are loaded first so their metadata names can be used.
 func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
-	if err := h.loadPrimary(blueprintURL...); err != nil {
-		return fmt.Errorf("failed to load primary blueprint: %w", err)
-	}
+	h.initBlueprintURLs = blueprintURL
 
-	if err := h.loadSourcesFromBlueprint(h.primaryBlueprintLoader); err != nil {
-		return fmt.Errorf("failed to load sources from primary: %w", err)
+	if err := h.loadInitBlueprints(); err != nil {
+		return fmt.Errorf("failed to load init blueprints: %w", err)
 	}
 
 	if err := h.loadUser(); err != nil {
 		return fmt.Errorf("failed to load user blueprint: %w", err)
 	}
 
-	if err := h.loadSourcesFromBlueprint(h.userBlueprintLoader); err != nil {
-		return fmt.Errorf("failed to load sources from user: %w", err)
+	if err := h.loadSources(); err != nil {
+		return fmt.Errorf("failed to load sources: %w", err)
 	}
 
 	if err := h.processAndCompose(); err != nil {
@@ -124,69 +118,73 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	return nil
 }
 
+// Write persists the composed blueprint to blueprint.yaml in the config root directory. Before
+// writing, transient fields (inputs, substitutions, parallelism, etc.) are stripped since these
+// are used at runtime but should not be stored in the user's blueprint. If overwrite is true,
+// an existing file is replaced; if false or omitted, the file is only written if it does not
+// already exist, preserving user modifications.
+func (h *BaseBlueprintHandler) Write(overwrite ...bool) error {
+	shouldOverwrite := false
+	if len(overwrite) > 0 {
+		shouldOverwrite = overwrite[0]
+	}
+
+	h.setRepositoryDefaults()
+
+	return h.writer.Write(h.composedBlueprint, shouldOverwrite, h.initBlueprintURLs...)
+}
+
+// GetTerraformComponents returns a copy of the composed blueprint's terraform components with
+// Source and FullPath resolved for each component. Source names are expanded to full OCI or Git
+// URLs based on the Sources array. Components with a Name or Source are placed in the Windsor
+// scratch path (contexts/<context>/terraform/), while local components without a source are
+// placed in the project's terraform directory.
+func (h *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
+	if h.composedBlueprint == nil {
+		return nil
+	}
+
+	components := make([]blueprintv1alpha1.TerraformComponent, len(h.composedBlueprint.TerraformComponents))
+	copy(components, h.composedBlueprint.TerraformComponents)
+
+	for i := range components {
+		h.resolveComponentSource(&components[i])
+		h.resolveComponentFullPath(&components[i])
+	}
+
+	return components
+}
+
+// GetLocalTemplateData returns all files collected from the template blueprint's directory.
+// This includes blueprint.yaml, schema.yaml, features, and any other template files. The data is
+// used by the artifact builder when pushing local templates to an OCI registry. Returns nil if
+// no template loader exists (e.g., when loading from OCI without a local _template).
+func (h *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
+	templateLoader, exists := h.sourceBlueprintLoaders["template"]
+	if !exists || templateLoader == nil {
+		return nil, nil
+	}
+	return templateLoader.GetTemplateData(), nil
+}
+
+// Generate returns the fully composed blueprint after all sources and user blueprint
+// have been merged. This is a simple accessor method that returns the composedBlueprint field.
+// The blueprint is already fully processed and composed by LoadBlueprint(). Input expressions
+// and substitutions remain in their raw form and are evaluated later by their respective consumers.
+func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
+	return h.composedBlueprint
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// loadPrimary initializes and loads the primary blueprint loader. Priority order: (1) explicit
-// blueprintURL parameter, (2) local _template directory if it exists, (3) default OCI blueprint
-// from constants.GetEffectiveBlueprintURL(). The primary blueprint serves as the base layer in
-// the composition hierarchy, providing default terraform components, kustomizations, and features.
-func (h *BaseBlueprintHandler) loadPrimary(blueprintURL ...string) error {
-	var sourceURL string
-
-	if len(blueprintURL) > 0 && blueprintURL[0] != "" {
-		sourceURL = blueprintURL[0]
-	} else if h.runtime.TemplateRoot != "" {
-		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
-			sourceURL = ""
-		} else if os.IsNotExist(err) {
-			sourceURL = constants.GetEffectiveBlueprintURL()
-		}
-	} else {
-		sourceURL = constants.GetEffectiveBlueprintURL()
-	}
-
-	h.primaryBlueprintLoader = NewBlueprintLoader(h.runtime, h.artifactBuilder, "primary", sourceURL)
-	return h.primaryBlueprintLoader.Load()
-}
-
-// loadUser initializes and loads the user blueprint from the config root directory. The user
-// blueprint (blueprint.yaml in the context folder) acts as the final overlay in composition,
-// allowing users to select specific components, override values, and add custom configurations.
-// Unlike primary and source blueprints, the user blueprint does not contain features.
-func (h *BaseBlueprintHandler) loadUser() error {
-	h.userBlueprintLoader = NewBlueprintLoader(h.runtime, h.artifactBuilder, "user", "")
-	return h.userBlueprintLoader.Load()
-}
-
-// loadSourcesFromBlueprint iterates through the Sources array of a loaded blueprint and creates
-// a loader for each referenced source. Sources are loaded in parallel using goroutines to improve
-// performance when multiple OCI artifacts need to be pulled. Each source is identified by name
-// and URL; sources with missing name or URL are skipped, and duplicate sources (already loaded)
-// are ignored. Errors from individual source loads are collected and returned as a joined error.
-func (h *BaseBlueprintHandler) loadSourcesFromBlueprint(loader BlueprintLoader) error {
-	if loader == nil {
-		return nil
-	}
-
-	bp := loader.GetBlueprint()
-	if bp == nil {
-		return nil
-	}
-
-	var sourcesToLoad []blueprintv1alpha1.Source
-	for _, source := range bp.Sources {
-		if source.Name == "" || source.Url == "" {
-			continue
-		}
-		if _, exists := h.sourceBlueprintLoaders[source.Name]; exists {
-			continue
-		}
-		sourcesToLoad = append(sourcesToLoad, source)
-	}
-
-	if len(sourcesToLoad) == 0 {
+// loadInitBlueprints loads blueprints specified via --blueprint flag before the user blueprint
+// is loaded. This ensures the blueprint metadata names are available when creating the minimal
+// blueprint. Each blueprint is loaded and stored with a temporary name derived from the URL,
+// which will be replaced with the actual metadata name during composition.
+func (h *BaseBlueprintHandler) loadInitBlueprints() error {
+	if len(h.initBlueprintURLs) == 0 {
 		return nil
 	}
 
@@ -194,23 +192,52 @@ func (h *BaseBlueprintHandler) loadSourcesFromBlueprint(loader BlueprintLoader) 
 	var mu sync.Mutex
 	var errs []error
 
-	for _, source := range sourcesToLoad {
+	for _, url := range h.initBlueprintURLs {
+		if url == "" {
+			continue
+		}
+		if !strings.HasPrefix(url, "oci://") {
+			continue
+		}
+
 		wg.Add(1)
-		go func(src blueprintv1alpha1.Source) {
+		go func(blueprintURL string) {
 			defer wg.Done()
 
-			sourceBlueprintLoader := NewBlueprintLoader(h.runtime, h.artifactBuilder, src.Name, src.Url)
-			if err := sourceBlueprintLoader.Load(); err != nil {
+			tempName := h.getTempSourceName(blueprintURL)
+			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
+			if err := loader.Load(tempName, blueprintURL); err != nil {
 				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to load source '%s': %w", src.Name, err))
+				errs = append(errs, fmt.Errorf("failed to load init blueprint '%s': %w", blueprintURL, err))
 				mu.Unlock()
 				return
 			}
 
-			mu.Lock()
-			h.sourceBlueprintLoaders[src.Name] = sourceBlueprintLoader
-			mu.Unlock()
-		}(source)
+			bp := loader.GetBlueprint()
+			if bp != nil && bp.Metadata.Name != "" {
+				for i := range bp.Sources {
+					if bp.Sources[i].Name == tempName {
+						bp.Sources[i].Name = bp.Metadata.Name
+						break
+					}
+				}
+				for i := range bp.TerraformComponents {
+					if bp.TerraformComponents[i].Source == tempName {
+						bp.TerraformComponents[i].Source = bp.Metadata.Name
+					}
+				}
+				for i := range bp.Kustomizations {
+					if bp.Kustomizations[i].Source == tempName {
+						bp.Kustomizations[i].Source = bp.Metadata.Name
+					}
+				}
+				mu.Lock()
+				if _, exists := h.sourceBlueprintLoaders[bp.Metadata.Name]; !exists {
+					h.sourceBlueprintLoaders[bp.Metadata.Name] = loader
+				}
+				mu.Unlock()
+			}
+		}(url)
 	}
 
 	wg.Wait()
@@ -222,25 +249,172 @@ func (h *BaseBlueprintHandler) loadSourcesFromBlueprint(loader BlueprintLoader) 
 	return nil
 }
 
-// processAndCompose evaluates facets from all loaded blueprints and merges them into a single
-// composed blueprint. Facet processing for each blueprint runs in parallel, with each blueprint's
-// facets evaluated sequentially (sorted by name) against the current configuration values.
-// After all facets are processed, the composer merges blueprints in order: sources first, then
-// primary, then user overlay. The user blueprint filters the final result to only include
-// components explicitly selected by the user.
+// getTempSourceName generates a temporary source name from a URL for loading purposes.
+// This is only used during initial loading; the actual metadata name will be used after loading.
+func (h *BaseBlueprintHandler) getTempSourceName(url string) string {
+	if strings.HasPrefix(url, "oci://") {
+		remaining := strings.TrimPrefix(url, "oci://")
+		if lastColon := strings.LastIndex(remaining, ":"); lastColon > 0 {
+			pathPart := remaining[:lastColon]
+			if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
+				return pathPart[lastSlash+1:]
+			}
+		}
+	}
+	return "init-blueprint"
+}
+
+// loadUser initializes and loads the user blueprint from the config root directory. The user
+// blueprint (blueprint.yaml in the context folder) acts as the final override layer in composition,
+// allowing users to select specific components, override values, and add custom configurations.
+func (h *BaseBlueprintHandler) loadUser() error {
+	h.userBlueprintLoader = NewBlueprintLoader(h.runtime, h.artifactBuilder)
+	return h.userBlueprintLoader.Load("user", "")
+}
+
+// loadSources iterates through the user blueprint's sources array and loads each source.
+// Sources with name "template" are loaded from the local _template directory.
+// Sources with OCI URLs are loaded from the registry. Sources are loaded in parallel.
+// After loading direct sources, it recursively loads any sources referenced by those blueprints.
+func (h *BaseBlueprintHandler) loadSources() error {
+	userBp := h.userBlueprintLoader.GetBlueprint()
+	if userBp == nil {
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var errs []error
+
+	for _, source := range userBp.Sources {
+		if source.Name == "" {
+			continue
+		}
+		if _, exists := h.sourceBlueprintLoaders[source.Name]; exists {
+			continue
+		}
+
+		wg.Add(1)
+		go func(src blueprintv1alpha1.Source) {
+			defer wg.Done()
+
+			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
+			var sourceURL string
+			if src.Name == "template" {
+				sourceURL = ""
+			} else if strings.HasPrefix(src.Url, "oci://") {
+				sourceURL = src.Url
+			} else {
+				return
+			}
+
+			if err := loader.Load(src.Name, sourceURL); err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("failed to load source '%s': %w", src.Name, err))
+				mu.Unlock()
+				return
+			}
+
+			mu.Lock()
+			if _, exists := h.sourceBlueprintLoaders[src.Name]; !exists {
+				h.sourceBlueprintLoaders[src.Name] = loader
+			}
+			mu.Unlock()
+		}(source)
+	}
+
+	wg.Wait()
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return h.loadNestedSources()
+}
+
+// loadNestedSources recursively loads sources from already-loaded source blueprints until no new
+// sources are discovered. This ensures sources referenced within OCI blueprints are also loaded.
+func (h *BaseBlueprintHandler) loadNestedSources() error {
+	processed := make(map[string]bool)
+
+	for {
+		var newSources []blueprintv1alpha1.Source
+
+		for name, loader := range h.sourceBlueprintLoaders {
+			if processed[name] {
+				continue
+			}
+			processed[name] = true
+
+			bp := loader.GetBlueprint()
+			if bp == nil {
+				continue
+			}
+
+			for _, source := range bp.Sources {
+				if source.Name == "" || source.Name == "template" {
+					continue
+				}
+				if _, exists := h.sourceBlueprintLoaders[source.Name]; exists {
+					continue
+				}
+				if !strings.HasPrefix(source.Url, "oci://") {
+					continue
+				}
+				newSources = append(newSources, source)
+			}
+		}
+
+		if len(newSources) == 0 {
+			break
+		}
+
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errs []error
+
+		for _, source := range newSources {
+			wg.Add(1)
+			go func(src blueprintv1alpha1.Source) {
+				defer wg.Done()
+
+				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
+				if err := loader.Load(src.Name, src.Url); err != nil {
+					mu.Lock()
+					errs = append(errs, fmt.Errorf("failed to load source '%s': %w", src.Name, err))
+					mu.Unlock()
+					return
+				}
+
+				mu.Lock()
+				if _, exists := h.sourceBlueprintLoaders[src.Name]; !exists {
+					h.sourceBlueprintLoaders[src.Name] = loader
+				}
+				mu.Unlock()
+			}(source)
+		}
+
+		wg.Wait()
+
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
+	}
+
+	return nil
+}
+
+// processAndCompose evaluates facets from all loaded source blueprints and merges them into a single
+// composed blueprint. Facet processing runs in parallel. After processing, the composer merges
+// sources in order, then applies the user blueprint as the final override layer.
 func (h *BaseBlueprintHandler) processAndCompose() error {
 	var loadersToProcess []BlueprintLoader
 	loaderNames := make(map[BlueprintLoader]string)
 
-	if h.primaryBlueprintLoader != nil && h.primaryBlueprintLoader.GetBlueprint() != nil {
-		loadersToProcess = append(loadersToProcess, h.primaryBlueprintLoader)
-		loaderNames[h.primaryBlueprintLoader] = "primary"
-	}
-
-	for name, sourceBlueprintLoader := range h.sourceBlueprintLoaders {
-		if sourceBlueprintLoader.GetBlueprint() != nil {
-			loadersToProcess = append(loadersToProcess, sourceBlueprintLoader)
-			loaderNames[sourceBlueprintLoader] = name
+	for name, loader := range h.sourceBlueprintLoaders {
+		if loader.GetBlueprint() != nil {
+			loadersToProcess = append(loadersToProcess, loader)
+			loaderNames[loader] = name
 		}
 	}
 
@@ -274,11 +448,10 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	composedBp, err := h.composer.Compose(loaders)
+	h.composedBlueprint = composedBp
 	if err != nil {
 		return err
 	}
-
-	h.composedBlueprint = composedBp
 
 	if h.runtime.TerraformProvider != nil {
 		components := h.GetTerraformComponents()
@@ -321,22 +494,6 @@ func (h *BaseBlueprintHandler) getConfigValues() map[string]any {
 		return nil
 	}
 	return values
-}
-
-// Write persists the composed blueprint to blueprint.yaml in the config root directory. Before
-// writing, transient fields (inputs, substitutions, parallelism, etc.) are stripped since these
-// are used at runtime but should not be stored in the user's blueprint. If overwrite is true,
-// an existing file is replaced; if false or omitted, the file is only written if it does not
-// already exist, preserving user modifications.
-func (h *BaseBlueprintHandler) Write(overwrite ...bool) error {
-	shouldOverwrite := false
-	if len(overwrite) > 0 {
-		shouldOverwrite = overwrite[0]
-	}
-
-	h.setRepositoryDefaults()
-
-	return h.writer.Write(h.composedBlueprint, shouldOverwrite)
 }
 
 // setRepositoryDefaults sets default repository values on the composed blueprint for first-time
@@ -384,27 +541,6 @@ func (h *BaseBlueprintHandler) setRepositoryDefaults() {
 	}
 }
 
-// GetTerraformComponents returns a copy of the composed blueprint's terraform components with
-// Source and FullPath resolved for each component. Source names are expanded to full OCI or Git
-// URLs based on the Sources array. Components with a Name or Source are placed in the Windsor
-// scratch path (contexts/<context>/terraform/), while local components without a source are
-// placed in the project's terraform directory.
-func (h *BaseBlueprintHandler) GetTerraformComponents() []blueprintv1alpha1.TerraformComponent {
-	if h.composedBlueprint == nil {
-		return nil
-	}
-
-	components := make([]blueprintv1alpha1.TerraformComponent, len(h.composedBlueprint.TerraformComponents))
-	copy(components, h.composedBlueprint.TerraformComponents)
-
-	for i := range components {
-		h.resolveComponentSource(&components[i])
-		h.resolveComponentFullPath(&components[i])
-	}
-
-	return components
-}
-
 // resolveComponentSource transforms a component's Source field from a source name (e.g., "local")
 // into a fully qualified URL based on the matching entry in the blueprint's Sources array. For OCI
 // sources, the URL is formatted as oci://registry/repo:tag//path/prefix/component.path. For Git
@@ -423,6 +559,12 @@ func (h *BaseBlueprintHandler) resolveComponentSource(component *blueprintv1alph
 		pathPrefix := source.PathPrefix
 		if pathPrefix == "" {
 			pathPrefix = "terraform"
+		}
+
+		if source.Name == "template" && source.Url == "" {
+			templatePath := filepath.Join(h.runtime.ProjectRoot, pathPrefix, component.Path)
+			component.Source = templatePath
+			return
 		}
 
 		ref := h.getSourceRef(source)
@@ -477,25 +619,6 @@ func (h *BaseBlueprintHandler) resolveComponentFullPath(component *blueprintv1al
 	} else {
 		component.FullPath = filepath.Join(h.runtime.ProjectRoot, "terraform", componentID)
 	}
-}
-
-// GetLocalTemplateData returns all files collected from the primary blueprint's template directory.
-// This includes blueprint.yaml, schema.yaml, features, and any other template files. The data is
-// used by the artifact builder when pushing local templates to an OCI registry. Returns nil if
-// no primary loader exists (e.g., when loading from OCI without a local template).
-func (h *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error) {
-	if h.primaryBlueprintLoader == nil {
-		return nil, nil
-	}
-	return h.primaryBlueprintLoader.GetTemplateData(), nil
-}
-
-// Generate returns the fully composed blueprint after all sources, primary, and user blueprints
-// have been merged. The returned blueprint contains the complete set of terraform components and
-// kustomizations with all feature processing complete. Input expressions and substitutions remain
-// in their raw form and are evaluated later by their respective consumers.
-func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
-	return h.composedBlueprint
 }
 
 // =============================================================================

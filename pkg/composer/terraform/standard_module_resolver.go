@@ -76,7 +76,37 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			continue
 		}
 
-		if !h.shouldHandle(component.Source) {
+		sourcePath := component.Source
+		isTemplatePath := filepath.IsAbs(sourcePath) && (strings.Contains(sourcePath, filepath.Join("contexts", "_template")) || strings.HasPrefix(sourcePath, filepath.Join(h.runtime.ProjectRoot, "terraform")))
+		if isTemplatePath {
+			moduleDir := component.FullPath
+			componentID := component.GetID()
+			if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
+				return fmt.Errorf("failed to create module directory for %s: %w", componentID, err)
+			}
+
+			relPath, err := h.shims.FilepathRel(moduleDir, sourcePath)
+			if err != nil {
+				return fmt.Errorf("failed to calculate relative path from %s to %s: %w", moduleDir, sourcePath, err)
+			}
+
+			if err := h.writeShimMainTf(moduleDir, relPath); err != nil {
+				return fmt.Errorf("failed to write main.tf for %s: %w", componentID, err)
+			}
+
+			if err := h.writeShimVariablesTf(moduleDir, sourcePath, relPath); err != nil {
+				return fmt.Errorf("failed to write variables.tf for %s: %w", componentID, err)
+			}
+
+			if err := h.writeShimOutputsTf(moduleDir, sourcePath); err != nil {
+				return fmt.Errorf("failed to write outputs.tf for %s: %w", componentID, err)
+			}
+
+			continue
+		}
+
+		shouldHandle := h.shouldHandle(component.Source)
+		if !shouldHandle {
 			continue
 		}
 
@@ -86,7 +116,15 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			return fmt.Errorf("failed to create module directory for %s: %w", componentID, err)
 		}
 
-		if err := h.writeShimMainTf(moduleDir, component.Source); err != nil {
+		if filepath.IsAbs(sourcePath) {
+			relPath, err := h.shims.FilepathRel(moduleDir, sourcePath)
+			if err != nil {
+				return fmt.Errorf("failed to calculate relative path from %s to %s: %w", moduleDir, sourcePath, err)
+			}
+			sourcePath = relPath
+		}
+
+		if err := h.writeShimMainTf(moduleDir, sourcePath); err != nil {
 			return fmt.Errorf("failed to write main.tf for %s: %w", componentID, err)
 		}
 
@@ -220,6 +258,10 @@ func (h *StandardModuleResolver) shouldHandle(source string) bool {
 	}
 
 	if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
+		return true
+	}
+
+	if filepath.IsAbs(source) {
 		return true
 	}
 

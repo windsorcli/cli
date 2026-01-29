@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -81,7 +82,7 @@ func TestNewBlueprintLoader(t *testing.T) {
 		mocks := setupLoaderMocks(t)
 
 		// When creating a new loader
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// Then loader should be created with defaults
 		if loader == nil {
@@ -93,12 +94,6 @@ func TestNewBlueprintLoader(t *testing.T) {
 		if loader.artifactBuilder != mocks.ArtifactBuilder {
 			t.Error("Expected artifact builder to be set")
 		}
-		if loader.sourceName != "primary" {
-			t.Errorf("Expected sourceName='primary', got '%s'", loader.sourceName)
-		}
-		if loader.sourceURL != "" {
-			t.Errorf("Expected sourceURL='', got '%s'", loader.sourceURL)
-		}
 		if loader.shims == nil {
 			t.Error("Expected shims to be initialized")
 		}
@@ -107,20 +102,22 @@ func TestNewBlueprintLoader(t *testing.T) {
 		}
 	})
 
-	t.Run("CreatesLoaderWithSourceURL", func(t *testing.T) {
-		// Given a source URL
+	t.Run("CreatesLoaderWithArtifactBuilder", func(t *testing.T) {
+		// Given a runtime and artifact builder
 		mocks := setupLoaderMocks(t)
-		sourceURL := "oci://example.com/blueprint:v1.0.0"
 
-		// When creating a new loader with URL
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "external", sourceURL)
+		// When creating a new loader
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
-		// Then loader should have source URL set
-		if loader.sourceName != "external" {
-			t.Errorf("Expected sourceName='external', got '%s'", loader.sourceName)
+		// Then loader should be created
+		if loader == nil {
+			t.Fatal("Expected loader to be created")
 		}
-		if loader.sourceURL != sourceURL {
-			t.Errorf("Expected sourceURL='%s', got '%s'", sourceURL, loader.sourceURL)
+		if loader.runtime != mocks.Runtime {
+			t.Error("Expected runtime to be set")
+		}
+		if loader.artifactBuilder != mocks.ArtifactBuilder {
+			t.Error("Expected artifact builder to be set")
 		}
 	})
 
@@ -129,7 +126,8 @@ func TestNewBlueprintLoader(t *testing.T) {
 		mocks := setupLoaderMocks(t)
 
 		// When creating a loader
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("test", "")
 
 		// Then loader should have default shims
 		if loader.shims == nil {
@@ -146,7 +144,8 @@ func TestLoader_GetBlueprint(t *testing.T) {
 	t.Run("ReturnsNilWhenNotLoaded", func(t *testing.T) {
 		// Given a loader that has not loaded
 		mocks := setupLoaderMocks(t)
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("test", "")
 
 		// When getting blueprint
 		bp := loader.GetBlueprint()
@@ -160,7 +159,8 @@ func TestLoader_GetBlueprint(t *testing.T) {
 	t.Run("ReturnsBlueprintAfterSet", func(t *testing.T) {
 		// Given a loader with blueprint set
 		mocks := setupLoaderMocks(t)
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("test", "")
 		expected := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 		}
@@ -180,7 +180,8 @@ func TestLoader_GetFacets(t *testing.T) {
 	t.Run("ReturnsEmptyWhenNotLoaded", func(t *testing.T) {
 		// Given a loader that has not loaded
 		mocks := setupLoaderMocks(t)
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("test", "")
 
 		// When getting facets
 		facets := loader.GetFacets()
@@ -194,7 +195,8 @@ func TestLoader_GetFacets(t *testing.T) {
 	t.Run("ReturnsFacetsAfterSet", func(t *testing.T) {
 		// Given a loader with facets set
 		mocks := setupLoaderMocks(t)
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("test", "")
 		expected := []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "facet1"}},
 		}
@@ -214,7 +216,8 @@ func TestLoader_GetTemplateData(t *testing.T) {
 	t.Run("ReturnsEmptyMapByDefault", func(t *testing.T) {
 		// Given a new loader
 		mocks := setupLoaderMocks(t)
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("test", "")
 
 		// When getting template data
 		data := loader.GetTemplateData()
@@ -231,7 +234,8 @@ func TestLoader_GetTemplateData(t *testing.T) {
 	t.Run("ReturnsTemplateDataAfterSet", func(t *testing.T) {
 		// Given a loader with template data set
 		mocks := setupLoaderMocks(t)
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "test", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("test", "")
 		loader.templateData["test.yaml"] = []byte("content")
 
 		// When getting template data
@@ -248,7 +252,8 @@ func TestLoader_GetSourceName(t *testing.T) {
 	t.Run("ReturnsSourceName", func(t *testing.T) {
 		// Given a loader with source name
 		mocks := setupLoaderMocks(t)
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "my-source", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("my-source", "")
 
 		// When getting source name
 		name := loader.GetSourceName()
@@ -274,10 +279,10 @@ metadata:
 `
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then blueprint should be loaded
 		if err != nil {
@@ -315,10 +320,10 @@ terraform:
 `
 		os.WriteFile(filepath.Join(facetsDir, "vpc.yaml"), []byte(facetYaml), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then facets should be loaded
 		if err != nil {
@@ -356,10 +361,10 @@ terraform:
 `
 		os.WriteFile(filepath.Join(featuresDir, "aws.yaml"), []byte(featureYaml), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then features should be loaded and converted to facets
 		if err != nil {
@@ -411,10 +416,10 @@ terraform:
 `
 		os.WriteFile(filepath.Join(featuresDir, "legacy.yaml"), []byte(featureYaml), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then both should be loaded
 		if err != nil {
@@ -453,10 +458,10 @@ terraform:
 `
 		os.WriteFile(filepath.Join(mocks.TmpDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "user", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("user", "")
 
 		// Then user blueprint should be loaded
 		if err != nil {
@@ -473,10 +478,10 @@ terraform:
 	t.Run("ReturnsNilForUserWhenNoBlueprintExists", func(t *testing.T) {
 		// Given a user loader with no blueprint file
 		mocks := setupLoaderMocks(t)
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "user", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("user", "")
 
 		// Then should succeed with nil blueprint
 		if err != nil {
@@ -502,10 +507,10 @@ metadata:
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
 		os.WriteFile(filepath.Join(templateDir, "schema.yaml"), []byte("type: object"), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then template data should be collected
 		if err != nil {
@@ -524,10 +529,10 @@ metadata:
 		os.MkdirAll(templateDir, 0755)
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte("invalid: [yaml"), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then should return error
 		if err == nil {
@@ -551,10 +556,10 @@ metadata:
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
 		os.WriteFile(filepath.Join(facetsDir, "bad.yaml"), []byte("invalid: [yaml"), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then should return error
 		if err == nil {
@@ -586,10 +591,10 @@ metadata:
 			return "example.com", "blueprint", "v1.0.0", nil
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "external", "oci://example.com/blueprint:v1.0.0")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("external", "oci://example.com/blueprint:v1.0.0")
 
 		// Then OCI blueprint should be loaded
 		if err != nil {
@@ -611,10 +616,10 @@ metadata:
 			return nil, os.ErrNotExist
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "external", "oci://example.com/blueprint:v1.0.0")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("external", "oci://example.com/blueprint:v1.0.0")
 
 		// Then should return error
 		if err == nil {
@@ -650,10 +655,10 @@ properties:
 			return nil
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then schema should be loaded into ConfigHandler
 		if err != nil {
@@ -684,10 +689,10 @@ metadata:
 			return nil
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then schema should NOT be loaded
 		if err != nil {
@@ -717,10 +722,10 @@ metadata:
 			return errors.New("schema load failed")
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then should return error
 		if err == nil {
@@ -737,10 +742,10 @@ metadata:
 		blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
 		os.WriteFile(blueprintPath, []byte("invalid yaml: ["), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "user", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("user", "")
 
 		// Then should return error
 		if err == nil {
@@ -764,10 +769,10 @@ metadata:
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
 		os.WriteFile(filepath.Join(templateDir, "schema.yaml"), []byte("schema: test"), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then should not error (schema loading is skipped when ConfigHandler is nil)
 		if err != nil {
@@ -797,10 +802,10 @@ metadata:
 			return "ghcr.io", "test/blueprint", "v1.0.0", nil
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "source", "oci://ghcr.io/test/blueprint:v1.0.0")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("source", "oci://ghcr.io/test/blueprint:v1.0.0")
 
 		// Then should load successfully
 		if err != nil {
@@ -833,10 +838,10 @@ metadata:
 			return "ghcr.io", "test/flat", "v1.0.0", nil
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "source", "oci://ghcr.io/test/flat:v1.0.0")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("source", "oci://ghcr.io/test/flat:v1.0.0")
 
 		// Then should load from flat structure
 		if err != nil {
@@ -851,10 +856,10 @@ metadata:
 		// Given an invalid OCI URL
 		mocks := setupLoaderMocks(t)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "source", "invalid-url")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("source", "invalid-url")
 
 		// Then should return error
 		if err == nil {
@@ -893,10 +898,10 @@ metadata:
 			return "ghcr.io", "test/full", "v1.0.0", nil
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "source", "oci://ghcr.io/test/full:v1.0.0")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("source", "oci://ghcr.io/test/full:v1.0.0")
 
 		// Then should load schema and facets
 		if err != nil {
@@ -918,10 +923,10 @@ metadata:
 			return "ghcr.io", "test/repo", "v1.0.0", nil
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "source", "oci://ghcr.io/test/repo:v1.0.0")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("source", "oci://ghcr.io/test/repo:v1.0.0")
 
 		// Then should return error
 		if err == nil {
@@ -940,10 +945,10 @@ metadata:
 			return "ghcr.io", "test/repo", "v1.0.0", nil
 		}
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "source", "oci://ghcr.io/test/repo:v1.0.0")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("source", "oci://ghcr.io/test/repo:v1.0.0")
 
 		// Then should return error
 		if err == nil {
@@ -951,18 +956,21 @@ metadata:
 		}
 	})
 
-	t.Run("PanicsWhenArtifactBuilderNil", func(t *testing.T) {
-		// Given an OCI URL with nil artifact builder
+	t.Run("ReturnsErrorWhenLoadingOCISourceWithoutArtifactBuilder", func(t *testing.T) {
+		// Given a loader without artifact builder
 		mocks := setupLoaderMocks(t)
+		loader := NewBlueprintLoader(mocks.Runtime, nil)
 
-		// When NewBlueprintLoader is called with nil artifact builder
-		// Then it should panic
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic for nil artifact builder")
-			}
-		}()
-		_ = NewBlueprintLoader(mocks.Runtime, nil, "source", "oci://ghcr.io/test/repo:v1.0.0")
+		// When loading an OCI source
+		err := loader.Load("source", "oci://ghcr.io/test/repo:v1.0.0")
+
+		// Then should return error
+		if err == nil {
+			t.Error("Expected error when loading OCI source without artifact builder")
+		}
+		if !strings.Contains(err.Error(), "artifact builder is required") {
+			t.Errorf("Expected error about artifact builder, got: %v", err)
+		}
 	})
 
 	t.Run("ReturnsErrorWhenBlueprintReadFails", func(t *testing.T) {
@@ -973,13 +981,14 @@ metadata:
 		os.MkdirAll(templateDir, 0755)
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(`kind: Blueprint`), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("primary", "")
 		loader.shims.ReadFile = func(path string) ([]byte, error) {
 			return nil, errors.New("permission denied")
 		}
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then should return error
 		if err == nil {
@@ -995,10 +1004,10 @@ metadata:
 		os.MkdirAll(templateDir, 0755)
 		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(`{{{invalid yaml`), 0644)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then should return error
 		if err == nil {
@@ -1013,13 +1022,14 @@ metadata:
 		templateDir := mocks.Runtime.TemplateRoot
 		os.MkdirAll(templateDir, 0755)
 
-		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder, "primary", "")
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		_ = loader.Load("primary", "")
 		loader.shims.Walk = func(root string, fn filepath.WalkFunc) error {
 			return errors.New("walk failed")
 		}
 
 		// When loading
-		err := loader.Load()
+		err := loader.Load("primary", "")
 
 		// Then should return error
 		if err == nil {

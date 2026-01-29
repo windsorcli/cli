@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -11,7 +12,7 @@ import (
 
 // BlueprintWriter writes the final composed blueprint to contexts/<context>/blueprint.yaml.
 type BlueprintWriter interface {
-	Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool) error
+	Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error
 }
 
 // =============================================================================
@@ -51,7 +52,10 @@ func NewBlueprintWriter(rt *runtime.Runtime) *BaseBlueprintWriter {
 // parallelism, and Flux timing settings that are used at runtime but should not be stored in
 // the user's blueprint. If overwrite is false and the file exists, the write is skipped to
 // preserve user modifications. The directory structure is created if it doesn't exist.
-func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool) error {
+// On first initialization (file doesn't exist), writes a minimal blueprint with only sources,
+// since terraform and kustomize components come from referenced blueprints. The initBlueprintURLs
+// parameter contains blueprint URLs that should be added as sources during initialization.
+func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
 	if blueprint == nil {
 		return fmt.Errorf("cannot write nil blueprint")
 	}
@@ -63,23 +67,36 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 
 	yamlPath := filepath.Join(configRoot, "blueprint.yaml")
 
-	if !overwrite {
-		if _, err := w.shims.Stat(yamlPath); err == nil {
-			return nil
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("error checking file existence: %w", err)
-		}
+	fileExists := true
+	if _, err := w.shims.Stat(yamlPath); os.IsNotExist(err) {
+		fileExists = false
+	} else if err != nil {
+		return fmt.Errorf("error checking file existence: %w", err)
+	}
+
+	if !overwrite && fileExists {
+		return nil
 	}
 
 	if err := w.shims.MkdirAll(filepath.Dir(yamlPath), 0755); err != nil {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	cleanedBlueprint := w.cleanTransientFields(blueprint)
+	var data []byte
+	var err error
 
-	data, err := w.shims.YamlMarshal(cleanedBlueprint)
-	if err != nil {
-		return fmt.Errorf("error marshalling blueprint: %w", err)
+	if !fileExists {
+		minimalBlueprint := w.createMinimalBlueprint(blueprint, initBlueprintURLs...)
+		data, err = w.shims.YamlMarshal(minimalBlueprint)
+		if err != nil {
+			return fmt.Errorf("error marshalling blueprint: %w", err)
+		}
+	} else {
+		cleanedBlueprint := w.cleanTransientFields(blueprint)
+		data, err = w.shims.YamlMarshal(cleanedBlueprint)
+		if err != nil {
+			return fmt.Errorf("error marshalling blueprint: %w", err)
+		}
 	}
 
 	header := []byte(`# This file selects and overrides components from underlying blueprint sources.
@@ -139,9 +156,9 @@ func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.
 	}
 
 	for i := range cleaned.Sources {
-		if cleaned.Sources[i].Deploy != nil && !cleaned.Sources[i].Deploy.IsExpr {
-			if cleaned.Sources[i].Deploy.Value != nil && *cleaned.Sources[i].Deploy.Value {
-				cleaned.Sources[i].Deploy = nil
+		if cleaned.Sources[i].Install != nil && !cleaned.Sources[i].Install.IsExpr {
+			if cleaned.Sources[i].Install.Value != nil && !*cleaned.Sources[i].Install.Value {
+				cleaned.Sources[i].Install = nil
 			}
 		}
 	}
@@ -163,6 +180,142 @@ func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.
 	}
 
 	return cleaned
+}
+
+// createMinimalBlueprint creates a minimal blueprint with only sources, metadata, and API version.
+// This is used for first-time initialization when components come from referenced blueprints
+// rather than being explicitly listed in the user blueprint. The initBlueprintURLs parameter
+// contains blueprint URLs that should be added as sources with install: true, using their metadata
+// names from the loaded blueprints. If _template exists and no explicit "template" source is
+// present, automatically adds a "template" source with install: true. The metadata name and
+// description are set based on the current context name.
+func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha1.Blueprint, initBlueprintURLs ...string) *blueprintv1alpha1.Blueprint {
+	metadata := blueprint.Metadata
+	if w.runtime != nil && w.runtime.ContextName != "" {
+		metadata.Name = w.runtime.ContextName
+		metadata.Description = fmt.Sprintf("Blueprint for the %s context", w.runtime.ContextName)
+	}
+
+	minimal := &blueprintv1alpha1.Blueprint{
+		Kind:       blueprint.Kind,
+		ApiVersion: blueprint.ApiVersion,
+		Metadata:   metadata,
+		Sources:    make([]blueprintv1alpha1.Source, 0),
+	}
+
+	trueVal := true
+	existingSourceNames := make(map[string]bool)
+	hasTemplateSource := false
+	localTemplateExists := false
+	if w.runtime != nil && w.runtime.TemplateRoot != "" {
+		if _, err := w.shims.Stat(w.runtime.TemplateRoot); err == nil {
+			localTemplateExists = true
+		}
+	}
+
+	for _, source := range blueprint.Sources {
+		if source.Name == "template" {
+			if !localTemplateExists {
+				continue
+			}
+			hasTemplateSource = true
+			templateSource := blueprintv1alpha1.Source{
+				Name:    "template",
+				Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+			}
+			minimal.Sources = append(minimal.Sources, templateSource)
+			existingSourceNames[source.Name] = true
+			continue
+		}
+		existingSourceNames[source.Name] = true
+		cleanedSource := source
+		if cleanedSource.Install != nil && !cleanedSource.Install.IsExpr {
+			if cleanedSource.Install.Value != nil && !*cleanedSource.Install.Value {
+				cleanedSource.Install = nil
+			}
+		}
+		minimal.Sources = append(minimal.Sources, cleanedSource)
+	}
+
+	for _, url := range initBlueprintURLs {
+		if url == "" {
+			continue
+		}
+		source := w.findSourceByURL(blueprint, url)
+		if source != nil && !existingSourceNames[source.Name] {
+			sourceCopy := *source
+			sourceCopy.Install = &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}
+			minimal.Sources = append(minimal.Sources, sourceCopy)
+			existingSourceNames[source.Name] = true
+		} else if source == nil {
+			sourceName := w.getSourceNameFromURL(url)
+			if !existingSourceNames[sourceName] {
+				newSource := blueprintv1alpha1.Source{
+					Name:    sourceName,
+					Url:     url,
+					Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				}
+				minimal.Sources = append(minimal.Sources, newSource)
+				existingSourceNames[sourceName] = true
+			}
+		}
+	}
+
+	if !hasTemplateSource && localTemplateExists {
+		templateSource := blueprintv1alpha1.Source{
+			Name:    "template",
+			Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+		}
+		minimal.Sources = append(minimal.Sources, templateSource)
+	}
+
+	return minimal
+}
+
+// findSourceByURL finds a source in the composed blueprint that matches the given URL.
+// This is used to get the correct source name from the blueprint's metadata rather than
+// deriving it from the URL. Returns nil if no matching source is found.
+func (w *BaseBlueprintWriter) findSourceByURL(blueprint *blueprintv1alpha1.Blueprint, url string) *blueprintv1alpha1.Source {
+	if blueprint == nil {
+		return nil
+	}
+	normalizedURL := w.normalizeURL(url)
+	for i := range blueprint.Sources {
+		sourceURL := blueprint.Sources[i].Url
+		if blueprint.Sources[i].Ref.Tag != "" {
+			sourceURL = fmt.Sprintf("%s:%s", sourceURL, blueprint.Sources[i].Ref.Tag)
+		}
+		if w.normalizeURL(sourceURL) == normalizedURL {
+			return &blueprint.Sources[i]
+		}
+	}
+	return nil
+}
+
+// normalizeURL normalizes a URL for comparison by ensuring it has the oci:// prefix
+// and handles tag variations.
+func (w *BaseBlueprintWriter) normalizeURL(url string) string {
+	normalized := strings.TrimPrefix(url, "oci://")
+	if !strings.HasPrefix(url, "oci://") {
+		normalized = "oci://" + normalized
+	}
+	return normalized
+}
+
+// getSourceNameFromURL extracts a source name from a blueprint URL. For OCI URLs, it uses the
+// repository name. For other URLs, it generates a name based on the URL path. This is a fallback
+// when the source cannot be found in the composed blueprint.
+func (w *BaseBlueprintWriter) getSourceNameFromURL(url string) string {
+	if strings.HasPrefix(url, "oci://") {
+		remaining := strings.TrimPrefix(url, "oci://")
+		if lastColon := strings.LastIndex(remaining, ":"); lastColon > 0 {
+			pathPart := remaining[:lastColon]
+			if lastSlash := strings.LastIndex(pathPart, "/"); lastSlash >= 0 {
+				return pathPart[lastSlash+1:]
+			}
+		}
+	}
+	return "blueprint"
 }
 
 // =============================================================================

@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/goccy/go-yaml"
@@ -27,12 +28,23 @@ var showBlueprintCmd = &cobra.Command{
 	Long:         "Display the fully rendered blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML, use --json for JSON.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		blueprint, err := getBlueprint(cmd)
-		if err != nil {
+		blueprint, validationErr := getBlueprint(cmd)
+		if blueprint == nil {
+			if validationErr != nil {
+				return validationErr
+			}
+			return fmt.Errorf("failed to generate blueprint")
+		}
+
+		if err := outputResource(blueprint, showBlueprintJSON, "blueprint"); err != nil {
 			return err
 		}
 
-		return outputResource(blueprint, showBlueprintJSON, "blueprint")
+		if validationErr != nil {
+			fmt.Fprintf(os.Stderr, "\033[33mWarning: %v\033[0m\n", validationErr)
+		}
+
+		return nil
 	},
 }
 
@@ -45,9 +57,12 @@ var showKustomizationCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		componentName := args[0]
 
-		blueprint, err := getBlueprint(cmd)
-		if err != nil {
-			return err
+		blueprint, validationErr := getBlueprint(cmd)
+		if blueprint == nil {
+			if validationErr != nil {
+				return validationErr
+			}
+			return fmt.Errorf("failed to generate blueprint")
 		}
 
 		kustomization := findKustomization(blueprint, componentName)
@@ -57,7 +72,15 @@ var showKustomizationCmd = &cobra.Command{
 
 		fluxKustomization := buildFluxKustomization(blueprint, kustomization)
 
-		return outputResource(fluxKustomization, showKustomizationJSON, "kustomization")
+		if err := outputResource(fluxKustomization, showKustomizationJSON, "kustomization"); err != nil {
+			return err
+		}
+
+		if validationErr != nil {
+			fmt.Fprintf(os.Stderr, "\033[33mWarning: %v\033[0m\n", validationErr)
+		}
+
+		return nil
 	},
 }
 
@@ -75,7 +98,8 @@ func init() {
 
 // getBlueprint initializes a project and generates the composed blueprint.
 // It handles project creation, configuration, initialization, and blueprint generation.
-// Returns the generated blueprint or an error if any step fails.
+// Returns the generated blueprint and any validation errors. Validation errors are non-fatal
+// and allow the blueprint to be returned for inspection.
 func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error) {
 	var opts []*project.Project
 	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
@@ -94,16 +118,20 @@ func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error) {
 		return nil, err
 	}
 
+	var validationErr error
 	if err := proj.Initialize(false); err != nil {
-		return nil, err
+		validationErr = err
 	}
 
 	blueprint := proj.Composer.BlueprintHandler.Generate()
 	if blueprint == nil {
+		if validationErr != nil {
+			return nil, validationErr
+		}
 		return nil, fmt.Errorf("failed to generate blueprint")
 	}
 
-	return blueprint, nil
+	return blueprint, validationErr
 }
 
 // outputResource serializes the provided resource to YAML or JSON and writes it to stdout.

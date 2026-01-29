@@ -160,7 +160,7 @@ func (b *BoolExpression) DeepCopy() *BoolExpression {
 
 // IsEnabled returns true if the BoolExpression is nil (default) or if its value is true.
 // Returns false only if the value is explicitly set to false.
-// This is used for fields like Enabled and Deploy that default to true.
+// This is used for fields like Enabled that default to true.
 func (b *BoolExpression) IsEnabled() bool {
 	if b == nil {
 		return true
@@ -170,6 +170,22 @@ func (b *BoolExpression) IsEnabled() bool {
 	}
 	if b.Value == nil {
 		return true
+	}
+	return *b.Value
+}
+
+// IsInstalled returns true only if the BoolExpression is explicitly set to true.
+// Returns false if nil (default), if it's an expression, or if explicitly false.
+// This is used for fields like Install that default to false.
+func (b *BoolExpression) IsInstalled() bool {
+	if b == nil {
+		return false
+	}
+	if b.IsExpr {
+		return false
+	}
+	if b.Value == nil {
+		return false
 	}
 	return *b.Value
 }
@@ -306,7 +322,7 @@ type Source struct {
 	Name string `yaml:"name"`
 
 	// Url is the source location.
-	Url string `yaml:"url"`
+	Url string `yaml:"url,omitempty"`
 
 	// PathPrefix is a prefix to the source path.
 	PathPrefix string `yaml:"pathPrefix,omitempty"`
@@ -317,10 +333,10 @@ type Source struct {
 	// SecretName is the secret for source access.
 	SecretName string `yaml:"secretName,omitempty"`
 
-	// Deploy determines if the source should be unfurled (components merged into final blueprint).
-	// Defaults to true if not specified.
+	// Install determines if the source should be merged (components merged into final blueprint).
+	// Defaults to false if not specified.
 	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
-	Deploy *BoolExpression `yaml:"deploy,omitempty"`
+	Install *BoolExpression `yaml:"install,omitempty"`
 }
 
 // Reference details a specific version or state of a repository or source.
@@ -561,9 +577,9 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	sourcesCopy := make([]Source, len(b.Sources))
 	for i, source := range b.Sources {
-		var deployCopy *BoolExpression
-		if source.Deploy != nil {
-			deployCopy = source.Deploy.DeepCopy()
+		var installCopy *BoolExpression
+		if source.Install != nil {
+			installCopy = source.Install.DeepCopy()
 		}
 		sourcesCopy[i] = Source{
 			Name:       source.Name,
@@ -577,7 +593,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 				Commit: source.Ref.Commit,
 			},
 			SecretName: source.SecretName,
-			Deploy:     deployCopy,
+			Install:    installCopy,
 		}
 	}
 
@@ -638,17 +654,26 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 		}
 
 		sourceMap := make(map[string]Source)
+		sourceOrder := make([]string, 0)
 		for _, source := range b.Sources {
-			sourceMap[source.Name] = source
+			if source.Name != "" {
+				sourceMap[source.Name] = source
+				sourceOrder = append(sourceOrder, source.Name)
+			}
 		}
 		for _, overlaySource := range overlay.Sources {
 			if overlaySource.Name != "" {
+				if _, exists := sourceMap[overlaySource.Name]; !exists {
+					sourceOrder = append(sourceOrder, overlaySource.Name)
+				}
 				sourceMap[overlaySource.Name] = overlaySource
 			}
 		}
 		b.Sources = make([]Source, 0, len(sourceMap))
-		for _, source := range sourceMap {
-			b.Sources = append(b.Sources, source)
+		for _, name := range sourceOrder {
+			if source, exists := sourceMap[name]; exists {
+				b.Sources = append(b.Sources, source)
+			}
 		}
 
 		for _, overlayComponent := range overlay.TerraformComponents {

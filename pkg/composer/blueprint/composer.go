@@ -13,7 +13,7 @@ import (
 )
 
 // BlueprintComposer combines processed blueprints from multiple loaders into a final composed blueprint.
-// It applies the composition algorithm: Sources → Primary → User overlay.
+// It applies the composition algorithm: Sources (in order) → Template (if not in sources) → User overlay.
 type BlueprintComposer interface {
 	Compose(loaders []BlueprintLoader) (*blueprintv1alpha1.Blueprint, error)
 }
@@ -52,12 +52,15 @@ func NewBlueprintComposer(rt *runtime.Runtime) *BaseBlueprintComposer {
 // Public Methods
 // =============================================================================
 
-// Compose merges blueprints from multiple loaders into a single unified blueprint. Loaders are
-// categorized by source name: "primary" for the base template, "user" for user overrides, and
-// all others as sources. The merge order is Sources → Primary → User, where each subsequent
-// layer can override or extend previous layers. Before applying the user blueprint, the result
-// is filtered to only include components explicitly selected by the user. The actual merging
-// of individual components and kustomizations is delegated to Blueprint.StrategicMerge.
+// Compose merges blueprints from multiple loaders into a single unified blueprint. Blueprints are
+// merged in order: sources (in the order they appear in the user's Sources array, filtered by
+// install:true) → user blueprint as final overlay. The actual merging of individual components
+// and kustomizations is delegated to Blueprint.StrategicMerge. After merging, Compose ensures all
+// source loaders' source names are present in the result's Sources array so components can resolve
+// references (e.g. source: "core"). The "template" source is only included when the local template
+// directory exists. Missing sources are added from the loader's blueprint or as minimal entries;
+// for OCI loaders without a matching source entry, URL and Ref are taken from any OCI source in
+// the loader's blueprint.
 func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1alpha1.Blueprint, error) {
 	result := DefaultBlueprint.DeepCopy()
 
@@ -65,37 +68,87 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 		return result, nil
 	}
 
-	var primary *blueprintv1alpha1.Blueprint
-	var user *blueprintv1alpha1.Blueprint
-	var sourceBps []*blueprintv1alpha1.Blueprint
+	var userBlueprint *blueprintv1alpha1.Blueprint
+	var sourceLoaders []BlueprintLoader
 
 	for _, loader := range loaders {
+		if loader == nil {
+			continue
+		}
 		name := loader.GetSourceName()
 		bp := loader.GetBlueprint()
 		if bp == nil {
 			continue
 		}
 
-		switch name {
-		case "primary":
-			primary = bp
-		case "user":
-			user = bp
-		default:
-			sourceBps = append(sourceBps, bp)
+		if name == "user" {
+			userBlueprint = bp
+		} else {
+			sourceLoaders = append(sourceLoaders, loader)
 		}
 	}
 
-	if err := result.StrategicMerge(sourceBps...); err != nil {
+	orderedSourceBlueprints := c.orderSources(userBlueprint, sourceLoaders)
+
+	if err := result.StrategicMerge(orderedSourceBlueprints...); err != nil {
 		return nil, err
 	}
-	if primary != nil {
-		if err := result.StrategicMerge(primary); err != nil {
-			return nil, err
+
+	for _, loader := range sourceLoaders {
+		sourceName := loader.GetSourceName()
+		bp := loader.GetBlueprint()
+		if bp == nil {
+			continue
+		}
+
+		if sourceName == "template" {
+			if c.runtime == nil || c.runtime.TemplateRoot == "" {
+				continue
+			}
+			if _, err := os.Stat(c.runtime.TemplateRoot); os.IsNotExist(err) {
+				continue
+			}
+		}
+
+		found := false
+		for _, existingSource := range result.Sources {
+			if existingSource.Name == sourceName {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			var sourceToAdd blueprintv1alpha1.Source
+			foundInSource := false
+			for _, source := range bp.Sources {
+				if source.Name == sourceName {
+					sourceToAdd = source
+					foundInSource = true
+					break
+				}
+			}
+
+			if !foundInSource {
+				trueVal := true
+				sourceToAdd = blueprintv1alpha1.Source{
+					Name:    sourceName,
+					Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				}
+				for _, s := range bp.Sources {
+					if strings.HasPrefix(s.Url, "oci://") {
+						sourceToAdd.Url = s.Url
+						sourceToAdd.Ref = s.Ref
+						break
+					}
+				}
+			}
+
+			result.Sources = append(result.Sources, sourceToAdd)
 		}
 	}
 
-	if err := c.applyUserBlueprint(result, user); err != nil {
+	if err := c.applyUserBlueprint(result, userBlueprint); err != nil {
 		return nil, err
 	}
 
@@ -111,11 +164,9 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader) (*blueprintv1
 		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
 	}
 
-	if err := c.validateDependencies(result); err != nil {
-		return nil, err
-	}
+	validationErr := c.validateDependencies(result)
 
-	return result, nil
+	return result, validationErr
 }
 
 // setContextMetadata sets the blueprint metadata name and description based on the current context.
@@ -145,64 +196,59 @@ func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]
 // Private Methods
 // =============================================================================
 
-// applyUserBlueprint applies the user blueprint to the composed result, filtering and merging.
-// Filters terraform components, kustomizations, and sources to only those selected by the user.
-// Clears repository if user doesn't define one. After filtering, merges user's values as overrides.
-// If no user blueprint exists, all items from primary/sources are retained unchanged.
+// orderSources orders source blueprints according to their appearance in the user blueprint's
+// Sources array. Only sources with install:true are included. Sources are merged in the order they appear.
+// If userBlueprint is nil (first-time init), all source loaders are included in the order they were loaded.
+func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Blueprint, sourceLoaders []BlueprintLoader) []*blueprintv1alpha1.Blueprint {
+	loaderMap := make(map[string]BlueprintLoader)
+	for _, loader := range sourceLoaders {
+		loaderMap[loader.GetSourceName()] = loader
+	}
+
+	var orderedBps []*blueprintv1alpha1.Blueprint
+	added := make(map[string]bool)
+
+	if userBlueprint != nil {
+		for _, source := range userBlueprint.Sources {
+			if source.Name == "" {
+				continue
+			}
+			if !source.Install.IsInstalled() {
+				continue
+			}
+			if loader, exists := loaderMap[source.Name]; exists && !added[source.Name] {
+				if bp := loader.GetBlueprint(); bp != nil {
+					orderedBps = append(orderedBps, bp)
+					added[source.Name] = true
+				}
+			}
+		}
+	} else {
+		for _, loader := range sourceLoaders {
+			name := loader.GetSourceName()
+			if !added[name] {
+				if bp := loader.GetBlueprint(); bp != nil {
+					orderedBps = append(orderedBps, bp)
+					added[name] = true
+				}
+			}
+		}
+	}
+
+	return orderedBps
+}
+
+// applyUserBlueprint applies the user blueprint to the composed result as an override layer.
+// The user blueprint can override existing components, add new components, or disable components
+// via enabled:false. All components from merged sources and template are retained unless explicitly
+// disabled. Clears repository if user doesn't define one. Sources are merged from user blueprint.
 func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint) error {
 	if user == nil {
 		return nil
 	}
 
-	if len(user.TerraformComponents) > 0 {
-		userTfIDs := make(map[string]bool)
-		for _, comp := range user.TerraformComponents {
-			userTfIDs[comp.GetID()] = true
-		}
-
-		var filtered []blueprintv1alpha1.TerraformComponent
-		for _, comp := range result.TerraformComponents {
-			if userTfIDs[comp.GetID()] {
-				filtered = append(filtered, comp)
-			}
-		}
-		result.TerraformComponents = filtered
-	}
-
-	if len(user.Kustomizations) > 0 {
-		userKustNames := make(map[string]bool)
-		for _, k := range user.Kustomizations {
-			userKustNames[k.Name] = true
-		}
-
-		var filtered []blueprintv1alpha1.Kustomization
-		for _, k := range result.Kustomizations {
-			if userKustNames[k.Name] {
-				filtered = append(filtered, k)
-			}
-		}
-		result.Kustomizations = filtered
-	}
-
 	if user.Repository.Url == "" {
 		result.Repository = blueprintv1alpha1.Repository{}
-	}
-
-	if len(user.Sources) == 0 {
-		result.Sources = nil
-	} else {
-		userSourceNames := make(map[string]bool)
-		for _, s := range user.Sources {
-			userSourceNames[s.Name] = true
-		}
-
-		var filtered []blueprintv1alpha1.Source
-		for _, s := range result.Sources {
-			if userSourceNames[s.Name] {
-				filtered = append(filtered, s)
-			}
-		}
-		result.Sources = filtered
 	}
 
 	return result.StrategicMerge(user)
