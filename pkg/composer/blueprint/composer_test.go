@@ -2208,6 +2208,170 @@ patches:
 }
 
 // =============================================================================
+// Test dropEmptyCompositionFragments
+// =============================================================================
+
+func TestComposer_dropEmptyCompositionFragments(t *testing.T) {
+	t.Run("RemovesEmptyStringFromKustomizationComponents", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Components: []string{"a", "", "b", ""}},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		components := blueprint.Kustomizations[0].Components
+		if len(components) != 2 {
+			t.Errorf("Expected 2 components, got %d: %v", len(components), components)
+		}
+		if components[0] != "a" || components[1] != "b" {
+			t.Errorf("Expected [a b], got %v", components)
+		}
+	})
+
+	t.Run("RemovesEmptyKeyFromKustomizationSubstitutions", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Substitutions: map[string]string{"key": "v", "": "placeholder"}},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		subs := blueprint.Kustomizations[0].Substitutions
+		if _, hasEmpty := subs[""]; hasEmpty {
+			t.Error("Expected empty key to be removed from Substitutions")
+		}
+		if subs["key"] != "v" {
+			t.Errorf("Expected key='v', got %q", subs["key"])
+		}
+	})
+
+	t.Run("RemovesEmptyKeyFromTerraformComponentInputs", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: map[string]any{"region": "us-east-1", "": "placeholder"}},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		inputs := blueprint.TerraformComponents[0].Inputs
+		if _, hasEmpty := inputs[""]; hasEmpty {
+			t.Error("Expected empty key to be removed from Inputs")
+		}
+		if inputs["region"] != "us-east-1" {
+			t.Errorf("Expected region='us-east-1', got %v", inputs["region"])
+		}
+	})
+
+	t.Run("HandlesNilBlueprint", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		composer.dropEmptyCompositionFragments(nil)
+	})
+
+	t.Run("HandlesNilSubstitutionsAndInputs", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Components: []string{"a"}, Substitutions: nil},
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: nil},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		if blueprint.Kustomizations[0].Components[0] != "a" {
+			t.Errorf("Expected component 'a', got %q", blueprint.Kustomizations[0].Components[0])
+		}
+	})
+
+	t.Run("RemovesEmptyValueFromKustomizationSubstitutions", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Substitutions: map[string]string{"keep": "v", "drop": ""}},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		subs := blueprint.Kustomizations[0].Substitutions
+		if _, hasDrop := subs["drop"]; hasDrop {
+			t.Error("Expected key with empty value to be removed from Substitutions")
+		}
+		if subs["keep"] != "v" {
+			t.Errorf("Expected keep='v', got %q", subs["keep"])
+		}
+	})
+
+	t.Run("RecursivelyPrunesNestedEmptyInTerraformInputs", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Path: "compute",
+					Inputs: map[string]any{
+						"storage_pools": map[string]any{
+							"local":    map[string]any{"driver": "dir"},
+							"mayastor": map[string]any{"driver": "null", "source": ""},
+						},
+					},
+				},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		storagePools := blueprint.TerraformComponents[0].Inputs["storage_pools"].(map[string]any)
+		mayastor := storagePools["mayastor"].(map[string]any)
+		if _, hasSource := mayastor["source"]; hasSource {
+			t.Error("Expected nested empty value (source: \"\") to be pruned from Inputs")
+		}
+		if mayastor["driver"] != "null" {
+			t.Errorf("Expected driver='null', got %v", mayastor["driver"])
+		}
+	})
+
+	t.Run("PrunesConfigMapsEmptyKeysAndValues", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {"KEEP": "v", "": "empty-key", "DROP_EMPTY": ""},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		common := blueprint.ConfigMaps["values-common"]
+		if _, hasEmpty := common[""]; hasEmpty {
+			t.Error("Expected empty key to be removed from ConfigMap")
+		}
+		if _, hasDrop := common["DROP_EMPTY"]; hasDrop {
+			t.Error("Expected key with empty value to be removed from ConfigMap")
+		}
+		if common["KEEP"] != "v" {
+			t.Errorf("Expected KEEP='v', got %q", common["KEEP"])
+		}
+	})
+}
+
+// =============================================================================
 // Test applyPerKustomizationSubstitutions
 // =============================================================================
 

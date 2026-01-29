@@ -165,9 +165,86 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
 	}
 
+	c.dropEmptyCompositionFragments(result)
+
 	validationErr := errors.Join(c.validateSources(result), c.validateDependencies(result))
 
 	return result, validationErr
+}
+
+// dropEmptyCompositionFragments removes template/expr parsing placeholders and empty entries
+// left after facet processing: empty Components, empty-key and empty-value Substitutions/Inputs,
+// and recursively in nested maps and slices. These should not appear in the final composed blueprint.
+func (c *BaseBlueprintComposer) dropEmptyCompositionFragments(blueprint *blueprintv1alpha1.Blueprint) {
+	if blueprint == nil {
+		return
+	}
+	for i := range blueprint.Kustomizations {
+		components := blueprint.Kustomizations[i].Components
+		n := 0
+		for _, comp := range components {
+			if comp != "" {
+				components[n] = comp
+				n++
+			}
+		}
+		blueprint.Kustomizations[i].Components = components[:n]
+
+		if blueprint.Kustomizations[i].Substitutions != nil {
+			pruneEmptyValue(blueprint.Kustomizations[i].Substitutions)
+		}
+	}
+	for i := range blueprint.TerraformComponents {
+		if blueprint.TerraformComponents[i].Inputs != nil {
+			pruneEmptyValue(blueprint.TerraformComponents[i].Inputs)
+		}
+	}
+	if blueprint.ConfigMaps != nil {
+		for _, m := range blueprint.ConfigMaps {
+			if m != nil {
+				pruneEmptyValue(m)
+			}
+		}
+	}
+}
+
+// pruneEmptyValue recursively removes empty keys and empty-string values from maps, and
+// empty string elements from slices. Mutates maps in place; returns a new slice for []any.
+func pruneEmptyValue(v any) any {
+	if v == nil {
+		return nil
+	}
+	switch val := v.(type) {
+	case map[string]string:
+		delete(val, "")
+		for k, s := range val {
+			if s == "" {
+				delete(val, k)
+			}
+		}
+		return val
+	case map[string]any:
+		delete(val, "")
+		for k, item := range val {
+			if item == "" {
+				delete(val, k)
+			} else {
+				val[k] = pruneEmptyValue(item)
+			}
+		}
+		return val
+	case []any:
+		out := make([]any, 0, len(val))
+		for _, item := range val {
+			if item == "" {
+				continue
+			}
+			out = append(out, pruneEmptyValue(item))
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // setContextMetadata sets the blueprint metadata name and description based on the current context.
