@@ -1986,6 +1986,63 @@ func contains(slice []string, value string) bool {
 	return false
 }
 
+func TestIsLocalTemplateSource(t *testing.T) {
+	t.Run("ReturnsFalseForNonTemplateSource", func(t *testing.T) {
+		source := Source{Name: "other", Url: ""}
+		if IsLocalTemplateSource(source) {
+			t.Error("Expected false for non-template source")
+		}
+	})
+
+	t.Run("ReturnsFalseForTemplateWithURL", func(t *testing.T) {
+		source := Source{Name: "template", Url: "https://github.com/example/repo.git"}
+		if IsLocalTemplateSource(source) {
+			t.Error("Expected false for template source with URL")
+		}
+	})
+
+	t.Run("ReturnsTrueForTemplateWithEmptyURL", func(t *testing.T) {
+		source := Source{Name: "template", Url: ""}
+		if !IsLocalTemplateSource(source) {
+			t.Error("Expected true for template source with empty URL")
+		}
+	})
+}
+
+func TestHasRemoteTemplateSource(t *testing.T) {
+	t.Run("ReturnsFalseForEmptySources", func(t *testing.T) {
+		if HasRemoteTemplateSource([]Source{}) {
+			t.Error("Expected false for empty sources")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenOnlyLocalTemplate", func(t *testing.T) {
+		sources := []Source{{Name: "template", Url: ""}}
+		if HasRemoteTemplateSource(sources) {
+			t.Error("Expected false when only local template")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenTemplateHasURL", func(t *testing.T) {
+		sources := []Source{
+			{Name: "template", Url: "https://github.com/example/repo.git"},
+		}
+		if !HasRemoteTemplateSource(sources) {
+			t.Error("Expected true when template source has URL")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenMultipleSourcesIncludeRemoteTemplate", func(t *testing.T) {
+		sources := []Source{
+			{Name: "other", Url: "https://other.com/repo.git"},
+			{Name: "template", Url: "https://github.com/example/repo.git"},
+		}
+		if !HasRemoteTemplateSource(sources) {
+			t.Error("Expected true when sources include remote template")
+		}
+	})
+}
+
 func TestKustomization_ToFluxKustomization(t *testing.T) {
 	t.Run("BasicConversionWithDefaults", func(t *testing.T) {
 		kustomization := &Kustomization{
@@ -2271,6 +2328,36 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 		if result.Spec.SourceRef.Name != "default-source" {
 			t.Errorf("Expected source name 'default-source', got '%s'", result.Spec.SourceRef.Name)
+		}
+	})
+
+	t.Run("WithTemplateSourceLocalUsesDefault", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:   "test-kustomization",
+			Path:   "test/path",
+			Source: "template",
+		}
+		sources := []Source{{Name: "template", Url: ""}}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+
+		if result.Spec.SourceRef.Name != "default-source" {
+			t.Errorf("Expected source name 'default-source' when template is local, got '%s'", result.Spec.SourceRef.Name)
+		}
+	})
+
+	t.Run("WithTemplateSourceRemoteUsesTemplate", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:   "test-kustomization",
+			Path:   "test/path",
+			Source: "template",
+		}
+		sources := []Source{{Name: "template", Url: "https://github.com/example/template.git"}}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+
+		if result.Spec.SourceRef.Name != "template" {
+			t.Errorf("Expected source name 'template' when template is remote, got '%s'", result.Spec.SourceRef.Name)
 		}
 	})
 

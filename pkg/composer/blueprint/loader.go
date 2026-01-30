@@ -150,6 +150,10 @@ func (l *BaseBlueprintLoader) loadFromLocalTemplate() error {
 		return err
 	}
 
+	if l.blueprint == nil {
+		l.blueprint = DefaultBlueprint.DeepCopy()
+	}
+
 	return nil
 }
 

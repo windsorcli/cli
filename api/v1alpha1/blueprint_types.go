@@ -339,6 +339,21 @@ type Source struct {
 	Install *BoolExpression `yaml:"install,omitempty"`
 }
 
+// IsLocalTemplateSource returns true when the source is the template source with no URL (local context template).
+func IsLocalTemplateSource(source Source) bool {
+	return source.Name == "template" && source.Url == ""
+}
+
+// HasRemoteTemplateSource returns true when sources include a template source with a non-empty URL.
+func HasRemoteTemplateSource(sources []Source) bool {
+	for _, s := range sources {
+		if s.Name == "template" && s.Url != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // Reference details a specific version or state of a repository or source.
 type Reference struct {
 	// Branch to use.
@@ -875,6 +890,9 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 
 	sourceName := k.Source
 	if sourceName == "" {
+		sourceName = defaultSourceName
+	}
+	if sourceName == "template" && !HasRemoteTemplateSource(sources) {
 		sourceName = defaultSourceName
 	}
 

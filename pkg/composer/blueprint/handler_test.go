@@ -1361,30 +1361,38 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsDefaultsWhenUserBlueprintExists", func(t *testing.T) {
-		// Given a handler with a user blueprint (even if empty)
+	t.Run("SetsDefaultsWhenRepositoryEmptyEvenWithUserBlueprint", func(t *testing.T) {
+		// Given a handler with user blueprint but composed Repository.Url empty (e.g. user file has no repository)
 		mocks := setupHandlerMocks(t)
 		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			return key == "dev"
 		}
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.domain" {
+				return "test"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.Runtime.ProjectRoot = "/path/to/myproject"
 
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.shims = &Shims{
 			FilepathBase: func(s string) string { return "myproject" },
 		}
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
-
-		userBp := &blueprintv1alpha1.Blueprint{}
 		handler.userBlueprintLoader = &mockLoaderImpl{
-			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return userBp },
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint { return &blueprintv1alpha1.Blueprint{} },
 		}
 
 		// When setting repository defaults
 		handler.setRepositoryDefaults()
 
-		// Then no defaults should be set (user blueprint exists)
-		if handler.composedBlueprint.Repository.Url != "" {
-			t.Errorf("Expected empty repository URL when user blueprint exists, got '%s'", handler.composedBlueprint.Repository.Url)
+		// Then repository should still be set from dev defaults so rendered blueprint has repository section
+		if handler.composedBlueprint.Repository.Url != "http://git.test/git/myproject" {
+			t.Errorf("Expected URL 'http://git.test/git/myproject' when Repository empty, got '%s'", handler.composedBlueprint.Repository.Url)
 		}
 	})
 
@@ -1398,6 +1406,70 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		handler.setRepositoryDefaults()
 
 		// Then no panic should occur
+	})
+}
+
+func TestHandler_clearLocalTemplateSource(t *testing.T) {
+	t.Run("ClearsTemplateSourceOnComponentsAndKustomizationsWhenTemplateIsLocal", func(t *testing.T) {
+		// Given a blueprint with local template source and components/kustomizations referencing template
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{{Name: "template", Url: ""}},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Source: "template", Path: "vpc"},
+				{Source: "other", Path: "rds"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "k1", Source: "template", Path: "app"},
+				{Name: "k2", Source: "other", Path: "base"},
+			},
+		}
+
+		// When clearing local template source
+		handler.clearLocalTemplateSource(blueprint)
+
+		// Then template-referencing components and kustomizations have Source cleared
+		if blueprint.TerraformComponents[0].Source != "" {
+			t.Errorf("Expected TerraformComponent Source cleared, got '%s'", blueprint.TerraformComponents[0].Source)
+		}
+		if blueprint.TerraformComponents[1].Source != "other" {
+			t.Errorf("Expected non-template Source unchanged, got '%s'", blueprint.TerraformComponents[1].Source)
+		}
+		if blueprint.Kustomizations[0].Source != "" {
+			t.Errorf("Expected Kustomization Source cleared, got '%s'", blueprint.Kustomizations[0].Source)
+		}
+		if blueprint.Kustomizations[1].Source != "other" {
+			t.Errorf("Expected non-template Kustomization Source unchanged, got '%s'", blueprint.Kustomizations[1].Source)
+		}
+	})
+
+	t.Run("NoOpWhenTemplateIsRemote", func(t *testing.T) {
+		// Given a blueprint with remote template source
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Sources:             []blueprintv1alpha1.Source{{Name: "template", Url: "https://github.com/example/repo.git"}},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Source: "template", Path: "vpc"}},
+			Kustomizations:      []blueprintv1alpha1.Kustomization{{Name: "k1", Source: "template", Path: "app"}},
+		}
+
+		// When clearing local template source
+		handler.clearLocalTemplateSource(blueprint)
+
+		if blueprint.TerraformComponents[0].Source != "template" {
+			t.Errorf("Expected Source unchanged when template is remote, got '%s'", blueprint.TerraformComponents[0].Source)
+		}
+		// Then Source remains unchanged
+		if blueprint.Kustomizations[0].Source != "template" {
+			t.Errorf("Expected Kustomization Source unchanged when template is remote, got '%s'", blueprint.Kustomizations[0].Source)
+		}
+	})
+
+	t.Run("NoOpWhenBlueprintNil", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.clearLocalTemplateSource(nil)
 	})
 }
 

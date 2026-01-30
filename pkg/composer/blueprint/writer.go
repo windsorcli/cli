@@ -187,9 +187,9 @@ func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.
 // This is used for first-time initialization when components come from referenced blueprints
 // rather than being explicitly listed in the user blueprint. The initBlueprintURLs parameter
 // contains blueprint URLs that should be added as sources with install: true, using their metadata
-// names from the loaded blueprints. If _template exists and no explicit "template" source is
-// present, automatically adds a "template" source with install: true. The metadata name and
-// description are set based on the current context name.
+// names from the loaded blueprints. When contexts/_template exists, a "template" source (install: true,
+// no URL) is included so the blueprint declares local template; no GitRepository/OCIRepository is
+// created for it—components from template reference repository: or another source by name.
 func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha1.Blueprint, initBlueprintURLs ...string) *blueprintv1alpha1.Blueprint {
 	metadata := blueprint.Metadata
 	if w.runtime != nil && w.runtime.ContextName != "" {
@@ -202,6 +202,9 @@ func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha
 		ApiVersion: blueprint.ApiVersion,
 		Metadata:   metadata,
 		Sources:    make([]blueprintv1alpha1.Source, 0),
+	}
+	if blueprint.Repository.Url != "" {
+		minimal.Repository = blueprint.Repository
 	}
 
 	trueVal := true

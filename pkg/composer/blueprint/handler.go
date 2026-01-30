@@ -172,6 +172,9 @@ func (h *BaseBlueprintHandler) GetLocalTemplateData() (map[string][]byte, error)
 // The blueprint is already fully processed and composed by LoadBlueprint(). Input expressions
 // and substitutions remain in their raw form and are evaluated later by their respective consumers.
 func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
+	if h.composedBlueprint != nil {
+		h.setRepositoryDefaults()
+	}
 	return h.composedBlueprint
 }
 
@@ -272,9 +275,19 @@ func (h *BaseBlueprintHandler) loadUser() error {
 // Sources with name "template" are loaded from the local _template directory.
 // Sources with OCI URLs are loaded from the registry. Sources are loaded in parallel.
 // After loading direct sources, it recursively loads any sources referenced by those blueprints.
+// When the user blueprint is nil (e.g. no blueprint.yaml yet), still loads local template if
+// present so composition produces kustomizations to apply and existing Flux Kustomizations can be updated.
 func (h *BaseBlueprintHandler) loadSources() error {
 	userBp := h.userBlueprintLoader.GetBlueprint()
 	if userBp == nil {
+		if h.runtime != nil && h.runtime.TemplateRoot != "" {
+			if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
+				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
+				if loadErr := loader.Load("template", ""); loadErr == nil && loader.GetBlueprint() != nil {
+					h.sourceBlueprintLoaders["template"] = loader
+				}
+			}
+		}
 		return nil
 	}
 
@@ -323,6 +336,15 @@ func (h *BaseBlueprintHandler) loadSources() error {
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
+	}
+
+	if _, exists := h.sourceBlueprintLoaders["template"]; !exists && h.runtime != nil && h.runtime.TemplateRoot != "" {
+		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
+			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
+			if loadErr := loader.Load("template", ""); loadErr == nil && loader.GetBlueprint() != nil {
+				h.sourceBlueprintLoaders["template"] = loader
+			}
+		}
 	}
 
 	return h.loadNestedSources()
@@ -468,6 +490,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		return err
 	}
 
+	h.clearLocalTemplateSource(h.composedBlueprint)
+
 	if h.runtime.TerraformProvider != nil {
 		components := h.GetTerraformComponents()
 		h.runtime.TerraformProvider.SetTerraformComponents(components)
@@ -511,21 +535,27 @@ func (h *BaseBlueprintHandler) getConfigValues() map[string]any {
 	return values
 }
 
-// setRepositoryDefaults sets default repository values on the composed blueprint for first-time
-// blueprint generation. On first run (no user blueprint exists), repository defaults are generated
-// based on dev mode (local git-livereload URL at http://git.<domain>/git/<project>) or git remote
-// origin. In dev mode, also sets the flux-system secret for git auth. If a user blueprint exists,
-// no defaults are set since the composer already handled user authority during composition.
+// setRepositoryDefaults sets default repository values on the composed blueprint when
+// Repository.Url is empty. In dev mode uses http://git.<dns.domain>/git/<project>;
+// otherwise uses git remote origin URL. Also sets Ref.Branch to main and, in dev mode,
+// SecretName to flux-system when not already set.
 func (h *BaseBlueprintHandler) setRepositoryDefaults() {
 	if h.composedBlueprint == nil || h.runtime == nil {
 		return
 	}
-
-	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+	if h.composedBlueprint.Repository.Url != "" {
+		devMode := h.runtime.ConfigHandler != nil && h.runtime.ConfigHandler.GetBool("dev")
+		if h.composedBlueprint.Repository.Ref == (blueprintv1alpha1.Reference{}) {
+			h.composedBlueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
+		}
+		if devMode && h.composedBlueprint.Repository.SecretName == nil {
+			secretName := "flux-system"
+			h.composedBlueprint.Repository.SecretName = &secretName
+		}
 		return
 	}
 
-	devMode := h.runtime.ConfigHandler.GetBool("dev")
+	devMode := h.runtime.ConfigHandler != nil && h.runtime.ConfigHandler.GetBool("dev")
 
 	if devMode {
 		domain := h.runtime.ConfigHandler.GetString("dns.domain", "test")
@@ -556,6 +586,35 @@ func (h *BaseBlueprintHandler) setRepositoryDefaults() {
 	}
 }
 
+// clearLocalTemplateSource clears Source on terraform components and kustomizations when Source
+// is "template" and the template source has no URL (local template). Those items then use the
+// blueprint repository (default source) instead of a non-existent template GitRepository.
+func (h *BaseBlueprintHandler) clearLocalTemplateSource(blueprint *blueprintv1alpha1.Blueprint) {
+	if blueprint == nil {
+		return
+	}
+	var templateIsLocal bool
+	for _, s := range blueprint.Sources {
+		if blueprintv1alpha1.IsLocalTemplateSource(s) {
+			templateIsLocal = true
+			break
+		}
+	}
+	if !templateIsLocal {
+		return
+	}
+	for i := range blueprint.TerraformComponents {
+		if blueprint.TerraformComponents[i].Source == "template" {
+			blueprint.TerraformComponents[i].Source = ""
+		}
+	}
+	for i := range blueprint.Kustomizations {
+		if blueprint.Kustomizations[i].Source == "template" {
+			blueprint.Kustomizations[i].Source = ""
+		}
+	}
+}
+
 // resolveComponentSource transforms a component's Source field from a source name (e.g., "local")
 // into a fully qualified URL based on the matching entry in the blueprint's Sources array. For OCI
 // sources, the URL is formatted as oci://registry/repo:tag//path/prefix/component.path. For Git
@@ -577,8 +636,7 @@ func (h *BaseBlueprintHandler) resolveComponentSource(component *blueprintv1alph
 		}
 
 		if source.Name == "template" && source.Url == "" {
-			templatePath := filepath.Join(h.runtime.ProjectRoot, pathPrefix, component.Path)
-			component.Source = templatePath
+			component.Source = ""
 			return
 		}
 

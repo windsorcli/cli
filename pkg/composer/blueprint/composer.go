@@ -329,6 +329,12 @@ func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Bl
 				added[name] = true
 			}
 		}
+		if loader, exists := loaderMap["template"]; exists && !added["template"] {
+			if bp := loader.GetBlueprint(); bp != nil {
+				orderedBps = append(orderedBps, bp)
+				added["template"] = true
+			}
+		}
 	} else {
 		for _, loader := range sourceLoaders {
 			name := loader.GetSourceName()

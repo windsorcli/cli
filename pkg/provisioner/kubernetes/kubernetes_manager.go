@@ -693,6 +693,9 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	}
 
 	for _, source := range blueprint.Sources {
+		if blueprintv1alpha1.IsLocalTemplateSource(source) {
+			continue
+		}
 		if err := k.applyBlueprintSource(source, namespace); err != nil {
 			return fmt.Errorf("failed to apply source %s: %w", source.Name, err)
 		}
@@ -821,6 +824,9 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 	if len(kustomization.Cleanup) > 0 {
 		sourceName := kustomization.Source
 		if sourceName == "" {
+			sourceName = defaultSourceName
+		}
+		if sourceName == "template" && !blueprintv1alpha1.HasRemoteTemplateSource(blueprint.Sources) {
 			sourceName = defaultSourceName
 		}
 
