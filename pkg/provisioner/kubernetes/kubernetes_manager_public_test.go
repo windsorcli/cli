@@ -5184,8 +5184,8 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 				Name: "test-blueprint",
 			},
 			Repository: blueprintv1alpha1.Repository{
-				Url:  "https://github.com/example/repo.git",
-				Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+				Url: "https://github.com/example/repo.git",
+				Ref: blueprintv1alpha1.Reference{Branch: "main"},
 			},
 			Sources: []blueprintv1alpha1.Source{
 				{Name: "template", Url: ""},
