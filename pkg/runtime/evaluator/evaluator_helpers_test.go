@@ -161,7 +161,7 @@ func TestYamlHelper(t *testing.T) {
 	t.Run("YamlFunctionWithInvalidArguments", func(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate(`${yaml("a", "b")}`, "", false)
+		_, err := evaluator.Evaluate(`${yaml("a", "b", "c")}`, "", false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid arguments, got nil")
@@ -251,6 +251,116 @@ func TestYamlHelper(t *testing.T) {
 		}
 		if m["from"] != "template" {
 			t.Errorf("Expected from: template, got %v", m["from"])
+		}
+	})
+
+	t.Run("YamlFunctionWithInputTemplatesContent", func(t *testing.T) {
+		template := "key: ${input.foo}\nbar: ${input.nested.baz}"
+		input := map[string]any{
+			"foo":    "value-from-input",
+			"nested": map[string]any{"baz": "qux"},
+		}
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"template": template, "input": input}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		result, err := evaluator.Evaluate(`${yaml(template, input)}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be map, got %T", result)
+		}
+		if m["key"] != "value-from-input" {
+			t.Errorf("Expected key: value-from-input, got %v", m["key"])
+		}
+		if m["bar"] != "qux" {
+			t.Errorf("Expected bar: qux, got %v", m["bar"])
+		}
+	})
+
+	t.Run("YamlFunctionWithInputAndContext", func(t *testing.T) {
+		input := map[string]any{"patchVar": "from-patch-vars"}
+		templateStr := "provider: ${provider}\nclusterName: ${cluster.name}\npatchVar: ${input.patchVar}"
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"provider": "aws",
+				"cluster":  map[string]any{"name": "my-cluster"},
+				"input":    input,
+				"template": templateStr,
+			}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		result, err := evaluator.Evaluate(`${yaml(template, input)}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be map, got %T", result)
+		}
+		if m["provider"] != "aws" {
+			t.Errorf("Expected provider: aws, got %v", m["provider"])
+		}
+		if m["clusterName"] != "my-cluster" {
+			t.Errorf("Expected clusterName: my-cluster, got %v", m["clusterName"])
+		}
+		if m["patchVar"] != "from-patch-vars" {
+			t.Errorf("Expected patchVar: from-patch-vars, got %v", m["patchVar"])
+		}
+	})
+
+	t.Run("YamlFunctionSingleElementListAllowsMemberAccess", func(t *testing.T) {
+		inlineYAML := "- controlplane_labels: foo\n  other: bar"
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"nodesYaml": inlineYAML}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		result, err := evaluator.Evaluate(`${yaml(nodesYaml).controlplane_labels}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "foo" {
+			t.Errorf("Expected controlplane_labels to be 'foo', got %v", result)
+		}
+	})
+
+	t.Run("YamlFunctionMapRootAllowsControlplanesMemberAccess", func(t *testing.T) {
+		inlineYAML := "controlplanes:\n  - hostname: cp1\nworkers:\n  - hostname: w1\n"
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"nodesYaml": inlineYAML}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		result, err := evaluator.Evaluate(`${yaml(nodesYaml).controlplanes}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error (avoids int(string) on .controlplanes), got: %v", err)
+		}
+		slice, ok := result.([]any)
+		if !ok {
+			t.Fatalf("Expected controlplanes to be []any, got %T", result)
+		}
+		if len(slice) != 1 {
+			t.Errorf("Expected controlplanes to have 1 element, got %d", len(slice))
+		}
+		m, ok := slice[0].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected first element to be map[string]any, got %T", slice[0])
+		}
+		if m["hostname"] != "cp1" {
+			t.Errorf("Expected hostname cp1, got %v", m["hostname"])
 		}
 	})
 }

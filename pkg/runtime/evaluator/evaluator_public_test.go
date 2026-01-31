@@ -762,6 +762,27 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Errorf("Expected false for missing boolean with coalesce, got %v", result)
 		}
 	})
+
+	t.Run("ExtractsFullExpressionWhenContainingEmptyMapLiteral", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		result, err := evaluator.Evaluate("${nonexistent ?? {}}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error (brace-balanced extraction), got: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Errorf("Expected empty map from ?? {}, got %T %v", result, result)
+		}
+		if ok && len(m) != 0 {
+			t.Errorf("Expected empty map, got %d entries", len(m))
+		}
+	})
 }
 
 func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
@@ -1657,6 +1678,15 @@ func TestContainsExpression(t *testing.T) {
 		// Then it should return true
 		if !ContainsExpression("${foo}-${bar}") {
 			t.Error("Expected ContainsExpression to return true for string with multiple expressions")
+		}
+	})
+
+	t.Run("ReturnsTrueForExpressionWithNestedBraces", func(t *testing.T) {
+		if !ContainsExpression("${x ?? {}}") {
+			t.Error("Expected ContainsExpression to return true for expression with empty map literal")
+		}
+		if !ContainsExpression(`${[merge(a ?? {}, b ?? {}) for n in values(nodes)]}`) {
+			t.Error("Expected ContainsExpression to return true for expression with nested braces")
 		}
 	})
 

@@ -96,10 +96,10 @@ func init() {
 // Helper Functions
 // =============================================================================
 
-// getBlueprint initializes a project and generates the composed blueprint.
-// It handles project creation, configuration, initialization, and blueprint generation.
-// Returns the generated blueprint and any validation errors. Validation errors are non-fatal
-// and allow the blueprint to be returned for inspection.
+// getBlueprint configures the project and composes the blueprint without running full initialization.
+// It loads blueprint sources and composes them; it does not write blueprint files, process terraform
+// modules, or generate tfvars. Returns the composed blueprint and any composition errors. Composition
+// errors are non-fatal and allow the blueprint to be returned for inspection when possible.
 func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error) {
 	var opts []*project.Project
 	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
@@ -119,7 +119,7 @@ func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error) {
 	}
 
 	var validationErr error
-	if err := proj.Initialize(false); err != nil {
+	if err := proj.ComposeBlueprint(); err != nil {
 		validationErr = err
 	}
 

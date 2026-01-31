@@ -1668,6 +1668,10 @@ variable "disabled" { type = bool }`
 			return originalStat(path)
 		}
 
+		if err := os.MkdirAll(moduleDir, 0755); err != nil {
+			t.Fatalf("Failed to create module dir: %v", err)
+		}
+
 		// When generating tfvars
 		err := resolver.GenerateTfvars(false)
 

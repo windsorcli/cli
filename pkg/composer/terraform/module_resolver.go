@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/goccy/go-yaml"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -100,10 +101,10 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 
 		nonDeferredValues := make(map[string]any)
 		for key, value := range evaluatedValues {
-			containsExpr := evaluator.ContainsExpression(value)
-			if !containsExpr {
-				nonDeferredValues[key] = value
+			if str, ok := value.(string); ok && evaluator.ContainsExpression(str) {
+				continue
 			}
+			nonDeferredValues[key] = value
 		}
 
 		if err := h.generateComponentTfvars(projectRoot, component, nonDeferredValues); err != nil {
@@ -476,16 +477,36 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 
 // writeHeredoc writes a multi-line string value as a heredoc assignment in the tfvars file body.
 // Used for YAML or other multi-line string values to preserve formatting.
+// Content that parses as YAML is re-serialized with clean formatting (unquoted keys) before writing.
 func writeHeredoc(body *hclwrite.Body, name string, content string) {
+	formatted := formatHeredocContent(content)
 	tokens := hclwrite.Tokens{
 		{Type: hclsyntax.TokenOHeredoc, Bytes: []byte("<<EOF")},
 		{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
-		{Type: hclsyntax.TokenStringLit, Bytes: []byte(content)},
+		{Type: hclsyntax.TokenStringLit, Bytes: []byte(formatted)},
 		{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
 		{Type: hclsyntax.TokenCHeredoc, Bytes: []byte("EOF")},
 	}
 	body.SetAttributeRaw(name, tokens)
 	body.AppendNewline()
+}
+
+// formatHeredocContent re-serializes multi-line content as YAML when valid, producing unquoted keys
+// and consistent indentation. Returns the original string if content is not valid YAML.
+func formatHeredocContent(content string) string {
+	var decoded any
+	if err := yaml.Unmarshal([]byte(content), &decoded); err != nil {
+		return content
+	}
+	out, err := yaml.Marshal(decoded)
+	if err != nil {
+		return content
+	}
+	s := strings.TrimSuffix(string(out), "\n")
+	if s == "" && content != "" {
+		return content
+	}
+	return s
 }
 
 // writeVariable writes a single variable assignment to the tfvars file body.
@@ -522,6 +543,14 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 			return
 		}
 	case map[string]any:
+		rendered := formatValue(v)
+		assignment := fmt.Sprintf("%s = %s", name, rendered)
+		body.AppendUnstructuredTokens(hclwrite.Tokens{
+			{Type: hclsyntax.TokenIdent, Bytes: []byte(assignment)},
+		})
+		body.AppendNewline()
+		return
+	case []any:
 		rendered := formatValue(v)
 		assignment := fmt.Sprintf("%s = %s", name, rendered)
 		body.AppendUnstructuredTokens(hclwrite.Tokens{
