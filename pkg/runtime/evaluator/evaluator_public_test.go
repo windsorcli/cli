@@ -38,6 +38,7 @@ func setupEvaluatorWithMockShims(t *testing.T) (ExpressionEvaluator, *Shims, con
 		JsonMarshal:   json.Marshal,
 		JsonUnmarshal: json.Unmarshal,
 		YamlMarshal:   yaml.Marshal,
+		YamlUnmarshal: yaml.Unmarshal,
 		FilepathBase:  filepath.Base,
 		NewJsonnetVM: func() JsonnetVM {
 			return &realJsonnetVM{vm: jsonnet.MakeVM()}

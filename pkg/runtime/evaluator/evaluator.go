@@ -279,12 +279,12 @@ func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any
 
 // buildExprEnvironment configures the expression evaluation environment with helper functions.
 // It registers helper functions: jsonnet() for evaluating Jsonnet files, file() for
-// loading raw file content, split() for string splitting, and CIDR functions (cidrhost,
-// cidrsubnet, cidrsubnets, cidrnetmask) for IP address and network calculations. Helper
-// functions registered via Register() are also included. Each helper includes argument
-// validation and type checking. The config and facetPath are captured in closures to
-// provide context for file resolution during expression evaluation. It also enables AsAny
-// mode to allow dynamic property access.
+// loading raw file content, yaml() for parsing YAML from a file path or inline string,
+// split() for string splitting, and CIDR functions (cidrhost, cidrsubnet, cidrsubnets,
+// cidrnetmask) for IP address and network calculations. Helper functions registered via
+// Register() are also included. Each helper includes argument validation and type checking.
+// The config and facetPath are captured in closures to provide context for file resolution
+// during expression evaluation. It also enables AsAny mode to allow dynamic property access.
 func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetPath string, deferred bool) []expr.Option {
 	opts := []expr.Option{
 		expr.AsAny(),
@@ -316,6 +316,20 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 				return e.evaluateFileFunction(path, facetPath)
 			},
 			new(func(string) string),
+		),
+		expr.Function(
+			"yaml",
+			func(params ...any) (any, error) {
+				if len(params) != 1 {
+					return nil, fmt.Errorf("yaml() requires exactly 1 argument, got %d", len(params))
+				}
+				arg, ok := params[0].(string)
+				if !ok {
+					return nil, fmt.Errorf("yaml() argument must be a string (file path or YAML content), got %T", params[0])
+				}
+				return e.evaluateYamlFunction(arg, facetPath)
+			},
+			new(func(string) any),
 		),
 		expr.Function(
 			"split",
@@ -777,6 +791,37 @@ func (e *expressionEvaluator) evaluateFileFunction(pathArg string, facetPath str
 	}
 
 	return string(content), nil
+}
+
+// evaluateYamlFunction parses YAML from either a file path or an inline YAML string.
+// If the argument contains a newline it is treated as inline YAML only (no file read), avoiding
+// a failed filesystem call. Otherwise template data and the filesystem are tried first; if no
+// file is found, the argument is unmarshaled as YAML. Returns the parsed value (map or slice)
+// or an error if the file cannot be read or the YAML is invalid.
+func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string) (any, error) {
+	var raw []byte
+	if strings.Contains(arg, "\n") {
+		raw = []byte(arg)
+	} else {
+		if e.templateData != nil {
+			raw = e.lookupInTemplateData(arg, facetPath)
+		}
+		if raw == nil {
+			path := e.resolvePath(arg, facetPath)
+			content, err := e.Shims.ReadFile(path)
+			if err == nil {
+				raw = content
+			}
+		}
+		if raw == nil {
+			raw = []byte(arg)
+		}
+	}
+	var value any
+	if err := e.Shims.YamlUnmarshal(raw, &value); err != nil {
+		return nil, fmt.Errorf("yaml() failed to parse: %w", err)
+	}
+	return value, nil
 }
 
 // lookupInTemplateData attempts to find file content in the template data map.

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 // =============================================================================
@@ -94,6 +96,161 @@ func TestFileHelper(t *testing.T) {
 
 		if err == nil {
 			t.Fatal("Expected error for non-string argument, got nil")
+		}
+	})
+}
+
+func TestYamlHelper(t *testing.T) {
+	t.Run("YamlFunctionWithFilePath", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		tmpDir := t.TempDir()
+		yamlContent := "key: value\nfoo: bar"
+		yamlFile := filepath.Join(tmpDir, "data.yaml")
+		os.WriteFile(yamlFile, []byte(yamlContent), 0644)
+
+		facetPath := filepath.Join(tmpDir, "facet.yaml")
+
+		result, err := evaluator.Evaluate(`${yaml("data.yaml")}`, facetPath, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be map, got %T", result)
+		}
+		if m["key"] != "value" || m["foo"] != "bar" {
+			t.Errorf("Expected map key:value, foo:bar, got %v", m)
+		}
+	})
+
+	t.Run("YamlFunctionWithInlineString", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		result, err := evaluator.Evaluate(`${yaml("a: 1\nb: 2")}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be map, got %T", result)
+		}
+		if len(m) != 2 {
+			t.Errorf("Expected map with 2 entries, got %v", m)
+		}
+		numEq := func(v any, want int) bool {
+			switch n := v.(type) {
+			case int:
+				return n == want
+			case uint64:
+				return n == uint64(want)
+			case float64:
+				return n == float64(want)
+			default:
+				return false
+			}
+		}
+		if !numEq(m["a"], 1) || !numEq(m["b"], 2) {
+			t.Errorf("Expected map a:1, b:2, got %v", m)
+		}
+	})
+
+	t.Run("YamlFunctionWithInvalidArguments", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${yaml("a", "b")}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for invalid arguments, got nil")
+		}
+	})
+
+	t.Run("YamlFunctionWithNonStringArgument", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${yaml(42)}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for non-string argument, got nil")
+		}
+	})
+
+	t.Run("YamlFunctionWithInvalidYaml", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${yaml("not: valid: yaml: [")}`, "", false)
+
+		if err == nil {
+			t.Fatal("Expected error for invalid YAML, got nil")
+		}
+		if !strings.Contains(err.Error(), "yaml()") {
+			t.Errorf("Expected error to mention yaml(), got: %v", err)
+		}
+	})
+
+	t.Run("YamlFunctionWithSingleLineInline", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		result, err := evaluator.Evaluate(`${yaml("p: q")}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be map, got %T", result)
+		}
+		if m["p"] != "q" {
+			t.Errorf("Expected map p:q, got %v", m)
+		}
+	})
+
+	t.Run("YamlFunctionReturnsArray", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		result, err := evaluator.Evaluate(`${yaml("- a\n- b\n- c")}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		arr, ok := result.([]any)
+		if !ok {
+			t.Fatalf("Expected result to be slice, got %T", result)
+		}
+		if len(arr) != 3 {
+			t.Errorf("Expected 3 elements, got %d", len(arr))
+		}
+		if arr[0] != "a" || arr[1] != "b" || arr[2] != "c" {
+			t.Errorf("Expected [a b c], got %v", arr)
+		}
+	})
+
+	t.Run("YamlFunctionWithTemplateData", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		projectRoot := filepath.Join(tmpDir, "project")
+		templateRoot := filepath.Join(tmpDir, "project", "contexts", "_template")
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, projectRoot, templateRoot)
+		templateData := map[string][]byte{
+			"_template/facets/data.yaml": []byte("from: template\ncount: 1"),
+		}
+		evaluator.SetTemplateData(templateData)
+		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
+
+		result, err := evaluator.Evaluate(`${yaml("data.yaml")}`, facetPath, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected result to be map, got %T", result)
+		}
+		if m["from"] != "template" {
+			t.Errorf("Expected from: template, got %v", m["from"])
 		}
 	})
 }
