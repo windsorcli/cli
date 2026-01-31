@@ -367,7 +367,7 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		base := &Blueprint{
 			TerraformComponents: []TerraformComponent{
 				{
-					Path: "cluster/talos",
+					Path:   "cluster/talos",
 					Source: "core",
 				},
 			},
@@ -1986,6 +1986,63 @@ func contains(slice []string, value string) bool {
 	return false
 }
 
+func TestIsLocalTemplateSource(t *testing.T) {
+	t.Run("ReturnsFalseForNonTemplateSource", func(t *testing.T) {
+		source := Source{Name: "other", Url: ""}
+		if IsLocalTemplateSource(source) {
+			t.Error("Expected false for non-template source")
+		}
+	})
+
+	t.Run("ReturnsFalseForTemplateWithURL", func(t *testing.T) {
+		source := Source{Name: "template", Url: "https://github.com/example/repo.git"}
+		if IsLocalTemplateSource(source) {
+			t.Error("Expected false for template source with URL")
+		}
+	})
+
+	t.Run("ReturnsTrueForTemplateWithEmptyURL", func(t *testing.T) {
+		source := Source{Name: "template", Url: ""}
+		if !IsLocalTemplateSource(source) {
+			t.Error("Expected true for template source with empty URL")
+		}
+	})
+}
+
+func TestHasRemoteTemplateSource(t *testing.T) {
+	t.Run("ReturnsFalseForEmptySources", func(t *testing.T) {
+		if HasRemoteTemplateSource([]Source{}) {
+			t.Error("Expected false for empty sources")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenOnlyLocalTemplate", func(t *testing.T) {
+		sources := []Source{{Name: "template", Url: ""}}
+		if HasRemoteTemplateSource(sources) {
+			t.Error("Expected false when only local template")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenTemplateHasURL", func(t *testing.T) {
+		sources := []Source{
+			{Name: "template", Url: "https://github.com/example/repo.git"},
+		}
+		if !HasRemoteTemplateSource(sources) {
+			t.Error("Expected true when template source has URL")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenMultipleSourcesIncludeRemoteTemplate", func(t *testing.T) {
+		sources := []Source{
+			{Name: "other", Url: "https://other.com/repo.git"},
+			{Name: "template", Url: "https://github.com/example/repo.git"},
+		}
+		if !HasRemoteTemplateSource(sources) {
+			t.Error("Expected true when sources include remote template")
+		}
+	})
+}
+
 func TestKustomization_ToFluxKustomization(t *testing.T) {
 	t.Run("BasicConversionWithDefaults", func(t *testing.T) {
 		kustomization := &Kustomization{
@@ -2271,6 +2328,36 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 		if result.Spec.SourceRef.Name != "default-source" {
 			t.Errorf("Expected source name 'default-source', got '%s'", result.Spec.SourceRef.Name)
+		}
+	})
+
+	t.Run("WithTemplateSourceLocalUsesDefault", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:   "test-kustomization",
+			Path:   "test/path",
+			Source: "template",
+		}
+		sources := []Source{{Name: "template", Url: ""}}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+
+		if result.Spec.SourceRef.Name != "default-source" {
+			t.Errorf("Expected source name 'default-source' when template is local, got '%s'", result.Spec.SourceRef.Name)
+		}
+	})
+
+	t.Run("WithTemplateSourceRemoteUsesTemplate", func(t *testing.T) {
+		kustomization := &Kustomization{
+			Name:   "test-kustomization",
+			Path:   "test/path",
+			Source: "template",
+		}
+		sources := []Source{{Name: "template", Url: "https://github.com/example/template.git"}}
+
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+
+		if result.Spec.SourceRef.Name != "template" {
+			t.Errorf("Expected source name 'template' when template is remote, got '%s'", result.Spec.SourceRef.Name)
 		}
 	})
 
@@ -3051,38 +3138,38 @@ func TestIntExpression_MarshalYAML(t *testing.T) {
 	})
 }
 
-func TestSource_Deploy(t *testing.T) {
+func TestSource_Install(t *testing.T) {
 	t.Run("IsNilWhenNotSet", func(t *testing.T) {
 		source := Source{
 			Name: "test-source",
 			Url:  "oci://example.com/repo:tag",
 		}
 
-		if source.Deploy != nil {
-			t.Error("Expected Deploy to be nil when not set")
+		if source.Install != nil {
+			t.Error("Expected Install to be nil when not set")
 		}
 	})
 
 	t.Run("CanBeSetToFalse", func(t *testing.T) {
 		falseVal := false
 		source := Source{
-			Name:   "test-source",
-			Url:    "oci://example.com/repo:tag",
-			Deploy: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Name:    "test-source",
+			Url:     "oci://example.com/repo:tag",
+			Install: &BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 
-		if source.Deploy == nil {
-			t.Fatal("Expected Deploy to be set")
+		if source.Install == nil {
+			t.Fatal("Expected Install to be set")
 		}
-		if source.Deploy.Value == nil || *source.Deploy.Value {
-			t.Error("Expected Deploy to be false")
+		if source.Install.Value == nil || *source.Install.Value {
+			t.Error("Expected Install to be false")
 		}
 	})
 
 	t.Run("SupportsExpression", func(t *testing.T) {
 		yamlData := []byte(`name: test-source
 url: oci://example.com/repo:tag
-deploy: "${some.condition ?? true}"`)
+install: "${some.condition ?? true}"`)
 
 		var source Source
 		err := yaml.Unmarshal(yamlData, &source)
@@ -3090,16 +3177,16 @@ deploy: "${some.condition ?? true}"`)
 			t.Fatalf("Failed to unmarshal: %v", err)
 		}
 
-		if source.Deploy == nil {
-			t.Fatal("Expected Deploy to be set")
+		if source.Install == nil {
+			t.Fatal("Expected Install to be set")
 		}
-		if !source.Deploy.IsExpr {
+		if !source.Install.IsExpr {
 			t.Error("Expected IsExpr to be true")
 		}
-		if source.Deploy.Expr != "${some.condition ?? true}" {
-			t.Errorf("Expected Expr to be '${some.condition ?? true}', got %q", source.Deploy.Expr)
+		if source.Install.Expr != "${some.condition ?? true}" {
+			t.Errorf("Expected Expr to be '${some.condition ?? true}', got %q", source.Install.Expr)
 		}
-		if source.Deploy.Value != nil {
+		if source.Install.Value != nil {
 			t.Error("Expected Value to be nil for expression")
 		}
 	})
@@ -3107,9 +3194,9 @@ deploy: "${some.condition ?? true}"`)
 	t.Run("PreservesValueInRoundTrip", func(t *testing.T) {
 		falseVal := false
 		source := Source{
-			Name:   "test-source",
-			Url:    "oci://example.com/repo:tag",
-			Deploy: &BoolExpression{Value: &falseVal, IsExpr: false},
+			Name:    "test-source",
+			Url:     "oci://example.com/repo:tag",
+			Install: &BoolExpression{Value: &falseVal, IsExpr: false},
 		}
 
 		marshaled, err := yaml.Marshal(&source)
@@ -3123,11 +3210,11 @@ deploy: "${some.condition ?? true}"`)
 			t.Fatalf("Failed to unmarshal round-trip: %v", err)
 		}
 
-		if roundTrip.Deploy == nil {
-			t.Fatal("Expected Deploy to be preserved after round-trip")
+		if roundTrip.Install == nil {
+			t.Fatal("Expected Install to be preserved after round-trip")
 		}
-		if roundTrip.Deploy.Value == nil || *roundTrip.Deploy.Value {
-			t.Error("Expected Deploy to be false after round-trip")
+		if roundTrip.Install.Value == nil || *roundTrip.Install.Value {
+			t.Error("Expected Install to be false after round-trip")
 		}
 	})
 }
@@ -3381,15 +3468,54 @@ func TestBoolExpression_IsEnabled(t *testing.T) {
 	})
 }
 
+func TestBoolExpression_IsInstalled(t *testing.T) {
+	t.Run("ReturnsFalseWhenNil", func(t *testing.T) {
+		var expr *BoolExpression
+		if expr.IsInstalled() {
+			t.Error("Expected IsInstalled to return false when nil")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenValueIsTrue", func(t *testing.T) {
+		trueVal := true
+		expr := &BoolExpression{Value: &trueVal, IsExpr: false}
+		if !expr.IsInstalled() {
+			t.Error("Expected IsInstalled to return true when value is true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenValueIsFalse", func(t *testing.T) {
+		falseVal := false
+		expr := &BoolExpression{Value: &falseVal, IsExpr: false}
+		if expr.IsInstalled() {
+			t.Error("Expected IsInstalled to return false when value is false")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenIsExpression", func(t *testing.T) {
+		expr := &BoolExpression{IsExpr: true, Expr: "${some.condition ?? true}"}
+		if expr.IsInstalled() {
+			t.Error("Expected IsInstalled to return false when IsExpr is true")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenValueIsNilButNotExpression", func(t *testing.T) {
+		expr := &BoolExpression{Value: nil, IsExpr: false}
+		if expr.IsInstalled() {
+			t.Error("Expected IsInstalled to return false when Value is nil and not expression")
+		}
+	})
+}
+
 func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
-	t.Run("CopiesSourceDeployField", func(t *testing.T) {
+	t.Run("CopiesSourceInstallField", func(t *testing.T) {
 		falseVal := false
 		blueprint := &Blueprint{
 			Sources: []Source{
 				{
-					Name:   "test-source",
-					Url:    "oci://example.com/repo:tag",
-					Deploy: &BoolExpression{Value: &falseVal, IsExpr: false},
+					Name:    "test-source",
+					Url:     "oci://example.com/repo:tag",
+					Install: &BoolExpression{Value: &falseVal, IsExpr: false},
 				},
 			},
 		}
@@ -3398,11 +3524,11 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 		if len(copy.Sources) != 1 {
 			t.Fatalf("Expected 1 source, got %d", len(copy.Sources))
 		}
-		if copy.Sources[0].Deploy == nil {
-			t.Fatal("Expected Deploy to be copied")
+		if copy.Sources[0].Install == nil {
+			t.Fatal("Expected Install to be copied")
 		}
-		if copy.Sources[0].Deploy.Value == nil || *copy.Sources[0].Deploy.Value {
-			t.Error("Expected Deploy to be false in copy")
+		if copy.Sources[0].Install.Value == nil || *copy.Sources[0].Install.Value {
+			t.Error("Expected Install to be false in copy")
 		}
 	})
 

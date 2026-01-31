@@ -5168,6 +5168,39 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessSkipsLocalTemplateSource", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Repository: blueprintv1alpha1.Repository{
+				Url: "https://github.com/example/repo.git",
+				Ref: blueprintv1alpha1.Reference{Branch: "main"},
+			},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "template", Url: ""},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "test-kustomization"},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error when blueprint has only local template source, got %v", err)
+		}
+	})
+
 	t.Run("SuccessSkipsDestroyOnlyKustomizations", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()

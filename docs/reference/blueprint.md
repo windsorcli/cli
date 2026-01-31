@@ -66,17 +66,21 @@ repository:
 | `secretName` | `string`    | The name of the k8s secret containing git credentials.|
 
 ### Source
-A dependency from which Terraform and Kustomize components may be sourced
+A dependency from which Terraform and Kustomize components may be sourced. Sources can be OCI blueprint artifacts or Git repositories containing Terraform modules.
 
 ```yaml
 sources:
   - name: core
-    url: github.com/windsorcli/core
-    ref:
-      tag: v0.3.0
-  - name: oci-source
     url: oci://ghcr.io/windsorcli/core:v0.3.0
-    # No ref needed for OCI - version is in the URL
+    deploy: true  # Merge this source's components (default: true)
+  - name: reference
+    url: oci://ghcr.io/windsorcli/reference:v0.3.0
+    deploy: false  # Index-only: don't merge, but allow component reference
+  - name: modules
+    url: github.com/org/terraform-modules
+    ref:
+      branch: main
+    # deploy flag only applies to OCI sources
 ```
 
 | Field        | Type       | Description                                      |
@@ -86,9 +90,17 @@ sources:
 | `pathPrefix` | `string`   | Prefix to the source path. Defaults to `terraform` if not specified. |
 | `ref`        | `Reference`| Details the branch, tag, or commit to use. Not needed for OCI URLs with embedded tags. |
 | `secretName` | `string`   | The secret for source access.                    |
+| `deploy`     | `bool` or `string` | For OCI sources only: whether to merge this source's components into the final blueprint. Can be a boolean (`true`/`false`) or an expression (e.g., `${some.condition ?? true}`). Defaults to `true` if not specified. |
 
-**Note:** 
+**Source Types:**
+
+- **OCI Sources** (`oci://` URLs): Blueprint artifacts that can have their components merged. When `deploy: true` (or not specified), the source's components are merged directly into the final blueprint. When `deploy: false`, the source is "index-only" - its components aren't merged, but other components can reference it via `source: <name>`.
+- **Git Sources** (Git URLs): Terraform module repositories. These are not loaded as blueprints and their components cannot be merged. They remain in the Sources array for component reference only. The `deploy` flag does not apply to Git sources.
+
+**Notes:**
 - For OCI sources, the URL should include the tag/version directly (e.g., `oci://registry.example.com/repo:v1.0.0`). The `ref` field is optional for OCI sources when the tag is specified in the URL.
+- The `deploy` flag only applies to OCI sources. It defaults to `true` if not specified, meaning OCI sources have their components merged by default.
+- Sources with `deploy: false` are still available for component reference - components can use `source: <name>` to reference them, and the source URL will be resolved appropriately.
 
 ### Reference
 A reference to a specific git state or version

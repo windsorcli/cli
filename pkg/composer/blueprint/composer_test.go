@@ -70,7 +70,7 @@ type mockBlueprintLoaderForComposer struct {
 	blueprint  *blueprintv1alpha1.Blueprint
 }
 
-func (m *mockBlueprintLoaderForComposer) Load() error {
+func (m *mockBlueprintLoaderForComposer) Load(sourceName, sourceURL string) error {
 	return nil
 }
 
@@ -142,7 +142,7 @@ func TestComposer_Compose(t *testing.T) {
 		composer := NewBlueprintComposer(mocks.Runtime)
 
 		// When composing
-		result, err := composer.Compose(nil)
+		result, err := composer.Compose(nil, nil)
 
 		// Then should return empty blueprint
 		if err != nil {
@@ -153,60 +153,73 @@ func TestComposer_Compose(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsPrimaryWhenOnlyPrimaryBlueprintLoader", func(t *testing.T) {
-		// Given only a primary loader
+	t.Run("MergesTemplateSourceWhenUserBlueprintReferencesIt", func(t *testing.T) {
+		// Given template and user loaders, with user referencing template
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		templateBp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "primary"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},
 			},
 		}
+		trueVal := true
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
+			createMockBlueprintLoader("template", templateBp),
+			createMockBlueprintLoader("user", userBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
-		// Then should return primary
+		// Then should merge template
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
-		}
-		if result.Metadata.Name != "primary" {
-			t.Errorf("Expected name='primary', got '%s'", result.Metadata.Name)
 		}
 		if len(result.TerraformComponents) != 1 {
 			t.Errorf("Expected 1 terraform component, got %d", len(result.TerraformComponents))
 		}
 	})
 
-	t.Run("MergesSourceComponentsIntoPrimary", func(t *testing.T) {
-		// Given primary and source loaders
+	t.Run("MergesSourcesInOrderFromUserBlueprint", func(t *testing.T) {
+		// Given multiple sources and user blueprint specifying order
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "primary"},
+		trueVal := true
+		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc", Source: "external"},
 			},
 		}
-		sourceBp := &blueprintv1alpha1.Blueprint{
+		externalBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc", Inputs: map[string]any{"region": "us-east-1"}},
 				{Path: "rds"},
 			},
 		}
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "external", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
-			createMockBlueprintLoader("external", sourceBp),
+			createMockBlueprintLoader("template", templateBp),
+			createMockBlueprintLoader("external", externalBp),
+			createMockBlueprintLoader("user", userBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then source components should be merged
 		if err != nil {
@@ -217,28 +230,371 @@ func TestComposer_Compose(t *testing.T) {
 		}
 	})
 
-	t.Run("UserOverridesPrimary", func(t *testing.T) {
-		// Given primary and user loaders
+	t.Run("MergesSourcesWithInstallTrue", func(t *testing.T) {
+		// Given a user blueprint with sources that have install:true
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		trueVal := true
+		templateBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		coreSourceBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+				{Path: "database/rds"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "observability"},
+			},
+		}
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name:    "core",
+					Url:     "oci://example.com/core:latest",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				},
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("template", templateBp),
+			createMockBlueprintLoader("core", coreSourceBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		// When composing
+		result, err := composer.Compose(loaders, nil)
+
+		// Then core source components should be merged into result
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result.TerraformComponents) != 3 {
+			t.Errorf("Expected 3 terraform components (vpc + eks + rds), got %d", len(result.TerraformComponents))
+		}
+		if len(result.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization, got %d", len(result.Kustomizations))
+		}
+		componentPaths := make(map[string]bool)
+		for _, comp := range result.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if !componentPaths["vpc"] {
+			t.Error("Expected 'vpc' component from template")
+		}
+		if !componentPaths["cluster/eks"] {
+			t.Error("Expected 'cluster/eks' component from source")
+		}
+		if !componentPaths["database/rds"] {
+			t.Error("Expected 'database/rds' component from source")
+		}
+	})
+
+	t.Run("DoesNotMergeSourcesWithInstallFalse", func(t *testing.T) {
+		// Given a user blueprint with a source that has install:false
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		falseVal := false
+		trueVal := true
+		templateBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		referenceSourceBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+			},
+		}
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name:    "reference",
+					Url:     "oci://example.com/reference:latest",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+				{
+					Name:    "template",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("template", templateBp),
+			createMockBlueprintLoader("reference", referenceSourceBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		// When composing
+		result, err := composer.Compose(loaders, nil)
+
+		// Then reference source components should NOT be merged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component (only vpc), got %d", len(result.TerraformComponents))
+		}
+		if len(result.TerraformComponents) > 0 && result.TerraformComponents[0].Path != "vpc" {
+			t.Errorf("Expected 'vpc' component, got '%s'", result.TerraformComponents[0].Path)
+		}
+	})
+
+	t.Run("ComponentsCanReferenceSourcesWithInstallFalse", func(t *testing.T) {
+		// Given a template with a component referencing a source that has install:false
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		falseVal := false
+		trueVal := true
+		templateBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Source: "reference"},
+			},
+		}
+		referenceSourceBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+			},
+		}
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name:    "reference",
+					Url:     "oci://example.com/reference:latest",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("template", templateBp),
+			createMockBlueprintLoader("reference", referenceSourceBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		// When composing
+		result, err := composer.Compose(loaders, nil)
+
+		// Then component should be able to reference the source
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		// Component from template should exist (reference source is not merged due to install:false)
+		if len(result.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component, got %d", len(result.TerraformComponents))
+		}
+		if result.TerraformComponents[0].Source != "reference" {
+			t.Errorf("Expected component to reference 'reference' source, got '%s'", result.TerraformComponents[0].Source)
+		}
+		if result.Sources[0].Name != "reference" {
+			t.Errorf("Expected source 'reference' in Sources array, got '%s'", result.Sources[0].Name)
+		}
+		// Reference source's components should NOT be unfurled
+		componentPaths := make(map[string]bool)
+		for _, comp := range result.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if componentPaths["cluster/eks"] {
+			t.Error("Expected 'cluster/eks' component from reference source to NOT be unfurled")
+		}
+	})
+
+	t.Run("MergesOCISourcesWhenInstallOmittedForBackwardCompat", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		templateBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		coreSourceBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+			},
+		}
+		trueVal := true
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name: "core",
+					Url:  "oci://example.com/core:latest",
+				},
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("template", templateBp),
+			createMockBlueprintLoader("core", coreSourceBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		result, err := composer.Compose(loaders, nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 terraform components (vpc + cluster/eks), got %d", len(result.TerraformComponents))
+		}
+		componentPaths := make(map[string]bool)
+		for _, comp := range result.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if !componentPaths["vpc"] {
+			t.Error("Expected 'vpc' component from template")
+		}
+		if !componentPaths["cluster/eks"] {
+			t.Error("Expected 'cluster/eks' from OCI source when install omitted (backward compat)")
+		}
+	})
+
+	t.Run("DoesNotMergeOCISourceWhenInstallFalse", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		templateBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		coreSourceBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+			},
+		}
+		trueVal := true
+		falseVal := false
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name:    "core",
+					Url:     "oci://example.com/core:latest",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &falseVal, IsExpr: false},
+				},
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("template", templateBp),
+			createMockBlueprintLoader("core", coreSourceBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		result, err := composer.Compose(loaders, nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 terraform component (only vpc), got %d", len(result.TerraformComponents))
+		}
+		componentPaths := make(map[string]bool)
+		for _, comp := range result.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if !componentPaths["vpc"] {
+			t.Error("Expected 'vpc' component from template")
+		}
+		if componentPaths["cluster/eks"] {
+			t.Error("Expected 'cluster/eks' to NOT be merged when install: false")
+		}
+	})
+
+	t.Run("MergesMultipleSources", func(t *testing.T) {
+		// Given multiple sources in user blueprint
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		trueVal := true
+		coreBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks"},
+			},
+		}
+		extrasBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "database/rds"},
+			},
+		}
+		userBp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "user"},
+			Sources: []blueprintv1alpha1.Source{
+				{
+					Name:    "core",
+					Url:     "oci://example.com/core:latest",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				},
+				{
+					Name:    "extras",
+					Url:     "oci://example.com/extras:latest",
+					Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
+				},
+			},
+		}
+		loaders := []BlueprintLoader{
+			createMockBlueprintLoader("core", coreBp),
+			createMockBlueprintLoader("extras", extrasBp),
+			createMockBlueprintLoader("user", userBp),
+		}
+
+		// When composing
+		result, err := composer.Compose(loaders, nil)
+
+		// Then both sources should be merged
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(result.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 terraform components, got %d", len(result.TerraformComponents))
+		}
+		componentPaths := make(map[string]bool)
+		for _, comp := range result.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if !componentPaths["cluster/eks"] {
+			t.Error("Expected 'cluster/eks' component from core source")
+		}
+		if !componentPaths["database/rds"] {
+			t.Error("Expected 'database/rds' component from extras source")
+		}
+	})
+
+	t.Run("UserOverridesSources", func(t *testing.T) {
+		// Given template and user loaders with user overriding template values
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc", Inputs: map[string]any{"region": "us-east-1"}},
 			},
 		}
+		trueVal := true
 		userBp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc", Inputs: map[string]any{"region": "us-west-2"}},
 			},
 		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
+			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then user values should override
 		if err != nil {
@@ -252,49 +608,12 @@ func TestComposer_Compose(t *testing.T) {
 		}
 	})
 
-	t.Run("UserFiltersComponents", func(t *testing.T) {
-		// Given primary with multiple components and user referencing subset
-		mocks := setupComposerMocks(t)
-		composer := NewBlueprintComposer(mocks.Runtime)
-
-		primaryBp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "vpc"},
-				{Path: "rds"},
-				{Path: "eks"},
-			},
-		}
-		userBp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "vpc"},
-			},
-		}
-		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
-			createMockBlueprintLoader("user", userBp),
-		}
-
-		// When composing
-		result, err := composer.Compose(loaders)
-
-		// Then only user-referenced component should remain
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if len(result.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 terraform component (filtered), got %d", len(result.TerraformComponents))
-		}
-		if result.TerraformComponents[0].Path != "vpc" {
-			t.Errorf("Expected path='vpc', got '%s'", result.TerraformComponents[0].Path)
-		}
-	})
-
 	t.Run("ComponentIdentifiedByNameOverPath", func(t *testing.T) {
 		// Given components with names
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "main-vpc", Path: "network/vpc", Inputs: map[string]any{"cidr": "10.0.0.0/16"}},
 			},
@@ -305,12 +624,12 @@ func TestComposer_Compose(t *testing.T) {
 			},
 		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
+			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then should match by name and merge
 		if err != nil {
@@ -329,23 +648,33 @@ func TestComposer_Compose(t *testing.T) {
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "primary"},
+		templateBp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+			},
+		}
+		trueVal := true
+		userBp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+				{Name: "empty-source"},
+			},
 		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
+			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("empty-source", nil),
+			createMockBlueprintLoader("user", userBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
-		// Then should still compose successfully
+		// Then should still compose successfully with template merged
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if result.Metadata.Name != "primary" {
-			t.Errorf("Expected name='primary', got '%s'", result.Metadata.Name)
+		if len(result.TerraformComponents) != 1 {
+			t.Errorf("Expected 1 component from template, got %d", len(result.TerraformComponents))
 		}
 	})
 
@@ -382,15 +711,15 @@ func TestComposer_Compose(t *testing.T) {
 		}
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		templateBp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "primary"},
 		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
+			createMockBlueprintLoader("template", templateBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then values-common ConfigMap should be created with legacy variables
 		if err != nil {
@@ -443,60 +772,83 @@ func TestComposer_SetCommonSubstitutions(t *testing.T) {
 }
 
 func TestComposer_FilterToUserSelection(t *testing.T) {
-	t.Run("FiltersKustomizationsToUserSelection", func(t *testing.T) {
-		// Given primary with multiple kustomizations and user referencing subset
+	t.Run("UserBlueprintDoesNotFilterKustomizations", func(t *testing.T) {
+		// Given template with multiple kustomizations and user overriding one
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		templateBp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "flux-system"},
-				{Name: "cert-manager"},
-				{Name: "ingress-nginx"},
+				{Name: "flux-system", Path: "kustomize/flux-system"},
+				{Name: "cert-manager", Path: "kustomize/cert-manager"},
+				{Name: "ingress-nginx", Path: "kustomize/ingress-nginx"},
 			},
 		}
+		trueVal := true
 		userBp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "flux-system"},
-				{Name: "ingress-nginx"},
+				{Name: "flux-system", Path: "kustomize/flux-system-custom"},
 			},
 		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
+			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
-		// Then only user-referenced kustomizations should remain
+		// Then all kustomizations should remain (no filtering), with user override applied
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.Kustomizations) != 2 {
-			t.Fatalf("Expected 2 kustomizations (filtered), got %d", len(result.Kustomizations))
+		if len(result.Kustomizations) != 3 {
+			t.Fatalf("Expected 3 kustomizations (no filtering), got %d", len(result.Kustomizations))
+		}
+		kustMap := make(map[string]blueprintv1alpha1.Kustomization)
+		for _, k := range result.Kustomizations {
+			kustMap[k.Name] = k
+		}
+		if flux, exists := kustMap["flux-system"]; !exists {
+			t.Error("Expected 'flux-system' kustomization to exist")
+		} else if flux.Path != "kustomize/flux-system-custom" {
+			t.Errorf("Expected flux-system path to be overridden, got '%s'", flux.Path)
+		}
+		if _, exists := kustMap["cert-manager"]; !exists {
+			t.Error("Expected 'cert-manager' kustomization to remain")
+		}
+		if _, exists := kustMap["ingress-nginx"]; !exists {
+			t.Error("Expected 'ingress-nginx' kustomization to remain")
 		}
 	})
 
 	t.Run("DoesNotFilterWhenUserHasNoComponents", func(t *testing.T) {
-		// Given primary with components and user with empty blueprint
+		// Given template with components and user with only sources
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},
 				{Path: "rds"},
 			},
 		}
-		userBp := &blueprintv1alpha1.Blueprint{}
+		trueVal := true
+		userBp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
+			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
 		// Then all components should remain (no filtering)
 		if err != nil {
@@ -507,46 +859,74 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 		}
 	})
 
-	t.Run("FiltersBothTerraformAndKustomizations", func(t *testing.T) {
-		// Given primary with both terraform and kustomizations
+	t.Run("UserBlueprintOverridesBothTerraformAndKustomizations", func(t *testing.T) {
+		// Given template with both terraform and kustomizations
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
-		primaryBp := &blueprintv1alpha1.Blueprint{
+		templateBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "vpc"},
-				{Path: "rds"},
+				{Path: "vpc", Inputs: map[string]any{"region": "us-east-1"}},
+				{Path: "rds", Inputs: map[string]any{"instance": "db.t3.medium"}},
 			},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "flux-system"},
-				{Name: "cert-manager"},
+				{Name: "flux-system", Path: "kustomize/flux-system"},
+				{Name: "cert-manager", Path: "kustomize/cert-manager"},
 			},
 		}
+		trueVal := true
 		userBp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "vpc"},
+				{Path: "vpc", Inputs: map[string]any{"region": "us-west-2"}},
 			},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "flux-system"},
+				{Name: "flux-system", Path: "kustomize/flux-system-custom"},
 			},
 		}
 		loaders := []BlueprintLoader{
-			createMockBlueprintLoader("primary", primaryBp),
+			createMockBlueprintLoader("template", templateBp),
 			createMockBlueprintLoader("user", userBp),
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders)
+		result, err := composer.Compose(loaders, nil)
 
-		// Then both should be filtered
+		// Then all components should remain (no filtering), with user overrides applied
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if len(result.TerraformComponents) != 1 {
-			t.Fatalf("Expected 1 terraform component, got %d", len(result.TerraformComponents))
+		if len(result.TerraformComponents) != 2 {
+			t.Fatalf("Expected 2 terraform components (no filtering), got %d", len(result.TerraformComponents))
 		}
-		if len(result.Kustomizations) != 1 {
-			t.Fatalf("Expected 1 kustomization, got %d", len(result.Kustomizations))
+		if len(result.Kustomizations) != 2 {
+			t.Fatalf("Expected 2 kustomizations (no filtering), got %d", len(result.Kustomizations))
+		}
+		componentMap := make(map[string]blueprintv1alpha1.TerraformComponent)
+		for _, comp := range result.TerraformComponents {
+			componentMap[comp.Path] = comp
+		}
+		if vpc, exists := componentMap["vpc"]; !exists {
+			t.Error("Expected 'vpc' component to exist")
+		} else if vpc.Inputs["region"] != "us-west-2" {
+			t.Errorf("Expected vpc region to be overridden, got %v", vpc.Inputs["region"])
+		}
+		if _, exists := componentMap["rds"]; !exists {
+			t.Error("Expected 'rds' component to remain")
+		}
+		kustMap := make(map[string]blueprintv1alpha1.Kustomization)
+		for _, k := range result.Kustomizations {
+			kustMap[k.Name] = k
+		}
+		if flux, exists := kustMap["flux-system"]; !exists {
+			t.Error("Expected 'flux-system' kustomization to exist")
+		} else if flux.Path != "kustomize/flux-system-custom" {
+			t.Errorf("Expected flux-system path to be overridden, got '%s'", flux.Path)
+		}
+		if _, exists := kustMap["cert-manager"]; !exists {
+			t.Error("Expected 'cert-manager' kustomization to remain")
 		}
 	})
 }
@@ -634,15 +1014,15 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 		user := &blueprintv1alpha1.Blueprint{}
 
-		// When applying user authority
+		// When applying user blueprint
 		composer.applyUserBlueprint(result, user)
 
-		// Then repository and sources should be cleared
+		// Then repository should be cleared, but sources should remain (no filtering)
 		if result.Repository.Url != "" {
 			t.Errorf("Expected empty repository URL, got '%s'", result.Repository.Url)
 		}
-		if len(result.Sources) != 0 {
-			t.Errorf("Expected no sources, got %d", len(result.Sources))
+		if len(result.Sources) != 1 {
+			t.Errorf("Expected 1 source (no filtering), got %d", len(result.Sources))
 		}
 	})
 
@@ -671,8 +1051,8 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 	})
 
-	t.Run("FiltersSourcesToUserSelection", func(t *testing.T) {
-		// Given a user blueprint that selects specific sources
+	t.Run("UserBlueprintOverridesSourcesWithoutFiltering", func(t *testing.T) {
+		// Given a user blueprint that overrides a source
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
@@ -688,18 +1068,24 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 			},
 		}
 
-		// When applying user authority
+		// When applying user blueprint
 		composer.applyUserBlueprint(result, user)
 
-		// Then only user-selected source should remain, with user's URL
-		if len(result.Sources) != 1 {
-			t.Errorf("Expected 1 source after filtering, got %d", len(result.Sources))
+		// Then all sources should remain (no filtering), with user's override applied
+		if len(result.Sources) != 2 {
+			t.Errorf("Expected 2 sources (no filtering), got %d", len(result.Sources))
 		}
-		if result.Sources[0].Name != "core" {
-			t.Errorf("Expected source 'core', got '%s'", result.Sources[0].Name)
+		sourceMap := make(map[string]blueprintv1alpha1.Source)
+		for _, s := range result.Sources {
+			sourceMap[s.Name] = s
 		}
-		if result.Sources[0].Url != "github.com/user/core-fork" {
-			t.Errorf("Expected user's URL, got '%s'", result.Sources[0].Url)
+		if core, exists := sourceMap["core"]; !exists {
+			t.Error("Expected source 'core' to exist")
+		} else if core.Url != "github.com/user/core-fork" {
+			t.Errorf("Expected core URL to be overridden, got '%s'", core.Url)
+		}
+		if _, exists := sourceMap["extras"]; !exists {
+			t.Error("Expected source 'extras' to remain")
 		}
 	})
 
@@ -729,16 +1115,56 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 	})
 
-	t.Run("FiltersComponentsToUserSelection", func(t *testing.T) {
-		// Given a user blueprint that selects specific components
+	t.Run("UserBlueprintOverridesWithoutFiltering", func(t *testing.T) {
+		// Given a user blueprint that overrides a component
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		result := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network/vpc", Inputs: map[string]any{"region": "us-east-1"}},
+				{Path: "cluster/eks", Inputs: map[string]any{"version": "1.28"}},
+				{Path: "database/rds", Inputs: map[string]any{"instance": "db.t3.medium"}},
+			},
+		}
+		user := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks", Inputs: map[string]any{"version": "1.29"}},
+			},
+		}
+
+		// When applying user blueprint
+		composer.applyUserBlueprint(result, user)
+
+		// Then all components should remain, with user override applied
+		if len(result.TerraformComponents) != 3 {
+			t.Errorf("Expected 3 components (no filtering), got %d", len(result.TerraformComponents))
+		}
+		componentMap := make(map[string]blueprintv1alpha1.TerraformComponent)
+		for _, comp := range result.TerraformComponents {
+			componentMap[comp.Path] = comp
+		}
+		if eks, exists := componentMap["cluster/eks"]; !exists {
+			t.Error("Expected 'cluster/eks' component to exist")
+		} else if eks.Inputs["version"] != "1.29" {
+			t.Errorf("Expected version to be overridden to '1.29', got %v", eks.Inputs["version"])
+		}
+		if _, exists := componentMap["network/vpc"]; !exists {
+			t.Error("Expected 'network/vpc' component to remain")
+		}
+		if _, exists := componentMap["database/rds"]; !exists {
+			t.Error("Expected 'database/rds' component to remain")
+		}
+	})
+
+	t.Run("UserBlueprintCanAddNewComponents", func(t *testing.T) {
+		// Given a user blueprint that adds a new component
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 
 		result := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "network/vpc"},
-				{Path: "cluster/eks"},
-				{Path: "database/rds"},
 			},
 		}
 		user := &blueprintv1alpha1.Blueprint{
@@ -747,15 +1173,22 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 			},
 		}
 
-		// When applying user authority
+		// When applying user blueprint
 		composer.applyUserBlueprint(result, user)
 
-		// Then only selected component should remain
-		if len(result.TerraformComponents) != 1 {
-			t.Errorf("Expected 1 component, got %d", len(result.TerraformComponents))
+		// Then new component should be added
+		if len(result.TerraformComponents) != 2 {
+			t.Errorf("Expected 2 components, got %d", len(result.TerraformComponents))
 		}
-		if result.TerraformComponents[0].Path != "cluster/eks" {
-			t.Errorf("Expected 'cluster/eks', got '%s'", result.TerraformComponents[0].Path)
+		componentPaths := make(map[string]bool)
+		for _, comp := range result.TerraformComponents {
+			componentPaths[comp.Path] = true
+		}
+		if !componentPaths["network/vpc"] {
+			t.Error("Expected 'network/vpc' component to remain")
+		}
+		if !componentPaths["cluster/eks"] {
+			t.Error("Expected 'cluster/eks' component to be added")
 		}
 	})
 }
@@ -1775,6 +2208,170 @@ patches:
 }
 
 // =============================================================================
+// Test dropEmptyCompositionFragments
+// =============================================================================
+
+func TestComposer_dropEmptyCompositionFragments(t *testing.T) {
+	t.Run("RemovesEmptyStringFromKustomizationComponents", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Components: []string{"a", "", "b", ""}},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		components := blueprint.Kustomizations[0].Components
+		if len(components) != 2 {
+			t.Errorf("Expected 2 components, got %d: %v", len(components), components)
+		}
+		if components[0] != "a" || components[1] != "b" {
+			t.Errorf("Expected [a b], got %v", components)
+		}
+	})
+
+	t.Run("RemovesEmptyKeyFromKustomizationSubstitutions", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Substitutions: map[string]string{"key": "v", "": "placeholder"}},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		subs := blueprint.Kustomizations[0].Substitutions
+		if _, hasEmpty := subs[""]; hasEmpty {
+			t.Error("Expected empty key to be removed from Substitutions")
+		}
+		if subs["key"] != "v" {
+			t.Errorf("Expected key='v', got %q", subs["key"])
+		}
+	})
+
+	t.Run("RemovesEmptyKeyFromTerraformComponentInputs", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: map[string]any{"region": "us-east-1", "": "placeholder"}},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		inputs := blueprint.TerraformComponents[0].Inputs
+		if _, hasEmpty := inputs[""]; hasEmpty {
+			t.Error("Expected empty key to be removed from Inputs")
+		}
+		if inputs["region"] != "us-east-1" {
+			t.Errorf("Expected region='us-east-1', got %v", inputs["region"])
+		}
+	})
+
+	t.Run("HandlesNilBlueprint", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		composer.dropEmptyCompositionFragments(nil)
+	})
+
+	t.Run("HandlesNilSubstitutionsAndInputs", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Components: []string{"a"}, Substitutions: nil},
+			},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc", Inputs: nil},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		if blueprint.Kustomizations[0].Components[0] != "a" {
+			t.Errorf("Expected component 'a', got %q", blueprint.Kustomizations[0].Components[0])
+		}
+	})
+
+	t.Run("RemovesEmptyValueFromKustomizationSubstitutions", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Substitutions: map[string]string{"keep": "v", "drop": ""}},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		subs := blueprint.Kustomizations[0].Substitutions
+		if _, hasDrop := subs["drop"]; hasDrop {
+			t.Error("Expected key with empty value to be removed from Substitutions")
+		}
+		if subs["keep"] != "v" {
+			t.Errorf("Expected keep='v', got %q", subs["keep"])
+		}
+	})
+
+	t.Run("RecursivelyPrunesNestedEmptyInTerraformInputs", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{
+					Path: "compute",
+					Inputs: map[string]any{
+						"storage_pools": map[string]any{
+							"local":    map[string]any{"driver": "dir"},
+							"mayastor": map[string]any{"driver": "null", "source": ""},
+						},
+					},
+				},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		storagePools := blueprint.TerraformComponents[0].Inputs["storage_pools"].(map[string]any)
+		mayastor := storagePools["mayastor"].(map[string]any)
+		if _, hasSource := mayastor["source"]; hasSource {
+			t.Error("Expected nested empty value (source: \"\") to be pruned from Inputs")
+		}
+		if mayastor["driver"] != "null" {
+			t.Errorf("Expected driver='null', got %v", mayastor["driver"])
+		}
+	})
+
+	t.Run("PrunesConfigMapsEmptyKeysAndValues", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {"KEEP": "v", "": "empty-key", "DROP_EMPTY": ""},
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		common := blueprint.ConfigMaps["values-common"]
+		if _, hasEmpty := common[""]; hasEmpty {
+			t.Error("Expected empty key to be removed from ConfigMap")
+		}
+		if _, hasDrop := common["DROP_EMPTY"]; hasDrop {
+			t.Error("Expected key with empty value to be removed from ConfigMap")
+		}
+		if common["KEEP"] != "v" {
+			t.Errorf("Expected KEEP='v', got %q", common["KEEP"])
+		}
+	})
+}
+
+// =============================================================================
 // Test applyPerKustomizationSubstitutions
 // =============================================================================
 
@@ -2046,6 +2643,71 @@ func TestComposer_applyPerKustomizationSubstitutions(t *testing.T) {
 		// Then should return nil without error (error is ignored)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test validateSources
+// =============================================================================
+
+func TestComposer_validateSources(t *testing.T) {
+	t.Run("ReturnsNilWhenNoInstallSources", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "modules", Url: "github.com/org/terraform-modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+			},
+		}
+
+		err := composer.validateSources(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error when no source has install: true, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsNilWhenOCISourceHasInstallTrue", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		trueVal := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v1.0.0", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+
+		err := composer.validateSources(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error for OCI source with install: true, got %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenGitSourceHasInstallTrue", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		trueVal := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "modules", Url: "github.com/org/terraform-modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}, Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+			},
+		}
+
+		err := composer.validateSources(bp)
+
+		if err == nil {
+			t.Error("Expected error when git source has install: true")
+		}
+		if !strings.Contains(err.Error(), "install: true") {
+			t.Errorf("Expected error to mention install, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "modules") {
+			t.Errorf("Expected error to mention source name, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "OCI") {
+			t.Errorf("Expected error to mention OCI, got: %v", err)
 		}
 	})
 }

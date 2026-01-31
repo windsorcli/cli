@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -157,6 +158,10 @@ var initCmd = &cobra.Command{
 		var blueprintURL []string
 		if initBlueprint != "" {
 			blueprintURL = []string{initBlueprint}
+		} else if initProvider != "" {
+			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
+		} else if contextName == "local" {
+			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
 		}
 		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err

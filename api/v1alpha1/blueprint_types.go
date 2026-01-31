@@ -160,7 +160,7 @@ func (b *BoolExpression) DeepCopy() *BoolExpression {
 
 // IsEnabled returns true if the BoolExpression is nil (default) or if its value is true.
 // Returns false only if the value is explicitly set to false.
-// This is used for fields like Enabled and Deploy that default to true.
+// This is used for fields like Enabled that default to true.
 func (b *BoolExpression) IsEnabled() bool {
 	if b == nil {
 		return true
@@ -170,6 +170,22 @@ func (b *BoolExpression) IsEnabled() bool {
 	}
 	if b.Value == nil {
 		return true
+	}
+	return *b.Value
+}
+
+// IsInstalled returns true only if the BoolExpression is explicitly set to true.
+// Returns false if nil (default), if it's an expression, or if explicitly false.
+// This is used for fields like Install that default to false.
+func (b *BoolExpression) IsInstalled() bool {
+	if b == nil {
+		return false
+	}
+	if b.IsExpr {
+		return false
+	}
+	if b.Value == nil {
+		return false
 	}
 	return *b.Value
 }
@@ -306,7 +322,7 @@ type Source struct {
 	Name string `yaml:"name"`
 
 	// Url is the source location.
-	Url string `yaml:"url"`
+	Url string `yaml:"url,omitempty"`
 
 	// PathPrefix is a prefix to the source path.
 	PathPrefix string `yaml:"pathPrefix,omitempty"`
@@ -317,10 +333,25 @@ type Source struct {
 	// SecretName is the secret for source access.
 	SecretName string `yaml:"secretName,omitempty"`
 
-	// Deploy determines if the source should be unfurled (components merged into final blueprint).
-	// Defaults to true if not specified.
+	// Install determines if the source should be merged (components merged into final blueprint).
+	// Defaults to false if not specified.
 	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
-	Deploy *BoolExpression `yaml:"deploy,omitempty"`
+	Install *BoolExpression `yaml:"install,omitempty"`
+}
+
+// IsLocalTemplateSource returns true when the source is the template source with no URL (local context template).
+func IsLocalTemplateSource(source Source) bool {
+	return source.Name == "template" && source.Url == ""
+}
+
+// HasRemoteTemplateSource returns true when sources include a template source with a non-empty URL.
+func HasRemoteTemplateSource(sources []Source) bool {
+	for _, s := range sources {
+		if s.Name == "template" && s.Url != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Reference details a specific version or state of a repository or source.
@@ -561,9 +592,9 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	sourcesCopy := make([]Source, len(b.Sources))
 	for i, source := range b.Sources {
-		var deployCopy *BoolExpression
-		if source.Deploy != nil {
-			deployCopy = source.Deploy.DeepCopy()
+		var installCopy *BoolExpression
+		if source.Install != nil {
+			installCopy = source.Install.DeepCopy()
 		}
 		sourcesCopy[i] = Source{
 			Name:       source.Name,
@@ -577,7 +608,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 				Commit: source.Ref.Commit,
 			},
 			SecretName: source.SecretName,
-			Deploy:     deployCopy,
+			Install:    installCopy,
 		}
 	}
 
@@ -638,17 +669,26 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 		}
 
 		sourceMap := make(map[string]Source)
+		sourceOrder := make([]string, 0)
 		for _, source := range b.Sources {
-			sourceMap[source.Name] = source
+			if source.Name != "" {
+				sourceMap[source.Name] = source
+				sourceOrder = append(sourceOrder, source.Name)
+			}
 		}
 		for _, overlaySource := range overlay.Sources {
 			if overlaySource.Name != "" {
+				if _, exists := sourceMap[overlaySource.Name]; !exists {
+					sourceOrder = append(sourceOrder, overlaySource.Name)
+				}
 				sourceMap[overlaySource.Name] = overlaySource
 			}
 		}
 		b.Sources = make([]Source, 0, len(sourceMap))
-		for _, source := range sourceMap {
-			b.Sources = append(b.Sources, source)
+		for _, name := range sourceOrder {
+			if source, exists := sourceMap[name]; exists {
+				b.Sources = append(b.Sources, source)
+			}
 		}
 
 		for _, overlayComponent := range overlay.TerraformComponents {
@@ -852,6 +892,9 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	if sourceName == "" {
 		sourceName = defaultSourceName
 	}
+	if sourceName == "template" && !HasRemoteTemplateSource(sources) {
+		sourceName = defaultSourceName
+	}
 
 	sourceKind := "GitRepository"
 	for _, source := range sources {
@@ -1044,9 +1087,10 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 }
 
 // strategicMergeKustomization performs a strategic merge of the provided Kustomization into the Blueprint.
-// It merges unique components and dependencies, updates fields if provided, and maintains dependency order.
-// Patches from the provided kustomization are appended to existing patches.
-// Returns an error if a dependency cycle is detected during sorting.
+// It merges components and dependencies, updates fields if provided, and maintains dependency order.
+// Empty-string components are always appended so facet-defined placeholder slots are preserved;
+// other components are appended only when not already present. Patches from the provided
+// kustomization are appended to existing patches. Returns an error if a dependency cycle is detected during sorting.
 func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) error {
 	if kustomization.Name == "" {
 		return nil
@@ -1055,7 +1099,7 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 	for i, existing := range b.Kustomizations {
 		if existing.Name == kustomization.Name {
 			for _, component := range kustomization.Components {
-				if !slices.Contains(existing.Components, component) {
+				if component == "" || !slices.Contains(existing.Components, component) {
 					existing.Components = append(existing.Components, component)
 				}
 			}

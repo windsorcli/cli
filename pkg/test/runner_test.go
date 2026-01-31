@@ -63,10 +63,11 @@ func createRunnerWithMockGenerator(mocks *TestRunnerMocks) *TestRunner {
 	}
 	mockArtifact := artifact.NewMockArtifact()
 	return &TestRunner{
-		projectRoot:     mocks.TmpDir,
-		baseShell:       mockShell,
-		baseProjectRoot: mocks.TmpDir,
-		artifactBuilder: mockArtifact,
+		projectRoot:         mocks.TmpDir,
+		baseShell:           mockShell,
+		baseProjectRoot:     mocks.TmpDir,
+		artifactBuilder:     mockArtifact,
+		DefaultBlueprintURL: SkipDefaultBlueprintURL,
 	}
 }
 
@@ -91,10 +92,11 @@ func createRunnerForFailure(mocks *TestRunnerMocks) *TestRunner {
 	}
 	mockArtifact := artifact.NewMockArtifact()
 	return &TestRunner{
-		projectRoot:     mocks.TmpDir,
-		baseShell:       mockShell,
-		baseProjectRoot: mocks.TmpDir,
-		artifactBuilder: mockArtifact,
+		projectRoot:         mocks.TmpDir,
+		baseShell:           mockShell,
+		baseProjectRoot:     mocks.TmpDir,
+		artifactBuilder:     mockArtifact,
+		DefaultBlueprintURL: SkipDefaultBlueprintURL,
 	}
 }
 
@@ -1471,9 +1473,9 @@ func TestTestRunner_matchTerraformComponent(t *testing.T) {
 		actual := &blueprintv1alpha1.TerraformComponent{
 			Name: "cluster",
 			Inputs: map[string]any{
-				"region":      "us-west-2",
-				"node_count":  3,
-				"tags":        map[string]any{"env": "prod"},
+				"region":     "us-west-2",
+				"node_count": 3,
+				"tags":       map[string]any{"env": "prod"},
 			},
 		}
 
@@ -1948,7 +1950,6 @@ func TestTestRunner_validateBlueprint(t *testing.T) {
 		}
 	})
 }
-
 
 func TestTestRunner_runTestsSequentially(t *testing.T) {
 	t.Run("RunsTestsSequentiallyAndGroupsByFile", func(t *testing.T) {
