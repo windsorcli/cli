@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 // =============================================================================
@@ -227,7 +229,11 @@ func TestYamlHelper(t *testing.T) {
 	})
 
 	t.Run("YamlFunctionWithTemplateData", func(t *testing.T) {
-		evaluator, _, _, templateRoot := setupEvaluatorTest(t)
+		tmpDir := t.TempDir()
+		projectRoot := filepath.Join(tmpDir, "project")
+		templateRoot := filepath.Join(tmpDir, "project", "contexts", "_template")
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, projectRoot, templateRoot)
 		templateData := map[string][]byte{
 			"_template/facets/data.yaml": []byte("from: template\ncount: 1"),
 		}
