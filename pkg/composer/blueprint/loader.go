@@ -248,9 +248,11 @@ func (l *BaseBlueprintLoader) injectOCISource() {
 		return
 	}
 
+	trueVal := true
 	ociSource := blueprintv1alpha1.Source{
-		Name: l.sourceName,
-		Url:  ociInfo.URL,
+		Name:    l.sourceName,
+		Url:     ociInfo.URL,
+		Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
 	}
 
 	sourceExists := false

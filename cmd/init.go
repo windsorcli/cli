@@ -160,6 +160,8 @@ var initCmd = &cobra.Command{
 			blueprintURL = []string{initBlueprint}
 		} else if initProvider != "" {
 			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
+		} else if contextName == "local" {
+			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
 		}
 		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err

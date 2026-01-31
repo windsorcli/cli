@@ -8,6 +8,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -245,7 +246,13 @@ func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha
 		if url == "" {
 			continue
 		}
+		if localTemplateExists && url == constants.GetEffectiveBlueprintURL() {
+			continue
+		}
 		source := w.findSourceByURL(blueprint, url)
+		if source != nil && (source.Name == "template" && source.Url != "") {
+			source = nil
+		}
 		if source != nil && !existingSourceNames[source.Name] {
 			sourceCopy := *source
 			sourceCopy.Install = &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}
@@ -265,7 +272,14 @@ func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha
 		}
 	}
 
-	if !hasTemplateSource && localTemplateExists {
+	explicitBlueprint := false
+	for _, u := range initBlueprintURLs {
+		if u != "" && u != constants.GetEffectiveBlueprintURL() {
+			explicitBlueprint = true
+			break
+		}
+	}
+	if !hasTemplateSource && localTemplateExists && !explicitBlueprint {
 		templateSource := blueprintv1alpha1.Source{
 			Name:    "template",
 			Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false},
