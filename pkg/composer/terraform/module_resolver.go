@@ -109,9 +109,6 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			if s, ok := value.(string); ok && strings.Contains(s, "${") {
 				continue
 			}
-			if (key == "controlplanes" || key == "workers") && isStringValue(value) {
-				continue
-			}
 			nonDeferredValues[key] = value
 		}
 
@@ -386,13 +383,6 @@ func (h *BaseModuleResolver) removeTfvarsFiles(dir string) error {
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-// isStringValue returns true when the value is a string type. Used to avoid writing
-// string values for variables that expect lists (e.g. controlplanes, workers).
-func isStringValue(value any) bool {
-	_, ok := value.(string)
-	return ok
-}
 
 // addTfvarsHeader adds a Windsor CLI management header to the tfvars file body.
 // It includes a module source comment if provided, ensuring users are aware of CLI management and module provenance.
