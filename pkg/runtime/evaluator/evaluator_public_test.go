@@ -1202,10 +1202,8 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		// When evaluating the map
+		// When evaluating the map (nested expressions are re-evaluated)
 		result, err := evaluator.EvaluateMap(values, "", false)
-
-		// Then it should preserve the original value when evaluated contains expression
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1215,8 +1213,9 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Fatalf("Expected nested to be a map, got %T", result["nested"])
 		}
 
-		if nested["key"] != "${value}" {
-			t.Errorf("Expected nested.key to preserve original value when evaluated contains expression, got %v", nested["key"])
+		// Then nested.key is the final resolved value (nil when another_expr is missing)
+		if nested["key"] != nil {
+			t.Errorf("Expected nested.key to be nil after re-evaluating nested expression (another_expr missing), got %v", nested["key"])
 		}
 	})
 
@@ -1236,10 +1235,8 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		// When evaluating the map
+		// When evaluating the map (nested expressions are re-evaluated)
 		result, err := evaluator.EvaluateMap(values, "", false)
-
-		// Then it should preserve the original value when evaluated contains expression
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1249,8 +1246,9 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Fatalf("Expected items to be an array, got %T", result["items"])
 		}
 
-		if items[0] != "${value}" {
-			t.Errorf("Expected items[0] to preserve original value when evaluated contains expression, got %v", items[0])
+		// Then items[0] is the final resolved value (nil when another_expr is missing)
+		if items[0] != nil {
+			t.Errorf("Expected items[0] to be nil after re-evaluating nested expression (another_expr missing), got %v", items[0])
 		}
 	})
 

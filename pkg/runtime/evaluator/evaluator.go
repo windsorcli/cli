@@ -160,7 +160,7 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDeferred bool) (any, error) {
 	if strings.Contains(s, "${") {
 		result := s
-		for strings.Contains(result, "${") {
+		for iter := 0; iter < 20 && strings.Contains(result, "${"); iter++ {
 			start := strings.Index(result, "${")
 			end := findExpressionEnd(result, start)
 			if end == -1 {
@@ -185,7 +185,15 @@ func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDefer
 			}
 			before := result[:start]
 			after := result[end+1:]
-			if before == "" && after == "" {
+			singleExpr := strings.TrimSpace(before) == "" && strings.TrimSpace(after) == ""
+			if singleExpr {
+				if str, ok := value.(string); ok && ContainsExpression(str) {
+					if str == result {
+						return value, nil
+					}
+					result = str
+					continue
+				}
 				return value, nil
 			}
 			var replacement string
@@ -195,12 +203,12 @@ func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDefer
 				if err != nil {
 					return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
 				}
+				if !evaluateDeferred && ContainsExpression(replacement) && isStructuredValue(value) {
+					return value, nil
+				}
 				replacement = indentForEmbeddedYAML(before, replacement, 2)
 			}
 			result = before + replacement + after
-			if !evaluateDeferred && ContainsExpression(replacement) {
-				break
-			}
 		}
 		return result, nil
 	}
@@ -250,12 +258,12 @@ func (e *expressionEvaluator) evaluateWithScope(s string, scope map[string]any, 
 			if err != nil {
 				return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
 			}
+			if !evaluateDeferred && ContainsExpression(replacement) && isStructuredValue(value) {
+				return value, nil
+			}
 			replacement = indentForEmbeddedYAML(before, replacement, 2)
 		}
 		result = before + replacement + after
-		if !evaluateDeferred && ContainsExpression(replacement) {
-			break
-		}
 	}
 	return result, nil
 }
@@ -572,7 +580,7 @@ func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath strin
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
 		if !evaluateDeferred {
-			if ContainsExpression(evaluated) {
+			if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
 				result[key] = value
 				continue
 			}
@@ -599,7 +607,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 			}
 			return nil, err
 		}
-		return evaluated, nil
+		return normalizeYamlResult(evaluated), nil
 	case map[string]any:
 		result := make(map[string]any)
 		for k, val := range v {
@@ -647,7 +655,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 		}
 		return result, nil
 	default:
-		return value, nil
+		return normalizeYamlResult(value), nil
 	}
 }
 
@@ -941,16 +949,42 @@ func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string,
 	} else {
 		if e.templateData != nil {
 			raw = e.lookupInTemplateData(arg, facetPath)
-		}
-		if raw == nil {
-			path := e.resolvePath(arg, facetPath)
-			content, err := e.Shims.ReadFile(path)
-			if err == nil {
-				raw = content
+			if raw == nil && facetPath == "" && (strings.HasPrefix(arg, "../") || strings.HasPrefix(arg, "./")) {
+				key := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(arg, "../"), "./"))
+				raw = e.templateDataLookup(key)
 			}
 		}
 		if raw == nil {
-			raw = []byte(arg)
+			path := e.resolvePath(arg, facetPath)
+			if facetPath == "" && e.templateData != nil && e.templateRoot != "" && strings.HasPrefix(path, e.templateRoot) {
+				if relPath, err := filepath.Rel(e.templateRoot, path); err == nil {
+					raw = e.templateDataLookup(filepath.ToSlash(relPath))
+				}
+			}
+			if raw == nil {
+				content, err := e.Shims.ReadFile(path)
+				if err == nil {
+					raw = content
+				}
+			}
+		}
+		if raw == nil {
+			if input == nil {
+				var fallback any
+				if err := e.Shims.YamlUnmarshal([]byte(arg), &fallback); err != nil {
+					return nil, fmt.Errorf("yaml() file not found: %s", arg)
+				}
+				if _, ok := fallback.(string); ok {
+					return nil, fmt.Errorf("yaml() file not found: %s", arg)
+				}
+				normalized := normalizeYamlResult(fallback)
+				unwrapped := unwrapSingleElementList(normalized)
+				if unwrapped != nil {
+					return unwrapped, nil
+				}
+				return normalized, nil
+			}
+			return nil, fmt.Errorf("yaml() file not found: %s", arg)
 		}
 	}
 	content := string(raw)
@@ -1010,6 +1044,9 @@ func normalizeYamlResult(v any) any {
 		}
 		return out
 	case reflect.Slice:
+		if rv.Type().Elem().Kind() == reflect.String {
+			return v
+		}
 		out := make([]any, 0, rv.Len())
 		for i := 0; i < rv.Len(); i++ {
 			elem := rv.Index(i)
@@ -1046,12 +1083,24 @@ func unwrapSingleElementList(v any) any {
 	return first.Interface()
 }
 
+// templateDataLookup returns file content for the given key from templateData, trying both
+// the key as-is and with a "_template/" prefix. The loader uses unprefixed keys (relative to
+// template root); artifact bundles and tests may use "_template/"-prefixed keys.
+func (e *expressionEvaluator) templateDataLookup(key string) []byte {
+	if e.templateData == nil || key == "" {
+		return nil
+	}
+	if data := e.templateData[key]; data != nil {
+		return data
+	}
+	return e.templateData["_template/"+key]
+}
+
 // lookupInTemplateData attempts to find file content in the template data map.
 // It resolves the path argument relative to the facet file's directory, converting
-// the facet path to a relative path from the template root if available. The resolved
-// path is used to look up the file in template data, checking both with and without
-// the "_template/" prefix. For paths that go up directories (../), it ensures the
-// resolved path stays within the template root. Returns the file content if found, or nil if not present.
+// the facet path to a relative path from the template root if available. For paths
+// that go up directories (../), it ensures the resolved path stays within the template
+// root. Returns the file content if found, or nil if not present.
 func (e *expressionEvaluator) lookupInTemplateData(pathArg string, facetPath string) []byte {
 	if e.templateData == nil {
 		return nil
@@ -1083,43 +1132,50 @@ func (e *expressionEvaluator) lookupInTemplateData(pathArg string, facetPath str
 		if resolvedRelPath == "." {
 			resolvedRelPath = ""
 		}
-
-		if data, exists := e.templateData["_template/"+resolvedRelPath]; exists {
-			return data
-		}
-		if data, exists := e.templateData[resolvedRelPath]; exists {
-			return data
-		}
+		return e.templateDataLookup(resolvedRelPath)
 	}
 
 	return nil
 }
 
-// resolvePath resolves a file path to an absolute, cleaned path.
-// If the path is already absolute, it is cleaned and returned. For relative paths,
-// it first tries to resolve relative to the facetPath's directory if provided.
-// When facetPath is empty (e.g. in GenerateTfvars), paths starting with ".." are
-// resolved relative to templateRoot so that "../configs/talos/nodes.yaml" resolves
-// under the project (e.g. template/../configs -> configs). Other relative paths use
-// project root. The result is always an absolute path with normalized separators.
-func (e *expressionEvaluator) resolvePath(path string, facetPath string) string {
+// resolvePath resolves a file path to an absolute, cleaned path using the path to the
+// file being processed (sourceFilePath) when provided. If path is already absolute
+// it is cleaned and returned. For relative paths: when sourceFilePath is non-empty
+// it is the path to the facet or blueprint file containing the expression; the
+// relative path is resolved from that file's directory. If sourceFilePath is relative
+// it is resolved against templateRoot. If the result is still relative it is resolved
+// against projectRoot. When sourceFilePath is empty (e.g. GenerateTfvars) relative
+// paths fall back to projectRoot. The result is always an absolute path when
+// projectRoot or templateRoot are set.
+func (e *expressionEvaluator) resolvePath(path string, sourceFilePath string) string {
 	path = strings.TrimSpace(path)
 
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
 
-	if facetPath != "" {
-		facetDir := filepath.Dir(facetPath)
-		return filepath.Clean(filepath.Join(facetDir, path))
+	if sourceFilePath != "" {
+		baseDir := sourceFilePath
+		if !filepath.IsAbs(baseDir) && e.templateRoot != "" {
+			baseDir = filepath.Join(e.templateRoot, baseDir)
+		}
+		baseDir = filepath.Dir(baseDir)
+		result := filepath.Clean(filepath.Join(baseDir, path))
+		if !filepath.IsAbs(result) && e.projectRoot != "" {
+			result = filepath.Clean(filepath.Join(e.projectRoot, result))
+		}
+		return result
 	}
 
 	var result string
-	if e.templateRoot != "" && (strings.HasPrefix(path, "..") || strings.HasPrefix(filepath.Clean(path), "..")) {
+	if e.projectRoot != "" && (strings.HasPrefix(path, "..") || strings.HasPrefix(filepath.Clean(path), "..")) {
 		trimmed := strings.TrimPrefix(path, "../")
-		result = filepath.Clean(filepath.Join(e.templateRoot, trimmed))
+		trimmed = strings.TrimPrefix(trimmed, "./")
+		result = filepath.Clean(filepath.Join(e.projectRoot, trimmed))
 	} else if e.projectRoot != "" {
 		result = filepath.Clean(filepath.Join(e.projectRoot, path))
+	} else if e.templateRoot != "" {
+		result = filepath.Clean(filepath.Join(e.templateRoot, path))
 	} else {
 		result = filepath.Clean(path)
 	}
@@ -1465,6 +1521,25 @@ func findExpressionEnd(s string, start int) int {
 		}
 	}
 	return -1
+}
+
+// isStructuredValue returns true when the value is a list or map ([]any, map[string]any,
+// or reflection-equivalent types like []interface{} from expr/YAML). Used so that when
+// evaluation produces a structured value (e.g. from yaml()), we keep it even if it contains
+// nested expressions, instead of reverting to the original string.
+func isStructuredValue(value any) bool {
+	if value == nil {
+		return false
+	}
+	switch value.(type) {
+	case []any, map[string]any:
+		return true
+	}
+	switch reflect.ValueOf(value).Kind() {
+	case reflect.Slice, reflect.Map:
+		return true
+	}
+	return false
 }
 
 // ContainsExpression determines whether the provided value is a string that contains an unresolved expression.

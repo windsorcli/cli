@@ -94,6 +94,8 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			componentValues = make(map[string]any)
 		}
 
+		// Use evaluateDeferred=false so terraform_output() and similar stay deferred; they are filtered
+		// out below and not written to tfvars, and are evaluated later when terraform runs.
 		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", false)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
@@ -101,7 +103,13 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 
 		nonDeferredValues := make(map[string]any)
 		for key, value := range evaluatedValues {
-			if str, ok := value.(string); ok && evaluator.ContainsExpression(str) {
+			if evaluator.ContainsExpression(value) {
+				continue
+			}
+			if s, ok := value.(string); ok && strings.Contains(s, "${") {
+				continue
+			}
+			if (key == "controlplanes" || key == "workers") && isStringValue(value) {
 				continue
 			}
 			nonDeferredValues[key] = value
@@ -307,22 +315,13 @@ func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, comp
 
 // generateTfvarsFile generates a tfvars file at the specified path using the provided module directory and component values.
 // It parses all .tf files in the module directory to extract variable definitions, merges them with the given component values
-// (excluding protected values), and writes a formatted tfvars file. If the file already exists and reset mode is not enabled,
-// the function skips writing. The function ensures the parent directory exists and returns an error if any file or directory operation fails.
+// (excluding protected values), and writes a formatted tfvars file. Tfvars are always overwritten so scratch state reflects the current rendered output.
+// The function ensures the parent directory exists and returns an error if any file or directory operation fails.
 func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath string, componentValues map[string]any, source string) error {
 	protectedValues := map[string]bool{
 		"context_path": true,
 		"os_type":      true,
 		"context_id":   true,
-	}
-
-	if !h.reset {
-		if err := h.checkExistingTfvarsFile(tfvarsFilePath); err != nil {
-			if err == os.ErrExist {
-				return nil
-			}
-			return err
-		}
 	}
 
 	variables, err := h.parseVariablesFromModule(modulePath, protectedValues)
@@ -387,6 +386,13 @@ func (h *BaseModuleResolver) removeTfvarsFiles(dir string) error {
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+// isStringValue returns true when the value is a string type. Used to avoid writing
+// string values for variables that expect lists (e.g. controlplanes, workers).
+func isStringValue(value any) bool {
+	_, ok := value.(string)
+	return ok
+}
 
 // addTfvarsHeader adds a Windsor CLI management header to the tfvars file body.
 // It includes a module source comment if provided, ensuring users are aware of CLI management and module provenance.
@@ -542,22 +548,13 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 			writeHeredoc(body, name, v)
 			return
 		}
-	case map[string]any:
-		rendered := formatValue(v)
-		assignment := fmt.Sprintf("%s = %s", name, rendered)
-		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenIdent, Bytes: []byte(assignment)},
-		})
-		body.AppendNewline()
-		return
-	case []any:
-		rendered := formatValue(v)
-		assignment := fmt.Sprintf("%s = %s", name, rendered)
-		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenIdent, Bytes: []byte(assignment)},
-		})
-		body.AppendNewline()
-		return
+	case map[string]any, []any:
+		ctyVal := convertToCtyValue(v)
+		if ctyVal != cty.NilVal {
+			body.SetAttributeValue(name, ctyVal)
+			body.AppendNewline()
+			return
+		}
 	}
 
 	body.SetAttributeValue(name, convertToCtyValue(value))
@@ -621,6 +618,7 @@ func formatValue(value any) string {
 
 // convertToCtyValue converts a Go value to a cty.Value for HCL serialization.
 // Supports strings, numbers, booleans, lists, and maps; returns NilVal for unsupported types.
+// Callers must pass values already normalized to map[string]any and []any (e.g. from evaluator output).
 func convertToCtyValue(value any) cty.Value {
 	switch v := value.(type) {
 	case string:

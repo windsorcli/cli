@@ -1618,8 +1618,8 @@ variable "disabled" { type = bool }`
 			return originalReadDir(path)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1672,8 +1672,8 @@ variable "disabled" { type = bool }`
 			t.Fatalf("Failed to create module dir: %v", err)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1705,8 +1705,8 @@ variable "disabled" { type = bool }`
 			return setupDefaultShims().ReadDir(name)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1738,8 +1738,8 @@ variable "disabled" { type = bool }`
 			return setupDefaultShims().RemoveAll(path)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -2080,8 +2080,8 @@ variable "cluster_name" { type = string }`
 			return originalStat(path)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -2325,40 +2325,6 @@ variable "cluster_name" { type = string }`
 		}
 	})
 
-	t.Run("HandlesCheckExistingTfvarsFileStatError", func(t *testing.T) {
-		resolver, mocks := setup(t)
-		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
-		os.MkdirAll(moduleDir, 0755)
-		os.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644)
-
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "test-module",
-					Source:   "git::https://github.com/test/module.git",
-					FullPath: moduleDir,
-				},
-			}
-		}
-
-		tfvarsPath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module", "terraform.tfvars")
-		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == tfvarsPath {
-				return nil, errors.New("stat error")
-			}
-			return os.Stat(path)
-		}
-		resolver.shims.ReadFile = os.ReadFile
-		resolver.shims.MkdirAll = os.MkdirAll
-		resolver.shims.WriteFile = os.WriteFile
-
-		err := resolver.GenerateTfvars(false)
-
-		if err == nil {
-			t.Error("Expected error when stat fails with non-NotExist error")
-		}
-	})
 }
 
 func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
