@@ -3,7 +3,6 @@ package terraform
 import (
 	"archive/tar"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -2521,92 +2520,6 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 
 		if !receivedEvaluateDeferred {
 			t.Error("Expected evaluateDeferred to be true")
-		}
-	})
-}
-
-func TestBaseModuleResolver_checkExistingTfvarsFile(t *testing.T) {
-	setup := func(t *testing.T) (*BaseModuleResolver, string) {
-		t.Helper()
-		mocks := setupTerraformMocks(t)
-		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
-		tmpDir := t.TempDir()
-		return resolver, tmpDir
-	}
-
-	t.Run("ReturnsNilWhenFileDoesNotExist", func(t *testing.T) {
-		// Given a resolver and a non-existent file path
-		resolver, tmpDir := setup(t)
-		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
-		resolver.shims.Stat = os.Stat
-		resolver.shims.ReadFile = os.ReadFile
-
-		// When checking existing tfvars file
-		err := resolver.checkExistingTfvarsFile(tfvarsPath)
-
-		// Then it should return nil
-		if err != nil {
-			t.Errorf("Expected nil error, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrExistWhenFileExistsAndIsReadable", func(t *testing.T) {
-		// Given a resolver and an existing file
-		resolver, tmpDir := setup(t)
-		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
-		os.WriteFile(tfvarsPath, []byte("test = \"value\""), 0644)
-		resolver.shims.Stat = os.Stat
-		resolver.shims.ReadFile = os.ReadFile
-
-		// When checking existing tfvars file
-		err := resolver.checkExistingTfvarsFile(tfvarsPath)
-
-		// Then it should return os.ErrExist
-		if err != os.ErrExist {
-			t.Errorf("Expected os.ErrExist, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenFileExistsButIsNotReadable", func(t *testing.T) {
-		// Given a resolver and a file that exists but cannot be read
-		resolver, tmpDir := setup(t)
-		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
-		os.WriteFile(tfvarsPath, []byte("test = \"value\""), 0644)
-		resolver.shims.Stat = os.Stat
-		resolver.shims.ReadFile = func(string) ([]byte, error) {
-			return nil, errors.New("read error")
-		}
-
-		// When checking existing tfvars file
-		err := resolver.checkExistingTfvarsFile(tfvarsPath)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when file cannot be read, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to read existing tfvars file") {
-			t.Errorf("Expected error about reading file, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenStatFailsWithNonNotExistError", func(t *testing.T) {
-		// Given a resolver with a stat function that fails
-		resolver, tmpDir := setup(t)
-		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
-		resolver.shims.Stat = func(string) (os.FileInfo, error) {
-			return nil, errors.New("stat error")
-		}
-		resolver.shims.ReadFile = os.ReadFile
-
-		// When checking existing tfvars file
-		err := resolver.checkExistingTfvarsFile(tfvarsPath)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when stat fails, got nil")
-		}
-		if !strings.Contains(err.Error(), "error checking tfvars file") {
-			t.Errorf("Expected error about checking file, got: %v", err)
 		}
 	})
 }

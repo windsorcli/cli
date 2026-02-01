@@ -145,22 +145,6 @@ type VariableInfo struct {
 	Sensitive   bool
 }
 
-// checkExistingTfvarsFile checks if a tfvars file exists and is readable.
-// Returns os.ErrExist if the file exists and is readable, or an error if the file exists but is not readable.
-func (h *BaseModuleResolver) checkExistingTfvarsFile(tfvarsFilePath string) error {
-	_, err := h.shims.Stat(tfvarsFilePath)
-	if err == nil {
-		_, err := h.shims.ReadFile(tfvarsFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to read existing tfvars file: %w", err)
-		}
-		return os.ErrExist
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("error checking tfvars file: %w", err)
-	}
-	return nil
-}
-
 // parseVariablesFromModule parses all .tf files in a module directory and returns metadata about the variables.
 // It extracts variable names, descriptions, default values, and sensitivity flags from any .tf file in the module.
 // Protected values are excluded from the returned metadata. Returns an empty slice if no variables are found,
