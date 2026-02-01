@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -1189,6 +1191,74 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 		if !componentPaths["cluster/eks"] {
 			t.Error("Expected 'cluster/eks' component to be added")
+		}
+	})
+
+	t.Run("EvaluatesUserTerraformInputsWhenRuntimeHasEvaluator", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "aws", "cluster": map[string]any{"name": "my-cluster"}}, nil
+		}
+		rt := mocks.Runtime
+		rt.Evaluator = evaluator.NewExpressionEvaluator(rt.ConfigHandler, rt.ProjectRoot, rt.TemplateRoot)
+		composer := NewBlueprintComposer(rt)
+
+		result := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network/vpc", Inputs: map[string]any{"region": "us-east-1"}},
+			},
+		}
+		user := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks", Inputs: map[string]any{"provider_ref": "${provider}", "cluster_ref": "${cluster.name}"}},
+			},
+		}
+
+		err := composer.applyUserBlueprint(result, user, "")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		componentMap := make(map[string]blueprintv1alpha1.TerraformComponent)
+		for _, comp := range result.TerraformComponents {
+			componentMap[comp.Path] = comp
+		}
+		eks, ok := componentMap["cluster/eks"]
+		if !ok {
+			t.Fatal("Expected 'cluster/eks' component after merge")
+		}
+		if eks.Inputs["provider_ref"] != "aws" {
+			t.Errorf("Expected provider_ref to be evaluated to 'aws', got %v", eks.Inputs["provider_ref"])
+		}
+		if eks.Inputs["cluster_ref"] != "my-cluster" {
+			t.Errorf("Expected cluster_ref to be evaluated to 'my-cluster', got %v", eks.Inputs["cluster_ref"])
+		}
+	})
+
+	t.Run("ErrorOnEvaluateMapFailure", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		mockEval := evaluator.NewMockExpressionEvaluator()
+		mockEval.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+			return nil, errors.New("evaluate map failed")
+		}
+		mocks.Runtime.Evaluator = mockEval
+		composer := NewBlueprintComposer(mocks.Runtime)
+
+		result := &blueprintv1alpha1.Blueprint{}
+		user := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/eks", Inputs: map[string]any{"key": "value"}},
+			},
+		}
+
+		err := composer.applyUserBlueprint(result, user, "")
+
+		if err == nil {
+			t.Error("Expected error when EvaluateMap fails")
+			return
+		}
+		if !strings.Contains(err.Error(), "evaluate user blueprint terraform inputs") {
+			t.Errorf("Expected error to mention terraform inputs, got: %v", err)
 		}
 	})
 }

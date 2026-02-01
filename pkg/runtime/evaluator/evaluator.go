@@ -158,72 +158,53 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 // as from an undefined variable without a ?? fallback), nil is returned for complete expressions or an empty
 // string is used for interpolation.
 func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDeferred bool) (any, error) {
-	if strings.Contains(s, "${") {
-		result := s
-		for iter := 0; iter < 20 && strings.Contains(result, "${"); iter++ {
-			start := strings.Index(result, "${")
-			end := findExpressionEnd(result, start)
-			if end == -1 {
-				return "", fmt.Errorf("unclosed expression in string: %s", s)
-			}
-			expr := result[start+2 : end]
-			if expr == "" {
-				return nil, fmt.Errorf("expression cannot be empty")
-			}
-			value, err := e.evaluateExpression(expr, facetPath, evaluateDeferred)
-			if err != nil {
-				if !evaluateDeferred {
-					if _, ok := err.(*DeferredError); ok {
-						return s, nil
-					}
-					var deferredErr *DeferredError
-					if errors.As(err, &deferredErr) {
-						return s, nil
-					}
-				}
-				return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
-			}
-			before := result[:start]
-			after := result[end+1:]
-			singleExpr := strings.TrimSpace(before) == "" && strings.TrimSpace(after) == ""
-			if singleExpr {
-				if str, ok := value.(string); ok && ContainsExpression(str) {
-					if str == result {
-						return value, nil
-					}
-					result = str
-					continue
-				}
-				return value, nil
-			}
-			var replacement string
-			if value != nil {
-				var err error
-				replacement, err = valueToInterpolationString(value, e.Shims.YamlMarshal)
-				if err != nil {
-					return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
-				}
-				if !evaluateDeferred && ContainsExpression(replacement) && isStructuredValue(value) {
-					return value, nil
-				}
-				replacement = indentForEmbeddedYAML(before, replacement, 2)
-			}
-			result = before + replacement + after
-		}
-		return result, nil
-	}
-	return s, nil
+	return e.evaluate(s, facetPath, nil, evaluateDeferred)
 }
 
-// evaluateWithScope interpolates ${...} in s using the given scope (e.g. context + input for yaml(path, input)).
-// Returns the string with replacements, or the single value when s was exactly one ${expr}. Used only by
-// evaluateYamlFunction when the optional input argument is provided.
-func (e *expressionEvaluator) evaluateWithScope(s string, scope map[string]any, facetPath string, evaluateDeferred bool) (any, error) {
+// EvaluateMap evaluates a map of values using this expression evaluator.
+// Each string value is evaluated as an expression; maps and arrays are recursively evaluated.
+// When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
+// is preserved in the result. The facetPath parameter is used for context during evaluation.
+// Returns a new map containing evaluated values (or original values if deferred), or an error
+// if evaluation fails with a non-deferred error.
+func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+	result := make(map[string]any)
+	for key, value := range values {
+		evaluated, err := e.evaluateValue(value, facetPath, evaluateDeferred)
+		if err != nil {
+			if !evaluateDeferred {
+				var deferredErr *DeferredError
+				if errors.As(err, &deferredErr) {
+					result[key] = value
+					continue
+				}
+			}
+			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+		}
+		if !evaluateDeferred {
+			if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
+				result[key] = value
+				continue
+			}
+		}
+		result[key] = evaluated
+	}
+	return result, nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// evaluate runs the expression parsing loop over s, resolving each ${...} with evaluateExpression.
+// When scope is nil the config context is used; when non-nil (e.g. for yaml(path, input)) the given
+// scope is used. Stops after 20 iterations to avoid infinite loops on circular or pathological input.
+func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	if !strings.Contains(s, "${") {
 		return s, nil
 	}
 	result := s
-	for strings.Contains(result, "${") {
+	for iter := 0; iter < 20 && strings.Contains(result, "${"); iter++ {
 		start := strings.Index(result, "${")
 		end := findExpressionEnd(result, start)
 		if end == -1 {
@@ -233,7 +214,7 @@ func (e *expressionEvaluator) evaluateWithScope(s string, scope map[string]any, 
 		if expr == "" {
 			return nil, fmt.Errorf("expression cannot be empty")
 		}
-		value, err := e.evaluateExpressionWithScope(expr, scope, facetPath, evaluateDeferred)
+		value, err := e.evaluateExpression(expr, facetPath, scope, evaluateDeferred)
 		if err != nil {
 			if !evaluateDeferred {
 				if _, ok := err.(*DeferredError); ok {
@@ -248,7 +229,15 @@ func (e *expressionEvaluator) evaluateWithScope(s string, scope map[string]any, 
 		}
 		before := result[:start]
 		after := result[end+1:]
-		if before == "" && after == "" {
+		singleExpr := strings.TrimSpace(before) == "" && strings.TrimSpace(after) == ""
+		if singleExpr {
+			if str, ok := value.(string); ok && ContainsExpression(str) {
+				if str == result {
+					return value, nil
+				}
+				result = str
+				continue
+			}
 			return value, nil
 		}
 		var replacement string
@@ -268,42 +257,23 @@ func (e *expressionEvaluator) evaluateWithScope(s string, scope map[string]any, 
 	return result, nil
 }
 
-// evaluateExpressionWithScope compiles and evaluates a single expression using the given scope as
-// the variable environment. Used by evaluateWithScope when interpolating yaml(path, input) content.
-func (e *expressionEvaluator) evaluateExpressionWithScope(expression string, scope map[string]any, facetPath string, evaluateDeferred bool) (any, error) {
-	env := e.buildExprEnvironment(scope, facetPath, evaluateDeferred)
-	program, err := expr.Compile(expression, env...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
-	}
-	result, err := expr.Run(program, scope)
-	if err != nil {
-		if deferredErr, ok := err.(*DeferredError); ok {
-			return nil, deferredErr
-		}
-		var deferredErr *DeferredError
-		if errors.As(err, &deferredErr) {
-			return nil, deferredErr
-		}
-		return nil, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
-	}
-	return result, nil
-}
-
-// evaluateExpression compiles and evaluates a single expression string using the expressionEvaluator environment.
-// The expression should not include ${} bookends. Configures the evaluation context with Windsor-specific helpers
-// and config enrichment. If evaluateDeferred is false, and the result is a string matching the pattern for
-// terraform_output(), the result is returned as an unresolved expression. Returns the evaluation result or an error
-// if compilation or execution fails.
-func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+// evaluateExpression compiles and evaluates a single expression using the given scope as the variable
+// environment. Context (getConfig + enrichConfig) is always used as the base; when scope is non-nil
+// (e.g. for yaml(path, input) templating), it is merged on top so expressions see both context and
+// scope (scope keys override). The expression should not include ${} bookends. Returns the evaluation
+// result or an error if compilation or execution fails.
+func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	config := e.getConfig()
-	enrichedConfig := e.enrichConfig(config)
-	env := e.buildExprEnvironment(enrichedConfig, facetPath, evaluateDeferred)
+	merged := e.enrichConfig(config)
+	if scope != nil {
+		maps.Copy(merged, scope)
+	}
+	env := e.buildExprEnvironment(merged, facetPath, evaluateDeferred)
 	program, err := expr.Compile(expression, env...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
 	}
-	result, err := expr.Run(program, enrichedConfig)
+	result, err := expr.Run(program, merged)
 	if err != nil {
 		if deferredErr, ok := err.(*DeferredError); ok {
 			return nil, deferredErr
@@ -316,10 +286,6 @@ func (e *expressionEvaluator) evaluateExpression(expression string, facetPath st
 	}
 	return result, nil
 }
-
-// =============================================================================
-// Private Methods
-// =============================================================================
 
 // getConfig retrieves the current configuration context as a map of string keys to values.
 // If the config handler is not set or does not provide a configuration, an empty map is returned.
@@ -557,37 +523,6 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 	}
 
 	return opts
-}
-
-// EvaluateMap evaluates a map of values using this expression evaluator.
-// Each string value is evaluated as an expression; maps and arrays are recursively evaluated.
-// When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
-// is preserved in the result. The facetPath parameter is used for context during evaluation.
-// Returns a new map containing evaluated values (or original values if deferred), or an error
-// if evaluation fails with a non-deferred error.
-func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
-	result := make(map[string]any)
-	for key, value := range values {
-		evaluated, err := e.evaluateValue(value, facetPath, evaluateDeferred)
-		if err != nil {
-			if !evaluateDeferred {
-				var deferredErr *DeferredError
-				if errors.As(err, &deferredErr) {
-					result[key] = value
-					continue
-				}
-			}
-			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
-		}
-		if !evaluateDeferred {
-			if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
-				result[key] = value
-				continue
-			}
-		}
-		result[key] = evaluated
-	}
-	return result, nil
 }
 
 // evaluateValue recursively evaluates a value, handling strings, maps, and arrays.
@@ -922,7 +857,7 @@ func (e *expressionEvaluator) evaluateYamlStringFromFile(pathArg string, facetPa
 		scope := make(map[string]any)
 		maps.Copy(scope, enrichedConfig)
 		scope["input"] = input
-		interpolated, err := e.evaluateWithScope(content, scope, facetPath, true)
+		interpolated, err := e.evaluate(content, facetPath, scope, true)
 		if err != nil {
 			return "", fmt.Errorf("yamlString() failed to template: %w", err)
 		}
@@ -994,7 +929,7 @@ func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string,
 		scope := make(map[string]any)
 		maps.Copy(scope, enrichedConfig)
 		scope["input"] = input
-		interpolated, err := e.evaluateWithScope(content, scope, facetPath, true)
+		interpolated, err := e.evaluate(content, facetPath, scope, true)
 		if err != nil {
 			return nil, fmt.Errorf("yaml() failed to template: %w", err)
 		}

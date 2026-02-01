@@ -365,6 +365,42 @@ func TestYamlHelper(t *testing.T) {
 	})
 }
 
+func TestYamlStringHelper(t *testing.T) {
+	t.Run("YamlStringWithOneArgMarshalsToYAMLString", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"obj": map[string]any{"a": 1, "b": "two"}}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		result, err := evaluator.Evaluate(`${yamlString(obj)}`, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		str, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string result, got %T", result)
+		}
+		if !strings.Contains(str, "a: 1") || !strings.Contains(str, "b: two") {
+			t.Errorf("Expected YAML string with a and b, got %q", str)
+		}
+	})
+
+	t.Run("YamlStringWithInvalidArgumentCount", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${yamlString()}`, "", false)
+		if err == nil {
+			t.Fatal("Expected error for zero arguments")
+		}
+		_, err = evaluator.Evaluate(`${yamlString("a", "b", "c")}`, "", false)
+		if err == nil {
+			t.Fatal("Expected error for three arguments")
+		}
+	})
+}
+
 func TestSplitHelper(t *testing.T) {
 	t.Run("SplitFunction", func(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)

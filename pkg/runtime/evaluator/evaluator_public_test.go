@@ -783,6 +783,40 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Errorf("Expected empty map, got %d entries", len(m))
 		}
 	})
+
+	t.Run("ReturnsErrorForUnclosedExpression", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate("${unclosed", "", false)
+
+		if err == nil {
+			t.Error("Expected error for unclosed expression")
+			return
+		}
+		if !strings.Contains(err.Error(), "unclosed expression") {
+			t.Errorf("Expected error to mention unclosed expression, got: %v", err)
+		}
+	})
+
+	t.Run("SingleExprStringWithNestedExpressionContinuesUntilResolved", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"ref":   " ${inner} ",
+				"inner": "x",
+			}, nil
+		}
+
+		result, err := evaluator.Evaluate(" ${ref} ", "", true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "x" {
+			t.Errorf("Expected \"x\" after continuing single-expr chain, got %q", result)
+		}
+	})
 }
 
 func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
@@ -1249,6 +1283,25 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		// Then items[0] is the final resolved value (nil when another_expr is missing)
 		if items[0] != nil {
 			t.Errorf("Expected items[0] to be nil after re-evaluating nested expression (another_expr missing), got %v", items[0])
+		}
+	})
+
+	t.Run("PreservesOriginalWhenEvaluatedIsStringWithExpression", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"foo": "${foo}"}, nil
+		}
+
+		values := map[string]any{"x": "${foo}"}
+
+		result, err := evaluator.EvaluateMap(values, "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result["x"] != "${foo}" {
+			t.Errorf("Expected original value preserved when evaluated string contains expression, got %v", result["x"])
 		}
 	})
 

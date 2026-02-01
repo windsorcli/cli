@@ -667,6 +667,83 @@ func TestProject_Configure(t *testing.T) {
 	})
 }
 
+func TestProject_ComposeBlueprint(t *testing.T) {
+	t.Run("SuccessWhenLoadBlueprintSucceeds", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+
+		err := proj.ComposeBlueprint()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("PassesBlueprintURLToLoadBlueprint", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		var loadArgs []string
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+		mockBlueprintHandler.LoadBlueprintFunc = func(url ...string) error {
+			loadArgs = url
+			return nil
+		}
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mockBlueprintHandler,
+		})
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: comp})
+
+		err := proj.ComposeBlueprint("oci://ghcr.io/org/blueprint:v1")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if len(loadArgs) != 1 || loadArgs[0] != "oci://ghcr.io/org/blueprint:v1" {
+			t.Errorf("Expected LoadBlueprint to be called with oci URL, got: %v", loadArgs)
+		}
+	})
+
+	t.Run("ErrorOnGenerateContextIDFailure", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.GenerateContextIDFunc = func() error {
+			return fmt.Errorf("generate context ID failed")
+		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+
+		err := proj.ComposeBlueprint()
+
+		if err == nil {
+			t.Error("Expected error for GenerateContextID failure")
+			return
+		}
+		if !strings.Contains(err.Error(), "failed to generate context ID") {
+			t.Errorf("Expected error to mention context ID, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorOnLoadBlueprintFailure", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
+		mockBlueprintHandler.LoadBlueprintFunc = func(...string) error {
+			return fmt.Errorf("load blueprint failed")
+		}
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mockBlueprintHandler,
+		})
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: comp})
+
+		err := proj.ComposeBlueprint()
+
+		if err == nil {
+			t.Error("Expected error for LoadBlueprint failure")
+			return
+		}
+		if !strings.Contains(err.Error(), "load blueprint failed") {
+			t.Errorf("Expected error from LoadBlueprint, got: %v", err)
+		}
+	})
+}
+
 func TestProject_Initialize(t *testing.T) {
 	t.Run("SuccessWithoutWorkstation", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
