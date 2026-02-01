@@ -16,7 +16,7 @@ import (
 // BlueprintComposer combines processed blueprints from multiple loaders into a final composed blueprint.
 // It applies the composition algorithm: Sources (in order) → Template (if not in sources) → User overlay.
 type BlueprintComposer interface {
-	Compose(loaders []BlueprintLoader, initLoaderNames []string) (*blueprintv1alpha1.Blueprint, error)
+	Compose(loaders []BlueprintLoader, initLoaderNames []string, userBlueprintPath string) (*blueprintv1alpha1.Blueprint, error)
 }
 
 // =============================================================================
@@ -62,7 +62,7 @@ func NewBlueprintComposer(rt *runtime.Runtime) *BaseBlueprintComposer {
 // directory exists. Missing sources are added from the loader's blueprint or as minimal entries;
 // for OCI loaders without a matching source entry, URL and Ref are taken from any OCI source in
 // the loader's blueprint.
-func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNames []string) (*blueprintv1alpha1.Blueprint, error) {
+func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNames []string, userBlueprintPath string) (*blueprintv1alpha1.Blueprint, error) {
 	result := DefaultBlueprint.DeepCopy()
 
 	if len(loaders) == 0 {
@@ -149,27 +149,61 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 		}
 	}
 
-	if err := c.applyUserBlueprint(result, userBlueprint); err != nil {
+	if err := c.applyUserBlueprint(result, userBlueprint, userBlueprintPath); err != nil {
 		return nil, err
 	}
 
 	c.setContextMetadata(result)
-
 	c.applyCommonSubstitutions(result)
-
 	if err := c.discoverContextPatches(result); err != nil {
 		return nil, fmt.Errorf("failed to discover context patches: %w", err)
 	}
-
 	if err := c.applyPerKustomizationSubstitutions(result); err != nil {
 		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
 	}
-
 	c.dropEmptyCompositionFragments(result)
-
 	validationErr := errors.Join(c.validateSources(result), c.validateDependencies(result))
-
 	return result, validationErr
+}
+
+// SetCommonSubstitutions configures substitution values that will be added to all kustomizations
+// during composition. These typically include context-wide values like cluster name, domain, or
+// environment that should be available to every kustomization's postBuild substitution.
+func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]string) {
+	c.commonSubstitutions = substitutions
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// applyUserBlueprint applies the user blueprint to the composed result as an override layer.
+// The user blueprint can override existing components, add new components, or disable components
+// via enabled:false. Non-deferred expressions in the user's terraform inputs (e.g. yaml(), file())
+// are evaluated before merging using sourceFilePath so relative paths resolve relative to the user's blueprint file.
+func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint, sourceFilePath string) error {
+	if user == nil {
+		return nil
+	}
+
+	if user.Repository.Url == "" {
+		result.Repository = blueprintv1alpha1.Repository{}
+	}
+
+	userCopy := user.DeepCopy()
+	if c.runtime != nil && c.runtime.Evaluator != nil {
+		for i := range userCopy.TerraformComponents {
+			if userCopy.TerraformComponents[i].Inputs != nil {
+				evaluated, err := c.runtime.Evaluator.EvaluateMap(userCopy.TerraformComponents[i].Inputs, sourceFilePath, false)
+				if err != nil {
+					return fmt.Errorf("evaluate user blueprint terraform inputs: %w", err)
+				}
+				userCopy.TerraformComponents[i].Inputs = evaluated
+			}
+		}
+	}
+
+	return result.StrategicMerge(userCopy)
 }
 
 // dropEmptyCompositionFragments removes template/expr parsing placeholders and empty entries
@@ -263,17 +297,6 @@ func (c *BaseBlueprintComposer) setContextMetadata(blueprint *blueprintv1alpha1.
 	blueprint.Metadata.Description = fmt.Sprintf("Blueprint for the %s context", contextName)
 }
 
-// SetCommonSubstitutions configures substitution values that will be added to all kustomizations
-// during composition. These typically include context-wide values like cluster name, domain, or
-// environment that should be available to every kustomization's postBuild substitution.
-func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]string) {
-	c.commonSubstitutions = substitutions
-}
-
-// =============================================================================
-// Private Methods
-// =============================================================================
-
 // orderSources orders source blueprints according to the user blueprint's Sources array, then
 // appends init-loaded blueprints (names in initLoaderNames) that are not listed in the user blueprint.
 // OCI sources with install omitted (nil) are merged for backward compatibility; otherwise only
@@ -357,22 +380,6 @@ func (c *BaseBlueprintComposer) sourceShouldBeMerged(source blueprintv1alpha1.So
 		return true
 	}
 	return source.Install != nil && source.Install.IsInstalled()
-}
-
-// applyUserBlueprint applies the user blueprint to the composed result as an override layer.
-// The user blueprint can override existing components, add new components, or disable components
-// via enabled:false. All components from merged sources and template are retained unless explicitly
-// disabled. Clears repository if user doesn't define one. Sources are merged from user blueprint.
-func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint) error {
-	if user == nil {
-		return nil
-	}
-
-	if user.Repository.Url == "" {
-		result.Repository = blueprintv1alpha1.Repository{}
-	}
-
-	return result.StrategicMerge(user)
 }
 
 // applyCommonSubstitutions extracts common substitutions from values.yaml, merges legacy special

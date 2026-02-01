@@ -176,6 +176,57 @@ func TestLoader_GetBlueprint(t *testing.T) {
 	})
 }
 
+func TestLoader_GetBlueprintPath(t *testing.T) {
+	t.Run("ReturnsAbsolutePathForUserBlueprintWhenLoaded", func(t *testing.T) {
+		mocks := setupLoaderMocks(t)
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: user-blueprint
+`
+		blueprintPath := filepath.Join(mocks.TmpDir, "blueprint.yaml")
+		os.WriteFile(blueprintPath, []byte(blueprintYaml), 0644)
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+
+		err := loader.Load("user", "")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		path := loader.GetBlueprintPath()
+		if path == "" {
+			t.Error("Expected non-empty absolute path for user blueprint")
+		}
+		absExpected, _ := filepath.Abs(blueprintPath)
+		if path != absExpected {
+			t.Errorf("Expected GetBlueprintPath %q, got %q", absExpected, path)
+		}
+	})
+
+	t.Run("ReturnsEmptyForTemplateLoader", func(t *testing.T) {
+		mocks := setupLoaderMocks(t)
+		templateDir := mocks.Runtime.TemplateRoot
+		os.MkdirAll(templateDir, 0755)
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+`
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+
+		err := loader.Load("primary", "")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		path := loader.GetBlueprintPath()
+		if path != "" {
+			t.Errorf("Expected empty path for template loader, got %q", path)
+		}
+	})
+}
+
 func TestLoader_GetFacets(t *testing.T) {
 	t.Run("ReturnsEmptyWhenNotLoaded", func(t *testing.T) {
 		// Given a loader that has not loaded

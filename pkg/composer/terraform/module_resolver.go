@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/goccy/go-yaml"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -93,6 +94,8 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			componentValues = make(map[string]any)
 		}
 
+		// Use evaluateDeferred=false so terraform_output() and similar stay deferred; they are filtered
+		// out below and not written to tfvars, and are evaluated later when terraform runs.
 		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", false)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
@@ -100,10 +103,13 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 
 		nonDeferredValues := make(map[string]any)
 		for key, value := range evaluatedValues {
-			containsExpr := evaluator.ContainsExpression(value)
-			if !containsExpr {
-				nonDeferredValues[key] = value
+			if evaluator.ContainsExpression(value) {
+				continue
 			}
+			if s, ok := value.(string); ok && strings.Contains(s, "${") {
+				continue
+			}
+			nonDeferredValues[key] = value
 		}
 
 		if err := h.generateComponentTfvars(projectRoot, component, nonDeferredValues); err != nil {
@@ -137,22 +143,6 @@ type VariableInfo struct {
 	Description string
 	Default     any
 	Sensitive   bool
-}
-
-// checkExistingTfvarsFile checks if a tfvars file exists and is readable.
-// Returns os.ErrExist if the file exists and is readable, or an error if the file exists but is not readable.
-func (h *BaseModuleResolver) checkExistingTfvarsFile(tfvarsFilePath string) error {
-	_, err := h.shims.Stat(tfvarsFilePath)
-	if err == nil {
-		_, err := h.shims.ReadFile(tfvarsFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to read existing tfvars file: %w", err)
-		}
-		return os.ErrExist
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("error checking tfvars file: %w", err)
-	}
-	return nil
 }
 
 // parseVariablesFromModule parses all .tf files in a module directory and returns metadata about the variables.
@@ -306,22 +296,13 @@ func (h *BaseModuleResolver) findModulePathForComponent(projectRoot string, comp
 
 // generateTfvarsFile generates a tfvars file at the specified path using the provided module directory and component values.
 // It parses all .tf files in the module directory to extract variable definitions, merges them with the given component values
-// (excluding protected values), and writes a formatted tfvars file. If the file already exists and reset mode is not enabled,
-// the function skips writing. The function ensures the parent directory exists and returns an error if any file or directory operation fails.
+// (excluding protected values), and writes a formatted tfvars file. Tfvars are always overwritten so scratch state reflects the current rendered output.
+// The function ensures the parent directory exists and returns an error if any file or directory operation fails.
 func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath string, componentValues map[string]any, source string) error {
 	protectedValues := map[string]bool{
 		"context_path": true,
 		"os_type":      true,
 		"context_id":   true,
-	}
-
-	if !h.reset {
-		if err := h.checkExistingTfvarsFile(tfvarsFilePath); err != nil {
-			if err == os.ErrExist {
-				return nil
-			}
-			return err
-		}
 	}
 
 	variables, err := h.parseVariablesFromModule(modulePath, protectedValues)
@@ -476,16 +457,36 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 
 // writeHeredoc writes a multi-line string value as a heredoc assignment in the tfvars file body.
 // Used for YAML or other multi-line string values to preserve formatting.
+// Content that parses as YAML is re-serialized with clean formatting (unquoted keys) before writing.
 func writeHeredoc(body *hclwrite.Body, name string, content string) {
+	formatted := formatHeredocContent(content)
 	tokens := hclwrite.Tokens{
 		{Type: hclsyntax.TokenOHeredoc, Bytes: []byte("<<EOF")},
 		{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
-		{Type: hclsyntax.TokenStringLit, Bytes: []byte(content)},
+		{Type: hclsyntax.TokenStringLit, Bytes: []byte(formatted)},
 		{Type: hclsyntax.TokenNewline, Bytes: []byte("\n")},
 		{Type: hclsyntax.TokenCHeredoc, Bytes: []byte("EOF")},
 	}
 	body.SetAttributeRaw(name, tokens)
 	body.AppendNewline()
+}
+
+// formatHeredocContent re-serializes multi-line content as YAML when valid, producing unquoted keys
+// and consistent indentation. Returns the original string if content is not valid YAML.
+func formatHeredocContent(content string) string {
+	var decoded any
+	if err := yaml.Unmarshal([]byte(content), &decoded); err != nil {
+		return content
+	}
+	out, err := yaml.Marshal(decoded)
+	if err != nil {
+		return content
+	}
+	s := strings.TrimSuffix(string(out), "\n")
+	if s == "" && content != "" {
+		return content
+	}
+	return s
 }
 
 // writeVariable writes a single variable assignment to the tfvars file body.
@@ -521,14 +522,13 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 			writeHeredoc(body, name, v)
 			return
 		}
-	case map[string]any:
-		rendered := formatValue(v)
-		assignment := fmt.Sprintf("%s = %s", name, rendered)
-		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenIdent, Bytes: []byte(assignment)},
-		})
-		body.AppendNewline()
-		return
+	case map[string]any, []any:
+		ctyVal := convertToCtyValue(v)
+		if ctyVal != cty.NilVal {
+			body.SetAttributeValue(name, ctyVal)
+			body.AppendNewline()
+			return
+		}
 	}
 
 	body.SetAttributeValue(name, convertToCtyValue(value))
@@ -592,6 +592,7 @@ func formatValue(value any) string {
 
 // convertToCtyValue converts a Go value to a cty.Value for HCL serialization.
 // Supports strings, numbers, booleans, lists, and maps; returns NilVal for unsupported types.
+// Callers must pass values already normalized to map[string]any and []any (e.g. from evaluator output).
 func convertToCtyValue(value any) cty.Value {
 	switch v := value.(type) {
 	case string:

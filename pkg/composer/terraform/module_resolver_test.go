@@ -3,7 +3,6 @@ package terraform
 import (
 	"archive/tar"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1618,8 +1617,8 @@ variable "disabled" { type = bool }`
 			return originalReadDir(path)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1668,8 +1667,12 @@ variable "disabled" { type = bool }`
 			return originalStat(path)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		if err := os.MkdirAll(moduleDir, 0755); err != nil {
+			t.Fatalf("Failed to create module dir: %v", err)
+		}
+
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1701,8 +1704,8 @@ variable "disabled" { type = bool }`
 			return setupDefaultShims().ReadDir(name)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1734,8 +1737,8 @@ variable "disabled" { type = bool }`
 			return setupDefaultShims().RemoveAll(path)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -2076,8 +2079,8 @@ variable "cluster_name" { type = string }`
 			return originalStat(path)
 		}
 
-		// When generating tfvars
-		err := resolver.GenerateTfvars(false)
+		// When generating tfvars with reset (so removeTfvarsFiles runs)
+		err := resolver.GenerateTfvars(true)
 
 		// Then it should return an error
 		if err == nil {
@@ -2321,40 +2324,6 @@ variable "cluster_name" { type = string }`
 		}
 	})
 
-	t.Run("HandlesCheckExistingTfvarsFileStatError", func(t *testing.T) {
-		resolver, mocks := setup(t)
-		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
-		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
-		os.MkdirAll(moduleDir, 0755)
-		os.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644)
-
-		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
-			return []blueprintv1alpha1.TerraformComponent{
-				{
-					Path:     "test-module",
-					Source:   "git::https://github.com/test/module.git",
-					FullPath: moduleDir,
-				},
-			}
-		}
-
-		tfvarsPath := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module", "terraform.tfvars")
-		resolver.shims.Stat = func(path string) (os.FileInfo, error) {
-			if path == tfvarsPath {
-				return nil, errors.New("stat error")
-			}
-			return os.Stat(path)
-		}
-		resolver.shims.ReadFile = os.ReadFile
-		resolver.shims.MkdirAll = os.MkdirAll
-		resolver.shims.WriteFile = os.WriteFile
-
-		err := resolver.GenerateTfvars(false)
-
-		if err == nil {
-			t.Error("Expected error when stat fails with non-NotExist error")
-		}
-	})
 }
 
 func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
@@ -2551,92 +2520,6 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 
 		if !receivedEvaluateDeferred {
 			t.Error("Expected evaluateDeferred to be true")
-		}
-	})
-}
-
-func TestBaseModuleResolver_checkExistingTfvarsFile(t *testing.T) {
-	setup := func(t *testing.T) (*BaseModuleResolver, string) {
-		t.Helper()
-		mocks := setupTerraformMocks(t)
-		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
-		tmpDir := t.TempDir()
-		return resolver, tmpDir
-	}
-
-	t.Run("ReturnsNilWhenFileDoesNotExist", func(t *testing.T) {
-		// Given a resolver and a non-existent file path
-		resolver, tmpDir := setup(t)
-		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
-		resolver.shims.Stat = os.Stat
-		resolver.shims.ReadFile = os.ReadFile
-
-		// When checking existing tfvars file
-		err := resolver.checkExistingTfvarsFile(tfvarsPath)
-
-		// Then it should return nil
-		if err != nil {
-			t.Errorf("Expected nil error, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrExistWhenFileExistsAndIsReadable", func(t *testing.T) {
-		// Given a resolver and an existing file
-		resolver, tmpDir := setup(t)
-		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
-		os.WriteFile(tfvarsPath, []byte("test = \"value\""), 0644)
-		resolver.shims.Stat = os.Stat
-		resolver.shims.ReadFile = os.ReadFile
-
-		// When checking existing tfvars file
-		err := resolver.checkExistingTfvarsFile(tfvarsPath)
-
-		// Then it should return os.ErrExist
-		if err != os.ErrExist {
-			t.Errorf("Expected os.ErrExist, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenFileExistsButIsNotReadable", func(t *testing.T) {
-		// Given a resolver and a file that exists but cannot be read
-		resolver, tmpDir := setup(t)
-		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
-		os.WriteFile(tfvarsPath, []byte("test = \"value\""), 0644)
-		resolver.shims.Stat = os.Stat
-		resolver.shims.ReadFile = func(string) ([]byte, error) {
-			return nil, errors.New("read error")
-		}
-
-		// When checking existing tfvars file
-		err := resolver.checkExistingTfvarsFile(tfvarsPath)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when file cannot be read, got nil")
-		}
-		if !strings.Contains(err.Error(), "failed to read existing tfvars file") {
-			t.Errorf("Expected error about reading file, got: %v", err)
-		}
-	})
-
-	t.Run("ReturnsErrorWhenStatFailsWithNonNotExistError", func(t *testing.T) {
-		// Given a resolver with a stat function that fails
-		resolver, tmpDir := setup(t)
-		tfvarsPath := filepath.Join(tmpDir, "terraform.tfvars")
-		resolver.shims.Stat = func(string) (os.FileInfo, error) {
-			return nil, errors.New("stat error")
-		}
-		resolver.shims.ReadFile = os.ReadFile
-
-		// When checking existing tfvars file
-		err := resolver.checkExistingTfvarsFile(tfvarsPath)
-
-		// Then it should return an error
-		if err == nil {
-			t.Error("Expected error when stat fails, got nil")
-		}
-		if !strings.Contains(err.Error(), "error checking tfvars file") {
-			t.Errorf("Expected error about checking file, got: %v", err)
 		}
 	})
 }

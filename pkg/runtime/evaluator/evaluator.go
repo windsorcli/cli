@@ -12,6 +12,7 @@ import (
 	"math"
 	"net"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/expr-lang/expr"
@@ -157,76 +158,122 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 // as from an undefined variable without a ?? fallback), nil is returned for complete expressions or an empty
 // string is used for interpolation.
 func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDeferred bool) (any, error) {
-	if strings.Contains(s, "${") {
-		result := s
-		for strings.Contains(result, "${") {
-			start := strings.Index(result, "${")
-			end := strings.Index(result[start:], "}")
-			if end == -1 {
-				return "", fmt.Errorf("unclosed expression in string: %s", s)
-			}
-			end += start
-			expr := result[start+2 : end]
-			if expr == "" {
-				return nil, fmt.Errorf("expression cannot be empty")
-			}
-			value, err := e.evaluateExpression(expr, facetPath, evaluateDeferred)
-			if err != nil {
-				if !evaluateDeferred {
-					if _, ok := err.(*DeferredError); ok {
-						return s, nil
-					}
-					var deferredErr *DeferredError
-					if errors.As(err, &deferredErr) {
-						return s, nil
-					}
-				}
-				return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
-			}
-			before := result[:start]
-			after := result[end+1:]
-			if before == "" && after == "" {
-				return value, nil
-			}
-			var replacement string
-			if value == nil {
-				replacement = ""
-			} else {
-				switch value.(type) {
-				case map[string]any, []any:
-					yamlData, err := e.Shims.YamlMarshal(value)
-					if err != nil {
-						return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
-					}
-					replacement = strings.TrimSpace(string(yamlData))
-				default:
-					replacement = fmt.Sprintf("%v", value)
-				}
-			}
-			result = before + replacement + after
-			if !evaluateDeferred && ContainsExpression(replacement) {
-				break
-			}
-		}
-		return result, nil
-	}
-	return s, nil
+	return e.evaluate(s, facetPath, nil, evaluateDeferred)
 }
 
-// evaluateExpression compiles and evaluates a single expression string using the expressionEvaluator environment.
-// The expression should not include ${} bookends. Configures the evaluation context with Windsor-specific helpers
-// and config enrichment. If evaluateDeferred is false, and the result is a string matching the pattern for
-// terraform_output(), the result is returned as an unresolved expression. Returns the evaluation result or an error
-// if compilation or execution fails.
-func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+// EvaluateMap evaluates a map of values using this expression evaluator.
+// Each string value is evaluated as an expression; maps and arrays are recursively evaluated.
+// When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
+// is preserved in the result. The facetPath parameter is used for context during evaluation.
+// Returns a new map containing evaluated values (or original values if deferred), or an error
+// if evaluation fails with a non-deferred error.
+func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+	result := make(map[string]any)
+	for key, value := range values {
+		evaluated, err := e.evaluateValue(value, facetPath, evaluateDeferred)
+		if err != nil {
+			if !evaluateDeferred {
+				var deferredErr *DeferredError
+				if errors.As(err, &deferredErr) {
+					result[key] = value
+					continue
+				}
+			}
+			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+		}
+		if !evaluateDeferred {
+			if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
+				result[key] = value
+				continue
+			}
+		}
+		result[key] = evaluated
+	}
+	return result, nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// evaluate runs the expression parsing loop over s, resolving each ${...} with evaluateExpression.
+// When scope is nil the config context is used; when non-nil (e.g. for yaml(path, input)) the given
+// scope is used. Stops after 20 iterations to avoid infinite loops on circular or pathological input.
+func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+	if !strings.Contains(s, "${") {
+		return s, nil
+	}
+	result := s
+	for iter := 0; iter < 20 && strings.Contains(result, "${"); iter++ {
+		start := strings.Index(result, "${")
+		end := findExpressionEnd(result, start)
+		if end == -1 {
+			return "", fmt.Errorf("unclosed expression in string: %s", s)
+		}
+		expr := result[start+2 : end]
+		if expr == "" {
+			return nil, fmt.Errorf("expression cannot be empty")
+		}
+		value, err := e.evaluateExpression(expr, facetPath, scope, evaluateDeferred)
+		if err != nil {
+			if !evaluateDeferred {
+				if _, ok := err.(*DeferredError); ok {
+					return s, nil
+				}
+				var deferredErr *DeferredError
+				if errors.As(err, &deferredErr) {
+					return s, nil
+				}
+			}
+			return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
+		}
+		before := result[:start]
+		after := result[end+1:]
+		singleExpr := strings.TrimSpace(before) == "" && strings.TrimSpace(after) == ""
+		if singleExpr {
+			if str, ok := value.(string); ok && ContainsExpression(str) {
+				if str == result {
+					return value, nil
+				}
+				result = str
+				continue
+			}
+			return value, nil
+		}
+		var replacement string
+		if value != nil {
+			var err error
+			replacement, err = valueToInterpolationString(value, e.Shims.YamlMarshal)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
+			}
+			if !evaluateDeferred && ContainsExpression(replacement) && isStructuredValue(value) {
+				return value, nil
+			}
+			replacement = indentForEmbeddedYAML(before, replacement, 2)
+		}
+		result = before + replacement + after
+	}
+	return result, nil
+}
+
+// evaluateExpression compiles and evaluates a single expression using the given scope as the variable
+// environment. Context (getConfig + enrichConfig) is always used as the base; when scope is non-nil
+// (e.g. for yaml(path, input) templating), it is merged on top so expressions see both context and
+// scope (scope keys override). The expression should not include ${} bookends. Returns the evaluation
+// result or an error if compilation or execution fails.
+func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	config := e.getConfig()
-	enrichedConfig := e.enrichConfig(config)
-	env := e.buildExprEnvironment(enrichedConfig, facetPath, evaluateDeferred)
+	merged := e.enrichConfig(config)
+	if scope != nil {
+		maps.Copy(merged, scope)
+	}
+	env := e.buildExprEnvironment(merged, facetPath, evaluateDeferred)
 	program, err := expr.Compile(expression, env...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile expression '%s': %w", expression, err)
 	}
-	result, err := expr.Run(program, enrichedConfig)
+	result, err := expr.Run(program, merged)
 	if err != nil {
 		if deferredErr, ok := err.(*DeferredError); ok {
 			return nil, deferredErr
@@ -239,10 +286,6 @@ func (e *expressionEvaluator) evaluateExpression(expression string, facetPath st
 	}
 	return result, nil
 }
-
-// =============================================================================
-// Private Methods
-// =============================================================================
 
 // getConfig retrieves the current configuration context as a map of string keys to values.
 // If the config handler is not set or does not provide a configuration, an empty map is returned.
@@ -320,16 +363,42 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 		expr.Function(
 			"yaml",
 			func(params ...any) (any, error) {
-				if len(params) != 1 {
-					return nil, fmt.Errorf("yaml() requires exactly 1 argument, got %d", len(params))
+				if len(params) < 1 || len(params) > 2 {
+					return nil, fmt.Errorf("yaml() requires 1 or 2 arguments, got %d", len(params))
 				}
 				arg, ok := params[0].(string)
 				if !ok {
-					return nil, fmt.Errorf("yaml() argument must be a string (file path or YAML content), got %T", params[0])
+					return nil, fmt.Errorf("yaml() first argument must be a string (file path or YAML content), got %T", params[0])
 				}
-				return e.evaluateYamlFunction(arg, facetPath)
+				var input any
+				if len(params) == 2 {
+					input = params[1]
+				}
+				return e.evaluateYamlFunction(arg, facetPath, input)
 			},
-			new(func(string) any),
+			new(func(string, ...any) any),
+		),
+		expr.Function(
+			"yamlString",
+			func(params ...any) (any, error) {
+				if len(params) < 1 || len(params) > 2 {
+					return nil, fmt.Errorf("yamlString() requires 1 or 2 arguments, got %d", len(params))
+				}
+				if len(params) == 2 {
+					pathArg, ok := params[0].(string)
+					if !ok {
+						return nil, fmt.Errorf("yamlString(path, input) first argument must be a string, got %T", params[0])
+					}
+					return e.evaluateYamlStringFromFile(pathArg, facetPath, params[1])
+				}
+				yamlBytes, err := e.Shims.YamlMarshal(params[0])
+				if err != nil {
+					return nil, fmt.Errorf("yamlString() failed to marshal: %w", err)
+				}
+				return string(yamlBytes), nil
+			},
+			new(func(any) string),
+			new(func(string, any) string),
 		),
 		expr.Function(
 			"split",
@@ -456,37 +525,6 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 	return opts
 }
 
-// EvaluateMap evaluates a map of values using this expression evaluator.
-// Each string value is evaluated as an expression; maps and arrays are recursively evaluated.
-// When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
-// is preserved in the result. The facetPath parameter is used for context during evaluation.
-// Returns a new map containing evaluated values (or original values if deferred), or an error
-// if evaluation fails with a non-deferred error.
-func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
-	result := make(map[string]any)
-	for key, value := range values {
-		evaluated, err := e.evaluateValue(value, facetPath, evaluateDeferred)
-		if err != nil {
-			if !evaluateDeferred {
-				var deferredErr *DeferredError
-				if errors.As(err, &deferredErr) {
-					result[key] = value
-					continue
-				}
-			}
-			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
-		}
-		if !evaluateDeferred {
-			if ContainsExpression(evaluated) {
-				result[key] = value
-				continue
-			}
-		}
-		result[key] = evaluated
-	}
-	return result, nil
-}
-
 // evaluateValue recursively evaluates a value, handling strings, maps, and arrays.
 // When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
 // is preserved. This ensures that entire input values containing deferred expressions are
@@ -504,7 +542,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 			}
 			return nil, err
 		}
-		return evaluated, nil
+		return normalizeYamlResult(evaluated), nil
 	case map[string]any:
 		result := make(map[string]any)
 		for k, val := range v {
@@ -520,7 +558,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 				return nil, err
 			}
 			if !evaluateDeferred {
-				if ContainsExpression(evaluated) {
+				if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
 					result[k] = val
 					continue
 				}
@@ -543,7 +581,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 				return nil, err
 			}
 			if !evaluateDeferred {
-				if ContainsExpression(evaluated) {
+				if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
 					result = append(result, item)
 					continue
 				}
@@ -552,7 +590,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 		}
 		return result, nil
 	default:
-		return value, nil
+		return normalizeYamlResult(value), nil
 	}
 }
 
@@ -793,43 +831,211 @@ func (e *expressionEvaluator) evaluateFileFunction(pathArg string, facetPath str
 	return string(content), nil
 }
 
+// evaluateYamlStringFromFile loads the file at pathArg, optionally templates it with input
+// (scope = config + {"input": input}), and returns the result as a string without parsing YAML.
+// Used by yamlString(path, input) for Terraform variables that expect a YAML string.
+// Template expressions must use the input prefix, e.g. ${input.certSANs}, ${input.registryMirrors}.
+func (e *expressionEvaluator) evaluateYamlStringFromFile(pathArg string, facetPath string, input any) (string, error) {
+	var raw []byte
+	if e.templateData != nil {
+		raw = e.lookupInTemplateData(pathArg, facetPath)
+	}
+	if raw == nil {
+		path := e.resolvePath(pathArg, facetPath)
+		content, err := e.Shims.ReadFile(path)
+		if err == nil {
+			raw = content
+		}
+	}
+	if raw == nil {
+		raw = []byte(pathArg)
+	}
+	content := string(raw)
+	if input != nil {
+		config := e.getConfig()
+		enrichedConfig := e.enrichConfig(config)
+		scope := make(map[string]any)
+		maps.Copy(scope, enrichedConfig)
+		scope["input"] = input
+		interpolated, err := e.evaluate(content, facetPath, scope, true)
+		if err != nil {
+			return "", fmt.Errorf("yamlString() failed to template: %w", err)
+		}
+		str, ok := interpolated.(string)
+		if !ok {
+			return "", fmt.Errorf("yamlString(path, input) expects template to evaluate to a string, got %T", interpolated)
+		}
+		content = str
+	}
+	return content, nil
+}
+
 // evaluateYamlFunction parses YAML from either a file path or an inline YAML string.
 // If the argument contains a newline it is treated as inline YAML only (no file read), avoiding
 // a failed filesystem call. Otherwise template data and the filesystem are tried first; if no
-// file is found, the argument is unmarshaled as YAML. Returns the parsed value (map or slice)
+// file is found, the argument is unmarshaled as YAML. When input is non-nil, the raw content
+// is templated with scope = context + {"input": input} so ${input.xyz} and context vars (e.g.
+// provider) resolve; the result is then parsed as YAML. Returns the parsed value (map or slice)
 // or an error if the file cannot be read or the YAML is invalid.
-func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string) (any, error) {
+func (e *expressionEvaluator) evaluateYamlFunction(arg string, facetPath string, input any) (any, error) {
 	var raw []byte
 	if strings.Contains(arg, "\n") {
 		raw = []byte(arg)
 	} else {
 		if e.templateData != nil {
 			raw = e.lookupInTemplateData(arg, facetPath)
-		}
-		if raw == nil {
-			path := e.resolvePath(arg, facetPath)
-			content, err := e.Shims.ReadFile(path)
-			if err == nil {
-				raw = content
+			if raw == nil && facetPath == "" && (strings.HasPrefix(arg, "../") || strings.HasPrefix(arg, "./")) {
+				key := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(arg, "../"), "./"))
+				raw = e.templateDataLookup(key)
 			}
 		}
 		if raw == nil {
-			raw = []byte(arg)
+			path := e.resolvePath(arg, facetPath)
+			if facetPath == "" && e.templateData != nil && e.templateRoot != "" && strings.HasPrefix(path, e.templateRoot) {
+				if relPath, err := filepath.Rel(e.templateRoot, path); err == nil {
+					raw = e.templateDataLookup(filepath.ToSlash(relPath))
+				}
+			}
+			if raw == nil {
+				content, err := e.Shims.ReadFile(path)
+				if err == nil {
+					raw = content
+				}
+			}
+		}
+		if raw == nil {
+			if input == nil {
+				var fallback any
+				if err := e.Shims.YamlUnmarshal([]byte(arg), &fallback); err != nil {
+					return nil, fmt.Errorf("yaml() file not found: %s", arg)
+				}
+				if _, ok := fallback.(string); ok {
+					return nil, fmt.Errorf("yaml() file not found: %s", arg)
+				}
+				normalized := normalizeYamlResult(fallback)
+				unwrapped := unwrapSingleElementList(normalized)
+				if unwrapped != nil {
+					return unwrapped, nil
+				}
+				return normalized, nil
+			}
+			return nil, fmt.Errorf("yaml() file not found: %s", arg)
 		}
 	}
+	content := string(raw)
+	if input != nil {
+		config := e.getConfig()
+		enrichedConfig := e.enrichConfig(config)
+		scope := make(map[string]any)
+		maps.Copy(scope, enrichedConfig)
+		scope["input"] = input
+		interpolated, err := e.evaluate(content, facetPath, scope, true)
+		if err != nil {
+			return nil, fmt.Errorf("yaml() failed to template: %w", err)
+		}
+		str, ok := interpolated.(string)
+		if !ok {
+			return nil, fmt.Errorf("yaml() with input expects template to evaluate to a string, got %T", interpolated)
+		}
+		content = str
+	}
 	var value any
-	if err := e.Shims.YamlUnmarshal(raw, &value); err != nil {
+	if err := e.Shims.YamlUnmarshal([]byte(content), &value); err != nil {
 		return nil, fmt.Errorf("yaml() failed to parse: %w", err)
 	}
-	return value, nil
+	normalized := normalizeYamlResult(value)
+	unwrapped := unwrapSingleElementList(normalized)
+	if unwrapped != nil {
+		return unwrapped, nil
+	}
+	return normalized, nil
+}
+
+// normalizeYamlResult converts YAML-unmarshaled values to map[string]any and []any so expr's
+// Fetch uses map lookup for string keys instead of ToInt (slice index). Handles
+// map[interface{}]interface{} and []interface{} from goccy/go-yaml.
+func normalizeYamlResult(v any) any {
+	if v == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map:
+		out := make(map[string]any)
+		iter := rv.MapRange()
+		for iter.Next() {
+			k := iter.Key()
+			var key string
+			switch k.Kind() {
+			case reflect.Interface:
+				if k.IsNil() {
+					continue
+				}
+				key = fmt.Sprint(k.Elem().Interface())
+			default:
+				key = fmt.Sprint(k.Interface())
+			}
+			out[key] = normalizeYamlResult(iter.Value().Interface())
+		}
+		return out
+	case reflect.Slice:
+		if rv.Type().Elem().Kind() == reflect.String {
+			return v
+		}
+		out := make([]any, 0, rv.Len())
+		for i := 0; i < rv.Len(); i++ {
+			elem := rv.Index(i)
+			if elem.Kind() == reflect.Interface && !elem.IsNil() {
+				elem = elem.Elem()
+			}
+			out = append(out, normalizeYamlResult(elem.Interface()))
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+// unwrapSingleElementList returns the single element when v is a list of one map-like value.
+// expr's Fetch treats slice.key as slice[ToInt(key)], so .controlplane_labels on a list causes
+// int(string) panic. Unwrapping allows yaml(path).key to work when the file has a single-document list at root.
+// Uses reflection so any slice/map types from the YAML library (e.g. []interface{}, map[interface{}]interface{}) are accepted.
+func unwrapSingleElementList(v any) any {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice {
+		return nil
+	}
+	if rv.Len() != 1 {
+		return nil
+	}
+	first := rv.Index(0)
+	if first.Kind() == reflect.Interface && !first.IsNil() {
+		first = first.Elem()
+	}
+	if first.Kind() != reflect.Map {
+		return nil
+	}
+	return first.Interface()
+}
+
+// templateDataLookup returns file content for the given key from templateData, trying both
+// the key as-is and with a "_template/" prefix. The loader uses unprefixed keys (relative to
+// template root); artifact bundles and tests may use "_template/"-prefixed keys.
+func (e *expressionEvaluator) templateDataLookup(key string) []byte {
+	if e.templateData == nil || key == "" {
+		return nil
+	}
+	if data := e.templateData[key]; data != nil {
+		return data
+	}
+	return e.templateData["_template/"+key]
 }
 
 // lookupInTemplateData attempts to find file content in the template data map.
 // It resolves the path argument relative to the facet file's directory, converting
-// the facet path to a relative path from the template root if available. The resolved
-// path is used to look up the file in template data, checking both with and without
-// the "_template/" prefix. For paths that go up directories (../), it ensures the
-// resolved path stays within the template root. Returns the file content if found, or nil if not present.
+// the facet path to a relative path from the template root if available. For paths
+// that go up directories (../), it ensures the resolved path stays within the template
+// root. Returns the file content if found, or nil if not present.
 func (e *expressionEvaluator) lookupInTemplateData(pathArg string, facetPath string) []byte {
 	if e.templateData == nil {
 		return nil
@@ -861,40 +1067,54 @@ func (e *expressionEvaluator) lookupInTemplateData(pathArg string, facetPath str
 		if resolvedRelPath == "." {
 			resolvedRelPath = ""
 		}
-
-		if data, exists := e.templateData["_template/"+resolvedRelPath]; exists {
-			return data
-		}
-		if data, exists := e.templateData[resolvedRelPath]; exists {
-			return data
-		}
+		return e.templateDataLookup(resolvedRelPath)
 	}
 
 	return nil
 }
 
-// resolvePath resolves a file path to an absolute, cleaned path.
-// If the path is already absolute, it is cleaned and returned. For relative paths,
-// it first tries to resolve relative to the facetPath's directory if provided.
-// Otherwise, it falls back to the project root if set. The result is always an
-// absolute path with normalized separators and cleaned of redundant elements.
-func (e *expressionEvaluator) resolvePath(path string, facetPath string) string {
+// resolvePath resolves a file path to an absolute, cleaned path using the path to the
+// file being processed (sourceFilePath) when provided. If path is already absolute
+// it is cleaned and returned. For relative paths: when sourceFilePath is non-empty
+// it is the path to the facet or blueprint file containing the expression; the
+// relative path is resolved from that file's directory. If sourceFilePath is relative
+// it is resolved against templateRoot. If the result is still relative it is resolved
+// against projectRoot. When sourceFilePath is empty (e.g. GenerateTfvars) relative
+// paths fall back to projectRoot. The result is always an absolute path when
+// projectRoot or templateRoot are set.
+func (e *expressionEvaluator) resolvePath(path string, sourceFilePath string) string {
 	path = strings.TrimSpace(path)
 
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
 
-	if facetPath != "" {
-		facetDir := filepath.Dir(facetPath)
-		return filepath.Clean(filepath.Join(facetDir, path))
+	if sourceFilePath != "" {
+		baseDir := sourceFilePath
+		if !filepath.IsAbs(baseDir) && e.templateRoot != "" {
+			baseDir = filepath.Join(e.templateRoot, baseDir)
+		}
+		baseDir = filepath.Dir(baseDir)
+		result := filepath.Clean(filepath.Join(baseDir, path))
+		if !filepath.IsAbs(result) && e.projectRoot != "" {
+			result = filepath.Clean(filepath.Join(e.projectRoot, result))
+		}
+		return result
 	}
 
-	if e.projectRoot != "" {
-		return filepath.Clean(filepath.Join(e.projectRoot, path))
+	var result string
+	if e.projectRoot != "" && (strings.HasPrefix(path, "..") || strings.HasPrefix(filepath.Clean(path), "..")) {
+		trimmed := strings.TrimPrefix(path, "../")
+		trimmed = strings.TrimPrefix(trimmed, "./")
+		result = filepath.Clean(filepath.Join(e.projectRoot, trimmed))
+	} else if e.projectRoot != "" {
+		result = filepath.Clean(filepath.Join(e.projectRoot, path))
+	} else if e.templateRoot != "" {
+		result = filepath.Clean(filepath.Join(e.templateRoot, path))
+	} else {
+		result = filepath.Clean(path)
 	}
-
-	return filepath.Clean(path)
+	return result
 }
 
 // evaluateCidrHostFunction calculates the IP address for a specific host number within a given CIDR block.
@@ -1137,6 +1357,126 @@ var _ HelperRegistrar = (*expressionEvaluator)(nil)
 // Helper Functions
 // =============================================================================
 
+// valueToInterpolationString converts an expression result to a string for embedding in
+// interpolated output. Maps and slices (any kind, including map[interface{}]interface{} from
+// expr/YAML) are serialized as YAML so yamlString() output and facet templates get valid YAML.
+func valueToInterpolationString(value any, yamlMarshal func(any) ([]byte, error)) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice:
+		yamlData, err := yamlMarshal(value)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(yamlData)), nil
+	default:
+		return fmt.Sprintf("%v", value), nil
+	}
+}
+
+// indentForEmbeddedYAML returns replacement with each line indented so that when placed after
+// "before" (the string up to the expression), the embedded YAML is valid and readable.
+// baseIndent is the number of spaces at the start of the current line (from before).
+func indentForEmbeddedYAML(before string, replacement string, extraIndent int) string {
+	if replacement == "" || !strings.Contains(replacement, "\n") {
+		return replacement
+	}
+	lineStart := strings.LastIndex(before, "\n")
+	baseIndent := 0
+	if lineStart >= 0 {
+		for i := lineStart + 1; i < len(before) && before[i] == ' '; i++ {
+			baseIndent++
+		}
+	}
+	indent := baseIndent + extraIndent
+	indentStr := strings.Repeat(" ", indent)
+	lines := strings.Split(replacement, "\n")
+	for i := range lines {
+		if lines[i] != "" {
+			lines[i] = indentStr + lines[i]
+		}
+	}
+	return "\n" + strings.Join(lines, "\n")
+}
+
+// findExpressionEnd returns the index of the '}' that matches the '{' in "${" at start.
+// It tracks brace depth and skips string literals so that "}" and '}' inside strings are ignored.
+// start is the index of '$' in "${". Returns the index of the matching '}', or -1 if not found.
+func findExpressionEnd(s string, start int) int {
+	if start < 0 || start+2 > len(s) || s[start] != '$' || s[start+1] != '{' {
+		return -1
+	}
+	depth := 1
+	i := start + 2
+	for i < len(s) {
+		c := s[i]
+		switch c {
+		case '"':
+			i++
+			for i < len(s) {
+				if s[i] == '\\' {
+					i += 2
+					continue
+				}
+				if s[i] == '"' {
+					i++
+					break
+				}
+				i++
+			}
+			continue
+		case '\'':
+			i++
+			for i < len(s) {
+				if s[i] == '\\' {
+					i += 2
+					continue
+				}
+				if s[i] == '\'' {
+					i++
+					break
+				}
+				i++
+			}
+			continue
+		case '{':
+			depth++
+			i++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+			i++
+		default:
+			i++
+		}
+	}
+	return -1
+}
+
+// isStructuredValue returns true when the value is a list or map ([]any, map[string]any,
+// or reflection-equivalent types like []interface{} from expr/YAML). Used so that when
+// evaluation produces a structured value (e.g. from yaml()), we keep it even if it contains
+// nested expressions, instead of reverting to the original string.
+func isStructuredValue(value any) bool {
+	if value == nil {
+		return false
+	}
+	switch value.(type) {
+	case []any, map[string]any:
+		return true
+	}
+	switch reflect.ValueOf(value).Kind() {
+	case reflect.Slice, reflect.Map:
+		return true
+	}
+	return false
+}
+
 // ContainsExpression determines whether the provided value is a string that contains an unresolved expression.
 // An expression is identified by the pattern "${...}" anywhere in the string. This function returns true if
 // the value is a string containing at least one properly closed "${...}" expression pattern, and false otherwise.
@@ -1151,8 +1491,7 @@ func ContainsExpression(value any) bool {
 		if start == -1 {
 			return false
 		}
-		end := strings.Index(v[start:], "}")
-		return end != -1
+		return findExpressionEnd(v, start) != -1
 	case map[string]any:
 		for _, val := range v {
 			if ContainsExpression(val) {

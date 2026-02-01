@@ -12,6 +12,204 @@ import (
 )
 
 // =============================================================================
+// Test Helper Functions
+// =============================================================================
+
+func TestFindExpressionEnd(t *testing.T) {
+	t.Run("ReturnsMatchingBraceForSimpleExpression", func(t *testing.T) {
+		s := "prefix ${foo} suffix"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		if s[end] != '}' {
+			t.Errorf("Expected end to point to '}', got %q", s[end])
+		}
+		expr := s[start+2 : end]
+		if expr != "foo" {
+			t.Errorf("Expected expression 'foo', got %q", expr)
+		}
+	})
+
+	t.Run("ReturnsMatchingBraceWhenExpressionContainsEmptyMapLiteral", func(t *testing.T) {
+		s := "labels: ${x ?? {}}"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		expr := s[start+2 : end]
+		if expr != "x ?? {}" {
+			t.Errorf("Expected expression 'x ?? {}', got %q", expr)
+		}
+	})
+
+	t.Run("ReturnsMatchingBraceWhenExpressionContainsNestedBraces", func(t *testing.T) {
+		s := "${[merge(a ?? {}, b ?? {}) for n in values(nodes)]}"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		expr := s[start+2 : end]
+		expected := "[merge(a ?? {}, b ?? {}) for n in values(nodes)]"
+		if expr != expected {
+			t.Errorf("Expected expression %q, got %q", expected, expr)
+		}
+	})
+
+	t.Run("IgnoresBraceInsideDoubleQuotedString", func(t *testing.T) {
+		s := `${foo ?? "}"}`
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		expr := s[start+2 : end]
+		if expr != `foo ?? "}"` {
+			t.Errorf("Expected expression with quoted brace, got %q", expr)
+		}
+	})
+
+	t.Run("IgnoresBraceInsideSingleQuotedString", func(t *testing.T) {
+		s := `${bar ?? '}'}`
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		expr := s[start+2 : end]
+		if expr != `bar ?? '}'` {
+			t.Errorf("Expected expression with quoted brace, got %q", expr)
+		}
+	})
+
+	t.Run("ReturnsMinusOneForUnclosedExpression", func(t *testing.T) {
+		s := "${unclosed"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end != -1 {
+			t.Errorf("Expected -1 for unclosed expression, got %d", end)
+		}
+	})
+
+	t.Run("ReturnsMinusOneWhenBracesDoNotBalance", func(t *testing.T) {
+		s := "${foo {"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end != -1 {
+			t.Errorf("Expected -1 when braces do not balance, got %d", end)
+		}
+	})
+}
+
+func TestValueToInterpolationString(t *testing.T) {
+	t.Run("ReturnsEmptyForNil", func(t *testing.T) {
+		out, err := valueToInterpolationString(nil, func(any) ([]byte, error) { return nil, nil })
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty string for nil, got %q", out)
+		}
+	})
+	t.Run("MarshalsMapToYAML", func(t *testing.T) {
+		v := map[string]any{"a": 1, "b": "two"}
+		out, err := valueToInterpolationString(v, func(a any) ([]byte, error) {
+			return []byte("a: 1\nb: two"), nil
+		})
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if out != "a: 1\nb: two" {
+			t.Errorf("Expected YAML string for map, got %q", out)
+		}
+	})
+	t.Run("MarshalsSliceToYAML", func(t *testing.T) {
+		v := []any{"x", "y"}
+		out, err := valueToInterpolationString(v, func(a any) ([]byte, error) {
+			return []byte("- x\n- y"), nil
+		})
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if out != "- x\n- y" {
+			t.Errorf("Expected YAML string for slice, got %q", out)
+		}
+	})
+	t.Run("FormatsScalarWithSprintf", func(t *testing.T) {
+		out, err := valueToInterpolationString(42, nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if out != "42" {
+			t.Errorf("Expected \"42\" for int, got %q", out)
+		}
+	})
+}
+
+func TestIndentForEmbeddedYAML(t *testing.T) {
+	t.Run("ReturnsReplacementWhenEmptyOrSingleLine", func(t *testing.T) {
+		if out := indentForEmbeddedYAML("", "x", 2); out != "x" {
+			t.Errorf("Expected \"x\", got %q", out)
+		}
+		if out := indentForEmbeddedYAML("before", "one line", 2); out != "one line" {
+			t.Errorf("Expected \"one line\", got %q", out)
+		}
+	})
+	t.Run("IndentsMultiLineReplacementUsingBeforeSpaces", func(t *testing.T) {
+		before := "  key:"
+		replacement := "a: 1\nb: 2"
+		out := indentForEmbeddedYAML(before, replacement, 2)
+		if !strings.HasPrefix(out, "\n") {
+			t.Error("Expected leading newline")
+		}
+		lines := strings.Split(strings.TrimPrefix(out, "\n"), "\n")
+		for _, line := range lines {
+			if line != "" && !strings.HasPrefix(line, "  ") {
+				t.Errorf("Expected each non-empty line to be indented (baseIndent 0 + extraIndent 2), got %q", line)
+			}
+		}
+	})
+}
+
+func TestIsStructuredValue(t *testing.T) {
+	t.Run("ReturnsFalseForNil", func(t *testing.T) {
+		if isStructuredValue(nil) {
+			t.Error("Expected false for nil")
+		}
+	})
+	t.Run("ReturnsTrueForMapStringAny", func(t *testing.T) {
+		if !isStructuredValue(map[string]any{"k": "v"}) {
+			t.Error("Expected true for map[string]any")
+		}
+	})
+	t.Run("ReturnsTrueForSliceAny", func(t *testing.T) {
+		if !isStructuredValue([]any{1}) {
+			t.Error("Expected true for []any")
+		}
+	})
+	t.Run("ReturnsFalseForString", func(t *testing.T) {
+		if isStructuredValue("x") {
+			t.Error("Expected false for string")
+		}
+	})
+	t.Run("ReturnsFalseForInt", func(t *testing.T) {
+		if isStructuredValue(42) {
+			t.Error("Expected false for int")
+		}
+	})
+	t.Run("ReturnsTrueForReflectedSlice", func(t *testing.T) {
+		var v []interface{}
+		v = append(v, 1)
+		if !isStructuredValue(v) {
+			t.Error("Expected true for []interface{}")
+		}
+	})
+}
+
+// =============================================================================
 // Test Private Methods
 // =============================================================================
 
@@ -1043,6 +1241,80 @@ func TestExpressionEvaluator_resolvePath(t *testing.T) {
 		// Then it should return cleaned path
 		if path != "test.txt" {
 			t.Errorf("Expected path to be 'test.txt', got '%s'", path)
+		}
+	})
+
+	t.Run("ResolvesRelativePathWhenSourceFilePathIsRelativeAgainstTemplateRoot", func(t *testing.T) {
+		templateRoot := t.TempDir()
+		projectRoot := t.TempDir()
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, projectRoot, templateRoot)
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+
+		facetsDir := filepath.Join(templateRoot, "facets")
+		os.MkdirAll(facetsDir, 0755)
+		os.WriteFile(filepath.Join(facetsDir, "file.txt"), []byte("content"), 0644)
+
+		path := concreteEvaluator.resolvePath("file.txt", "facets/a.yaml")
+
+		expected := filepath.Join(templateRoot, "facets", "file.txt")
+		if path != expected {
+			t.Errorf("Expected path %q when sourceFilePath is relative, got %q", expected, path)
+		}
+	})
+
+	t.Run("ResolvesParentPathAgainstProjectRootWhenSourceFilePathEmpty", func(t *testing.T) {
+		projectRoot := t.TempDir()
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, projectRoot, "")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+
+		path := concreteEvaluator.resolvePath("../other.txt", "")
+
+		expected := filepath.Join(projectRoot, "other.txt")
+		if path != expected {
+			t.Errorf("Expected path %q for ../ with projectRoot, got %q", expected, path)
+		}
+	})
+}
+
+func TestExpressionEvaluator_templateDataLookup(t *testing.T) {
+	t.Run("ReturnsContentForKey", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "", "")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		concreteEvaluator.SetTemplateData(map[string][]byte{"key": []byte("content")})
+
+		result := concreteEvaluator.templateDataLookup("key")
+
+		if string(result) != "content" {
+			t.Errorf("Expected content for key, got %q", result)
+		}
+	})
+
+	t.Run("ReturnsContentForTemplatePrefixedKey", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "", "")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		concreteEvaluator.SetTemplateData(map[string][]byte{"_template/key": []byte("prefixed")})
+
+		result := concreteEvaluator.templateDataLookup("key")
+
+		if string(result) != "prefixed" {
+			t.Errorf("Expected content for _template/key lookup, got %q", result)
+		}
+	})
+
+	t.Run("ReturnsNilWhenKeyMissing", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "", "")
+		concreteEvaluator := evaluator.(*expressionEvaluator)
+		concreteEvaluator.SetTemplateData(map[string][]byte{"other": []byte("x")})
+
+		result := concreteEvaluator.templateDataLookup("missing")
+
+		if result != nil {
+			t.Errorf("Expected nil for missing key, got %q", result)
 		}
 	})
 }
