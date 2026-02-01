@@ -111,6 +111,12 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		return fmt.Errorf("failed to load sources: %w", err)
 	}
 
+	if h.runtime != nil && h.runtime.Evaluator != nil {
+		if merged := h.getMergedTemplateData(); len(merged) > 0 {
+			h.runtime.Evaluator.SetTemplateData(merged)
+		}
+	}
+
 	if err := h.processAndCompose(); err != nil {
 		return fmt.Errorf("failed to compose blueprint: %w", err)
 	}
@@ -181,6 +187,31 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// getMergedTemplateData returns template file contents from all loaded blueprint sources merged
+// into a single map. Used by the evaluator when resolving yaml() and similar file-based
+// expressions so OCI-loaded blueprints resolve from in-memory template data. When no loaders
+// have template data, falls back to loading from the runtime template root.
+func (h *BaseBlueprintHandler) getMergedTemplateData() map[string][]byte {
+	merged := make(map[string][]byte)
+	for _, loader := range h.sourceBlueprintLoaders {
+		data := loader.GetTemplateData()
+		for k, v := range data {
+			merged[k] = v
+		}
+	}
+	if len(merged) == 0 && h.runtime != nil && h.runtime.TemplateRoot != "" {
+		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
+			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
+			if loadErr := loader.Load("template", ""); loadErr == nil {
+				for k, v := range loader.GetTemplateData() {
+					merged[k] = v
+				}
+			}
+		}
+	}
+	return merged
+}
 
 // loadInitBlueprints loads blueprints specified via --blueprint flag before the user blueprint
 // is loaded. This ensures the blueprint metadata names are available when creating the minimal
@@ -484,10 +515,30 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		loaders = append(loaders, h.userBlueprintLoader)
 	}
 
-	composedBp, err := h.composer.Compose(loaders, initLoaderNames)
+	userPath := ""
+	if h.userBlueprintLoader != nil {
+		if ul, ok := h.userBlueprintLoader.(*BaseBlueprintLoader); ok {
+			userPath = ul.GetBlueprintPath()
+		}
+	}
+	composedBp, err := h.composer.Compose(loaders, initLoaderNames, userPath)
 	h.composedBlueprint = composedBp
 	if err != nil {
 		return err
+	}
+
+	if h.runtime != nil && h.runtime.TemplateRoot != "" && h.runtime.Evaluator != nil {
+		evalPath := filepath.Join(h.runtime.TemplateRoot, "facets", "_eval.yaml")
+		for i := range h.composedBlueprint.TerraformComponents {
+			if h.composedBlueprint.TerraformComponents[i].Inputs == nil {
+				continue
+			}
+			evaluated, err := h.runtime.Evaluator.EvaluateMap(h.composedBlueprint.TerraformComponents[i].Inputs, evalPath, false)
+			if err != nil {
+				return fmt.Errorf("evaluate terraform inputs for component %q: %w", h.composedBlueprint.TerraformComponents[i].GetID(), err)
+			}
+			h.composedBlueprint.TerraformComponents[i].Inputs = evaluated
+		}
 	}
 
 	h.clearLocalTemplateSource(h.composedBlueprint)

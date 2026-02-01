@@ -762,6 +762,27 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			t.Errorf("Expected false for missing boolean with coalesce, got %v", result)
 		}
 	})
+
+	t.Run("ExtractsFullExpressionWhenContainingEmptyMapLiteral", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		result, err := evaluator.Evaluate("${nonexistent ?? {}}", "", false)
+
+		if err != nil {
+			t.Fatalf("Expected no error (brace-balanced extraction), got: %v", err)
+		}
+		m, ok := result.(map[string]any)
+		if !ok {
+			t.Errorf("Expected empty map from ?? {}, got %T %v", result, result)
+		}
+		if ok && len(m) != 0 {
+			t.Errorf("Expected empty map, got %d entries", len(m))
+		}
+	})
 }
 
 func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
@@ -1181,10 +1202,8 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		// When evaluating the map
+		// When evaluating the map (nested expressions are re-evaluated)
 		result, err := evaluator.EvaluateMap(values, "", false)
-
-		// Then it should preserve the original value when evaluated contains expression
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1194,8 +1213,9 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Fatalf("Expected nested to be a map, got %T", result["nested"])
 		}
 
-		if nested["key"] != "${value}" {
-			t.Errorf("Expected nested.key to preserve original value when evaluated contains expression, got %v", nested["key"])
+		// Then nested.key is the final resolved value (nil when another_expr is missing)
+		if nested["key"] != nil {
+			t.Errorf("Expected nested.key to be nil after re-evaluating nested expression (another_expr missing), got %v", nested["key"])
 		}
 	})
 
@@ -1215,10 +1235,8 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		// When evaluating the map
+		// When evaluating the map (nested expressions are re-evaluated)
 		result, err := evaluator.EvaluateMap(values, "", false)
-
-		// Then it should preserve the original value when evaluated contains expression
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1228,8 +1246,9 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Fatalf("Expected items to be an array, got %T", result["items"])
 		}
 
-		if items[0] != "${value}" {
-			t.Errorf("Expected items[0] to preserve original value when evaluated contains expression, got %v", items[0])
+		// Then items[0] is the final resolved value (nil when another_expr is missing)
+		if items[0] != nil {
+			t.Errorf("Expected items[0] to be nil after re-evaluating nested expression (another_expr missing), got %v", items[0])
 		}
 	})
 
@@ -1657,6 +1676,15 @@ func TestContainsExpression(t *testing.T) {
 		// Then it should return true
 		if !ContainsExpression("${foo}-${bar}") {
 			t.Error("Expected ContainsExpression to return true for string with multiple expressions")
+		}
+	})
+
+	t.Run("ReturnsTrueForExpressionWithNestedBraces", func(t *testing.T) {
+		if !ContainsExpression("${x ?? {}}") {
+			t.Error("Expected ContainsExpression to return true for expression with empty map literal")
+		}
+		if !ContainsExpression(`${[merge(a ?? {}, b ?? {}) for n in values(nodes)]}`) {
+			t.Error("Expected ContainsExpression to return true for expression with nested braces")
 		}
 	})
 

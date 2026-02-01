@@ -31,11 +31,12 @@ type BaseBlueprintLoader struct {
 	artifactBuilder artifact.Artifact
 	shims           *Shims
 
-	sourceName   string
-	sourceURL    string
-	blueprint    *blueprintv1alpha1.Blueprint
-	facets       []blueprintv1alpha1.Facet
-	templateData map[string][]byte
+	sourceName    string
+	sourceURL     string
+	blueprint     *blueprintv1alpha1.Blueprint
+	blueprintPath string
+	facets        []blueprintv1alpha1.Facet
+	templateData  map[string][]byte
 }
 
 // =============================================================================
@@ -88,6 +89,13 @@ func (l *BaseBlueprintLoader) Load(sourceName, sourceURL string) error {
 // from evaluated facets are appended to it.
 func (l *BaseBlueprintLoader) GetBlueprint() *blueprintv1alpha1.Blueprint {
 	return l.blueprint
+}
+
+// GetBlueprintPath returns the absolute path to the main blueprint file (e.g. blueprint.yaml)
+// for this source. For the user blueprint this is the config root blueprint; for template/OCI
+// sources it is empty. Used when resolving relative paths in expressions (e.g. yaml(), file()).
+func (l *BaseBlueprintLoader) GetBlueprintPath() string {
+	return l.blueprintPath
 }
 
 // GetFacets returns all Facet definitions loaded from this source's facets directory.
@@ -168,6 +176,9 @@ func (l *BaseBlueprintLoader) loadUserBlueprint() error {
 	}
 
 	blueprintPath := filepath.Join(configRoot, "blueprint.yaml")
+	if absPath, err := filepath.Abs(blueprintPath); err == nil {
+		l.blueprintPath = absPath
+	}
 	if _, err := l.shims.Stat(blueprintPath); os.IsNotExist(err) {
 		return nil
 	}

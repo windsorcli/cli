@@ -12,6 +12,99 @@ import (
 )
 
 // =============================================================================
+// Test Helper Functions
+// =============================================================================
+
+func TestFindExpressionEnd(t *testing.T) {
+	t.Run("ReturnsMatchingBraceForSimpleExpression", func(t *testing.T) {
+		s := "prefix ${foo} suffix"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		if s[end] != '}' {
+			t.Errorf("Expected end to point to '}', got %q", s[end])
+		}
+		expr := s[start+2 : end]
+		if expr != "foo" {
+			t.Errorf("Expected expression 'foo', got %q", expr)
+		}
+	})
+
+	t.Run("ReturnsMatchingBraceWhenExpressionContainsEmptyMapLiteral", func(t *testing.T) {
+		s := "labels: ${x ?? {}}"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		expr := s[start+2 : end]
+		if expr != "x ?? {}" {
+			t.Errorf("Expected expression 'x ?? {}', got %q", expr)
+		}
+	})
+
+	t.Run("ReturnsMatchingBraceWhenExpressionContainsNestedBraces", func(t *testing.T) {
+		s := "${[merge(a ?? {}, b ?? {}) for n in values(nodes)]}"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		expr := s[start+2 : end]
+		expected := "[merge(a ?? {}, b ?? {}) for n in values(nodes)]"
+		if expr != expected {
+			t.Errorf("Expected expression %q, got %q", expected, expr)
+		}
+	})
+
+	t.Run("IgnoresBraceInsideDoubleQuotedString", func(t *testing.T) {
+		s := `${foo ?? "}"}`
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		expr := s[start+2 : end]
+		if expr != `foo ?? "}"` {
+			t.Errorf("Expected expression with quoted brace, got %q", expr)
+		}
+	})
+
+	t.Run("IgnoresBraceInsideSingleQuotedString", func(t *testing.T) {
+		s := `${bar ?? '}'}`
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end == -1 {
+			t.Fatal("Expected findExpressionEnd to find matching brace")
+		}
+		expr := s[start+2 : end]
+		if expr != `bar ?? '}'` {
+			t.Errorf("Expected expression with quoted brace, got %q", expr)
+		}
+	})
+
+	t.Run("ReturnsMinusOneForUnclosedExpression", func(t *testing.T) {
+		s := "${unclosed"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end != -1 {
+			t.Errorf("Expected -1 for unclosed expression, got %d", end)
+		}
+	})
+
+	t.Run("ReturnsMinusOneWhenBracesDoNotBalance", func(t *testing.T) {
+		s := "${foo {"
+		start := strings.Index(s, "${")
+		end := findExpressionEnd(s, start)
+		if end != -1 {
+			t.Errorf("Expected -1 when braces do not balance, got %d", end)
+		}
+	})
+}
+
+// =============================================================================
 // Test Private Methods
 // =============================================================================
 

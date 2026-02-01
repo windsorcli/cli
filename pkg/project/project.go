@@ -184,6 +184,20 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 	return nil
 }
 
+// ComposeBlueprint loads and composes the blueprint without writing files or generating infrastructure.
+// It generates context ID if needed and loads all blueprint sources. Use this when the goal is only
+// to obtain the composed blueprint (e.g. for windsor show blueprint). It does not run Composer.Generate()
+// and thus does not write blueprint files, process terraform modules, or generate tfvars.
+func (p *Project) ComposeBlueprint(blueprintURL ...string) error {
+	if err := p.configHandler.GenerateContextID(); err != nil {
+		return fmt.Errorf("failed to generate context ID: %w", err)
+	}
+	if err := p.Composer.BlueprintHandler.LoadBlueprint(blueprintURL...); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Initialize runs the complete initialization sequence for the project.
 // It prepares the workstation (creates services and assigns IPs), prepares context,
 // generates infrastructure, prepares tools, and bootstraps the environment.
