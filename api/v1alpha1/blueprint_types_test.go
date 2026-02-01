@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -3575,6 +3576,135 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 		}
 		if copy.Kustomizations[0].Enabled.Value == nil || *copy.Kustomizations[0].Enabled.Value {
 			t.Error("Expected Enabled to be false in copy")
+		}
+	})
+}
+
+func TestToMapStringAny(t *testing.T) {
+	t.Run("ReturnsNilForNil", func(t *testing.T) {
+		if ToMapStringAny(nil) != nil {
+			t.Error("Expected nil for nil input")
+		}
+	})
+	t.Run("ReturnsNilForNonMap", func(t *testing.T) {
+		if ToMapStringAny("string") != nil {
+			t.Error("Expected nil for string")
+		}
+		if ToMapStringAny(42) != nil {
+			t.Error("Expected nil for int")
+		}
+	})
+	t.Run("ConvertsMapStringAnyIdentity", func(t *testing.T) {
+		in := map[string]any{"a": 1, "b": "x"}
+		out := ToMapStringAny(in)
+		if out == nil {
+			t.Fatal("Expected non-nil map")
+		}
+		if out["a"] != 1 || out["b"] != "x" {
+			t.Errorf("Expected a=1, b=x, got %v", out)
+		}
+	})
+	t.Run("ConvertsYAMLMapInterfaceToMapStringAny", func(t *testing.T) {
+		var v any
+		if err := yaml.Unmarshal([]byte("a: 1\nb: hello\nnested:\n  x: 10"), &v); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		out := ToMapStringAny(v)
+		if out == nil {
+			t.Fatal("Expected non-nil map")
+		}
+		if fmt.Sprint(out["a"]) != "1" {
+			t.Errorf("Expected a=1, got %v", out["a"])
+		}
+		if out["b"] != "hello" {
+			t.Errorf("Expected b=hello, got %v", out["b"])
+		}
+		nested, ok := out["nested"].(map[string]any)
+		if !ok {
+			t.Errorf("Expected nested to be map[string]any, got %T", out["nested"])
+		} else if fmt.Sprint(nested["x"]) != "10" {
+			t.Errorf("Expected nested.x=10, got %v", nested["x"])
+		}
+	})
+	t.Run("ConvertsNestedMapAndSlice", func(t *testing.T) {
+		var v any
+		if err := yaml.Unmarshal([]byte("list:\n  - 1\n  - two"), &v); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		out := ToMapStringAny(v)
+		if out == nil {
+			t.Fatal("Expected non-nil map")
+		}
+		sl, ok := out["list"].([]any)
+		if !ok {
+			t.Errorf("Expected list to be []any, got %T", out["list"])
+		} else if len(sl) != 2 {
+			t.Errorf("Expected list len 2, got %d", len(sl))
+		} else if fmt.Sprint(sl[0]) != "1" || sl[1] != "two" {
+			t.Errorf("Expected list [1, two], got %v", sl)
+		}
+	})
+}
+
+func TestToSliceAny(t *testing.T) {
+	t.Run("ReturnsNilForNil", func(t *testing.T) {
+		if ToSliceAny(nil) != nil {
+			t.Error("Expected nil for nil input")
+		}
+	})
+	t.Run("ReturnsNilForNonSlice", func(t *testing.T) {
+		if ToSliceAny("string") != nil {
+			t.Error("Expected nil for string")
+		}
+		if ToSliceAny(map[string]any{}) != nil {
+			t.Error("Expected nil for map")
+		}
+	})
+	t.Run("ConvertsSliceIdentity", func(t *testing.T) {
+		in := []any{1, "x", true}
+		out := ToSliceAny(in)
+		if out == nil {
+			t.Fatal("Expected non-nil slice")
+		}
+		if len(out) != 3 || out[0] != 1 || out[1] != "x" || out[2] != true {
+			t.Errorf("Expected [1, x, true], got %v", out)
+		}
+	})
+	t.Run("ConvertsYAMLSliceToSliceAny", func(t *testing.T) {
+		var v any
+		if err := yaml.Unmarshal([]byte("[1, two, 3]"), &v); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		out := ToSliceAny(v)
+		if out == nil {
+			t.Fatal("Expected non-nil slice")
+		}
+		if len(out) != 3 {
+			t.Errorf("Expected len 3, got %d", len(out))
+		} else if fmt.Sprint(out[0]) != "1" || out[1] != "two" || fmt.Sprint(out[2]) != "3" {
+			t.Errorf("Expected [1, two, 3], got %v", out)
+		}
+	})
+	t.Run("ConvertsNestedSliceAndMap", func(t *testing.T) {
+		var v any
+		if err := yaml.Unmarshal([]byte("- a: 1\n  b: 2\n- 3"), &v); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		out := ToSliceAny(v)
+		if out == nil {
+			t.Fatal("Expected non-nil slice")
+		}
+		if len(out) != 2 {
+			t.Fatalf("Expected len 2, got %d", len(out))
+		}
+		first, ok := out[0].(map[string]any)
+		if !ok {
+			t.Errorf("Expected first element map[string]any, got %T", out[0])
+		} else if fmt.Sprint(first["a"]) != "1" || fmt.Sprint(first["b"]) != "2" {
+			t.Errorf("Expected first map a=1 b=2, got %v", first)
+		}
+		if fmt.Sprint(out[1]) != "3" {
+			t.Errorf("Expected second element 3, got %v", out[1])
 		}
 	})
 }

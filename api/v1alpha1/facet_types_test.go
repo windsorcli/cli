@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,9 @@ func TestFacetDeepCopy(t *testing.T) {
 				Description: "Test facet",
 			},
 			When: "provider == 'aws'",
+			Config: []ConfigBlock{
+				{Name: "talos", When: "provider == 'incus'", Body: map[string]any{"controlplanes": "${cluster.controlplanes}"}},
+			},
 			TerraformComponents: []ConditionalTerraformComponent{
 				{
 					TerraformComponent: TerraformComponent{
@@ -87,6 +91,14 @@ func TestFacetDeepCopy(t *testing.T) {
 		original.Kustomizations[0].Substitutions["host"] = "modified"
 		if copy.Kustomizations[0].Substitutions["host"] == "modified" {
 			t.Error("Deep copy failed: kustomization substitutions map was not copied")
+		}
+
+		if len(copy.Config) != len(original.Config) {
+			t.Error("Deep copy failed: config slice length mismatch")
+		}
+		original.Config[0].Body["controlplanes"] = "modified"
+		if copy.Config[0].Body["controlplanes"] == "modified" {
+			t.Error("Deep copy failed: config block body was not copied")
 		}
 	})
 }
@@ -247,6 +259,74 @@ func TestFacetYAMLTags(t *testing.T) {
 		}
 		if len(out.Kustomizations) != len(facet.Kustomizations) {
 			t.Errorf("Expected %d Kustomizations, got %d after YAML unmarshal", len(facet.Kustomizations), len(out.Kustomizations))
+		}
+	})
+
+	t.Run("FacetUnmarshalsConfig", func(t *testing.T) {
+		facetYAML := []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: config-facet
+when: provider == 'incus'
+config:
+  - name: talos
+    when: provider == 'incus' || provider == 'docker'
+    controlplanes: ${cluster.controlplanes}
+    workers: ${cluster.workers}
+    patchVars:
+      certSANs: ${cluster.apiServer.certSANs}
+terraform:
+  - name: cluster
+    path: cluster
+    inputs:
+      controlplanes: ${talos.controlplanes}
+      common_patch: ${talos.common_patch}
+`)
+		var facet Facet
+		err := yaml.Unmarshal(facetYAML, &facet)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal facet with config: %v", err)
+		}
+		if len(facet.Config) != 1 {
+			t.Fatalf("Expected 1 config block, got %d", len(facet.Config))
+		}
+		block := facet.Config[0]
+		if block.Name != "talos" {
+			t.Errorf("Expected config block name talos, got %q", block.Name)
+		}
+		if block.When != "provider == 'incus' || provider == 'docker'" {
+			t.Errorf("Expected when condition, got %q", block.When)
+		}
+		if _, ok := block.Body["controlplanes"]; !ok {
+			t.Error("Expected controlplanes in config block body")
+		}
+		if _, ok := block.Body["patchVars"]; !ok {
+			t.Error("Expected patchVars in config block body")
+		}
+	})
+
+	t.Run("FacetMarshalsConfig", func(t *testing.T) {
+		block := ConfigBlock{
+			Name: "talos",
+			When: "provider == 'docker'",
+			Body: map[string]any{"controlplanes": "${cluster.controlplanes}", "workers": "${cluster.workers}"},
+		}
+		out, err := yaml.Marshal(&block)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		outStr := string(out)
+		if !strings.Contains(outStr, "name: talos") {
+			t.Error("Expected marshaled YAML to contain name: talos")
+		}
+		if !strings.Contains(outStr, "when: provider == 'docker'") {
+			t.Error("Expected marshaled YAML to contain when condition")
+		}
+		if !strings.Contains(outStr, "controlplanes") || !strings.Contains(outStr, "workers") {
+			t.Error("Expected marshaled YAML to contain body keys controlplanes and workers")
+		}
+		if !strings.Contains(outStr, "cluster.controlplanes") {
+			t.Error("Expected marshaled YAML to contain body value reference")
 		}
 	})
 

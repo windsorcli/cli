@@ -5,6 +5,7 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -1362,18 +1363,88 @@ func (b *Blueprint) terraformTopologicalSort(idToIndex map[string]int) []int {
 
 // deepMergeMaps returns a new map from a deep merge of base and overlay maps.
 // Overlay values take precedence; nested maps merge recursively. Non-map overlay values replace base values.
+// Map-like overlay values (including map[interface{}]interface{} from YAML/expr) are normalized to
+// map[string]any so recursive merge and YAML marshaling behave correctly.
 func (b *Blueprint) deepMergeMaps(base, overlay map[string]any) map[string]any {
 	result := maps.Clone(base)
 	for k, overlayValue := range overlay {
+		overlayMap := ToMapStringAny(overlayValue)
 		if baseValue, exists := result[k]; exists {
-			if baseMap, baseIsMap := baseValue.(map[string]any); baseIsMap {
-				if overlayMap, overlayIsMap := overlayValue.(map[string]any); overlayIsMap {
-					result[k] = b.deepMergeMaps(baseMap, overlayMap)
-					continue
-				}
+			if baseMap, baseIsMap := baseValue.(map[string]any); baseIsMap && overlayMap != nil {
+				result[k] = b.deepMergeMaps(baseMap, overlayMap)
+				continue
 			}
 		}
-		result[k] = overlayValue
+		if overlayMap != nil {
+			result[k] = overlayMap
+		} else {
+			result[k] = overlayValue
+		}
 	}
 	return result
+}
+
+// ToMapStringAny converts a map-like value to map[string]any recursively (e.g. map[interface{}]interface{}
+// from YAML or expr). Returns nil if v is not a map. Ensures blueprint Inputs are always map[string]any
+// so YAML marshaling produces nested YAML rather than Go's %v string format.
+func ToMapStringAny(v any) map[string]any {
+	if v == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Map {
+		return nil
+	}
+	out := make(map[string]any, rv.Len())
+	iter := rv.MapRange()
+	for iter.Next() {
+		k := iter.Key()
+		var key string
+		switch k.Kind() {
+		case reflect.Interface:
+			if k.IsNil() {
+				continue
+			}
+			key = fmt.Sprint(k.Elem().Interface())
+		default:
+			key = fmt.Sprint(k.Interface())
+		}
+		val := iter.Value().Interface()
+		if nested := ToMapStringAny(val); nested != nil {
+			out[key] = nested
+		} else if reflect.ValueOf(val).Kind() == reflect.Slice {
+			out[key] = ToSliceAny(val)
+		} else {
+			out[key] = val
+		}
+	}
+	return out
+}
+
+// ToSliceAny converts a slice-like value to []any recursively (e.g. []interface{} from YAML or expr).
+// Returns nil if v is not a slice.
+func ToSliceAny(v any) []any {
+	if v == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice {
+		return nil
+	}
+	out := make([]any, 0, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		elem := rv.Index(i)
+		if elem.Kind() == reflect.Interface && !elem.IsNil() {
+			elem = elem.Elem()
+		}
+		val := elem.Interface()
+		if nested := ToMapStringAny(val); nested != nil {
+			out = append(out, nested)
+		} else if reflect.ValueOf(val).Kind() == reflect.Slice {
+			out = append(out, ToSliceAny(val))
+		} else {
+			out = append(out, val)
+		}
+	}
+	return out
 }

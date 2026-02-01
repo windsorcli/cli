@@ -7,8 +7,8 @@ package evaluator
 type MockExpressionEvaluator struct {
 	SetTemplateDataFunc func(templateData map[string][]byte)
 	RegisterFunc        func(name string, helper func(params []any, deferred bool) (any, error), signature any)
-	EvaluateFunc        func(expression string, facetPath string, evaluateDeferred bool) (any, error)
-	EvaluateMapFunc     func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error)
+	EvaluateFunc        func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error)
+	EvaluateMapFunc     func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error)
 }
 
 // =============================================================================
@@ -39,17 +39,17 @@ func (m *MockExpressionEvaluator) Register(name string, helper func(params []any
 }
 
 // Evaluate calls the mock EvaluateFunc if set, otherwise returns nil, nil.
-func (m *MockExpressionEvaluator) Evaluate(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+func (m *MockExpressionEvaluator) Evaluate(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	if m.EvaluateFunc != nil {
-		return m.EvaluateFunc(expression, facetPath, evaluateDeferred)
+		return m.EvaluateFunc(expression, facetPath, scope, evaluateDeferred)
 	}
 	return nil, nil
 }
 
 // EvaluateMap calls the mock EvaluateMapFunc if set, otherwise returns an empty map and nil error.
-func (m *MockExpressionEvaluator) EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+func (m *MockExpressionEvaluator) EvaluateMap(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 	if m.EvaluateMapFunc != nil {
-		return m.EvaluateMapFunc(values, facetPath, evaluateDeferred)
+		return m.EvaluateMapFunc(values, facetPath, scope, evaluateDeferred)
 	}
 	return map[string]any{}, nil
 }

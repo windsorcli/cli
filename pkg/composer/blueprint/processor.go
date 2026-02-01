@@ -2,6 +2,7 @@ package blueprint
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -101,6 +102,8 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	terraformByID := make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent)
 	kustomizationByName := make(map[string]*blueprintv1alpha1.ConditionalKustomization)
+	var globalScope map[string]any
+	var configBlockOrder []string
 
 	for _, facet := range sortedFacets {
 		shouldInclude, err := p.shouldIncludeFacet(facet)
@@ -110,12 +113,28 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if !shouldInclude {
 			continue
 		}
+		var errMerge error
+		globalScope, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, configBlockOrder)
+		if errMerge != nil {
+			return fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
+		}
+	}
+	if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder); err != nil {
+		return err
+	}
 
-		if err := p.collectTerraformComponents(facet, sourceName, terraformByID); err != nil {
+	for _, facet := range sortedFacets {
+		shouldInclude, err := p.shouldIncludeFacet(facet)
+		if err != nil {
 			return err
 		}
-
-		if err := p.collectKustomizations(facet, sourceName, kustomizationByName); err != nil {
+		if !shouldInclude {
+			continue
+		}
+		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, globalScope); err != nil {
+			return err
+		}
+		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, globalScope); err != nil {
 			return err
 		}
 	}
@@ -127,15 +146,93 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // Private Methods
 // =============================================================================
 
+// mergeFacetScopeIntoGlobal merges the facet's config block structure into the global scope
+// (accumulated from prior facets) without evaluating config body expressions. Returns the
+// updated global scope and the config block name order (later in list takes precedence).
+// Config body expressions are evaluated later in evaluateGlobalScopeConfig.
+// Same config block name merges block bodies recursively.
+func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, order []string) (map[string]any, []string, error) {
+	configMap := make(map[string]any)
+	for _, block := range facet.Config {
+		if block.Name == "" {
+			continue
+		}
+		if block.When != "" {
+			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path)
+			if err != nil {
+				return nil, order, fmt.Errorf("config block %q when: %w", block.Name, err)
+			}
+			if !shouldInclude {
+				continue
+			}
+		}
+		if len(block.Body) == 0 {
+			configMap[block.Name] = make(map[string]any)
+		} else {
+			configMap[block.Name] = block.Body
+		}
+		n := block.Name
+		for i := 0; i < len(order); i++ {
+			if order[i] == n {
+				order = append(order[:i], order[i+1:]...)
+				break
+			}
+		}
+		order = append(order, n)
+	}
+	mergedConfig := mergeConfigMaps(globalScope, configMap)
+	if len(mergedConfig) == 0 {
+		return globalScope, order, nil
+	}
+	return mergedConfig, order, nil
+}
+
+// evaluateGlobalScopeConfig evaluates all config block body expressions in globalScope in
+// blueprint context with globalScope merged into the evaluation environment so config
+// blocks can reference each other (e.g. talos_common.common_patch referencing
+// talos_common.patchVars, or controlplanes.patch referencing talos_common.patchVars).
+// Called once after all facets have been merged. Mutates globalScope in place.
+// Block names are iterated in configBlockOrder so later blocks in the list are evaluated
+// after earlier ones (later takes precedence when refs are resolved).
+func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, configBlockOrder []string) error {
+	if globalScope == nil {
+		return nil
+	}
+	names := configBlockOrder
+	if len(names) == 0 {
+		names = make([]string, 0, len(globalScope))
+		for name := range globalScope {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+	}
+	for _, name := range names {
+		body := globalScope[name]
+		bodyMap, ok := body.(map[string]any)
+		if !ok || len(bodyMap) == 0 {
+			continue
+		}
+		evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", globalScope, false)
+		if err != nil {
+			return fmt.Errorf("config block %q: %w", name, err)
+		}
+		globalScope[name] = evaluated
+	}
+	return nil
+}
+
 // collectTerraformComponents processes and collects all Terraform components from the provided facet.
 // It evaluates conditions, inputs, and source assignments for each component, collects them into the
-// terraformByID map, and handles merging or replacement based on strategy priorities. If a component
-// has an empty 'when' condition, it inherits the facet-level condition. Returns an error if
-// condition evaluation or input processing fails.
+// terraformByID map, and handles merging or replacement based on strategy priorities. When facetScope
+// is non-nil (evaluated facet config), it is merged into the expression environment so inputs can
+// reference config block values (e.g. talos.controlplanes). If a component has an empty 'when'
+// condition, it inherits the facet-level condition. Returns an error if condition evaluation or
+// input processing fails.
 func (p *BaseBlueprintProcessor) collectTerraformComponents(
 	facet blueprintv1alpha1.Facet,
 	sourceName []string,
 	terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent,
+	facetScope map[string]any,
 ) error {
 	for _, tc := range facet.TerraformComponents {
 		componentWhen := tc.When
@@ -154,28 +251,38 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 		processed := tc
 		processed.When = componentWhen
 		if processed.Inputs != nil {
-			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, facet.Path, false)
+			evaluated, err := p.evaluator.EvaluateMap(processed.Inputs, facet.Path, facetScope, false)
 			if err != nil {
 				return fmt.Errorf("error evaluating inputs for component '%s': %w", processed.GetID(), err)
 			}
-			processed.Inputs = evaluated
+			normalized := make(map[string]any, len(evaluated))
+			for k, v := range evaluated {
+				if m := blueprintv1alpha1.ToMapStringAny(v); m != nil {
+					normalized[k] = m
+				} else if s := blueprintv1alpha1.ToSliceAny(v); s != nil {
+					normalized[k] = s
+				} else {
+					normalized[k] = v
+				}
+			}
+			processed.Inputs = normalized
 		}
 		if len(processed.DependsOn) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path)
+			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating dependsOn for component '%s': %w", processed.GetID(), err)
 			}
 			processed.DependsOn = evaluated
 		}
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
-			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path)
+			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating destroy for component '%s': %w", processed.GetID(), err)
 			}
 			processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
 		}
 		if processed.Parallelism != nil && processed.Parallelism.IsExpr {
-			evaluated, err := p.evaluateIntegerExpression(processed.Parallelism.Expr, facet.Path)
+			evaluated, err := p.evaluateIntegerExpression(processed.Parallelism.Expr, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating parallelism for component '%s': %w", processed.GetID(), err)
 			}
@@ -204,11 +311,13 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 }
 
 // collectKustomizations processes all kustomizations from a facet, evaluating their conditions,
-// substitutions, and source assignments. Kustomizations are collected into the kustomizationByName
-// map with strategy priority handling. Kustomizations with matching names are merged or replaced
-// based on their strategy priority. If a kustomization has an empty 'when' condition, it inherits
-// the facet-level condition. Returns an error if condition evaluation or substitution processing fails.
-func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
+// substitutions, and source assignments. When facetScope is non-nil (evaluated facet config), it is
+// merged into the expression environment so substitutions and other expressions can reference config
+// block values. Kustomizations are collected into the kustomizationByName map with strategy priority
+// handling. Kustomizations with matching names are merged or replaced based on their strategy
+// priority. If a kustomization has an empty 'when' condition, it inherits the facet-level condition.
+// Returns an error if condition evaluation or substitution processing fails.
+func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, facetScope map[string]any) error {
 	for _, k := range facet.Kustomizations {
 		componentWhen := k.When
 		if componentWhen == "" && facet.When != "" {
@@ -226,35 +335,35 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		processed := k
 		processed.When = componentWhen
 		if processed.Substitutions != nil {
-			evaluated, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path)
+			evaluated, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
 			}
 			processed.Substitutions = evaluated
 		}
 		if len(processed.DependsOn) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path)
+			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating dependsOn for kustomization '%s': %w", processed.Name, err)
 			}
 			processed.DependsOn = evaluated
 		}
 		if len(processed.Components) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path)
+			evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating components for kustomization '%s': %w", processed.Name, err)
 			}
 			processed.Components = evaluated
 		}
 		if len(processed.Cleanup) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.Cleanup, facet.Path)
+			evaluated, err := p.evaluateStringSlice(processed.Cleanup, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating cleanup for kustomization '%s': %w", processed.Name, err)
 			}
 			processed.Cleanup = evaluated
 		}
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
-			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path)
+			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating destroy for kustomization '%s': %w", processed.Name, err)
 			}
@@ -675,44 +784,6 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 	return nil
 }
 
-// accumulateStringSlice merges two string slices into a deduplicated, sorted slice.
-func accumulateStringSlice(existing, new []string) []string {
-	if len(existing) == 0 && len(new) == 0 {
-		return nil
-	}
-	itemMap := make(map[string]bool)
-	for _, item := range existing {
-		itemMap[item] = true
-	}
-	for _, item := range new {
-		itemMap[item] = true
-	}
-	result := make([]string, 0, len(itemMap))
-	for item := range itemMap {
-		result = append(result, item)
-	}
-	sort.Strings(result)
-	return result
-}
-
-// accumulateMapKeys combines keys from two maps into a single map with zero values. Used for
-// accumulating removal specifications where only the keys matter (the values are ignored).
-func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
-	if len(m1) == 0 && len(m2) == 0 {
-		return nil
-	}
-	result := make(map[K]V)
-	for k := range m1 {
-		var zero V
-		result[k] = zero
-	}
-	for k := range m2 {
-		var zero V
-		result[k] = zero
-	}
-	return result
-}
-
 // accumulateTerraformRemovals combines removal specifications from two terraform components when
 // both have "remove" strategy. It preserves ID fields (Path, Name, Source) which are used to match
 // the component but are never removed. It accumulates removal specifications only for fields that
@@ -765,7 +836,7 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bo
 	if !evaluator.ContainsExpression(expr) {
 		expr = "${" + expr + "}"
 	}
-	evaluated, err := p.evaluator.Evaluate(expr, path, false)
+	evaluated, err := p.evaluator.Evaluate(expr, path, nil, false)
 	if err != nil {
 		return false, err
 	}
@@ -785,14 +856,15 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bo
 }
 
 // evaluateSubstitutions evaluates a map of string substitutions using the BaseBlueprintProcessor's expression evaluator.
-// Each substitution value is evaluated. If the result is nil (undefined path without ?? fallback), the key is
-// included with an empty string value. If the result contains unresolved deferred expressions, the original
-// expression is preserved for later evaluation. Returns the evaluated substitutions map or an error if
-// evaluation fails for any substitution.
-func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, facetPath string) (map[string]string, error) {
+// When scope is non-nil, it is merged into the evaluation environment (e.g. facet config so expressions
+// can reference talos.controlplanes). If the result is nil (undefined path without ?? fallback), the key
+// is included with an empty string value. If the result contains unresolved deferred expressions, the
+// original expression is preserved for later evaluation. Returns the evaluated substitutions map or an
+// error if evaluation fails for any substitution.
+func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, facetPath string, scope map[string]any) (map[string]string, error) {
 	result := make(map[string]string)
 	for key, value := range subs {
-		evaluated, err := p.evaluator.Evaluate(value, facetPath, false)
+		evaluated, err := p.evaluator.Evaluate(value, facetPath, scope, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
@@ -812,19 +884,20 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 }
 
 // evaluateStringSlice evaluates a slice of strings, allowing expressions in each string.
-// Uses evaluateDeferred=true to disallow deferred expressions (they will error).
-// If an expression evaluates to an array, the array is flattened into the result.
-// Empty strings are preserved so that facet-defined placeholder slots (e.g. conditional component
-// that evaluates to "") remain in the result for consistent ordering and test expectations.
-// Nil values are skipped. Returns the evaluated string slice, or an error if evaluation fails.
-func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath string) ([]string, error) {
+// When scope is non-nil, it is merged into the evaluation environment (e.g. facet config).
+// Uses evaluateDeferred=true to disallow deferred expressions (they will error). If an expression
+// evaluates to an array, the array is flattened into the result. Empty strings are preserved so
+// that facet-defined placeholder slots (e.g. conditional component that evaluates to "") remain in
+// the result for consistent ordering and test expectations. Nil values are skipped. Returns the
+// evaluated string slice, or an error if evaluation fails.
+func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath string, scope map[string]any) ([]string, error) {
 	if len(slice) == 0 {
 		return nil, nil
 	}
 
 	result := make([]string, 0, len(slice))
 	for _, s := range slice {
-		evaluated, err := p.evaluator.Evaluate(s, facetPath, true)
+		evaluated, err := p.evaluator.Evaluate(s, facetPath, scope, true)
 		if err != nil {
 			return nil, err
 		}
@@ -856,14 +929,15 @@ func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath s
 	return result, nil
 }
 
-// evaluateBooleanExpression evaluates a boolean expression string.
-// Uses evaluateDeferred=true to disallow deferred expressions (they will error).
-// Returns the evaluated boolean value, or an error if evaluation fails or the result is not a boolean.
-func (p *BaseBlueprintProcessor) evaluateBooleanExpression(expr string, facetPath string) (*bool, error) {
+// evaluateBooleanExpression evaluates a boolean expression string. When scope is non-nil, it is
+// merged into the evaluation environment (e.g. facet config). Uses evaluateDeferred=true to
+// disallow deferred expressions (they will error). Returns the evaluated boolean value, or an error
+// if evaluation fails or the result is not a boolean.
+func (p *BaseBlueprintProcessor) evaluateBooleanExpression(expr string, facetPath string, scope map[string]any) (*bool, error) {
 	if expr == "" {
 		return nil, nil
 	}
-	evaluated, err := p.evaluator.Evaluate(expr, facetPath, true)
+	evaluated, err := p.evaluator.Evaluate(expr, facetPath, scope, true)
 	if err != nil {
 		return nil, err
 	}
@@ -886,14 +960,15 @@ func (p *BaseBlueprintProcessor) evaluateBooleanExpression(expr string, facetPat
 	return &result, nil
 }
 
-// evaluateIntegerExpression evaluates an integer expression string.
-// Uses evaluateDeferred=true to disallow deferred expressions (they will error).
-// Returns the evaluated integer value, or an error if evaluation fails or the result is not an integer.
-func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPath string) (*int, error) {
+// evaluateIntegerExpression evaluates an integer expression string. When scope is non-nil, it is
+// merged into the evaluation environment (e.g. facet config). Uses evaluateDeferred=true to
+// disallow deferred expressions (they will error). Returns the evaluated integer value, or an error
+// if evaluation fails or the result is not an integer.
+func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPath string, scope map[string]any) (*int, error) {
 	if expr == "" {
 		return nil, nil
 	}
-	evaluated, err := p.evaluator.Evaluate(expr, facetPath, true)
+	evaluated, err := p.evaluator.Evaluate(expr, facetPath, scope, true)
 	if err != nil {
 		return nil, err
 	}
@@ -914,6 +989,87 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 		return nil, fmt.Errorf("expected integer, got %T", evaluated)
 	}
 	return &result, nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// mergeConfigMaps merges facet config blocks into the accumulated global scope.
+// When the same block name exists in both, block bodies are deep-merged recursively (overlay overwrites).
+// Returns a new map; does not mutate inputs.
+func mergeConfigMaps(globalScope map[string]any, facetConfig map[string]any) map[string]any {
+	out := make(map[string]any)
+	maps.Copy(out, globalScope)
+	for name, body := range facetConfig {
+		existing, ok := out[name].(map[string]any)
+		if ok && body != nil {
+			if newBody, ok2 := body.(map[string]any); ok2 {
+				out[name] = deepMergeMap(existing, newBody)
+				continue
+			}
+		}
+		out[name] = body
+	}
+	return out
+}
+
+// deepMergeMap recursively merges overlay into base. Values in overlay overwrite base for the same key.
+// When both values are maps, they are merged recursively. Returns a new map; does not mutate inputs.
+func deepMergeMap(base, overlay map[string]any) map[string]any {
+	result := make(map[string]any, len(base)+len(overlay))
+	for k, v := range base {
+		result[k] = v
+	}
+	for k, v := range overlay {
+		existing, ok := result[k].(map[string]any)
+		if ok && v != nil {
+			if overlayMap, ok2 := v.(map[string]any); ok2 {
+				result[k] = deepMergeMap(existing, overlayMap)
+				continue
+			}
+		}
+		result[k] = v
+	}
+	return result
+}
+
+// accumulateStringSlice merges two string slices into a deduplicated, sorted slice.
+func accumulateStringSlice(existing, new []string) []string {
+	if len(existing) == 0 && len(new) == 0 {
+		return nil
+	}
+	itemMap := make(map[string]bool)
+	for _, item := range existing {
+		itemMap[item] = true
+	}
+	for _, item := range new {
+		itemMap[item] = true
+	}
+	result := make([]string, 0, len(itemMap))
+	for item := range itemMap {
+		result = append(result, item)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// accumulateMapKeys combines keys from two maps into a single map with zero values. Used for
+// accumulating removal specifications where only the keys matter (the values are ignored).
+func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
+	if len(m1) == 0 && len(m2) == 0 {
+		return nil
+	}
+	result := make(map[K]V)
+	for k := range m1 {
+		var zero V
+		result[k] = zero
+	}
+	for k := range m2 {
+		var zero V
+		result[k] = zero
+	}
+	return result
 }
 
 // =============================================================================

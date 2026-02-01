@@ -267,7 +267,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			},
 		}
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return nil, nil
 		}
 
@@ -923,6 +923,261 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			t.Errorf("Expected error about invalid strategy, got: %v", err)
 		}
 	})
+}
+
+// =============================================================================
+// Test Config (facet config blocks and global scope)
+// =============================================================================
+
+func TestProcessor_ProcessFacets_Config(t *testing.T) {
+	t.Run("ResolvesTerraformInputsFromConfigBlock", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"provider": "incus",
+				"cluster": map[string]any{
+					"controlplanes": []any{map[string]any{"hostname": "cp0"}, map[string]any{"hostname": "cp1"}},
+					"workers":       []any{map[string]any{"hostname": "w0"}},
+				},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "talos"},
+				When:     "provider == 'incus'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{
+						Name: "talos",
+						Body: map[string]any{
+							"controlplanes": "${cluster.controlplanes}",
+							"workers":       "${cluster.workers}",
+						},
+					},
+				},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path: "cluster",
+							Inputs: map[string]any{
+								"controlplanes": "${talos.controlplanes}",
+								"workers":       "${talos.workers}",
+							},
+						},
+					},
+				},
+			},
+		}
+		err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		inputs := target.TerraformComponents[0].Inputs
+		cp, ok := inputs["controlplanes"].([]any)
+		if !ok {
+			t.Fatalf("Expected controlplanes to be []any, got %T", inputs["controlplanes"])
+		}
+		if len(cp) != 2 {
+			t.Errorf("Expected 2 controlplanes, got %d", len(cp))
+		}
+		w, ok := inputs["workers"].([]any)
+		if !ok {
+			t.Fatalf("Expected workers to be []any, got %T", inputs["workers"])
+		}
+		if len(w) != 1 {
+			t.Errorf("Expected 1 worker, got %d", len(w))
+		}
+	})
+
+	t.Run("SecondFacetSeesFirstFacetConfig", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "incus", "cluster": map[string]any{"name": "mycluster"}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "config-only"},
+				When:     "provider == 'incus'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "talos", Body: map[string]any{"cluster_name": "${cluster.name}"}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "consumer"},
+				When:     "provider == 'incus'",
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path: "cluster",
+							Inputs: map[string]any{
+								"name": "${talos.cluster_name}",
+							},
+						},
+					},
+				},
+			},
+		}
+		err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		if target.TerraformComponents[0].Inputs["name"] != "mycluster" {
+			t.Errorf("Expected name=mycluster, got %v", target.TerraformComponents[0].Inputs["name"])
+		}
+	})
+
+	t.Run("SkipsConfigBlockWhenWhenFalse", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "docker"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-config"},
+				When:     "provider == 'docker'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "talos", When: "provider == 'incus'", Body: map[string]any{"x": "from-incus"}},
+					{Name: "talos", When: "provider == 'docker'", Body: map[string]any{"x": "from-docker"}},
+				},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:   "cluster",
+							Inputs: map[string]any{"val": "${talos.x}"},
+						},
+					},
+				},
+			},
+		}
+		err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if target.TerraformComponents[0].Inputs["val"] != "from-docker" {
+			t.Errorf("Expected val=from-docker (second block when matched), got %v", target.TerraformComponents[0].Inputs["val"])
+		}
+	})
+
+	t.Run("ProcessesFacetsWithEmptyConfigList", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "incus"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "no-config"},
+				When:     "provider == 'incus'",
+				Config:   nil,
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:   "cluster",
+							Inputs: map[string]any{"x": "y"},
+						},
+					},
+				},
+			},
+		}
+		err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		if target.TerraformComponents[0].Inputs["x"] != "y" {
+			t.Errorf("Expected x=y, got %v", target.TerraformComponents[0].Inputs["x"])
+		}
+	})
+
+	t.Run("ProcessesConfigBlockWithEmptyBody", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "incus"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "empty-body"},
+				When:     "provider == 'incus'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "empty", Body: map[string]any{}},
+				},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:   "cluster",
+							Inputs: map[string]any{"key": "${empty.foo ?? 'default'}"},
+						},
+					},
+				},
+			},
+		}
+		err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		if target.TerraformComponents[0].Inputs["key"] != "default" {
+			t.Errorf("Expected key=default (undefined empty.foo with ?? fallback), got %v", target.TerraformComponents[0].Inputs["key"])
+		}
+	})
+}
+
+func TestProcessor_mergeHelpers(t *testing.T) {
+	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
+		base := map[string]any{"a": 1, "b": map[string]any{"x": 10}}
+		overlay := map[string]any{"b": map[string]any{"y": 20}, "c": 3}
+		out := deepMergeMap(base, overlay)
+		if out["a"].(int) != 1 {
+			t.Errorf("Expected a=1, got %v", out["a"])
+		}
+		if out["c"].(int) != 3 {
+			t.Errorf("Expected c=3, got %v", out["c"])
+		}
+		b := out["b"].(map[string]any)
+		if b["x"].(int) != 10 {
+			t.Errorf("Expected b.x=10, got %v", b["x"])
+		}
+		if b["y"].(int) != 20 {
+			t.Errorf("Expected b.y=20, got %v", b["y"])
+		}
+	})
+
+	t.Run("mergeConfigMapsDeepMergesSameBlockName", func(t *testing.T) {
+		globalScope := map[string]any{
+			"talos": map[string]any{"controlplanes": []any{"cp0"}, "workers": []any{"w0"}},
+		}
+		facetConfig := map[string]any{
+			"talos": map[string]any{"workers": []any{"w1", "w2"}},
+		}
+		out := mergeConfigMaps(globalScope, facetConfig)
+		talos := out["talos"].(map[string]any)
+		if _, ok := talos["controlplanes"]; !ok {
+			t.Error("Expected controlplanes from global to remain")
+		}
+		workers := talos["workers"].([]any)
+		if len(workers) != 2 {
+			t.Errorf("Expected overlay workers to overwrite, got %d", len(workers))
+		}
+	})
+
 }
 
 // =============================================================================
@@ -1939,7 +2194,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		// Given a processor with evaluator that returns unresolved expressions
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key, value := range values {
 				if key == "deferred" {
@@ -1956,7 +2211,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		}
 
 		// When evaluating inputs
-		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", nil, false)
 
 		// Then unresolved expression input should be skipped
 		if err != nil {
@@ -1976,7 +2231,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		// Given a processor with evaluator that returns unresolved expressions for interpolated strings
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key := range values {
 				if key == "deferred" {
@@ -1992,7 +2247,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		}
 
 		// When evaluating inputs
-		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", nil, false)
 
 		// Then unresolved expression input should be skipped
 		if err != nil {
@@ -2007,13 +2262,13 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 	t.Run("HandlesEmptyInputs", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return expression, nil
 		}
 
 		inputs := map[string]any{}
 
-		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2027,7 +2282,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 	t.Run("PreservesNonStringValues", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return expression, nil
 		}
 
@@ -2038,7 +2293,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 			"nested":  map[string]any{"key": "value"},
 		}
 
-		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2060,7 +2315,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 	t.Run("EvaluatesStringExpressions", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key, value := range values {
 				if key == "expression" {
@@ -2077,7 +2332,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 			"expression": "${value}",
 		}
 
-		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2095,7 +2350,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return nil, fmt.Errorf("failed to evaluate 'bad': evaluation failed")
 		}
 
@@ -2103,7 +2358,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 			"bad": "${invalid}",
 		}
 
-		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error on evaluation failure")
@@ -2121,7 +2376,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 	t.Run("HandlesMixedInputs", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key, value := range values {
 				if key == "evaluated" {
@@ -2141,7 +2396,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 			"evaluated": "${value}",
 		}
 
-		result, err := mocks.Evaluator.EvaluateMap(inputs, "", false)
+		result, err := mocks.Evaluator.EvaluateMap(inputs, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2168,7 +2423,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
 		var receivedPath string
-		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mocks.Evaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			receivedPath = featurePath
 			return values, nil
 		}
@@ -2178,7 +2433,7 @@ func TestBaseBlueprintProcessor_evaluateInputs(t *testing.T) {
 		}
 
 		expectedPath := "test/feature/path"
-		_, err := mocks.Evaluator.EvaluateMap(inputs, expectedPath, false)
+		_, err := mocks.Evaluator.EvaluateMap(inputs, expectedPath, nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2194,7 +2449,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 	t.Run("PreservesUnresolvedExpressions", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			expr := expression
 			if strings.HasPrefix(expression, "${") && strings.HasSuffix(expression, "}") {
 				expr = expression[2 : len(expression)-1]
@@ -2220,7 +2475,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
-		result, err := baseProcessor.evaluateSubstitutions(subs, "")
+		result, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2238,7 +2493,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 	t.Run("IncludesEmptyStringForNilResults", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if expression == "${undefined.path}" {
 				return nil, nil
 			}
@@ -2254,7 +2509,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
-		result, err := baseProcessor.evaluateSubstitutions(subs, "")
+		result, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2272,7 +2527,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 	t.Run("CoalesceOperatorReturnsDefaultForUndefinedPath", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if expression == `${addons.observability.admin_password ?? "grafana"}` {
 				return "grafana", nil
 			}
@@ -2287,7 +2542,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
-		result, err := baseProcessor.evaluateSubstitutions(subs, "")
+		result, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2301,7 +2556,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 	t.Run("AllKeysIncludedEvenWhenUndefined", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, featurePath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			switch expression {
 			case "${dns.domain}":
 				return nil, nil
@@ -2324,7 +2579,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
-		result, err := baseProcessor.evaluateSubstitutions(subs, "")
+		result, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2737,7 +2992,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if strings.Contains(expression, "terraform_output") {
 				return nil, &evaluator.DeferredError{Expression: expression, Message: "deferred"}
 			}
@@ -2773,7 +3028,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if strings.Contains(expression, "terraform_output") {
 				return nil, &evaluator.DeferredError{Expression: expression, Message: "deferred"}
 			}
@@ -3630,7 +3885,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
 		// When evaluating empty slice
-		result, err := processor.evaluateStringSlice([]string{}, "")
+		result, err := processor.evaluateStringSlice([]string{}, "", nil)
 
 		// Then should return nil
 		if err != nil {
@@ -3645,11 +3900,11 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return expression, nil
 		}
 
-		result, err := processor.evaluateStringSlice([]string{"value1", "", "value2", ""}, "")
+		result, err := processor.evaluateStringSlice([]string{"value1", "", "value2", ""}, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3667,7 +3922,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if expression == "nil" {
 				return nil, nil
 			}
@@ -3675,7 +3930,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		}
 
 		// When evaluating slice with nil results
-		result, err := processor.evaluateStringSlice([]string{"value1", "nil", "value2"}, "")
+		result, err := processor.evaluateStringSlice([]string{"value1", "nil", "value2"}, "", nil)
 
 		// Then nil results should be filtered
 		if err != nil {
@@ -3691,7 +3946,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if expression == "${array}" {
 				return []any{"item1", "item2", "item3"}, nil
 			}
@@ -3699,7 +3954,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		}
 
 		// When evaluating slice with array expression
-		result, err := processor.evaluateStringSlice([]string{"value1", "${array}", "value2"}, "")
+		result, err := processor.evaluateStringSlice([]string{"value1", "${array}", "value2"}, "", nil)
 
 		// Then array should be flattened
 		if err != nil {
@@ -3718,7 +3973,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if expression == "${number}" {
 				return 42, nil
 			}
@@ -3729,7 +3984,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		}
 
 		// When evaluating slice with non-string expressions
-		result, err := processor.evaluateStringSlice([]string{"value1", "${number}", "${bool}"}, "")
+		result, err := processor.evaluateStringSlice([]string{"value1", "${number}", "${bool}"}, "", nil)
 
 		// Then non-string values should be converted to strings
 		if err != nil {
@@ -3748,7 +4003,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if expression == "${error}" {
 				return nil, fmt.Errorf("evaluation failed")
 			}
@@ -3756,7 +4011,7 @@ func TestProcessor_evaluateStringSlice(t *testing.T) {
 		}
 
 		// When evaluating slice with failing expression
-		result, err := processor.evaluateStringSlice([]string{"value1", "${error}"}, "")
+		result, err := processor.evaluateStringSlice([]string{"value1", "${error}"}, "", nil)
 
 		// Then should return error
 		if err == nil {
@@ -3779,7 +4034,7 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
 		// When evaluating empty expression
-		result, err := processor.evaluateBooleanExpression("", "")
+		result, err := processor.evaluateBooleanExpression("", "", nil)
 
 		// Then should return nil
 		if err != nil {
@@ -3795,12 +4050,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return true, nil
 		}
 
 		// When evaluating boolean expression
-		result, err := processor.evaluateBooleanExpression("enabled == true", "")
+		result, err := processor.evaluateBooleanExpression("enabled == true", "", nil)
 
 		// Then should return true
 		if err != nil {
@@ -3816,12 +4071,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return false, nil
 		}
 
 		// When evaluating boolean expression
-		result, err := processor.evaluateBooleanExpression("enabled == false", "")
+		result, err := processor.evaluateBooleanExpression("enabled == false", "", nil)
 
 		// Then should return false
 		if err != nil {
@@ -3837,12 +4092,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return "42", nil
 		}
 
 		// When evaluating string integer expression
-		result, err := processor.evaluateIntegerExpression("workers", "")
+		result, err := processor.evaluateIntegerExpression("workers", "", nil)
 
 		// Then should return int
 		if err != nil {
@@ -3858,12 +4113,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return "not-a-number", nil
 		}
 
 		// When evaluating invalid string integer expression
-		result, err := processor.evaluateIntegerExpression("workers", "")
+		result, err := processor.evaluateIntegerExpression("workers", "", nil)
 
 		// Then should return error
 		if err == nil {
@@ -3882,12 +4137,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return "true", nil
 		}
 
 		// When evaluating string expression
-		result, err := processor.evaluateBooleanExpression("enabled", "")
+		result, err := processor.evaluateBooleanExpression("enabled", "", nil)
 
 		// Then should return true
 		if err != nil {
@@ -3903,12 +4158,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return "false", nil
 		}
 
 		// When evaluating string expression
-		result, err := processor.evaluateBooleanExpression("enabled", "")
+		result, err := processor.evaluateBooleanExpression("enabled", "", nil)
 
 		// Then should return false
 		if err != nil {
@@ -3924,12 +4179,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return "maybe", nil
 		}
 
 		// When evaluating invalid string expression
-		result, err := processor.evaluateBooleanExpression("enabled", "")
+		result, err := processor.evaluateBooleanExpression("enabled", "", nil)
 
 		// Then should return error
 		if err == nil {
@@ -3948,12 +4203,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return 42, nil
 		}
 
 		// When evaluating invalid type expression
-		result, err := processor.evaluateBooleanExpression("enabled", "")
+		result, err := processor.evaluateBooleanExpression("enabled", "", nil)
 
 		// Then should return error
 		if err == nil {
@@ -3972,12 +4227,12 @@ func TestProcessor_evaluateBooleanExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return nil, fmt.Errorf("evaluation failed")
 		}
 
 		// When evaluating failing expression
-		result, err := processor.evaluateBooleanExpression("invalid", "")
+		result, err := processor.evaluateBooleanExpression("invalid", "", nil)
 
 		// Then should return error
 		if err == nil {
@@ -4000,7 +4255,7 @@ func TestProcessor_evaluateIntegerExpression(t *testing.T) {
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
 		// When evaluating empty expression
-		result, err := processor.evaluateIntegerExpression("", "")
+		result, err := processor.evaluateIntegerExpression("", "", nil)
 
 		// Then should return nil
 		if err != nil {
@@ -4016,12 +4271,12 @@ func TestProcessor_evaluateIntegerExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return 42, nil
 		}
 
 		// When evaluating int expression
-		result, err := processor.evaluateIntegerExpression("workers", "")
+		result, err := processor.evaluateIntegerExpression("workers", "", nil)
 
 		// Then should return int
 		if err != nil {
@@ -4037,12 +4292,12 @@ func TestProcessor_evaluateIntegerExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return int64(42), nil
 		}
 
 		// When evaluating int64 expression
-		result, err := processor.evaluateIntegerExpression("workers", "")
+		result, err := processor.evaluateIntegerExpression("workers", "", nil)
 
 		// Then should return int
 		if err != nil {
@@ -4058,12 +4313,12 @@ func TestProcessor_evaluateIntegerExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return 42.5, nil
 		}
 
 		// When evaluating float64 expression
-		result, err := processor.evaluateIntegerExpression("workers", "")
+		result, err := processor.evaluateIntegerExpression("workers", "", nil)
 
 		// Then should return int (truncated)
 		if err != nil {
@@ -4079,12 +4334,12 @@ func TestProcessor_evaluateIntegerExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return "not a number", nil
 		}
 
 		// When evaluating invalid type expression
-		result, err := processor.evaluateIntegerExpression("workers", "")
+		result, err := processor.evaluateIntegerExpression("workers", "", nil)
 
 		// Then should return error
 		if err == nil {
@@ -4103,12 +4358,12 @@ func TestProcessor_evaluateIntegerExpression(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mocks.Evaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return nil, fmt.Errorf("evaluation failed")
 		}
 
 		// When evaluating failing expression
-		result, err := processor.evaluateIntegerExpression("invalid", "")
+		result, err := processor.evaluateIntegerExpression("invalid", "", nil)
 
 		// Then should return error
 		if err == nil {

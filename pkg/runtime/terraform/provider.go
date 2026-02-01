@@ -439,7 +439,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 		if component != nil && component.Inputs != nil && len(component.Inputs) > 0 {
 			for key, value := range component.Inputs {
 				if evaluator.ContainsExpression(value) {
-					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", true)
+					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", nil, true)
 					if err != nil {
 						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
 					}

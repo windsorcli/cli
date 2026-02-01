@@ -2,6 +2,25 @@
 // +groupName=blueprints.windsorcli.dev
 package v1alpha1
 
+import "maps"
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// ConfigBlock represents a named, optionally conditional configuration block in a facet.
+// The block has a name (exposed at scope root, e.g. talos.controlplanes), an optional when
+// expression, and a body of key-value pairs evaluated in blueprint context. References
+// from terraform.inputs and kustomize.substitutions use <name>.<key> (same style as context: cluster.*, network.*).
+type ConfigBlock struct {
+	// Name identifies the block; exposed at scope root so expressions use name.key (e.g. talos.controlplanes).
+	Name string `yaml:"name"`
+	// When is an expression that determines if this config block is evaluated; if empty, always evaluated when facet is active.
+	When string `yaml:"when,omitempty"`
+	// Body is the block content (all keys other than name and when); values may contain expressions.
+	Body map[string]any `yaml:"-"`
+}
+
 // Facet represents a conditional blueprint fragment that can be merged into a base blueprint.
 // Facets enable modular composition of blueprints based on user configuration values.
 // Facets inherit Repository and Sources from the base blueprint they are merged into.
@@ -23,6 +42,10 @@ type Facet struct {
 	// The expression is evaluated against user configuration values.
 	// Examples: "provider == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
 	When string `yaml:"when,omitempty"`
+
+	// Config is a list of named configuration blocks evaluated in blueprint context and exposed at scope root.
+	// Terraform inputs and kustomize substitutions reference <name>.<key> (e.g. talos.controlplanes), like context (cluster.*, network.*).
+	Config []ConfigBlock `yaml:"config,omitempty"`
 
 	// TerraformComponents are Terraform modules in the facet.
 	TerraformComponents []ConditionalTerraformComponent `yaml:"terraform,omitempty"`
@@ -81,6 +104,51 @@ type ConditionalKustomization struct {
 	Priority int `yaml:"priority,omitempty"`
 }
 
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// UnmarshalYAML implements custom unmarshaling so Body receives all keys except name and when.
+func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
+	var raw map[string]any
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+	if n, ok := raw["name"]; ok {
+		c.Name, _ = n.(string)
+	}
+	if w, ok := raw["when"]; ok {
+		c.When, _ = w.(string)
+	}
+	delete(raw, "name")
+	delete(raw, "when")
+	c.Body = raw
+	return nil
+}
+
+// MarshalYAML implements custom marshaling so name, when, and Body keys are written.
+func (c *ConfigBlock) MarshalYAML() (any, error) {
+	out := make(map[string]any)
+	if c.Name != "" {
+		out["name"] = c.Name
+	}
+	if c.When != "" {
+		out["when"] = c.When
+	}
+	maps.Copy(out, c.Body)
+	return out, nil
+}
+
+// DeepCopy creates a deep copy of the ConfigBlock object.
+func (c *ConfigBlock) DeepCopy() *ConfigBlock {
+	if c == nil {
+		return nil
+	}
+	bodyCopy := make(map[string]any, len(c.Body))
+	maps.Copy(bodyCopy, c.Body)
+	return &ConfigBlock{Name: c.Name, When: c.When, Body: bodyCopy}
+}
+
 // DeepCopy creates a deep copy of the Facet object.
 func (f *Facet) DeepCopy() *Facet {
 	if f == nil {
@@ -102,12 +170,18 @@ func (f *Facet) DeepCopy() *Facet {
 		kustomizationsCopy[i] = *kustomization.DeepCopy()
 	}
 
+	configCopy := make([]ConfigBlock, len(f.Config))
+	for i, block := range f.Config {
+		configCopy[i] = *block.DeepCopy()
+	}
+
 	return &Facet{
 		Kind:                f.Kind,
 		ApiVersion:          f.ApiVersion,
 		Metadata:            metadataCopy,
 		Path:                f.Path,
 		When:                f.When,
+		Config:              configCopy,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,
 	}

@@ -168,7 +168,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a simple expression
-		result, err := evaluator.Evaluate("${value}", "", false)
+		result, err := evaluator.Evaluate("${value}", "", nil, false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -192,7 +192,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an arithmetic expression
-		result, err := evaluator.Evaluate("${a + b}", "", false)
+		result, err := evaluator.Evaluate("${a + b}", "", nil, false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -220,7 +220,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a nested map access expression
-		result, err := evaluator.Evaluate("${cluster.workers.count}", "", false)
+		result, err := evaluator.Evaluate("${cluster.workers.count}", "", nil, false)
 
 		// Then the result should be correct
 		if err != nil {
@@ -237,7 +237,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an empty string
-		result, err := evaluator.Evaluate("", "", false)
+		result, err := evaluator.Evaluate("", "", nil, false)
 
 		// Then it should be returned as-is
 		if err != nil {
@@ -254,7 +254,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an empty expression
-		_, err := evaluator.Evaluate("${}", "", false)
+		_, err := evaluator.Evaluate("${}", "", nil, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -271,7 +271,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an invalid expression
-		_, err := evaluator.Evaluate("${invalid +}", "", false)
+		_, err := evaluator.Evaluate("${invalid +}", "", nil, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -284,7 +284,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an expression that uses project_root
-		result, err := evaluator.Evaluate("${project_root}", "", false)
+		result, err := evaluator.Evaluate("${project_root}", "", nil, false)
 
 		// Then project_root should be available
 		if err != nil {
@@ -305,7 +305,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an expression that uses context_path
-		result, err := evaluator.Evaluate("${context_path}", "", false)
+		result, err := evaluator.Evaluate("${context_path}", "", nil, false)
 
 		// Then context_path should be available
 		if err != nil {
@@ -328,7 +328,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			return map[string]any{}, nil
 		}
 		// When evaluating an expression
-		result, err := evaluator.Evaluate("value", "", false)
+		result, err := evaluator.Evaluate("value", "", nil, false)
 
 		// Then evaluation should return the original string (no ${} means no evaluation)
 		if err != nil {
@@ -351,7 +351,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an equality expression
-		result, err := evaluator.Evaluate("${provider == 'aws'}", "", false)
+		result, err := evaluator.Evaluate("${provider == 'aws'}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -374,7 +374,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an inequality expression
-		result, err := evaluator.Evaluate("${provider != 'gcp'}", "", false)
+		result, err := evaluator.Evaluate("${provider != 'gcp'}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -400,7 +400,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a logical AND expression
-		result, err := evaluator.Evaluate("${provider == 'generic' && observability.enabled == true}", "", false)
+		result, err := evaluator.Evaluate("${provider == 'generic' && observability.enabled == true}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -423,7 +423,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a logical OR expression
-		result, err := evaluator.Evaluate("${provider == 'aws' || provider == 'azure'}", "", false)
+		result, err := evaluator.Evaluate("${provider == 'aws' || provider == 'azure'}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -453,7 +453,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an expression with parentheses
-		result, err := evaluator.Evaluate("${provider == 'generic' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)}", "", false)
+		result, err := evaluator.Evaluate("${provider == 'generic' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {
@@ -477,7 +477,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating a string value expression
-		result, err := evaluator.Evaluate("${provider}", "", false)
+		result, err := evaluator.Evaluate("${provider}", "", nil, false)
 
 		// Then the result should be the string value
 		if err != nil {
@@ -505,7 +505,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an integer value expression
-		result, err := evaluator.Evaluate("${cluster.workers.count}", "", false)
+		result, err := evaluator.Evaluate("${cluster.workers.count}", "", nil, false)
 
 		// Then the result should be the integer value
 		if err != nil {
@@ -533,7 +533,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an array access expression
-		result, err := evaluator.Evaluate("${cluster.workers.instance_types}", "", false)
+		result, err := evaluator.Evaluate("${cluster.workers.instance_types}", "", nil, false)
 
 		// Then the result should be the array
 		if err != nil {
@@ -563,7 +563,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${cluster.undefined}", "", false)
+		result, err := evaluator.Evaluate("${cluster.undefined}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -586,7 +586,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("prefix-${cluster.undefined}-suffix", "", false)
+		result, err := evaluator.Evaluate("prefix-${cluster.undefined}-suffix", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -606,7 +606,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${addons.database.enabled}", "", false)
+		result, err := evaluator.Evaluate("${addons.database.enabled}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error for missing nested property, got: %v", err)
@@ -628,7 +628,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${config.level1.level2.level3.value}", "", false)
+		result, err := evaluator.Evaluate("${config.level1.level2.level3.value}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error for deeply nested missing property, got: %v", err)
@@ -652,7 +652,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${services.database.connection.host}", "", false)
+		result, err := evaluator.Evaluate("${services.database.connection.host}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error when intermediate property is missing, got: %v", err)
@@ -672,7 +672,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${settings.database.port ?? 5432}", "", false)
+		result, err := evaluator.Evaluate("${settings.database.port ?? 5432}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error with coalesce operator, got: %v", err)
@@ -696,7 +696,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${settings.database.port ?? 5432}", "", false)
+		result, err := evaluator.Evaluate("${settings.database.port ?? 5432}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error with coalesce operator, got: %v", err)
@@ -714,7 +714,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			return map[string]any{}, nil
 		}
 
-		result, err := evaluator.Evaluate("${nonexistent.nested.property}", "", false)
+		result, err := evaluator.Evaluate("${nonexistent.nested.property}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error when root property is missing, got: %v", err)
@@ -732,7 +732,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			return map[string]any{}, nil
 		}
 
-		result, err := evaluator.Evaluate("${nonexistent.nested.property ?? \"default\"}", "", false)
+		result, err := evaluator.Evaluate("${nonexistent.nested.property ?? \"default\"}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error with coalesce on missing root property, got: %v", err)
@@ -752,7 +752,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate("${features.experimental.enabled ?? false}", "", false)
+		result, err := evaluator.Evaluate("${features.experimental.enabled ?? false}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error with boolean coalesce, got: %v", err)
@@ -770,7 +770,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			return map[string]any{}, nil
 		}
 
-		result, err := evaluator.Evaluate("${nonexistent ?? {}}", "", false)
+		result, err := evaluator.Evaluate("${nonexistent ?? {}}", "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error (brace-balanced extraction), got: %v", err)
@@ -787,7 +787,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 	t.Run("ReturnsErrorForUnclosedExpression", func(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
-		_, err := evaluator.Evaluate("${unclosed", "", false)
+		_, err := evaluator.Evaluate("${unclosed", "", nil, false)
 
 		if err == nil {
 			t.Error("Expected error for unclosed expression")
@@ -808,7 +808,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 			}, nil
 		}
 
-		result, err := evaluator.Evaluate(" ${ref} ", "", true)
+		result, err := evaluator.Evaluate(" ${ref} ", "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -823,7 +823,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 	t.Run("HandlesEmptyMap", func(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
-		result, err := evaluator.EvaluateMap(map[string]any{}, "", false)
+		result, err := evaluator.EvaluateMap(map[string]any{}, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -844,7 +844,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"nested":  map[string]any{"key": "value"},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -881,7 +881,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"expression": "${value}",
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -898,7 +898,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("SkipsUnresolvedExpressionsWhenEvaluateDeferredIsFalse", func(t *testing.T) {
 		mockEvaluator := NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key, value := range values {
 				if key == "deferred" {
@@ -914,7 +914,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"normal":   "value",
 		}
 
-		result, err := mockEvaluator.EvaluateMap(values, "", false)
+		result, err := mockEvaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -931,7 +931,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("IncludesUnresolvedExpressionsWhenEvaluateDeferredIsTrue", func(t *testing.T) {
 		mockEvaluator := NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return values, nil
 		}
 
@@ -940,7 +940,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"normal":   "value",
 		}
 
-		result, err := mockEvaluator.EvaluateMap(values, "", true)
+		result, err := mockEvaluator.EvaluateMap(values, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -957,7 +957,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
 		mockEvaluator := NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return nil, errors.New("failed to evaluate 'bad': evaluation failed")
 		}
 
@@ -965,7 +965,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"bad": "${invalid}",
 		}
 
-		result, err := mockEvaluator.EvaluateMap(values, "", false)
+		result, err := mockEvaluator.EvaluateMap(values, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error on evaluation failure")
@@ -997,7 +997,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"evaluated": "${value}",
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1035,7 +1035,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1067,7 +1067,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1101,7 +1101,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1127,7 +1127,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1156,7 +1156,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		_, err := evaluator.EvaluateMap(values, "", false)
+		_, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid expression")
@@ -1172,7 +1172,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			},
 		}
 
-		_, err := evaluator.EvaluateMap(values, "", false)
+		_, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err == nil {
 			t.Fatal("Expected error for invalid expression")
@@ -1187,7 +1187,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"bool":   true,
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1209,7 +1209,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			"deferred": "plain_string",
 		}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1237,7 +1237,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating the map (nested expressions are re-evaluated)
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1270,7 +1270,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating the map (nested expressions are re-evaluated)
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -1295,7 +1295,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 
 		values := map[string]any{"x": "${foo}"}
 
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1322,7 +1322,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		result, err := evaluator.EvaluateMap(values, "", true)
+		result, err := evaluator.EvaluateMap(values, "", nil, true)
 
 		// Then nested values should be evaluated
 		if err != nil {
@@ -1357,7 +1357,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		result, err := evaluator.EvaluateMap(values, "", true)
+		result, err := evaluator.EvaluateMap(values, "", nil, true)
 
 		// Then array values should be evaluated
 		if err != nil {
@@ -1383,7 +1383,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		_, err := evaluator.EvaluateMap(values, "", true)
+		_, err := evaluator.EvaluateMap(values, "", nil, true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1402,7 +1402,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		_, err := evaluator.EvaluateMap(values, "", true)
+		_, err := evaluator.EvaluateMap(values, "", nil, true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1421,7 +1421,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		_, err := evaluator.EvaluateMap(values, "", true)
+		_, err := evaluator.EvaluateMap(values, "", nil, true)
 
 		// Then it should return an error
 		if err == nil {
@@ -1444,7 +1444,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=true
-		result, err := evaluator.EvaluateMap(values, "", true)
+		result, err := evaluator.EvaluateMap(values, "", nil, true)
 
 		// Then the value should be evaluated
 		if err != nil {
@@ -1465,7 +1465,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=false
-		_, err := evaluator.EvaluateMap(values, "", false)
+		_, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -1484,7 +1484,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=false
-		_, err := evaluator.EvaluateMap(values, "", false)
+		_, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -1503,7 +1503,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating with evaluateDeferred=false
-		_, err := evaluator.EvaluateMap(values, "", false)
+		_, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		// Then it should return an error
 		if err == nil {
@@ -1515,7 +1515,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		// Given a mock evaluator that captures feature path
 		mockEvaluator := NewMockExpressionEvaluator()
 		var receivedPath string
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			receivedPath = facetPath
 			return values, nil
 		}
@@ -1527,7 +1527,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		expectedPath := "test/feature/path"
 
 		// When evaluating with a feature path
-		_, err := mockEvaluator.EvaluateMap(values, expectedPath, false)
+		_, err := mockEvaluator.EvaluateMap(values, expectedPath, nil, false)
 
 		// Then the feature path should be passed correctly
 		if err != nil {
@@ -1554,7 +1554,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating interpolated strings
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		// Then the interpolation should work
 		if err != nil {
@@ -1583,7 +1583,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating expressions with complex types
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		// Then complex types should be evaluated correctly
 		if err != nil {
@@ -1620,7 +1620,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		input := "prefix-${terraform_output('a','b')}-suffix"
 
 		// When evaluating with deferred expression
-		result, err := evaluator.Evaluate(input, "", false)
+		result, err := evaluator.Evaluate(input, "", nil, false)
 
 		// Then the original input should be preserved
 		if err != nil {
@@ -1657,7 +1657,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating the map
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		// Then deferred values should be preserved and normal values evaluated
 		if err != nil {
@@ -1686,7 +1686,7 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 
 		// When evaluating the map
-		result, err := evaluator.EvaluateMap(values, "", false)
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
 
 		// Then empty strings should be preserved
 		if err != nil {
@@ -1702,6 +1702,75 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 	})
 
+}
+
+func TestExpressionEvaluator_Evaluate_Scope(t *testing.T) {
+	t.Run("ResolvesExpressionFromScope", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		scope := map[string]any{
+			"talos": map[string]any{
+				"controlplanes": []any{map[string]any{"hostname": "cp0"}},
+			},
+		}
+		result, err := evaluator.Evaluate("${talos.controlplanes}", "", scope, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		cp, ok := result.([]any)
+		if !ok || len(cp) != 1 {
+			t.Errorf("Expected talos.controlplanes to resolve to 1-item slice, got %T %v", result, result)
+		}
+	})
+
+	t.Run("ReturnsNilScopeUnchangedBehavior", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"value": 42}, nil
+		}
+		result, err := evaluator.Evaluate("${value}", "", nil, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != 42 {
+			t.Errorf("Expected 42 from config context when scope is nil, got %v", result)
+		}
+	})
+}
+
+func TestExpressionEvaluator_EvaluateMap_Scope(t *testing.T) {
+	t.Run("ResolvesMapValuesFromScope", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		scope := map[string]any{
+			"locals": map[string]any{"cluster_name": "mycluster"},
+		}
+		values := map[string]any{
+			"name": "${locals.cluster_name}",
+		}
+		result, err := evaluator.EvaluateMap(values, "", scope, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result["name"] != "mycluster" {
+			t.Errorf("Expected name=mycluster, got %v", result["name"])
+		}
+	})
+
+	t.Run("NilScopeBehavesLikeEvaluateMap", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"x": 10}, nil
+		}
+		values := map[string]any{"a": "${x}"}
+		result, err := evaluator.EvaluateMap(values, "", nil, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result["a"] != 10 {
+			t.Errorf("Expected a=10 from config when scope is nil, got %v", result["a"])
+		}
+	})
 }
 
 func TestContainsExpression(t *testing.T) {

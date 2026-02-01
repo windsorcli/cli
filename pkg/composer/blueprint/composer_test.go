@@ -1238,7 +1238,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 	t.Run("ErrorOnEvaluateMapFailure", func(t *testing.T) {
 		mocks := setupComposerMocks(t)
 		mockEval := evaluator.NewMockExpressionEvaluator()
-		mockEval.EvaluateMapFunc = func(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEval.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return nil, errors.New("evaluate map failed")
 		}
 		mocks.Runtime.Evaluator = mockEval
