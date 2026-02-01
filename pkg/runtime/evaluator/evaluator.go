@@ -558,7 +558,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 				return nil, err
 			}
 			if !evaluateDeferred {
-				if ContainsExpression(evaluated) {
+				if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
 					result[k] = val
 					continue
 				}
@@ -581,7 +581,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 				return nil, err
 			}
 			if !evaluateDeferred {
-				if ContainsExpression(evaluated) {
+				if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
 					result = append(result, item)
 					continue
 				}
