@@ -2732,6 +2732,28 @@ terraform:
 		}
 	})
 
+	t.Run("IncludesBaseContextAndProjectRootVars", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		mocks.ConfigHandler.GetContextFunc = func() string {
+			return "my-context"
+		}
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/my/project", nil
+		}
+
+		envVars, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if envVars["TF_VAR_context"] != "my-context" {
+			t.Errorf("Expected TF_VAR_context to be 'my-context', got %q", envVars["TF_VAR_context"])
+		}
+		if envVars["TF_VAR_project_root"] != "/my/project" {
+			t.Errorf("Expected TF_VAR_project_root to be '/my/project', got %q", envVars["TF_VAR_project_root"])
+		}
+	})
+
 	t.Run("HandlesComponentNotFoundWithProjectRoot", func(t *testing.T) {
 		// Given a provider with project root and nonexistent component
 		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})

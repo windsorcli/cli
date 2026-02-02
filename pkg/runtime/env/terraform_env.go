@@ -123,6 +123,8 @@ func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 		"TF_CLI_ARGS_apply",
 		"TF_CLI_ARGS_import",
 		"TF_CLI_ARGS_destroy",
+		"TF_VAR_context",
+		"TF_VAR_project_root",
 		"TF_VAR_context_path",
 		"TF_VAR_context_id",
 		"TF_VAR_os_type",

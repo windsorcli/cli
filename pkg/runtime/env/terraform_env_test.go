@@ -229,6 +229,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
+			"TF_VAR_context":      mocks.ConfigHandler.GetContext(),
+			"TF_VAR_project_root": filepath.ToSlash(projectRoot),
 			"TF_VAR_context_path": filepath.ToSlash(configRoot),
 			"TF_VAR_os_type":      osType,
 		}
@@ -491,6 +493,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
+			"TF_VAR_context":      mocks.ConfigHandler.GetContext(),
+			"TF_VAR_project_root": filepath.ToSlash(projectRoot),
 			"TF_VAR_context_path": filepath.ToSlash(configRoot),
 			"TF_VAR_os_type":      "windows",
 		}

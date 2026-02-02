@@ -293,12 +293,8 @@ func (e *expressionEvaluator) evaluateExpression(expression string, facetPath st
 }
 
 // getConfig retrieves the current configuration context as a map of string keys to values.
-// If the config handler is not set or does not provide a configuration, an empty map is returned.
-// This method never returns a nil map, ensuring callers always receive a usable configuration structure.
+// If GetContextValues returns nil, an empty map is returned. Never returns a nil map.
 func (e *expressionEvaluator) getConfig() map[string]any {
-	if e.configHandler == nil {
-		return make(map[string]any)
-	}
 	config, _ := e.configHandler.GetContextValues()
 	if config == nil {
 		return make(map[string]any)
@@ -307,20 +303,22 @@ func (e *expressionEvaluator) getConfig() map[string]any {
 }
 
 // enrichConfig enriches the provided config map with Windsor runtime-specific values.
-// It adds "project_root" if the evaluator has a project root set, and "context_path"
-// if the config handler can provide one. All paths are normalized to use forward slashes
-// for cross-platform consistency. The enriched config is used to make runtime context
-// available in expression evaluation without requiring explicit configuration.
+// It adds "context" (current context name), "context_path" if the config handler can provide one,
+// "project_root" and "projectName" (basename of project root) when the evaluator has a project root set.
+// All paths are normalized to use forward slashes for cross-platform consistency. The enriched config
+// is used to make runtime context available in expression evaluation and Jsonnet (std.extVar("context"))
+// without requiring explicit configuration.
 func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any {
 	enrichedConfig := make(map[string]any)
 	maps.Copy(enrichedConfig, config)
+
+	enrichedConfig["context"] = e.configHandler.GetContext()
+	if configRoot, err := e.configHandler.GetConfigRoot(); err == nil {
+		enrichedConfig["context_path"] = strings.ReplaceAll(configRoot, "\\", "/")
+	}
 	if e.projectRoot != "" {
 		enrichedConfig["project_root"] = strings.ReplaceAll(e.projectRoot, "\\", "/")
-	}
-	if e.configHandler != nil {
-		if configRoot, err := e.configHandler.GetConfigRoot(); err == nil {
-			enrichedConfig["context_path"] = strings.ReplaceAll(configRoot, "\\", "/")
-		}
+		enrichedConfig["projectName"] = e.Shims.FilepathBase(e.projectRoot)
 	}
 	return enrichedConfig
 }
@@ -663,9 +661,7 @@ func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map
 		}
 	}
 
-	enrichedConfig := e.buildContextMap(config)
-
-	configJSON, err := e.Shims.JsonMarshal(enrichedConfig)
+	configJSON, err := e.Shims.JsonMarshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config to JSON: %w", err)
 	}
@@ -693,27 +689,6 @@ func (e *expressionEvaluator) evaluateJsonnetFunction(pathArg string, config map
 	}
 
 	return value, nil
-}
-
-// buildContextMap enriches the config map with context information for Jsonnet evaluation.
-// It adds "name" from the config handler's current context and "projectName" derived from
-// the project root directory. These fields provide consistency with main template processing
-// and enable Jsonnet code to access context and project information. Returns a new map
-// with the original config plus the context fields.
-func (e *expressionEvaluator) buildContextMap(config map[string]any) map[string]any {
-	contextMap := make(map[string]any)
-	maps.Copy(contextMap, config)
-
-	if e.configHandler != nil {
-		contextName := e.configHandler.GetContext()
-		contextMap["name"] = contextName
-	}
-
-	if e.projectRoot != "" {
-		contextMap["projectName"] = e.Shims.FilepathBase(e.projectRoot)
-	}
-
-	return contextMap
 }
 
 // buildHelperLibrary returns a Jsonnet library string containing helper functions.
