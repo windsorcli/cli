@@ -231,6 +231,27 @@ func TestExpressionEvaluator_enrichConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("EnrichesConfigWithContext", func(t *testing.T) {
+		// Given an evaluator with config handler that returns context name
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextFunc = func() string {
+			return "test-context"
+		}
+
+		// When evaluating an expression (which enriches config)
+		result, err := evaluator.Evaluate("${context}", "", nil, false)
+
+		// Then context should be in enriched config
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result != "test-context" {
+			t.Errorf("Expected context to be 'test-context', got %v", result)
+		}
+	})
+
 	t.Run("EnrichesConfigWithContextPath", func(t *testing.T) {
 		// Given an evaluator with config handler
 		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
@@ -780,8 +801,7 @@ func TestExpressionEvaluator_buildContextMap(t *testing.T) {
 		}
 	})
 
-	t.Run("BuildsContextMapWithProjectName", func(t *testing.T) {
-		// Given an evaluator with project root
+	t.Run("BuildsContextMapWithContextExtVar", func(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 		tmpDir := t.TempDir()
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
@@ -790,10 +810,7 @@ func TestExpressionEvaluator_buildContextMap(t *testing.T) {
 
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
-		// When evaluating jsonnet
 		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
-
-		// Then it should work (projectName is set in context map)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}

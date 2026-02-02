@@ -666,13 +666,18 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 // getBaseEnvVarsForComponent returns the base environment variables for a Terraform component
 // without TF_VAR outputs from other components. This is the core set of env vars needed
 // for any Terraform operation on the component, including TF_DATA_DIR, TF_CLI_ARGS_* for all
-// Terraform commands, and TF_VAR_context_* variables that provide context information to Terraform.
+// Terraform commands, TF_VAR_context (context name), TF_VAR_project_root (project root path),
+// and TF_VAR_context_* variables that provide context information to Terraform.
 // These variables ensure Terraform can locate its state, use the correct backend configuration,
 // and have access to context-specific information during execution.
 func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformArgs) (map[string]string, error) {
 	configRoot, err := p.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error getting config root: %w", err)
+	}
+	projectRoot, err := p.shell.GetProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error getting project root: %w", err)
 	}
 
 	envVars := make(map[string]string)
@@ -683,6 +688,8 @@ func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformA
 	envVars["TF_CLI_ARGS_refresh"] = p.FormatArgsForEnv(terraformArgs.RefreshArgs)
 	envVars["TF_CLI_ARGS_import"] = p.FormatArgsForEnv(terraformArgs.ImportArgs)
 	envVars["TF_CLI_ARGS_destroy"] = p.FormatArgsForEnv(terraformArgs.DestroyArgs)
+	envVars["TF_VAR_context"] = p.configHandler.GetContext()
+	envVars["TF_VAR_project_root"] = filepath.ToSlash(projectRoot)
 	envVars["TF_VAR_context_path"] = filepath.ToSlash(configRoot)
 	envVars["TF_VAR_context_id"] = p.configHandler.GetString("id", "")
 
