@@ -90,8 +90,8 @@ func (e *DeferredError) Error() string {
 type ExpressionEvaluator interface {
 	HelperRegistrar
 	SetTemplateData(templateData map[string][]byte)
-	Evaluate(expression string, facetPath string, evaluateDeferred bool) (any, error)
-	EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error)
+	Evaluate(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error)
+	EvaluateMap(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error)
 }
 
 // HelperRegistrar defines the interface for registering custom helpers with the evaluator.
@@ -153,24 +153,29 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 // (${...}) expressions, arithmetic operations, and complex object types. The evaluation will process dynamic
 // file and jsonnet loading as needed, and can defer unresolved expressions when evaluateDeferred is false.
 // The facetPath parameter is used for relative expression resolution, and evaluateDeferred controls
-// whether to process unresolved expressions immediately. Returns the fully evaluated value, or an error if
-// evaluation fails or the input is malformed. Empty strings are returned as-is. If the result is nil (such
-// as from an undefined variable without a ?? fallback), nil is returned for complete expressions or an empty
-// string is used for interpolation.
-func (e *expressionEvaluator) Evaluate(s string, facetPath string, evaluateDeferred bool) (any, error) {
-	return e.evaluate(s, facetPath, nil, evaluateDeferred)
+// whether to process unresolved expressions immediately. When scope is non-nil, it is merged into the
+// evaluation environment (e.g. facet config so expressions can reference talos.controlplanes). Returns the
+// fully evaluated value, or an error if evaluation fails or the input is malformed. Empty strings are returned
+// as-is. If the result is nil (such as from an undefined variable without a ?? fallback), nil is returned for
+// complete expressions or an empty string is used for interpolation.
+func (e *expressionEvaluator) Evaluate(s string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+	return e.evaluate(s, facetPath, scope, evaluateDeferred)
 }
 
-// EvaluateMap evaluates a map of values using this expression evaluator.
-// Each string value is evaluated as an expression; maps and arrays are recursively evaluated.
-// When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
-// is preserved in the result. The facetPath parameter is used for context during evaluation.
-// Returns a new map containing evaluated values (or original values if deferred), or an error
-// if evaluation fails with a non-deferred error.
-func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath string, evaluateDeferred bool) (map[string]any, error) {
+// EvaluateMap evaluates a map of values using this expression evaluator. Each string value is evaluated as an
+// expression; maps and arrays are recursively evaluated. When evaluateDeferred is false and evaluation fails
+// with a DeferredError, the original value is preserved in the result. The facetPath parameter is used for
+// context during evaluation. When scope is non-nil, it is merged into the evaluation environment. Returns a
+// new map containing evaluated values (or original values if deferred), or an error if evaluation fails with
+// a non-deferred error.
+func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+	return e.evaluateMap(values, facetPath, scope, evaluateDeferred)
+}
+
+func (e *expressionEvaluator) evaluateMap(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 	result := make(map[string]any)
 	for key, value := range values {
-		evaluated, err := e.evaluateValue(value, facetPath, evaluateDeferred)
+		evaluated, err := e.evaluateValue(value, facetPath, evaluateDeferred, scope)
 		if err != nil {
 			if !evaluateDeferred {
 				var deferredErr *DeferredError
@@ -332,6 +337,30 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 	opts := []expr.Option{
 		expr.AsAny(),
 		expr.Patch(&optionalChainPatcher{}),
+		expr.Function(
+			"string",
+			func(params ...any) (any, error) {
+				if len(params) != 1 {
+					return nil, fmt.Errorf("string() requires exactly 1 argument, got %d", len(params))
+				}
+				v := params[0]
+				if v == nil {
+					return "", nil
+				}
+				rv := reflect.ValueOf(v)
+				switch rv.Kind() {
+				case reflect.Map, reflect.Slice:
+					yamlData, err := e.Shims.YamlMarshal(v)
+					if err != nil {
+						return nil, fmt.Errorf("string() failed to marshal map/slice to YAML: %w", err)
+					}
+					return strings.TrimSpace(string(yamlData)), nil
+				default:
+					return fmt.Sprint(v), nil
+				}
+			},
+			new(func(any) string),
+		),
 		expr.Function(
 			"jsonnet",
 			func(params ...any) (any, error) {
@@ -527,12 +556,13 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 
 // evaluateValue recursively evaluates a value, handling strings, maps, and arrays.
 // When evaluateDeferred is false and evaluation fails with a DeferredError, the original value
-// is preserved. This ensures that entire input values containing deferred expressions are
-// preserved rather than being partially evaluated or skipped.
-func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluateDeferred bool) (any, error) {
+// is preserved. When scope is non-nil, it is merged into the expression environment. This
+// ensures that entire input values containing deferred expressions are preserved rather than
+// being partially evaluated or skipped.
+func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluateDeferred bool, scope map[string]any) (any, error) {
 	switch v := value.(type) {
 	case string:
-		evaluated, err := e.Evaluate(v, facetPath, evaluateDeferred)
+		evaluated, err := e.evaluate(v, facetPath, scope, evaluateDeferred)
 		if err != nil {
 			if !evaluateDeferred {
 				var deferredErr *DeferredError
@@ -546,7 +576,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 	case map[string]any:
 		result := make(map[string]any)
 		for k, val := range v {
-			evaluated, err := e.evaluateValue(val, facetPath, evaluateDeferred)
+			evaluated, err := e.evaluateValue(val, facetPath, evaluateDeferred, scope)
 			if err != nil {
 				if !evaluateDeferred {
 					var deferredErr *DeferredError
@@ -569,7 +599,7 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 	case []any:
 		result := make([]any, 0, len(v))
 		for _, item := range v {
-			evaluated, err := e.evaluateValue(item, facetPath, evaluateDeferred)
+			evaluated, err := e.evaluateValue(item, facetPath, evaluateDeferred, scope)
 			if err != nil {
 				if !evaluateDeferred {
 					var deferredErr *DeferredError

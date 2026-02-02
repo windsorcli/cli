@@ -219,7 +219,7 @@ func TestExpressionEvaluator_enrichConfig(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating an expression (which enriches config)
-		result, err := evaluator.Evaluate("${project_root}", "", false)
+		result, err := evaluator.Evaluate("${project_root}", "", nil, false)
 
 		// Then project_root should be in enriched config
 		if err != nil {
@@ -240,7 +240,7 @@ func TestExpressionEvaluator_enrichConfig(t *testing.T) {
 		}
 
 		// When evaluating an expression (which enriches config)
-		result, err := evaluator.Evaluate("${context_path}", "", false)
+		result, err := evaluator.Evaluate("${context_path}", "", nil, false)
 
 		// Then context_path should be in enriched config
 		if err != nil {
@@ -261,7 +261,7 @@ func TestExpressionEvaluator_enrichConfig(t *testing.T) {
 		evaluator := NewExpressionEvaluator(mockConfigHandler, "", "/test/template")
 
 		// When evaluating an expression
-		result, err := evaluator.Evaluate("project_root", "", false)
+		result, err := evaluator.Evaluate("project_root", "", nil, false)
 
 		// Then project_root should return the original string (no ${} means no evaluation)
 		if err != nil {
@@ -285,7 +285,7 @@ func TestExpressionEvaluator_enrichConfig(t *testing.T) {
 		}
 
 		// When evaluating an expression (which enriches config)
-		result, err := evaluator.Evaluate("value", "", false)
+		result, err := evaluator.Evaluate("value", "", nil, false)
 
 		// Then evaluation should succeed without context_path
 		if err != nil {
@@ -308,7 +308,7 @@ func TestExpressionEvaluator_enrichConfig(t *testing.T) {
 		evaluator := NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/template")
 
 		// When evaluating an expression
-		result, err := evaluator.Evaluate("${project_root}", "", false)
+		result, err := evaluator.Evaluate("${project_root}", "", nil, false)
 
 		// Then project_root should still be available from projectRoot field
 		if err != nil {
@@ -333,7 +333,7 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 		}, new(func(string) string))
 
 		// When evaluating an expression with the custom helper
-		result, err := evaluator.Evaluate(`${custom("test")}`, "", false)
+		result, err := evaluator.Evaluate(`${custom("test")}`, "", nil, false)
 
 		// Then it should use the custom helper
 		if err != nil {
@@ -355,8 +355,8 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 		}, new(func() string))
 
 		// When evaluating expressions with both helpers
-		result1, err1 := evaluator.Evaluate(`${helper1()}`, "", false)
-		result2, err2 := evaluator.Evaluate(`${helper2()}`, "", false)
+		result1, err1 := evaluator.Evaluate(`${helper1()}`, "", nil, false)
+		result2, err2 := evaluator.Evaluate(`${helper2()}`, "", nil, false)
 
 		// Then both helpers should work
 		if err1 != nil {
@@ -383,7 +383,7 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 		}, new(func() bool))
 
 		// When evaluating with evaluateDeferred=true
-		result, err := evaluator.Evaluate(`${deferredCheck()}`, "", true)
+		result, err := evaluator.Evaluate(`${deferredCheck()}`, "", nil, true)
 
 		// Then the helper should receive deferred=true
 		if err != nil {
@@ -405,7 +405,7 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 		}, new(func() string))
 
 		// When evaluating an expression with the error helper
-		_, err := evaluator.Evaluate(`${errorHelper()}`, "", false)
+		_, err := evaluator.Evaluate(`${errorHelper()}`, "", nil, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -426,7 +426,7 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 		}, new(func() bool))
 
 		// When evaluating with evaluateDeferred=true
-		result, err := evaluator.Evaluate(`${deferredHelper()}`, "", true)
+		result, err := evaluator.Evaluate(`${deferredHelper()}`, "", nil, true)
 
 		// Then the helper should receive deferred=true
 		if err != nil {
@@ -450,7 +450,7 @@ func TestExpressionEvaluator_buildExprEnvironment(t *testing.T) {
 		}, new(func() bool))
 
 		// When evaluating with evaluateDeferred=false
-		result, err := evaluator.Evaluate(`${deferredHelper()}`, "", false)
+		result, err := evaluator.Evaluate(`${deferredHelper()}`, "", nil, false)
 
 		// Then the helper should receive deferred=false
 		if err != nil {
@@ -480,7 +480,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 
 		// Then the jsonnet should be evaluated
 		if err != nil {
@@ -519,7 +519,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 
 		// Then the jsonnet should have access to context
 		if err != nil {
@@ -545,7 +545,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating jsonnet function with non-existent file
-		_, err := evaluator.Evaluate(`${jsonnet("nonexistent.jsonnet")}`, "", false)
+		_, err := evaluator.Evaluate(`${jsonnet("nonexistent.jsonnet")}`, "", nil, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -563,7 +563,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet function
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -586,7 +586,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
 
 		// When evaluating jsonnet function
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 
 		// Then the jsonnet should be loaded from template data
 		if err != nil {
@@ -612,7 +612,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 		if err == nil {
 			t.Fatal("Expected error for JSON marshal failure, got nil")
 		}
@@ -627,7 +627,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 		if err == nil {
 			t.Fatal("Expected error for JSON unmarshal failure, got nil")
 		}
@@ -639,7 +639,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -658,7 +658,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		jsonnetFile := filepath.Join(tmpDir, "test.jsonnet")
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
 		facetPath := jsonnetFile
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -682,7 +682,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
-		result, err := evaluator.Evaluate(`${jsonnet("../config/test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("../config/test.jsonnet")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -706,7 +706,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 		facetPath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
-		result, err := evaluator.Evaluate(`${jsonnet("../../other/test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("../../other/test.jsonnet")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -730,7 +730,7 @@ func TestExpressionEvaluator_evaluateJsonnetFunction(t *testing.T) {
 		os.MkdirAll(filepath.Dir(jsonnetFile), 0755)
 		os.WriteFile(jsonnetFile, []byte(`{"result": "success"}`), 0644)
 		facetPath := filepath.Join(templateRoot, "test.yaml")
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -763,7 +763,7 @@ func TestExpressionEvaluator_buildContextMap(t *testing.T) {
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet that uses context
-		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 
 		// Then context should be available
 		if err != nil {
@@ -791,7 +791,7 @@ func TestExpressionEvaluator_buildContextMap(t *testing.T) {
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating jsonnet
-		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, false)
+		_, err := evaluator.Evaluate(`${jsonnet("test.jsonnet")}`, facetPath, nil, false)
 
 		// Then it should work (projectName is set in context map)
 		if err != nil {
@@ -811,7 +811,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		facetPath := filepath.Join(tmpDir, "feature.yaml")
 
 		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, nil, false)
 
 		// Then the file content should be returned
 		if err != nil {
@@ -828,7 +828,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		evaluator, _, _, _ := setupEvaluatorTest(t)
 
 		// When evaluating file function with non-existent file
-		_, err := evaluator.Evaluate(`${file("nonexistent.txt")}`, "", false)
+		_, err := evaluator.Evaluate(`${file("nonexistent.txt")}`, "", nil, false)
 
 		// Then an error should be returned
 		if err == nil {
@@ -851,7 +851,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
 
 		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, nil, false)
 
 		// Then the file should be loaded from template data
 		if err != nil {
@@ -875,7 +875,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
-		result, err := evaluator.Evaluate(`${file("../config/test.txt")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("../config/test.txt")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -895,7 +895,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 		facetPath := filepath.Join(templateRoot, "facets", "test.yaml")
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
-		result, err := evaluator.Evaluate(`${file("../test.txt")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("../test.txt")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -911,7 +911,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 			"test.txt": []byte("from-template"),
 		}
 		evaluator.SetTemplateData(templateData)
-		_, err := evaluator.Evaluate(`${file("test.txt")}`, "/test/facet.yaml", false)
+		_, err := evaluator.Evaluate(`${file("test.txt")}`, "/test/facet.yaml", nil, false)
 		if err == nil {
 			t.Log("File read succeeded, which is acceptable")
 		}
@@ -930,7 +930,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		os.WriteFile(outsideFile, []byte("from-outside"), 0644)
 		facetPath := filepath.Join(templateRoot, "test.yaml")
 		escapedPath := strings.ReplaceAll(outsideFile, "\\", "\\\\")
-		result, err := evaluator.Evaluate(`${file("`+escapedPath+`")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("`+escapedPath+`")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -950,7 +950,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 		facetPath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
-		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -970,7 +970,7 @@ func TestExpressionEvaluator_evaluateFileFunction(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 		facetPath := filepath.Join(templateRoot, "features", "sub", "test.yaml")
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
-		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("../../other/test.txt")}`, facetPath, nil, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -996,7 +996,7 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		os.MkdirAll(filepath.Dir(facetPath), 0755)
 
 		// When evaluating file function
-		result, err := evaluator.Evaluate(`${file("test.jsonnet")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("test.jsonnet")}`, facetPath, nil, false)
 
 		// Then the file should be found in template data
 		if err != nil {
@@ -1019,7 +1019,7 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		facetPath := "/test/feature.yaml"
 
 		// When evaluating file function with absolute path
-		_, err := evaluator.Evaluate(`${file("/absolute/path.jsonnet")}`, facetPath, false)
+		_, err := evaluator.Evaluate(`${file("/absolute/path.jsonnet")}`, facetPath, nil, false)
 
 		// Then it should not find in template data (absolute paths not looked up)
 		if err == nil {
@@ -1036,7 +1036,7 @@ func TestExpressionEvaluator_lookupInTemplateData(t *testing.T) {
 		evaluator.SetTemplateData(templateData)
 
 		// When evaluating file function with empty feature path
-		_, err := evaluator.Evaluate(`${file("test.jsonnet")}`, "", false)
+		_, err := evaluator.Evaluate(`${file("test.jsonnet")}`, "", nil, false)
 
 		// Then it should not find in template data
 		if err == nil {
@@ -1171,7 +1171,7 @@ func TestExpressionEvaluator_resolvePath(t *testing.T) {
 
 		// When evaluating file function with absolute path
 		escapedPath := strings.ReplaceAll(testFile, "\\", "\\\\")
-		result, err := evaluator.Evaluate(`${file("`+escapedPath+`")}`, "", false)
+		result, err := evaluator.Evaluate(`${file("`+escapedPath+`")}`, "", nil, false)
 
 		// Then the absolute path should be used
 		if err != nil {
@@ -1193,7 +1193,7 @@ func TestExpressionEvaluator_resolvePath(t *testing.T) {
 		os.WriteFile(testFile, []byte("content"), 0644)
 
 		// When evaluating file function with relative path
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, false)
+		result, err := evaluator.Evaluate(`${file("test.txt")}`, facetPath, nil, false)
 
 		// Then the path should be resolved relative to feature path
 		if err != nil {
@@ -1217,7 +1217,7 @@ func TestExpressionEvaluator_resolvePath(t *testing.T) {
 		evaluator = NewExpressionEvaluator(mockConfigHandler, tmpDir, "/test/template")
 
 		// When evaluating file function with relative path
-		result, err := evaluator.Evaluate(`${file("test.txt")}`, "", false)
+		result, err := evaluator.Evaluate(`${file("test.txt")}`, "", nil, false)
 
 		// Then the path should be resolved relative to project root
 		if err != nil {

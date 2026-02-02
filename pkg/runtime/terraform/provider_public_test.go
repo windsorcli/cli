@@ -205,7 +205,7 @@ func TestNewTerraformProvider(t *testing.T) {
 		concreteProvider.mu.Unlock()
 
 		// When evaluating terraform_output expression
-		result, err := testEvaluator.Evaluate(`${terraform_output("test-component", "test-key")}`, "", true)
+		result, err := testEvaluator.Evaluate(`${terraform_output("test-component", "test-key")}`, "", nil, true)
 
 		// Then helper should be callable and return cached value
 		if err != nil {
@@ -2677,7 +2677,7 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key, value := range values {
 				if strVal, ok := value.(string); ok && strings.Contains(strVal, "${") {
@@ -2776,7 +2776,7 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return nil, errors.New("evaluation error")
 		}
 		mocks.Provider.evaluator = mockEvaluator
@@ -2801,7 +2801,7 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return map[string]any{
 				"vpc_id": 42,
 			}, nil
@@ -2835,7 +2835,7 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return map[string]any{
 				"vpc_id": make(chan int),
 			}, nil
@@ -2942,7 +2942,7 @@ terraform:
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return map[string]any{}, nil
 		}
 		mocks.Provider.evaluator = mockEvaluator

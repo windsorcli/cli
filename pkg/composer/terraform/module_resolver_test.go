@@ -2264,7 +2264,7 @@ variable "cluster_name" { type = string }`
 		// Given a resolver with component inputs containing deferred expressions
 		resolver, mocks := setup(t)
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			result := make(map[string]any)
 			for key, value := range values {
 				if strVal, ok := value.(string); ok && strVal == "deferred_value" {
@@ -2365,7 +2365,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 			"nested":  map[string]any{"key": "value"},
 		}
 
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2399,7 +2399,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 			"expression": "${value}",
 		}
 
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2417,7 +2417,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 	t.Run("ReturnsErrorOnEvaluationFailure", func(t *testing.T) {
 		mocks := setupTerraformMocks(t)
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			return nil, fmt.Errorf("failed to evaluate 'bad': evaluation failed")
 		}
 		mocks.Runtime.Evaluator = mockEvaluator
@@ -2425,7 +2425,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 			"bad": "${invalid}",
 		}
 
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
 
 		if err == nil {
 			t.Fatal("Expected error on evaluation failure")
@@ -2447,7 +2447,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 		mocks.Runtime.Evaluator = testEvaluator
 		inputs := map[string]any{}
 
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2476,7 +2476,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 			"evaluated": "${value}",
 		}
 
-		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+		result, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2503,7 +2503,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 		mocks := setupTerraformMocks(t)
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		var receivedEvaluateDeferred bool
-		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, evaluateDeferred bool) (map[string]any, error) {
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 			receivedEvaluateDeferred = evaluateDeferred
 			return values, nil
 		}
@@ -2512,7 +2512,7 @@ func TestBaseModuleResolver_evaluateInputs(t *testing.T) {
 			"test": "value",
 		}
 
-		_, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", true)
+		_, err := mocks.Runtime.Evaluator.EvaluateMap(inputs, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)

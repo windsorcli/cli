@@ -533,7 +533,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			if h.composedBlueprint.TerraformComponents[i].Inputs == nil {
 				continue
 			}
-			evaluated, err := h.runtime.Evaluator.EvaluateMap(h.composedBlueprint.TerraformComponents[i].Inputs, evalPath, false)
+			evaluated, err := h.runtime.Evaluator.EvaluateMap(h.composedBlueprint.TerraformComponents[i].Inputs, evalPath, nil, false)
 			if err != nil {
 				return fmt.Errorf("evaluate terraform inputs for component %q: %w", h.composedBlueprint.TerraformComponents[i].GetID(), err)
 			}

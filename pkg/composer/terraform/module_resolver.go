@@ -96,7 +96,7 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 
 		// Use evaluateDeferred=false so terraform_output() and similar stay deferred; they are filtered
 		// out below and not written to tfvars, and are evaluated later when terraform runs.
-		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", false)
+		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", nil, false)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
 		}

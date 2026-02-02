@@ -2244,7 +2244,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		result, err := eval.Evaluate(`${terraform_output("compute", "controlplanes")}`, "", true)
+		result, err := eval.Evaluate(`${terraform_output("compute", "controlplanes")}`, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2275,7 +2275,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		result, err := eval.Evaluate(`${terraform_output("network", "nonexistent") ?? "default"}`, "", true)
+		result, err := eval.Evaluate(`${terraform_output("network", "nonexistent") ?? "default"}`, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error (nil return enables ?? fallback), got: %v", err)
@@ -2294,7 +2294,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		result, err := eval.Evaluate(`${terraform_output("nonexistent", "key") ?? "fallback"}`, "", true)
+		result, err := eval.Evaluate(`${terraform_output("nonexistent", "key") ?? "fallback"}`, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error (nil return enables ?? fallback), got: %v", err)
@@ -2313,7 +2313,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		result, err := eval.Evaluate(`prefix-${terraform_output("component", "key")}-suffix`, "", false)
+		result, err := eval.Evaluate(`prefix-${terraform_output("component", "key")}-suffix`, "", nil, false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2340,7 +2340,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		result, err := eval.Evaluate(`${terraform_output("compute", "controlplanes")}`, "", true)
+		result, err := eval.Evaluate(`${terraform_output("compute", "controlplanes")}`, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2365,7 +2365,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		result, err := eval.Evaluate(`${terraform_output("network", "vpc_id")}`, "", true)
+		result, err := eval.Evaluate(`${terraform_output("network", "vpc_id")}`, "", nil, true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2384,7 +2384,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		_, err := eval.Evaluate(`${terraform_output("component")}`, "", true)
+		_, err := eval.Evaluate(`${terraform_output("component")}`, "", nil, true)
 
 		if err == nil {
 			t.Error("Expected error for invalid number of arguments")
@@ -2403,7 +2403,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		_, err := eval.Evaluate(`${terraform_output(123, "key")}`, "", true)
+		_, err := eval.Evaluate(`${terraform_output(123, "key")}`, "", nil, true)
 
 		if err == nil {
 			t.Error("Expected error for non-string component")
@@ -2422,7 +2422,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		eval := setupEvaluatorForHelperTest(t)
 		registerTerraformOutputHelperForMock(mockProvider, eval)
 
-		_, err := eval.Evaluate(`${terraform_output("component", 456)}`, "", true)
+		_, err := eval.Evaluate(`${terraform_output("component", 456)}`, "", nil, true)
 
 		if err == nil {
 			t.Error("Expected error for non-string key")

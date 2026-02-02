@@ -151,7 +151,7 @@ func TestMockExpressionEvaluator_Evaluate(t *testing.T) {
 		expectedResult := 42
 		expectedExpression := "value"
 		expectedFacetPath := "/test/facet.yaml"
-		mockEvaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mockEvaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			if expression != expectedExpression {
 				t.Errorf("Expected expression %s, got %s", expectedExpression, expression)
 			}
@@ -162,7 +162,7 @@ func TestMockExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When Evaluate is called
-		result, err := mockEvaluator.Evaluate(expectedExpression, expectedFacetPath, false)
+		result, err := mockEvaluator.Evaluate(expectedExpression, expectedFacetPath, nil, false)
 
 		// Then no error should be returned and the result should match
 		if err != nil {
@@ -177,12 +177,12 @@ func TestMockExpressionEvaluator_Evaluate(t *testing.T) {
 		// Given a mock evaluator with EvaluateFunc set to return an error
 		mockEvaluator := setupMockEvaluatorMocks(t)
 		expectedError := errors.New("evaluation error")
-		mockEvaluator.EvaluateFunc = func(expression string, facetPath string, evaluateDeferred bool) (any, error) {
+		mockEvaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 			return nil, expectedError
 		}
 
 		// When Evaluate is called
-		result, err := mockEvaluator.Evaluate("test", "", false)
+		result, err := mockEvaluator.Evaluate("test", "", nil, false)
 
 		// Then the expected error should be returned and result should be nil
 		if err == nil {
@@ -201,7 +201,7 @@ func TestMockExpressionEvaluator_Evaluate(t *testing.T) {
 		mockEvaluator := setupMockEvaluatorMocks(t)
 
 		// When Evaluate is called
-		result, err := mockEvaluator.Evaluate("test", "", false)
+		result, err := mockEvaluator.Evaluate("test", "", nil, false)
 
 		// Then no error should be returned and result should be nil (default implementation)
 		if err != nil {

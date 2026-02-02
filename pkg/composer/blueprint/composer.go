@@ -194,7 +194,7 @@ func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blu
 	if c.runtime != nil && c.runtime.Evaluator != nil {
 		for i := range userCopy.TerraformComponents {
 			if userCopy.TerraformComponents[i].Inputs != nil {
-				evaluated, err := c.runtime.Evaluator.EvaluateMap(userCopy.TerraformComponents[i].Inputs, sourceFilePath, false)
+				evaluated, err := c.runtime.Evaluator.EvaluateMap(userCopy.TerraformComponents[i].Inputs, sourceFilePath, nil, false)
 				if err != nil {
 					return fmt.Errorf("evaluate user blueprint terraform inputs: %w", err)
 				}

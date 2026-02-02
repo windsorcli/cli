@@ -42,10 +42,44 @@ kustomize:
 | `apiVersion`| `string`                          | Must be `blueprints.windsorcli.dev/v1alpha1`.                               |
 | `metadata`  | `Metadata`                        | Facet metadata including name and description.                            |
 | `when`      | `string`                          | Expression that determines if the facet should be applied. Evaluated against configuration values. If empty or evaluates to `true`, the facet is applied. |
+| `config`    | `[]ConfigBlock`                   | Named configuration blocks evaluated in blueprint context; referenced as `<name>.<key>` (e.g. `talos.controlplanes`) from terraform inputs and kustomize substitutions, same style as context (`cluster.*`, `network.*`). |
 | `terraform` | `[]ConditionalTerraformComponent` | Terraform components to include when the facet matches.                  |
 | `kustomize` | `[]ConditionalKustomization`       | Kustomizations to include when the facet matches.                         |
 
 Facets inherit Repository and Sources from the base blueprint they are merged into.
+
+## Config
+
+Facets can define **config** blocks to build generic configuration (e.g. Talos node lists, patch vars) in-facet instead of external YAML files. Config is **merged globally** across all active facets in processing order (alphabetically by facet name). Merging is **deep**: same config block name merges block bodies recursively (later keys overwrite). At evaluation time, facet config is merged into the **same scope** as context (schema / values from `windsor.yaml` and `values.yaml`): one canonical root. So `talos.controlplanes` and `cluster.controlplanes` are siblings; expressions see both. When a key exists in both context and facet config, **facet config wins**—so blueprint authors can intentionally override or transform input values (e.g. a config block that derives or rewrites `cluster` for downstream use). Use distinct block names (e.g. `talos`, `gitops`) to add derived values; use the same name as a context key only when you want to override or transform that value for the blueprint.
+
+`config` is a list of named blocks. Each block has:
+
+- **name** – Exposed at scope root; expressions use `name.key` (e.g. `talos.controlplanes`).
+- **when** (optional) – Expression; if present and false, the block is skipped.
+- **body** – Remaining keys (e.g. `controlplanes`, `workers`, `patchVars`); values may contain `${}` expressions.
+
+Config blocks are evaluated in blueprint context only (no facet config in scope). References from terraform or kustomize use `<name>.<key>`.
+
+```yaml
+config:
+  - name: talos
+    when: provider == 'incus' || provider == 'docker'
+    controlplanes: ${cluster.controlplanes}
+    workers: ${cluster.workers}
+    patchVars:
+      certSANs: ${cluster.apiServer.certSANs}
+      poolPath: ${cluster.storage.poolPath}
+
+terraform:
+  - name: cluster
+    path: cluster
+    inputs:
+      controlplanes: ${talos.controlplanes}
+      workers: ${talos.workers}
+      common_config_patches: ${yamlString("../configs/talos/common-patch.yaml", talos.patchVars)}
+```
+
+Evaluation order: facets are processed in alphabetical order by name. First, each facet's config block **structure** (name, when, body keys) is merged into a global scope (same block name merges block bodies recursively); config body expressions are **not** evaluated yet. After all facets are merged, config body expressions are evaluated once in blueprint context (very late). Then terraform and kustomize components are collected; their inputs and substitutions can reference the evaluated `<name>.<key>` (e.g. `talos.controlplanes`).
 
 ## Conditional Logic
 
