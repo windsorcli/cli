@@ -8,6 +8,10 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
 func TestFacetDeepCopy(t *testing.T) {
 	t.Run("ReturnsNilForNilFacet", func(t *testing.T) {
 		var f *Facet
@@ -27,7 +31,14 @@ func TestFacetDeepCopy(t *testing.T) {
 			},
 			When: "provider == 'aws'",
 			Config: []ConfigBlock{
-				{Name: "talos", When: "provider == 'incus'", Body: map[string]any{"controlplanes": "${cluster.controlplanes}"}},
+				{
+					Name: "talos",
+					When: "provider == 'incus'",
+					Body: map[string]any{
+						"controlplanes": "${cluster.controlplanes}",
+						"patchVars":     map[string]any{"certSANs": "original", "poolPath": "default"},
+					},
+				},
 			},
 			TerraformComponents: []ConditionalTerraformComponent{
 				{
@@ -99,6 +110,11 @@ func TestFacetDeepCopy(t *testing.T) {
 		original.Config[0].Body["controlplanes"] = "modified"
 		if copy.Config[0].Body["controlplanes"] == "modified" {
 			t.Error("Deep copy failed: config block body was not copied")
+		}
+		nested := original.Config[0].Body["patchVars"].(map[string]any)
+		nested["certSANs"] = "modified"
+		if copy.Config[0].Body["patchVars"].(map[string]any)["certSANs"] == "modified" {
+			t.Error("Deep copy failed: config block body nested map was not copied")
 		}
 	})
 }

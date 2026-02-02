@@ -144,9 +144,7 @@ func (c *ConfigBlock) DeepCopy() *ConfigBlock {
 	if c == nil {
 		return nil
 	}
-	bodyCopy := make(map[string]any, len(c.Body))
-	maps.Copy(bodyCopy, c.Body)
-	return &ConfigBlock{Name: c.Name, When: c.When, Body: bodyCopy}
+	return &ConfigBlock{Name: c.Name, When: c.When, Body: deepCopyMapStringAny(c.Body)}
 }
 
 // DeepCopy creates a deep copy of the Facet object.
@@ -213,4 +211,47 @@ func (c *ConditionalKustomization) DeepCopy() *ConditionalKustomization {
 		Strategy:      c.Strategy,
 		Priority:      c.Priority,
 	}
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// deepCopyMapStringAny recursively copies map[string]any so nested maps and slices are independent.
+func deepCopyMapStringAny(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = deepCopyValue(v)
+	}
+	return out
+}
+
+// deepCopyValue returns a deep copy of v when it is map[string]any or []any; otherwise returns v unchanged.
+func deepCopyValue(v any) any {
+	if v == nil {
+		return nil
+	}
+	switch val := v.(type) {
+	case map[string]any:
+		return deepCopyMapStringAny(val)
+	case []any:
+		return deepCopySliceAny(val)
+	default:
+		return v
+	}
+}
+
+// deepCopySliceAny recursively copies []any so nested maps and slices are independent.
+func deepCopySliceAny(s []any) []any {
+	if s == nil {
+		return nil
+	}
+	out := make([]any, len(s))
+	for i, v := range s {
+		out[i] = deepCopyValue(v)
+	}
+	return out
 }
