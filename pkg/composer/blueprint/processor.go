@@ -104,6 +104,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	kustomizationByName := make(map[string]*blueprintv1alpha1.ConditionalKustomization)
 	var globalScope map[string]any
 	var configBlockOrder []string
+	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
 
 	for _, facet := range sortedFacets {
 		shouldInclude, err := p.shouldIncludeFacet(facet)
@@ -113,6 +114,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if !shouldInclude {
 			continue
 		}
+		includedFacets = append(includedFacets, facet)
 		var errMerge error
 		globalScope, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, configBlockOrder)
 		if errMerge != nil {
@@ -123,14 +125,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return err
 	}
 
-	for _, facet := range sortedFacets {
-		shouldInclude, err := p.shouldIncludeFacet(facet)
-		if err != nil {
-			return err
-		}
-		if !shouldInclude {
-			continue
-		}
+	for _, facet := range includedFacets {
 		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, globalScope); err != nil {
 			return err
 		}
