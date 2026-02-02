@@ -303,10 +303,11 @@ func (e *expressionEvaluator) getConfig() map[string]any {
 }
 
 // enrichConfig enriches the provided config map with Windsor runtime-specific values.
-// It adds "context" (current context name), "project_root" if the evaluator has a project root set,
-// and "context_path" if the config handler can provide one. All paths are normalized to use forward
-// slashes for cross-platform consistency. The enriched config is used to make runtime context
-// available in expression evaluation without requiring explicit configuration.
+// It adds "context" (current context name), "context_path" if the config handler can provide one,
+// "project_root" and "projectName" (basename of project root) when the evaluator has a project root set.
+// All paths are normalized to use forward slashes for cross-platform consistency. The enriched config
+// is used to make runtime context available in expression evaluation and Jsonnet (std.extVar("context"))
+// without requiring explicit configuration.
 func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any {
 	enrichedConfig := make(map[string]any)
 	maps.Copy(enrichedConfig, config)
@@ -317,6 +318,7 @@ func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any
 	}
 	if e.projectRoot != "" {
 		enrichedConfig["project_root"] = strings.ReplaceAll(e.projectRoot, "\\", "/")
+		enrichedConfig["projectName"] = e.Shims.FilepathBase(e.projectRoot)
 	}
 	return enrichedConfig
 }
