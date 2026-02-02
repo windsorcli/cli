@@ -127,15 +127,16 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 // MarshalYAML implements custom marshaling so name, when, and Body keys are written.
+// Body is copied first so struct Name and When take precedence over any name/when in Body.
 func (c *ConfigBlock) MarshalYAML() (any, error) {
 	out := make(map[string]any)
+	maps.Copy(out, c.Body)
 	if c.Name != "" {
 		out["name"] = c.Name
 	}
 	if c.When != "" {
 		out["when"] = c.When
 	}
-	maps.Copy(out, c.Body)
 	return out, nil
 }
 
