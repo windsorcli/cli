@@ -3145,7 +3145,9 @@ func TestSource_Install(t *testing.T) {
 			Name: "test-source",
 			Url:  "oci://example.com/repo:tag",
 		}
-
+		if source.Name != "test-source" || source.Url != "oci://example.com/repo:tag" {
+			t.Error("Expected Name and Url to be set")
+		}
 		if source.Install != nil {
 			t.Error("Expected Install to be nil when not set")
 		}
@@ -3158,7 +3160,9 @@ func TestSource_Install(t *testing.T) {
 			Url:     "oci://example.com/repo:tag",
 			Install: &BoolExpression{Value: &falseVal, IsExpr: false},
 		}
-
+		if source.Name != "test-source" || source.Url != "oci://example.com/repo:tag" {
+			t.Error("Expected Name and Url to be set")
+		}
 		if source.Install == nil {
 			t.Fatal("Expected Install to be set")
 		}
@@ -3225,7 +3229,9 @@ func TestTerraformComponent_Enabled(t *testing.T) {
 		component := TerraformComponent{
 			Path: "test/path",
 		}
-
+		if component.Path != "test/path" {
+			t.Error("Expected Path to be set")
+		}
 		if component.Enabled != nil {
 			t.Error("Expected Enabled to be nil when not set")
 		}
@@ -3237,7 +3243,9 @@ func TestTerraformComponent_Enabled(t *testing.T) {
 			Path:    "test/path",
 			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
 		}
-
+		if component.Path != "test/path" {
+			t.Error("Expected Path to be set")
+		}
 		if component.Enabled == nil {
 			t.Fatal("Expected Enabled to be set")
 		}
@@ -3330,7 +3338,9 @@ func TestKustomization_Enabled(t *testing.T) {
 		kustomization := Kustomization{
 			Name: "test-kustomization",
 		}
-
+		if kustomization.Name != "test-kustomization" {
+			t.Error("Expected Name to be set")
+		}
 		if kustomization.Enabled != nil {
 			t.Error("Expected Enabled to be nil when not set")
 		}
@@ -3342,7 +3352,9 @@ func TestKustomization_Enabled(t *testing.T) {
 			Name:    "test-kustomization",
 			Enabled: &BoolExpression{Value: &falseVal, IsExpr: false},
 		}
-
+		if kustomization.Name != "test-kustomization" {
+			t.Error("Expected Name to be set")
+		}
 		if kustomization.Enabled == nil {
 			t.Fatal("Expected Enabled to be set")
 		}
