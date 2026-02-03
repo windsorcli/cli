@@ -145,9 +145,11 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // (accumulated from prior facets) without evaluating config body expressions. Returns the
 // updated global scope and the config block name order (later in list takes precedence).
 // Config body expressions are evaluated later in evaluateGlobalScopeConfig.
-// Same config block name merges block bodies recursively.
+// For a given name, only blocks whose when condition is true contribute; if multiple blocks
+// with the same name have when true, their bodies are deep-merged in list order (later overlay).
+// This ensures mutually exclusive when conditions resolve to the single matching block.
 func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, order []string) (map[string]any, []string, error) {
-	configMap := make(map[string]any)
+	byName := make(map[string][]map[string]any)
 	for _, block := range facet.Config {
 		if block.Name == "" {
 			continue
@@ -161,12 +163,29 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 				continue
 			}
 		}
+		var body map[string]any
 		if len(block.Body) == 0 {
-			configMap[block.Name] = make(map[string]any)
+			body = make(map[string]any)
 		} else {
-			configMap[block.Name] = block.Body
+			body = block.Body
 		}
-		n := block.Name
+		byName[block.Name] = append(byName[block.Name], body)
+	}
+	configMap := make(map[string]any)
+	for name, bodies := range byName {
+		if len(bodies) == 0 {
+			continue
+		}
+		if len(bodies) == 1 {
+			configMap[name] = bodies[0]
+		} else {
+			merged := bodies[0]
+			for i := 1; i < len(bodies); i++ {
+				merged = deepMergeMap(merged, bodies[i])
+			}
+			configMap[name] = merged
+		}
+		n := name
 		for i := 0; i < len(order); i++ {
 			if order[i] == n {
 				order = append(order[:i], order[i+1:]...)

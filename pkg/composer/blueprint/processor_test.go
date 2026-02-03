@@ -1069,6 +1069,47 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		}
 	})
 
+	t.Run("ResolvesSameNameConfigByWhenWhenMatchingBlockIsFirstInList", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "docker", "workstation": map[string]any{"enabled": true}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-config"},
+				When:     "provider == 'docker'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "talos_common", When: "provider == 'docker' && (workstation.enabled ?? false)", Body: map[string]any{"patches": []any{"docker-patch.yaml"}}},
+					{Name: "talos_common", When: "!(provider == 'docker' && (workstation.enabled ?? false))", Body: map[string]any{"patches": []any{"non-docker-patch.yaml"}}},
+				},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:   "cluster",
+							Inputs: map[string]any{"common_config_patches": "${talos_common.patches}"},
+						},
+					},
+				},
+			},
+		}
+		err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		patches, ok := target.TerraformComponents[0].Inputs["common_config_patches"].([]any)
+		if !ok {
+			t.Fatalf("Expected common_config_patches to be []any, got %T", target.TerraformComponents[0].Inputs["common_config_patches"])
+		}
+		if len(patches) != 1 || patches[0] != "docker-patch.yaml" {
+			t.Errorf("Expected common_config_patches=[docker-patch.yaml] (matching block is first in list), got %v", patches)
+		}
+	})
+
 	t.Run("ProcessesFacetsWithEmptyConfigList", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
