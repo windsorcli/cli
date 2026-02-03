@@ -147,7 +147,7 @@ func outputResource(resource any, useJSON bool, resourceType string) error {
 			return fmt.Errorf("failed to marshal %s to JSON: %w", resourceType, err)
 		}
 	} else {
-		output, err = yaml.Marshal(resource)
+		output, err = yaml.MarshalWithOptions(resource, yaml.UseLiteralStyleIfMultiline(true))
 		if err != nil {
 			return fmt.Errorf("failed to marshal %s to YAML: %w", resourceType, err)
 		}
