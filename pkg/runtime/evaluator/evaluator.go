@@ -186,12 +186,6 @@ func (e *expressionEvaluator) evaluateMap(values map[string]any, facetPath strin
 			}
 			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
 		}
-		if !evaluateDeferred {
-			if ContainsExpression(evaluated) && !isStructuredValue(evaluated) {
-				result[key] = value
-				continue
-			}
-		}
 		result[key] = evaluated
 	}
 	return result, nil
@@ -204,13 +198,20 @@ func (e *expressionEvaluator) evaluateMap(values map[string]any, facetPath strin
 // evaluate runs the expression parsing loop over s, resolving each ${...} with evaluateExpression.
 // When scope is nil the config context is used; when non-nil (e.g. for yaml(path, input)) the given
 // scope is used. Stops after 20 iterations to avoid infinite loops on circular or pathological input.
+// When an expression returns DeferredError it is left in place and the loop advances to the next
+// ${...} so other expressions in the same string can still be resolved.
 func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	if !strings.Contains(s, "${") {
 		return s, nil
 	}
 	result := s
-	for iter := 0; iter < 20 && strings.Contains(result, "${"); iter++ {
-		start := strings.Index(result, "${")
+	searchStart := 0
+	for iter := 0; iter < 20; iter++ {
+		idx := strings.Index(result[searchStart:], "${")
+		if idx == -1 {
+			break
+		}
+		start := searchStart + idx
 		end := findExpressionEnd(result, start)
 		if end == -1 {
 			return "", fmt.Errorf("unclosed expression in string: %s", s)
@@ -222,12 +223,10 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 		value, err := e.evaluateExpression(expr, facetPath, scope, evaluateDeferred)
 		if err != nil {
 			if !evaluateDeferred {
-				if _, ok := err.(*DeferredError); ok {
-					return s, nil
-				}
 				var deferredErr *DeferredError
 				if errors.As(err, &deferredErr) {
-					return s, nil
+					searchStart = end + 1
+					continue
 				}
 			}
 			return "", fmt.Errorf("failed to evaluate expression '${%s}': %w", expr, err)
@@ -241,6 +240,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 					return value, nil
 				}
 				result = str
+				searchStart = 0
 				continue
 			}
 			return value, nil
@@ -258,6 +258,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 			replacement = indentForEmbeddedYAML(before, replacement, 2)
 		}
 		result = before + replacement + after
+		searchStart = 0
 	}
 	return result, nil
 }

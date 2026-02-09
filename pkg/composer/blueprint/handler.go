@@ -453,9 +453,12 @@ func (h *BaseBlueprintHandler) loadNestedSources() error {
 	return nil
 }
 
-// processAndCompose evaluates facets from all loaded source blueprints and merges them into a single
-// composed blueprint. Facet processing runs in parallel. After processing, the composer merges
-// sources in order, then applies the user blueprint as the final override layer.
+// processAndCompose merges facets from all loaded source blueprints into a composed blueprint.
+// This method processes facets from each loader in parallel. After facet processing, sources are
+// merged in the order: initializer blueprints, other sources, then the user blueprint as a final override.
+// The composed blueprint is updated on the handler. Terraform input expressions are fully evaluated
+// against the merged scope if possible. If a Terraform provider is configured, the composed components
+// are registered with the provider. Any errors during facet processing or composition are returned.
 func (h *BaseBlueprintHandler) processAndCompose() error {
 	var loadersToProcess []BlueprintLoader
 	loaderNames := make(map[BlueprintLoader]string)
@@ -467,6 +470,12 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		}
 	}
 
+	var scopeMu sync.Mutex
+	collectedScopes := make(map[string]struct {
+		scope map[string]any
+		order []string
+	})
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errs []error
@@ -475,10 +484,20 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		wg.Add(1)
 		go func(l BlueprintLoader, name string) {
 			defer wg.Done()
-			if err := h.processLoader(l); err != nil {
+			scope, order, err := h.processLoader(l)
+			if err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("failed to process facets for '%s': %w", name, err))
 				mu.Unlock()
+				return
+			}
+			if scope != nil {
+				scopeMu.Lock()
+				collectedScopes[name] = struct {
+					scope map[string]any
+					order []string
+				}{scope: scope, order: order}
+				scopeMu.Unlock()
 			}
 		}(loader, loaderNames[loader])
 	}
@@ -515,27 +534,43 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		loaders = append(loaders, h.userBlueprintLoader)
 	}
 
+	var mergedScope map[string]any
+	scopeMu.Lock()
+	for _, loader := range loaders {
+		if loader.GetSourceName() == "user" {
+			continue
+		}
+		if entry, ok := collectedScopes[loader.GetSourceName()]; ok && entry.scope != nil {
+			mergedScope = MergeConfigMaps(mergedScope, entry.scope)
+		}
+	}
+	scopeMu.Unlock()
+
 	userPath := ""
 	if h.userBlueprintLoader != nil {
 		if ul, ok := h.userBlueprintLoader.(*BaseBlueprintLoader); ok {
 			userPath = ul.GetBlueprintPath()
 		}
 	}
-	composedBp, err := h.composer.Compose(loaders, initLoaderNames, userPath)
+	composedBp, err := h.composer.Compose(loaders, initLoaderNames, userPath, mergedScope)
 	h.composedBlueprint = composedBp
 	if err != nil {
 		return err
 	}
 
-	if h.runtime != nil && h.runtime.TemplateRoot != "" && h.runtime.Evaluator != nil {
+	if mergedScope != nil && h.runtime != nil && h.runtime.Evaluator != nil {
 		evalPath := filepath.Join(h.runtime.TemplateRoot, "facets", "_eval.yaml")
+		if h.runtime.TemplateRoot == "" {
+			evalPath = ""
+		}
 		for i := range h.composedBlueprint.TerraformComponents {
 			if h.composedBlueprint.TerraformComponents[i].Inputs == nil {
 				continue
 			}
-			evaluated, err := h.runtime.Evaluator.EvaluateMap(h.composedBlueprint.TerraformComponents[i].Inputs, evalPath, nil, false)
+			comp := h.composedBlueprint.TerraformComponents[i]
+			evaluated, err := h.runtime.Evaluator.EvaluateMap(comp.Inputs, evalPath, mergedScope, false)
 			if err != nil {
-				return fmt.Errorf("evaluate terraform inputs for component %q: %w", h.composedBlueprint.TerraformComponents[i].GetID(), err)
+				return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
 			}
 			h.composedBlueprint.TerraformComponents[i].Inputs = evaluated
 		}
@@ -555,20 +590,21 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 // Facets with 'when' conditions are evaluated, and only matching facets contribute their
 // terraform components and kustomizations. The loader's source name is passed to the processor
 // to set the Source field on facet-derived components. Facets are processed directly against
-// the loader's blueprint, modifying it in place. This ensures all merge, replace, and remove
-// operations happen against the actual blueprint state.
-func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) error {
+// the loader's blueprint, modifying it in place. Returns the evaluated config scope and block
+// order for this loader so the handler can merge scopes from all loaders.
+func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) (map[string]any, []string, error) {
 	facets := loader.GetFacets()
 	if len(facets) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 
 	sourceName := loader.GetSourceName()
 	bp := loader.GetBlueprint()
-	if err := h.processor.ProcessFacets(bp, facets, sourceName); err != nil {
-		return err
+	scope, order, err := h.processor.ProcessFacets(bp, facets, sourceName)
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil
+	return scope, order, nil
 }
 
 // getConfigValues retrieves the current context's configuration values from the ConfigHandler.

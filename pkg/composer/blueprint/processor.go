@@ -3,6 +3,7 @@ package blueprint
 import (
 	"fmt"
 	"maps"
+	"reflect"
 	"sort"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -32,8 +33,10 @@ var strategyPriorities = map[string]int{
 // BlueprintProcessor evaluates when: conditions on facets, terraform components, and kustomizations.
 // It determines inclusion/exclusion based on boolean condition results.
 // The processor is stateless and shared across all loaders.
+// ProcessFacets returns the evaluated config scope and block order for the loader so callers can merge
+// scopes from multiple loaders (e.g. for user overlay and final terraform input evaluation).
 type BlueprintProcessor interface {
-	ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) error
+	ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (scope map[string]any, order []string, err error)
 }
 
 // =============================================================================
@@ -84,14 +87,15 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // priority and strategy fields. Priority is compared first: higher priority values override lower
 // priority ones. When priorities are equal, strategy priority is used: "remove" (highest) > "replace" > "merge" (default, lowest).
 // When both priority and strategy are equal, components are merged, removals are accumulated, or replace wins.
-// The target blueprint is modified in place.
-func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) error {
+// The target blueprint is modified in place. Returns the evaluated config scope and block order
+// for this loader so the caller can merge scopes from multiple loaders.
+func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
 	if target == nil {
-		return fmt.Errorf("target blueprint cannot be nil")
+		return nil, nil, fmt.Errorf("target blueprint cannot be nil")
 	}
 
 	if len(facets) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 
 	sortedFacets := make([]blueprintv1alpha1.Facet, len(facets))
@@ -109,7 +113,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	for _, facet := range sortedFacets {
 		shouldInclude, err := p.shouldIncludeFacet(facet)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		if !shouldInclude {
 			continue
@@ -118,23 +122,26 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		var errMerge error
 		globalScope, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, configBlockOrder)
 		if errMerge != nil {
-			return fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
+			return nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 		}
 	}
 	if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	for _, facet := range includedFacets {
 		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, globalScope); err != nil {
-			return err
+			return nil, nil, err
 		}
 		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, globalScope); err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 
-	return p.applyCollectedComponents(target, terraformByID, kustomizationByName)
+	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName); err != nil {
+		return nil, nil, err
+	}
+	return globalScope, configBlockOrder, nil
 }
 
 // =============================================================================
@@ -150,6 +157,8 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // This ensures mutually exclusive when conditions resolve to the single matching block.
 func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, order []string) (map[string]any, []string, error) {
 	byName := make(map[string][]map[string]any)
+	nameOrder := make([]string, 0)
+	seen := make(map[string]bool)
 	for _, block := range facet.Config {
 		if block.Name == "" {
 			continue
@@ -163,6 +172,10 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 				continue
 			}
 		}
+		if !seen[block.Name] {
+			seen[block.Name] = true
+			nameOrder = append(nameOrder, block.Name)
+		}
 		var body map[string]any
 		if len(block.Body) == 0 {
 			body = make(map[string]any)
@@ -172,7 +185,8 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		byName[block.Name] = append(byName[block.Name], body)
 	}
 	configMap := make(map[string]any)
-	for name, bodies := range byName {
+	for _, name := range nameOrder {
+		bodies := byName[name]
 		if len(bodies) == 0 {
 			continue
 		}
@@ -194,7 +208,7 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		}
 		order = append(order, n)
 	}
-	mergedConfig := mergeConfigMaps(globalScope, configMap)
+	mergedConfig := MergeConfigMaps(globalScope, configMap)
 	if len(mergedConfig) == 0 {
 		return globalScope, order, nil
 	}
@@ -205,9 +219,11 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 // blueprint context with globalScope merged into the evaluation environment so config
 // blocks can reference each other (e.g. talos_common.common_patch referencing
 // talos_common.patchVars, or controlplanes.patch referencing talos_common.patchVars).
-// Called once after all facets have been merged. Mutates globalScope in place.
-// Block names are iterated in configBlockOrder so later blocks in the list are evaluated
-// after earlier ones (later takes precedence when refs are resolved).
+// Same-block references (e.g. patches referencing talos_common_docker.common_patch within
+// the same block) are supported by re-evaluating each block until stable, with the block's
+// last-evaluated result in scope so later keys see earlier keys' values. Called once after
+// all facets have been merged. Mutates globalScope in place. Block names are iterated in
+// configBlockOrder so later blocks in the list are evaluated after earlier ones.
 func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, configBlockOrder []string) error {
 	if globalScope == nil {
 		return nil
@@ -220,17 +236,72 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		}
 		sort.Strings(names)
 	}
-	for _, name := range names {
-		body := globalScope[name]
-		bodyMap, ok := body.(map[string]any)
-		if !ok || len(bodyMap) == 0 {
-			continue
+	const maxSameBlockPasses = 5
+	const maxCrossBlockRounds = 5
+	for round := 0; round < maxCrossBlockRounds; round++ {
+		anyBlockChanged := false
+		for _, name := range names {
+			body := globalScope[name]
+			bodyMap, ok := body.(map[string]any)
+			if !ok || len(bodyMap) == 0 {
+				continue
+			}
+			oldBody := bodyMap
+			current := bodyMap
+			for pass := 0; pass < maxSameBlockPasses; pass++ {
+				scopeWithBlock := make(map[string]any, len(globalScope))
+				for k, v := range globalScope {
+					scopeWithBlock[k] = v
+				}
+				scopeWithBlock[name] = current
+				evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", scopeWithBlock, false)
+				if err != nil {
+					return fmt.Errorf("config block %q: %w", name, err)
+				}
+				if reflect.DeepEqual(evaluated, current) && !containsExpressionInValue(current) {
+					break
+				}
+				current = evaluated
+			}
+			scopeWithBlock := make(map[string]any, len(globalScope))
+			for k, v := range globalScope {
+				scopeWithBlock[k] = v
+			}
+			scopeWithBlock[name] = current
+			const maxResolvePasses = 3
+			for resolvePass := 0; resolvePass < maxResolvePasses; resolvePass++ {
+				resolvedAny := false
+				for k, v := range current {
+					s, ok := v.(string)
+					if !ok || !evaluator.ContainsExpression(s) {
+						continue
+					}
+					resolved, err := p.evaluator.Evaluate(s, "", scopeWithBlock, false)
+					if err == nil && resolved != nil && reflect.DeepEqual(resolved, v) {
+						resolved, err = p.evaluator.Evaluate(s, "", scopeWithBlock, true)
+					}
+					if err != nil || resolved == nil {
+						continue
+					}
+					if reflect.DeepEqual(resolved, v) {
+						continue
+					}
+					current[k] = resolved
+					scopeWithBlock[name] = current
+					resolvedAny = true
+				}
+				if !resolvedAny {
+					break
+				}
+			}
+			globalScope[name] = current
+			if !reflect.DeepEqual(current, oldBody) {
+				anyBlockChanged = true
+			}
 		}
-		evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", globalScope, false)
-		if err != nil {
-			return fmt.Errorf("config block %q: %w", name, err)
+		if !anyBlockChanged {
+			break
 		}
-		globalScope[name] = evaluated
 	}
 	return nil
 }
@@ -1009,10 +1080,33 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 // Helpers
 // =============================================================================
 
-// mergeConfigMaps merges facet config blocks into the accumulated global scope.
+func containsExpressionInValue(v any) bool {
+	switch x := v.(type) {
+	case string:
+		return evaluator.ContainsExpression(x)
+	case map[string]any:
+		for _, val := range x {
+			if containsExpressionInValue(val) {
+				return true
+			}
+		}
+		return false
+	case []any:
+		for _, val := range x {
+			if containsExpressionInValue(val) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// MergeConfigMaps merges facet config blocks into the accumulated global scope.
 // When the same block name exists in both, block bodies are deep-merged recursively (overlay overwrites).
 // Returns a new map; does not mutate inputs.
-func mergeConfigMaps(globalScope map[string]any, facetConfig map[string]any) map[string]any {
+func MergeConfigMaps(globalScope map[string]any, facetConfig map[string]any) map[string]any {
 	out := make(map[string]any)
 	maps.Copy(out, globalScope)
 	for name, body := range facetConfig {
