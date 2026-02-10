@@ -531,10 +531,11 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	var mergedScope map[string]any
 	scopeMu.Lock()
 	for _, loader := range loaders {
-		if loader.GetSourceName() == "user" {
+		name := loaderNames[loader]
+		if name == "" || name == "user" {
 			continue
 		}
-		if scope, ok := collectedScopes[loader.GetSourceName()]; ok && scope != nil {
+		if scope, ok := collectedScopes[name]; ok && scope != nil {
 			mergedScope = MergeConfigMaps(mergedScope, scope)
 		}
 	}
