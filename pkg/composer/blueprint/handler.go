@@ -558,7 +558,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		return err
 	}
 
-	if mergedScope != nil && h.runtime != nil && h.runtime.Evaluator != nil {
+	if h.runtime.Evaluator != nil {
 		evalPath := filepath.Join(h.runtime.TemplateRoot, "facets", "_eval.yaml")
 		if h.runtime.TemplateRoot == "" {
 			evalPath = ""
