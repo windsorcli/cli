@@ -471,10 +471,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	var scopeMu sync.Mutex
-	collectedScopes := make(map[string]struct {
-		scope map[string]any
-		order []string
-	})
+	collectedScopes := make(map[string]map[string]any)
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -484,7 +481,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		wg.Add(1)
 		go func(l BlueprintLoader, name string) {
 			defer wg.Done()
-			scope, order, err := h.processLoader(l)
+			scope, _, err := h.processLoader(l)
 			if err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("failed to process facets for '%s': %w", name, err))
@@ -493,10 +490,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			}
 			if scope != nil {
 				scopeMu.Lock()
-				collectedScopes[name] = struct {
-					scope map[string]any
-					order []string
-				}{scope: scope, order: order}
+				collectedScopes[name] = scope
 				scopeMu.Unlock()
 			}
 		}(loader, loaderNames[loader])
@@ -540,8 +534,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		if loader.GetSourceName() == "user" {
 			continue
 		}
-		if entry, ok := collectedScopes[loader.GetSourceName()]; ok && entry.scope != nil {
-			mergedScope = MergeConfigMaps(mergedScope, entry.scope)
+		if scope, ok := collectedScopes[loader.GetSourceName()]; ok && scope != nil {
+			mergedScope = MergeConfigMaps(mergedScope, scope)
 		}
 	}
 	scopeMu.Unlock()
