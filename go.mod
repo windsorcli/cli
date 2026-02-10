@@ -5,7 +5,7 @@ go 1.25.3
 require (
 	github.com/1password/onepassword-sdk-go v0.3.1
 	github.com/Masterminds/semver/v3 v3.4.0
-	github.com/abiosoft/colima v0.9.1
+	github.com/abiosoft/colima v0.10.0
 	github.com/briandowns/spinner v1.23.2
 	github.com/compose-spec/compose-go/v2 v2.10.1
 	github.com/expr-lang/expr v1.17.7
@@ -110,7 +110,7 @@ require (
 	github.com/siderolabs/go-api-signature v0.3.12 // indirect
 	github.com/siderolabs/go-pointer v1.0.1 // indirect
 	github.com/siderolabs/protoenc v0.2.4 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
 	github.com/vbatts/tar-split v0.12.2 // indirect
