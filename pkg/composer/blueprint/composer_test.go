@@ -144,7 +144,7 @@ func TestComposer_Compose(t *testing.T) {
 		composer := NewBlueprintComposer(mocks.Runtime)
 
 		// When composing
-		result, err := composer.Compose(nil, nil, "")
+		result, err := composer.Compose(nil, nil, "", nil)
 
 		// Then should return empty blueprint
 		if err != nil {
@@ -179,7 +179,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then should merge template
 		if err != nil {
@@ -221,7 +221,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then source components should be merged
 		if err != nil {
@@ -270,7 +270,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then core source components should be merged into result
 		if err != nil {
@@ -335,7 +335,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then reference source components should NOT be merged
 		if err != nil {
@@ -384,7 +384,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then component should be able to reference the source
 		if err != nil {
@@ -441,7 +441,7 @@ func TestComposer_Compose(t *testing.T) {
 			createMockBlueprintLoader("user", userBp),
 		}
 
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -493,7 +493,7 @@ func TestComposer_Compose(t *testing.T) {
 			createMockBlueprintLoader("user", userBp),
 		}
 
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -550,7 +550,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then both sources should be merged
 		if err != nil {
@@ -596,7 +596,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then user values should override
 		if err != nil {
@@ -631,7 +631,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then should match by name and merge
 		if err != nil {
@@ -669,7 +669,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then should still compose successfully with template merged
 		if err != nil {
@@ -721,7 +721,7 @@ func TestComposer_Compose(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then values-common ConfigMap should be created with legacy variables
 		if err != nil {
@@ -801,7 +801,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then all kustomizations should remain (no filtering), with user override applied
 		if err != nil {
@@ -850,7 +850,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then all components should remain (no filtering)
 		if err != nil {
@@ -894,7 +894,7 @@ func TestComposer_FilterToUserSelection(t *testing.T) {
 		}
 
 		// When composing
-		result, err := composer.Compose(loaders, nil, "")
+		result, err := composer.Compose(loaders, nil, "", nil)
 
 		// Then all components should remain (no filtering), with user overrides applied
 		if err != nil {
@@ -1017,7 +1017,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		user := &blueprintv1alpha1.Blueprint{}
 
 		// When applying user blueprint
-		composer.applyUserBlueprint(result, user, "")
+		composer.applyUserBlueprint(result, user, "", nil)
 
 		// Then repository should be cleared, but sources should remain (no filtering)
 		if result.Repository.Url != "" {
@@ -1045,7 +1045,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 
 		// When applying user authority
-		composer.applyUserBlueprint(result, user, "")
+		composer.applyUserBlueprint(result, user, "", nil)
 
 		// Then repository should be merged (user overrides)
 		if result.Repository.Url != "http://user.test/repo" {
@@ -1071,7 +1071,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 
 		// When applying user blueprint
-		composer.applyUserBlueprint(result, user, "")
+		composer.applyUserBlueprint(result, user, "", nil)
 
 		// Then all sources should remain (no filtering), with user's override applied
 		if len(result.Sources) != 2 {
@@ -1106,7 +1106,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 
 		// When applying user authority with nil user
-		composer.applyUserBlueprint(result, nil, "")
+		composer.applyUserBlueprint(result, nil, "", nil)
 
 		// Then result should remain unchanged
 		if result.Repository.Url != "http://git.test/git/project" {
@@ -1136,7 +1136,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 
 		// When applying user blueprint
-		composer.applyUserBlueprint(result, user, "")
+		composer.applyUserBlueprint(result, user, "", nil)
 
 		// Then all components should remain, with user override applied
 		if len(result.TerraformComponents) != 3 {
@@ -1176,7 +1176,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 		}
 
 		// When applying user blueprint
-		composer.applyUserBlueprint(result, user, "")
+		composer.applyUserBlueprint(result, user, "", nil)
 
 		// Then new component should be added
 		if len(result.TerraformComponents) != 2 {
@@ -1214,7 +1214,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 			},
 		}
 
-		err := composer.applyUserBlueprint(result, user, "")
+		err := composer.applyUserBlueprint(result, user, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -1251,7 +1251,7 @@ func TestComposer_applyUserBlueprint(t *testing.T) {
 			},
 		}
 
-		err := composer.applyUserBlueprint(result, user, "")
+		err := composer.applyUserBlueprint(result, user, "", nil)
 
 		if err == nil {
 			t.Error("Expected error when EvaluateMap fails")

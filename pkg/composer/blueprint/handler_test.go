@@ -1565,4 +1565,65 @@ func TestHandler_processAndCompose(t *testing.T) {
 			t.Error("Expected composed blueprint to be set")
 		}
 	})
+
+	t.Run("ResolvesConfigBlockRefInTerraformInputsWhenTemplateHasFacetWithConfig", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		templateBp := &blueprintv1alpha1.Blueprint{}
+		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
+			getSourceNameFunc: func() string { return "template" },
+			getFacetsFunc: func() []blueprintv1alpha1.Facet {
+				return []blueprintv1alpha1.Facet{
+					{
+						Metadata: blueprintv1alpha1.Metadata{Name: "facet-with-config"},
+						Config: []blueprintv1alpha1.ConfigBlock{
+							{
+								Name: "talos_common_docker",
+								Body: map[string]any{
+									"patchVars":    map[string]any{"key": "val"},
+									"common_patch": "${string(talos_common_docker.patchVars)}",
+									"patches":      "${string(talos_common_docker.common_patch)}",
+								},
+							},
+						},
+						TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+							{
+								TerraformComponent: blueprintv1alpha1.TerraformComponent{
+									Path:   "cluster/talos",
+									Inputs: map[string]any{"common_config_patches": "${talos_common_docker.patches}"},
+								},
+							},
+						},
+					},
+				}
+			},
+		}
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return &blueprintv1alpha1.Blueprint{} },
+			getSourceNameFunc: func() string { return "user" },
+		}
+
+		err := handler.processAndCompose()
+		if err != nil {
+			t.Fatalf("processAndCompose failed: %v", err)
+		}
+		if handler.composedBlueprint == nil {
+			t.Fatal("Expected composed blueprint to be set")
+		}
+		if len(handler.composedBlueprint.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(handler.composedBlueprint.TerraformComponents))
+		}
+		commonConfigPatches := handler.composedBlueprint.TerraformComponents[0].Inputs["common_config_patches"]
+		if commonConfigPatches == nil {
+			t.Error("Expected common_config_patches to be resolved, got nil")
+		}
+		if s, ok := commonConfigPatches.(string); ok && strings.Contains(s, "${") {
+			t.Errorf("Expected common_config_patches to be resolved (no expression), got %q", s)
+		}
+	})
 }

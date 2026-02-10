@@ -1,3 +1,4 @@
+// Package blueprint provides blueprint loading, facet processing, composition, and writing for the Windsor CLI.
 package blueprint
 
 import (
@@ -16,7 +17,7 @@ import (
 // BlueprintComposer combines processed blueprints from multiple loaders into a final composed blueprint.
 // It applies the composition algorithm: Sources (in order) → Template (if not in sources) → User overlay.
 type BlueprintComposer interface {
-	Compose(loaders []BlueprintLoader, initLoaderNames []string, userBlueprintPath string) (*blueprintv1alpha1.Blueprint, error)
+	Compose(loaders []BlueprintLoader, initLoaderNames []string, userBlueprintPath string, configScope map[string]any) (*blueprintv1alpha1.Blueprint, error)
 }
 
 // =============================================================================
@@ -61,8 +62,9 @@ func NewBlueprintComposer(rt *runtime.Runtime) *BaseBlueprintComposer {
 // references (e.g. source: "core"). The "template" source is only included when the local template
 // directory exists. Missing sources are added from the loader's blueprint or as minimal entries;
 // for OCI loaders without a matching source entry, URL and Ref are taken from any OCI source in
-// the loader's blueprint.
-func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNames []string, userBlueprintPath string) (*blueprintv1alpha1.Blueprint, error) {
+// the loader's blueprint. When configScope is non-nil, it is used when evaluating user blueprint
+// terraform inputs so config-block refs resolve.
+func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNames []string, userBlueprintPath string, configScope map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 	result := DefaultBlueprint.DeepCopy()
 
 	if len(loaders) == 0 {
@@ -149,7 +151,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 		}
 	}
 
-	if err := c.applyUserBlueprint(result, userBlueprint, userBlueprintPath); err != nil {
+	if err := c.applyUserBlueprint(result, userBlueprint, userBlueprintPath, configScope); err != nil {
 		return nil, err
 	}
 
@@ -179,9 +181,10 @@ func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]
 
 // applyUserBlueprint applies the user blueprint to the composed result as an override layer.
 // The user blueprint can override existing components, add new components, or disable components
-// via enabled:false. Non-deferred expressions in the user's terraform inputs (e.g. yaml(), file())
-// are evaluated before merging using sourceFilePath so relative paths resolve relative to the user's blueprint file.
-func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint, sourceFilePath string) error {
+// via enabled:false. Non-deferred expressions in the user's terraform inputs (e.g. yaml(), file(),
+// config-block refs like talos_common_docker.patches) are evaluated before merging using sourceFilePath
+// and configScope when non-nil so relative paths and config-block references resolve.
+func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blueprint, user *blueprintv1alpha1.Blueprint, sourceFilePath string, configScope map[string]any) error {
 	if user == nil {
 		return nil
 	}
@@ -194,7 +197,7 @@ func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blu
 	if c.runtime != nil && c.runtime.Evaluator != nil {
 		for i := range userCopy.TerraformComponents {
 			if userCopy.TerraformComponents[i].Inputs != nil {
-				evaluated, err := c.runtime.Evaluator.EvaluateMap(userCopy.TerraformComponents[i].Inputs, sourceFilePath, nil, false)
+				evaluated, err := c.runtime.Evaluator.EvaluateMap(userCopy.TerraformComponents[i].Inputs, sourceFilePath, configScope, false)
 				if err != nil {
 					return fmt.Errorf("evaluate user blueprint terraform inputs: %w", err)
 				}
