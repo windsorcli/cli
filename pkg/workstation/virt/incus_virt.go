@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
@@ -1207,32 +1206,6 @@ func (v *IncusVirt) addQuietFlag(args []string) []string {
 		return append(args, "--quiet")
 	}
 	return args
-}
-
-// withProgress executes a function with a spinner progress indicator.
-// If verbose mode is enabled, prints the message and executes without spinner.
-// Otherwise, shows a spinner during execution and prints success/failure status after.
-func (v *IncusVirt) withProgress(message string, fn func() error) error {
-	if v.shell.IsVerbose() {
-		fmt.Fprintln(os.Stderr, message)
-		return fn()
-	}
-
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"), spinner.WithWriter(os.Stderr))
-	spin.Suffix = " " + message
-	spin.Start()
-
-	err := fn()
-
-	spin.Stop()
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return err
-	}
-
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-	return nil
 }
 
 // =============================================================================

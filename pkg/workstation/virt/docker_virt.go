@@ -8,13 +8,11 @@ package virt
 import (
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/briandowns/spinner"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/workstation/services"
@@ -145,25 +143,6 @@ func (v *DockerVirt) Down() error {
 	if err := v.withProgress("📦 Tearing down Docker workstation", v.removeResources); err != nil {
 		return err
 	}
-	return nil
-}
-
-// withProgress runs fn with a spinner and prints success or failure. If verbose, prints message and runs fn without spinner.
-func (v *DockerVirt) withProgress(message string, fn func() error) error {
-	if v.shell.IsVerbose() {
-		fmt.Fprintln(os.Stderr, message)
-		return fn()
-	}
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"), spinner.WithWriter(os.Stderr))
-	spin.Suffix = " " + message
-	spin.Start()
-	err := fn()
-	spin.Stop()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	return nil
 }
 

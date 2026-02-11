@@ -6,8 +6,11 @@
 package virt
 
 import (
+	"fmt"
 	"os"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -98,4 +101,23 @@ func NewBaseVirt(rt *runtime.Runtime) *BaseVirt {
 // setShims sets the shims for testing purposes
 func (v *BaseVirt) setShims(shims *Shims) {
 	v.shims = shims
+}
+
+// withProgress runs fn with a spinner and prints success or failure. If verbose, prints message and runs fn without spinner.
+func (v *BaseVirt) withProgress(message string, fn func() error) error {
+	if v.shell.IsVerbose() {
+		fmt.Fprintln(os.Stderr, message)
+		return fn()
+	}
+	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"), spinner.WithWriter(os.Stderr))
+	spin.Suffix = " " + message
+	spin.Start()
+	err := fn()
+	spin.Stop()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	return nil
 }
