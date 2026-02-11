@@ -56,7 +56,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	vmDriver := e.configHandler.GetString("vm.driver")
-	vmRuntime := e.configHandler.GetString("vm.runtime", "docker")
+	provider := e.configHandler.GetString("provider")
 	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
 	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
 
@@ -68,7 +68,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	if vmRuntime != "incus" && vmDriver != "" && (!dockerHostExists || isDockerHostManaged) {
+	if provider != "incus" && vmDriver != "" && (!dockerHostExists || isDockerHostManaged) {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
@@ -131,7 +131,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 		envVars["DOCKER_CONFIG"] = filepath.ToSlash(dockerConfigDir)
 		e.SetManagedEnv("DOCKER_CONFIG")
-	} else if vmRuntime != "incus" && dockerHostExists {
+	} else if provider != "incus" && dockerHostExists {
 		if dockerHostValue, _ := e.shims.LookupEnv("DOCKER_HOST"); dockerHostValue != "" {
 			envVars["DOCKER_HOST"] = dockerHostValue
 		}
@@ -143,7 +143,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		e.SetManagedEnv("REGISTRY_URL")
 	}
 
-	if vmDriver == "colima" && vmRuntime == "incus" {
+	if vmDriver == "colima" && provider == "incus" {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)

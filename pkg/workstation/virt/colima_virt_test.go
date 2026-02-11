@@ -1693,10 +1693,9 @@ func TestColimaVirt_WriteConfig_NestedVirtualization(t *testing.T) {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
 
-		// Set vm.runtime if provided
-		if runtime != "" {
-			if err := mocks.ConfigHandler.Set("vm.runtime", runtime); err != nil {
-				t.Fatalf("Failed to set vm.runtime: %v", err)
+		if runtime == "incus" {
+			if err := mocks.ConfigHandler.Set("provider", "incus"); err != nil {
+				t.Fatalf("Failed to set provider: %v", err)
 			}
 		}
 

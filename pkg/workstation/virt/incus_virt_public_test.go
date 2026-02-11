@@ -187,6 +187,7 @@ func setupIncusMocks(t *testing.T, opts ...func(*IncusTestMocks)) *IncusTestMock
 	configStr := `
 contexts:
   mock-context:
+    provider: incus
     vm:
       runtime: incus
     network:
@@ -328,10 +329,10 @@ func TestIncusVirt_Up(t *testing.T) {
 	})
 
 	t.Run("NotIncusRuntime", func(t *testing.T) {
-		// Given an IncusVirt with docker runtime
+		// Given an IncusVirt with docker provider (not incus)
 		incusVirt, mocks := setup(t)
-		if err := mocks.ConfigHandler.Set("vm.runtime", "docker"); err != nil {
-			t.Fatalf("Failed to set vm.runtime: %v", err)
+		if err := mocks.ConfigHandler.Set("provider", "docker"); err != nil {
+			t.Fatalf("Failed to set provider: %v", err)
 		}
 
 		// When calling Up
@@ -473,10 +474,10 @@ func TestIncusVirt_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorValidateVMForIncusNoAddress", func(t *testing.T) {
-		// Given an IncusVirt with incus runtime and VM running but no IP address
+		// Given an IncusVirt with provider incus and VM running but no IP address
 		incusVirt, mocks := setup(t)
-		if err := mocks.ConfigHandler.Set("vm.runtime", "incus"); err != nil {
-			t.Fatalf("Failed to set vm.runtime: %v", err)
+		if err := mocks.ConfigHandler.Set("provider", "incus"); err != nil {
+			t.Fatalf("Failed to set provider: %v", err)
 		}
 
 		// And service returns a valid IncusConfig so instance creation is attempted
@@ -583,10 +584,10 @@ func TestIncusVirt_Down(t *testing.T) {
 	})
 
 	t.Run("NotIncusRuntime", func(t *testing.T) {
-		// Given an IncusVirt with docker runtime
+		// Given an IncusVirt with docker provider (not incus)
 		incusVirt, mocks := setup(t)
-		if err := mocks.ConfigHandler.Set("vm.runtime", "docker"); err != nil {
-			t.Fatalf("Failed to set vm.runtime: %v", err)
+		if err := mocks.ConfigHandler.Set("provider", "docker"); err != nil {
+			t.Fatalf("Failed to set provider: %v", err)
 		}
 		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "colima" && len(args) >= 1 && args[0] == "stop" {

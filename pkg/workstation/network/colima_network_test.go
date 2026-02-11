@@ -359,10 +359,10 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("IncusRuntimeConfiguresIncusNetwork", func(t *testing.T) {
-		// Given a network manager with Incus runtime
+		// Given a network manager with provider incus
 		manager, mocks := setup(t)
-		if err := mocks.ConfigHandler.Set("vm.runtime", "incus"); err != nil {
-			t.Fatalf("Failed to set vm.runtime: %v", err)
+		if err := mocks.ConfigHandler.Set("provider", "incus"); err != nil {
+			t.Fatalf("Failed to set provider: %v", err)
 		}
 		if err := mocks.ConfigHandler.Set("vm.address", "192.168.1.10"); err != nil {
 			t.Fatalf("Failed to set vm.address: %v", err)

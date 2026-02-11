@@ -874,16 +874,16 @@ contexts:
 	})
 
 	t.Run("IncusRuntimeSetsIncusSocket", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with colima driver and incus runtime
+		// Given a new VirtEnvPrinter with colima driver and provider incus
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
+    provider: incus
     vm:
       driver: colima
-      runtime: incus
     docker:
       registries:
         mock-registry-url:

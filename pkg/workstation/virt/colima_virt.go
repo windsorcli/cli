@@ -128,9 +128,12 @@ func (v *ColimaVirt) WriteConfig() error {
 		arch = archValue
 	}
 
-	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
-	runtime := vmRuntime
-	nestedVirtualization := vmRuntime == "incus"
+	runtime := "docker"
+	nestedVirtualization := false
+	if v.configHandler.GetString("provider") == "incus" {
+		runtime = "incus"
+		nestedVirtualization = true
+	}
 
 	colimaConfig := &colimaConfig.Config{
 		CPU:      cpu,

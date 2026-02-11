@@ -258,6 +258,105 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("VmDriverColimaSetsProviderWorkstationAndVmDriver", func(t *testing.T) {
+		mocks := setupInitTest(t)
+		setCalls := make(map[string]any)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		origSet := mockConfig.SetFunc
+		mockConfig.SetFunc = func(key string, value any) error {
+			setCalls[key] = value
+			if origSet != nil {
+				return origSet(key, value)
+			}
+			return nil
+		}
+
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-driver", "colima"})
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+
+		if v, ok := setCalls["provider"]; !ok || v != "docker" {
+			t.Errorf("Expected Set(provider, docker), got provider=%v (ok=%v)", v, ok)
+		}
+		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
+			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
+		}
+		if v, ok := setCalls["vm.driver"]; !ok || v != "colima" {
+			t.Errorf("Expected Set(vm.driver, colima), got vm.driver=%v (ok=%v)", v, ok)
+		}
+	})
+
+	t.Run("VmDriverDockerDesktopSetsProviderAndWorkstation", func(t *testing.T) {
+		mocks := setupInitTest(t)
+		setCalls := make(map[string]any)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		origSet := mockConfig.SetFunc
+		mockConfig.SetFunc = func(key string, value any) error {
+			setCalls[key] = value
+			if origSet != nil {
+				return origSet(key, value)
+			}
+			return nil
+		}
+
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-driver", "docker-desktop"})
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+
+		if v, ok := setCalls["provider"]; !ok || v != "docker" {
+			t.Errorf("Expected Set(provider, docker), got provider=%v (ok=%v)", v, ok)
+		}
+		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
+			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
+		}
+		if v, ok := setCalls["vm.driver"]; !ok || v != "docker-desktop" {
+			t.Errorf("Expected Set(vm.driver, docker-desktop), got vm.driver=%v (ok=%v)", v, ok)
+		}
+	})
+
+	t.Run("VmDriverColimaIncusSetsProviderIncusAndWorkstation", func(t *testing.T) {
+		mocks := setupInitTest(t)
+		setCalls := make(map[string]any)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		origSet := mockConfig.SetFunc
+		mockConfig.SetFunc = func(key string, value any) error {
+			setCalls[key] = value
+			if origSet != nil {
+				return origSet(key, value)
+			}
+			return nil
+		}
+
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--vm-driver", "colima-incus"})
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+
+		if v, ok := setCalls["provider"]; !ok || v != "incus" {
+			t.Errorf("Expected Set(provider, incus), got provider=%v (ok=%v)", v, ok)
+		}
+		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
+			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
+		}
+		if v, ok := setCalls["vm.driver"]; !ok || v != "colima" {
+			t.Errorf("Expected Set(vm.driver, colima), got vm.driver=%v (ok=%v)", v, ok)
+		}
+	})
+
 	t.Run("SuccessWithVmCpuFlag", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)

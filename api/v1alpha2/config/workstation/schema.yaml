@@ -94,7 +94,7 @@ properties:
         description: Memory size
       runtime:
         type: string
-        description: Container runtime for the VM
+        description: "Container runtime for the VM (deprecated)."
         default: docker
         enum:
           - docker

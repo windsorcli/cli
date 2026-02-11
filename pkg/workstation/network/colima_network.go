@@ -60,8 +60,7 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 	}
 
 	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
-	vmRuntime := n.configHandler.GetString("vm.runtime", "docker")
-	if vmRuntime == "incus" {
+	if n.configHandler.GetString("provider") == "incus" {
 		if err := n.configureIncusNetwork(networkCIDR); err != nil {
 			return fmt.Errorf("error configuring incus network: %w", err)
 		}
