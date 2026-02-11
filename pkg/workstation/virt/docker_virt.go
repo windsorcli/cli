@@ -8,7 +8,6 @@ package virt
 import (
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -116,35 +115,33 @@ func (v *DockerVirt) Up() error {
 }
 
 // Down stops all Docker containers managed by Windsor and removes associated volumes.
-// It ensures a clean shutdown by verifying Docker is enabled, checking the daemon status,
-// and executing docker compose down with --remove-orphans and --volumes flags. If the
-// compose file is missing or the Docker daemon is not accessible, the operation is
-// idempotent and exits without error.
+// When docker.enabled is true, runs compose down when .windsor/docker-compose.yaml exists.
+// Always removes any remaining workstation resources by identity: containers attached to
+// the windsor-<context> network and the network itself, so cleanup runs when provider is
+// docker but docker.enabled is false (e.g. Terraform-owned workstation). Idempotent when
+// daemon is unavailable or network does not exist.
 func (v *DockerVirt) Down() error {
+	if err := v.checkDockerDaemon(); err != nil {
+		return nil
+	}
 	if v.configHandler.GetBool("docker.enabled") {
-		if err := v.checkDockerDaemon(); err != nil {
-			return nil
-		}
-
 		if err := v.determineComposeCommand(); err != nil {
 			return fmt.Errorf("failed to determine compose command: %w", err)
 		}
-
 		projectRoot := v.projectRoot
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
-
-		if _, err := v.shims.Stat(composeFilePath); os.IsNotExist(err) {
-			return nil
+		if _, err := v.shims.Stat(composeFilePath); err == nil {
+			if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
+				return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
+			}
+			output, err := v.execComposeCommand("📦 Running docker compose down", "down", "--remove-orphans", "--volumes")
+			if err != nil {
+				return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
+			}
 		}
-
-		if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
-			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
-		}
-
-		output, err := v.execComposeCommand("📦 Running docker compose down", "down", "--remove-orphans", "--volumes")
-		if err != nil {
-			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
-		}
+	}
+	if err := v.withProgress("📦 Tearing down Docker workstation", v.removeResources); err != nil {
+		return err
 	}
 	return nil
 }
@@ -250,6 +247,44 @@ func (v *DockerVirt) checkDockerDaemon() error {
 		return fmt.Errorf("docker daemon not accessible")
 	}
 
+	return nil
+}
+
+// removeResources removes all containers attached to the windsor-<context> network
+// (including their anonymous volumes), then the network, then named volumes with
+// label com.docker.compose.project=windsor-<context>. Container/network steps are
+// skipped if the network does not exist; volume cleanup always runs so labeled
+// volumes are removed even when the network was already removed or never existed.
+func (v *DockerVirt) removeResources() error {
+	contextName := v.configHandler.GetContext()
+	networkName := fmt.Sprintf("windsor-%s", contextName)
+	projectLabel := fmt.Sprintf("com.docker.compose.project=windsor-%s", contextName)
+
+	out, err := v.shell.ExecSilent("docker", "network", "inspect", networkName,
+		"--format", "{{range $k, $v := .Containers}}{{$k}}{{\"\\n\"}}{{end}}")
+	if err == nil {
+		for _, id := range strings.FieldsFunc(out, func(r rune) bool { return r == '\n' }) {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			_, _ = v.shell.ExecSilent("docker", "stop", id)
+			_, _ = v.shell.ExecSilent("docker", "rm", "-f", "-v", id)
+		}
+		_, _ = v.shell.ExecSilent("docker", "network", "rm", networkName)
+	}
+
+	volOut, err := v.shell.ExecSilent("docker", "volume", "ls", "-q", "--filter", "label="+projectLabel)
+	if err != nil {
+		return nil
+	}
+	for _, name := range strings.FieldsFunc(volOut, func(r rune) bool { return r == '\n' }) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		_, _ = v.shell.ExecSilent("docker", "volume", "rm", name)
+	}
 	return nil
 }
 
