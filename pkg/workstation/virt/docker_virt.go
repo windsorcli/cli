@@ -117,34 +117,31 @@ func (v *DockerVirt) Up() error {
 }
 
 // Down stops all Docker containers managed by Windsor and removes associated volumes.
-// It runs compose down when .windsor/docker-compose.yaml exists, then always removes
-// any remaining workstation resources by identity: containers attached to the
-// windsor-<context> network and the network itself. That ensures cleanup when the
-// compose file is missing (e.g. Terraform-owned workstation) or when resources are
-// stray. Idempotent when daemon is unavailable or network does not exist.
+// When docker.enabled is true, runs compose down when .windsor/docker-compose.yaml exists.
+// Always removes any remaining workstation resources by identity: containers attached to
+// the windsor-<context> network and the network itself, so cleanup runs when provider is
+// docker but docker.enabled is false (e.g. Terraform-owned workstation). Idempotent when
+// daemon is unavailable or network does not exist.
 func (v *DockerVirt) Down() error {
-	if !v.configHandler.GetBool("docker.enabled") {
-		return nil
-	}
 	if err := v.checkDockerDaemon(); err != nil {
 		return nil
 	}
-	if err := v.determineComposeCommand(); err != nil {
-		return fmt.Errorf("failed to determine compose command: %w", err)
-	}
-
-	projectRoot := v.projectRoot
-	composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
-	if _, err := v.shims.Stat(composeFilePath); err == nil {
-		if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
-			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
+	if v.configHandler.GetBool("docker.enabled") {
+		if err := v.determineComposeCommand(); err != nil {
+			return fmt.Errorf("failed to determine compose command: %w", err)
 		}
-		output, err := v.execComposeCommand("📦 Running docker compose down", "down", "--remove-orphans", "--volumes")
-		if err != nil {
-			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
+		projectRoot := v.projectRoot
+		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
+		if _, err := v.shims.Stat(composeFilePath); err == nil {
+			if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
+				return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
+			}
+			output, err := v.execComposeCommand("📦 Running docker compose down", "down", "--remove-orphans", "--volumes")
+			if err != nil {
+				return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
+			}
 		}
 	}
-
 	if err := v.withProgress("📦 Tearing down Docker workstation", v.removeResources); err != nil {
 		return err
 	}
