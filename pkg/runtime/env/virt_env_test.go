@@ -32,7 +32,7 @@ func setupVirtEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	if len(overrides) == 0 || overrides[0] == nil || overrides[0].ConfigHandler == nil {
 		// Set the context environment variable first, before loading config
 		os.Setenv("WINDSOR_CONTEXT", "test-context")
-		
+
 		configStr := `
 version: v1alpha1
 contexts:
@@ -1371,7 +1371,7 @@ contexts:
 		})
 		// Set the context environment variable after setup (setupVirtEnvMocks may have reset it)
 		os.Setenv("WINDSOR_CONTEXT", "test-context")
-		
+
 		configStr := `
 version: v1alpha1
 contexts:
@@ -1388,7 +1388,7 @@ contexts:
 		}
 		// Set the context to ensure GetConfig() returns the right config
 		mocks.ConfigHandler.SetContext("test-context")
-		
+
 		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
