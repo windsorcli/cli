@@ -252,7 +252,9 @@ func (v *DockerVirt) checkDockerDaemon() error {
 
 // removeResources removes all containers attached to the windsor-<context> network
 // (including their anonymous volumes), then the network, then named volumes with
-// label com.docker.compose.project=windsor-<context>. No-op if the network does not exist.
+// label com.docker.compose.project=windsor-<context>. Container/network steps are
+// skipped if the network does not exist; volume cleanup always runs so labeled
+// volumes are removed even when the network was already removed or never existed.
 func (v *DockerVirt) removeResources() error {
 	contextName := v.configHandler.GetContext()
 	networkName := fmt.Sprintf("windsor-%s", contextName)
@@ -260,18 +262,17 @@ func (v *DockerVirt) removeResources() error {
 
 	out, err := v.shell.ExecSilent("docker", "network", "inspect", networkName,
 		"--format", "{{range $k, $v := .Containers}}{{$k}}{{\"\\n\"}}{{end}}")
-	if err != nil {
-		return nil
-	}
-	for _, id := range strings.FieldsFunc(out, func(r rune) bool { return r == '\n' }) {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
+	if err == nil {
+		for _, id := range strings.FieldsFunc(out, func(r rune) bool { return r == '\n' }) {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			_, _ = v.shell.ExecSilent("docker", "stop", id)
+			_, _ = v.shell.ExecSilent("docker", "rm", "-f", "-v", id)
 		}
-		_, _ = v.shell.ExecSilent("docker", "stop", id)
-		_, _ = v.shell.ExecSilent("docker", "rm", "-f", "-v", id)
+		_, _ = v.shell.ExecSilent("docker", "network", "rm", networkName)
 	}
-	_, _ = v.shell.ExecSilent("docker", "network", "rm", networkName)
 
 	volOut, err := v.shell.ExecSilent("docker", "volume", "ls", "-q", "--filter", "label="+projectLabel)
 	if err != nil {
