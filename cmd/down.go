@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 var (
@@ -60,11 +61,19 @@ var downCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "Skipping Terraform cleanup (--skip-tf set)")
 		}
 
-		if proj.Workstation != nil && !skipDockerFlag {
-			if err := proj.Workstation.Down(); err != nil {
-				return fmt.Errorf("error tearing down workstation: %w", err)
+		if !skipDockerFlag {
+			if proj.Workstation != nil {
+				if err := proj.Workstation.Down(); err != nil {
+					return fmt.Errorf("error tearing down workstation: %w", err)
+				}
+			} else if proj.Runtime.ConfigHandler.GetString("provider") == "docker" ||
+				proj.Runtime.ConfigHandler.GetBool("docker.enabled") {
+				dockerVirt := virt.NewDockerVirt(proj.Runtime, nil)
+				if err := dockerVirt.Down(); err != nil {
+					return fmt.Errorf("error tearing down Docker workstation: %w", err)
+				}
 			}
-		} else if skipDockerFlag {
+		} else {
 			fmt.Fprintln(os.Stderr, "Skipping Docker container cleanup (--skip-docker set)")
 		}
 

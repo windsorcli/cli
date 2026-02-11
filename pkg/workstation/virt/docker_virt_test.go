@@ -104,6 +104,17 @@ contexts:
 						}
 					}
 				}
+			case "network":
+				if len(args) >= 2 && args[1] == "inspect" {
+					return "", nil
+				}
+				if len(args) >= 2 && args[1] == "rm" {
+					return "", nil
+				}
+			case "volume":
+				if len(args) >= 2 && (args[1] == "ls" || args[1] == "rm") {
+					return "", nil
+				}
 			}
 		}
 		return "", fmt.Errorf("unexpected command: %s %v", command, args)
@@ -654,6 +665,47 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "mock error output") {
 			t.Errorf("expected error to contain command output, got %v", err)
+		}
+	})
+
+	t.Run("DownInvokesRemoveResourcesWhenComposeFileMissing", func(t *testing.T) {
+		dockerVirt, mocks := setup(t)
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		var networkInspectCalled bool
+		var volumeLsFilter string
+		origExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 2 {
+				if args[0] == "network" && args[1] == "inspect" && len(args) >= 3 && args[2] == "windsor-mock-context" {
+					networkInspectCalled = true
+					return "", nil
+				}
+				if args[0] == "volume" && args[1] == "ls" {
+					for i := 0; i < len(args)-1; i++ {
+						if args[i] == "--filter" && i+1 < len(args) {
+							volumeLsFilter = args[i+1]
+							break
+						}
+					}
+					return "", nil
+				}
+			}
+			return origExecSilent(command, args...)
+		}
+
+		err := dockerVirt.Down()
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !networkInspectCalled {
+			t.Error("expected docker network inspect windsor-mock-context to be called")
+		}
+		expectedLabel := "label=com.docker.compose.project=windsor-mock-context"
+		if volumeLsFilter != expectedLabel {
+			t.Errorf("expected volume ls filter %q, got %q", expectedLabel, volumeLsFilter)
 		}
 	})
 }

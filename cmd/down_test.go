@@ -232,4 +232,55 @@ func TestDownCmd(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
+
+	t.Run("DockerFallbackWhenProviderDocker", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.IsDevModeFunc = func(contextName string) bool { return false }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return "docker"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.SaveConfigFunc = func(hasSetFlags ...bool) error { return nil }
+		mockConfigHandler.GenerateContextIDFunc = func() error { return nil }
+
+		opts := &SetupOptions{ConfigHandler: mockConfigHandler}
+		mocks := setupDownTest(t, opts)
+		mocks.Runtime.Runtime.ConfigHandler = mockConfigHandler
+		origExecSilent := mocks.Runtime.Shell.ExecSilentFunc
+		mocks.Runtime.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 3 && args[0] == "info" && args[1] == "--format" && args[2] == "json" {
+				return `{"ServerErrors":[]}`, nil
+			}
+			if command == "docker" && len(args) > 0 && args[0] == "compose" {
+				return "Docker Compose version 2.0.0", nil
+			}
+			if origExecSilent != nil {
+				return origExecSilent(command, args...)
+			}
+			return "", nil
+		}
+		mocks.Project = project.NewProject("", &project.Project{Runtime: mocks.Runtime.Runtime})
+
+		cmd := createTestDownCmd()
+		cmd.SetArgs([]string{"--skip-k8s", "--skip-tf", "--skip-docker=false"})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
 }
