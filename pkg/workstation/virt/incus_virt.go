@@ -230,8 +230,10 @@ func (v *IncusVirt) startIncusContainers() error {
 // with `colima delete`. Attempts graceful shutdown first, falling back to cleanup
 // as a failsafe if the VM won't stop cleanly.
 func (v *IncusVirt) Down() error {
-	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
-	if vmRuntime == "incus" {
+	if v.configHandler.GetString("provider") != "incus" {
+		return v.ColimaVirt.Down()
+	}
+	{
 		instanceCount := 0
 		for _, service := range v.services {
 			incusConfig, err := service.GetIncusConfig()
@@ -260,22 +262,14 @@ func (v *IncusVirt) Down() error {
 	}
 
 	err := v.ColimaVirt.Down()
-	if err != nil && vmRuntime == "incus" {
+	if err != nil {
 		_ = v.cleanupVMForIncus()
 	}
 	return err
 }
 
-// WriteConfig configures the VM for Incus runtime by ensuring that the runtime is set to "incus"
-// and applying any other necessary Incus-specific configuration. This method overrides
-// ColimaVirt.WriteConfig to guarantee that the correct runtime value is set before invoking
-// the parent implementation. It always sets "vm.runtime" to "incus" if not already set,
-// and then delegates further configuration to the embedded ColimaVirt's WriteConfig method.
+// WriteConfig configures the VM for Incus runtime and delegates to the embedded ColimaVirt's WriteConfig.
 func (v *IncusVirt) WriteConfig() error {
-	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
-	if vmRuntime != "incus" {
-		_ = v.configHandler.Set("vm.runtime", "incus")
-	}
 	return v.ColimaVirt.WriteConfig()
 }
 
@@ -287,8 +281,7 @@ func (v *IncusVirt) WriteConfig() error {
 // It checks that the VM has a valid IP address when running in incus mode.
 // Returns an error with helpful troubleshooting information if the VM is in an invalid state.
 func (v *IncusVirt) validateVMForIncus(info VMInfo) (VMInfo, error) {
-	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
-	if vmRuntime != "incus" {
+	if v.configHandler.GetString("provider") != "incus" {
 		return info, nil
 	}
 	if info.Address == "" {
@@ -304,13 +297,10 @@ func (v *IncusVirt) validateVMForIncus(info VMInfo) (VMInfo, error) {
 }
 
 // cleanupVMForIncus performs Incus-specific cleanup on the VM before deletion.
-// This handles stuck processes and ensures clean teardown for Incus runtime.
-// It only performs cleanup when the VM driver is colima and runtime is incus.
-// Cleanup includes stopping Colima daemons and Lima instances, and removing PID files.
+// It only runs when vm.driver is colima and provider is incus.
 func (v *IncusVirt) cleanupVMForIncus() error {
 	vmDriver := v.configHandler.GetString("vm.driver")
-	vmRuntime := v.configHandler.GetString("vm.runtime", "docker")
-	if vmDriver != "colima" || vmRuntime != "incus" {
+	if vmDriver != "colima" || v.configHandler.GetString("provider") != "incus" {
 		return nil
 	}
 	contextName := v.configHandler.GetContext()

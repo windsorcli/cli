@@ -650,7 +650,7 @@ func (rt *Runtime) incrementBuildID(existingBuildID, currentDate string) (string
 // ApplyConfigDefaults applies base configuration defaults if no config is currently loaded.
 // It sets "dev" mode in config if the context is a dev context, chooses a default VM driver
 // (optionally honoring a value from flagOverrides), and sets provider to "docker" in dev mode if not already set,
-// or "incus" if vm.driver is "colima" and vm.runtime is "incus".
+// or "incus" when overrides or config specify provider incus (e.g. vm.driver colima with vm.runtime incus for backwards compat).
 // After those, it loads a default configuration set, choosing among standard, full, localhost, or none
 // defaults depending on provider, dev mode, and vm.driver.
 // This must be called before loading from disk to ensure proper defaulting. Returns error on config operation failure.
@@ -688,8 +688,8 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 
 		vmRuntime := ""
 		if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-			if runtime, ok := flagOverrides[0]["vm.runtime"].(string); ok && runtime != "" {
-				vmRuntime = runtime
+			if r, ok := flagOverrides[0]["vm.runtime"].(string); ok && r != "" {
+				vmRuntime = r
 			}
 		}
 		if vmRuntime == "" {
@@ -697,7 +697,18 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 		}
 
 		if existingProvider == "" && isDevMode {
-			if vmDriver == "colima" && vmRuntime == "incus" {
+			overrideProvider := ""
+			if len(flagOverrides) > 0 && flagOverrides[0] != nil {
+				if p, ok := flagOverrides[0]["provider"].(string); ok && p != "" {
+					overrideProvider = p
+				}
+			}
+			if overrideProvider != "" {
+				if err := rt.ConfigHandler.Set("provider", overrideProvider); err != nil {
+					return fmt.Errorf("failed to set provider from overrides: %w", err)
+				}
+			} else if vmDriver == "colima" && vmRuntime == "incus" {
+				fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use provider: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
 				if err := rt.ConfigHandler.Set("provider", "incus"); err != nil {
 					return fmt.Errorf("failed to set provider to incus: %w", err)
 				}

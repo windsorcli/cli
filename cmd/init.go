@@ -96,12 +96,28 @@ var initCmd = &cobra.Command{
 			flagOverrides["aws.endpoint_url"] = initAwsEndpointURL
 		}
 		if initVmDriver != "" {
-			if initVmDriver == "colima-incus" {
-				flagOverrides["vm.driver"] = "colima"
-				flagOverrides["vm.runtime"] = "incus"
-				flagOverrides["provider"] = "incus"
+			flagOverrides["workstation.enabled"] = true
+			if initProvider == "" {
+				switch initVmDriver {
+				case "colima-incus":
+					flagOverrides["vm.driver"] = "colima"
+					flagOverrides["provider"] = "incus"
+				case "colima":
+					flagOverrides["vm.driver"] = "colima"
+					flagOverrides["provider"] = "docker"
+				case "docker-desktop", "docker":
+					flagOverrides["vm.driver"] = initVmDriver
+					flagOverrides["provider"] = "docker"
+				default:
+					flagOverrides["vm.driver"] = initVmDriver
+				}
 			} else {
-				flagOverrides["vm.driver"] = initVmDriver
+				switch initVmDriver {
+				case "colima-incus":
+					flagOverrides["vm.driver"] = "colima"
+				default:
+					flagOverrides["vm.driver"] = initVmDriver
+				}
 			}
 		}
 		if initCpu > 0 {
@@ -183,7 +199,7 @@ func init() {
 	initCmd.Flags().StringVar(&initBackend, "backend", "", "Specify the backend to use")
 	initCmd.Flags().StringVar(&initAwsProfile, "aws-profile", "", "Specify the AWS profile to use")
 	initCmd.Flags().StringVar(&initAwsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
-	initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "Specify the VM driver. Options: colima (defaults to docker runtime) or colima-incus (uses incus runtime).")
+	initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker).")
 	initCmd.Flags().IntVar(&initCpu, "vm-cpu", 0, "Specify the number of CPUs for Colima")
 	initCmd.Flags().IntVar(&initDisk, "vm-disk", 0, "Specify the disk size for Colima")
 	initCmd.Flags().IntVar(&initMemory, "vm-memory", 0, "Specify the memory size for Colima")

@@ -123,14 +123,15 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 				}
 				vmRuntime := ""
 				if flagOverrides != nil {
-					if runtime, ok := flagOverrides["vm.runtime"].(string); ok {
-						vmRuntime = runtime
+					if r, ok := flagOverrides["vm.runtime"].(string); ok {
+						vmRuntime = r
 					}
 				}
 				if vmRuntime == "" {
 					vmRuntime = p.configHandler.GetString("vm.runtime", "docker")
 				}
 				if vmDriver == "colima" && vmRuntime == "incus" {
+					fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use provider: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
 					flagOverrides["provider"] = "incus"
 				} else {
 					flagOverrides["provider"] = "docker"
@@ -167,14 +168,17 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 	if p.configHandler.IsDevMode(p.contextName) {
 		provider := p.configHandler.GetString("provider")
 		vmDriver := p.configHandler.GetString("vm.driver")
-		vmRuntime := p.configHandler.GetString("vm.runtime")
-		if provider == "" || provider == "docker" {
-			if vmDriver == "colima" && vmRuntime == "incus" {
-				if err := p.configHandler.Set("provider", "incus"); err != nil {
-					return fmt.Errorf("failed to set provider to incus: %w", err)
-				}
+		vmRuntime := p.configHandler.GetString("vm.runtime", "docker")
+		if (provider == "" || provider == "docker") && vmDriver == "colima" && vmRuntime == "incus" {
+			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use provider: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
+			if err := p.configHandler.Set("provider", "incus"); err != nil {
+				return fmt.Errorf("failed to set provider to incus: %w", err)
 			}
 		}
+	}
+
+	if p.Workstation == nil && p.configHandler.GetBool("workstation.enabled", false) {
+		p.Workstation = workstation.NewWorkstation(p.Runtime)
 	}
 
 	if err := p.Runtime.LoadEnvironment(false); err != nil {

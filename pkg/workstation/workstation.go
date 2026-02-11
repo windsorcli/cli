@@ -124,8 +124,7 @@ func (w *Workstation) Prepare() error {
 		w.VirtualMachine = virt.NewColimaVirt(w.runtime)
 	}
 
-	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
-	if vmRuntime == "incus" {
+	if w.configHandler.GetString("provider") == "incus" {
 		if w.ContainerRuntime == nil {
 			w.ContainerRuntime = virt.NewIncusVirt(w.runtime, w.Services)
 			if incusVirt, ok := w.ContainerRuntime.(*virt.IncusVirt); ok {
@@ -152,7 +151,6 @@ func (w *Workstation) Up() error {
 	}
 
 	vmDriver := w.configHandler.GetString("vm.driver")
-	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
 	if vmDriver == "colima" && w.VirtualMachine != nil {
 		if err := w.VirtualMachine.WriteConfig(); err != nil {
 			return fmt.Errorf("error writing virtual machine config: %w", err)
@@ -160,7 +158,7 @@ func (w *Workstation) Up() error {
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
-		if w.NetworkManager != nil && vmRuntime == "incus" {
+		if w.NetworkManager != nil && w.configHandler.GetString("provider") == "incus" {
 			vmAddress := w.configHandler.GetString("vm.address")
 			if vmAddress == "" {
 				return fmt.Errorf("vm.address is required for network configuration but was not set by VirtualMachine.Up()")
@@ -213,9 +211,9 @@ func (w *Workstation) Up() error {
 // describing the issue.
 func (w *Workstation) Down() error {
 	vmDriver := w.configHandler.GetString("vm.driver")
-	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
+	provider := w.configHandler.GetString("provider")
 
-	if w.NetworkManager != nil && vmDriver == "colima" && vmRuntime == "incus" {
+	if w.NetworkManager != nil && vmDriver == "colima" && provider == "incus" {
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
 			return fmt.Errorf("error configuring guest: %w", err)
 		}
@@ -227,7 +225,7 @@ func (w *Workstation) Down() error {
 		}
 	}
 
-	if w.VirtualMachine != nil && vmRuntime != "incus" {
+	if w.VirtualMachine != nil && provider != "incus" {
 		if err := w.VirtualMachine.Down(); err != nil {
 			return fmt.Errorf("Error running virtual machine Down command: %w", err)
 		}
@@ -287,8 +285,7 @@ func (w *Workstation) createServices() ([]services.Service, error) {
 
 	// Cluster Services - only create Talos services for Docker runtime
 	// For Incus, Talos nodes are created via blueprint/terraform
-	vmRuntime := w.configHandler.GetString("vm.runtime", "docker")
-	if vmRuntime != "incus" {
+	if w.configHandler.GetString("provider") != "incus" {
 		clusterDriver := w.configHandler.GetString("cluster.driver", "")
 		switch clusterDriver {
 		case "talos", "omni":
