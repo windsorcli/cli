@@ -303,11 +303,12 @@ func (h *BaseBlueprintHandler) loadUser() error {
 }
 
 // loadSources iterates through the user blueprint's sources array and loads each source.
-// Sources with name "template" are loaded from the local _template directory.
-// Sources with OCI URLs are loaded from the registry. Sources are loaded in parallel.
-// After loading direct sources, it recursively loads any sources referenced by those blueprints.
-// When the user blueprint is nil (e.g. no blueprint.yaml yet), still loads local template if
-// present so composition produces kustomizations to apply and existing Flux Kustomizations can be updated.
+// When the user blueprint exists, its sources list is the source of truth and exclusive—only those
+// sources are loaded; no default template or other defaults are added. Sources with name "template"
+// are loaded from the local _template directory; sources with OCI URLs are loaded from the registry.
+// Sources are loaded in parallel. After loading direct sources, it recursively loads any sources
+// referenced by those blueprints. When the user blueprint is nil (e.g. no blueprint.yaml yet), the
+// local template is loaded if present so initial composition produces kustomizations to apply.
 func (h *BaseBlueprintHandler) loadSources() error {
 	userBp := h.userBlueprintLoader.GetBlueprint()
 	if userBp == nil {
@@ -367,15 +368,6 @@ func (h *BaseBlueprintHandler) loadSources() error {
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
-	}
-
-	if _, exists := h.sourceBlueprintLoaders["template"]; !exists && h.runtime != nil && h.runtime.TemplateRoot != "" {
-		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
-			loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
-			if loadErr := loader.Load("template", ""); loadErr == nil && loader.GetBlueprint() != nil {
-				h.sourceBlueprintLoaders["template"] = loader
-			}
-		}
 	}
 
 	return h.loadNestedSources()
