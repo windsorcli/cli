@@ -30,4 +30,4 @@ packages:
 - name: fluxcd/flux2@v2.7.5
 - name: aws/aws-cli@2.33.20
 - name: twistedpair/google-cloud-sdk@556.0.0
-- name: opentofu/opentofu@v1.11.4
+- name: opentofu/opentofu@v1.11.5
