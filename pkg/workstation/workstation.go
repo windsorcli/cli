@@ -36,6 +36,11 @@ type Workstation struct {
 	Services         []services.Service
 	VirtualMachine   virt.VirtualMachine
 	ContainerRuntime virt.ContainerRuntime
+
+	// DeferHostGuestSetup when true skips ConfigureGuest/ConfigureHostRoute/ConfigureDNS in Up().
+	// Set when the blueprint has a "workstation" Terraform component; host/guest setup runs after that component is applied via the provisioner callback.
+	// Temporary: in the future host/guest setup will always run after the "workstation" component and this flag may be removed.
+	DeferHostGuestSetup bool
 }
 
 // =============================================================================
@@ -184,7 +189,7 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	if w.NetworkManager != nil {
+	if w.NetworkManager != nil && !w.DeferHostGuestSetup {
 		if vmDriver == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
@@ -202,6 +207,28 @@ func (w *Workstation) Up() error {
 		}
 	}
 
+	return nil
+}
+
+// ConfigureHostGuest runs only host/guest network setup (ConfigureGuest, ConfigureHostRoute, ConfigureDNS when enabled).
+// It is intended to be called after the "workstation" Terraform component is applied so that Colima/Docker networking
+// is configured once the Terraform-managed workstation layer exists. No-op when vm.driver is not colima or NetworkManager is nil.
+func (w *Workstation) ConfigureHostGuest() error {
+	vmDriver := w.configHandler.GetString("vm.driver")
+	if w.NetworkManager == nil || vmDriver != "colima" {
+		return nil
+	}
+	if err := w.NetworkManager.ConfigureGuest(); err != nil {
+		return fmt.Errorf("error configuring guest: %w", err)
+	}
+	if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
+		return fmt.Errorf("error configuring host route: %w", err)
+	}
+	if w.configHandler.GetBool("dns.enabled") {
+		if err := w.NetworkManager.ConfigureDNS(); err != nil {
+			return fmt.Errorf("error configuring DNS: %w", err)
+		}
+	}
 	return nil
 }
 

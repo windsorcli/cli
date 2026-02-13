@@ -18,6 +18,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/workstation"
 )
 
 // The Provisioner package provides high-level infrastructure provisioning functionality
@@ -43,6 +44,8 @@ type Provisioner struct {
 	runtime       *runtime.Runtime
 
 	TerraformStack    terraforminfra.Stack
+	Workstation       *workstation.Workstation
+	onTerraformApply  []func(id string) error
 	KubernetesManager kubernetes.KubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
 	ClusterClient     cluster.ClusterClient
@@ -99,6 +102,9 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		if overrides.ClusterClient != nil {
 			provisioner.ClusterClient = overrides.ClusterClient
 		}
+		if overrides.Workstation != nil {
+			provisioner.Workstation = overrides.Workstation
+		}
 	}
 
 	if provisioner.KubernetesClient == nil {
@@ -116,22 +122,32 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 // Public Methods
 // =============================================================================
 
+// OnTerraformApply registers a hook to run after each Terraform component apply.
+func (i *Provisioner) OnTerraformApply(fn func(id string) error) {
+	if fn != nil {
+		i.onTerraformApply = append(i.onTerraformApply, fn)
+	}
+}
+
 // Up orchestrates the high-level infrastructure deployment process. It executes terraform apply operations
-// for all components in the stack. This method coordinates terraform, kubernetes, and cluster operations
-// to bring up the complete infrastructure. Initializes components as needed. The blueprint parameter is required.
-// If terraform is disabled (terraform.enabled is false), terraform operations are skipped. Returns an error if any step fails.
+// for all components in the stack. When Workstation was set in the constructor, Up sets DeferHostGuestSetup
+// when the blueprint has a "workstation" Terraform component, registers a hook to run ConfigureHostGuest after
+// that component applies, and calls Workstation.Up() before running Terraform. The blueprint parameter is required.
 func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
-
 	if err := i.ensureTerraformStack(); err != nil {
 		return err
 	}
 	if i.TerraformStack == nil {
 		return nil
 	}
-	if err := i.TerraformStack.Up(blueprint); err != nil {
+	onApply, err := i.registerWorkstationHooks(blueprint)
+	if err != nil {
+		return err
+	}
+	if err := i.TerraformStack.Up(blueprint, onApply...); err != nil {
 		return fmt.Errorf("failed to run terraform up: %w", err)
 	}
 	return nil
@@ -395,4 +411,29 @@ func (i *Provisioner) ensureTerraformStack() error {
 		i.TerraformStack = terraforminfra.NewStack(i.runtime)
 	}
 	return nil
+}
+
+// registerWorkstationHooks builds the onApply slice with any registered callbacks and, when Workstation is set,
+// sets DeferHostGuestSetup for the "workstation" component, appends a ConfigureHostGuest hook, and runs Workstation.Up().
+func (i *Provisioner) registerWorkstationHooks(blueprint *blueprintv1alpha1.Blueprint) ([]func(id string) error, error) {
+	onApply := append([]func(id string) error{}, i.onTerraformApply...)
+	if i.Workstation == nil {
+		return onApply, nil
+	}
+	for _, c := range blueprint.TerraformComponents {
+		if c.GetID() == "workstation" {
+			i.Workstation.DeferHostGuestSetup = true
+			break
+		}
+	}
+	onApply = append(onApply, func(id string) error {
+		if id == "workstation" {
+			return i.Workstation.ConfigureHostGuest()
+		}
+		return nil
+	})
+	if err := i.Workstation.Up(); err != nil {
+		return nil, fmt.Errorf("error starting workstation: %w", err)
+	}
+	return onApply, nil
 }

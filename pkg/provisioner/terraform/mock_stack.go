@@ -33,7 +33,7 @@ func NewMockStack() *MockStack {
 // =============================================================================
 
 // Up is a mock implementation of the Up method.
-func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
+func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 	if m.UpFunc != nil {
 		return m.UpFunc(blueprint)
 	}

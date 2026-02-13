@@ -66,7 +66,8 @@ var downCmd = &cobra.Command{
 				if err := proj.Workstation.Down(); err != nil {
 					return fmt.Errorf("error tearing down workstation: %w", err)
 				}
-			} else if proj.Runtime.ConfigHandler.GetString("provider") == "docker" ||
+			}
+			if proj.Runtime.ConfigHandler.GetString("provider") == "docker" ||
 				proj.Runtime.ConfigHandler.GetBool("docker.enabled") {
 				dockerVirt := virt.NewDockerVirt(proj.Runtime, nil)
 				if err := dockerVirt.Down(); err != nil {

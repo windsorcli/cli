@@ -2930,6 +2930,36 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
+	t.Run("InitializesDockerEnvWhenProviderDockerAndVmDriverSet", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return false
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return "docker"
+			}
+			if key == "vm.driver" {
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		rt.initializeEnvPrinters()
+
+		if rt.EnvPrinters.DockerEnv == nil {
+			t.Error("Expected DockerEnv to be initialized when provider=docker and vm.driver=colima even if docker.enabled=false")
+		}
+	})
+
 	t.Run("InitializesKubeEnvWhenEnabled", func(t *testing.T) {
 		// Given a runtime with cluster enabled
 		mocks := setupRuntimeMocks(t)

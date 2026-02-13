@@ -75,13 +75,6 @@ func NewProject(contextName string, opts ...*Project) *Project {
 		comp = composer.NewComposer(rt)
 	}
 
-	var prov *provisioner.Provisioner
-	if overrides != nil && overrides.Provisioner != nil {
-		prov = overrides.Provisioner
-	} else {
-		prov = provisioner.NewProvisioner(rt, comp.BlueprintHandler)
-	}
-
 	var ws *workstation.Workstation
 	if rt.ConfigHandler.IsDevMode(contextName) {
 		if overrides != nil && overrides.Workstation != nil {
@@ -89,6 +82,13 @@ func NewProject(contextName string, opts ...*Project) *Project {
 		} else {
 			ws = workstation.NewWorkstation(rt)
 		}
+	}
+
+	var prov *provisioner.Provisioner
+	if overrides != nil && overrides.Provisioner != nil {
+		prov = overrides.Provisioner
+	} else {
+		prov = provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{Workstation: ws})
 	}
 
 	return &Project{
