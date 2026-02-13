@@ -15,7 +15,7 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	UpFunc   func(blueprint *blueprintv1alpha1.Blueprint) error
+	UpFunc   func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	DownFunc func(blueprint *blueprintv1alpha1.Blueprint) error
 }
 
@@ -35,7 +35,7 @@ func NewMockStack() *MockStack {
 // Up is a mock implementation of the Up method.
 func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 	if m.UpFunc != nil {
-		return m.UpFunc(blueprint)
+		return m.UpFunc(blueprint, onApply...)
 	}
 	return nil
 }

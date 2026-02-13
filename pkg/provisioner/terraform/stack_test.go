@@ -272,6 +272,49 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("InvokesOnApplyHooksAfterEachComponentWithComponentID", func(t *testing.T) {
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+		var invokedIDs []string
+		hook := func(id string) error {
+			invokedIDs = append(invokedIDs, id)
+			return nil
+		}
+
+		err := stack.Up(blueprint, hook)
+
+		if err != nil {
+			t.Errorf("Expected Up to return nil, got %v", err)
+		}
+		expected := []string{"remote/path", "local/path"}
+		if len(invokedIDs) != len(expected) {
+			t.Errorf("Expected hook to be invoked %d times, got %d: %v", len(expected), len(invokedIDs), invokedIDs)
+		}
+		for i, id := range expected {
+			if i >= len(invokedIDs) || invokedIDs[i] != id {
+				t.Errorf("Expected hook invocation %d to have id %q, got %v", i, id, invokedIDs)
+			}
+		}
+	})
+
+	t.Run("ReturnsErrorWhenOnApplyHookFails", func(t *testing.T) {
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+		hookErr := fmt.Errorf("hook failed")
+		hook := func(id string) error {
+			return hookErr
+		}
+
+		err := stack.Up(blueprint, hook)
+
+		if err == nil {
+			t.Fatal("Expected Up to return error when hook fails")
+		}
+		if !strings.Contains(err.Error(), "post-apply hook") {
+			t.Errorf("Expected error to mention post-apply hook, got %q", err.Error())
+		}
+	})
+
 	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Shims.Getwd = func() (string, error) {

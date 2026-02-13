@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/workstation"
 )
 
 // =============================================================================
@@ -116,7 +117,7 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 	}
 
 	terraformStack := terraforminfra.NewMockStack()
-	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
 	terraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 	mocks := &ProvisionerTestMocks{
@@ -255,6 +256,20 @@ func TestNewProvisioner(t *testing.T) {
 		}
 	})
 
+	t.Run("UsesWorkstationFromOpts", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		ws := workstation.NewWorkstation(mocks.Runtime)
+		opts := &Provisioner{
+			TerraformStack: mocks.TerraformStack,
+			Workstation:    ws,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		if provisioner.Workstation != ws {
+			t.Error("Expected Workstation from opts to be used")
+		}
+	})
+
 	t.Run("SkipsTerraformStackWhenDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 
@@ -369,7 +384,7 @@ func TestProvisioner_Up(t *testing.T) {
 	t.Run("ErrorTerraformStackUp", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 			return fmt.Errorf("terraform stack up failed")
 		}
 		opts := &Provisioner{
@@ -390,6 +405,82 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("SetsDeferHostGuestSetupWhenWorkstationSetAndBlueprintHasWorkstationComponent", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		ws := workstation.NewWorkstation(mocks.Runtime)
+		opts := &Provisioner{
+			TerraformStack: mocks.TerraformStack,
+			Workstation:    ws,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Name: "workstation", Path: "workstation/path"},
+		}
+
+		err := provisioner.Up(blueprint)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !ws.DeferHostGuestSetup {
+			t.Error("Expected DeferHostGuestSetup to be true when blueprint has workstation component")
+		}
+	})
+
+	t.Run("PassesOnTerraformApplyHooksToStack", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		var capturedOnApply []func(id string) error
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			capturedOnApply = onApply
+			return nil
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		provisioner.OnTerraformApply(func(id string) error { return nil })
+
+		_ = provisioner.Up(createTestBlueprint())
+
+		if len(capturedOnApply) != 1 {
+			t.Errorf("Expected stack to receive 1 onApply hook, got %d", len(capturedOnApply))
+		}
+	})
+
+}
+
+func TestProvisioner_OnTerraformApply(t *testing.T) {
+	t.Run("RegistersCallbackInvokedByStackOnUp", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		var hookCalled bool
+		var hookID string
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			if len(onApply) > 0 && onApply[0] != nil {
+				_ = onApply[0]("test-component")
+			}
+			return nil
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		provisioner.OnTerraformApply(func(id string) error {
+			hookCalled = true
+			hookID = id
+			return nil
+		})
+
+		err := provisioner.Up(createTestBlueprint())
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !hookCalled {
+			t.Error("Expected registered OnTerraformApply callback to be invoked")
+		}
+		if hookID != "test-component" {
+			t.Errorf("Expected hook to be called with component id 'test-component', got %q", hookID)
+		}
+	})
 }
 
 func TestProvisioner_Down(t *testing.T) {

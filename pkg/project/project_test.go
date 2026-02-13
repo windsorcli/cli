@@ -236,6 +236,23 @@ func TestNewProject(t *testing.T) {
 		}
 	})
 
+	t.Run("PassesWorkstationToProvisionerWhenDevMode", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		if proj.Workstation == nil || proj.Provisioner == nil {
+			t.Fatal("Expected Workstation and Provisioner to be created in dev mode")
+		}
+		if proj.Provisioner.Workstation != proj.Workstation {
+			t.Error("Expected Provisioner.Workstation to be the same as Project.Workstation when in dev mode")
+		}
+	})
+
 	t.Run("SkipsWorkstationWhenNotDevMode", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
