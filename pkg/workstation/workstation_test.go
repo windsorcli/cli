@@ -120,6 +120,7 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 			return false
 		}
 	}
+	mockConfigHandler.UsesDockerComposeWorkstationFunc = func() bool { return true }
 
 	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
 		switch key {
