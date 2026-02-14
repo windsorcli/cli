@@ -506,6 +506,50 @@ func TestProject_Configure(t *testing.T) {
 		}
 	})
 
+	t.Run("CreatesWorkstationAndSyncsToProvisionerWhenWorkstationEnabledSetViaFlagOverrides", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		var workstationEnabled bool
+		mockConfig.SetFunc = func(key string, value any) error {
+			if key == "workstation.enabled" {
+				if v, ok := value.(bool); ok {
+					workstationEnabled = v
+				}
+			}
+			return nil
+		}
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "workstation.enabled" {
+				return workstationEnabled
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		if proj.Workstation != nil {
+			t.Fatal("Expected Workstation nil before Configure when not dev mode and workstation.enabled not yet set")
+		}
+
+		err := proj.Configure(map[string]any{"workstation.enabled": true})
+
+		if err != nil {
+			t.Errorf("Configure failed: %v", err)
+		}
+		if proj.Workstation == nil {
+			t.Error("Expected Workstation to be created when workstation.enabled set via flag overrides")
+		}
+		if proj.Provisioner != nil && proj.Provisioner.Workstation != proj.Workstation {
+			t.Error("Expected Provisioner.Workstation to be set when Workstation created in Configure")
+		}
+	})
+
 	t.Run("SkipsDockerProviderWhenProviderAlreadySet", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)

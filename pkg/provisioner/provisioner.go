@@ -425,14 +425,31 @@ func (i *Provisioner) ensureTerraformStack() error {
 
 // buildOnApplyHooks returns the slice of callbacks to run after each Terraform component apply.
 // Includes any registered OnTerraformApply callbacks and, when Workstation is set, a callback to run ConfigureNetwork after the "workstation" component.
+// When dns.terraform_output_key is set, the callback reads that output from the workstation component and sets dns.address so ConfigureNetwork uses the Terraform-derived IP.
 func (i *Provisioner) buildOnApplyHooks() []func(id string) error {
 	onApply := append([]func(id string) error{}, i.onTerraformApply...)
 	if i.Workstation != nil {
 		onApply = append(onApply, func(id string) error {
-			if id == "workstation" {
-				return i.Workstation.ConfigureNetwork()
+			if id != "workstation" {
+				return nil
 			}
-			return nil
+			if i.runtime.TerraformProvider != nil {
+				outputs, err := i.runtime.TerraformProvider.GetTerraformOutputs("workstation")
+				if err == nil && outputs != nil {
+					outputKey := i.runtime.ConfigHandler.GetString("dns.terraform_output_key")
+					if outputKey == "" {
+						for _, k := range []string{"dns_address", "dns_ip"} {
+							if v, ok := outputs[k].(string); ok && v != "" {
+								_ = i.runtime.ConfigHandler.Set("dns.address", v)
+								break
+							}
+						}
+					} else if v, ok := outputs[outputKey].(string); ok && v != "" {
+						_ = i.runtime.ConfigHandler.Set("dns.address", v)
+					}
+				}
+			}
+			return i.Workstation.ConfigureNetwork()
 		})
 	}
 	return onApply

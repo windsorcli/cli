@@ -181,6 +181,9 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		}
 	}
 
+	if p.Workstation == nil && p.configHandler.GetBool("workstation.enabled", false) {
+		p.Workstation = workstation.NewWorkstation(p.Runtime)
+	}
 	if p.Workstation != nil && p.Provisioner != nil {
 		p.Provisioner.Workstation = p.Workstation
 	}

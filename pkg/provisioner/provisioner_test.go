@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	runtimeterraform "github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/workstation"
 )
 
@@ -473,6 +474,119 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("SetsDnsAddressFromWorkstationTerraformOutputWhenWorkstationHookRuns", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		var setKey string
+		var setValue any
+		mockConfig.SetFunc = func(key string, value any) error {
+			setKey = key
+			setValue = value
+			return nil
+		}
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.terraform_output_key" {
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockTerraformProvider := &runtimeterraform.MockTerraformProvider{}
+		mockTerraformProvider.GetTerraformOutputsFunc = func(componentID string) (map[string]any, error) {
+			if componentID == "workstation" {
+				return map[string]any{"dns_address": "10.5.0.2"}, nil
+			}
+			return nil, nil
+		}
+		mocks.Runtime.TerraformProvider = mockTerraformProvider
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			for _, fn := range onApply {
+				if fn != nil {
+					_ = fn("workstation")
+				}
+			}
+			return nil
+		}
+		ws := workstation.NewWorkstation(mocks.Runtime)
+		opts := &Provisioner{TerraformStack: mockStack, Workstation: ws}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Name: "workstation", Path: "workstation/path"},
+		}
+
+		err := provisioner.Up(blueprint)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if setKey != "dns.address" {
+			t.Errorf("Expected Set key dns.address, got %q", setKey)
+		}
+		if setValue != "10.5.0.2" {
+			t.Errorf("Expected Set value 10.5.0.2, got %v", setValue)
+		}
+	})
+
+	t.Run("UsesDnsTerraformOutputKeyWhenSetInWorkstationCallback", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		var setKey string
+		var setValue any
+		mockConfig.SetFunc = func(key string, value any) error {
+			setKey = key
+			setValue = value
+			return nil
+		}
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "dns.terraform_output_key" {
+				return "custom_dns_output"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockTerraformProvider := &runtimeterraform.MockTerraformProvider{}
+		mockTerraformProvider.GetTerraformOutputsFunc = func(componentID string) (map[string]any, error) {
+			if componentID == "workstation" {
+				return map[string]any{"custom_dns_output": "192.168.1.1"}, nil
+			}
+			return nil, nil
+		}
+		mocks.Runtime.TerraformProvider = mockTerraformProvider
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			for _, fn := range onApply {
+				if fn != nil {
+					_ = fn("workstation")
+				}
+			}
+			return nil
+		}
+		ws := workstation.NewWorkstation(mocks.Runtime)
+		opts := &Provisioner{TerraformStack: mockStack, Workstation: ws}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Name: "workstation", Path: "workstation/path"},
+		}
+
+		err := provisioner.Up(blueprint)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if setKey != "dns.address" {
+			t.Errorf("Expected Set key dns.address, got %q", setKey)
+		}
+		if setValue != "192.168.1.1" {
+			t.Errorf("Expected Set value 192.168.1.1 from custom_dns_output, got %v", setValue)
+		}
+	})
 }
 
 func TestProvisioner_OnTerraformApply(t *testing.T) {
