@@ -721,6 +721,12 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			}
 		}
 
+		if isDevMode {
+			if err := rt.ConfigHandler.Set("workstation.enabled", true); err != nil {
+				return fmt.Errorf("failed to set workstation.enabled for dev context: %w", err)
+			}
+		}
+
 		provider := rt.ConfigHandler.GetString("provider")
 		if provider == "none" {
 			defaultConfig := config.DefaultConfig
