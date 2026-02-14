@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	goruntime "runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -121,8 +122,13 @@ var initCmd = &cobra.Command{
 			}
 		} else if initProvider == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
 			flagOverrides["workstation.enabled"] = true
-			flagOverrides["vm.driver"] = "docker-desktop"
 			flagOverrides["provider"] = "docker"
+			switch goruntime.GOOS {
+			case "darwin", "windows":
+				flagOverrides["vm.driver"] = "docker-desktop"
+			default:
+				flagOverrides["vm.driver"] = "docker"
+			}
 		}
 		if initCpu > 0 {
 			flagOverrides["vm.cpu"] = initCpu
