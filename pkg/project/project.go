@@ -169,6 +169,15 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		}
 	}
 
+	if flagOverrides != nil {
+		if v, ok := flagOverrides["workstation.enabled"].(bool); ok && !v {
+			p.Workstation = nil
+			if p.Provisioner != nil {
+				p.Provisioner.Workstation = nil
+			}
+		}
+	}
+
 	if p.configHandler.IsDevMode(p.contextName) {
 		provider := p.configHandler.GetString("provider")
 		vmDriver := p.configHandler.GetString("vm.driver")
