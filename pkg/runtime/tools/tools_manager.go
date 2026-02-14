@@ -163,6 +163,13 @@ func (t *BaseToolsManager) checkDocker() error {
 		if err == nil {
 			dockerComposeVersion = extractVersion(output)
 		}
+		if dockerComposeVersion == "" {
+			// Docker 27+ removed --short; fall back to full version output.
+			output, err := t.shell.ExecSilentWithTimeout("docker", []string{"compose", "version"}, 5*time.Second)
+			if err == nil {
+				dockerComposeVersion = extractVersion(output)
+			}
+		}
 	}
 
 	if dockerComposeVersion == "" {
@@ -170,6 +177,12 @@ func (t *BaseToolsManager) checkDocker() error {
 			output, err := t.shell.ExecSilentWithTimeout("docker-compose", []string{"version", "--short"}, 5*time.Second)
 			if err == nil {
 				dockerComposeVersion = extractVersion(output)
+			}
+			if dockerComposeVersion == "" {
+				output, err := t.shell.ExecSilentWithTimeout("docker-compose", []string{"version"}, 5*time.Second)
+				if err == nil {
+					dockerComposeVersion = extractVersion(output)
+				}
 			}
 		}
 	}
