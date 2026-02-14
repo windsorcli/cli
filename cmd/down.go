@@ -68,7 +68,9 @@ var downCmd = &cobra.Command{
 				}
 			}
 			dockerTeardownDoneViaWorkstation := proj.Workstation != nil && proj.Workstation.ContainerRuntime != nil
-			if proj.Runtime.ConfigHandler.UsesDockerComposeWorkstation() && !dockerTeardownDoneViaWorkstation {
+			runDockerCleanup := proj.Runtime.ConfigHandler.UsesDockerComposeWorkstation() ||
+				proj.Runtime.ConfigHandler.GetString("provider") == "docker"
+			if runDockerCleanup && !dockerTeardownDoneViaWorkstation {
 				dockerVirt := virt.NewDockerVirt(proj.Runtime, nil)
 				if err := dockerVirt.Down(); err != nil {
 					return fmt.Errorf("error tearing down Docker workstation: %w", err)
@@ -84,6 +86,7 @@ var downCmd = &cobra.Command{
 			}
 		}
 
+		fmt.Fprintln(os.Stderr, "Windsor environment torn down successfully.")
 		return nil
 	},
 }
