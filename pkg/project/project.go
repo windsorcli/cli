@@ -26,10 +26,9 @@ type Project struct {
 }
 
 // NewProject creates and initializes a new Project instance with all required managers.
-// It sets up the execution context, applies config defaults, and creates provisioner,
-// composer, and workstation managers. The workstation is only created if the project
-// is in dev mode. Panics if required dependencies are nil.
-// After creation, call Configure() to apply flag overrides if needed.
+// It sets up the execution context, creates provisioner and composer, and creates the
+// workstation when in dev mode or when workstation.enabled is true (config is loaded if needed for the latter).
+// Panics if required dependencies are nil. After creation, call Configure() to apply flag overrides.
 // Optional overrides can be provided via opts to inject mocks for testing.
 // If opts contains a Project with Runtime set, that runtime will be reused.
 func NewProject(contextName string, opts ...*Project) *Project {
@@ -76,10 +75,15 @@ func NewProject(contextName string, opts ...*Project) *Project {
 	}
 
 	var ws *workstation.Workstation
-	if rt.ConfigHandler.IsDevMode(contextName) {
-		if overrides != nil && overrides.Workstation != nil {
-			ws = overrides.Workstation
-		} else {
+	if overrides != nil && overrides.Workstation != nil {
+		ws = overrides.Workstation
+	} else if rt.ConfigHandler.IsDevMode(contextName) {
+		ws = workstation.NewWorkstation(rt)
+	} else {
+		if !rt.ConfigHandler.IsLoaded() {
+			_ = rt.ConfigHandler.LoadConfig()
+		}
+		if rt.ConfigHandler.GetBool("workstation.enabled", false) {
 			ws = workstation.NewWorkstation(rt)
 		}
 	}
@@ -177,8 +181,8 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 		}
 	}
 
-	if p.Workstation == nil && p.configHandler.GetBool("workstation.enabled", false) {
-		p.Workstation = workstation.NewWorkstation(p.Runtime)
+	if p.Workstation != nil && p.Provisioner != nil {
+		p.Provisioner.Workstation = p.Workstation
 	}
 
 	if err := p.Runtime.LoadEnvironment(false); err != nil {

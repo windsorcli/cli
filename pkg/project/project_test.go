@@ -253,6 +253,35 @@ func TestNewProject(t *testing.T) {
 		}
 	})
 
+	t.Run("CreatesWorkstationAndSyncsToProvisionerWhenWorkstationEnabled", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "workstation.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		if proj.Workstation == nil {
+			t.Error("Expected Workstation to be created when workstation.enabled is true")
+		}
+		if proj.Provisioner == nil {
+			t.Fatal("Expected Provisioner to exist")
+		}
+		if proj.Provisioner.Workstation != proj.Workstation {
+			t.Error("Expected Provisioner.Workstation to be set when Workstation created via workstation.enabled")
+		}
+	})
+
 	t.Run("SkipsWorkstationWhenNotDevMode", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
