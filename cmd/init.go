@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 
@@ -121,13 +122,22 @@ var initCmd = &cobra.Command{
 				}
 			}
 		} else if initProvider == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
-			flagOverrides["workstation.enabled"] = true
-			flagOverrides["provider"] = "docker"
-			switch goruntime.GOOS {
-			case "darwin", "windows":
-				flagOverrides["vm.driver"] = "docker-desktop"
-			default:
-				flagOverrides["vm.driver"] = "docker"
+			applyLocalDefaults := true
+			if projectRoot, err := rt.Shell.GetProjectRoot(); err == nil {
+				windsorPath := filepath.Join(projectRoot, "contexts", contextName, "windsor.yaml")
+				if _, err := os.Stat(windsorPath); err == nil {
+					applyLocalDefaults = false
+				}
+			}
+			if applyLocalDefaults {
+				flagOverrides["workstation.enabled"] = true
+				flagOverrides["provider"] = "docker"
+				switch goruntime.GOOS {
+				case "darwin", "windows":
+					flagOverrides["vm.driver"] = "docker-desktop"
+				default:
+					flagOverrides["vm.driver"] = "docker"
+				}
 			}
 		}
 		if initCpu > 0 {
