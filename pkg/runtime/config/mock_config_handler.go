@@ -9,31 +9,32 @@ import (
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
-	LoadConfigFunc            func() error
-	LoadConfigForContextFunc  func(contextName string) error
-	LoadConfigStringFunc      func(content string) error
-	IsLoadedFunc              func() bool
-	GetStringFunc             func(key string, defaultValue ...string) string
-	GetIntFunc                func(key string, defaultValue ...int) int
-	GetBoolFunc               func(key string, defaultValue ...bool) bool
-	GetStringSliceFunc        func(key string, defaultValue ...[]string) []string
-	GetStringMapFunc          func(key string, defaultValue ...map[string]string) map[string]string
-	SetFunc                   func(key string, value any) error
-	SaveConfigFunc            func(overwrite ...bool) error
-	GetFunc                   func(key string) any
-	SetDefaultFunc            func(context v1alpha1.Context) error
-	GetConfigFunc             func() *v1alpha1.Context
-	GetContextFunc            func() string
-	IsDevModeFunc             func(contextName string) bool
-	SetContextFunc            func(context string) error
-	GetConfigRootFunc         func() (string, error)
-	GetWindsorScratchPathFunc func() (string, error)
-	CleanFunc                 func() error
-	GenerateContextIDFunc     func() error
-	LoadSchemaFunc            func(schemaPath string) error
-	LoadSchemaFromBytesFunc   func(schemaContent []byte) error
-	GetContextValuesFunc      func() (map[string]any, error)
-	RegisterProviderFunc      func(prefix string, provider ValueProvider)
+	LoadConfigFunc                   func() error
+	LoadConfigForContextFunc         func(contextName string) error
+	LoadConfigStringFunc             func(content string) error
+	IsLoadedFunc                     func() bool
+	GetStringFunc                    func(key string, defaultValue ...string) string
+	GetIntFunc                       func(key string, defaultValue ...int) int
+	GetBoolFunc                      func(key string, defaultValue ...bool) bool
+	GetStringSliceFunc               func(key string, defaultValue ...[]string) []string
+	GetStringMapFunc                 func(key string, defaultValue ...map[string]string) map[string]string
+	SetFunc                          func(key string, value any) error
+	SaveConfigFunc                   func(overwrite ...bool) error
+	GetFunc                          func(key string) any
+	SetDefaultFunc                   func(context v1alpha1.Context) error
+	GetConfigFunc                    func() *v1alpha1.Context
+	GetContextFunc                   func() string
+	IsDevModeFunc                    func(contextName string) bool
+	SetContextFunc                   func(context string) error
+	GetConfigRootFunc                func() (string, error)
+	GetWindsorScratchPathFunc        func() (string, error)
+	CleanFunc                        func() error
+	GenerateContextIDFunc            func() error
+	LoadSchemaFunc                   func(schemaPath string) error
+	LoadSchemaFromBytesFunc          func(schemaContent []byte) error
+	GetContextValuesFunc             func() (map[string]any, error)
+	RegisterProviderFunc             func(prefix string, provider ValueProvider)
+	UsesDockerComposeWorkstationFunc func() bool
 }
 
 // =============================================================================
@@ -261,6 +262,22 @@ func (m *MockConfigHandler) RegisterProvider(prefix string, provider ValueProvid
 	if m.RegisterProviderFunc != nil {
 		m.RegisterProviderFunc(prefix, provider)
 	}
+}
+
+// ValidateContextValues calls the mock ValidateContextValuesFunc if set, otherwise returns nil
+func (m *MockConfigHandler) ValidateContextValues() error {
+	if m.ValidateContextValuesFunc != nil {
+		return m.ValidateContextValuesFunc()
+	}
+	return nil
+}
+
+// UsesDockerComposeWorkstation calls UsesDockerComposeWorkstationFunc if set, otherwise returns false
+func (m *MockConfigHandler) UsesDockerComposeWorkstation() bool {
+	if m.UsesDockerComposeWorkstationFunc != nil {
+		return m.UsesDockerComposeWorkstationFunc()
+	}
+	return false
 }
 
 // =============================================================================

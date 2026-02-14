@@ -78,7 +78,7 @@ func (t *BaseToolsManager) Check() error {
 	spin.Start()
 	defer spin.Stop()
 
-	if t.configHandler.GetBool("docker.enabled") {
+	if t.configHandler.UsesDockerComposeWorkstation() {
 		if err := t.checkDocker(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)

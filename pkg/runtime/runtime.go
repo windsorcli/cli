@@ -411,9 +411,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 	if rt.EnvPrinters.GcpEnv == nil && rt.ConfigHandler.GetBool("gcp.enabled", false) {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.DockerEnv == nil &&
-		(rt.ConfigHandler.GetBool("docker.enabled", false) ||
-			(rt.ConfigHandler.GetString("provider") == "docker" && rt.ConfigHandler.GetString("vm.driver") != "")) {
+	if rt.EnvPrinters.DockerEnv == nil && rt.ConfigHandler.UsesDockerComposeWorkstation() {
 		rt.EnvPrinters.DockerEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.KubeEnv == nil && rt.ConfigHandler.GetBool("cluster.enabled", false) {

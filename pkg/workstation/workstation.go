@@ -138,8 +138,7 @@ func (w *Workstation) Prepare() error {
 			}
 		}
 	} else {
-		containerRuntimeEnabled := w.configHandler.GetBool("docker.enabled")
-		if containerRuntimeEnabled && w.ContainerRuntime == nil {
+		if w.configHandler.UsesDockerComposeWorkstation() && w.ContainerRuntime == nil {
 			w.ContainerRuntime = virt.NewDockerVirt(w.runtime, w.Services)
 		}
 	}
@@ -319,8 +318,7 @@ func (w *Workstation) Down() error {
 func (w *Workstation) createServices() ([]services.Service, error) {
 	var serviceList []services.Service
 
-	dockerEnabled := w.configHandler.GetBool("docker.enabled", false)
-	if !dockerEnabled {
+	if !w.configHandler.UsesDockerComposeWorkstation() {
 		return serviceList, nil
 	}
 
