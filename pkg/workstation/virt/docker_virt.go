@@ -250,19 +250,22 @@ func (v *DockerVirt) checkDockerDaemon() error {
 	return nil
 }
 
-// removeResources removes all containers attached to the windsor-<context> network
-// (including their anonymous volumes), then the network, then named volumes with
-// label com.docker.compose.project=windsor-<context>. Container/network steps are
-// skipped if the network does not exist; volume cleanup always runs so labeled
-// volumes are removed even when the network was already removed or never existed.
+// removeResources removes all containers attached to the windsor-<context> or
+// workstation-windsor-<context> network, then those networks, then named volumes with
+// label com.docker.compose.project=windsor-<context> or workstation-windsor-<context>.
+// The workstation-windsor-<context> variant can appear when compose is run from a path
+// or environment that derives a different project name.
 func (v *DockerVirt) removeResources() error {
 	contextName := v.configHandler.GetContext()
-	networkName := fmt.Sprintf("windsor-%s", contextName)
-	projectLabel := fmt.Sprintf("com.docker.compose.project=windsor-%s", contextName)
+	projectName := windsorComposeProjectName(contextName)
+	networkNames := []string{projectName, "workstation-" + projectName}
 
-	out, err := v.shell.ExecSilent("docker", "network", "inspect", networkName,
-		"--format", "{{range $k, $v := .Containers}}{{$k}}{{\"\\n\"}}{{end}}")
-	if err == nil {
+	for _, networkName := range networkNames {
+		out, err := v.shell.ExecSilent("docker", "network", "inspect", networkName,
+			"--format", "{{range $k, $v := .Containers}}{{$k}}{{\"\\n\"}}{{end}}")
+		if err != nil {
+			continue
+		}
 		for _, id := range strings.FieldsFunc(out, func(r rune) bool { return r == '\n' }) {
 			id = strings.TrimSpace(id)
 			if id == "" {
@@ -274,16 +277,22 @@ func (v *DockerVirt) removeResources() error {
 		_, _ = v.shell.ExecSilent("docker", "network", "rm", networkName)
 	}
 
-	volOut, err := v.shell.ExecSilent("docker", "volume", "ls", "-q", "--filter", "label="+projectLabel)
-	if err != nil {
-		return nil
+	projectLabels := []string{
+		"com.docker.compose.project=" + projectName,
+		"com.docker.compose.project=workstation-" + projectName,
 	}
-	for _, name := range strings.FieldsFunc(volOut, func(r rune) bool { return r == '\n' }) {
-		name = strings.TrimSpace(name)
-		if name == "" {
+	for _, projectLabel := range projectLabels {
+		volOut, err := v.shell.ExecSilent("docker", "volume", "ls", "-q", "--filter", "label="+projectLabel)
+		if err != nil {
 			continue
 		}
-		_, _ = v.shell.ExecSilent("docker", "volume", "rm", name)
+		for _, name := range strings.FieldsFunc(volOut, func(r rune) bool { return r == '\n' }) {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			_, _ = v.shell.ExecSilent("docker", "volume", "rm", name)
+		}
 	}
 	return nil
 }

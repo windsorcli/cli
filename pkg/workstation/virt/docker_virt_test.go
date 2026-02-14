@@ -674,19 +674,19 @@ func TestDockerVirt_Down(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		var networkInspectCalled bool
-		var volumeLsFilter string
+		var networkInspectCalls []string
+		var volumeLsFilters []string
 		origExecSilent := mocks.Shell.ExecSilentFunc
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) >= 2 {
-				if args[0] == "network" && args[1] == "inspect" && len(args) >= 3 && args[2] == "windsor-mock-context" {
-					networkInspectCalled = true
+				if args[0] == "network" && args[1] == "inspect" && len(args) >= 3 {
+					networkInspectCalls = append(networkInspectCalls, args[2])
 					return "", nil
 				}
 				if args[0] == "volume" && args[1] == "ls" {
 					for i := 0; i < len(args)-1; i++ {
 						if args[i] == "--filter" && i+1 < len(args) {
-							volumeLsFilter = args[i+1]
+							volumeLsFilters = append(volumeLsFilters, args[i+1])
 							break
 						}
 					}
@@ -700,12 +700,25 @@ func TestDockerVirt_Down(t *testing.T) {
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
-		if !networkInspectCalled {
-			t.Error("expected docker network inspect windsor-mock-context to be called")
+		wantNetworks := []string{"windsor-mock-context", "workstation-windsor-mock-context"}
+		if len(networkInspectCalls) != len(wantNetworks) {
+			t.Errorf("expected network inspect for %v, got %v", wantNetworks, networkInspectCalls)
 		}
-		expectedLabel := "label=com.docker.compose.project=windsor-mock-context"
-		if volumeLsFilter != expectedLabel {
-			t.Errorf("expected volume ls filter %q, got %q", expectedLabel, volumeLsFilter)
+		expectedVolumeLabels := []string{"label=com.docker.compose.project=windsor-mock-context", "label=com.docker.compose.project=workstation-windsor-mock-context"}
+		if len(volumeLsFilters) != len(expectedVolumeLabels) {
+			t.Errorf("expected volume ls filters %v, got %v", expectedVolumeLabels, volumeLsFilters)
+		}
+		for _, want := range expectedVolumeLabels {
+			var found bool
+			for _, g := range volumeLsFilters {
+				if g == want {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected volume ls filter %q in %v", want, volumeLsFilters)
+			}
 		}
 	})
 }
