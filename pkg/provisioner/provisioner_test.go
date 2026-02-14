@@ -455,6 +455,35 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("ClearsDeferHostGuestSetupOnSubsequentUpWithoutWorkstationComponent", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		ws := workstation.NewWorkstation(mocks.Runtime)
+		opts := &Provisioner{
+			TerraformStack: mocks.TerraformStack,
+			Workstation:    ws,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		withWorkstation := createTestBlueprint()
+		withWorkstation.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Name: "workstation", Path: "workstation/path"},
+		}
+		withoutWorkstation := createTestBlueprint()
+		withoutWorkstation.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Name: "other", Path: "other/path"},
+		}
+
+		_ = provisioner.Up(withWorkstation)
+		if !ws.DeferHostGuestSetup {
+			t.Fatal("Expected DeferHostGuestSetup true after first Up with workstation component")
+		}
+
+		_ = provisioner.Up(withoutWorkstation)
+
+		if ws.DeferHostGuestSetup {
+			t.Error("Expected DeferHostGuestSetup to be false on second Up without workstation component so network setup runs in Workstation.Up()")
+		}
+	})
+
 	t.Run("PassesOnTerraformApplyHooksToStack", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		var capturedOnApply []func(id string) error

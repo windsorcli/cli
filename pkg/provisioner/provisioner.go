@@ -142,6 +142,7 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 	runTerraform := i.TerraformStack != nil
 	if i.Workstation != nil {
+		i.Workstation.DeferHostGuestSetup = false
 		if runTerraform {
 			for _, c := range blueprint.TerraformComponents {
 				if c.GetID() == "workstation" {
