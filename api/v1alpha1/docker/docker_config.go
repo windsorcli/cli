@@ -2,6 +2,8 @@ package docker
 
 // DockerConfig represents the Docker configuration
 type DockerConfig struct {
+	// Enabled toggles the internal workstation (docker-compose). Deprecated: defaults to false;
+	// use provider and vm.driver for workstation mode. When false, omit from config (not written to windsor.yaml).
 	Enabled     *bool                     `yaml:"enabled,omitempty"`
 	RegistryURL string                    `yaml:"registry_url,omitempty"`
 	Registries  map[string]RegistryConfig `yaml:"registries,omitempty"`
