@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -92,7 +93,7 @@ func NewProject(contextName string, opts ...*Project) *Project {
 	if overrides != nil && overrides.Provisioner != nil {
 		prov = overrides.Provisioner
 	} else {
-		prov = provisioner.NewProvisioner(rt, comp.BlueprintHandler, &provisioner.Provisioner{Workstation: ws})
+		prov = provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 	}
 
 	return &Project{
@@ -172,9 +173,6 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 	if flagOverrides != nil {
 		if v, ok := flagOverrides["workstation.enabled"].(bool); ok && !v {
 			p.Workstation = nil
-			if p.Provisioner != nil {
-				p.Provisioner.Workstation = nil
-			}
 		}
 	}
 
@@ -192,9 +190,6 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 
 	if p.Workstation == nil && p.configHandler.GetBool("workstation.enabled", false) {
 		p.Workstation = workstation.NewWorkstation(p.Runtime)
-	}
-	if p.Workstation != nil && p.Provisioner != nil {
-		p.Provisioner.Workstation = p.Workstation
 	}
 
 	if err := p.Runtime.LoadEnvironment(false); err != nil {
@@ -261,6 +256,23 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	}
 
 	return nil
+}
+
+// Up generates the blueprint, starts the workstation when present (using PrepareForUp so host/guest setup is deferred when a workstation Terraform component exists), runs provisioner with the workstation post-apply hook when present, and returns the blueprint for use by Install/Wait. Returns an error if any step fails.
+func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
+	blueprint := p.Composer.BlueprintHandler.Generate()
+	var onApply []func(string) error
+	if p.Workstation != nil {
+		p.Workstation.PrepareForUp(blueprint)
+		if err := p.Workstation.Up(); err != nil {
+			return nil, fmt.Errorf("error starting workstation: %w", err)
+		}
+		onApply = append(onApply, p.Workstation.AfterWorkstationComponent())
+	}
+	if err := p.Provisioner.Up(blueprint, onApply...); err != nil {
+		return nil, fmt.Errorf("error starting infrastructure: %w", err)
+	}
+	return blueprint, nil
 }
 
 // PerformCleanup removes context-specific artifacts including volumes, terraform modules,

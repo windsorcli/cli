@@ -18,7 +18,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/workstation"
 )
 
 // The Provisioner package provides high-level infrastructure provisioning functionality
@@ -44,7 +43,6 @@ type Provisioner struct {
 	runtime       *runtime.Runtime
 
 	TerraformStack    terraforminfra.Stack
-	Workstation       *workstation.Workstation
 	onTerraformApply  []func(id string) error
 	KubernetesManager kubernetes.KubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
@@ -102,9 +100,6 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		if overrides.ClusterClient != nil {
 			provisioner.ClusterClient = overrides.ClusterClient
 		}
-		if overrides.Workstation != nil {
-			provisioner.Workstation = overrides.Workstation
-		}
 	}
 
 	if provisioner.KubernetesClient == nil {
@@ -129,37 +124,23 @@ func (i *Provisioner) OnTerraformApply(fn func(id string) error) {
 	}
 }
 
-// Up orchestrates the high-level infrastructure deployment process. When Workstation is set, Up runs Workstation.Up()
-// first. If Terraform will run and the blueprint has a "workstation" component, host/guest setup is deferred until
-// after that component applies (via an onApply hook). Terraform apply runs when terraform.enabled and the stack exists.
-// The blueprint parameter is required.
-func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
+// Up orchestrates the high-level infrastructure deployment process. It runs Terraform apply when terraform.enabled
+// and the stack exists, invoking the given onApply hooks after each component apply (after any hooks registered via
+// OnTerraformApply). The blueprint parameter is required.
+func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 	if err := i.ensureTerraformStack(); err != nil {
 		return err
 	}
-	runTerraform := i.TerraformStack != nil
-	if i.Workstation != nil {
-		i.Workstation.DeferHostGuestSetup = false
-		if runTerraform {
-			for _, c := range blueprint.TerraformComponents {
-				if c.GetID() == "workstation" {
-					i.Workstation.DeferHostGuestSetup = true
-					break
-				}
-			}
-		}
-		if err := i.Workstation.Up(); err != nil {
-			return fmt.Errorf("error starting workstation: %w", err)
-		}
+	if i.TerraformStack == nil {
+		return nil
 	}
-	if runTerraform {
-		onApply := i.buildOnApplyHooks()
-		if err := i.TerraformStack.Up(blueprint, onApply...); err != nil {
-			return fmt.Errorf("failed to run terraform up: %w", err)
-		}
+	hooks := append([]func(id string) error{}, i.onTerraformApply...)
+	hooks = append(hooks, onApply...)
+	if err := i.TerraformStack.Up(blueprint, hooks...); err != nil {
+		return fmt.Errorf("failed to run terraform up: %w", err)
 	}
 	return nil
 }
@@ -422,36 +403,4 @@ func (i *Provisioner) ensureTerraformStack() error {
 		i.TerraformStack = terraforminfra.NewStack(i.runtime)
 	}
 	return nil
-}
-
-// buildOnApplyHooks returns the slice of callbacks to run after each Terraform component apply.
-// Includes any registered OnTerraformApply callbacks and, when Workstation is set, a callback to run ConfigureNetwork after the "workstation" component.
-// When dns.terraform_output_key is set, the callback reads that output from the workstation component and sets dns.address so ConfigureNetwork uses the Terraform-derived IP.
-func (i *Provisioner) buildOnApplyHooks() []func(id string) error {
-	onApply := append([]func(id string) error{}, i.onTerraformApply...)
-	if i.Workstation != nil {
-		onApply = append(onApply, func(id string) error {
-			if id != "workstation" {
-				return nil
-			}
-			if i.runtime.TerraformProvider != nil {
-				outputs, err := i.runtime.TerraformProvider.GetTerraformOutputs("workstation")
-				if err == nil && outputs != nil {
-					outputKey := i.runtime.ConfigHandler.GetString("dns.terraform_output_key")
-					if outputKey == "" {
-						for _, k := range []string{"dns_address", "dns_ip"} {
-							if v, ok := outputs[k].(string); ok && v != "" {
-								_ = i.runtime.ConfigHandler.Set("dns.address", v)
-								break
-							}
-						}
-					} else if v, ok := outputs[outputKey].(string); ok && v != "" {
-						_ = i.runtime.ConfigHandler.Set("dns.address", v)
-					}
-				}
-			}
-			return i.Workstation.ConfigureNetwork()
-		})
-	}
-	return onApply
 }

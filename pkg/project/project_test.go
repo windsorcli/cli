@@ -236,7 +236,7 @@ func TestNewProject(t *testing.T) {
 		}
 	})
 
-	t.Run("PassesWorkstationToProvisionerWhenDevMode", func(t *testing.T) {
+	t.Run("CreatesWorkstationAndProvisionerWhenDevMode", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -248,12 +248,9 @@ func TestNewProject(t *testing.T) {
 		if proj.Workstation == nil || proj.Provisioner == nil {
 			t.Fatal("Expected Workstation and Provisioner to be created in dev mode")
 		}
-		if proj.Provisioner.Workstation != proj.Workstation {
-			t.Error("Expected Provisioner.Workstation to be the same as Project.Workstation when in dev mode")
-		}
 	})
 
-	t.Run("CreatesWorkstationAndSyncsToProvisionerWhenWorkstationEnabled", func(t *testing.T) {
+	t.Run("CreatesWorkstationWhenWorkstationEnabled", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -276,9 +273,6 @@ func TestNewProject(t *testing.T) {
 		}
 		if proj.Provisioner == nil {
 			t.Fatal("Expected Provisioner to exist")
-		}
-		if proj.Provisioner.Workstation != proj.Workstation {
-			t.Error("Expected Provisioner.Workstation to be set when Workstation created via workstation.enabled")
 		}
 	})
 
@@ -506,7 +500,7 @@ func TestProject_Configure(t *testing.T) {
 		}
 	})
 
-	t.Run("CreatesWorkstationAndSyncsToProvisionerWhenWorkstationEnabledSetViaFlagOverrides", func(t *testing.T) {
+	t.Run("CreatesWorkstationWhenWorkstationEnabledSetViaFlagOverrides", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -545,12 +539,9 @@ func TestProject_Configure(t *testing.T) {
 		if proj.Workstation == nil {
 			t.Error("Expected Workstation to be created when workstation.enabled set via flag overrides")
 		}
-		if proj.Provisioner != nil && proj.Provisioner.Workstation != proj.Workstation {
-			t.Error("Expected Provisioner.Workstation to be set when Workstation created in Configure")
-		}
 	})
 
-	t.Run("ClearsWorkstationAndProvisionerRefWhenWorkstationEnabledOverrideFalse", func(t *testing.T) {
+	t.Run("ClearsWorkstationWhenWorkstationEnabledOverrideFalse", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -589,9 +580,6 @@ func TestProject_Configure(t *testing.T) {
 		}
 		if proj.Workstation != nil {
 			t.Error("Expected Workstation to be cleared when workstation.enabled overridden to false")
-		}
-		if proj.Provisioner != nil && proj.Provisioner.Workstation != nil {
-			t.Error("Expected Provisioner.Workstation to be cleared when workstation disabled via override")
 		}
 	})
 

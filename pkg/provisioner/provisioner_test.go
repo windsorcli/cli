@@ -17,8 +17,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	runtimeterraform "github.com/windsorcli/cli/pkg/runtime/terraform"
-	"github.com/windsorcli/cli/pkg/workstation"
 )
 
 // =============================================================================
@@ -257,20 +255,6 @@ func TestNewProvisioner(t *testing.T) {
 		}
 	})
 
-	t.Run("UsesWorkstationFromOpts", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		ws := workstation.NewWorkstation(mocks.Runtime)
-		opts := &Provisioner{
-			TerraformStack: mocks.TerraformStack,
-			Workstation:    ws,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		if provisioner.Workstation != ws {
-			t.Error("Expected Workstation from opts to be used")
-		}
-	})
-
 	t.Run("SkipsTerraformStackWhenDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 
@@ -352,32 +336,6 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("RunsWorkstationUpWhenTerraformDisabledButWorkstationSet", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "terraform.enabled" {
-				return false
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		ws := workstation.NewWorkstation(mocks.Runtime)
-		opts := &Provisioner{Workstation: ws}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-
-		err := provisioner.Up(createTestBlueprint())
-
-		if err != nil {
-			t.Errorf("Expected no error when terraform disabled but workstation set, got: %v", err)
-		}
-		if ws.DeferHostGuestSetup {
-			t.Error("Expected DeferHostGuestSetup false when terraform is not running")
-		}
-	})
-
 	t.Run("SuccessInitializesTerraformStackLazily", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -432,58 +390,6 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsDeferHostGuestSetupWhenWorkstationSetAndBlueprintHasWorkstationComponent", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		ws := workstation.NewWorkstation(mocks.Runtime)
-		opts := &Provisioner{
-			TerraformStack: mocks.TerraformStack,
-			Workstation:    ws,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		blueprint := createTestBlueprint()
-		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
-			{Name: "workstation", Path: "workstation/path"},
-		}
-
-		err := provisioner.Up(blueprint)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if !ws.DeferHostGuestSetup {
-			t.Error("Expected DeferHostGuestSetup to be true when blueprint has workstation component")
-		}
-	})
-
-	t.Run("ClearsDeferHostGuestSetupOnSubsequentUpWithoutWorkstationComponent", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		ws := workstation.NewWorkstation(mocks.Runtime)
-		opts := &Provisioner{
-			TerraformStack: mocks.TerraformStack,
-			Workstation:    ws,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		withWorkstation := createTestBlueprint()
-		withWorkstation.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
-			{Name: "workstation", Path: "workstation/path"},
-		}
-		withoutWorkstation := createTestBlueprint()
-		withoutWorkstation.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
-			{Name: "other", Path: "other/path"},
-		}
-
-		_ = provisioner.Up(withWorkstation)
-		if !ws.DeferHostGuestSetup {
-			t.Fatal("Expected DeferHostGuestSetup true after first Up with workstation component")
-		}
-
-		_ = provisioner.Up(withoutWorkstation)
-
-		if ws.DeferHostGuestSetup {
-			t.Error("Expected DeferHostGuestSetup to be false on second Up without workstation component so network setup runs in Workstation.Up()")
-		}
-	})
-
 	t.Run("PassesOnTerraformApplyHooksToStack", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		var capturedOnApply []func(id string) error
@@ -503,119 +409,6 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsDnsAddressFromWorkstationTerraformOutputWhenWorkstationHookRuns", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
-		var setKey string
-		var setValue any
-		mockConfig.SetFunc = func(key string, value any) error {
-			setKey = key
-			setValue = value
-			return nil
-		}
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.terraform_output_key" {
-				return ""
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mockTerraformProvider := &runtimeterraform.MockTerraformProvider{}
-		mockTerraformProvider.GetTerraformOutputsFunc = func(componentID string) (map[string]any, error) {
-			if componentID == "workstation" {
-				return map[string]any{"dns_address": "10.5.0.2"}, nil
-			}
-			return nil, nil
-		}
-		mocks.Runtime.TerraformProvider = mockTerraformProvider
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			for _, fn := range onApply {
-				if fn != nil {
-					_ = fn("workstation")
-				}
-			}
-			return nil
-		}
-		ws := workstation.NewWorkstation(mocks.Runtime)
-		opts := &Provisioner{TerraformStack: mockStack, Workstation: ws}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		blueprint := createTestBlueprint()
-		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
-			{Name: "workstation", Path: "workstation/path"},
-		}
-
-		err := provisioner.Up(blueprint)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if setKey != "dns.address" {
-			t.Errorf("Expected Set key dns.address, got %q", setKey)
-		}
-		if setValue != "10.5.0.2" {
-			t.Errorf("Expected Set value 10.5.0.2, got %v", setValue)
-		}
-	})
-
-	t.Run("UsesDnsTerraformOutputKeyWhenSetInWorkstationCallback", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
-		var setKey string
-		var setValue any
-		mockConfig.SetFunc = func(key string, value any) error {
-			setKey = key
-			setValue = value
-			return nil
-		}
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "dns.terraform_output_key" {
-				return "custom_dns_output"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mockTerraformProvider := &runtimeterraform.MockTerraformProvider{}
-		mockTerraformProvider.GetTerraformOutputsFunc = func(componentID string) (map[string]any, error) {
-			if componentID == "workstation" {
-				return map[string]any{"custom_dns_output": "192.168.1.1"}, nil
-			}
-			return nil, nil
-		}
-		mocks.Runtime.TerraformProvider = mockTerraformProvider
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			for _, fn := range onApply {
-				if fn != nil {
-					_ = fn("workstation")
-				}
-			}
-			return nil
-		}
-		ws := workstation.NewWorkstation(mocks.Runtime)
-		opts := &Provisioner{TerraformStack: mockStack, Workstation: ws}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		blueprint := createTestBlueprint()
-		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
-			{Name: "workstation", Path: "workstation/path"},
-		}
-
-		err := provisioner.Up(blueprint)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-		if setKey != "dns.address" {
-			t.Errorf("Expected Set key dns.address, got %q", setKey)
-		}
-		if setValue != "192.168.1.1" {
-			t.Errorf("Expected Set value 192.168.1.1 from custom_dns_output, got %v", setValue)
-		}
-	})
 }
 
 func TestProvisioner_OnTerraformApply(t *testing.T) {

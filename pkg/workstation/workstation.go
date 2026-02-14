@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -210,6 +211,20 @@ func (w *Workstation) Up() error {
 	return nil
 }
 
+// PrepareForUp sets DeferHostGuestSetup so that when the blueprint has a "workstation" Terraform component and terraform.enabled is true, host/guest and DNS setup run after that component is applied (via the provisioner hook) instead of during Up. Call before Up() when the up flow will run Terraform with this blueprint.
+func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
+	w.DeferHostGuestSetup = false
+	if blueprint == nil || !w.configHandler.GetBool("terraform.enabled", false) {
+		return
+	}
+	for _, c := range blueprint.TerraformComponents {
+		if c.GetID() == "workstation" {
+			w.DeferHostGuestSetup = true
+			break
+		}
+	}
+}
+
 // ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
 // It is intended to be called after the "workstation" Terraform component is applied. ConfigureGuest and
 // ConfigureHostRoute run only when vm.driver is colima; ConfigureDNS runs when dns.enabled regardless of driver.
@@ -233,6 +248,34 @@ func (w *Workstation) ConfigureNetwork() error {
 		}
 	}
 	return nil
+}
+
+// AfterWorkstationComponent returns a hook to run after each Terraform component apply.
+// When id is "workstation", it sets dns.address from that component's Terraform outputs (dns.terraform_output_key or dns_address/dns_ip) and calls ConfigureNetwork.
+// No-op for other component IDs.
+func (w *Workstation) AfterWorkstationComponent() func(id string) error {
+	return func(id string) error {
+		if id != "workstation" {
+			return nil
+		}
+		if w.runtime.TerraformProvider != nil {
+			outputs, err := w.runtime.TerraformProvider.GetTerraformOutputs("workstation")
+			if err == nil && outputs != nil {
+				outputKey := w.configHandler.GetString("dns.terraform_output_key")
+				if outputKey == "" {
+					for _, k := range []string{"dns_address", "dns_ip"} {
+						if v, ok := outputs[k].(string); ok && v != "" {
+							_ = w.configHandler.Set("dns.address", v)
+							break
+						}
+					}
+				} else if v, ok := outputs[outputKey].(string); ok && v != "" {
+					_ = w.configHandler.Set("dns.address", v)
+				}
+			}
+		}
+		return w.ConfigureNetwork()
+	}
 }
 
 // Down stops all components of the workstation environment including services, containers, VMs, and networking.
