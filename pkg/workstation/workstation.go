@@ -305,8 +305,6 @@ func (w *Workstation) Down() error {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "Windsor environment torn down successfully.")
-
 	return nil
 }
 
