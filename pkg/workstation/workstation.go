@@ -211,7 +211,9 @@ func (w *Workstation) Up() error {
 	return nil
 }
 
-// PrepareForUp sets DeferHostGuestSetup so that when the blueprint has a "workstation" Terraform component and terraform.enabled is true, host/guest and DNS setup run after that component is applied (via the provisioner hook) instead of during Up. Call before Up() when the up flow will run Terraform with this blueprint.
+// PrepareForUp sets DeferHostGuestSetup to defer host/guest and DNS setup until after the
+// "workstation" Terraform component is applied (via provisioner hook) when present and
+// terraform.enabled is true. Call before Up() when Up will run Terraform with this blueprint.
 func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
 	w.DeferHostGuestSetup = false
 	if blueprint == nil || !w.configHandler.GetBool("terraform.enabled", false) {

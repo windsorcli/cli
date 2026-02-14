@@ -93,8 +93,10 @@ cluster:
       - 9292:30292/tcp
       - 8053:30053/udp
     volumes:
-      - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
+      - ${project_root}/.volumes:/var/mnt/local
 ```
+
+Use `${project_root}` for volume sources; it is templated into Terraform and, when using the internal workstation (docker-compose), rewritten to `${WINDSOR_PROJECT_ROOT}` at compose generation time.
 
 | Field                        | Type       | Description                                                        |
 |------------------------------|------------|--------------------------------------------------------------------|
@@ -345,7 +347,7 @@ contexts:
         - 9292:30292/tcp
         - 8053:30053/udp
         volumes:
-        - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
+        - ${project_root}/.volumes:/var/mnt/local
     network:
       cidr_block: 10.5.0.0/16
     dns:

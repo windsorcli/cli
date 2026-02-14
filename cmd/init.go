@@ -119,6 +119,10 @@ var initCmd = &cobra.Command{
 					flagOverrides["vm.driver"] = initVmDriver
 				}
 			}
+		} else if initProvider == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
+			flagOverrides["workstation.enabled"] = true
+			flagOverrides["vm.driver"] = "docker-desktop"
+			flagOverrides["provider"] = "docker"
 		}
 		if initCpu > 0 {
 			flagOverrides["vm.cpu"] = initCpu

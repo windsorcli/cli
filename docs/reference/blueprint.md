@@ -203,7 +203,7 @@ When running `windsor install`, Kubernetes resources are applied. These resource
 | `LOADBALANCER_IP_END`   | The final IP in the range for load balancer assignments.           |
 | `LOADBALANCER_IP_RANGE` | Complete range of load balancer IPs, e.g., 10.5.1.1-10.5.1.10.     |
 | `LOADBALANCER_IP_START` | The initial IP in the range for load balancer assignments.         |
-| `LOCAL_VOLUME_PATH`     | Directory path for local volume storage, e.g., /var/local.         |
+| `LOCAL_VOLUME_PATH`     | Directory path for local volume storage, e.g., /var/mnt/local.    |
 | `REGISTRY_URL`          | Base URL for the container image registry, e.g., registry.test.    |
 
 ## Example: Local Blueprint

@@ -99,7 +99,7 @@ func TestDefaultConfigurations_HostPorts(t *testing.T) {
 		}
 
 		// And control planes should have the project volumes mount
-		expectedVolume := "${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"
+		expectedVolume := "${project_root}/.volumes:/var/mnt/local"
 
 		if len(configLocalhost.Cluster.ControlPlanes.Volumes) == 0 {
 			t.Error("Expected DefaultConfig_Localhost controlplanes to have volumes")

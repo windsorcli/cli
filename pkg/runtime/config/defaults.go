@@ -19,8 +19,10 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 )
 
+// commonDockerConfig defaults to Enabled: false. docker.enabled is deprecated;
+// internal workstation (compose) is still used when provider=docker or when explicitly enabled.
 var commonDockerConfig = docker.DockerConfig{
-	Enabled: ptrBool(true),
+	Enabled: ptrBool(false),
 	Registries: map[string]docker.RegistryConfig{
 		"registry.test": {},
 		"registry-1.docker.io": {
@@ -79,7 +81,7 @@ var commonClusterConfig_NoHostPorts = cluster.ClusterConfig{
 		Schedulable: ptrBool(true),
 		Nodes:       make(map[string]cluster.NodeConfig),
 		HostPorts:   []string{},
-		Volumes:     []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
+		Volumes:     []string{"${project_root}/.volumes:/var/mnt/local"},
 	},
 	Workers: cluster.NodeGroupConfig{
 		Count: ptrInt(0),
@@ -98,7 +100,7 @@ var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
 		Schedulable: ptrBool(true),
 		Nodes:       make(map[string]cluster.NodeConfig),
 		HostPorts:   []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"},
-		Volumes:     []string{"${WINDSOR_PROJECT_ROOT}/.volumes:/var/local"},
+		Volumes:     []string{"${project_root}/.volumes:/var/mnt/local"},
 	},
 	Workers: cluster.NodeGroupConfig{
 		Count: ptrInt(0),

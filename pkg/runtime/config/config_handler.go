@@ -368,6 +368,9 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 			if contextStruct == nil {
 				contextStruct = &v1alpha1.Context{}
 			}
+			if contextStruct.Docker != nil && contextStruct.Docker.Enabled != nil && !*contextStruct.Docker.Enabled {
+				contextStruct.Docker.Enabled = nil
+			}
 			data, err := c.shims.YamlMarshal(contextStruct)
 			if err != nil {
 				return fmt.Errorf("error marshalling context config: %w", err)
@@ -876,10 +879,10 @@ func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 // For test contexts, schema defaults are skipped to ensure tests only use explicitly provided values.
 func (c *configHandler) GetContextValues() (map[string]any, error) {
 	result := make(map[string]any)
-	
+
 	contextName := c.GetContext()
 	skipSchemaDefaults := contextName == "test" || strings.HasPrefix(contextName, "test-")
-	
+
 	if !skipSchemaDefaults && c.schemaValidator != nil && c.schemaValidator.Schema != nil {
 		defaults, err := c.schemaValidator.GetSchemaDefaults()
 		if err == nil && defaults != nil {
