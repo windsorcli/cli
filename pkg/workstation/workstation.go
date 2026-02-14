@@ -210,11 +210,11 @@ func (w *Workstation) Up() error {
 	return nil
 }
 
-// ConfigureHostGuest runs host/guest and DNS setup (same logic as the deferred block in Up).
+// ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
 // It is intended to be called after the "workstation" Terraform component is applied. ConfigureGuest and
 // ConfigureHostRoute run only when vm.driver is colima; ConfigureDNS runs when dns.enabled regardless of driver.
 // No-op when NetworkManager is nil.
-func (w *Workstation) ConfigureHostGuest() error {
+func (w *Workstation) ConfigureNetwork() error {
 	if w.NetworkManager == nil {
 		return nil
 	}

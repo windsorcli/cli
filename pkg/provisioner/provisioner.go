@@ -424,13 +424,13 @@ func (i *Provisioner) ensureTerraformStack() error {
 }
 
 // buildOnApplyHooks returns the slice of callbacks to run after each Terraform component apply.
-// Includes any registered OnTerraformApply callbacks and, when Workstation is set, a callback to run ConfigureHostGuest after the "workstation" component.
+// Includes any registered OnTerraformApply callbacks and, when Workstation is set, a callback to run ConfigureNetwork after the "workstation" component.
 func (i *Provisioner) buildOnApplyHooks() []func(id string) error {
 	onApply := append([]func(id string) error{}, i.onTerraformApply...)
 	if i.Workstation != nil {
 		onApply = append(onApply, func(id string) error {
 			if id == "workstation" {
-				return i.Workstation.ConfigureHostGuest()
+				return i.Workstation.ConfigureNetwork()
 			}
 			return nil
 		})
