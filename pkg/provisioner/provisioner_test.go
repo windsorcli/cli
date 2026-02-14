@@ -351,6 +351,32 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("RunsWorkstationUpWhenTerraformDisabledButWorkstationSet", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		ws := workstation.NewWorkstation(mocks.Runtime)
+		opts := &Provisioner{Workstation: ws}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Up(createTestBlueprint())
+
+		if err != nil {
+			t.Errorf("Expected no error when terraform disabled but workstation set, got: %v", err)
+		}
+		if ws.DeferHostGuestSetup {
+			t.Error("Expected DeferHostGuestSetup false when terraform is not running")
+		}
+	})
+
 	t.Run("SuccessInitializesTerraformStackLazily", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)

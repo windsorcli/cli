@@ -129,10 +129,10 @@ func (i *Provisioner) OnTerraformApply(fn func(id string) error) {
 	}
 }
 
-// Up orchestrates the high-level infrastructure deployment process. It executes terraform apply operations
-// for all components in the stack. When Workstation was set in the constructor, Up sets DeferHostGuestSetup
-// when the blueprint has a "workstation" Terraform component, registers a hook to run ConfigureHostGuest after
-// that component applies, and calls Workstation.Up() before running Terraform. The blueprint parameter is required.
+// Up orchestrates the high-level infrastructure deployment process. When Workstation is set, Up runs Workstation.Up()
+// first. If Terraform will run and the blueprint has a "workstation" component, host/guest setup is deferred until
+// after that component applies (via an onApply hook). Terraform apply runs when terraform.enabled and the stack exists.
+// The blueprint parameter is required.
 func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -140,15 +140,25 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 	if err := i.ensureTerraformStack(); err != nil {
 		return err
 	}
-	if i.TerraformStack == nil {
-		return nil
+	runTerraform := i.TerraformStack != nil
+	if i.Workstation != nil {
+		if runTerraform {
+			for _, c := range blueprint.TerraformComponents {
+				if c.GetID() == "workstation" {
+					i.Workstation.DeferHostGuestSetup = true
+					break
+				}
+			}
+		}
+		if err := i.Workstation.Up(); err != nil {
+			return fmt.Errorf("error starting workstation: %w", err)
+		}
 	}
-	onApply, err := i.registerWorkstationHooks(blueprint)
-	if err != nil {
-		return err
-	}
-	if err := i.TerraformStack.Up(blueprint, onApply...); err != nil {
-		return fmt.Errorf("failed to run terraform up: %w", err)
+	if runTerraform {
+		onApply := i.buildOnApplyHooks()
+		if err := i.TerraformStack.Up(blueprint, onApply...); err != nil {
+			return fmt.Errorf("failed to run terraform up: %w", err)
+		}
 	}
 	return nil
 }
@@ -413,27 +423,17 @@ func (i *Provisioner) ensureTerraformStack() error {
 	return nil
 }
 
-// registerWorkstationHooks builds the onApply slice with any registered callbacks and, when Workstation is set,
-// sets DeferHostGuestSetup for the "workstation" component, appends a ConfigureHostGuest hook, and runs Workstation.Up().
-func (i *Provisioner) registerWorkstationHooks(blueprint *blueprintv1alpha1.Blueprint) ([]func(id string) error, error) {
+// buildOnApplyHooks returns the slice of callbacks to run after each Terraform component apply.
+// Includes any registered OnTerraformApply callbacks and, when Workstation is set, a callback to run ConfigureHostGuest after the "workstation" component.
+func (i *Provisioner) buildOnApplyHooks() []func(id string) error {
 	onApply := append([]func(id string) error{}, i.onTerraformApply...)
-	if i.Workstation == nil {
-		return onApply, nil
+	if i.Workstation != nil {
+		onApply = append(onApply, func(id string) error {
+			if id == "workstation" {
+				return i.Workstation.ConfigureHostGuest()
+			}
+			return nil
+		})
 	}
-	for _, c := range blueprint.TerraformComponents {
-		if c.GetID() == "workstation" {
-			i.Workstation.DeferHostGuestSetup = true
-			break
-		}
-	}
-	onApply = append(onApply, func(id string) error {
-		if id == "workstation" {
-			return i.Workstation.ConfigureHostGuest()
-		}
-		return nil
-	})
-	if err := i.Workstation.Up(); err != nil {
-		return nil, fmt.Errorf("error starting workstation: %w", err)
-	}
-	return onApply, nil
+	return onApply
 }
