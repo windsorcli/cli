@@ -1003,13 +1003,25 @@ func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
 	})
 
 	t.Run("DockerEngineV28Compatibility", func(t *testing.T) {
-		// Given a docker virt instance with valid mocks
 		mocks := setupDockerMocks(t)
+		originalConfig := mocks.ConfigHandler
+		workstationRuntimeCallCount := 0
 		wrapperConfig := config.NewMockConfigHandler()
-		wrapperConfig.UsesDockerComposeWorkstationFunc = func() bool { return true }
-		wrapperConfig.GetStringFunc = mocks.ConfigHandler.GetString
-		wrapperConfig.GetContextFunc = mocks.ConfigHandler.GetContext
-		wrapperConfig.GetBoolFunc = mocks.ConfigHandler.GetBool
+		wrapperConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return ""
+			}
+			if key == "workstation.runtime" {
+				workstationRuntimeCallCount++
+				if workstationRuntimeCallCount <= 1 {
+					return ""
+				}
+				return "colima"
+			}
+			return originalConfig.GetString(key, defaultValue...)
+		}
+		wrapperConfig.GetContextFunc = originalConfig.GetContext
+		wrapperConfig.GetBoolFunc = originalConfig.GetBool
 		mocks.ConfigHandler = wrapperConfig
 		mocks.Runtime.ConfigHandler = wrapperConfig
 		serviceList := []services.Service{mocks.Service}

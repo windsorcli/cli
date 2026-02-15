@@ -138,7 +138,7 @@ func (w *Workstation) Prepare() error {
 			}
 		}
 	} else {
-		if w.configHandler.UsesDockerComposeWorkstation() && w.ContainerRuntime == nil {
+		if w.runtime.UsesDockerComposeWorkstation() && w.ContainerRuntime == nil {
 			w.ContainerRuntime = virt.NewDockerVirt(w.runtime, w.Services)
 		}
 	}
@@ -316,7 +316,7 @@ func (w *Workstation) Down() error {
 func (w *Workstation) createServices() ([]services.Service, error) {
 	var serviceList []services.Service
 
-	if !w.configHandler.UsesDockerComposeWorkstation() {
+	if !w.runtime.UsesDockerComposeWorkstation() {
 		return serviceList, nil
 	}
 

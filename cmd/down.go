@@ -68,7 +68,7 @@ var downCmd = &cobra.Command{
 				}
 			}
 			dockerTeardownDoneViaWorkstation := proj.Workstation != nil && proj.Workstation.ContainerRuntime != nil
-			runDockerCleanup := proj.Runtime.ConfigHandler.UsesDockerComposeWorkstation() ||
+			runDockerCleanup := proj.Runtime.UsesDockerComposeWorkstation() ||
 				proj.Runtime.ConfigHandler.GetString("provider") == "docker"
 			if runDockerCleanup && !dockerTeardownDoneViaWorkstation {
 				dockerVirt := virt.NewDockerVirt(proj.Runtime, nil)

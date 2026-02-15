@@ -50,7 +50,6 @@ type ConfigHandler interface {
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetContextValues() (map[string]any, error)
 	RegisterProvider(prefix string, provider ValueProvider)
-	UsesDockerComposeWorkstation() bool
 }
 
 // ValueProvider defines the interface for dynamic value providers that can resolve
@@ -929,18 +928,6 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	}
 
 	return result, nil
-}
-// UsesDockerComposeWorkstation returns true when the internal Docker Compose workstation should be used.
-// Requires docker.enabled to be true. Uses workstation.driver with fallback to workstation.runtime; returns false
-// when runtime is "docker", "colima", or "docker-desktop" so the VM or host-docker path is used instead of compose.
-func (c *configHandler) UsesDockerComposeWorkstation() bool {
-	driver := c.GetString("workstation.driver")
-	if driver == "" {
-		driver = c.GetString("workstation.runtime")
-	}
-	dockerEnabled := c.GetBool("docker.enabled", false)
-	useCompose := dockerEnabled && driver != "docker" && driver != "colima" && driver != "docker-desktop"
-	return useCompose
 }
 
 // GenerateContextID generates a random context ID if one doesn't exist

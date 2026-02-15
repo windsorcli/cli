@@ -2911,7 +2911,24 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.UsesDockerComposeWorkstationFunc = func() bool { return true }
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "workstation.runtime" {
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 
 		rt.initializeEnvPrinters()
 
@@ -2924,7 +2941,24 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.UsesDockerComposeWorkstationFunc = func() bool { return true }
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "workstation.runtime" {
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 
 		rt.initializeEnvPrinters()
 

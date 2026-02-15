@@ -49,7 +49,6 @@ func NewToolsManager(configHandler config.ConfigHandler, shell shell.Shell) *Bas
 	if shell == nil {
 		panic("shell is required")
 	}
-
 	return &BaseToolsManager{
 		configHandler: configHandler,
 		shell:         shell,
@@ -78,7 +77,14 @@ func (t *BaseToolsManager) Check() error {
 	spin.Start()
 	defer spin.Stop()
 
-	if t.configHandler.UsesDockerComposeWorkstation() {
+	rt := t.configHandler.GetString("workstation.runtime")
+	if rt == "" {
+		rt = t.configHandler.GetString("vm.driver")
+	}
+	dockerEnabled := t.configHandler.GetBool("docker.enabled", false)
+	usesCompose := dockerEnabled && rt != "docker" && rt != "colima" && rt != "docker-desktop"
+	needsDocker := usesCompose || rt == "colima" || rt == "docker-desktop" || rt == "docker"
+	if needsDocker {
 		if err := t.checkDocker(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)

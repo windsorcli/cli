@@ -411,7 +411,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 	if rt.EnvPrinters.GcpEnv == nil && rt.ConfigHandler.GetBool("gcp.enabled", false) {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.DockerEnv == nil && rt.ConfigHandler.UsesDockerComposeWorkstation() {
+	if rt.EnvPrinters.DockerEnv == nil && rt.UsesDockerComposeWorkstation() {
 		rt.EnvPrinters.DockerEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.KubeEnv == nil && rt.ConfigHandler.GetBool("cluster.enabled", false) {
@@ -440,6 +440,18 @@ func (rt *Runtime) initializeEnvPrinters() {
 		allEnvPrinters := rt.getAllEnvPrinters()
 		rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(rt.Shell, rt.ConfigHandler, secretsProviders, allEnvPrinters)
 	}
+}
+
+// UsesDockerComposeWorkstation returns true when the internal Docker Compose workstation should be used.
+// Requires docker.enabled to be true. Uses workstation.runtime (with vm.driver fallback); returns false
+// when runtime is "docker", "colima", or "docker-desktop" so the VM or host-docker path is used instead of compose.
+func (rt *Runtime) UsesDockerComposeWorkstation() bool {
+	r := rt.ConfigHandler.GetString("workstation.runtime")
+	if r == "" {
+		r = rt.ConfigHandler.GetString("vm.driver")
+	}
+	dockerEnabled := rt.ConfigHandler.GetBool("docker.enabled", false)
+	return dockerEnabled && r != "docker" && r != "colima" && r != "docker-desktop"
 }
 
 // initializeToolsManager initializes the tools manager if not already set.

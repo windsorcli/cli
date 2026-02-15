@@ -64,7 +64,7 @@ func NewDockerVirt(rt *runtime.Runtime, serviceList []services.Service) *DockerV
 // sets COMPOSE_FILE and COMPOSE_PROJECT_NAME (see windsorComposeProjectName), and attempts to start services with up to 3 retries.
 // Returns an error if all attempts fail or if prerequisites are not met.
 func (v *DockerVirt) Up() error {
-	if v.configHandler.UsesDockerComposeWorkstation() {
+	if v.runtime.UsesDockerComposeWorkstation() {
 		if err := v.checkDockerDaemon(); err != nil {
 			return fmt.Errorf("Docker daemon is not running: %w", err)
 		}
@@ -310,7 +310,7 @@ func (v *DockerVirt) removeResources() error {
 func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	contextName := v.configHandler.GetContext()
 
-	if !v.configHandler.UsesDockerComposeWorkstation() {
+	if !v.runtime.UsesDockerComposeWorkstation() {
 		return nil, fmt.Errorf("Docker configuration is not defined")
 	}
 
