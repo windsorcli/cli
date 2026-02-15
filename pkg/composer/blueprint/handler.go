@@ -575,9 +575,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	if h.runtime.TerraformProvider != nil {
 		components := h.GetTerraformComponents()
 		h.runtime.TerraformProvider.SetTerraformComponents(components)
-		if mergedScope != nil {
-			h.runtime.TerraformProvider.SetConfigScope(mergedScope)
-		}
+		h.runtime.TerraformProvider.SetConfigScope(mergedScope)
 	}
 
 	return nil
