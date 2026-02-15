@@ -443,15 +443,10 @@ func (rt *Runtime) initializeEnvPrinters() {
 }
 
 // UsesDockerComposeWorkstation returns true when the internal Docker Compose workstation should be used.
-// Requires docker.enabled to be true. Uses workstation.runtime (with vm.driver fallback); returns false
-// when runtime is "docker", "colima", or "docker-desktop" so the VM or host-docker path is used instead of compose.
+// When true, compose-based flows (env, services, docker_virt) run for the current runtime (docker, colima, docker-desktop).
+// Depends only on docker.enabled; workstation.runtime does not disable compose when docker.enabled is true.
 func (rt *Runtime) UsesDockerComposeWorkstation() bool {
-	r := rt.ConfigHandler.GetString("workstation.runtime")
-	if r == "" {
-		r = rt.ConfigHandler.GetString("vm.driver")
-	}
-	dockerEnabled := rt.ConfigHandler.GetBool("docker.enabled", false)
-	return dockerEnabled && r != "docker" && r != "colima" && r != "docker-desktop"
+	return rt.ConfigHandler.GetBool("docker.enabled", false)
 }
 
 // initializeToolsManager initializes the tools manager if not already set.
