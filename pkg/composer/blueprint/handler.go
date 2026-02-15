@@ -3,6 +3,7 @@ package blueprint
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -461,6 +462,10 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			loaderNames[loader] = name
 		}
 	}
+	if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+		loadersToProcess = append(loadersToProcess, h.userBlueprintLoader)
+		loaderNames[h.userBlueprintLoader] = h.userBlueprintLoader.GetSourceName()
+	}
 
 	var scopeMu sync.Mutex
 	collectedScopes := make(map[string]map[string]any)
@@ -524,12 +529,18 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	scopeMu.Lock()
 	for _, loader := range loaders {
 		name := loaderNames[loader]
-		if name == "" || name == "user" {
+		if name == "" {
 			continue
 		}
 		if scope, ok := collectedScopes[name]; ok && scope != nil {
 			mergedScope = MergeConfigMaps(mergedScope, scope)
 		}
+	}
+	if contextValues := h.getConfigValues(); contextValues != nil {
+		if mergedScope == nil {
+			mergedScope = make(map[string]any)
+		}
+		maps.Copy(mergedScope, contextValues)
 	}
 	scopeMu.Unlock()
 
@@ -568,6 +579,9 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	if h.runtime.TerraformProvider != nil {
 		components := h.GetTerraformComponents()
 		h.runtime.TerraformProvider.SetTerraformComponents(components)
+		if mergedScope != nil {
+			h.runtime.TerraformProvider.SetConfigScope(mergedScope)
+		}
 	}
 
 	return nil

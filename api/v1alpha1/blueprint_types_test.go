@@ -3720,3 +3720,26 @@ func TestToSliceAny(t *testing.T) {
 		}
 	})
 }
+
+func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
+	t.Run("EmptyStringOverlayDoesNotOverwriteNonEmptyBase", func(t *testing.T) {
+		base := map[string]any{"key": "populated"}
+		overlay := map[string]any{"key": ""}
+		got := DeepMergeMaps(base, overlay)
+		if got["key"] != "populated" {
+			t.Errorf("Expected populated value preserved, got %v", got["key"])
+		}
+	})
+	t.Run("EmptySliceOverlayDoesNotOverwriteNonEmptyBase", func(t *testing.T) {
+		base := map[string]any{"patches": []any{"a", "b"}}
+		overlay := map[string]any{"patches": []any{}}
+		got := DeepMergeMaps(base, overlay)
+		sl, ok := got["patches"].([]any)
+		if !ok {
+			t.Fatalf("Expected []any, got %T", got["patches"])
+		}
+		if len(sl) != 2 || sl[0] != "a" || sl[1] != "b" {
+			t.Errorf("Expected [a b] preserved, got %v", sl)
+		}
+	})
+}

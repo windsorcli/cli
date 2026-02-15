@@ -101,7 +101,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	var contextScope map[string]any
 	if p.runtime != nil && p.runtime.ConfigHandler != nil {
-		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil && len(vals) > 0 {
+		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
 			contextScope = vals
 		}
 	}
@@ -133,7 +133,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			return nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 		}
 	}
-	if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder); err != nil {
+	if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
 		return nil, nil, err
 	}
 
@@ -157,17 +157,14 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // Private Methods
 // =============================================================================
 
-// mergeContextOverScope returns a new map with contextScope keys overriding globalScope so
-// expressions see actual context values (e.g. workstation.runtime) when both exist.
+// mergeContextOverScope returns a new map by deep-merging contextScope over globalScope so
+// expressions see actual context values (e.g. workstation.runtime) while preserving facet-derived
+// nested structure under shared top-level keys (e.g. cluster, workstation).
 func (p *BaseBlueprintProcessor) mergeContextOverScope(contextScope, globalScope map[string]any) map[string]any {
-	merged := maps.Clone(globalScope)
-	if merged == nil {
-		merged = make(map[string]any)
+	if globalScope == nil {
+		globalScope = make(map[string]any)
 	}
-	for k, v := range contextScope {
-		merged[k] = v
-	}
-	return merged
+	return blueprintv1alpha1.DeepMergeMaps(globalScope, contextScope)
 }
 
 // mergeFacetScopeIntoGlobal merges the facet's config block structure into the global scope
@@ -238,17 +235,19 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 }
 
 // evaluateGlobalScopeConfig evaluates all config block body expressions in globalScope in
-// blueprint context with globalScope merged into the evaluation environment so config
-// blocks can reference each other (e.g. talos_common.common_patch referencing
-// talos_common.patchVars, or controlplanes.patch referencing talos_common.patchVars).
-// Same-block references (e.g. patches referencing talos_common_docker.common_patch within
-// the same block) are supported by re-evaluating each block until stable, with the block's
-// last-evaluated result in scope so later keys see earlier keys' values. Called once after
-// all facets have been merged. Mutates globalScope in place. Block names are iterated in
-// configBlockOrder so later blocks in the list are evaluated after earlier ones.
-func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, configBlockOrder []string) error {
+// blueprint context. The evaluation scope is contextScope (values from ConfigHandler) merged
+// with globalScope (facet config blocks) so expressions can reference both (e.g.
+// cluster.controlplanes.schedulable from values and talos.controlplanes from config blocks).
+// Same-block references are supported by re-evaluating each block until stable. Mutates
+// globalScope in place. Block names are iterated in configBlockOrder.
+func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, configBlockOrder []string, contextScope map[string]any) error {
 	if globalScope == nil {
 		return nil
+	}
+	if contextScope == nil && p.runtime != nil && p.runtime.ConfigHandler != nil {
+		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
+			contextScope = vals
+		}
 	}
 	names := configBlockOrder
 	if len(names) == 0 {
@@ -271,10 +270,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			oldBody := bodyMap
 			current := bodyMap
 			for pass := 0; pass < maxSameBlockPasses; pass++ {
-				scopeWithBlock := make(map[string]any, len(globalScope))
-				for k, v := range globalScope {
-					scopeWithBlock[k] = v
-				}
+				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
 				scopeWithBlock[name] = current
 				evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", scopeWithBlock, false)
 				if err != nil {
@@ -285,10 +281,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				}
 				current = evaluated
 			}
-			scopeWithBlock := make(map[string]any, len(globalScope))
-			for k, v := range globalScope {
-				scopeWithBlock[k] = v
-			}
+			scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
 			scopeWithBlock[name] = current
 			const maxResolvePasses = 3
 			for resolvePass := 0; resolvePass < maxResolvePasses; resolvePass++ {

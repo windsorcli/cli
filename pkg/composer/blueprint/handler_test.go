@@ -1626,4 +1626,48 @@ func TestHandler_processAndCompose(t *testing.T) {
 			t.Errorf("Expected common_config_patches to be resolved (no expression), got %q", s)
 		}
 	})
+
+	t.Run("CallsSetConfigScopeWhenProviderExists", func(t *testing.T) {
+		// Given a handler with terraform provider and loaders
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		var setConfigScopeCalled bool
+		mockTerraformProvider := &terraform.MockTerraformProvider{}
+		mockTerraformProvider.SetTerraformComponentsFunc = func([]blueprintv1alpha1.TerraformComponent) {}
+		mockTerraformProvider.SetConfigScopeFunc = func(map[string]any) {
+			setConfigScopeCalled = true
+		}
+		mocks.Runtime.TerraformProvider = mockTerraformProvider
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		templateBp := &blueprintv1alpha1.Blueprint{}
+		handler.sourceBlueprintLoaders["template"] = &mockLoaderImpl{
+			getBlueprintFunc:  func() *blueprintv1alpha1.Blueprint { return templateBp },
+			getSourceNameFunc: func() string { return "template" },
+		}
+		trueVal := true
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Sources: []blueprintv1alpha1.Source{
+						{Name: "template", Install: &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}},
+					},
+				}
+			},
+			getSourceNameFunc: func() string { return "user" },
+		}
+
+		// When processing and composing
+		err := handler.processAndCompose()
+
+		// Then SetConfigScope should be called when provider exists
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !setConfigScopeCalled {
+			t.Error("Expected SetConfigScope to be called when provider exists")
+		}
+	})
 }

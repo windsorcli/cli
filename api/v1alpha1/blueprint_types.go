@@ -1361,19 +1361,30 @@ func (b *Blueprint) terraformTopologicalSort(idToIndex map[string]int) []int {
 	return sorted
 }
 
-// deepMergeMaps returns a new map from a deep merge of base and overlay maps.
+// DeepMergeMaps returns a new map from a deep merge of base and overlay maps.
 // Overlay values take precedence; nested maps merge recursively. Non-map overlay values replace base values.
-// Map-like overlay values (including map[interface{}]interface{} from YAML/expr) are normalized to
-// map[string]any so recursive merge and YAML marshaling behave correctly.
-func (b *Blueprint) deepMergeMaps(base, overlay map[string]any) map[string]any {
+// Empty overlay values—including empty string "", empty slice, and empty map—never overwrite an existing
+// non-empty base value, so populated Inputs (or other merged maps) are preserved when overlay has empty values.
+// Map-like overlay values are normalized to map[string]any. Package-level so callers without a Blueprint can merge
+// scope maps (e.g. context over facet scope) without losing nested facet-derived keys.
+func DeepMergeMaps(base, overlay map[string]any) map[string]any {
 	result := maps.Clone(base)
 	for k, overlayValue := range overlay {
 		overlayMap := ToMapStringAny(overlayValue)
 		if baseValue, exists := result[k]; exists {
 			if baseMap, baseIsMap := baseValue.(map[string]any); baseIsMap && overlayMap != nil {
-				result[k] = b.deepMergeMaps(baseMap, overlayMap)
+				result[k] = DeepMergeMaps(baseMap, overlayMap)
 				continue
 			}
+		}
+		var effectiveOverlay any
+		if overlayMap != nil {
+			effectiveOverlay = overlayMap
+		} else {
+			effectiveOverlay = overlayValue
+		}
+		if isEmptyMergeValue(effectiveOverlay) && !isEmptyMergeValue(result[k]) {
+			continue
 		}
 		if overlayMap != nil {
 			result[k] = overlayMap
@@ -1382,6 +1393,29 @@ func (b *Blueprint) deepMergeMaps(base, overlay map[string]any) map[string]any {
 		}
 	}
 	return result
+}
+
+// deepMergeMaps delegates to DeepMergeMaps so Blueprint merge logic stays in one place.
+func (b *Blueprint) deepMergeMaps(base, overlay map[string]any) map[string]any {
+	return DeepMergeMaps(base, overlay)
+}
+
+// isEmptyMergeValue returns true for empty string "", empty slice, or empty map so that
+// DeepMergeMaps never lets an empty overlay overwrite a non-empty base. Returns false for nil
+// so that explicit nil in the overlay can still remove or clear a key (e.g. removal merge).
+func isEmptyMergeValue(v any) bool {
+	if v == nil {
+		return false
+	}
+	if s, ok := v.(string); ok {
+		return s == ""
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice:
+		return rv.Len() == 0
+	}
+	return false
 }
 
 // ToMapStringAny converts a map-like value to map[string]any recursively (e.g. map[interface{}]interface{}

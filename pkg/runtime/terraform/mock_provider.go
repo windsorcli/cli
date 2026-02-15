@@ -13,6 +13,7 @@ type MockTerraformProvider struct {
 	GetTerraformComponentFunc   func(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponentsFunc  func() []blueprintv1alpha1.TerraformComponent
 	SetTerraformComponentsFunc  func(components []blueprintv1alpha1.TerraformComponent)
+	SetConfigScopeFunc          func(scope map[string]any)
 	GetTerraformOutputsFunc     func(componentID string) (map[string]any, error)
 	CacheOutputsFunc            func(componentID string) error
 	GetTFDataDirFunc            func(componentID string) (string, error)
@@ -73,6 +74,13 @@ func (m *MockTerraformProvider) GetTerraformComponents() []blueprintv1alpha1.Ter
 func (m *MockTerraformProvider) SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent) {
 	if m.SetTerraformComponentsFunc != nil {
 		m.SetTerraformComponentsFunc(components)
+	}
+}
+
+// SetConfigScope implements TerraformProvider.
+func (m *MockTerraformProvider) SetConfigScope(scope map[string]any) {
+	if m.SetConfigScopeFunc != nil {
+		m.SetConfigScopeFunc(scope)
 	}
 }
 
