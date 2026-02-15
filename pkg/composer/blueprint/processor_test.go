@@ -1345,7 +1345,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries, nil)
 
 		// Then entry should be replaced
 		if err != nil {
@@ -1372,7 +1372,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then entries should be pre-merged
 		if err != nil {
@@ -1403,7 +1403,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then entry should remain unchanged
 		if err != nil {
@@ -1430,7 +1430,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": nil}, DependsOn: []string{"dep2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "remove", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "remove", entries, nil)
 
 		// Then removals should be accumulated
 		if err != nil {
@@ -1471,7 +1471,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries, nil)
 
 		// Then new entry should replace existing
 		if err != nil {
@@ -1503,7 +1503,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 			Priority:           100,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then entry should be replaced despite lower strategy
 		if err != nil {
@@ -1535,7 +1535,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 			Priority:           0,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries, nil)
 
 		// Then entry should remain unchanged
 		if err != nil {
@@ -1567,7 +1567,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 			Priority:           50,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "replace", entries, nil)
 
 		// Then entry should be replaced due to higher strategy priority
 		if err != nil {
@@ -1596,7 +1596,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 			Priority:           25,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then priority should be preserved in merged result
 		if err != nil {
@@ -1620,7 +1620,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc"},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "invalid", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "invalid", entries, nil)
 
 		// Then should return error
 		if err == nil {
@@ -1646,7 +1646,7 @@ func TestProcessor_updateTerraformComponentEntry(t *testing.T) {
 			Priority:           100,
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": "value2"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "typo", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "typo", entries, nil)
 
 		// Then should return error before checking priority
 		if err == nil {
@@ -1687,7 +1687,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "replace", entries)
+		err := processor.updateKustomizationEntry("app", new, "replace", entries, nil)
 
 		// Then entry should be replaced
 		if err != nil {
@@ -1714,7 +1714,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then entries should be pre-merged
 		if err != nil {
@@ -1741,7 +1741,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then entry should remain unchanged
 		if err != nil {
@@ -1768,7 +1768,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": ""}, DependsOn: []string{"dep2"}, Components: []string{"comp2"}, Cleanup: []string{"cleanup2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "remove", entries)
+		err := processor.updateKustomizationEntry("app", new, "remove", entries, nil)
 
 		// Then removals should be accumulated
 		if err != nil {
@@ -1823,7 +1823,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "replace", entries)
+		err := processor.updateKustomizationEntry("app", new, "replace", entries, nil)
 
 		// Then new entry should replace existing
 		if err != nil {
@@ -1855,7 +1855,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 			Priority:      100,
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then entry should be replaced despite lower strategy
 		if err != nil {
@@ -1887,7 +1887,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 			Priority:      0,
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "replace", entries)
+		err := processor.updateKustomizationEntry("app", new, "replace", entries, nil)
 
 		// Then entry should remain unchanged
 		if err != nil {
@@ -1919,7 +1919,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 			Priority:      50,
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "replace", entries)
+		err := processor.updateKustomizationEntry("app", new, "replace", entries, nil)
 
 		// Then entry should be replaced due to higher strategy priority
 		if err != nil {
@@ -1948,7 +1948,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 			Priority:      25,
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then priority should be preserved in merged result
 		if err != nil {
@@ -1972,7 +1972,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app"},
 		}
-		err := processor.updateKustomizationEntry("app", new, "typo", entries)
+		err := processor.updateKustomizationEntry("app", new, "typo", entries, nil)
 
 		// Then should return error
 		if err == nil {
@@ -1998,7 +1998,7 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 			Priority:      100,
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": "value2"}},
 		}
-		err := processor.updateKustomizationEntry("app", new, "typo", entries)
+		err := processor.updateKustomizationEntry("app", new, "typo", entries, nil)
 
 		// Then should return error before checking priority
 		if err == nil {
@@ -2043,7 +2043,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, kustomizationByName)
+		err := processor.applyCollectedComponents(target, terraformByID, kustomizationByName, nil)
 
 		// Then specified fields should be removed (removes are applied last)
 		if err != nil {
@@ -2079,7 +2079,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 
 		// Then component should be replaced
 		if err != nil {
@@ -2109,7 +2109,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 
 		// Then component should be merged
 		if err != nil {
@@ -2139,7 +2139,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 
 		// Then should default to merge
 		if err != nil {
@@ -2166,7 +2166,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, nil, kustomizationByName)
+		err := processor.applyCollectedComponents(target, nil, kustomizationByName, nil)
 
 		// Then kustomization should be replaced
 		if err != nil {
@@ -2201,7 +2201,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 
 		// Then strategies should be applied correctly
 		if err != nil {
@@ -2234,7 +2234,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// First apply merge
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on merge, got %v", err)
 		}
@@ -2246,7 +2246,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": "value"}},
 			},
 		}
-		err = processor.applyCollectedComponents(target, terraformByID, nil)
+		err = processor.applyCollectedComponents(target, terraformByID, nil, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on replace, got %v", err)
 		}
@@ -2258,7 +2258,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": nil}},
 			},
 		}
-		err = processor.applyCollectedComponents(target, terraformByID, nil)
+		err = processor.applyCollectedComponents(target, terraformByID, nil, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on remove, got %v", err)
 		}
@@ -3350,7 +3350,7 @@ func TestProcessor_ConditionReevaluationDuringMerge(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then component should be removed (existing condition is false)
 		if err != nil {
@@ -3382,7 +3382,7 @@ func TestProcessor_ConditionReevaluationDuringMerge(t *testing.T) {
 			When:               "enabled == true",
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then component should be removed (new condition is false)
 		if err != nil {
@@ -3418,7 +3418,7 @@ func TestProcessor_ConditionReevaluationDuringMerge(t *testing.T) {
 			When:               "enabled2 == true",
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then component should be removed (existing condition is false)
 		if err != nil {
@@ -3454,7 +3454,7 @@ func TestProcessor_ConditionReevaluationDuringMerge(t *testing.T) {
 			When:               "enabled2 == true",
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then component should be preserved and merged
 		if err != nil {
@@ -3492,7 +3492,7 @@ func TestProcessor_ConditionReevaluationDuringMerge(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then kustomization should be removed (existing condition is false)
 		if err != nil {
@@ -3534,7 +3534,7 @@ func TestProcessor_PreservingWhenFieldDuringMerge(t *testing.T) {
 			When:               "enabled2 == true",
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then When field should be combined with &&
 		if err != nil {
@@ -3567,7 +3567,7 @@ func TestProcessor_PreservingWhenFieldDuringMerge(t *testing.T) {
 		new := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then existing When should be preserved
 		if err != nil {
@@ -3599,7 +3599,7 @@ func TestProcessor_PreservingWhenFieldDuringMerge(t *testing.T) {
 			When:               "enabled == true",
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"new": "value"}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "merge", entries, nil)
 
 		// Then new When should be used
 		if err != nil {
@@ -3635,7 +3635,7 @@ func TestProcessor_PreservingWhenFieldDuringMerge(t *testing.T) {
 			When:               "enabled2 == true",
 			TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"key2": nil}},
 		}
-		err := processor.updateTerraformComponentEntry("vpc", new, "remove", entries)
+		err := processor.updateTerraformComponentEntry("vpc", new, "remove", entries, nil)
 
 		// Then When field should be combined with &&
 		if err != nil {
@@ -3672,7 +3672,7 @@ func TestProcessor_PreservingWhenFieldDuringMerge(t *testing.T) {
 			When:          "enabled2 == true",
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then When field should be combined with &&
 		if err != nil {
@@ -3710,7 +3710,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 
 		// Then component should be removed (condition is false)
 		if err != nil {
@@ -3741,7 +3741,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, nil, kustomizationByName)
+		err := processor.applyCollectedComponents(target, nil, kustomizationByName, nil)
 
 		// Then kustomization should be removed (condition is false)
 		if err != nil {
@@ -3772,7 +3772,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 
 		// Then component should be preserved (condition is true)
 		if err != nil {
@@ -3809,7 +3809,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 
 		// Then component should be removed (combined condition is false)
 		if err != nil {
@@ -3836,7 +3836,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil)
+		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
 
 		// Then should return error
 		if err == nil {
@@ -3874,7 +3874,7 @@ func TestProcessor_updateKustomizationEntry_AdditionalCoverage(t *testing.T) {
 			When:          "enabled == true",
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then kustomization should be removed (new condition is false)
 		if err != nil {
@@ -3910,7 +3910,7 @@ func TestProcessor_updateKustomizationEntry_AdditionalCoverage(t *testing.T) {
 			When:          "enabled2 == true",
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then kustomization should be preserved and merged
 		if err != nil {
@@ -3949,7 +3949,7 @@ func TestProcessor_updateKustomizationEntry_AdditionalCoverage(t *testing.T) {
 			When:          "enabled2 == true",
 			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "new-path"},
 		}
-		err := processor.updateKustomizationEntry("app", new, "merge", entries)
+		err := processor.updateKustomizationEntry("app", new, "merge", entries, nil)
 
 		// Then kustomization should be removed (existing condition is false)
 		if err != nil {
