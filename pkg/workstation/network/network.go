@@ -103,7 +103,7 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 
 // isLocalhostMode checks if the system is in localhost mode
 func (n *BaseNetworkManager) isLocalhostMode() bool {
-	return n.configHandler.GetString("vm.driver") == "docker-desktop"
+	return n.configHandler.GetString("workstation.runtime") == "docker-desktop"
 }
 
 // =============================================================================

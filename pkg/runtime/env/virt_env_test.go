@@ -47,6 +47,9 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
+		if mocks.ConfigHandler.GetString("workstation.runtime") == "" && mocks.ConfigHandler.GetString("vm.driver") != "" {
+			_ = mocks.ConfigHandler.Set("workstation.runtime", mocks.ConfigHandler.GetString("vm.driver"))
+		}
 
 		// Set the context (this also updates the environment variable)
 		mocks.ConfigHandler.SetContext("test-context")
@@ -167,6 +170,9 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
+		if v := mocks.ConfigHandler.GetString("vm.driver"); v != "" {
+			_ = mocks.ConfigHandler.Set("workstation.runtime", v)
+		}
 
 		// And Linux OS environment
 		mocks.Shims.Goos = func() string {
@@ -257,6 +263,9 @@ contexts:
 `
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
+		}
+		if v := mocks.ConfigHandler.GetString("vm.driver"); v != "" {
+			_ = mocks.ConfigHandler.Set("workstation.runtime", v)
 		}
 
 		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
@@ -401,6 +410,9 @@ contexts:
 `
 				if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 					t.Fatalf("Failed to load config: %v", err)
+				}
+				if v := mocks.ConfigHandler.GetString("vm.driver"); v != "" {
+					_ = mocks.ConfigHandler.Set("workstation.runtime", v)
 				}
 
 				mocks.Shims.Goos = func() string {
@@ -714,6 +726,9 @@ contexts:
 `
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
+		}
+		if v := mocks.ConfigHandler.GetString("vm.driver"); v != "" {
+			_ = mocks.ConfigHandler.Set("workstation.runtime", v)
 		}
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {

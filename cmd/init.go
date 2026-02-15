@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	goruntime "runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -99,44 +97,20 @@ var initCmd = &cobra.Command{
 		}
 		if initVmDriver != "" {
 			flagOverrides["workstation.enabled"] = true
+			runtimeVal := initVmDriver
+			if initVmDriver == "colima-incus" {
+				runtimeVal = "colima"
+			}
+			flagOverrides["workstation.runtime"] = runtimeVal
+			flagOverrides["vm.driver"] = runtimeVal
 			if initProvider == "" {
 				switch initVmDriver {
 				case "colima-incus":
-					flagOverrides["vm.driver"] = "colima"
 					flagOverrides["provider"] = "incus"
 				case "colima":
-					flagOverrides["vm.driver"] = "colima"
 					flagOverrides["provider"] = "docker"
 				case "docker-desktop", "docker":
-					flagOverrides["vm.driver"] = initVmDriver
 					flagOverrides["provider"] = "docker"
-				default:
-					flagOverrides["vm.driver"] = initVmDriver
-				}
-			} else {
-				switch initVmDriver {
-				case "colima-incus":
-					flagOverrides["vm.driver"] = "colima"
-				default:
-					flagOverrides["vm.driver"] = initVmDriver
-				}
-			}
-		} else if initProvider == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
-			applyLocalDefaults := true
-			if projectRoot, err := rt.Shell.GetProjectRoot(); err == nil {
-				windsorPath := filepath.Join(projectRoot, "contexts", contextName, "windsor.yaml")
-				if _, err := os.Stat(windsorPath); err == nil {
-					applyLocalDefaults = false
-				}
-			}
-			if applyLocalDefaults {
-				flagOverrides["workstation.enabled"] = true
-				flagOverrides["provider"] = "docker"
-				switch goruntime.GOOS {
-				case "darwin", "windows":
-					flagOverrides["vm.driver"] = "docker-desktop"
-				default:
-					flagOverrides["vm.driver"] = "docker"
 				}
 			}
 		}

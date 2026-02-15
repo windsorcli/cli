@@ -94,7 +94,7 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
-	if t.configHandler.GetString("vm.driver") == "colima" {
+	if t.configHandler.GetString("workstation.runtime") == "colima" {
 		if err := t.checkColima(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -143,7 +143,7 @@ func (t *BaseToolsManager) checkDocker() error {
 		return fmt.Errorf("docker is not available in the PATH")
 	}
 
-	isColimaMode := t.configHandler.GetString("vm.driver") == "colima"
+	isColimaMode := t.configHandler.GetString("workstation.runtime") == "colima"
 
 	if !isColimaMode {
 		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)

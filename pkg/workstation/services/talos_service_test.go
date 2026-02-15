@@ -81,6 +81,9 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configToLoad); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
+		if mocks.ConfigHandler.GetString("workstation.runtime") == "" && mocks.ConfigHandler.GetString("vm.driver") != "" {
+			_ = mocks.ConfigHandler.Set("workstation.runtime", mocks.ConfigHandler.GetString("vm.driver"))
+		}
 	}
 
 	mocks.Shell.GetProjectRootFunc = func() (string, error) {
@@ -191,6 +194,9 @@ func TestTalosService_SetAddress(t *testing.T) {
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set VM driver: %v", err)
 		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
+		}
 
 		// When SetAddress is called
 		err := service.SetAddress("192.168.1.11", portAllocator)
@@ -229,6 +235,9 @@ func TestTalosService_SetAddress(t *testing.T) {
 		// Enable localhost mode
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set VM driver: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
 
 		// When SetAddress is called
@@ -429,6 +438,9 @@ func TestTalosService_SetAddress(t *testing.T) {
 		// Enable localhost mode
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set VM driver: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
 
 		// When SetAddress is called
@@ -1291,6 +1303,9 @@ contexts:
 		// And localhost mode is enabled
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set VM driver: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
 
 		// And custom host ports

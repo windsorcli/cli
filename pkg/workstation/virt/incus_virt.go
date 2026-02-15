@@ -297,10 +297,9 @@ func (v *IncusVirt) validateVMForIncus(info VMInfo) (VMInfo, error) {
 }
 
 // cleanupVMForIncus performs Incus-specific cleanup on the VM before deletion.
-// It only runs when vm.driver is colima and provider is incus.
+// It only runs when workstation runtime is colima and provider is incus.
 func (v *IncusVirt) cleanupVMForIncus() error {
-	vmDriver := v.configHandler.GetString("vm.driver")
-	if vmDriver != "colima" || v.configHandler.GetString("provider") != "incus" {
+	if v.configHandler.GetString("workstation.runtime") != "colima" || v.configHandler.GetString("provider") != "incus" {
 		return nil
 	}
 	contextName := v.configHandler.GetContext()

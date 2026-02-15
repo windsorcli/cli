@@ -532,10 +532,10 @@ func TestProject_Configure(t *testing.T) {
 		}
 
 		err := proj.Configure(map[string]any{"workstation.enabled": true})
-
 		if err != nil {
 			t.Errorf("Configure failed: %v", err)
 		}
+		proj.EnsureWorkstation()
 		if proj.Workstation == nil {
 			t.Error("Expected Workstation to be created when workstation.enabled set via flag overrides")
 		}

@@ -107,7 +107,7 @@ func (v *ColimaVirt) Down() error {
 func (v *ColimaVirt) WriteConfig() error {
 	context := v.configHandler.GetContext()
 
-	if v.configHandler.GetString("vm.driver") != "colima" {
+	if v.configHandler.GetString("workstation.runtime") != "colima" {
 		return nil
 	}
 

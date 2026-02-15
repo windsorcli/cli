@@ -61,7 +61,7 @@ func NewDockerVirt(rt *runtime.Runtime, serviceList []services.Service) *DockerV
 // Up starts Docker Compose in detached mode with retry logic. It checks if Docker is enabled,
 // verifies the Docker daemon is running, regenerates the Docker Compose configuration when running
 // in a Colima VM to ensure network and driver options are compatible with Colima's requirements,
-// sets the COMPOSE_FILE environment variable, and attempts to start services with up to 3 retries.
+// sets COMPOSE_FILE and COMPOSE_PROJECT_NAME (see windsorComposeProjectName), and attempts to start services with up to 3 retries.
 // Returns an error if all attempts fail or if prerequisites are not met.
 func (v *DockerVirt) Up() error {
 	if v.configHandler.UsesDockerComposeWorkstation() {
@@ -75,9 +75,13 @@ func (v *DockerVirt) Up() error {
 
 		projectRoot := v.projectRoot
 		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
+		projectName := windsorComposeProjectName(v.configHandler.GetContext())
 
 		if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
 			return fmt.Errorf("failed to set COMPOSE_FILE environment variable: %w", err)
+		}
+		if err := v.shims.Setenv("COMPOSE_PROJECT_NAME", projectName); err != nil {
+			return fmt.Errorf("failed to set COMPOSE_PROJECT_NAME: %w", err)
 		}
 
 		retries := 3
@@ -115,29 +119,30 @@ func (v *DockerVirt) Up() error {
 }
 
 // Down stops all Docker containers managed by Windsor and removes associated volumes.
-// When docker.enabled is true, runs compose down when .windsor/docker-compose.yaml exists.
-// Always removes any remaining workstation resources by identity: containers attached to
-// the windsor-<context> network and the network itself, so cleanup runs when provider is
-// docker but docker.enabled is false (e.g. Terraform-owned workstation). Idempotent when
-// daemon is unavailable or network does not exist.
+// When .windsor/docker-compose.yaml exists, runs compose down with COMPOSE_PROJECT_NAME=windsor-<context>
+// so the same project name used at Up is used and volumes are removed. Then removes any remaining
+// resources by identity: containers on the windsor-<context> network, the network, and volumes
+// labeled com.docker.compose.project=windsor-<context>. Idempotent when daemon is unavailable or network does not exist.
 func (v *DockerVirt) Down() error {
 	if err := v.checkDockerDaemon(); err != nil {
 		return nil
 	}
-	if v.configHandler.GetBool("docker.enabled") {
+	projectRoot := v.projectRoot
+	composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
+	if _, err := v.shims.Stat(composeFilePath); err == nil {
 		if err := v.determineComposeCommand(); err != nil {
 			return fmt.Errorf("failed to determine compose command: %w", err)
 		}
-		projectRoot := v.projectRoot
-		composeFilePath := filepath.Join(projectRoot, ".windsor", "docker-compose.yaml")
-		if _, err := v.shims.Stat(composeFilePath); err == nil {
-			if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
-				return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
-			}
-			output, err := v.execComposeCommand("📦 Running docker compose down", "down", "--remove-orphans", "--volumes")
-			if err != nil {
-				return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
-			}
+		projectName := windsorComposeProjectName(v.configHandler.GetContext())
+		if err := v.shims.Setenv("COMPOSE_FILE", composeFilePath); err != nil {
+			return fmt.Errorf("error setting COMPOSE_FILE environment variable: %w", err)
+		}
+		if err := v.shims.Setenv("COMPOSE_PROJECT_NAME", projectName); err != nil {
+			return fmt.Errorf("error setting COMPOSE_PROJECT_NAME: %w", err)
+		}
+		output, err := v.execComposeCommand("📦 Running docker compose down", "down", "--remove-orphans", "--volumes")
+		if err != nil {
+			return fmt.Errorf("Error executing command %s down: %w\n%s", v.composeCommand, err, output)
 		}
 	}
 	if err := v.withProgress("📦 Tearing down Docker workstation", v.removeResources); err != nil {
@@ -317,13 +322,13 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 	combinedVolumes = make(map[string]types.VolumeConfig)
 	combinedNetworks = make(map[string]types.NetworkConfig)
 
-	networkName := fmt.Sprintf("windsor-%s", contextName)
+	networkName := windsorComposeProjectName(contextName)
 
 	networkConfig := types.NetworkConfig{
 		Driver: "bridge",
 	}
 
-	if v.configHandler.GetString("vm.driver") == "colima" && v.supportsDockerEngineV28Plus() {
+	if v.configHandler.GetString("workstation.runtime") == "colima" && v.supportsDockerEngineV28Plus() {
 		networkConfig.DriverOpts = map[string]string{
 			"com.docker.network.bridge.gateway_mode_ipv4": "nat-unprotected",
 		}
@@ -383,13 +388,24 @@ func (v *DockerVirt) getFullComposeConfig() (*types.Project, error) {
 		}
 	}
 
+	projectName := windsorComposeProjectName(contextName)
 	project := &types.Project{
+		Name:     projectName,
 		Services: combinedServices,
 		Volumes:  combinedVolumes,
 		Networks: combinedNetworks,
 	}
 
 	return project, nil
+}
+
+// windsorComposeProjectName returns the Compose project name for the given context.
+// The compose file lives in .windsor/; Compose would otherwise derive the project name from that
+// directory (".windsor"), which is invalid (leading dot). An invalid name yields volumes with no
+// com.docker.compose.project label, so down cannot remove them. This name must be used in Up, Down,
+// getFullComposeConfig, and removeResources so volumes are labeled and removable.
+func windsorComposeProjectName(contextName string) string {
+	return fmt.Sprintf("windsor-%s", contextName)
 }
 
 // supportsDockerEngineV28Plus returns true if the Docker Engine major version is 28 or higher.

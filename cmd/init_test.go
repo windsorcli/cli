@@ -286,6 +286,9 @@ func TestInitCmd(t *testing.T) {
 		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
 			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
 		}
+		if v, ok := setCalls["workstation.runtime"]; !ok || v != "colima" {
+			t.Errorf("Expected Set(workstation.runtime, colima), got workstation.runtime=%v (ok=%v)", v, ok)
+		}
 		if v, ok := setCalls["vm.driver"]; !ok || v != "colima" {
 			t.Errorf("Expected Set(vm.driver, colima), got vm.driver=%v (ok=%v)", v, ok)
 		}
@@ -319,6 +322,9 @@ func TestInitCmd(t *testing.T) {
 		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
 			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
 		}
+		if v, ok := setCalls["workstation.runtime"]; !ok || v != "docker-desktop" {
+			t.Errorf("Expected Set(workstation.runtime, docker-desktop), got workstation.runtime=%v (ok=%v)", v, ok)
+		}
 		if v, ok := setCalls["vm.driver"]; !ok || v != "docker-desktop" {
 			t.Errorf("Expected Set(vm.driver, docker-desktop), got vm.driver=%v (ok=%v)", v, ok)
 		}
@@ -351,6 +357,9 @@ func TestInitCmd(t *testing.T) {
 		}
 		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
 			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
+		}
+		if v, ok := setCalls["workstation.runtime"]; !ok || v != "colima" {
+			t.Errorf("Expected Set(workstation.runtime, colima), got workstation.runtime=%v (ok=%v)", v, ok)
 		}
 		if v, ok := setCalls["vm.driver"]; !ok || v != "colima" {
 			t.Errorf("Expected Set(vm.driver, colima), got vm.driver=%v (ok=%v)", v, ok)

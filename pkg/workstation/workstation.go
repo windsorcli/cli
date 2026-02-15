@@ -101,7 +101,7 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 // on service addresses being set in config. Returns an error if any component creation
 // or IP assignment fails.
 func (w *Workstation) Prepare() error {
-	vmDriver := w.configHandler.GetString("vm.driver")
+	vmDriver := w.configHandler.GetString("workstation.runtime")
 
 	if w.NetworkManager == nil {
 		if vmDriver == "colima" {
@@ -155,7 +155,7 @@ func (w *Workstation) Up() error {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 	}
 
-	vmDriver := w.configHandler.GetString("vm.driver")
+	vmDriver := w.configHandler.GetString("workstation.runtime")
 	if vmDriver == "colima" && w.VirtualMachine != nil {
 		if err := w.VirtualMachine.WriteConfig(); err != nil {
 			return fmt.Errorf("error writing virtual machine config: %w", err)
@@ -228,13 +228,13 @@ func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
 
 // ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
 // It is intended to be called after the "workstation" Terraform component is applied. ConfigureGuest and
-// ConfigureHostRoute run only when vm.driver is colima; ConfigureDNS runs when dns.enabled regardless of driver.
+// ConfigureHostRoute runs only when workstation runtime is colima; ConfigureDNS runs when dns.enabled regardless of runtime.
 // No-op when NetworkManager is nil.
 func (w *Workstation) ConfigureNetwork() error {
 	if w.NetworkManager == nil {
 		return nil
 	}
-	vmDriver := w.configHandler.GetString("vm.driver")
+	vmDriver := w.configHandler.GetString("workstation.runtime")
 	if vmDriver == "colima" {
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
 			return fmt.Errorf("error configuring guest: %w", err)
@@ -284,7 +284,7 @@ func (w *Workstation) AfterWorkstationComponent() func(id string) error {
 // confirmation message to standard error and returns nil. If any step of the teardown fails, it returns an error
 // describing the issue.
 func (w *Workstation) Down() error {
-	vmDriver := w.configHandler.GetString("vm.driver")
+	vmDriver := w.configHandler.GetString("workstation.runtime")
 	provider := w.configHandler.GetString("provider")
 
 	if w.NetworkManager != nil && vmDriver == "colima" && provider == "incus" {

@@ -107,96 +107,31 @@ func NewProject(contextName string, opts ...*Project) *Project {
 	}
 }
 
-// Configure loads configuration from disk and applies flag-based overrides.
-// This should be called after NewProject if command flags need to override
-// configuration values. Returns an error if loading or applying overrides fails.
+// Configure resolves configuration (defaults, load, migration, overrides), applies
+// workstation.enabled override to the project (nils Workstation when override is false),
+// and loads environment. Does not create Workstation; use EnsureWorkstation() when
+// a code path needs the workstation. Returns error on resolve or load failure.
 func (p *Project) Configure(flagOverrides map[string]any) error {
-	if p.configHandler.IsDevMode(p.contextName) {
-		if flagOverrides == nil {
-			flagOverrides = make(map[string]any)
-		}
-		if _, exists := flagOverrides["provider"]; !exists {
-			if p.configHandler.GetString("provider") == "" {
-				vmDriver := ""
-				if flagOverrides != nil {
-					if driver, ok := flagOverrides["vm.driver"].(string); ok {
-						vmDriver = driver
-					}
-				}
-				if vmDriver == "" {
-					vmDriver = p.configHandler.GetString("vm.driver")
-				}
-				vmRuntime := ""
-				if flagOverrides != nil {
-					if r, ok := flagOverrides["vm.runtime"].(string); ok {
-						vmRuntime = r
-					}
-				}
-				if vmRuntime == "" {
-					vmRuntime = p.configHandler.GetString("vm.runtime", "docker")
-				}
-				if vmDriver == "colima" && vmRuntime == "incus" {
-					fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use provider: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-					flagOverrides["provider"] = "incus"
-				} else {
-					flagOverrides["provider"] = "docker"
-				}
-			}
-		}
-	}
-
-	if err := p.Runtime.ApplyConfigDefaults(flagOverrides); err != nil {
-		return fmt.Errorf("failed to apply config defaults: %w", err)
-	}
-
-	providerOverride := ""
-	if flagOverrides != nil {
-		if prov, ok := flagOverrides["provider"].(string); ok {
-			providerOverride = prov
-		}
-	}
-
-	if err := p.Runtime.ApplyProviderDefaults(providerOverride); err != nil {
+	if err := p.Runtime.ResolveConfig(flagOverrides); err != nil {
 		return err
 	}
-
-	if err := p.configHandler.LoadConfig(); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	for key, value := range flagOverrides {
-		if err := p.configHandler.Set(key, value); err != nil {
-			return fmt.Errorf("failed to set %s: %w", key, err)
-		}
-	}
-
 	if flagOverrides != nil {
 		if v, ok := flagOverrides["workstation.enabled"].(bool); ok && !v {
 			p.Workstation = nil
 		}
 	}
-
-	if p.configHandler.IsDevMode(p.contextName) {
-		provider := p.configHandler.GetString("provider")
-		vmDriver := p.configHandler.GetString("vm.driver")
-		vmRuntime := p.configHandler.GetString("vm.runtime", "docker")
-		if (provider == "" || provider == "docker") && vmDriver == "colima" && vmRuntime == "incus" {
-			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use provider: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-			if err := p.configHandler.Set("provider", "incus"); err != nil {
-				return fmt.Errorf("failed to set provider to incus: %w", err)
-			}
-		}
-	}
-
-	if p.Workstation == nil && p.configHandler.GetBool("workstation.enabled", false) {
-		p.Workstation = workstation.NewWorkstation(p.Runtime)
-	}
-
 	if err := p.Runtime.LoadEnvironment(false); err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
-
 	return nil
+}
+
+// EnsureWorkstation creates Workstation if it is nil and config has workstation.enabled true.
+// Call before using p.Workstation in code paths that need it (e.g. Initialize, Up, Down).
+func (p *Project) EnsureWorkstation() {
+	if p.Workstation == nil && p.configHandler.GetBool("workstation.enabled", false) {
+		p.Workstation = workstation.NewWorkstation(p.Runtime)
+	}
 }
 
 // ComposeBlueprint loads and composes the blueprint without writing files or generating infrastructure.
@@ -220,6 +155,7 @@ func (p *Project) ComposeBlueprint(blueprintURL ...string) error {
 // existing files. The optional blueprintURL parameter specifies the blueprint artifact
 // to load (OCI URL or local .tar.gz path). Returns an error if any step fails.
 func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
+	p.EnsureWorkstation()
 	if p.Workstation != nil {
 		if err := p.Workstation.Prepare(); err != nil {
 			return fmt.Errorf("failed to prepare workstation: %w", err)
@@ -260,6 +196,7 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 
 // Up generates the blueprint, starts the workstation when present (using PrepareForUp so host/guest setup is deferred when a workstation Terraform component exists), runs provisioner with the workstation post-apply hook when present, and returns the blueprint for use by Install/Wait. Returns an error if any step fails.
 func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
+	p.EnsureWorkstation()
 	blueprint := p.Composer.BlueprintHandler.Generate()
 	var onApply []func(string) error
 	if p.Workstation != nil {

@@ -79,7 +79,7 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 			}
 		}
 		switch key {
-		case "vm.driver":
+		case "vm.driver", "workstation.runtime":
 			return "colima"
 		case "docker.enabled":
 			return "true"
