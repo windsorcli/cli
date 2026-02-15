@@ -411,7 +411,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 	if rt.EnvPrinters.GcpEnv == nil && rt.ConfigHandler.GetBool("gcp.enabled", false) {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.DockerEnv == nil && rt.UsesDockerComposeWorkstation() {
+	if rt.EnvPrinters.DockerEnv == nil && rt.needsDockerEnv() {
 		rt.EnvPrinters.DockerEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.KubeEnv == nil && rt.ConfigHandler.GetBool("cluster.enabled", false) {
@@ -439,6 +439,27 @@ func (rt *Runtime) initializeEnvPrinters() {
 		}
 		allEnvPrinters := rt.getAllEnvPrinters()
 		rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(rt.Shell, rt.ConfigHandler, secretsProviders, allEnvPrinters)
+	}
+}
+
+// needsDockerEnv returns true when VirtEnvPrinter (DOCKER_HOST, DOCKER_CONFIG, etc.) should be used:
+// either the internal compose workstation or any Docker-based workstation runtime (colima, docker-desktop, docker).
+func (rt *Runtime) needsDockerEnv() bool {
+	if rt.UsesDockerComposeWorkstation() {
+		return true
+	}
+	if rt.ConfigHandler.GetString("provider") != "docker" {
+		return false
+	}
+	runtime := rt.ConfigHandler.GetString("workstation.runtime")
+	if runtime == "" {
+		runtime = rt.ConfigHandler.GetString("vm.driver")
+	}
+	switch runtime {
+	case "colima", "docker-desktop", "docker":
+		return true
+	default:
+		return false
 	}
 }
 
