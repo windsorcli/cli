@@ -264,14 +264,6 @@ func (m *MockConfigHandler) RegisterProvider(prefix string, provider ValueProvid
 	}
 }
 
-// ValidateContextValues calls the mock ValidateContextValuesFunc if set, otherwise returns nil
-func (m *MockConfigHandler) ValidateContextValues() error {
-	if m.ValidateContextValuesFunc != nil {
-		return m.ValidateContextValuesFunc()
-	}
-	return nil
-}
-
 // UsesDockerComposeWorkstation calls UsesDockerComposeWorkstationFunc if set, otherwise returns false
 func (m *MockConfigHandler) UsesDockerComposeWorkstation() bool {
 	if m.UsesDockerComposeWorkstationFunc != nil {
