@@ -168,7 +168,7 @@ func (v *ColimaVirt) WriteConfig() error {
 		Provision:            v.getProvisionScripts(),
 		SSHConfig:            true,
 		SSHPort:              0,
-		Mounts:               []colimaConfig.Mount{},
+		Mounts:               colimaMountsForProjectRoot(v.BaseVirt.projectRoot),
 		Env:                  map[string]string{},
 	}
 
@@ -206,6 +206,20 @@ func (v *ColimaVirt) WriteConfig() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// colimaMountsForProjectRoot returns Colima mount entries for the given project root.
+// When projectRoot is non-empty (after trimming), returns a single mount with Location set to the trimmed and cleaned path and Writable true so bind mounts in the VM see the full repo.
+// Returns nil when projectRoot is empty or only whitespace so Colima can apply its default behaviour when no mounts are specified.
+func colimaMountsForProjectRoot(projectRoot string) []colimaConfig.Mount {
+	trimmed := strings.TrimSpace(projectRoot)
+	if trimmed == "" {
+		return nil
+	}
+	location := filepath.Clean(trimmed)
+	return []colimaConfig.Mount{
+		{Location: location, Writable: true},
+	}
+}
 
 // getVMInfo returns the information about the Colima VM
 // Retrieves the VM details from the Colima CLI and parses the JSON output

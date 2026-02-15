@@ -116,6 +116,11 @@ contexts:
 	if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 		t.Fatalf("Failed to load config string: %v", err)
 	}
+	if mocks.ConfigHandler.GetString("workstation.runtime") == "" && mocks.ConfigHandler.GetString("vm.driver") != "" {
+		if err := mocks.ConfigHandler.Set("workstation.runtime", mocks.ConfigHandler.GetString("vm.driver")); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
+		}
+	}
 
 	return mocks
 }
@@ -311,6 +316,9 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.setShims(mocks.Shims)
 
+		if err := mocks.ConfigHandler.Set("vm.driver", "other"); err != nil {
+			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
 		if err := mocks.ConfigHandler.Set("workstation.runtime", "other"); err != nil {
 			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
@@ -504,6 +512,40 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		}
 		if capturedConfig.Network.PreferredRoute {
 			t.Error("Expected Network.PreferredRoute to be false")
+		}
+	})
+
+	t.Run("MountsProjectRootWhenNonEmpty", func(t *testing.T) {
+		colimaVirt, mocks := setup(t)
+		var capturedConfig *colimaConfig.Config
+		mocks.Shims.NewYAMLEncoder = func(w io.Writer, opts ...yaml.EncodeOption) YAMLEncoder {
+			return &mockYAMLEncoder{
+				encodeFunc: func(v any) error {
+					if cfg, ok := v.(*colimaConfig.Config); ok {
+						capturedConfig = cfg
+					}
+					return nil
+				},
+				closeFunc: func() error { return nil },
+			}
+		}
+
+		err := colimaVirt.WriteConfig()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if capturedConfig == nil {
+			t.Fatal("Expected config to be captured")
+		}
+		if len(capturedConfig.Mounts) != 1 {
+			t.Fatalf("Expected 1 mount when project root is set, got %d", len(capturedConfig.Mounts))
+		}
+		if capturedConfig.Mounts[0].Location != mocks.Runtime.ProjectRoot {
+			t.Errorf("Expected Mounts[0].Location %q, got %q", mocks.Runtime.ProjectRoot, capturedConfig.Mounts[0].Location)
+		}
+		if !capturedConfig.Mounts[0].Writable {
+			t.Error("Expected Mounts[0].Writable to be true")
 		}
 	})
 }
