@@ -593,15 +593,16 @@ func (p *terraformProvider) CacheOutputs(componentID string) error {
 	return nil
 }
 
-// ClearCache clears the session cache for all components.
-// This invalidates cached Terraform components and output values, forcing them to be reloaded
-// from the blueprint file and re-fetched from Terraform state on the next access.
+// ClearCache clears the session cache for all components and the config scope.
+// This invalidates cached Terraform components, output values, and scope used for input evaluation,
+// forcing them to be reloaded from the blueprint and re-set by the next composition.
 // This is useful when the blueprint has been modified or when outputs need to be refreshed.
 func (p *terraformProvider) ClearCache() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cache = make(map[string]map[string]any)
 	p.components = nil
+	p.configScope = nil
 }
 
 // =============================================================================

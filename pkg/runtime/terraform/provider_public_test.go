@@ -225,25 +225,30 @@ func TestNewTerraformProvider(t *testing.T) {
 
 func TestTerraformProvider_ClearCache(t *testing.T) {
 	t.Run("ClearsAllCachedOutputsAndComponents", func(t *testing.T) {
-		// Given a provider with cached outputs and components
+		// Given a provider with cached outputs, components, and config scope
 		mocks := setupMocks(t)
 
 		mocks.Provider.mu.Lock()
 		mocks.Provider.cache["component1"] = map[string]any{"output1": "value1"}
 		mocks.Provider.cache["component2"] = map[string]any{"output2": "value2"}
 		mocks.Provider.components = []blueprintv1alpha1.TerraformComponent{{Path: "test"}}
+		mocks.Provider.configScope = map[string]any{"stale": "scope"}
 		mocks.Provider.mu.Unlock()
 
 		// When clearing the cache
 		mocks.Provider.ClearCache()
 
-		// Then cache and components should be cleared
+		// Then cache, components, and config scope should be cleared
 		if len(mocks.Provider.cache) != 0 {
 			t.Errorf("Expected cache to be empty after ClearCache, got %d entries", len(mocks.Provider.cache))
 		}
 
 		if mocks.Provider.components != nil {
 			t.Error("Expected components to be cleared after ClearCache")
+		}
+
+		if mocks.Provider.configScope != nil {
+			t.Error("Expected configScope to be cleared after ClearCache so GetEnvVars does not use stale scope")
 		}
 	})
 }
