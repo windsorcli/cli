@@ -79,7 +79,7 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 			}
 		}
 		switch key {
-		case "vm.driver":
+		case "vm.driver", "workstation.runtime":
 			return "colima"
 		case "docker.enabled":
 			return "true"
@@ -120,7 +120,6 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 			return false
 		}
 	}
-
 	mockConfigHandler.GetIntFunc = func(key string, defaultValue ...int) int {
 		switch key {
 		case "cluster.controlplanes.count":
@@ -723,6 +722,89 @@ func TestWorkstation_Up(t *testing.T) {
 	})
 }
 
+func TestWorkstation_PrepareForUp(t *testing.T) {
+	t.Run("ClearsDeferHostGuestSetupWhenBlueprintNil", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		ws := NewWorkstation(mocks.Runtime)
+		ws.DeferHostGuestSetup = true
+
+		ws.PrepareForUp(nil)
+
+		if ws.DeferHostGuestSetup {
+			t.Error("Expected DeferHostGuestSetup false when blueprint is nil")
+		}
+	})
+
+	t.Run("LeavesDeferHostGuestSetupFalseWhenTerraformDisabled", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		ws := NewWorkstation(mocks.Runtime)
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{{Name: "workstation", Path: "workstation"}},
+		}
+
+		ws.PrepareForUp(blueprint)
+
+		if ws.DeferHostGuestSetup {
+			t.Error("Expected DeferHostGuestSetup false when terraform.enabled is false")
+		}
+	})
+
+	t.Run("SetsDeferHostGuestSetupWhenBlueprintHasWorkstationComponentAndTerraformEnabled", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		ws := NewWorkstation(mocks.Runtime)
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{{Name: "workstation", Path: "workstation"}},
+		}
+
+		ws.PrepareForUp(blueprint)
+
+		if !ws.DeferHostGuestSetup {
+			t.Error("Expected DeferHostGuestSetup true when blueprint has workstation component and terraform enabled")
+		}
+	})
+
+	t.Run("LeavesDeferHostGuestSetupFalseWhenBlueprintHasNoWorkstationComponent", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		ws := NewWorkstation(mocks.Runtime)
+		blueprint := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{{Name: "other", Path: "other"}},
+		}
+
+		ws.PrepareForUp(blueprint)
+
+		if ws.DeferHostGuestSetup {
+			t.Error("Expected DeferHostGuestSetup false when blueprint has no workstation component")
+		}
+	})
+}
+
 func TestWorkstation_Down(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given
@@ -836,9 +918,26 @@ func TestWorkstation_Down(t *testing.T) {
 // =============================================================================
 
 func TestWorkstation_createServices(t *testing.T) {
+	setComposeMode := func(mocks *WorkstationTestMocks) {
+		mock := mocks.ConfigHandler.(*config.MockConfigHandler)
+		orig := mock.GetStringFunc
+		mock.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "workstation.runtime" || key == "vm.driver" {
+				return ""
+			}
+			if orig != nil {
+				return orig(key, defaultValue...)
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+	}
+
 	t.Run("Success", func(t *testing.T) {
-		// Given
 		mocks := setupWorkstationMocks(t)
+		setComposeMode(mocks)
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
@@ -882,8 +981,8 @@ func TestWorkstation_createServices(t *testing.T) {
 	})
 
 	t.Run("ServiceInitializationError", func(t *testing.T) {
-		// Given
 		mocks := setupWorkstationMocks(t)
+		setComposeMode(mocks)
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
@@ -899,8 +998,8 @@ func TestWorkstation_createServices(t *testing.T) {
 	})
 
 	t.Run("CreatesDNSService", func(t *testing.T) {
-		// Given
 		mocks := setupWorkstationMocks(t)
+		setComposeMode(mocks)
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
@@ -916,8 +1015,8 @@ func TestWorkstation_createServices(t *testing.T) {
 	})
 
 	t.Run("CreatesGitLivereloadService", func(t *testing.T) {
-		// Given
 		mocks := setupWorkstationMocks(t)
+		setComposeMode(mocks)
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
@@ -933,8 +1032,8 @@ func TestWorkstation_createServices(t *testing.T) {
 	})
 
 	t.Run("CreatesLocalstackService", func(t *testing.T) {
-		// Given
 		mocks := setupWorkstationMocks(t)
+		setComposeMode(mocks)
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
@@ -950,8 +1049,8 @@ func TestWorkstation_createServices(t *testing.T) {
 	})
 
 	t.Run("CreatesRegistryServices", func(t *testing.T) {
-		// Given
 		mocks := setupWorkstationMocks(t)
+		setComposeMode(mocks)
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When
@@ -967,8 +1066,8 @@ func TestWorkstation_createServices(t *testing.T) {
 	})
 
 	t.Run("CreatesTalosServices", func(t *testing.T) {
-		// Given
 		mocks := setupWorkstationMocks(t)
+		setComposeMode(mocks)
 		workstation := NewWorkstation(mocks.Runtime)
 
 		// When

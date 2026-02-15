@@ -90,7 +90,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 
 	// Add terraform stack mock
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
 	mockTerraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 	// Add kubernetes manager mock
@@ -303,7 +303,7 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupUpTest(t)
 
 		// And terraform stack Up that fails
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 			return fmt.Errorf("terraform stack up failed")
 		}
 

@@ -400,6 +400,7 @@ func TestToolsManager_Check(t *testing.T) {
 		// When colima is enabled but not available in PATH
 		mocks, toolsManager := setup(t, defaultConfig)
 		mocks.ConfigHandler.Set("vm.driver", "colima")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			if name == "colima" {
@@ -670,6 +671,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		// When in Colima mode and docker daemon is not running
 		mocks, toolsManager := setup(t)
 		mocks.ConfigHandler.Set("vm.driver", "colima")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
 		daemonCheckCalled := false
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "docker" && args[0] == "version" {

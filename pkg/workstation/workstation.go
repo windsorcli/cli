@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
@@ -36,6 +37,11 @@ type Workstation struct {
 	Services         []services.Service
 	VirtualMachine   virt.VirtualMachine
 	ContainerRuntime virt.ContainerRuntime
+
+	// DeferHostGuestSetup when true skips ConfigureGuest/ConfigureHostRoute/ConfigureDNS in Up().
+	// Set when the blueprint has a "workstation" Terraform component; host/guest setup runs after that component is applied via the provisioner callback.
+	// Temporary: in the future host/guest setup will always run after the "workstation" component and this flag may be removed.
+	DeferHostGuestSetup bool
 }
 
 // =============================================================================
@@ -95,7 +101,7 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 // on service addresses being set in config. Returns an error if any component creation
 // or IP assignment fails.
 func (w *Workstation) Prepare() error {
-	vmDriver := w.configHandler.GetString("vm.driver")
+	vmDriver := w.configHandler.GetString("workstation.runtime")
 
 	if w.NetworkManager == nil {
 		if vmDriver == "colima" {
@@ -132,8 +138,7 @@ func (w *Workstation) Prepare() error {
 			}
 		}
 	} else {
-		containerRuntimeEnabled := w.configHandler.GetBool("docker.enabled")
-		if containerRuntimeEnabled && w.ContainerRuntime == nil {
+		if w.runtime.UsesDockerComposeWorkstation() && w.ContainerRuntime == nil {
 			w.ContainerRuntime = virt.NewDockerVirt(w.runtime, w.Services)
 		}
 	}
@@ -150,7 +155,7 @@ func (w *Workstation) Up() error {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 	}
 
-	vmDriver := w.configHandler.GetString("vm.driver")
+	vmDriver := w.configHandler.GetString("workstation.runtime")
 	if vmDriver == "colima" && w.VirtualMachine != nil {
 		if err := w.VirtualMachine.WriteConfig(); err != nil {
 			return fmt.Errorf("error writing virtual machine config: %w", err)
@@ -184,7 +189,7 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	if w.NetworkManager != nil {
+	if w.NetworkManager != nil && !w.DeferHostGuestSetup {
 		if vmDriver == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
@@ -205,12 +210,81 @@ func (w *Workstation) Up() error {
 	return nil
 }
 
+// PrepareForUp sets DeferHostGuestSetup to defer host/guest and DNS setup until after the
+// "workstation" Terraform component is applied (via provisioner hook) when present and
+// terraform.enabled is true. Call before Up() when Up will run Terraform with this blueprint.
+func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
+	w.DeferHostGuestSetup = false
+	if blueprint == nil || !w.configHandler.GetBool("terraform.enabled", false) {
+		return
+	}
+	for _, c := range blueprint.TerraformComponents {
+		if c.GetID() == "workstation" {
+			w.DeferHostGuestSetup = true
+			break
+		}
+	}
+}
+
+// ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
+// It is intended to be called after the "workstation" Terraform component is applied. ConfigureGuest and
+// ConfigureHostRoute runs only when workstation runtime is colima; ConfigureDNS runs when dns.enabled regardless of runtime.
+// No-op when NetworkManager is nil.
+func (w *Workstation) ConfigureNetwork() error {
+	if w.NetworkManager == nil {
+		return nil
+	}
+	vmDriver := w.configHandler.GetString("workstation.runtime")
+	if vmDriver == "colima" {
+		if err := w.NetworkManager.ConfigureGuest(); err != nil {
+			return fmt.Errorf("error configuring guest: %w", err)
+		}
+		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
+			return fmt.Errorf("error configuring host route: %w", err)
+		}
+	}
+	if w.configHandler.GetBool("dns.enabled") {
+		if err := w.NetworkManager.ConfigureDNS(); err != nil {
+			return fmt.Errorf("error configuring DNS: %w", err)
+		}
+	}
+	return nil
+}
+
+// AfterWorkstationComponent returns a hook to run after each Terraform component apply.
+// When id is "workstation", it sets dns.address from that component's Terraform outputs (dns.terraform_output_key or dns_address/dns_ip) and calls ConfigureNetwork.
+// No-op for other component IDs.
+func (w *Workstation) AfterWorkstationComponent() func(id string) error {
+	return func(id string) error {
+		if id != "workstation" {
+			return nil
+		}
+		if w.runtime.TerraformProvider != nil {
+			outputs, err := w.runtime.TerraformProvider.GetTerraformOutputs("workstation")
+			if err == nil && outputs != nil {
+				outputKey := w.configHandler.GetString("dns.terraform_output_key")
+				if outputKey == "" {
+					for _, k := range []string{"dns_address", "dns_ip"} {
+						if v, ok := outputs[k].(string); ok && v != "" {
+							_ = w.configHandler.Set("dns.address", v)
+							break
+						}
+					}
+				} else if v, ok := outputs[outputKey].(string); ok && v != "" {
+					_ = w.configHandler.Set("dns.address", v)
+				}
+			}
+		}
+		return w.ConfigureNetwork()
+	}
+}
+
 // Down stops all components of the workstation environment including services, containers, VMs, and networking.
 // It gracefully shuts down the container runtime and virtual machine if present. On success, it prints a
 // confirmation message to standard error and returns nil. If any step of the teardown fails, it returns an error
 // describing the issue.
 func (w *Workstation) Down() error {
-	vmDriver := w.configHandler.GetString("vm.driver")
+	vmDriver := w.configHandler.GetString("workstation.runtime")
 	provider := w.configHandler.GetString("provider")
 
 	if w.NetworkManager != nil && vmDriver == "colima" && provider == "incus" {
@@ -231,8 +305,6 @@ func (w *Workstation) Down() error {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "Windsor environment torn down successfully.")
-
 	return nil
 }
 
@@ -244,8 +316,7 @@ func (w *Workstation) Down() error {
 func (w *Workstation) createServices() ([]services.Service, error) {
 	var serviceList []services.Service
 
-	dockerEnabled := w.configHandler.GetBool("docker.enabled", false)
-	if !dockerEnabled {
+	if !w.runtime.UsesDockerComposeWorkstation() {
 		return serviceList, nil
 	}
 

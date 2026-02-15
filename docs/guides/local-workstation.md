@@ -226,7 +226,7 @@ cluster:
     - 9292:30292/tcp
     - 8053:30053/udp
     volumes:
-    - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
+    - ${project_root}/.volumes:/var/mnt/local
 ```
 
 ### Listing cluster nodes

@@ -47,6 +47,7 @@ type ContainerInfo struct {
 }
 
 type BaseVirt struct {
+	runtime       *runtime.Runtime
 	shell         shell.Shell
 	configHandler config.ConfigHandler
 	projectRoot   string
@@ -91,6 +92,7 @@ func NewBaseVirt(rt *runtime.Runtime) *BaseVirt {
 	}
 
 	return &BaseVirt{
+		runtime:       rt,
 		shell:         rt.Shell,
 		configHandler: rt.ConfigHandler,
 		projectRoot:   rt.ProjectRoot,

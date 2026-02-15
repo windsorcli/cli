@@ -40,15 +40,9 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		if proj.Workstation != nil {
-			if err := proj.Workstation.Up(); err != nil {
-				return fmt.Errorf("error starting workstation: %w", err)
-			}
-		}
-
-		blueprint := proj.Composer.BlueprintHandler.Generate()
-		if err := proj.Provisioner.Up(blueprint); err != nil {
-			return fmt.Errorf("error starting infrastructure: %w", err)
+		blueprint, err := proj.Up()
+		if err != nil {
+			return err
 		}
 
 		if installFlag {

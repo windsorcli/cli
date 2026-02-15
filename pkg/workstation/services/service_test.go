@@ -368,6 +368,7 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 
 		// And mock behavior for docker-desktop driver
 		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 		// When isLocalhostMode is called
 		isLocal := service.isLocalhostMode()
@@ -384,6 +385,7 @@ func TestBaseService_IsLocalhostMode(t *testing.T) {
 
 		// And mock behavior for non-docker-desktop driver
 		mocks.ConfigHandler.Set("vm.driver", "other-driver")
+		mocks.ConfigHandler.Set("workstation.runtime", "other-driver")
 
 		// When isLocalhostMode is called
 		isLocal := service.isLocalhostMode()

@@ -196,6 +196,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		manager, mocks := setup(t)
 
 		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
 
 		// And capturing resolver file content

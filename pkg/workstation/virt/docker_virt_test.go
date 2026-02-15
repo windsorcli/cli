@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/compose-spec/compose-go/v2/types"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
@@ -49,6 +50,9 @@ contexts:
 
 	if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 		t.Fatalf("Failed to load config string: %v", err)
+	}
+	if mocks.ConfigHandler.GetString("workstation.runtime") == "" && mocks.ConfigHandler.GetString("vm.driver") != "" {
+		_ = mocks.ConfigHandler.Set("workstation.runtime", mocks.ConfigHandler.GetString("vm.driver"))
 	}
 
 	mocks.ConfigHandler.SetContext("mock-context")
@@ -331,8 +335,9 @@ func TestDockerVirt_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorStartingDockerCompose", func(t *testing.T) {
-		// Given a DockerVirt with mock components
+		// Given a DockerVirt with mock components (use custom runtime so UsesDockerComposeWorkstation is true)
 		dockerVirt, mocks := setup(t)
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "custom")
 
 		// Mock ExecSilent to handle determineComposeCommand
 		oldExecSilent := mocks.Shell.ExecSilentFunc
@@ -376,8 +381,9 @@ func TestDockerVirt_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorSettingComposeFileEnv", func(t *testing.T) {
-		// Given a DockerVirt with mock components and custom shims
+		// Given a DockerVirt with mock components and custom shims (use custom runtime so UsesDockerComposeWorkstation is true)
 		mocks := setupDockerMocks(t)
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "custom")
 
 		// Create shims with Setenv error
 		mocks.Shims.Setenv = func(key, value string) error {
@@ -421,8 +427,9 @@ func TestDockerVirt_Up(t *testing.T) {
 	})
 
 	t.Run("ErrorSetComposeFileUp", func(t *testing.T) {
-		// Given a docker virt instance with failing setenv
+		// Given a docker virt instance with failing setenv (use custom runtime so UsesDockerComposeWorkstation is true)
 		dockerVirt, mocks := setup(t)
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "custom")
 		mocks.Shims.Setenv = func(key, value string) error {
 			if key == "COMPOSE_FILE" {
 				return fmt.Errorf("setenv failed")
@@ -436,6 +443,7 @@ func TestDockerVirt_Up(t *testing.T) {
 		// Then an error should occur
 		if err == nil {
 			t.Errorf("expected error, got none")
+			return
 		}
 		if !strings.Contains(err.Error(), "failed to set COMPOSE_FILE environment variable") {
 			t.Errorf("expected error about setting COMPOSE_FILE, got %v", err)
@@ -443,8 +451,9 @@ func TestDockerVirt_Up(t *testing.T) {
 	})
 
 	t.Run("RetryDockerComposeUp", func(t *testing.T) {
-		// Given a docker virt instance with failing compose up
+		// Given a docker virt instance with failing compose up (use custom runtime so UsesDockerComposeWorkstation is true)
 		dockerVirt, mocks := setup(t)
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "custom")
 
 		// Track command execution count
 		execCount := 0
@@ -674,19 +683,19 @@ func TestDockerVirt_Down(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		var networkInspectCalled bool
-		var volumeLsFilter string
+		var networkInspectCalls []string
+		var volumeLsFilters []string
 		origExecSilent := mocks.Shell.ExecSilentFunc
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) >= 2 {
-				if args[0] == "network" && args[1] == "inspect" && len(args) >= 3 && args[2] == "windsor-mock-context" {
-					networkInspectCalled = true
+				if args[0] == "network" && args[1] == "inspect" && len(args) >= 3 {
+					networkInspectCalls = append(networkInspectCalls, args[2])
 					return "", nil
 				}
 				if args[0] == "volume" && args[1] == "ls" {
 					for i := 0; i < len(args)-1; i++ {
 						if args[i] == "--filter" && i+1 < len(args) {
-							volumeLsFilter = args[i+1]
+							volumeLsFilters = append(volumeLsFilters, args[i+1])
 							break
 						}
 					}
@@ -700,12 +709,25 @@ func TestDockerVirt_Down(t *testing.T) {
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
-		if !networkInspectCalled {
-			t.Error("expected docker network inspect windsor-mock-context to be called")
+		wantNetworks := []string{"windsor-mock-context", "workstation-windsor-mock-context"}
+		if len(networkInspectCalls) != len(wantNetworks) {
+			t.Errorf("expected network inspect for %v, got %v", wantNetworks, networkInspectCalls)
 		}
-		expectedLabel := "label=com.docker.compose.project=windsor-mock-context"
-		if volumeLsFilter != expectedLabel {
-			t.Errorf("expected volume ls filter %q, got %q", expectedLabel, volumeLsFilter)
+		expectedVolumeLabels := []string{"label=com.docker.compose.project=windsor-mock-context", "label=com.docker.compose.project=workstation-windsor-mock-context"}
+		if len(volumeLsFilters) != len(expectedVolumeLabels) {
+			t.Errorf("expected volume ls filters %v, got %v", expectedVolumeLabels, volumeLsFilters)
+		}
+		for _, want := range expectedVolumeLabels {
+			var found bool
+			for _, g := range volumeLsFilters {
+				if g == want {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected volume ls filter %q in %v", want, volumeLsFilters)
+			}
 		}
 	})
 }
@@ -723,6 +745,7 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a virt instance with mock components
 		mocks := setupDockerMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "custom")
 		serviceList := []services.Service{mocks.Service}
 		dockerVirt := NewDockerVirt(mocks.Runtime, serviceList)
 		dockerVirt.shims = mocks.Shims
@@ -937,6 +960,7 @@ func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a docker virt instance with valid mocks
 		mocks := setupDockerMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "custom")
 		serviceList := []services.Service{mocks.Service}
 		dockerVirt := NewDockerVirt(mocks.Runtime, serviceList)
 		dockerVirt.shims = mocks.Shims
@@ -947,11 +971,13 @@ func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
+			return
 		}
 
 		// And the project should not be nil
 		if project == nil {
 			t.Errorf("expected project to not be nil")
+			return
 		}
 
 		// And the project should have the expected services
@@ -974,24 +1000,28 @@ func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
 		if network.Ipam.Config[0].Subnet != "10.0.0.0/24" {
 			t.Errorf("expected network CIDR to be 10.0.0.0/24, got %s", network.Ipam.Config[0].Subnet)
 		}
-
-		// And the network should have Docker Engine v28+ compatibility driver options
-		// (since the test config has vm.driver: colima and Docker Engine v28+ is mocked)
-		if network.DriverOpts == nil {
-			t.Errorf("expected network to have driver options for Docker v28+ compatibility")
-		}
-		expectedDriverOpt := "com.docker.network.bridge.gateway_mode_ipv4"
-		if _, exists := network.DriverOpts[expectedDriverOpt]; !exists {
-			t.Errorf("expected network to have driver option %s", expectedDriverOpt)
-		}
-		if network.DriverOpts[expectedDriverOpt] != "nat-unprotected" {
-			t.Errorf("expected driver option %s to be 'nat-unprotected', got %s", expectedDriverOpt, network.DriverOpts[expectedDriverOpt])
-		}
 	})
 
 	t.Run("DockerEngineV28Compatibility", func(t *testing.T) {
-		// Given a docker virt instance with valid mocks
-		dockerVirt, mocks := setup(t)
+		mocks := setupDockerMocks(t)
+		originalConfig := mocks.ConfigHandler
+		wrapperConfig := config.NewMockConfigHandler()
+		wrapperConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "vm.driver" {
+				return ""
+			}
+			if key == "workstation.runtime" {
+				return "colima"
+			}
+			return originalConfig.GetString(key, defaultValue...)
+		}
+		wrapperConfig.GetContextFunc = originalConfig.GetContext
+		wrapperConfig.GetBoolFunc = originalConfig.GetBool
+		mocks.ConfigHandler = wrapperConfig
+		mocks.Runtime.ConfigHandler = wrapperConfig
+		serviceList := []services.Service{mocks.Service}
+		dockerVirt := NewDockerVirt(mocks.Runtime, serviceList)
+		dockerVirt.shims = mocks.Shims
 
 		// And Docker Engine is v28+ and we're running in a Colima VM
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
@@ -1052,11 +1082,13 @@ func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
+			return
 		}
 
 		// And the project should not be nil
 		if project == nil {
 			t.Errorf("expected project to not be nil")
+			return
 		}
 
 		// And the network should have Docker Engine v28+ compatibility driver options
@@ -1065,6 +1097,7 @@ func TestDockerVirt_GetFullComposeConfig(t *testing.T) {
 		network, exists := project.Networks[networkName]
 		if !exists {
 			t.Errorf("expected network %s to exist", networkName)
+			return
 		}
 
 		// Verify the network has the required driver options for Docker v28+ compatibility

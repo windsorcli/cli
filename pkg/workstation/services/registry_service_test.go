@@ -9,8 +9,8 @@ import (
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
-	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 // =============================================================================
@@ -122,18 +122,19 @@ func TestRegistryService_GetComposeConfig(t *testing.T) {
 		}
 	})
 
-
 	t.Run("LocalRegistry", func(t *testing.T) {
 		// Given a mock config handler, shell, context, and service
 		service, mocks := setup(t)
 
 		// Set up the registry configuration
 		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("docker.registries.local-registry.hostport", 5000)
 
 		// Configure service for local registry testing
 		service.address = "localhost"
 		service.name = "local-registry"
+		service.hostPort = 5000
 
 		// When GetComposeConfig is called
 		composeConfig, err := service.GetComposeConfig()
@@ -218,6 +219,9 @@ contexts:
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
+		}
 
 		// Verify vm.driver was set
 		if vmDriver := mocks.ConfigHandler.GetString("vm.driver"); vmDriver != "docker-desktop" {
@@ -275,6 +279,9 @@ contexts:
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
+		}
 
 		// When SetAddress is called
 		err := service.SetAddress("192.168.1.1", nil)
@@ -306,6 +313,9 @@ contexts:
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
 		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
+		}
 
 		// And custom host port
 		customHostPort := 5001
@@ -335,6 +345,9 @@ contexts:
 		// And localhost mode
 		if err := mocks.ConfigHandler.Set("vm.driver", "docker-desktop"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
 
 		service1.SetName("registry1")
@@ -438,7 +451,7 @@ contexts:
 
 		// And mock configuration
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
+			if key == "vm.driver" || key == "workstation.runtime" {
 				return "docker-desktop"
 			}
 			if len(defaultValue) > 0 {
@@ -470,6 +483,7 @@ contexts:
 		// Then there should be an error
 		if err == nil {
 			t.Error("expected error, got nil")
+			return
 		}
 		if !strings.Contains(err.Error(), "mock error setting host port") {
 			t.Errorf("expected error containing %q, got %v", "mock error setting host port", err)
@@ -494,7 +508,7 @@ contexts:
 
 		// And mock configuration
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
+			if key == "vm.driver" || key == "workstation.runtime" {
 				return "docker-desktop"
 			}
 			if len(defaultValue) > 0 {
@@ -526,6 +540,7 @@ contexts:
 		// Then there should be an error
 		if err == nil {
 			t.Error("expected error, got nil")
+			return
 		}
 		if !strings.Contains(err.Error(), "mock error setting registry URL") {
 			t.Errorf("expected error containing %q, got %v", "mock error setting registry URL", err)

@@ -2908,25 +2908,65 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 	})
 
 	t.Run("InitializesDockerEnvWhenEnabled", func(t *testing.T) {
-		// Given a runtime with Docker enabled
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
-
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "docker.enabled" {
 				return true
 			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
 			return false
 		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "workstation.runtime" {
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
 
-		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
-
-		// Then Docker env printer should be initialized
 
 		if rt.EnvPrinters.DockerEnv == nil {
 			t.Error("Expected DockerEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesDockerEnvWhenProviderDockerAndWorkstationRuntimeColima", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "docker.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "workstation.runtime" {
+				return "colima"
+			}
+			if key == "provider" {
+				return "docker"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		rt.initializeEnvPrinters()
+
+		if rt.EnvPrinters.DockerEnv == nil {
+			t.Error("Expected DockerEnv to be initialized when provider=docker and workstation.runtime=colima even if docker.enabled=false")
 		}
 	})
 

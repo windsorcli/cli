@@ -43,6 +43,7 @@ type Provisioner struct {
 	runtime       *runtime.Runtime
 
 	TerraformStack    terraforminfra.Stack
+	onTerraformApply  []func(id string) error
 	KubernetesManager kubernetes.KubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
 	ClusterClient     cluster.ClusterClient
@@ -116,22 +117,29 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 // Public Methods
 // =============================================================================
 
-// Up orchestrates the high-level infrastructure deployment process. It executes terraform apply operations
-// for all components in the stack. This method coordinates terraform, kubernetes, and cluster operations
-// to bring up the complete infrastructure. Initializes components as needed. The blueprint parameter is required.
-// If terraform is disabled (terraform.enabled is false), terraform operations are skipped. Returns an error if any step fails.
-func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint) error {
+// OnTerraformApply registers a hook to run after each Terraform component apply.
+func (i *Provisioner) OnTerraformApply(fn func(id string) error) {
+	if fn != nil {
+		i.onTerraformApply = append(i.onTerraformApply, fn)
+	}
+}
+
+// Up orchestrates the high-level infrastructure deployment process. It runs Terraform apply when terraform.enabled
+// and the stack exists, invoking the given onApply hooks after each component apply (after any hooks registered via
+// OnTerraformApply). The blueprint parameter is required.
+func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
-
 	if err := i.ensureTerraformStack(); err != nil {
 		return err
 	}
 	if i.TerraformStack == nil {
 		return nil
 	}
-	if err := i.TerraformStack.Up(blueprint); err != nil {
+	hooks := append([]func(id string) error{}, i.onTerraformApply...)
+	hooks = append(hooks, onApply...)
+	if err := i.TerraformStack.Up(blueprint, hooks...); err != nil {
 		return fmt.Errorf("failed to run terraform up: %w", err)
 	}
 	return nil

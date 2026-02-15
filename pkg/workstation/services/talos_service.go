@@ -128,12 +128,10 @@ func (s *TalosService) SetAddress(address string, portAllocator *PortAllocator) 
 
 // GetComposeConfig creates a Docker Compose configuration for Talos services.
 // It dynamically retrieves CPU and RAM settings based on whether the node is a worker
-// or part of the control plane. The function identifies endpoint ports for service communication and ensures
-// that all necessary volume directories are defined. It configures the container with the appropriate image
-// (prioritizing node-specific, then group-specific, then cluster-wide, and finally default image settings),
-// environment variables, security options, and volume mounts. The service name is constructed using the node
-// name, and port mappings are set up, including both default and node-specific ports. The resulting configuration
-// provides comprehensive service and volume specifications for deployment.
+// or part of the control plane. Volume sources from config may use ${project_root} (for Terraform/facets);
+// when writing compose, ${project_root} is rewritten to ${WINDSOR_PROJECT_ROOT} so runtime env expansion works.
+// It identifies endpoint ports, ensures volume directories exist, configures image (node/group/cluster/default),
+// environment, security options, volume mounts, and port mappings.
 func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 	config := s.configHandler.GetConfig()
 	if config.Cluster == nil {
@@ -205,7 +203,6 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		},
 	}
 
-	// Use volumes from cluster configuration
 	volumesKey := fmt.Sprintf("cluster.%s.volumes", nodeType)
 	volumes := s.configHandler.GetStringSlice(volumesKey, []string{})
 	for _, volume := range volumes {
@@ -213,19 +210,14 @@ func (s *TalosService) GetComposeConfig() (*types.Config, error) {
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid volume format: %s", volume)
 		}
-
-		// Expand environment variables in the source path for directory creation
-		expandedSourcePath := os.ExpandEnv(parts[0])
-
-		// Create the directory if it doesn't exist
+		composeSource := strings.ReplaceAll(parts[0], "${project_root}", "${WINDSOR_PROJECT_ROOT}")
+		expandedSourcePath := os.ExpandEnv(composeSource)
 		if err := s.shims.MkdirAll(expandedSourcePath, os.ModePerm); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %v", expandedSourcePath, err)
 		}
-
-		// Use the original, pre-expanded source path in the volume configuration
 		commonConfig.Volumes = append(commonConfig.Volumes, types.ServiceVolumeConfig{
 			Type:   "bind",
-			Source: parts[0],
+			Source: composeSource,
 			Target: parts[1],
 		})
 	}

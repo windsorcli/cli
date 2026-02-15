@@ -97,26 +97,20 @@ var initCmd = &cobra.Command{
 		}
 		if initVmDriver != "" {
 			flagOverrides["workstation.enabled"] = true
+			runtimeVal := initVmDriver
+			if initVmDriver == "colima-incus" {
+				runtimeVal = "colima"
+			}
+			flagOverrides["workstation.runtime"] = runtimeVal
+			flagOverrides["vm.driver"] = runtimeVal
 			if initProvider == "" {
 				switch initVmDriver {
 				case "colima-incus":
-					flagOverrides["vm.driver"] = "colima"
 					flagOverrides["provider"] = "incus"
 				case "colima":
-					flagOverrides["vm.driver"] = "colima"
 					flagOverrides["provider"] = "docker"
 				case "docker-desktop", "docker":
-					flagOverrides["vm.driver"] = initVmDriver
 					flagOverrides["provider"] = "docker"
-				default:
-					flagOverrides["vm.driver"] = initVmDriver
-				}
-			} else {
-				switch initVmDriver {
-				case "colima-incus":
-					flagOverrides["vm.driver"] = "colima"
-				default:
-					flagOverrides["vm.driver"] = initVmDriver
 				}
 			}
 		}

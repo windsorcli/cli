@@ -174,8 +174,9 @@ func TestDNSService_GetComposeConfig(t *testing.T) {
 		// Given a DNSService with mock components
 		service, mocks := setup(t)
 
-		// Set vm.driver to docker-desktop to simulate localhost mode
+		// Set vm.driver and workstation.runtime to docker-desktop to simulate localhost mode
 		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("dns.domain", "test")
 		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
 

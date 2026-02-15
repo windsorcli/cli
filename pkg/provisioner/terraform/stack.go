@@ -26,7 +26,7 @@ import (
 // Stack defines the interface for Terraform stack operations.
 // Both the Stack struct and MockStack implement this interface.
 type Stack interface {
-	Up(blueprint *blueprintv1alpha1.Blueprint) error
+	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	Down(blueprint *blueprintv1alpha1.Blueprint) error
 }
 
@@ -77,9 +77,8 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 // It processes components in order, generating terraform arguments, running Terraform init,
 // plan, and apply operations. Backend override files are cleaned up after all components complete,
 // ensuring they remain available for terraform_output() calls between component executions.
-// The method ensures proper directory management and terraform argument setup for each component.
-// The blueprint parameter is required to resolve terraform components.
-func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
+// Optional onApply hooks run after each component apply, in order; they are not retained after Up returns.
+func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -146,8 +145,15 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint) error {
 		if err != nil {
 			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 		}
-
 		_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
+		componentID := component.GetID()
+		for _, fn := range onApply {
+			if fn != nil {
+				if err := fn(componentID); err != nil {
+					return fmt.Errorf("post-apply hook %s: %w", componentID, err)
+				}
+			}
+		}
 	}
 
 	return nil

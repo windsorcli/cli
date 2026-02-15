@@ -167,9 +167,11 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 
-		// Ensure vm.driver is explicitly set to colima
 		if err := mocks.ConfigHandler.Set("vm.driver", "colima"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "colima"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
 
 		colimaVirt := NewColimaVirt(mocks.Runtime)
@@ -305,20 +307,16 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 	})
 
 	t.Run("NotColimaDriver", func(t *testing.T) {
-		// Given a ColimaVirt with mock components
 		mocks := setupColimaMocks(t)
 		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.setShims(mocks.Shims)
 
-		// And vm.driver is not colima
-		if err := mocks.ConfigHandler.Set("vm.driver", "other"); err != nil {
-			t.Fatalf("Failed to set vm.driver: %v", err)
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "other"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
 
-		// When calling WriteConfig
 		err := colimaVirt.WriteConfig()
 
-		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -1688,9 +1686,11 @@ func TestColimaVirt_WriteConfig_NestedVirtualization(t *testing.T) {
 		t.Helper()
 		mocks := setupColimaMocks(t)
 
-		// Set vm.driver to colima
 		if err := mocks.ConfigHandler.Set("vm.driver", "colima"); err != nil {
 			t.Fatalf("Failed to set vm.driver: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "colima"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
 
 		if runtime == "incus" {

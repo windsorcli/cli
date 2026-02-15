@@ -49,7 +49,6 @@ func NewToolsManager(configHandler config.ConfigHandler, shell shell.Shell) *Bas
 	if shell == nil {
 		panic("shell is required")
 	}
-
 	return &BaseToolsManager{
 		configHandler: configHandler,
 		shell:         shell,
@@ -78,7 +77,13 @@ func (t *BaseToolsManager) Check() error {
 	spin.Start()
 	defer spin.Stop()
 
-	if t.configHandler.GetBool("docker.enabled") {
+	rt := t.configHandler.GetString("workstation.runtime")
+	if rt == "" {
+		rt = t.configHandler.GetString("vm.driver")
+	}
+	dockerEnabled := t.configHandler.GetBool("docker.enabled", false)
+	needsDocker := dockerEnabled || rt == "colima" || rt == "docker-desktop" || rt == "docker"
+	if needsDocker {
 		if err := t.checkDocker(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -94,7 +99,7 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
-	if t.configHandler.GetString("vm.driver") == "colima" {
+	if t.configHandler.GetString("workstation.runtime") == "colima" {
 		if err := t.checkColima(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -143,7 +148,7 @@ func (t *BaseToolsManager) checkDocker() error {
 		return fmt.Errorf("docker is not available in the PATH")
 	}
 
-	isColimaMode := t.configHandler.GetString("vm.driver") == "colima"
+	isColimaMode := t.configHandler.GetString("workstation.runtime") == "colima"
 
 	if !isColimaMode {
 		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)
@@ -163,6 +168,13 @@ func (t *BaseToolsManager) checkDocker() error {
 		if err == nil {
 			dockerComposeVersion = extractVersion(output)
 		}
+		if dockerComposeVersion == "" {
+			// Docker 27+ removed --short; fall back to full version output.
+			output, err := t.shell.ExecSilentWithTimeout("docker", []string{"compose", "version"}, 5*time.Second)
+			if err == nil {
+				dockerComposeVersion = extractVersion(output)
+			}
+		}
 	}
 
 	if dockerComposeVersion == "" {
@@ -170,6 +182,12 @@ func (t *BaseToolsManager) checkDocker() error {
 			output, err := t.shell.ExecSilentWithTimeout("docker-compose", []string{"version", "--short"}, 5*time.Second)
 			if err == nil {
 				dockerComposeVersion = extractVersion(output)
+			}
+			if dockerComposeVersion == "" {
+				output, err := t.shell.ExecSilentWithTimeout("docker-compose", []string{"version"}, 5*time.Second)
+				if err == nil {
+					dockerComposeVersion = extractVersion(output)
+				}
 			}
 		}
 	}

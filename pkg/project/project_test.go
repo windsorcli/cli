@@ -236,6 +236,46 @@ func TestNewProject(t *testing.T) {
 		}
 	})
 
+	t.Run("CreatesWorkstationAndProvisionerWhenDevMode", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		if proj.Workstation == nil || proj.Provisioner == nil {
+			t.Fatal("Expected Workstation and Provisioner to be created in dev mode")
+		}
+	})
+
+	t.Run("CreatesWorkstationWhenWorkstationEnabled", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "workstation.enabled" {
+				return true
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		if proj.Workstation == nil {
+			t.Error("Expected Workstation to be created when workstation.enabled is true")
+		}
+		if proj.Provisioner == nil {
+			t.Fatal("Expected Provisioner to exist")
+		}
+	})
+
 	t.Run("SkipsWorkstationWhenNotDevMode", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -457,6 +497,89 @@ func TestProject_Configure(t *testing.T) {
 
 		if !providerSet {
 			t.Error("Expected provider to be set to 'incus' in dev mode when vm.driver is colima and vm.runtime is incus")
+		}
+	})
+
+	t.Run("CreatesWorkstationWhenWorkstationEnabledSetViaFlagOverrides", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		var workstationEnabled bool
+		mockConfig.SetFunc = func(key string, value any) error {
+			if key == "workstation.enabled" {
+				if v, ok := value.(bool); ok {
+					workstationEnabled = v
+				}
+			}
+			return nil
+		}
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "workstation.enabled" {
+				return workstationEnabled
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		if proj.Workstation != nil {
+			t.Fatal("Expected Workstation nil before Configure when not dev mode and workstation.enabled not yet set")
+		}
+
+		err := proj.Configure(map[string]any{"workstation.enabled": true})
+		if err != nil {
+			t.Errorf("Configure failed: %v", err)
+		}
+		proj.EnsureWorkstation()
+		if proj.Workstation == nil {
+			t.Error("Expected Workstation to be created when workstation.enabled set via flag overrides")
+		}
+	})
+
+	t.Run("ClearsWorkstationWhenWorkstationEnabledOverrideFalse", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return false
+		}
+		workstationEnabled := true
+		mockConfig.SetFunc = func(key string, value any) error {
+			if key == "workstation.enabled" {
+				if v, ok := value.(bool); ok {
+					workstationEnabled = v
+				}
+			}
+			return nil
+		}
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "workstation.enabled" {
+				return workstationEnabled
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mockConfig.IsLoadedFunc = func() bool { return true }
+
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		if proj.Workstation == nil || proj.Provisioner == nil {
+			t.Fatal("Expected Workstation and Provisioner created when workstation.enabled true at NewProject")
+		}
+
+		err := proj.Configure(map[string]any{"workstation.enabled": false})
+
+		if err != nil {
+			t.Errorf("Configure failed: %v", err)
+		}
+		if proj.Workstation != nil {
+			t.Error("Expected Workstation to be cleared when workstation.enabled overridden to false")
 		}
 	})
 

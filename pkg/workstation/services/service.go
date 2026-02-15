@@ -124,10 +124,9 @@ func (s *BaseService) GetContainerName() string {
 // Private Methods
 // =============================================================================
 
-// isLocalhostMode checks if we are in localhost mode (vm.driver == "docker-desktop")
+// isLocalhostMode checks if we are in localhost mode (workstation runtime == "docker-desktop")
 func (s *BaseService) isLocalhostMode() bool {
-	vmDriver := s.configHandler.GetString("vm.driver")
-	return vmDriver == "docker-desktop"
+	return s.configHandler.GetString("workstation.runtime") == "docker-desktop"
 }
 
 // SupportsWildcard returns whether the service supports wildcard DNS entries
