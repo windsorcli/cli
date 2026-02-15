@@ -3,7 +3,6 @@ package blueprint
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -537,10 +536,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		}
 	}
 	if contextValues := h.getConfigValues(); contextValues != nil {
-		if mergedScope == nil {
-			mergedScope = make(map[string]any)
-		}
-		maps.Copy(mergedScope, contextValues)
+		mergedScope = MergeConfigMaps(mergedScope, contextValues)
 	}
 	scopeMu.Unlock()
 
