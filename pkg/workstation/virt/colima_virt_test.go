@@ -117,7 +117,9 @@ contexts:
 		t.Fatalf("Failed to load config string: %v", err)
 	}
 	if mocks.ConfigHandler.GetString("workstation.runtime") == "" && mocks.ConfigHandler.GetString("vm.driver") != "" {
-		_ = mocks.ConfigHandler.Set("workstation.runtime", mocks.ConfigHandler.GetString("vm.driver"))
+		if err := mocks.ConfigHandler.Set("workstation.runtime", mocks.ConfigHandler.GetString("vm.driver")); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
+		}
 	}
 
 	return mocks
