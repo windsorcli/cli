@@ -607,6 +607,11 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 			entries[componentID] = new
 			return nil
 		}
+		if strategy == "remove" && existingStrategy != "remove" {
+			new.Strategy = strategy
+			entries[componentID] = new
+			return nil
+		}
 		return p.applyTerraformComponentEntryByStrategy(componentID, new, existing, strategy, entries)
 	}
 
