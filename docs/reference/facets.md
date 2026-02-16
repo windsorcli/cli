@@ -41,6 +41,7 @@ kustomize:
 | `kind`      | `string`                          | Must be `Facet`.                                                          |
 | `apiVersion`| `string`                          | Must be `blueprints.windsorcli.dev/v1alpha1`.                               |
 | `metadata`  | `Metadata`                        | Facet metadata including name and description.                            |
+| `ordinal`   | `integer` (optional)              | Order in which this facet is applied relative to others. Higher ordinal = higher precedence when merging. When omitted, derived from the facet file basename (see [Default ordinal from filename](#default-ordinal-from-filename)). |
 | `when`      | `string`                          | Expression that determines if the facet should be applied. Evaluated against configuration values. If empty or evaluates to `true`, the facet is applied. |
 | `config`    | `[]ConfigBlock`                   | Named configuration blocks evaluated in blueprint context; referenced as `<name>.<key>` (e.g. `talos.controlplanes`) from terraform inputs and kustomize substitutions, same style as context (`cluster.*`, `network.*`). |
 | `terraform` | `[]ConditionalTerraformComponent` | Terraform components to include when the facet matches.                  |
@@ -48,9 +49,24 @@ kustomize:
 
 Facets inherit Repository and Sources from the base blueprint they are merged into.
 
+### Default ordinal from filename
+
+When a facet does not set `ordinal` in YAML, it is derived from the facet file **basename** (e.g. `config-cluster.yaml`, `provider-base.yaml`). This determines processing order: facets are sorted by ordinal ascending, then by `metadata.name` for tiebreak. Higher ordinal means higher precedence when merging (processed later, wins on conflict).
+
+| Condition | Ordinal |
+|-----------|--------|
+| `config-*` | 100 |
+| `provider-*` or `platform-*` with `-base` in name (e.g. `provider-base.yaml`, `platform-base.yaml`) | 199 |
+| `provider-*` or `platform-*` (others) | 200 |
+| `option-*` or `options-*` | 300 |
+| `addon-*` or `addons-*` | 400 |
+| (no match) | 0 |
+
+Terraform and kustomize components can set an optional `ordinal` to override the facet ordinal for that component's merge precedence.
+
 ## Config
 
-Facets can define **config** blocks to build generic configuration (e.g. Talos node lists, patch vars) in-facet instead of external YAML files. Config is **merged globally** across all active facets in processing order (alphabetically by facet name). Merging is **deep**: same config block name merges block bodies recursively (later keys overwrite). At evaluation time, facet config is merged into the **same scope** as context (schema / values from `windsor.yaml` and `values.yaml`): one canonical root. So `talos.controlplanes` and `cluster.controlplanes` are siblings; expressions see both. When a key exists in both context and facet config, **facet config wins**—so blueprint authors can intentionally override or transform input values (e.g. a config block that derives or rewrites `cluster` for downstream use). Use distinct block names (e.g. `talos`, `gitops`) to add derived values; use the same name as a context key only when you want to override or transform that value for the blueprint.
+Facets can define **config** blocks to build generic configuration (e.g. Talos node lists, patch vars) in-facet instead of external YAML files. Config is **merged globally** across all active facets in processing order (by facet ordinal, then by facet name). Merging is **deep**: same config block name merges block bodies recursively (later keys overwrite). At evaluation time, facet config is merged into the **same scope** as context (schema / values from `windsor.yaml` and `values.yaml`): one canonical root. So `talos.controlplanes` and `cluster.controlplanes` are siblings; expressions see both. When a key exists in both context and facet config, **facet config wins**—so blueprint authors can intentionally override or transform input values (e.g. a config block that derives or rewrites `cluster` for downstream use). Use distinct block names (e.g. `talos`, `gitops`) to add derived values; use the same name as a context key only when you want to override or transform that value for the blueprint.
 
 `config` is a list of named blocks. Each block has:
 
@@ -79,7 +95,7 @@ terraform:
       common_config_patches: ${yamlString("../configs/talos/common-patch.yaml", talos.patchVars)}
 ```
 
-Evaluation order: facets are processed in alphabetical order by name. First, each facet's config block **structure** (name, when, body keys) is merged into a global scope (same block name merges block bodies recursively); config body expressions are **not** evaluated yet. After all facets are merged, config body expressions are evaluated once in blueprint context (very late). Then terraform and kustomize components are collected; their inputs and substitutions can reference the evaluated `<name>.<key>` (e.g. `talos.controlplanes`).
+Evaluation order: facets are processed by ordinal (ascending), then by name. First, each facet's config block **structure** (name, when, body keys) is merged into a global scope (same block name merges block bodies recursively); config body expressions are **not** evaluated yet. After all facets are merged, config body expressions are evaluated once in blueprint context (very late). Then terraform and kustomize components are collected; their inputs and substitutions can reference the evaluated `<name>.<key>` (e.g. `talos.controlplanes`).
 
 ## Conditional Logic
 
@@ -131,7 +147,8 @@ Extends `TerraformComponent` with conditional logic and merge strategy support.
 | `destroy`  | `*bool`             | Determines if the component should be destroyed during down operations.     |
 | `parallelism`| `int`             | Limits the number of concurrent operations as Terraform walks the graph.     |
 | `when`     | `string`            | Expression that determines if this component should be applied. If empty, the component is always applied when the parent facet matches. |
-| `strategy` | `string`            | Merge strategy: `merge` (default) or `replace`. Only available in facets.  |
+| `ordinal`  | `integer` (optional)| Overrides the facet ordinal for this component's merge precedence. When omitted, the facet's ordinal is used. Higher ordinal wins when merging. |
+| `strategy` | `string`            | Merge strategy: `merge` (default), `replace`, or `remove`. Only available in facets.  |
 
 ### Merge Strategies
 
@@ -178,7 +195,8 @@ Extends `Kustomization` with conditional logic and merge strategy support.
 | `patches`      | `[]BlueprintPatch`  | Patches to apply to the kustomization.                                      |
 | `substitutions`| `map[string]string` | Values for post-build variable replacement. Supports `${}` expressions.      |
 | `when`         | `string`            | Expression that determines if this kustomization should be applied. If empty, the kustomization is always applied when the parent facet matches. |
-| `strategy`     | `string`            | Merge strategy: `merge` (default) or `replace`. Only available in facets.  |
+| `ordinal`      | `integer` (optional) | Overrides the facet ordinal for this kustomization's merge precedence. When omitted, the facet's ordinal is used. Higher ordinal wins when merging. |
+| `strategy`     | `string`            | Merge strategy: `merge` (default), `replace`, or `remove`. Only available in facets.  |
 
 ### Merge Strategies
 
