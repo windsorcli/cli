@@ -459,13 +459,14 @@ func (c *BaseBlueprintComposer) mergeLegacySpecialVariables(mergedCommonValues m
 	if contextID != "" {
 		mergedCommonValues["CONTEXT_ID"] = contextID
 	}
-	if loadBalancerIPRange != "-" {
+	skipLoadBalancerKeys := c.runtime.ConfigHandler.GetString("workstation.runtime") == "docker-desktop"
+	if !skipLoadBalancerKeys && loadBalancerIPRange != "-" {
 		mergedCommonValues["LOADBALANCER_IP_RANGE"] = loadBalancerIPRange
 	}
-	if lbStart != "" {
+	if !skipLoadBalancerKeys && lbStart != "" {
 		mergedCommonValues["LOADBALANCER_IP_START"] = lbStart
 	}
-	if lbEnd != "" {
+	if !skipLoadBalancerKeys && lbEnd != "" {
 		mergedCommonValues["LOADBALANCER_IP_END"] = lbEnd
 	}
 	if registryURL != "" {

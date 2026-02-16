@@ -411,8 +411,8 @@ additionalProperties: false
 
 		err := handler.LoadConfig()
 
-		if err == nil {
-			t.Error("Expected validation error for invalid values.yaml")
+		if err != nil {
+			t.Errorf("Expected config to load with warning for invalid values.yaml, got error: %v", err)
 		}
 	})
 
@@ -746,11 +746,8 @@ properties:
 
 		err := handler.LoadConfig()
 
-		if err == nil {
-			t.Error("Expected error when Validate returns error")
-		}
-		if !strings.Contains(err.Error(), "values.yaml validation") {
-			t.Errorf("Expected error about values.yaml validation, got: %v", err)
+		if err != nil {
+			t.Errorf("Expected config to load with warning when Validate reports regex error, got: %v", err)
 		}
 	})
 

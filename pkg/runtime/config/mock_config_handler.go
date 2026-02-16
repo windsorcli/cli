@@ -34,6 +34,7 @@ type MockConfigHandler struct {
 	LoadSchemaFromBytesFunc   func(schemaContent []byte) error
 	GetContextValuesFunc      func() (map[string]any, error)
 	RegisterProviderFunc      func(prefix string, provider ValueProvider)
+	ValidateContextValuesFunc func() error
 }
 
 // =============================================================================
@@ -261,6 +262,14 @@ func (m *MockConfigHandler) RegisterProvider(prefix string, provider ValueProvid
 	if m.RegisterProviderFunc != nil {
 		m.RegisterProviderFunc(prefix, provider)
 	}
+}
+
+// ValidateContextValues calls the mock ValidateContextValuesFunc if set, otherwise returns nil
+func (m *MockConfigHandler) ValidateContextValues() error {
+	if m.ValidateContextValuesFunc != nil {
+		return m.ValidateContextValuesFunc()
+	}
+	return nil
 }
 
 // =============================================================================

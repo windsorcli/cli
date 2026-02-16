@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -50,6 +51,7 @@ type ConfigHandler interface {
 	LoadSchemaFromBytes(schemaContent []byte) error
 	GetContextValues() (map[string]any, error)
 	RegisterProvider(prefix string, provider ValueProvider)
+	ValidateContextValues() error
 }
 
 // ValueProvider defines the interface for dynamic value providers that can resolve
@@ -273,10 +275,8 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		}
 
 		if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
-			if result, err := c.schemaValidator.Validate(values); err != nil {
-				return fmt.Errorf("error validating values.yaml: %w", err)
-			} else if !result.Valid {
-				return fmt.Errorf("values.yaml validation failed: %v", result.Errors)
+			if result, err := c.schemaValidator.Validate(values); err == nil && !result.Valid {
+				fmt.Fprintf(os.Stderr, "Warning: values.yaml validation failed (config still loaded): %v\n", result.Errors)
 			}
 		}
 
@@ -383,6 +383,14 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	}
 
 	if len(dynamicFields) > 0 {
+		if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
+			if result, err := c.schemaValidator.Validate(dynamicFields); err != nil {
+				return fmt.Errorf("error validating values before save: %w", err)
+			} else if !result.Valid {
+				return fmt.Errorf("context value validation failed: %v", result.Errors)
+			}
+		}
+
 		valuesPath := filepath.Join(contextDir, "values.yaml")
 		valuesExists := false
 		if _, err := c.shims.Stat(valuesPath); err == nil {
@@ -521,8 +529,7 @@ func (c *configHandler) GetString(key string, defaultValue ...string) string {
 		}
 		return ""
 	}
-	strValue := fmt.Sprintf("%v", value)
-	return strValue
+	return fmt.Sprintf("%v", value)
 }
 
 // GetInt retrieves an integer value for the specified key from the configuration.
@@ -928,6 +935,22 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	}
 
 	return result, nil
+}
+
+// ValidateContextValues runs schema validation on the current context's dynamic fields.
+// Use before impactful operations (e.g. windsor up) so invalid or typo'd values.yaml fails fast.
+// Returns nil if no schema is loaded or if validation passes; returns an error if validation fails.
+func (c *configHandler) ValidateContextValues() error {
+	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
+		return nil
+	}
+	_, dynamicFields := c.separateStaticAndDynamicFields(c.data)
+	if result, err := c.schemaValidator.Validate(dynamicFields); err != nil {
+		return fmt.Errorf("error validating context values: %w", err)
+	} else if !result.Valid {
+		return fmt.Errorf("context value validation failed: %v", result.Errors)
+	}
+	return nil
 }
 
 // GenerateContextID generates a random context ID if one doesn't exist
