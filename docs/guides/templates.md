@@ -128,7 +128,7 @@ Facets are automatically loaded from:
 - `_template/facets/*.yaml` - Individual facet files
 - `_template/facets/**/*.yaml` - Nested facet directories
 
-Facets are processed in alphabetical order by name, then merged into the base blueprint.
+Facets are processed by ordinal (ascending), then by name. When a facet does not set `ordinal` in YAML, it is derived from the facet filename: `config-*` 100, `provider-base`/`platform-base` 199, `provider-*`/`platform-*` 200, `options-*` 300, `addon-*`/`addons-*` 400. Higher ordinal means higher precedence when merging (addons override provider-base for same-name kustomize entries).
 
 Example facet:
 

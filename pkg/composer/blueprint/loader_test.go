@@ -388,6 +388,81 @@ terraform:
 		}
 	})
 
+	t.Run("SetsOrdinalFromFacetPathWhenNotInYAML", func(t *testing.T) {
+		mocks := setupLoaderMocks(t)
+		templateDir := mocks.Runtime.TemplateRoot
+		facetsDir := filepath.Join(templateDir, "facets")
+		os.MkdirAll(facetsDir, 0755)
+
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+`
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+
+		facetYaml := `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: config-facet
+terraform: []
+`
+		os.WriteFile(filepath.Join(facetsDir, "config-cluster.yaml"), []byte(facetYaml), 0644)
+
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		err := loader.Load("primary", "")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(loader.facets) != 1 {
+			t.Fatalf("Expected 1 facet, got %d", len(loader.facets))
+		}
+		if loader.facets[0].Ordinal == nil {
+			t.Fatal("Expected Ordinal to be set from path")
+		}
+		if *loader.facets[0].Ordinal != 100 {
+			t.Errorf("Expected ordinal 100 for config-* file, got %d", *loader.facets[0].Ordinal)
+		}
+	})
+
+	t.Run("LeavesOrdinalUnchangedWhenSetInYAML", func(t *testing.T) {
+		mocks := setupLoaderMocks(t)
+		templateDir := mocks.Runtime.TemplateRoot
+		facetsDir := filepath.Join(templateDir, "facets")
+		os.MkdirAll(facetsDir, 0755)
+
+		blueprintYaml := `kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test
+`
+		os.WriteFile(filepath.Join(templateDir, "blueprint.yaml"), []byte(blueprintYaml), 0644)
+
+		facetYaml := `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: custom-facet
+ordinal: 99
+terraform: []
+`
+		os.WriteFile(filepath.Join(facetsDir, "addons-foo.yaml"), []byte(facetYaml), 0644)
+
+		loader := NewBlueprintLoader(mocks.Runtime, mocks.ArtifactBuilder)
+		err := loader.Load("primary", "")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(loader.facets) != 1 {
+			t.Fatalf("Expected 1 facet, got %d", len(loader.facets))
+		}
+		if loader.facets[0].Ordinal == nil {
+			t.Fatal("Expected Ordinal to be set")
+		}
+		if *loader.facets[0].Ordinal != 99 {
+			t.Errorf("Expected ordinal 99 from YAML, got %d", *loader.facets[0].Ordinal)
+		}
+	})
+
 	t.Run("LoadsFeaturesFromLocalTemplateForBackwardsCompatibility", func(t *testing.T) {
 		// Given a loader with features directory (backwards compatibility)
 		mocks := setupLoaderMocks(t)

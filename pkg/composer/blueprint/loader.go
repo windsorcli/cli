@@ -370,6 +370,10 @@ func (l *BaseBlueprintLoader) loadFacetsFromDirectory(baseDir string) error {
 		}
 
 		facet.Path = facetPath
+		if facet.Ordinal == nil {
+			ord := OrdinalFromFacetPath(facet.Path)
+			facet.Ordinal = &ord
+		}
 		l.facets = append(l.facets, facet)
 	}
 
@@ -413,6 +417,10 @@ func (l *BaseBlueprintLoader) loadFeaturesFromDirectory(baseDir string) error {
 		}
 
 		facet.Path = featurePath
+		if facet.Ordinal == nil {
+			ord := OrdinalFromFacetPath(facet.Path)
+			facet.Ordinal = &ord
+		}
 		l.facets = append(l.facets, facet)
 	}
 
