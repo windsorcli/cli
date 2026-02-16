@@ -721,6 +721,11 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	}
 
 	if newOrdinal > existingOrdinal {
+		if strategy == "remove" {
+			new.Strategy = strategy
+			entries[name] = new
+			return nil
+		}
 		return p.applyKustomizationEntryByStrategy(name, new, strategy, existing, entries)
 	}
 
