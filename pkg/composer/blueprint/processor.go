@@ -549,8 +549,7 @@ func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, facetPath s
 // equal, strategy precedence is used ('remove' > 'replace' > 'merge'), then merge behavior for equal ordinal and strategy. The function also rigorously re-evaluates 'when' conditions for
 // both the new and existing entries, removing entries from the collection if any relevant condition now resolves to false.
 // When the strategy is 'merge', it performs a strategic pre-merge and logically ANDs 'when' conditions. For 'remove',
-// component removals are accumulated, and for 'replace', the most recent definition takes precedence if priorities
-// and strategies are equal. Only valid strategies are allowed; otherwise, an error is returned, as is the case for merge
+// component removals are accumulated; for 'replace', the new definition overwrites the existing one. Only valid strategies are allowed; otherwise, an error is returned, as is the case for merge
 // failures. This function is critical to the blueprint processor’s ability to aggregate, override, conditionally include
 // or exclude, and deconflict terraform components efficiently, making it safe to combine blueprint facets or overrides
 // without unintended duplication or omission. Returns an error if strategies are invalid or pre-merge fails.
@@ -603,9 +602,12 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	}
 
 	if newOrdinal > existingOrdinal {
-		new.Strategy = strategy
-		entries[componentID] = new
-		return nil
+		if strategy == "replace" {
+			new.Strategy = strategy
+			entries[componentID] = new
+			return nil
+		}
+		return p.applyTerraformComponentEntryByStrategy(componentID, new, existing, strategy, entries)
 	}
 
 	if newOrdinal < existingOrdinal {
@@ -622,7 +624,34 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 		return nil
 	}
 
+	return p.applyTerraformComponentEntryByStrategy(componentID, new, existing, strategy, entries)
+}
+
+// applyTerraformComponentEntryByStrategy updates the terraform component entry by applying new over existing
+// according to strategy: replace overwrites; merge strategic-merges (existing base, new overlay); remove accumulates removals.
+func (p *BaseBlueprintProcessor) applyTerraformComponentEntryByStrategy(
+	componentID string,
+	new *blueprintv1alpha1.ConditionalTerraformComponent,
+	existing *blueprintv1alpha1.ConditionalTerraformComponent,
+	strategy string,
+	entries map[string]*blueprintv1alpha1.ConditionalTerraformComponent,
+) error {
+	if strategy == "" {
+		strategy = "merge"
+	}
+	combinedWhen := ""
+	if existing.When != "" && new.When != "" {
+		combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
+	} else if existing.When != "" {
+		combinedWhen = existing.When
+	} else if new.When != "" {
+		combinedWhen = new.When
+	}
 	switch strategy {
+	case "replace":
+		new.Strategy = strategy
+		entries[componentID] = new
+		return nil
 	case "merge":
 		tempBp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{existing.TerraformComponent},
@@ -633,44 +662,25 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 		if err := tempBp.StrategicMerge(mergedBp); err != nil {
 			return fmt.Errorf("error pre-merging terraform component '%s': %w", componentID, err)
 		}
-		combinedWhen := ""
-		if existing.When != "" && new.When != "" {
-			combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
-		} else if existing.When != "" {
-			combinedWhen = existing.When
-		} else if new.When != "" {
-			combinedWhen = new.When
-		}
-		merged := &blueprintv1alpha1.ConditionalTerraformComponent{
+		entries[componentID] = &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: tempBp.TerraformComponents[0],
 			Strategy:           "merge",
 			Ordinal:            new.Ordinal,
 			When:               combinedWhen,
 		}
-		entries[componentID] = merged
+		return nil
 	case "remove":
 		accumulated := p.accumulateTerraformRemovals(existing.TerraformComponent, new.TerraformComponent)
-		combinedWhen := ""
-		if existing.When != "" && new.When != "" {
-			combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
-		} else if existing.When != "" {
-			combinedWhen = existing.When
-		} else if new.When != "" {
-			combinedWhen = new.When
-		}
 		entries[componentID] = &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: accumulated,
 			Strategy:           "remove",
 			Ordinal:            new.Ordinal,
 			When:               combinedWhen,
 		}
-	case "replace":
-		new.Strategy = strategy
-		entries[componentID] = new
+		return nil
 	default:
 		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
 	}
-	return nil
 }
 
 // updateKustomizationEntry updates an existing kustomization entry in the collection map based
@@ -721,7 +731,7 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	}
 
 	if newOrdinal > existingOrdinal {
-		if existingStrategy == "remove" {
+		if existingStrategy == "remove" || strategy == "remove" {
 			new.Strategy = strategy
 			entries[name] = new
 			return nil
