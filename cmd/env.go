@@ -17,7 +17,10 @@ var envCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		hook, _ := cmd.Flags().GetBool("hook")
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
-		verbose, _ := cmd.Flags().GetBool("verbose")
+		verboseVal := false
+		if v, err := cmd.Root().PersistentFlags().GetBool("verbose"); err == nil {
+			verboseVal = v
+		}
 
 		if !hook && os.Getenv("NO_CACHE") == "" {
 			if err := os.Setenv("NO_CACHE", "true"); err != nil {
@@ -26,7 +29,7 @@ var envCmd = &cobra.Command{
 		}
 
 		var rtOpts []*runtime.Runtime
-		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+		if overridesVal := cmd.Root().Context().Value(runtimeOverridesKey); overridesVal != nil {
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
@@ -40,15 +43,21 @@ var envCmd = &cobra.Command{
 		}
 
 		if err := rt.HandleSessionReset(); err != nil {
+			if hook {
+				return nil
+			}
 			return err
 		}
 
 		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			if hook {
+				return nil
+			}
 			return err
 		}
 
 		if err := rt.InitializeComponents(); err != nil {
-			if hook || !verbose {
+			if hook || !verboseVal {
 				return nil
 			}
 			return fmt.Errorf("failed to initialize components: %w", err)
@@ -58,7 +67,7 @@ var envCmd = &cobra.Command{
 			if rt.TerraformProvider.IsInTerraformProject() {
 				comp := composer.NewComposer(rt)
 				if err := comp.BlueprintHandler.LoadBlueprint(); err != nil {
-					if hook || !verbose {
+					if hook || !verboseVal {
 						return nil
 					}
 					return fmt.Errorf("failed to load blueprint: %w", err)
@@ -67,7 +76,7 @@ var envCmd = &cobra.Command{
 		}
 
 		if err := rt.LoadEnvironment(decrypt); err != nil {
-			if hook || !verbose {
+			if hook || !verboseVal {
 				return nil
 			}
 			return fmt.Errorf("failed to load environment: %w", err)
@@ -99,6 +108,5 @@ var envCmd = &cobra.Command{
 func init() {
 	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before setting environment variables")
 	envCmd.Flags().Bool("hook", false, "Flag that indicates the command is being executed by the hook")
-	envCmd.Flags().Bool("verbose", false, "Show verbose error output")
 	rootCmd.AddCommand(envCmd)
 }

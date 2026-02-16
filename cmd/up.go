@@ -36,6 +36,10 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
+		if err := proj.Runtime.ConfigHandler.ValidateContextValues(); err != nil {
+			return fmt.Errorf("invalid configuration: %w", err)
+		}
+
 		if err := proj.Initialize(false); err != nil {
 			return err
 		}

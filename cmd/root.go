@@ -21,12 +21,15 @@ var shims = NewShims()
 
 // Execute is the main entry point for the Windsor CLI application.
 // It executes the root command with the provided context or a new background context.
+// Sets the root command's context before execution so cmd.Root().Context() is correct
+// when RunE runs (Cobra does not always propagate context to root on subsequent runs).
 func Execute() error {
 	ctx := rootCmd.Context()
-	if ctx != nil {
-		return rootCmd.ExecuteContext(ctx)
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return rootCmd.ExecuteContext(context.Background())
+	rootCmd.SetContext(ctx)
+	return rootCmd.ExecuteContext(ctx)
 }
 
 // rootCmd represents the base command when called without any subcommands
