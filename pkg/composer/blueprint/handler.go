@@ -124,11 +124,10 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	return nil
 }
 
-// Write persists the composed blueprint to blueprint.yaml in the config root directory. Before
-// writing, transient fields (inputs, substitutions, parallelism, etc.) are stripped since these
-// are used at runtime but should not be stored in the user's blueprint. If overwrite is true,
-// an existing file is replaced; if false or omitted, the file is only written if it does not
-// already exist, preserving user modifications.
+// Write persists the blueprint to blueprint.yaml in the config root directory. It always writes
+// the referential form (metadata, repository, sources only). If overwrite is true, an existing
+// file is replaced; if false or omitted, the file is only written if it does not already exist,
+// preserving user modifications.
 func (h *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	shouldOverwrite := false
 	if len(overwrite) > 0 {
