@@ -13,14 +13,15 @@ import (
 
 // The BaseBlueprintProcessor is a core component that processes blueprint facets and evaluates conditional logic.
 // It provides functionality for evaluating 'when' conditions on facets, terraform components, and kustomizations.
-// The BaseBlueprintProcessor orchestrates the collection, merging, and application of components based on priority
+// The BaseBlueprintProcessor orchestrates the collection, merging, and application of components based on ordinal
 // and strategy, ensuring deterministic and predictable blueprint composition from multiple facet sources.
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-var strategyPriorities = map[string]int{
+// strategyPrecedence is the tiebreaker when component ordinals are equal: remove > replace > merge.
+var strategyPrecedence = map[string]int{
 	"remove":  3,
 	"replace": 2,
 	"merge":   1,
@@ -80,16 +81,12 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // against the provided configuration data. Facets whose conditions evaluate to true (or have no
 // condition) contribute their terraform components and kustomizations to the target blueprint.
 // Components within facets can also have individual 'when' conditions for fine-grained control.
-// Facets are sorted by metadata.name before processing to ensure deterministic output. If sourceName
-// is provided, it sets the Source field on components that don't already have one, linking them to
-// their originating OCI artifact. Input expressions and substitutions are preserved as-is for later
-// evaluation by their consumers. Components and kustomizations are processed according to their
-// priority and strategy fields. Priority is compared first: higher priority values override lower
-// priority ones. When priorities are equal, strategy priority is used: "remove" (highest) > "replace" > "merge" (default, lowest).
-// When both priority and strategy are equal, components are merged, removals are accumulated, or replace wins.
-// The target blueprint is modified in place. Returns the evaluated config scope and block order
-// for this loader so the caller can merge scopes from multiple loaders. Context values (e.g. workstation.runtime)
-// from the runtime ConfigHandler are merged over facet-derived scope so when/component expressions see actual config.
+// Facets are sorted by ordinal (ascending), then by metadata.name for tiebreak; higher ordinal
+// means higher precedence when merging. If sourceName is provided, it sets the Source field on
+// components that don't already have one. Components and kustomizations are merged by ordinal
+// (higher wins) then by strategy precedence (remove > replace > merge) when ordinals are equal. The target blueprint is modified in place. Returns
+// the evaluated config scope and block order for this loader. Context values from the runtime
+// ConfigHandler are merged over facet-derived scope so when/component expressions see actual config.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
 	if target == nil {
 		return nil, nil, fmt.Errorf("target blueprint cannot be nil")
@@ -109,6 +106,10 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	sortedFacets := make([]blueprintv1alpha1.Facet, len(facets))
 	copy(sortedFacets, facets)
 	sort.Slice(sortedFacets, func(i, j int) bool {
+		oi, oj := resolvedFacetOrdinal(sortedFacets[i]), resolvedFacetOrdinal(sortedFacets[j])
+		if oi != oj {
+			return oi < oj
+		}
 		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
 	})
 
@@ -156,6 +157,14 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// resolvedFacetOrdinal returns the ordinal used to order the facet. When the facet has Ordinal set, that value is used; otherwise the default is derived from the facet file path.
+func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
+	if f.Ordinal != nil {
+		return *f.Ordinal
+	}
+	return OrdinalFromFacetPath(f.Path)
+}
 
 // mergeContextOverScope returns a new map by deep-merging contextScope over globalScope so
 // expressions see actual context values (e.g. workstation.runtime) while preserving facet-derived
@@ -392,6 +401,13 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			processed.Source = sourceName[0]
 		}
 
+		facetOrd := resolvedFacetOrdinal(facet)
+		effectiveOrdinal := facetOrd
+		if processed.Ordinal != nil {
+			effectiveOrdinal = *processed.Ordinal
+		}
+		processed.Ordinal = &effectiveOrdinal
+
 		strategy := processed.Strategy
 		if strategy == "" {
 			strategy = "merge"
@@ -413,9 +429,9 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 // collectKustomizations processes all kustomizations from a facet, evaluating their conditions,
 // substitutions, and source assignments. When facetScope is non-nil (evaluated facet config), it is
 // merged into the expression environment so substitutions and other expressions can reference config
-// block values. Kustomizations are collected into the kustomizationByName map with strategy priority
-// handling. Kustomizations with matching names are merged or replaced based on their strategy
-// priority. If a kustomization has an empty 'when' condition, it inherits the facet-level condition.
+// block values. Kustomizations are collected into the kustomizationByName map; merge precedence
+// is ordinal (higher wins), then strategy precedence (remove > replace > merge) when ordinals are equal.
+// If a kustomization has an empty 'when' condition, it inherits the facet-level condition.
 // Returns an error if condition evaluation or substitution processing fails.
 func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, facetScope map[string]any) error {
 	for _, k := range facet.Kustomizations {
@@ -473,6 +489,13 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			processed.Source = sourceName[0]
 		}
 
+		facetOrd := resolvedFacetOrdinal(facet)
+		effectiveOrdinal := facetOrd
+		if processed.Ordinal != nil {
+			effectiveOrdinal = *processed.Ordinal
+		}
+		processed.Ordinal = &effectiveOrdinal
+
 		strategy := processed.Strategy
 		if strategy == "" {
 			strategy = "merge"
@@ -522,10 +545,8 @@ func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, facetPath s
 }
 
 // updateTerraformComponentEntry updates or merges a single ConditionalTerraformComponent entry in the component
-// collection based on priority, strategy, and conditional 'when' expressions, ensuring consistent and predictable
-// handling of multiple definitions for the same component. It provides robust conflict resolution logic by considering
-// component priority (higher priority always wins), then strategy precedence ('remove' > 'replace' > 'merge'), and
-// finally merge behavior for equal priority and strategy. The function also rigorously re-evaluates 'when' conditions for
+// collection based on ordinal, strategy, and conditional 'when' expressions. Higher ordinal wins; when ordinals are
+// equal, strategy precedence is used ('remove' > 'replace' > 'merge'), then merge behavior for equal ordinal and strategy. The function also rigorously re-evaluates 'when' conditions for
 // both the new and existing entries, removing entries from the collection if any relevant condition now resolves to false.
 // When the strategy is 'merge', it performs a strategic pre-merge and logically ANDs 'when' conditions. For 'remove',
 // component removals are accumulated, and for 'replace', the most recent definition takes precedence if priorities
@@ -567,31 +588,37 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 		}
 	}
 
-	newStrategyPriority, exists := strategyPriorities[strategy]
+	newStrategyPrec, exists := strategyPrecedence[strategy]
 	if !exists {
 		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
 	}
 
-	newPriority := new.Priority
-	existingPriority := existing.Priority
+	newOrdinal := 0
+	if new.Ordinal != nil {
+		newOrdinal = *new.Ordinal
+	}
+	existingOrdinal := 0
+	if existing.Ordinal != nil {
+		existingOrdinal = *existing.Ordinal
+	}
 
-	if newPriority > existingPriority {
+	if newOrdinal > existingOrdinal {
 		new.Strategy = strategy
 		entries[componentID] = new
 		return nil
 	}
 
-	if newPriority < existingPriority {
+	if newOrdinal < existingOrdinal {
 		return nil
 	}
-	existingStrategyPriority := strategyPriorities[existingStrategy]
-	if newStrategyPriority > existingStrategyPriority {
+	existingStrategyPrec := strategyPrecedence[existingStrategy]
+	if newStrategyPrec > existingStrategyPrec {
 		new.Strategy = strategy
 		entries[componentID] = new
 		return nil
 	}
 
-	if newStrategyPriority < existingStrategyPriority {
+	if newStrategyPrec < existingStrategyPrec {
 		return nil
 	}
 
@@ -617,7 +644,7 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 		merged := &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: tempBp.TerraformComponents[0],
 			Strategy:           "merge",
-			Priority:           newPriority,
+			Ordinal:            new.Ordinal,
 			When:               combinedWhen,
 		}
 		entries[componentID] = merged
@@ -634,7 +661,7 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 		entries[componentID] = &blueprintv1alpha1.ConditionalTerraformComponent{
 			TerraformComponent: accumulated,
 			Strategy:           "remove",
-			Priority:           newPriority,
+			Ordinal:            new.Ordinal,
 			When:               combinedWhen,
 		}
 	case "replace":
@@ -647,12 +674,10 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 }
 
 // updateKustomizationEntry updates an existing kustomization entry in the collection map based
-// on priority and strategy. Priority is compared first: higher priority wins. If priorities are
-// equal, strategy priority is used (remove > replace > merge). If both priority and strategy are
+// on ordinal and strategy. Ordinal is compared first: higher ordinal wins. If ordinals are
+// equal, strategy precedence is used (remove > replace > merge). If both ordinal and strategy are
 // equal, kustomizations are pre-merged (merge), removals are accumulated (remove), or new replaces
-// existing (replace). For replace operations with equal priority and strategy, the last processed
-// facet (alphabetically by name) wins. Users should set different priorities to make ordering explicit.
-// Returns an error if the merge operation fails.
+// existing (replace). Returns an error if the merge operation fails.
 func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization, scope map[string]any) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -681,31 +706,37 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		}
 	}
 
-	newStrategyPriority, exists := strategyPriorities[strategy]
+	newStrategyPrec, exists := strategyPrecedence[strategy]
 	if !exists {
 		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
 	}
 
-	newPriority := new.Priority
-	existingPriority := existing.Priority
+	newOrdinal := 0
+	if new.Ordinal != nil {
+		newOrdinal = *new.Ordinal
+	}
+	existingOrdinal := 0
+	if existing.Ordinal != nil {
+		existingOrdinal = *existing.Ordinal
+	}
 
-	if newPriority > existingPriority {
+	if newOrdinal > existingOrdinal {
 		new.Strategy = strategy
 		entries[name] = new
 		return nil
 	}
 
-	if newPriority < existingPriority {
+	if newOrdinal < existingOrdinal {
 		return nil
 	}
-	existingStrategyPriority := strategyPriorities[existingStrategy]
-	if newStrategyPriority > existingStrategyPriority {
+	existingStrategyPrec := strategyPrecedence[existingStrategy]
+	if newStrategyPrec > existingStrategyPrec {
 		new.Strategy = strategy
 		entries[name] = new
 		return nil
 	}
 
-	if newStrategyPriority < existingStrategyPriority {
+	if newStrategyPrec < existingStrategyPrec {
 		return nil
 	}
 
@@ -731,7 +762,7 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		merged := &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: tempBp.Kustomizations[0],
 			Strategy:      "merge",
-			Priority:      newPriority,
+			Ordinal:       new.Ordinal,
 			When:          combinedWhen,
 		}
 		entries[name] = merged
@@ -748,7 +779,7 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		entries[name] = &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: accumulated,
 			Strategy:      "remove",
-			Priority:      newPriority,
+			Ordinal:       new.Ordinal,
 			When:          combinedWhen,
 		}
 	case "replace":

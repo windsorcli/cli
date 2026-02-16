@@ -38,6 +38,10 @@ type Facet struct {
 	// This is used for resolving relative paths in jsonnet() and file() functions.
 	Path string `yaml:"-"`
 
+	// Ordinal guides the order in which this facet is applied relative to others. Higher ordinal means higher precedence when merging.
+	// When nil, the loader derives ordinal from the facet file basename (e.g. config-* 100, provider-base/platform-base 199, provider-/platform- 200, options- 300, addons- 400).
+	Ordinal *int `yaml:"ordinal,omitempty"`
+
 	// When is a CEL expression that determines if this facet should be applied.
 	// The expression is evaluated against user configuration values.
 	// Examples: "provider == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
@@ -70,13 +74,9 @@ type ConditionalTerraformComponent struct {
 	// matching existing component. Remove operations are always applied last after all merge/replace operations.
 	Strategy string `yaml:"strategy,omitempty"`
 
-	// Priority determines the order in which components are processed when multiple facets target the same component.
-	// Higher priority values are processed later and override lower priority components. Default is 0.
-	// When priorities are equal, strategy priority is used (remove > replace > merge).
-	// When both priority and strategy are equal, components are merged, removals are accumulated, or replace wins.
-	// For replace operations with equal priority and strategy, the last processed facet (alphabetically by name) wins.
-	// Set different priorities to make ordering explicit and avoid dependency on facet name ordering.
-	Priority int `yaml:"priority,omitempty"`
+	// Ordinal overrides the facet ordinal for this component's merge precedence. When nil, the facet's ordinal is used.
+	// Higher ordinal means higher precedence when merging (processed later, wins on conflict).
+	Ordinal *int `yaml:"ordinal,omitempty"`
 }
 
 // ConditionalKustomization extends Kustomization with conditional logic support.
@@ -95,13 +95,9 @@ type ConditionalKustomization struct {
 	// matching existing kustomization. Remove operations are always applied last after all merge/replace operations.
 	Strategy string `yaml:"strategy,omitempty"`
 
-	// Priority determines the order in which kustomizations are processed when multiple facets target the same kustomization.
-	// Higher priority values are processed later and override lower priority kustomizations. Default is 0.
-	// When priorities are equal, strategy priority is used (remove > replace > merge).
-	// When both priority and strategy are equal, kustomizations are merged, removals are accumulated, or replace wins.
-	// For replace operations with equal priority and strategy, the last processed facet (alphabetically by name) wins.
-	// Set different priorities to make ordering explicit and avoid dependency on facet name ordering.
-	Priority int `yaml:"priority,omitempty"`
+	// Ordinal overrides the facet ordinal for this kustomization's merge precedence. When nil, the facet's ordinal is used.
+	// Higher ordinal means higher precedence when merging (processed later, wins on conflict).
+	Ordinal *int `yaml:"ordinal,omitempty"`
 }
 
 // =============================================================================
@@ -174,11 +170,18 @@ func (f *Facet) DeepCopy() *Facet {
 		configCopy[i] = *block.DeepCopy()
 	}
 
+	var ordinalCopy *int
+	if f.Ordinal != nil {
+		o := *f.Ordinal
+		ordinalCopy = &o
+	}
+
 	return &Facet{
 		Kind:                f.Kind,
 		ApiVersion:          f.ApiVersion,
 		Metadata:            metadataCopy,
 		Path:                f.Path,
+		Ordinal:             ordinalCopy,
 		When:                f.When,
 		Config:              configCopy,
 		TerraformComponents: terraformComponentsCopy,
@@ -192,11 +195,17 @@ func (c *ConditionalTerraformComponent) DeepCopy() *ConditionalTerraformComponen
 		return nil
 	}
 
+	var ordinalCopy *int
+	if c.Ordinal != nil {
+		o := *c.Ordinal
+		ordinalCopy = &o
+	}
+
 	return &ConditionalTerraformComponent{
 		TerraformComponent: *c.TerraformComponent.DeepCopy(),
 		When:               c.When,
 		Strategy:           c.Strategy,
-		Priority:           c.Priority,
+		Ordinal:            ordinalCopy,
 	}
 }
 
@@ -206,11 +215,17 @@ func (c *ConditionalKustomization) DeepCopy() *ConditionalKustomization {
 		return nil
 	}
 
+	var ordinalCopy *int
+	if c.Ordinal != nil {
+		o := *c.Ordinal
+		ordinalCopy = &o
+	}
+
 	return &ConditionalKustomization{
 		Kustomization: *c.Kustomization.DeepCopy(),
 		When:          c.When,
 		Strategy:      c.Strategy,
-		Priority:      c.Priority,
+		Ordinal:       ordinalCopy,
 	}
 }
 
