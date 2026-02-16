@@ -669,8 +669,9 @@ func (h *BaseBlueprintHandler) setRepositoryDefaults() {
 }
 
 // clearLocalTemplateSource clears Source on terraform components and kustomizations when Source
-// is "template" and the template source has no URL (local template). Those items then use the
-// blueprint repository (default source) instead of a non-existent template GitRepository.
+// is "template" and the template source has no URL (local template), or when Source is "user".
+// The composed blueprint does not define a "user" source, so components tagged by user facet
+// processing must be treated as local (project path) rather than sourced modules (scratch path).
 func (h *BaseBlueprintHandler) clearLocalTemplateSource(blueprint *blueprintv1alpha1.Blueprint) {
 	if blueprint == nil {
 		return
@@ -682,16 +683,19 @@ func (h *BaseBlueprintHandler) clearLocalTemplateSource(blueprint *blueprintv1al
 			break
 		}
 	}
-	if !templateIsLocal {
-		return
-	}
 	for i := range blueprint.TerraformComponents {
-		if blueprint.TerraformComponents[i].Source == "template" {
+		if templateIsLocal && blueprint.TerraformComponents[i].Source == "template" {
+			blueprint.TerraformComponents[i].Source = ""
+		}
+		if blueprint.TerraformComponents[i].Source == "user" {
 			blueprint.TerraformComponents[i].Source = ""
 		}
 	}
 	for i := range blueprint.Kustomizations {
-		if blueprint.Kustomizations[i].Source == "template" {
+		if templateIsLocal && blueprint.Kustomizations[i].Source == "template" {
+			blueprint.Kustomizations[i].Source = ""
+		}
+		if blueprint.Kustomizations[i].Source == "user" {
 			blueprint.Kustomizations[i].Source = ""
 		}
 	}

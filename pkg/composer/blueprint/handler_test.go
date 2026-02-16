@@ -1466,6 +1466,25 @@ func TestHandler_clearLocalTemplateSource(t *testing.T) {
 		}
 	})
 
+	t.Run("ClearsUserSourceSoComponentsResolveToProjectPath", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Sources:             []blueprintv1alpha1.Source{{Name: "template", Url: "https://example.com/oci"}},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Source: "user", Path: "cluster"}},
+			Kustomizations:      []blueprintv1alpha1.Kustomization{{Name: "app", Source: "user", Path: "app"}},
+		}
+
+		handler.clearLocalTemplateSource(blueprint)
+
+		if blueprint.TerraformComponents[0].Source != "" {
+			t.Errorf("Expected user Source cleared so FullPath uses project path, got '%s'", blueprint.TerraformComponents[0].Source)
+		}
+		if blueprint.Kustomizations[0].Source != "" {
+			t.Errorf("Expected user Kustomization Source cleared, got '%s'", blueprint.Kustomizations[0].Source)
+		}
+	})
+
 	t.Run("NoOpWhenBlueprintNil", func(t *testing.T) {
 		mocks := setupHandlerMocks(t)
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
