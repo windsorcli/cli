@@ -37,7 +37,7 @@ tasks:
         platforms: [windows]
 
   test:
-    desc: Run tests
+    desc: Run unit tests with coverage (excludes integration-tagged tests)
     env:
       CI: true
     cmds:
@@ -48,6 +48,34 @@ tasks:
           go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
         fi
       - go tool cover -html=coverage.out -o coverage.html
+    silent: true
+
+  test:integration:
+    desc: Run only integration-tagged tests in cmd with coverage (-run TestIntegration by default)
+    env:
+      CI: true
+    cmds:
+      - |
+        if [ -n "{{.CLI_ARGS}}" ]; then
+          go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./cmd
+        else
+          go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run TestIntegration ./cmd
+        fi
+      - "go tool cover -func=coverage.out | tail -1 | awk \"{print \\\"total coverage: \\\" $NF}\""
+
+  test:all:
+    desc: Run full test suite (unit + integration), write coverage.out/html and print total
+    env:
+      CI: true
+    cmds:
+      - |
+        if [ -n "{{.CLI_ARGS}}" ]; then
+          go test -tags=integration -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./pkg/... ./cmd
+        else
+          go test -tags=integration -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
+        fi
+      - go tool cover -html=coverage.out -o coverage.html
+      - "go tool cover -func=coverage.out | tail -1 | awk \"{print \\\"total coverage: \\\" $NF}\""
     silent: true
 
   scan:
