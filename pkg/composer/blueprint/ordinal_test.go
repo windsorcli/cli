@@ -40,6 +40,14 @@ func TestOrdinalFromBasename(t *testing.T) {
 			t.Errorf("OrdinalFromBasename(addons-observability.yaml) = %d, want 400", got)
 		}
 	})
+	t.Run("Returns400ForAddonPrefix", func(t *testing.T) {
+		if got := OrdinalFromBasename("addon-observability.yaml"); got != 400 {
+			t.Errorf("OrdinalFromBasename(addon-observability.yaml) = %d, want 400", got)
+		}
+		if got := OrdinalFromBasename("addon-private-ca.yaml"); got != 400 {
+			t.Errorf("OrdinalFromBasename(addon-private-ca.yaml) = %d, want 400", got)
+		}
+	})
 	t.Run("Returns0ForNoMatch", func(t *testing.T) {
 		if got := OrdinalFromBasename("custom.yaml"); got != 0 {
 			t.Errorf("OrdinalFromBasename(custom.yaml) = %d, want 0", got)

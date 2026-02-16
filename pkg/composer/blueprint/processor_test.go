@@ -3,6 +3,7 @@ package blueprint
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -369,6 +370,95 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 		if target.TerraformComponents[0].Inputs["from"] != "high" {
 			t.Errorf("Expected higher-ordinal facet to win: inputs.from='high', got '%v'", target.TerraformComponents[0].Inputs["from"])
+		}
+	})
+
+	t.Run("SameNameKustomizationHigherOrdinalWins", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		ord199 := 199
+		ord400 := 400
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "provider-base"},
+				Ordinal:  &ord199,
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "observability", Substitutions: map[string]string{"stack": "fluentd"}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "addon-observability"},
+				Ordinal:  &ord400,
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "observability", Substitutions: map[string]string{"stack": "grafana"}}},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization (same name), got %d", len(target.Kustomizations))
+		}
+		if target.Kustomizations[0].Substitutions["stack"] != "grafana" {
+			t.Errorf("Expected addon (ordinal 400) to override provider-base (199): stack='grafana', got '%s'", target.Kustomizations[0].Substitutions["stack"])
+		}
+	})
+
+	t.Run("SameNameKustomizationMergesByDefault", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		ord300 := 300
+		ord400 := 400
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "option-ingress"},
+				Ordinal:  &ord300,
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:       "ingress",
+							Components: []string{"nginx", "nginx/loadbalancer", "nginx/web", "nginx/prometheus"},
+						},
+					},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "addon-private-dns"},
+				Ordinal:  &ord400,
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:       "ingress",
+							Components: []string{"nginx/coredns"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization (same name), got %d", len(target.Kustomizations))
+		}
+		comps := target.Kustomizations[0].Components
+		want := []string{"nginx", "nginx/coredns", "nginx/loadbalancer", "nginx/prometheus", "nginx/web"}
+		if len(comps) != len(want) {
+			t.Errorf("Expected merged components len %d, got %d: %v", len(want), len(comps), comps)
+		}
+		for _, w := range want {
+			if !slices.Contains(comps, w) {
+				t.Errorf("Expected merged components to contain %q, got %v", w, comps)
+			}
 		}
 	})
 

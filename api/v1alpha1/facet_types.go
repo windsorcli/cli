@@ -39,7 +39,7 @@ type Facet struct {
 	Path string `yaml:"-"`
 
 	// Ordinal guides the order in which this facet is applied relative to others. Higher ordinal means higher precedence when merging.
-	// When nil, the loader derives ordinal from the facet file basename (e.g. config-* 100, provider-base/platform-base 199, provider-/platform- 200, options- 300, addons- 400).
+	// When nil, the loader derives ordinal from the facet file basename (e.g. config-* 100, provider-base/platform-base 199, provider-/platform- 200, options- 300, addon-/addons- 400).
 	Ordinal *int `yaml:"ordinal,omitempty"`
 
 	// When is a CEL expression that determines if this facet should be applied.

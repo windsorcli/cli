@@ -58,8 +58,8 @@ When a facet does not set `ordinal` in YAML, it is derived from the facet file *
 | `config-*` | 100 |
 | `provider-*` or `platform-*` with `-base` in name (e.g. `provider-base.yaml`, `platform-base.yaml`) | 199 |
 | `provider-*` or `platform-*` (others) | 200 |
-| `options-*` | 300 |
-| `addons-*` | 400 |
+| `option-*` or `options-*` | 300 |
+| `addon-*` or `addons-*` | 400 |
 | (no match) | 0 |
 
 Terraform and kustomize components can set an optional `ordinal` to override the facet ordinal for that component's merge precedence.

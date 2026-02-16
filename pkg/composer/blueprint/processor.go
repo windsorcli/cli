@@ -721,9 +721,7 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	}
 
 	if newOrdinal > existingOrdinal {
-		new.Strategy = strategy
-		entries[name] = new
-		return nil
+		return p.applyKustomizationEntryByStrategy(name, new, strategy, existing, entries)
 	}
 
 	if newOrdinal < existingOrdinal {
@@ -740,7 +738,29 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		return nil
 	}
 
+	return p.applyKustomizationEntryByStrategy(name, new, strategy, existing, entries)
+}
+
+// applyKustomizationEntryByStrategy updates the kustomization entry by applying new over existing
+// according to strategy: replace overwrites; merge combines list fields (components, dependsOn, etc.);
+// remove accumulates removals. combinedWhen is built from existing and new When expressions.
+func (p *BaseBlueprintProcessor) applyKustomizationEntryByStrategy(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, existing *blueprintv1alpha1.ConditionalKustomization, entries map[string]*blueprintv1alpha1.ConditionalKustomization) error {
+	if strategy == "" {
+		strategy = "merge"
+	}
+	combinedWhen := ""
+	if existing.When != "" && new.When != "" {
+		combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
+	} else if existing.When != "" {
+		combinedWhen = existing.When
+	} else if new.When != "" {
+		combinedWhen = new.When
+	}
 	switch strategy {
+	case "replace":
+		new.Strategy = strategy
+		entries[name] = new
+		return nil
 	case "merge":
 		tempBp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{existing.Kustomization},
@@ -751,44 +771,25 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		if err := tempBp.StrategicMerge(mergedBp); err != nil {
 			return fmt.Errorf("error pre-merging kustomization '%s': %w", name, err)
 		}
-		combinedWhen := ""
-		if existing.When != "" && new.When != "" {
-			combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
-		} else if existing.When != "" {
-			combinedWhen = existing.When
-		} else if new.When != "" {
-			combinedWhen = new.When
-		}
-		merged := &blueprintv1alpha1.ConditionalKustomization{
+		entries[name] = &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: tempBp.Kustomizations[0],
 			Strategy:      "merge",
 			Ordinal:       new.Ordinal,
 			When:          combinedWhen,
 		}
-		entries[name] = merged
+		return nil
 	case "remove":
 		accumulated := p.accumulateKustomizationRemovals(existing.Kustomization, new.Kustomization)
-		combinedWhen := ""
-		if existing.When != "" && new.When != "" {
-			combinedWhen = fmt.Sprintf("(%s) && (%s)", existing.When, new.When)
-		} else if existing.When != "" {
-			combinedWhen = existing.When
-		} else if new.When != "" {
-			combinedWhen = new.When
-		}
 		entries[name] = &blueprintv1alpha1.ConditionalKustomization{
 			Kustomization: accumulated,
 			Strategy:      "remove",
 			Ordinal:       new.Ordinal,
 			When:          combinedWhen,
 		}
-	case "replace":
-		new.Strategy = strategy
-		entries[name] = new
+		return nil
 	default:
 		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
 	}
-	return nil
 }
 
 // applyCollectedComponents applies all collected components and kustomizations to the target
