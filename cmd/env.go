@@ -108,6 +108,5 @@ var envCmd = &cobra.Command{
 func init() {
 	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before setting environment variables")
 	envCmd.Flags().Bool("hook", false, "Flag that indicates the command is being executed by the hook")
-	envCmd.Flags().Bool("verbose", false, "Show verbose error output")
 	rootCmd.AddCommand(envCmd)
 }
