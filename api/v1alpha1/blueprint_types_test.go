@@ -3756,4 +3756,12 @@ func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
 			t.Errorf("Expected new key with empty map to be added, got %v", got["new_map"])
 		}
 	})
+	t.Run("EmptyOverlayOverwritesBaseKeyWithNilValue", func(t *testing.T) {
+		base := map[string]any{"key": nil}
+		overlay := map[string]any{"key": ""}
+		got := DeepMergeMaps(base, overlay)
+		if got["key"] != "" {
+			t.Errorf("Expected empty overlay to be applied when base value is nil, got %v", got["key"])
+		}
+	})
 }
