@@ -1383,8 +1383,10 @@ func DeepMergeMaps(base, overlay map[string]any) map[string]any {
 		} else {
 			effectiveOverlay = overlayValue
 		}
-		if isEmptyMergeValue(effectiveOverlay) && !isEmptyMergeValue(result[k]) {
-			continue
+		if isEmptyMergeValue(effectiveOverlay) {
+			if baseVal, inBase := result[k]; inBase && !isEmptyMergeValue(baseVal) {
+				continue
+			}
 		}
 		if overlayMap != nil {
 			result[k] = overlayMap
