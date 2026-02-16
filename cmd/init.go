@@ -171,7 +171,11 @@ var initCmd = &cobra.Command{
 		} else if initProvider != "" {
 			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
 		} else if contextName == "local" {
-			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
+			if _, err := os.Stat(rt.TemplateRoot); os.IsNotExist(err) {
+				blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
+			} else if err != nil {
+				return fmt.Errorf("error checking template root: %w", err)
+			}
 		}
 		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err

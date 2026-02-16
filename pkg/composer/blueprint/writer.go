@@ -50,13 +50,11 @@ func NewBlueprintWriter(rt *runtime.Runtime) *BaseBlueprintWriter {
 // =============================================================================
 
 // Write serializes the blueprint to YAML and saves it to blueprint.yaml in the config root.
-// Before writing, transient fields are stripped - these include inputs, substitutions, patches,
-// parallelism, and Flux timing settings that are used at runtime but should not be stored in
-// the user's blueprint. If overwrite is false and the file exists, the write is skipped to
-// preserve user modifications. The directory structure is created if it doesn't exist.
-// On first initialization (file doesn't exist), writes a minimal blueprint with only sources,
-// since terraform and kustomize components come from referenced blueprints. The initBlueprintURLs
-// parameter contains blueprint URLs that should be added as sources during initialization.
+// It always writes the referential form: metadata, repository, and sources only (no
+// terraform/kustomize expansion). Components come from referenced blueprint sources;
+// run "windsor show blueprint" to see the fully rendered blueprint. If overwrite is false
+// and the file exists, the write is skipped to preserve user modifications. The
+// initBlueprintURLs parameter contains blueprint URLs to add as sources when initializing.
 func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, overwrite bool, initBlueprintURLs ...string) error {
 	if blueprint == nil {
 		return fmt.Errorf("cannot write nil blueprint")
@@ -84,21 +82,10 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	var data []byte
-	var err error
-
-	if !fileExists {
-		minimalBlueprint := w.createMinimalBlueprint(blueprint, initBlueprintURLs...)
-		data, err = w.shims.YamlMarshal(minimalBlueprint)
-		if err != nil {
-			return fmt.Errorf("error marshalling blueprint: %w", err)
-		}
-	} else {
-		cleanedBlueprint := w.cleanTransientFields(blueprint)
-		data, err = w.shims.YamlMarshal(cleanedBlueprint)
-		if err != nil {
-			return fmt.Errorf("error marshalling blueprint: %w", err)
-		}
+	referential := w.createMinimalBlueprint(blueprint, initBlueprintURLs...)
+	data, err := w.shims.YamlMarshal(referential)
+	if err != nil {
+		return fmt.Errorf("error marshalling blueprint: %w", err)
 	}
 
 	header := []byte(`# This file selects and overrides components from underlying blueprint sources.
@@ -117,73 +104,7 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 // Private Methods
 // =============================================================================
 
-// cleanTransientFields creates a deep copy of the blueprint with runtime-only fields removed.
-// For terraform components: Inputs (used for tfvars generation) and Parallelism (runtime override).
-// For kustomizations: Patches, Interval, RetryInterval, Timeout, Substitutions, Wait, Force, and
-// Prune are all stripped as they come from feature composition and should not be written to the
-// user's blueprint. ConfigMaps are stripped except for user-defined ones (values-common is
-// runtime-generated from legacy variables and should not be persisted). Users can override these
-// in their blueprint.yaml if explicitly needed.
-func (w *BaseBlueprintWriter) cleanTransientFields(blueprint *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint {
-	if blueprint == nil {
-		return nil
-	}
-
-	cleaned := blueprint.DeepCopy()
-
-	for i := range cleaned.TerraformComponents {
-		cleaned.TerraformComponents[i].Inputs = nil
-		cleaned.TerraformComponents[i].Parallelism = nil
-		if cleaned.TerraformComponents[i].Enabled != nil && !cleaned.TerraformComponents[i].Enabled.IsExpr {
-			if cleaned.TerraformComponents[i].Enabled.Value != nil && *cleaned.TerraformComponents[i].Enabled.Value {
-				cleaned.TerraformComponents[i].Enabled = nil
-			}
-		}
-	}
-
-	for i := range cleaned.Kustomizations {
-		cleaned.Kustomizations[i].Patches = nil
-		cleaned.Kustomizations[i].Interval = nil
-		cleaned.Kustomizations[i].RetryInterval = nil
-		cleaned.Kustomizations[i].Timeout = nil
-		cleaned.Kustomizations[i].Substitutions = nil
-		cleaned.Kustomizations[i].Wait = nil
-		cleaned.Kustomizations[i].Force = nil
-		cleaned.Kustomizations[i].Prune = nil
-		if cleaned.Kustomizations[i].Enabled != nil && !cleaned.Kustomizations[i].Enabled.IsExpr {
-			if cleaned.Kustomizations[i].Enabled.Value != nil && *cleaned.Kustomizations[i].Enabled.Value {
-				cleaned.Kustomizations[i].Enabled = nil
-			}
-		}
-	}
-
-	for i := range cleaned.Sources {
-		if cleaned.Sources[i].Install != nil && !cleaned.Sources[i].Install.IsExpr {
-			if cleaned.Sources[i].Install.Value != nil && !*cleaned.Sources[i].Install.Value {
-				cleaned.Sources[i].Install = nil
-			}
-		}
-	}
-
-	if cleaned.ConfigMaps != nil {
-		if _, hasValuesCommon := cleaned.ConfigMaps["values-common"]; hasValuesCommon {
-			if len(cleaned.ConfigMaps) == 1 {
-				cleaned.ConfigMaps = nil
-			} else {
-				userConfigMaps := make(map[string]map[string]string)
-				for k, v := range cleaned.ConfigMaps {
-					if k != "values-common" {
-						userConfigMaps[k] = v
-					}
-				}
-				cleaned.ConfigMaps = userConfigMaps
-			}
-		}
-	}
-
-	return cleaned
-}
-
+// createMinimalBlueprint creates the referential blueprint form: metadata, repository, and
 // createMinimalBlueprint creates a minimal blueprint with only sources, metadata, and API version.
 // This is used for first-time initialization when components come from referenced blueprints
 // rather than being explicitly listed in the user blueprint. The initBlueprintURLs parameter
