@@ -301,7 +301,7 @@ func TestWriter_Write(t *testing.T) {
 		if strings.Contains(dataStr, "cluster/talos") || strings.Contains(dataStr, "path: csi") {
 			t.Error("Expected minimal blueprint (no terraform/kustomize expansion) when overwrite=true with init URLs")
 		}
-		if !strings.Contains(dataStr, "sources:") && !strings.Contains(dataStr, "core") {
+		if !strings.Contains(dataStr, "sources:") || !strings.Contains(dataStr, "core") {
 			t.Error("Expected minimal blueprint to contain sources")
 		}
 	})
