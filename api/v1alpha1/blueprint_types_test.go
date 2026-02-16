@@ -3720,3 +3720,48 @@ func TestToSliceAny(t *testing.T) {
 		}
 	})
 }
+
+func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
+	t.Run("EmptyStringOverlayDoesNotOverwriteNonEmptyBase", func(t *testing.T) {
+		base := map[string]any{"key": "populated"}
+		overlay := map[string]any{"key": ""}
+		got := DeepMergeMaps(base, overlay)
+		if got["key"] != "populated" {
+			t.Errorf("Expected populated value preserved, got %v", got["key"])
+		}
+	})
+	t.Run("EmptySliceOverlayDoesNotOverwriteNonEmptyBase", func(t *testing.T) {
+		base := map[string]any{"patches": []any{"a", "b"}}
+		overlay := map[string]any{"patches": []any{}}
+		got := DeepMergeMaps(base, overlay)
+		sl, ok := got["patches"].([]any)
+		if !ok {
+			t.Fatalf("Expected []any, got %T", got["patches"])
+		}
+		if len(sl) != 2 || sl[0] != "a" || sl[1] != "b" {
+			t.Errorf("Expected [a b] preserved, got %v", sl)
+		}
+	})
+	t.Run("EmptyOverlayValueForKeyMissingInBaseIsAdded", func(t *testing.T) {
+		base := map[string]any{"a": 1}
+		overlay := map[string]any{"new_empty": "", "new_slice": []any{}, "new_map": map[string]any{}}
+		got := DeepMergeMaps(base, overlay)
+		if got["new_empty"] != "" {
+			t.Errorf("Expected new key with empty string to be added, got %v", got["new_empty"])
+		}
+		if sl, ok := got["new_slice"].([]any); !ok || len(sl) != 0 {
+			t.Errorf("Expected new key with empty slice to be added, got %v", got["new_slice"])
+		}
+		if m, ok := got["new_map"].(map[string]any); !ok || len(m) != 0 {
+			t.Errorf("Expected new key with empty map to be added, got %v", got["new_map"])
+		}
+	})
+	t.Run("EmptyOverlayOverwritesBaseKeyWithNilValue", func(t *testing.T) {
+		base := map[string]any{"key": nil}
+		overlay := map[string]any{"key": ""}
+		got := DeepMergeMaps(base, overlay)
+		if got["key"] != "" {
+			t.Errorf("Expected empty overlay to be applied when base value is nil, got %v", got["key"])
+		}
+	})
+}

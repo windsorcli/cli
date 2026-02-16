@@ -34,6 +34,7 @@ type terraformProvider struct {
 	Shims         *Shims // Exported for testing
 	cache         map[string]map[string]any
 	components    []blueprintv1alpha1.TerraformComponent
+	configScope   map[string]any
 	mu            sync.RWMutex
 }
 
@@ -74,6 +75,7 @@ type TerraformProvider interface {
 	GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent)
+	SetConfigScope(scope map[string]any)
 	GetTerraformOutputs(componentID string) (map[string]any, error)
 	CacheOutputs(componentID string) error
 	GetTFDataDir(componentID string) (string, error)
@@ -380,6 +382,14 @@ func (p *terraformProvider) SetTerraformComponents(components []blueprintv1alpha
 	p.components = components
 }
 
+// SetConfigScope sets the config scope (facet config blocks) used when evaluating component inputs
+// in GetEnvVars, so expressions like docker_desktop_common_patches.patchVars.common_config_patches resolve.
+func (p *terraformProvider) SetConfigScope(scope map[string]any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.configScope = scope
+}
+
 // GetTFDataDir calculates the TF_DATA_DIR path for a given component ID.
 // It resolves the component ID to the actual component ID (using GetID if component exists),
 // then constructs the path as ${windsorScratchPath}/.terraform/${componentID}.
@@ -438,8 +448,12 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 		component := p.GetTerraformComponent(componentID)
 		if component != nil && component.Inputs != nil && len(component.Inputs) > 0 {
 			for key, value := range component.Inputs {
+				envKey := fmt.Sprintf("TF_VAR_%s", key)
 				if evaluator.ContainsExpression(value) {
-					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", nil, true)
+					p.mu.RLock()
+					evalScope := p.configScope
+					p.mu.RUnlock()
+					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, true)
 					if err != nil {
 						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
 					}
@@ -447,12 +461,23 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					if !exists {
 						continue
 					}
-					envKey := fmt.Sprintf("TF_VAR_%s", key)
 					var envValue string
 					if valueStr, ok := evaluatedValue.(string); ok {
 						envValue = valueStr
 					} else {
 						valueBytes, err := p.Shims.JsonMarshal(evaluatedValue)
+						if err != nil {
+							continue
+						}
+						envValue = string(valueBytes)
+					}
+					envVars[envKey] = envValue
+				} else {
+					var envValue string
+					if valueStr, ok := value.(string); ok {
+						envValue = valueStr
+					} else {
+						valueBytes, err := p.Shims.JsonMarshal(value)
 						if err != nil {
 							continue
 						}
@@ -568,15 +593,16 @@ func (p *terraformProvider) CacheOutputs(componentID string) error {
 	return nil
 }
 
-// ClearCache clears the session cache for all components.
-// This invalidates cached Terraform components and output values, forcing them to be reloaded
-// from the blueprint file and re-fetched from Terraform state on the next access.
+// ClearCache clears the session cache for all components and the config scope.
+// This invalidates cached Terraform components, output values, and scope used for input evaluation,
+// forcing them to be reloaded from the blueprint and re-set by the next composition.
 // This is useful when the blueprint has been modified or when outputs need to be refreshed.
 func (p *terraformProvider) ClearCache() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cache = make(map[string]map[string]any)
 	p.components = nil
+	p.configScope = nil
 }
 
 // =============================================================================

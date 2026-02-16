@@ -225,25 +225,30 @@ func TestNewTerraformProvider(t *testing.T) {
 
 func TestTerraformProvider_ClearCache(t *testing.T) {
 	t.Run("ClearsAllCachedOutputsAndComponents", func(t *testing.T) {
-		// Given a provider with cached outputs and components
+		// Given a provider with cached outputs, components, and config scope
 		mocks := setupMocks(t)
 
 		mocks.Provider.mu.Lock()
 		mocks.Provider.cache["component1"] = map[string]any{"output1": "value1"}
 		mocks.Provider.cache["component2"] = map[string]any{"output2": "value2"}
 		mocks.Provider.components = []blueprintv1alpha1.TerraformComponent{{Path: "test"}}
+		mocks.Provider.configScope = map[string]any{"stale": "scope"}
 		mocks.Provider.mu.Unlock()
 
 		// When clearing the cache
 		mocks.Provider.ClearCache()
 
-		// Then cache and components should be cleared
+		// Then cache, components, and config scope should be cleared
 		if len(mocks.Provider.cache) != 0 {
 			t.Errorf("Expected cache to be empty after ClearCache, got %d entries", len(mocks.Provider.cache))
 		}
 
 		if mocks.Provider.components != nil {
 			t.Error("Expected components to be cleared after ClearCache")
+		}
+
+		if mocks.Provider.configScope != nil {
+			t.Error("Expected configScope to be cleared after ClearCache so GetEnvVars does not use stale scope")
 		}
 	})
 }
@@ -2703,7 +2708,7 @@ terraform:
 		}
 	})
 
-	t.Run("SkipsInputsWithoutContainsExpression", func(t *testing.T) {
+	t.Run("EmitsTFVarForInputsWithoutExpressions", func(t *testing.T) {
 		// Given a blueprint with inputs without expressions
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
@@ -2718,17 +2723,15 @@ terraform:
 		// When getting env vars
 		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
-		// Then inputs without expressions should be skipped
+		// Then TF_VAR_* should be set from resolved input values
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-
-		if _, exists := envVars["TF_VAR_cluster_name"]; exists {
-			t.Error("Expected TF_VAR_cluster_name to not be set when ContainsExpression returns false")
+		if envVars["TF_VAR_cluster_name"] != "test-cluster" {
+			t.Errorf("Expected TF_VAR_cluster_name to be set from resolved input, got: %s", envVars["TF_VAR_cluster_name"])
 		}
-
-		if _, exists := envVars["TF_VAR_plain_value"]; exists {
-			t.Error("Expected TF_VAR_plain_value to not be set when ContainsExpression returns false")
+		if envVars["TF_VAR_plain_value"] != "plain" {
+			t.Errorf("Expected TF_VAR_plain_value to be set from resolved input, got: %s", envVars["TF_VAR_plain_value"])
 		}
 	})
 
@@ -2977,6 +2980,86 @@ terraform:
 
 		if _, exists := envVars["TF_VAR_vpc_id"]; exists {
 			t.Error("Expected TF_VAR_vpc_id to not be set when key doesn't exist in evaluated result")
+		}
+	})
+
+	t.Run("UsesConfigScopeWhenEvaluatingInputsWithScopeReferences", func(t *testing.T) {
+		// Given a provider with config scope and component input referencing scope
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetContextFunc = func() string { return "default" }
+		configHandler.GetConfigRootFunc = func() (string, error) { return "/test/config", nil }
+		configHandler.GetWindsorScratchPathFunc = func() (string, error) { return "/test/scratch", nil }
+		configHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		testEvaluator := evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/template")
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none", Evaluator: testEvaluator})
+		mocks.Provider.evaluator = testEvaluator
+
+		patches := []any{map[string]any{"op": "add", "path": "/machine/foo"}}
+		scope := map[string]any{
+			"some_block": map[string]any{
+				"patchVars": map[string]any{
+					"common_config_patches": patches,
+				},
+			},
+		}
+		mocks.Provider.SetConfigScope(scope)
+		component := blueprintv1alpha1.TerraformComponent{
+			Path: "cluster",
+			Inputs: map[string]any{
+				"common_config_patches": "${some_block.patchVars.common_config_patches}",
+			},
+		}
+		component.FullPath = "/test/project/terraform/cluster"
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		// When getting env vars
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		// Then expression should be evaluated with scope and TF_VAR set
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		val, ok := envVars["TF_VAR_common_config_patches"]
+		if !ok {
+			t.Fatal("Expected TF_VAR_common_config_patches to be set when config scope provides value")
+		}
+		if val != `[{"op":"add","path":"/machine/foo"}]` {
+			t.Errorf("Expected TF_VAR_common_config_patches to be JSON of scope value, got: %s", val)
+		}
+	})
+
+	t.Run("EmitsTFVarForResolvedInputsWithoutExpressions", func(t *testing.T) {
+		// Given a provider with component having resolved (non-expression) input
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		patches := []any{map[string]any{"op": "add", "path": "/machine/bar"}}
+		component := blueprintv1alpha1.TerraformComponent{
+			Path: "cluster",
+			Inputs: map[string]any{
+				"common_config_patches": patches,
+			},
+		}
+		component.FullPath = "/test/project/terraform/cluster"
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		// When getting env vars
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+
+		// Then TF_VAR should be set with JSON of value
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		val, ok := envVars["TF_VAR_common_config_patches"]
+		if !ok {
+			t.Fatal("Expected TF_VAR_common_config_patches to be set for resolved (non-expression) input")
+		}
+		if val != `[{"op":"add","path":"/machine/bar"}]` {
+			t.Errorf("Expected TF_VAR_common_config_patches to be JSON of input value, got: %s", val)
 		}
 	})
 }

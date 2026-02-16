@@ -88,7 +88,8 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // priority ones. When priorities are equal, strategy priority is used: "remove" (highest) > "replace" > "merge" (default, lowest).
 // When both priority and strategy are equal, components are merged, removals are accumulated, or replace wins.
 // The target blueprint is modified in place. Returns the evaluated config scope and block order
-// for this loader so the caller can merge scopes from multiple loaders.
+// for this loader so the caller can merge scopes from multiple loaders. Context values (e.g. workstation.runtime)
+// from the runtime ConfigHandler are merged over facet-derived scope so when/component expressions see actual config.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
 	if target == nil {
 		return nil, nil, fmt.Errorf("target blueprint cannot be nil")
@@ -96,6 +97,13 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	if len(facets) == 0 {
 		return nil, nil, nil
+	}
+
+	var contextScope map[string]any
+	if p.runtime != nil && p.runtime.ConfigHandler != nil {
+		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
+			contextScope = vals
+		}
 	}
 
 	sortedFacets := make([]blueprintv1alpha1.Facet, len(facets))
@@ -111,7 +119,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
 
 	for _, facet := range sortedFacets {
-		shouldInclude, err := p.shouldIncludeFacet(facet)
+		shouldInclude, err := p.shouldIncludeFacet(facet, contextScope)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -120,25 +128,26 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		}
 		includedFacets = append(includedFacets, facet)
 		var errMerge error
-		globalScope, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, configBlockOrder)
+		globalScope, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, configBlockOrder, contextScope)
 		if errMerge != nil {
 			return nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 		}
 	}
-	if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder); err != nil {
+	if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
 		return nil, nil, err
 	}
 
+	mergedScope := p.mergeContextOverScope(contextScope, globalScope)
 	for _, facet := range includedFacets {
-		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, globalScope); err != nil {
+		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, mergedScope); err != nil {
 			return nil, nil, err
 		}
-		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, globalScope); err != nil {
+		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, mergedScope); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName); err != nil {
+	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, mergedScope); err != nil {
 		return nil, nil, err
 	}
 	return globalScope, configBlockOrder, nil
@@ -148,6 +157,16 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // Private Methods
 // =============================================================================
 
+// mergeContextOverScope returns a new map by deep-merging contextScope over globalScope so
+// expressions see actual context values (e.g. workstation.runtime) while preserving facet-derived
+// nested structure under shared top-level keys (e.g. cluster, workstation).
+func (p *BaseBlueprintProcessor) mergeContextOverScope(contextScope, globalScope map[string]any) map[string]any {
+	if globalScope == nil {
+		globalScope = make(map[string]any)
+	}
+	return blueprintv1alpha1.DeepMergeMaps(globalScope, contextScope)
+}
+
 // mergeFacetScopeIntoGlobal merges the facet's config block structure into the global scope
 // (accumulated from prior facets) without evaluating config body expressions. Returns the
 // updated global scope and the config block name order (later in list takes precedence).
@@ -155,7 +174,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // For a given name, only blocks whose when condition is true contribute; if multiple blocks
 // with the same name have when true, their bodies are deep-merged in list order (later overlay).
 // This ensures mutually exclusive when conditions resolve to the single matching block.
-func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, order []string) (map[string]any, []string, error) {
+func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, order []string, contextScope map[string]any) (map[string]any, []string, error) {
 	byName := make(map[string][]map[string]any)
 	nameOrder := make([]string, 0)
 	seen := make(map[string]bool)
@@ -164,7 +183,7 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			continue
 		}
 		if block.When != "" {
-			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path)
+			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path, contextScope)
 			if err != nil {
 				return nil, order, fmt.Errorf("config block %q when: %w", block.Name, err)
 			}
@@ -216,17 +235,19 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 }
 
 // evaluateGlobalScopeConfig evaluates all config block body expressions in globalScope in
-// blueprint context with globalScope merged into the evaluation environment so config
-// blocks can reference each other (e.g. talos_common.common_patch referencing
-// talos_common.patchVars, or controlplanes.patch referencing talos_common.patchVars).
-// Same-block references (e.g. patches referencing talos_common_docker.common_patch within
-// the same block) are supported by re-evaluating each block until stable, with the block's
-// last-evaluated result in scope so later keys see earlier keys' values. Called once after
-// all facets have been merged. Mutates globalScope in place. Block names are iterated in
-// configBlockOrder so later blocks in the list are evaluated after earlier ones.
-func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, configBlockOrder []string) error {
+// blueprint context. The evaluation scope is contextScope (values from ConfigHandler) merged
+// with globalScope (facet config blocks) so expressions can reference both (e.g.
+// cluster.controlplanes.schedulable from values and talos.controlplanes from config blocks).
+// Same-block references are supported by re-evaluating each block until stable. Mutates
+// globalScope in place. Block names are iterated in configBlockOrder.
+func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, configBlockOrder []string, contextScope map[string]any) error {
 	if globalScope == nil {
 		return nil
+	}
+	if contextScope == nil && p.runtime != nil && p.runtime.ConfigHandler != nil {
+		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
+			contextScope = vals
+		}
 	}
 	names := configBlockOrder
 	if len(names) == 0 {
@@ -249,10 +270,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			oldBody := bodyMap
 			current := bodyMap
 			for pass := 0; pass < maxSameBlockPasses; pass++ {
-				scopeWithBlock := make(map[string]any, len(globalScope))
-				for k, v := range globalScope {
-					scopeWithBlock[k] = v
-				}
+				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
 				scopeWithBlock[name] = current
 				evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", scopeWithBlock, false)
 				if err != nil {
@@ -263,10 +281,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				}
 				current = evaluated
 			}
-			scopeWithBlock := make(map[string]any, len(globalScope))
-			for k, v := range globalScope {
-				scopeWithBlock[k] = v
-			}
+			scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
 			scopeWithBlock[name] = current
 			const maxResolvePasses = 3
 			for resolvePass := 0; resolvePass < maxResolvePasses; resolvePass++ {
@@ -325,7 +340,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			componentWhen = facet.When
 		}
 
-		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path)
+		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path, facetScope)
 		if err != nil {
 			return fmt.Errorf("error evaluating terraform component condition: %w", err)
 		}
@@ -387,7 +402,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			processed.Strategy = strategy
 			terraformByID[componentID] = &processed
 		} else {
-			if err := p.updateTerraformComponentEntry(componentID, &processed, strategy, terraformByID); err != nil {
+			if err := p.updateTerraformComponentEntry(componentID, &processed, strategy, terraformByID, facetScope); err != nil {
 				return err
 			}
 		}
@@ -409,7 +424,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			componentWhen = facet.When
 		}
 
-		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path)
+		shouldInclude, err := p.shouldIncludeComponent(componentWhen, facet.Path, facetScope)
 		if err != nil {
 			return fmt.Errorf("error evaluating kustomization condition: %w", err)
 		}
@@ -465,9 +480,11 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 
 		if _, exists := kustomizationByName[processed.Name]; !exists {
 			processed.Strategy = strategy
-			kustomizationByName[processed.Name] = &processed
+			entry := new(blueprintv1alpha1.ConditionalKustomization)
+			*entry = processed
+			kustomizationByName[processed.Name] = entry
 		} else {
-			if err := p.updateKustomizationEntry(processed.Name, &processed, strategy, kustomizationByName); err != nil {
+			if err := p.updateKustomizationEntry(processed.Name, &processed, strategy, kustomizationByName, facetScope); err != nil {
 				return err
 			}
 		}
@@ -478,11 +495,11 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 // shouldIncludeFacet evaluates whether a facet should be included based on its 'when' condition.
 // Returns true if the facet has no condition or if the condition evaluates to true. Returns
 // false if the condition evaluates to false. Returns an error if condition evaluation fails.
-func (p *BaseBlueprintProcessor) shouldIncludeFacet(facet blueprintv1alpha1.Facet) (bool, error) {
+func (p *BaseBlueprintProcessor) shouldIncludeFacet(facet blueprintv1alpha1.Facet, scope map[string]any) (bool, error) {
 	if facet.When == "" {
 		return true, nil
 	}
-	matches, err := p.evaluateCondition(facet.When, facet.Path)
+	matches, err := p.evaluateCondition(facet.When, facet.Path, scope)
 	if err != nil {
 		return false, fmt.Errorf("error evaluating facet '%s' condition: %w", facet.Metadata.Name, err)
 	}
@@ -493,11 +510,11 @@ func (p *BaseBlueprintProcessor) shouldIncludeFacet(facet blueprintv1alpha1.Face
 // on its 'when' condition. Returns true if there is no condition or if the condition evaluates
 // to true. Returns false if the condition evaluates to false. Returns an error if condition
 // evaluation fails.
-func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, facetPath string) (bool, error) {
+func (p *BaseBlueprintProcessor) shouldIncludeComponent(when string, facetPath string, scope map[string]any) (bool, error) {
 	if when == "" {
 		return true, nil
 	}
-	matches, err := p.evaluateCondition(when, facetPath)
+	matches, err := p.evaluateCondition(when, facetPath, scope)
 	if err != nil {
 		return false, err
 	}
@@ -521,6 +538,7 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	new *blueprintv1alpha1.ConditionalTerraformComponent,
 	strategy string,
 	entries map[string]*blueprintv1alpha1.ConditionalTerraformComponent,
+	scope map[string]any,
 ) error {
 	existing := entries[componentID]
 	existingStrategy := existing.Strategy
@@ -529,19 +547,19 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 	}
 
 	if existing.When == "" && new.When != "" {
-		shouldInclude, err := p.shouldIncludeComponent(new.When, "")
+		shouldInclude, err := p.shouldIncludeComponent(new.When, "", scope)
 		if err == nil && !shouldInclude {
 			delete(entries, componentID)
 			return nil
 		}
 	} else if existing.When != "" {
-		shouldInclude, err := p.shouldIncludeComponent(existing.When, "")
+		shouldInclude, err := p.shouldIncludeComponent(existing.When, "", scope)
 		if err == nil && !shouldInclude {
 			delete(entries, componentID)
 			return nil
 		}
 		if new.When != "" {
-			shouldInclude, err := p.shouldIncludeComponent(new.When, "")
+			shouldInclude, err := p.shouldIncludeComponent(new.When, "", scope)
 			if err == nil && !shouldInclude {
 				delete(entries, componentID)
 				return nil
@@ -635,7 +653,7 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 // existing (replace). For replace operations with equal priority and strategy, the last processed
 // facet (alphabetically by name) wins. Users should set different priorities to make ordering explicit.
 // Returns an error if the merge operation fails.
-func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization) error {
+func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blueprintv1alpha1.ConditionalKustomization, strategy string, entries map[string]*blueprintv1alpha1.ConditionalKustomization, scope map[string]any) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
 	if existingStrategy == "" {
@@ -643,19 +661,19 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 	}
 
 	if existing.When == "" && new.When != "" {
-		shouldInclude, err := p.shouldIncludeComponent(new.When, "")
+		shouldInclude, err := p.shouldIncludeComponent(new.When, "", scope)
 		if err == nil && !shouldInclude {
 			delete(entries, name)
 			return nil
 		}
 	} else if existing.When != "" {
-		shouldInclude, err := p.shouldIncludeComponent(existing.When, "")
+		shouldInclude, err := p.shouldIncludeComponent(existing.When, "", scope)
 		if err == nil && !shouldInclude {
 			delete(entries, name)
 			return nil
 		}
 		if new.When != "" {
-			shouldInclude, err := p.shouldIncludeComponent(new.When, "")
+			shouldInclude, err := p.shouldIncludeComponent(new.When, "", scope)
 			if err == nil && !shouldInclude {
 				delete(entries, name)
 				return nil
@@ -746,10 +764,10 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 // blueprint in the documented order: replace operations first, then merge operations, then remove
 // operations last. This ensures that remove operations are applied after all merge/replace
 // operations, as documented. Returns an error if any application operation fails.
-func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alpha1.Blueprint, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization) error {
+func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alpha1.Blueprint, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, scope map[string]any) error {
 	for componentID, entry := range terraformByID {
 		if entry.When != "" {
-			shouldInclude, err := p.shouldIncludeComponent(entry.When, "")
+			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
 			if err != nil {
 				return fmt.Errorf("error re-evaluating terraform component '%s' condition: %w", componentID, err)
 			}
@@ -761,7 +779,7 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 
 	for name, entry := range kustomizationByName {
 		if entry.When != "" {
-			shouldInclude, err := p.shouldIncludeComponent(entry.When, "")
+			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
 			if err != nil {
 				return fmt.Errorf("error re-evaluating kustomization '%s' condition: %w", name, err)
 			}
@@ -916,12 +934,13 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 // the provided configuration data. The path parameter provides context for error messages and
 // helper function resolution. Returns true if the expression evaluates to boolean true or the
 // string "true". Returns false for nil (undefined variables) or boolean false. Returns an error
-// if the expression is invalid or evaluates to an unexpected type.
-func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string) (bool, error) {
+// if the expression is invalid or evaluates to an unexpected type. When scope is non-nil (e.g.
+// context merged with facet scope), expressions can reference values like workstation.runtime.
+func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string, scope map[string]any) (bool, error) {
 	if !evaluator.ContainsExpression(expr) {
 		expr = "${" + expr + "}"
 	}
-	evaluated, err := p.evaluator.Evaluate(expr, path, nil, false)
+	evaluated, err := p.evaluator.Evaluate(expr, path, scope, false)
 	if err != nil {
 		return false, err
 	}

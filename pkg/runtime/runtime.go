@@ -232,6 +232,9 @@ func (rt *Runtime) HandleSessionReset() error {
 		if err := os.Setenv("NO_CACHE", "true"); err != nil {
 			return fmt.Errorf("failed to set NO_CACHE: %w", err)
 		}
+		if rt.TerraformProvider != nil {
+			rt.TerraformProvider.ClearCache()
+		}
 	}
 
 	return nil
