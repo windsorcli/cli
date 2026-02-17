@@ -108,7 +108,7 @@ func captureProcessStdout(t *testing.T) (buf *bytes.Buffer, restore func()) {
 // Returns trimmed stdout string, stderr string, and Execute() error.
 func runCmd(t *testing.T, ctx context.Context, args []string) (stdout, stderr string, err error) {
 	t.Helper()
-	stderrBuf, _ := captureOutputAndRestore(t)
+	_, stderrBuf := captureOutputAndRestore(t)
 	stdoutBuf, restore := captureProcessStdout(t)
 	rootCmd.SetContext(ctx)
 	rootCmd.SetArgs(args)
