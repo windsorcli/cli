@@ -70,7 +70,7 @@ tasks:
       - cmd: |
           go tool cover -func=coverage.out | tail -1 | awk '{print "total coverage:", $NF}'
         platforms: [linux, darwin]
-      - cmd: 'powershell -NoProfile -Command "`$l = go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1; if (`$l -match ''(\\d+\\.\\d+%)'') { Write-Host (''total coverage: '' + `$matches[1]) }"'
+      - cmd: powershell -NoProfile -Command "go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1"
         platforms: [windows]
 
   test:all:
@@ -91,7 +91,7 @@ tasks:
       - cmd: |
           go tool cover -func=coverage.out | tail -1 | awk '{print "total coverage:", $NF}'
         platforms: [linux, darwin]
-      - cmd: 'powershell -NoProfile -Command "`$l = go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1; if (`$l -match ''(\\d+\\.\\d+%)'') { Write-Host (''total coverage: '' + `$matches[1]) }"'
+      - cmd: powershell -NoProfile -Command "go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1"
         platforms: [windows]
     silent: true
 
