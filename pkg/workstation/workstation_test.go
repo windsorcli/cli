@@ -169,7 +169,7 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 	mockNetworkManager.AssignIPsFunc = func(services []services.Service) error { return nil }
 	mockNetworkManager.ConfigureHostRouteFunc = func() error { return nil }
 	mockNetworkManager.ConfigureGuestFunc = func() error { return nil }
-	mockNetworkManager.ConfigureDNSFunc = func() error { return nil }
+	mockNetworkManager.ConfigureDNSFunc = func(dnsAddressOverride string) error { return nil }
 
 	// Set up mock virtual machine behaviors
 	mockVirtualMachine.UpFunc = func(verbose ...bool) error {
@@ -525,7 +525,7 @@ func TestWorkstation_Up(t *testing.T) {
 			guestCalled = true
 			return nil
 		}
-		mocks.NetworkManager.ConfigureDNSFunc = func() error {
+		mocks.NetworkManager.ConfigureDNSFunc = func(dnsAddressOverride string) error {
 			dnsCalled = true
 			return nil
 		}

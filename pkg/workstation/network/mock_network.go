@@ -21,7 +21,7 @@ type MockNetworkManager struct {
 	AssignIPsFunc          func([]services.Service) error
 	ConfigureHostRouteFunc func() error
 	ConfigureGuestFunc     func() error
-	ConfigureDNSFunc       func() error
+	ConfigureDNSFunc       func(dnsAddressOverride string) error
 }
 
 // =============================================================================
@@ -62,9 +62,9 @@ func (m *MockNetworkManager) ConfigureGuest() error {
 }
 
 // ConfigureDNS calls the custom ConfigureDNSFunc if provided.
-func (m *MockNetworkManager) ConfigureDNS() error {
+func (m *MockNetworkManager) ConfigureDNS(dnsAddressOverride string) error {
 	if m.ConfigureDNSFunc != nil {
-		return m.ConfigureDNSFunc()
+		return m.ConfigureDNSFunc(dnsAddressOverride)
 	}
 	return nil
 }

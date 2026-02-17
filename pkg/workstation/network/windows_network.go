@@ -70,17 +70,18 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up a per-domain DNS rule for a specific host name using Windows
-// Name Resolution Policy Table (NRPT). This ensures only the specified domain queries
-// are sent to the local DNS server.
-func (n *BaseNetworkManager) ConfigureDNS() error {
+// ConfigureDNS sets up a per-domain DNS rule using Windows NRPT. When dnsAddressOverride is non-empty
+// it is used; otherwise the address is read from config (dns.address or 127.0.0.1 in localhost mode).
+func (n *BaseNetworkManager) ConfigureDNS(dnsAddressOverride string) error {
 	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 
 	var dnsIP string
-	if n.isLocalhostMode() {
+	if dnsAddressOverride != "" {
+		dnsIP = dnsAddressOverride
+	} else if n.isLocalhostMode() {
 		dnsIP = "127.0.0.1"
 	} else {
 		dnsIP = n.configHandler.GetString("dns.address")

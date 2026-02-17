@@ -65,18 +65,18 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up DNS using systemd-resolved. If the DNS IP is configured, it ensures systemd-resolved is used
-// by creating a drop-in configuration file. The function checks if /etc/resolv.conf is a symlink to
-// systemd-resolved and restarts the service if necessary. It handles errors at each step to ensure
-// proper DNS configuration.
-func (n *BaseNetworkManager) ConfigureDNS() error {
+// ConfigureDNS sets up DNS using systemd-resolved. When dnsAddressOverride is non-empty it is used;
+// otherwise the address is read from config (dns.address or 127.0.0.1 in localhost mode).
+func (n *BaseNetworkManager) ConfigureDNS(dnsAddressOverride string) error {
 	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 
 	var dnsIP string
-	if n.isLocalhostMode() {
+	if dnsAddressOverride != "" {
+		dnsIP = dnsAddressOverride
+	} else if n.isLocalhostMode() {
 		dnsIP = "127.0.0.1"
 	} else {
 		dnsIP = n.configHandler.GetString("dns.address")

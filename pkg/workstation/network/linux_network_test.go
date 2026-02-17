@@ -185,7 +185,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// Then no error should occur
 		if err != nil {
@@ -201,7 +201,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {
@@ -235,7 +235,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err = manager.ConfigureDNS()
+		err = manager.ConfigureDNS("")
 
 		// Then no error should occur
 		if err != nil {
@@ -255,7 +255,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// Then an error should occur
 		if err == nil {
@@ -280,7 +280,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// Then an error should occur
 		if err == nil {
@@ -302,7 +302,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// Then an error should occur
 		if err == nil {
@@ -329,7 +329,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// Then no error should occur
 		if err != nil {
@@ -362,7 +362,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// Then an error should occur
 		if err == nil {
@@ -399,7 +399,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// Then an error should occur
 		if err == nil {
@@ -436,7 +436,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS()
+		err := manager.ConfigureDNS("")
 
 		// Then an error should occur
 		if err == nil {

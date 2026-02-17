@@ -189,7 +189,9 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	if w.NetworkManager != nil && !w.DeferHostGuestSetup {
+	// TODO: Re-enable when not driving configure from Terraform. Host/guest and DNS are
+	// currently run via windsor configure network (e.g. null_resource in workstation module).
+	if false && w.NetworkManager != nil && !w.DeferHostGuestSetup {
 		if vmDriver == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
@@ -201,7 +203,7 @@ func (w *Workstation) Up() error {
 			}
 		}
 		if dnsEnabled := w.configHandler.GetBool("dns.enabled"); dnsEnabled {
-			if err := w.NetworkManager.ConfigureDNS(); err != nil {
+			if err := w.NetworkManager.ConfigureDNS(""); err != nil {
 				return fmt.Errorf("error configuring DNS: %w", err)
 			}
 		}
@@ -227,15 +229,15 @@ func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
 }
 
 // ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
-// It is intended to be called after the "workstation" Terraform component is applied. ConfigureGuest and
-// ConfigureHostRoute runs only when workstation runtime is colima; ConfigureDNS runs when dns.enabled regardless of runtime.
+// When dnsAddressOverride is non-empty, DNS is configured with that address (resolver/NRPT only; config is not updated).
+// When empty, ConfigureDNS runs only when dns.enabled, using dns.address from config.
 // No-op when NetworkManager is nil.
-func (w *Workstation) ConfigureNetwork() error {
+func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 	if w.NetworkManager == nil {
 		return nil
 	}
 	vmDriver := w.configHandler.GetString("workstation.runtime")
-	if vmDriver == "colima" {
+	if vmDriver == "colima" && dnsAddressOverride == "" {
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
 			return fmt.Errorf("error configuring guest: %w", err)
 		}
@@ -243,40 +245,12 @@ func (w *Workstation) ConfigureNetwork() error {
 			return fmt.Errorf("error configuring host route: %w", err)
 		}
 	}
-	if w.configHandler.GetBool("dns.enabled") {
-		if err := w.NetworkManager.ConfigureDNS(); err != nil {
+	if dnsAddressOverride != "" || w.configHandler.GetBool("dns.enabled") {
+		if err := w.NetworkManager.ConfigureDNS(dnsAddressOverride); err != nil {
 			return fmt.Errorf("error configuring DNS: %w", err)
 		}
 	}
 	return nil
-}
-
-// AfterWorkstationComponent returns a hook to run after each Terraform component apply.
-// When id is "workstation", it sets dns.address from that component's Terraform outputs (dns.terraform_output_key or dns_address/dns_ip) and calls ConfigureNetwork.
-// No-op for other component IDs.
-func (w *Workstation) AfterWorkstationComponent() func(id string) error {
-	return func(id string) error {
-		if id != "workstation" {
-			return nil
-		}
-		if w.runtime.TerraformProvider != nil {
-			outputs, err := w.runtime.TerraformProvider.GetTerraformOutputs("workstation")
-			if err == nil && outputs != nil {
-				outputKey := w.configHandler.GetString("dns.terraform_output_key")
-				if outputKey == "" {
-					for _, k := range []string{"dns_address", "dns_ip"} {
-						if v, ok := outputs[k].(string); ok && v != "" {
-							_ = w.configHandler.Set("dns.address", v)
-							break
-						}
-					}
-				} else if v, ok := outputs[outputKey].(string); ok && v != "" {
-					_ = w.configHandler.Set("dns.address", v)
-				}
-			}
-		}
-		return w.ConfigureNetwork()
-	}
 }
 
 // Down stops all components of the workstation environment including services, containers, VMs, and networking.

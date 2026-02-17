@@ -76,18 +76,18 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 }
 
 // ConfigureDNS sets up DNS by modifying system files to route DNS queries.
-// It creates a resolver file for a specified DNS IP. The function ensures that the necessary
-// directories exist, writes the resolver file, and flushes the DNS cache to apply changes.
-// The function maintains idempotency by checking if the resolver file already exists with the
-// correct content, ensuring that no unnecessary changes are made.
-func (n *BaseNetworkManager) ConfigureDNS() error {
+// It creates a resolver file for a specified DNS IP. When dnsAddressOverride is non-empty it is used;
+// otherwise the address is read from config (dns.address or 127.0.0.1 in localhost mode).
+func (n *BaseNetworkManager) ConfigureDNS(dnsAddressOverride string) error {
 	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 
 	var dnsIP string
-	if n.isLocalhostMode() {
+	if dnsAddressOverride != "" {
+		dnsIP = dnsAddressOverride
+	} else if n.isLocalhostMode() {
 		dnsIP = "127.0.0.1"
 	} else {
 		dnsIP = n.configHandler.GetString("dns.address")

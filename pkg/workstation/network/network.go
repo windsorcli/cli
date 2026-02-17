@@ -26,7 +26,7 @@ type NetworkManager interface {
 	AssignIPs(services []services.Service) error
 	ConfigureHostRoute() error
 	ConfigureGuest() error
-	ConfigureDNS() error
+	ConfigureDNS(dnsAddressOverride string) error
 }
 
 // BaseNetworkManager is a concrete implementation of NetworkManager
