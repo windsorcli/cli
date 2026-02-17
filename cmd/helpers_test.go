@@ -65,8 +65,8 @@ func captureOutputAndRestore(t *testing.T) (stdout, stderr *bytes.Buffer) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	t.Cleanup(func() {
-		rootCmd.SetOut(os.Stdout)
-		rootCmd.SetErr(os.Stderr)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
 	})
 	return stdout, stderr
 }
