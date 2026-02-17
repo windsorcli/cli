@@ -48,7 +48,7 @@ tasks:
             go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
           fi
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -covermode=atomic -coverprofile=coverage.out -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd }"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -covermode=atomic -coverprofile='coverage.out' ./api/... ./pkg/... ./cmd }"
         platforms: [windows]
       - go tool cover -html=coverage.out -o coverage.html
     silent: true
@@ -65,7 +65,7 @@ tasks:
             go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run TestIntegration ./cmd
           fi
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run TestIntegration ./cmd }"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -v -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -v -covermode=atomic -coverprofile='coverage.out' -run TestIntegration ./cmd }"
         platforms: [windows]
       - cmd: |
           go tool cover -func=coverage.out | tail -1 | awk '{print "total coverage:", $NF}'
@@ -85,7 +85,7 @@ tasks:
             go test -tags=integration -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
           fi
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -coverprofile=coverage.out -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -tags=integration -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd }"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -tags=integration -covermode=atomic -coverprofile='coverage.out' ./api/... ./pkg/... ./cmd }"
         platforms: [windows]
       - go tool cover -html=coverage.out -o coverage.html
       - cmd: |
