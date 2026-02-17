@@ -41,12 +41,15 @@ tasks:
     env:
       CI: true
     cmds:
-      - |
-        if [ -n "{{.CLI_ARGS}}" ]; then
-          go test -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./pkg/... ./cmd
-        else
-          go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
-        fi
+      - cmd: |
+          if [ -n "{{.CLI_ARGS}}" ]; then
+            go test -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./pkg/... ./cmd
+          else
+            go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
+          fi
+        platforms: [linux, darwin]
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -covermode=atomic -coverprofile=coverage.out -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd }"
+        platforms: [windows]
       - go tool cover -html=coverage.out -o coverage.html
     silent: true
 
@@ -55,27 +58,39 @@ tasks:
     env:
       CI: true
     cmds:
-      - |
-        if [ -n "{{.CLI_ARGS}}" ]; then
-          go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./cmd
-        else
-          go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run TestIntegration ./cmd
-        fi
-      - "go tool cover -func=coverage.out | tail -1 | awk \"{print \\\"total coverage: \\\" $NF}\""
+      - cmd: |
+          if [ -n "{{.CLI_ARGS}}" ]; then
+            go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./cmd
+          else
+            go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run TestIntegration ./cmd
+          fi
+        platforms: [linux, darwin]
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run TestIntegration ./cmd }"
+        platforms: [windows]
+      - cmd: "go tool cover -func=coverage.out | tail -1 | awk \"{print \\\"total coverage: \\\" \\$NF}\""
+        platforms: [linux, darwin]
+      - cmd: powershell -NoProfile -Command "$l = go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1; if ($l -match '(\\d+\\.\\d+%)') { Write-Host ('total coverage: ' + $matches[1]) }"
+        platforms: [windows]
 
   test:all:
     desc: Run full test suite (unit + integration), write coverage.out/html and print total
     env:
       CI: true
     cmds:
-      - |
-        if [ -n "{{.CLI_ARGS}}" ]; then
-          go test -tags=integration -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./pkg/... ./cmd
-        else
-          go test -tags=integration -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
-        fi
+      - cmd: |
+          if [ -n "{{.CLI_ARGS}}" ]; then
+            go test -tags=integration -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./pkg/... ./cmd
+          else
+            go test -tags=integration -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
+          fi
+        platforms: [linux, darwin]
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -coverprofile=coverage.out -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -tags=integration -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd }"
+        platforms: [windows]
       - go tool cover -html=coverage.out -o coverage.html
-      - "go tool cover -func=coverage.out | tail -1 | awk \"{print \\\"total coverage: \\\" $NF}\""
+      - cmd: "go tool cover -func=coverage.out | tail -1 | awk \"{print \\\"total coverage: \\\" \\$NF}\""
+        platforms: [linux, darwin]
+      - cmd: powershell -NoProfile -Command "$l = go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1; if ($l -match '(\\d+\\.\\d+%)') { Write-Host ('total coverage: ' + $matches[1]) }"
+        platforms: [windows]
     silent: true
 
   scan:
