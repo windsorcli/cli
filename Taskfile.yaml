@@ -67,9 +67,10 @@ tasks:
         platforms: [linux, darwin]
       - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run TestIntegration ./cmd }"
         platforms: [windows]
-      - cmd: "go tool cover -func=coverage.out | tail -1 | awk \"{print \\\"total coverage: \\\" \\$NF}\""
+      - cmd: |
+          go tool cover -func=coverage.out | tail -1 | awk '{print "total coverage:", $NF}'
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "$l = go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1; if ($l -match '(\\d+\\.\\d+%)') { Write-Host ('total coverage: ' + $matches[1]) }"
+      - cmd: 'powershell -NoProfile -Command "$l = go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1; if ($l -match ''(\\d+\\.\\d+%)'') { Write-Host (''total coverage: '' + $matches[1]) }"'
         platforms: [windows]
 
   test:all:
@@ -87,9 +88,10 @@ tasks:
       - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -coverprofile=coverage.out -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -tags=integration -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd }"
         platforms: [windows]
       - go tool cover -html=coverage.out -o coverage.html
-      - cmd: "go tool cover -func=coverage.out | tail -1 | awk \"{print \\\"total coverage: \\\" \\$NF}\""
+      - cmd: |
+          go tool cover -func=coverage.out | tail -1 | awk '{print "total coverage:", $NF}'
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "$l = go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1; if ($l -match '(\\d+\\.\\d+%)') { Write-Host ('total coverage: ' + $matches[1]) }"
+      - cmd: 'powershell -NoProfile -Command "$l = go tool cover -func=coverage.out 2>&1 | Select-Object -Last 1; if ($l -match ''(\\d+\\.\\d+%)'') { Write-Host (''total coverage: '' + $matches[1]) }"'
         platforms: [windows]
     silent: true
 
