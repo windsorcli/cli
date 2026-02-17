@@ -14,6 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // =============================================================================
@@ -102,12 +105,23 @@ func captureProcessStdout(t *testing.T) (buf *bytes.Buffer, restore func()) {
 	return buf, restore
 }
 
+// resetCommandFlagValues resets flag values to DefValue on cmd and all descendants so Cobra flag state does not leak between Execute() calls (see cobra issue #2079).
+func resetCommandFlagValues(cmd *cobra.Command) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+	})
+	for _, child := range cmd.Commands() {
+		resetCommandFlagValues(child)
+	}
+}
+
 // runCmd runs the root command with the given context and args, capturing process stdout and cmd stderr.
 // Pass context.Background() when no override is needed; pass a context with runtimeOverridesKey to inject a runtime.
 // Caller must have set up the integration project first (e.g. SetupIntegrationProject).
 // Returns trimmed stdout string, stderr string, and Execute() error.
 func runCmd(t *testing.T, ctx context.Context, args []string) (stdout, stderr string, err error) {
 	t.Helper()
+	resetCommandFlagValues(rootCmd)
 	_, stderrBuf := captureOutputAndRestore(t)
 	stdoutBuf, restore := captureProcessStdout(t)
 	rootCmd.SetContext(ctx)
