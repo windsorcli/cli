@@ -1,96 +1,45 @@
+//go:build integration
+// +build integration
+
 package cmd
 
+// The IntegrationTest provides integration coverage for Windsor CLI commands.
+// It runs commands with a real runtime and real project layout in a temp directory,
+// It validates end-to-end behavior without mocking the runtime,
+// and supports optional partial overrides (e.g. mock APIs) via runtimeOverridesKey.
+
 import (
-	"bytes"
 	"context"
 	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
-func TestBuildIDCmd(t *testing.T) {
-	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
-		t.Helper()
-		stdout, stderr := captureOutput(t)
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(stderr)
-		return stdout, stderr
-	}
+// =============================================================================
+// Test Public Methods
+// =============================================================================
 
-	t.Run("Success", func(t *testing.T) {
-		// Given proper output capture and mock setup
-		_, stderr := setup(t)
-		mocks := setupMocks(t)
-
-		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
+func TestIntegration_BuildID(t *testing.T) {
+	t.Run("BuildIDCommandConfiguration", func(t *testing.T) {
+		if buildIdCmd.Use != "build-id" {
+			t.Errorf("Expected Use to be 'build-id', got %s", buildIdCmd.Use)
 		}
-
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
-		}
-	})
-
-	t.Run("SuccessWithNewFlag", func(t *testing.T) {
-		// Given proper output capture and mock setup
-		_, stderr := setup(t)
-		mocks := setupMocks(t)
-
-		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id", "--new"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
-		}
-	})
-
-	t.Run("CommandConfiguration", func(t *testing.T) {
-		// Given the build ID command
-		cmd := buildIdCmd
-
-		// Then the command should be properly configured
-		if cmd.Use != "build-id" {
-			t.Errorf("Expected Use to be 'build-id', got %s", cmd.Use)
-		}
-		if cmd.Short == "" {
+		if buildIdCmd.Short == "" {
 			t.Error("Expected non-empty Short description")
 		}
-		if cmd.Long == "" {
+		if buildIdCmd.Long == "" {
 			t.Error("Expected non-empty Long description")
 		}
-		if !cmd.SilenceUsage {
+		if !buildIdCmd.SilenceUsage {
 			t.Error("Expected SilenceUsage to be true")
 		}
 	})
 
-	t.Run("CommandFlags", func(t *testing.T) {
-		// Given the build ID command
-		cmd := buildIdCmd
-
-		// Then the command should have the new flag
-		newFlag := cmd.Flags().Lookup("new")
+	t.Run("BuildIDCommandFlags", func(t *testing.T) {
+		newFlag := buildIdCmd.Flags().Lookup("new")
 		if newFlag == nil {
 			t.Fatal("Expected 'new' flag to exist")
 		}
@@ -102,14 +51,9 @@ func TestBuildIDCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("CommandIntegration", func(t *testing.T) {
-		// Given the root command
-		cmd := rootCmd
-
-		// Then the build ID command should be a subcommand
-		buildIDSubCmd := cmd.Commands()
+	t.Run("BuildIDIsSubcommandOfRoot", func(t *testing.T) {
 		found := false
-		for _, subCmd := range buildIDSubCmd {
+		for _, subCmd := range rootCmd.Commands() {
 			if subCmd.Use == "build-id" {
 				found = true
 				break
@@ -120,171 +64,79 @@ func TestBuildIDCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("PipelineSetupError", func(t *testing.T) {
-		// Given proper output capture and mock setup
-		_, stderr := setup(t)
-		mocks := setupMocks(t)
-
-		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success with proper mocks, got error: %v", err)
-		}
-
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
+	t.Run("GetBuildIDReturnsEmptyWhenNoBuildIDFile", func(t *testing.T) {
+		SetupIntegrationProject(t, minimalWindsorYAML)
+		stdout, stderr, err := runCmd(t, context.Background(), []string{"build-id"})
+		assertSuccessAndNoStderr(t, err, stderr)
+		if stdout != "" {
+			t.Errorf("Expected empty build ID when no file, got %q", stdout)
 		}
 	})
 
-	t.Run("PipelineExecuteError", func(t *testing.T) {
-		// Given proper output capture and mock setup
-		_, stderr := setup(t)
-		mocks := setupMocks(t)
-
-		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success with proper mocks, got error: %v", err)
+	t.Run("GenerateBuildIDSucceedsAndPrintsBuildID", func(t *testing.T) {
+		SetupIntegrationProject(t, minimalWindsorYAML)
+		stdout, stderr, err := runCmd(t, context.Background(), []string{"build-id", "--new"})
+		assertSuccessAndNoStderr(t, err, stderr)
+		if stdout == "" {
+			t.Error("Expected non-empty build ID from --new")
 		}
-
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
+		if len(stdout) < 10 {
+			t.Errorf("Expected build ID format like YYMMDD.XXX.N, got %q", stdout)
 		}
 	})
 
-	t.Run("MissingRuntimeInContext", func(t *testing.T) {
-		// Given proper output capture with minimal mock setup
-		setup(t)
-		// Use a temp directory to avoid slow directory walking
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		os.Chdir(tmpDir)
-		t.Cleanup(func() { os.Chdir(oldDir) })
-
-		// Set up command context without runtime override
-		ctx := context.Background()
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then it may return an error or succeed depending on environment
-		if err != nil {
-			t.Logf("Command failed as expected without runtime override: %v", err)
-		} else {
-			t.Logf("Command succeeded (runtime may be available from environment)")
+	t.Run("BuildIDFormatMatchesYYMMDDDotXXXDotN", func(t *testing.T) {
+		SetupIntegrationProject(t, minimalWindsorYAML)
+		stdout, stderr, err := runCmd(t, context.Background(), []string{"build-id", "--new"})
+		assertSuccessAndNoStderr(t, err, stderr)
+		re := regexp.MustCompile(`^\d{6}\.\d{3}\.\d+$`)
+		if !re.MatchString(stdout) {
+			t.Errorf("Expected build ID format YYMMDD.XXX.N, got %q", stdout)
 		}
 	})
 
-	t.Run("ContextWithNewFlag", func(t *testing.T) {
-		// Given proper output capture and mock setup
-		_, stderr := setup(t)
-		mocks := setupMocks(t)
-
-		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id", "--new"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
+	t.Run("GetBuildIDFailsWhenBuildIDFileUnreadable", func(t *testing.T) {
+		projectRoot := SetupIntegrationProject(t, minimalWindsorYAML)
+		windsorDir := filepath.Join(projectRoot, ".windsor")
+		if err := os.MkdirAll(windsorDir, 0750); err != nil {
+			t.Fatalf("Failed to create .windsor: %v", err)
 		}
+		buildIDPath := filepath.Join(windsorDir, ".build-id")
+		if err := os.MkdirAll(buildIDPath, 0750); err != nil {
+			t.Fatalf("Failed to create .build-id as dir: %v", err)
+		}
+		_, _, err := runCmd(t, context.Background(), []string{"build-id"})
+		assertFailureAndErrorContains(t, err, "failed to manage build ID")
+	})
 
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
+	t.Run("BuildIDWithRuntimeOverrideUsesInjectedRuntime", func(t *testing.T) {
+		SetupIntegrationProject(t, minimalWindsorYAML)
+		rt := runtime.NewRuntime()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+		stdout, stderr, err := runCmd(t, ctx, []string{"build-id", "--new"})
+		assertSuccessAndNoStderr(t, err, stderr)
+		if stdout == "" {
+			t.Error("Expected non-empty build ID when using runtime override")
+		}
+		re := regexp.MustCompile(`^\d{6}\.\d{3}\.\d+$`)
+		if !re.MatchString(stdout) {
+			t.Errorf("Expected build ID format YYMMDD.XXX.N, got %q", stdout)
 		}
 	})
 
-	t.Run("ContextWithoutNewFlag", func(t *testing.T) {
-		// Given proper output capture and mock setup
-		_, stderr := setup(t)
-		mocks := setupMocks(t)
-
-		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then no error should occur
+	t.Run("GetBuildIDReturnsValueAfterGenerateBuildID", func(t *testing.T) {
+		projectRoot := SetupIntegrationProject(t, minimalWindsorYAML)
+		_, _, err := runCmd(t, context.Background(), []string{"build-id", "--new"})
 		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
+			t.Fatalf("Generate build ID failed: %v", err)
 		}
-
-		// And stderr should be empty
-		if stderr.String() != "" {
-			t.Error("Expected empty stderr")
+		if _, err := os.Stat(filepath.Join(projectRoot, ".windsor", ".build-id")); err != nil {
+			t.Fatalf("Expected .windsor/.build-id to exist: %v", err)
 		}
-	})
-
-	t.Run("PipelineInitializationError", func(t *testing.T) {
-		// Given proper output capture and mock setup
-		setup(t)
-		mocks := setupMocks(t)
-
-		// Set up command context with runtime override
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then no error should occur with proper mocks
-		if err != nil {
-			t.Errorf("Expected success with proper mocks, got error: %v", err)
-		}
-	})
-
-	t.Run("InvalidRuntimeType", func(t *testing.T) {
-		// Given proper output capture
-		setup(t)
-
-		// Set up command context with invalid runtime type
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, "invalid")
-		rootCmd.SetContext(ctx)
-
-		rootCmd.SetArgs([]string{"build-id"})
-
-		// When executing the command
-		err := Execute()
-
-		// Then it may succeed or fail depending on environment
-		// Invalid type is ignored and real runtime is used
-		if err != nil {
-			t.Logf("Command failed as expected with invalid runtime type: %v", err)
-		} else {
-			t.Logf("Command succeeded (real runtime may be available from environment)")
+		stdout, stderr, err := runCmd(t, context.Background(), []string{"build-id"})
+		assertSuccessAndNoStderr(t, err, stderr)
+		if stdout == "" {
+			t.Error("Expected build ID to be printed after previous --new")
 		}
 	})
 }

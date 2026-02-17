@@ -75,7 +75,7 @@ jobs:
         run: go install ./...
           
       - name: Run tests
-        run: task test
+        run: task test:all
 
       - name: Test Build Windsor CLI on macOS/Linux
         if: ${{ matrix.os != 'windows-latest' }}
