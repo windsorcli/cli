@@ -161,61 +161,6 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 	return s.scrubString(stdoutBuf.String()), nil
 }
 
-// ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
-// connecting to the terminal and captures the command's output. If verbose mode is enabled or no TTY
-// is available (CI/CD environments), it uses direct execution. Otherwise, it connects to /dev/tty for
-// interactive password prompts. The function returns the command's stdout or an error if execution fails.
-func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
-	if command != "sudo" {
-		args = append([]string{command}, args...)
-		command = "sudo"
-	}
-
-	if s.verbose || !s.shims.IsTerminal(int(os.Stdin.Fd())) {
-		if s.verbose {
-			fmt.Fprintln(os.Stderr, message)
-		}
-		return s.Exec(command, args...)
-	}
-
-	cmd := s.shims.Command(command, args...)
-	if cmd == nil {
-		return "", fmt.Errorf("failed to create command")
-	}
-
-	if cmd.Env == nil {
-		cmd.Env = s.shims.Environ()
-	}
-
-	tty, err := s.shims.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		return "", fmt.Errorf("failed to open /dev/tty: %w", err)
-	}
-	defer tty.Close()
-
-	cmd.Stdin = tty
-	cmd.Stderr = tty
-
-	var stdoutBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-
-	if err := s.shims.CmdStart(cmd); err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return stdoutBuf.String(), err
-	}
-
-	err = s.shims.CmdWait(cmd)
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
-		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-
-	return s.scrubString(stdoutBuf.String()), nil
-}
-
 // ExecSilent is a method that runs a command quietly, capturing its output.
 // It returns the command's stdout as a string and any error encountered.
 func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error) {

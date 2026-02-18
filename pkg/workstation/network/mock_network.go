@@ -21,7 +21,8 @@ type MockNetworkManager struct {
 	AssignIPsFunc          func([]services.Service) error
 	ConfigureHostRouteFunc func() error
 	ConfigureGuestFunc     func() error
-	ConfigureDNSFunc       func(dnsAddressOverride string) error
+	ConfigureDNSFunc       func() error
+	NeedsPrivilegeFunc     func() bool
 }
 
 // =============================================================================
@@ -62,11 +63,19 @@ func (m *MockNetworkManager) ConfigureGuest() error {
 }
 
 // ConfigureDNS calls the custom ConfigureDNSFunc if provided.
-func (m *MockNetworkManager) ConfigureDNS(dnsAddressOverride string) error {
+func (m *MockNetworkManager) ConfigureDNS() error {
 	if m.ConfigureDNSFunc != nil {
-		return m.ConfigureDNSFunc(dnsAddressOverride)
+		return m.ConfigureDNSFunc()
 	}
 	return nil
+}
+
+// NeedsPrivilege calls the custom NeedsPrivilegeFunc if provided.
+func (m *MockNetworkManager) NeedsPrivilege() bool {
+	if m.NeedsPrivilegeFunc != nil {
+		return m.NeedsPrivilegeFunc()
+	}
+	return false
 }
 
 // The MockNetworkInterfaceProvider is a test implementation of the NetworkInterfaceProvider interface.

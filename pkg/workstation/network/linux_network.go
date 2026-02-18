@@ -18,16 +18,29 @@ import (
 // Public Methods
 // =============================================================================
 
-// ConfigureHostRoute sets up the local development network for Linux
+// NeedsPrivilege returns true when network config will need sudo. Resolves guest address from config.
+// Errors are treated as false.
+func (n *BaseNetworkManager) NeedsPrivilege() bool {
+	desiredIP := n.effectiveResolverIP()
+	willConfigureDNS := n.configHandler.GetBool("dns.enabled") &&
+		n.configHandler.GetString("dns.domain") != "" && desiredIP != ""
+	needForDNS := willConfigureDNS && n.needsPrivilegeForResolver(desiredIP)
+	workstationRuntime := n.configHandler.GetString("workstation.runtime")
+	guestAddress := n.configHandler.GetString("workstation.address")
+	needForHostRoute := workstationRuntime == "colima" && guestAddress != "" && n.needsPrivilegeForHostRoute(guestAddress)
+	return needForDNS || needForHostRoute
+}
+
+// ConfigureHostRoute sets up the local development network for Linux.
+// Guest address is read from config (workstation.address).
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
-
-	guestIP := n.configHandler.GetString("vm.address")
+	guestIP := n.configHandler.GetString("workstation.address")
 	if guestIP == "" {
-		return fmt.Errorf("guest IP is not configured")
+		return fmt.Errorf("guest address is required")
 	}
 
 	output, err := n.shell.ExecSilent("ip", "route", "show", networkCIDR)
@@ -65,37 +78,30 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up DNS using systemd-resolved. When dnsAddressOverride is non-empty it is used;
-// otherwise the address is read from config (dns.address or 127.0.0.1 in localhost mode).
-func (n *BaseNetworkManager) ConfigureDNS(dnsAddressOverride string) error {
-	tld := n.configHandler.GetString("dns.domain")
-	if tld == "" {
+// ConfigureDNS configures systemd-resolved so only the configured dns.domain uses our resolver;
+// global DNS is unchanged. Resolver IP is read from config (dns.resolver_ip, or derived: 127.0.0.1 in
+// localhost mode, else dns.address).
+func (n *BaseNetworkManager) ConfigureDNS() error {
+	domain := n.configHandler.GetString("dns.domain")
+	if domain == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 
-	var dnsIP string
-	if dnsAddressOverride != "" {
-		dnsIP = dnsAddressOverride
-	} else if n.isLocalhostMode() {
-		dnsIP = "127.0.0.1"
-	} else {
-		dnsIP = n.configHandler.GetString("dns.address")
-		if dnsIP == "" {
-			return fmt.Errorf("DNS address is not configured")
-		}
+	dnsIP := n.effectiveResolverIP()
+	if dnsIP == "" {
+		return fmt.Errorf("DNS address is not configured")
 	}
 
-	// If DNS address is configured, use systemd-resolved
 	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
 	if err != nil || resolvConf != "../run/systemd/resolve/stub-resolv.conf" {
 		return fmt.Errorf("systemd-resolved is not in use. Please configure DNS manually or use a compatible system")
 	}
 
 	dropInDir := "/etc/systemd/resolved.conf.d"
-	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, tld)
+	dropInFile := fmt.Sprintf("%s/dns-override-%s.conf", dropInDir, domain)
+	expectedContent := fmt.Sprintf("[Resolve]\nDomains=~%s\nDNS=%s\n", domain, dnsIP)
 
 	existingContent, err := n.shims.ReadFile(dropInFile)
-	expectedContent := fmt.Sprintf("[Resolve]\nDNS=%s\n", dnsIP)
 	if err == nil && string(existingContent) == expectedContent {
 		return nil
 	}
@@ -133,4 +139,49 @@ func (n *BaseNetworkManager) ConfigureDNS(dnsAddressOverride string) error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// needsPrivilegeForResolver reports whether sudo is required to apply the desired DNS resolver IP
+// for the configured domain. It returns true when systemd-resolved is in use and the current
+// drop-in for dns.domain is missing, unreadable, or has different Domains= or DNS= values.
+func (n *BaseNetworkManager) needsPrivilegeForResolver(desiredIP string) bool {
+	domain := n.configHandler.GetString("dns.domain")
+	if domain == "" {
+		return false
+	}
+	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
+	if err != nil || resolvConf != "../run/systemd/resolve/stub-resolv.conf" {
+		return false
+	}
+	dropInFile := fmt.Sprintf("/etc/systemd/resolved.conf.d/dns-override-%s.conf", domain)
+	existingContent, err := n.shims.ReadFile(dropInFile)
+	if err != nil {
+		return true
+	}
+	expectedContent := fmt.Sprintf("[Resolve]\nDomains=~%s\nDNS=%s\n", domain, desiredIP)
+	return string(existingContent) != expectedContent
+}
+
+// needsPrivilegeForHostRoute reports whether sudo is required to add the host route for the guest.
+// It returns true when the route for network.cidr_block via guestAddress does not yet exist;
+// it returns false when the route exists, when CIDR or guest is unset, or when the route check fails.
+func (n *BaseNetworkManager) needsPrivilegeForHostRoute(guestAddress string) bool {
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" || guestAddress == "" {
+		return false
+	}
+	output, err := n.shell.ExecSilent("ip", "route", "show", networkCIDR)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, guestAddress) {
+			return false
+		}
+	}
+	return true
 }

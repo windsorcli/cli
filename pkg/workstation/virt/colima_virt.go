@@ -62,7 +62,7 @@ func NewColimaVirt(rt *runtime.Runtime) *ColimaVirt {
 func (v *ColimaVirt) Up() error {
 	info, err := v.getVMInfo()
 	if err == nil && info.Address != "" {
-		if err := v.configHandler.Set("vm.address", info.Address); err != nil {
+		if err := v.configHandler.Set("workstation.address", info.Address); err != nil {
 			return fmt.Errorf("failed to set VM address in config handler: %w", err)
 		}
 		return nil
@@ -76,7 +76,7 @@ func (v *ColimaVirt) Up() error {
 	vmAddress := info.Address
 
 	if vmAddress != "" {
-		if err := v.configHandler.Set("vm.address", vmAddress); err != nil {
+		if err := v.configHandler.Set("workstation.address", vmAddress); err != nil {
 			return fmt.Errorf("failed to set VM address in config handler: %w", err)
 		}
 	}

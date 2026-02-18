@@ -631,7 +631,7 @@ func TestColimaVirt_Up(t *testing.T) {
 
 		// Override just the Set to return an error
 		mockConfigHandler.SetFunc = func(key string, _ any) error {
-			if key == "vm.address" {
+			if key == "workstation.address" {
 				return fmt.Errorf("mock set context value error")
 			}
 			return nil

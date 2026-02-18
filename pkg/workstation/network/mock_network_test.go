@@ -107,12 +107,12 @@ func TestMockNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a mock network manager with successful DNS configuration
 		mockManager := NewMockNetworkManager()
-		mockManager.ConfigureDNSFunc = func(dnsAddressOverride string) error {
+		mockManager.ConfigureDNSFunc = func() error {
 			return nil
 		}
 
 		// When configuring DNS
-		err := mockManager.ConfigureDNS("")
+		err := mockManager.ConfigureDNS()
 
 		// Then no error should occur
 		if err != nil {
@@ -125,7 +125,7 @@ func TestMockNetworkManager_ConfigureDNS(t *testing.T) {
 		mockManager := NewMockNetworkManager()
 
 		// When configuring DNS
-		err := mockManager.ConfigureDNS("")
+		err := mockManager.ConfigureDNS()
 
 		// Then no error should occur
 		if err != nil {

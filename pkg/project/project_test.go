@@ -10,6 +10,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -136,6 +137,9 @@ func setupProjectMocks(t *testing.T, opts ...func(*ProjectTestMocks)) *ProjectTe
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 	mockBlueprintHandler.LoadBlueprintFunc = func(...string) error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
+	mockBlueprintHandler.GenerateFunc = func() *v1alpha1.Blueprint {
+		return &v1alpha1.Blueprint{}
+	}
 	comp := composer.NewComposer(rt, &composer.Composer{
 		BlueprintHandler: mockBlueprintHandler,
 	})
@@ -1174,6 +1178,216 @@ func TestProject_PerformCleanup(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "error cleaning up context specific artifacts") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}
+
+func TestProject_Up(t *testing.T) {
+	t.Run("SuccessWithoutWorkstation", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			return false
+		}
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+
+		blueprint, err := proj.Up()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if blueprint == nil {
+			t.Error("Expected non-nil blueprint")
+		}
+	})
+
+	t.Run("SuccessWithWorkstationPassesOnApplyToProvisioner", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		var capturedOnApply []func(string) error
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+			capturedOnApply = onApply
+			return nil
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			return false
+		}
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+		if err := proj.Configure(nil); err != nil {
+			t.Fatalf("Configure: %v", err)
+		}
+		if proj.Workstation == nil {
+			t.Fatal("Expected Workstation created in dev mode")
+		}
+		proj.Workstation.NetworkManager = nil
+
+		blueprint, err := proj.Up()
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if blueprint == nil {
+			t.Error("Expected non-nil blueprint")
+		}
+		if len(capturedOnApply) == 0 {
+			t.Error("Expected provisioner to receive at least one onApply hook when workstation present")
+		}
+	})
+
+	t.Run("ErrorFromWorkstationUp", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+			return nil
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			return false
+		}
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+		_ = proj.Configure(nil)
+		if proj.Workstation == nil {
+			t.Fatal("Expected Workstation created in dev mode")
+		}
+		mockVM := virt.NewMockVirt()
+		mockVM.WriteConfigFunc = func() error { return nil }
+		mockVM.UpFunc = func(verbose ...bool) error {
+			return fmt.Errorf("VM up failed")
+		}
+		proj.Workstation.VirtualMachine = mockVM
+		proj.Workstation.NetworkManager = nil
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "cluster.driver":
+				return "talos"
+			case "workstation.runtime":
+				return "colima"
+			case "provider":
+				return ""
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		_, err := proj.Up()
+
+		if err == nil {
+			t.Error("Expected error when Workstation.Up fails")
+			return
+		}
+		if !strings.Contains(err.Error(), "error starting workstation") {
+			t.Errorf("Expected error about starting workstation, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFromEnsureNetworkPrivilege", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool {
+			return true
+		}
+		mockShell := mocks.Shell.(*shell.MockShell)
+		mockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+			return "", fmt.Errorf("sudo failed")
+		}
+		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("passwordless sudo required")
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+			return nil
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			return false
+		}
+		mockNetwork := network.NewMockNetworkManager()
+		mockNetwork.NeedsPrivilegeFunc = func(dnsAddressOverride string) bool {
+			return true
+		}
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+		_ = proj.Configure(nil)
+		if proj.Workstation == nil {
+			t.Fatal("Expected Workstation created in dev mode")
+		}
+		proj.Workstation.NetworkManager = mockNetwork
+		proj.Workstation.VirtualMachine = nil
+		proj.Workstation.ContainerRuntime = nil
+
+		_, err := proj.Up()
+
+		if err == nil {
+			t.Error("Expected error when EnsureNetworkPrivilege fails")
+			return
+		}
+		if !strings.Contains(err.Error(), "privileged access required") && !strings.Contains(err.Error(), "network configuration may require sudo") {
+			t.Errorf("Expected error about privilege/sudo, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorFromProvisionerUp", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+			return fmt.Errorf("terraform up failed")
+		}
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			return false
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+
+		_, err := proj.Up()
+
+		if err == nil {
+			t.Error("Expected error when Provisioner.Up fails")
+			return
+		}
+		if !strings.Contains(err.Error(), "error starting infrastructure") {
+			t.Errorf("Expected error about starting infrastructure, got: %v", err)
 		}
 	})
 }

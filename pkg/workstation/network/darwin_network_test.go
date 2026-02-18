@@ -28,9 +28,8 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a properly configured network manager
 		manager, mocks := setup(t)
-
 		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -44,8 +43,8 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("NoNetworkCIDRConfigured", func(t *testing.T) {
 		// Given a network manager with no CIDR configured
 		manager, mocks := setup(t)
-
 		mocks.ConfigHandler.Set("network.cidr_block", "")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -61,11 +60,10 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 	})
 
 	t.Run("NoGuestIPConfigured", func(t *testing.T) {
-		// Given a network manager with no guest IP configured
+		// Given a network manager with no guest address in config
 		manager, mocks := setup(t)
-
 		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
-		mocks.ConfigHandler.Set("vm.address", "")
+		mocks.ConfigHandler.Set("workstation.address", "")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -74,7 +72,7 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "guest IP is not configured"
+		expectedError := "guest address is required"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
@@ -83,9 +81,8 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("RouteAlreadyExists", func(t *testing.T) {
 		// Given a network manager with existing route
 		manager, mocks := setup(t)
-
 		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		originalExecSilentFunc := mocks.Shell.ExecSilentFunc
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
@@ -110,9 +107,8 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("CheckRouteExistsError", func(t *testing.T) {
 		// Given a network manager with route check error
 		manager, mocks := setup(t)
-
 		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		originalExecSilentFunc := mocks.Shell.ExecSilentFunc
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
@@ -141,6 +137,8 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("AddRouteError", func(t *testing.T) {
 		// Given a network manager with route addition error
 		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 		originalExecSudoFunc := mocks.Shell.ExecSudoFunc
 		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "route" && args[0] == "-nv" && args[1] == "add" {
@@ -183,7 +181,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then no error should occur
 		if err != nil {
@@ -198,6 +196,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("dns.address", "")
 
 		// And capturing resolver file content
 		var capturedContent []byte
@@ -207,7 +206,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then no error should occur
 		if err != nil {
@@ -229,7 +228,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then an error should occur
 		if err == nil {
@@ -249,7 +248,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.address", "")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then an error should occur
 		if err == nil {
@@ -276,7 +275,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then no error should occur
 		if err != nil {
@@ -306,7 +305,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then an error should occur
 		if err == nil {
@@ -330,7 +329,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then an error should occur
 		if err == nil {
@@ -361,7 +360,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then an error should occur
 		if err == nil {
@@ -387,7 +386,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then an error should occur
 		if err == nil {
@@ -413,7 +412,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then an error should occur
 		if err == nil {
@@ -432,7 +431,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.address", "127.0.0.1")
 
 		// And configuring DNS
-		err := manager.ConfigureDNS("")
+		err := manager.ConfigureDNS()
 
 		// Then no error should occur
 		if err != nil {

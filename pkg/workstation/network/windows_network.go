@@ -21,18 +21,30 @@ import (
 // Public Methods
 // =============================================================================
 
-// ConfigureHostRoute sets up the local development network. It checks if the route
-// already exists using a PowerShell command. If not, it adds a new route on the host
-// to the VM guest using another PowerShell command.
+// NeedsPrivilege returns true when network configuration requires administrator privileges.
+// Resolves guest address from config. Errors are treated as false.
+func (n *BaseNetworkManager) NeedsPrivilege() bool {
+	desiredIP := n.effectiveResolverIP()
+	willConfigureDNS := n.configHandler.GetBool("dns.enabled") &&
+		n.configHandler.GetString("dns.domain") != "" && desiredIP != ""
+	needForDNS := willConfigureDNS && n.needsPrivilegeForResolver(desiredIP)
+	workstationRuntime := n.configHandler.GetString("workstation.runtime")
+	guestAddress := n.configHandler.GetString("workstation.address")
+	needForHostRoute := workstationRuntime == "colima" && guestAddress != "" && n.needsPrivilegeForHostRoute(guestAddress)
+	return needForDNS || needForHostRoute
+}
+
+// ConfigureHostRoute sets up the local development network.
+// Guest address is read from config (workstation.address). It checks if the route exists via
+// PowerShell; if not, adds a route to the VM guest.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
-
-	guestIP := n.configHandler.GetString("vm.address")
+	guestIP := n.configHandler.GetString("workstation.address")
 	if guestIP == "" {
-		return fmt.Errorf("guest IP is not configured")
+		return fmt.Errorf("guest address is required")
 	}
 
 	output, err := n.shell.ExecSilent(
@@ -70,30 +82,23 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up a per-domain DNS rule using Windows NRPT. When dnsAddressOverride is non-empty
-// it is used; otherwise the address is read from config (dns.address or 127.0.0.1 in localhost mode).
-func (n *BaseNetworkManager) ConfigureDNS(dnsAddressOverride string) error {
-	tld := n.configHandler.GetString("dns.domain")
-	if tld == "" {
+// ConfigureDNS sets up a per-domain DNS rule using Windows NRPT. Resolver IP is read from config
+// (dns.resolver_ip, or derived: 127.0.0.1 in localhost mode, else dns.address). The domain is normalized
+// to a leading-dot namespace for NRPT. If no matching rule exists or the rule's name servers differ,
+// an add or update is performed with administrator privileges.
+func (n *BaseNetworkManager) ConfigureDNS() error {
+	domain := n.configHandler.GetString("dns.domain")
+	if domain == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
 
-	var dnsIP string
-	if dnsAddressOverride != "" {
-		dnsIP = dnsAddressOverride
-	} else if n.isLocalhostMode() {
-		dnsIP = "127.0.0.1"
-	} else {
-		dnsIP = n.configHandler.GetString("dns.address")
-		if dnsIP == "" {
-			return fmt.Errorf("DNS address is not configured")
-		}
+	dnsIP := n.effectiveResolverIP()
+	if dnsIP == "" {
+		return fmt.Errorf("DNS address is not configured")
 	}
 
-	// Prepend a "." to the domain for the namespace
-	namespace := "." + tld
+	namespace := "." + domain
 
-	// Check if the DNS rule for the host name is already set
 	checkScript := fmt.Sprintf(`
 $namespace = '%s'
 $allRules = Get-DnsClientNrptRule
@@ -115,8 +120,8 @@ if ($existingRule) {
 		checkScript,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", tld)
-		return fmt.Errorf("failed to check existing DNS rules for %s: %w", tld, err)
+		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", domain)
+		return fmt.Errorf("failed to check existing DNS rules for %s: %w", domain, err)
 	}
 
 	if strings.TrimSpace(output) == "False" || output == "" {
@@ -133,19 +138,67 @@ if ($existingRule) {
 if ($?) {
   Clear-DnsClientCache
 }
-`, namespace, dnsIP, dnsIP, tld)
+`, namespace, dnsIP, dnsIP, domain)
 
 		_, err = n.shell.ExecProgress(
-			fmt.Sprintf("🔐 Configuring DNS for '*.%s'", tld),
+			fmt.Sprintf("🔐 Configuring DNS for '*.%s'", domain),
 			"powershell",
 			"-Command",
 			addOrUpdateScript,
 		)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", tld)
-			return fmt.Errorf("failed to add or update DNS rule for %s: %w", tld, err)
+			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", domain)
+			return fmt.Errorf("failed to add or update DNS rule for %s: %w", domain, err)
 		}
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// needsPrivilegeForResolver reports whether the NRPT rule for the configured DNS domain is missing
+// or has a different name server than desiredIP. Returns false on any error or when domain is unset.
+func (n *BaseNetworkManager) needsPrivilegeForResolver(desiredIP string) bool {
+	domain := n.configHandler.GetString("dns.domain")
+	if domain == "" {
+		return false
+	}
+	namespace := "." + domain
+	script := fmt.Sprintf(`
+$r = Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq '%s' } | Select-Object -First 1
+if (-not $r) { '' } else { ($r.NameServers -join ',') }
+`, namespace)
+	output, err := n.shell.ExecSilent("powershell", "-Command", script)
+	if err != nil {
+		return false
+	}
+	currentIP := strings.TrimSpace(output)
+	if currentIP == "" {
+		return true
+	}
+	if idx := strings.Index(currentIP, ","); idx > 0 {
+		currentIP = strings.TrimSpace(currentIP[:idx])
+	}
+	return currentIP != desiredIP
+}
+
+// needsPrivilegeForHostRoute reports whether a host route for the configured network CIDR and guest IP
+// is missing. Returns false when CIDR or guestAddress is unset or when the route check fails.
+func (n *BaseNetworkManager) needsPrivilegeForHostRoute(guestAddress string) bool {
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" || guestAddress == "" {
+		return false
+	}
+	output, err := n.shell.ExecSilent(
+		"powershell",
+		"-Command",
+		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestAddress),
+	)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(output) == ""
 }

@@ -57,8 +57,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a properly configured network manager
 		manager, mocks := setup(t)
-		// Ensure guest IP is configured
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
+		// Ensure guest address is configured (ConfigureGuest reads workstation.address)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the guest
 		err := manager.ConfigureGuest()
@@ -88,8 +88,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			return "", nil
 		}
 
-		// Ensure guest IP is configured
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
+		// Ensure guest address is configured
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// When initializing the network manager
 		err := manager.AssignIPs([]services.Service{})
@@ -121,9 +121,9 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 
 	t.Run("NoGuestIPConfigured", func(t *testing.T) {
-		// Given a network manager with no guest IP configured
+		// Given a network manager with no guest address (workstation.address empty)
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("vm.address", "")
+		mocks.ConfigHandler.Set("workstation.address", "")
 
 		// And configuring the guest
 		err := manager.ConfigureGuest()
@@ -137,6 +137,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("ErrorListingInterfaces", func(t *testing.T) {
 		// Given a network manager with interface listing error
 		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
 				cmdStr := strings.Join(args, " ")
@@ -169,6 +170,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("NoDockerBridgeInterfaceFound", func(t *testing.T) {
 		// Given a network manager with no docker bridge interface
 		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
 				cmdStr := strings.Join(args, " ")
@@ -201,6 +203,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("ErrorSettingIptablesRule", func(t *testing.T) {
 		// Given a network manager with iptables rule error
 		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
 				cmdStr := strings.Join(args, " ")
@@ -246,6 +249,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("ErrorFindingHostIP", func(t *testing.T) {
 		// Given a network manager with host IP error
 		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 		mocks.NetworkInterfaceProvider.InterfaceAddrsFunc = func(iface net.Interface) ([]net.Addr, error) {
 			// Return an empty list of addresses to simulate no matching subnet
 			return []net.Addr{}, nil
@@ -296,8 +300,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			return "", nil
 		}
 
-		// Ensure guest IP is configured
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.10")
+		// Ensure guest address is configured
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// When initializing the network manager
 		err := manager.AssignIPs([]services.Service{})
@@ -317,6 +321,7 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	t.Run("ErrorCheckingIptablesRule", func(t *testing.T) {
 		// Given a network manager with iptables rule check error (non-1 exit code)
 		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 		originalFunc := mocks.Shell.ExecSilentWithTimeoutFunc
 		checkErrorReturned := false
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
@@ -364,8 +369,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		if err := mocks.ConfigHandler.Set("provider", "incus"); err != nil {
 			t.Fatalf("Failed to set provider: %v", err)
 		}
-		if err := mocks.ConfigHandler.Set("vm.address", "192.168.1.10"); err != nil {
-			t.Fatalf("Failed to set vm.address: %v", err)
+		if err := mocks.ConfigHandler.Set("workstation.address", "192.168.1.10"); err != nil {
+			t.Fatalf("Failed to set workstation.address: %v", err)
 		}
 
 		// And mock incus network set command
@@ -475,7 +480,8 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a properly configured network manager
-		manager, _ := setup(t)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And getting the host IP
 		hostIP, err := manager.getHostIP()
@@ -495,6 +501,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	t.Run("SuccessWithIpAddr", func(t *testing.T) {
 		// Given a network manager with IPAddr type
 		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And mocking networkInterfaceProvider to return IPAddr
 		mocks.NetworkInterfaceProvider.InterfaceAddrsFunc = func(iface net.Interface) ([]net.Addr, error) {
@@ -519,9 +526,9 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	})
 
 	t.Run("NoGuestAddressSet", func(t *testing.T) {
-		// Given a network manager with no guest address
+		// Given a network manager and empty guest address in config
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("vm.address", "")
+		mocks.ConfigHandler.Set("workstation.address", "")
 
 		// And getting the host IP
 		hostIP, err := manager.getHostIP()
@@ -532,7 +539,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 		}
 
 		// And the error message should be correct
-		expectedErrorMessage := "guest IP is not configured"
+		expectedErrorMessage := "guest address is required"
 		if err.Error() != expectedErrorMessage {
 			t.Fatalf("expected error message %q, got %q", expectedErrorMessage, err.Error())
 		}
@@ -544,9 +551,9 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	})
 
 	t.Run("ErrorParsingGuestIP", func(t *testing.T) {
-		// Given a network manager with invalid guest IP
+		// Given a network manager with invalid guest address in config
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("vm.address", "invalid_ip_address")
+		mocks.ConfigHandler.Set("workstation.address", "invalid_ip_address")
 
 		// And getting the host IP
 		hostIP, err := manager.getHostIP()
@@ -571,7 +578,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	t.Run("ErrorGettingNetworkInterfaces", func(t *testing.T) {
 		// Given a network manager with network interfaces error
 		manager, mocks := setup(t)
-
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 		mocks.NetworkInterfaceProvider.InterfacesFunc = func() ([]net.Interface, error) {
 			return nil, fmt.Errorf("mock error getting network interfaces")
 		}
@@ -599,7 +606,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	t.Run("ErrorGettingNetworkInterfaceAddresses", func(t *testing.T) {
 		// Given a network manager with interface addresses error
 		manager, mocks := setup(t)
-
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 		mocks.NetworkInterfaceProvider.InterfaceAddrsFunc = func(iface net.Interface) ([]net.Addr, error) {
 			return nil, fmt.Errorf("mock error getting network interface addresses")
 		}
@@ -626,6 +633,7 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 	t.Run("ErrorFindingHostIPInSameSubnet", func(t *testing.T) {
 		// Given a network manager with no matching subnet
 		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And mocking network interface provider to return no matching subnet
 		mocks.NetworkInterfaceProvider.InterfacesFunc = func() ([]net.Interface, error) {

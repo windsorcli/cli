@@ -194,17 +194,26 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	return nil
 }
 
-// Up generates the blueprint, starts the workstation when present (using PrepareForUp so host/guest setup is deferred when a workstation Terraform component exists), runs provisioner, and returns the blueprint for use by Install/Wait. Host/guest and DNS setup after the workstation Terraform component is applied is done by running windsor configure network (e.g. from a null_resource in the workstation module). Returns an error if any step fails.
+// Up generates the blueprint, starts the workstation if present (using PrepareForUp to defer host/guest setup
+// when a workstation Terraform component exists), runs the provisioner, and returns the blueprint for use by
+// Install/Wait. If network configuration may need privilege, ensures it up front (EnsureNetworkPrivilege) so
+// later configure can use cached credentials; if DNS address comes from Terraform, a prompt may occur later.
+// Returns an error if any step fails.
 func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
 	p.EnsureWorkstation()
 	blueprint := p.Composer.BlueprintHandler.Generate()
+	var onApply func(string) error
 	if p.Workstation != nil {
 		p.Workstation.PrepareForUp(blueprint)
 		if err := p.Workstation.Up(); err != nil {
 			return nil, fmt.Errorf("error starting workstation: %w", err)
 		}
+		if err := p.Workstation.EnsureNetworkPrivilege(); err != nil {
+			return nil, err
+		}
+		onApply = p.Workstation.MakeApplyHook()
 	}
-	if err := p.Provisioner.Up(blueprint); err != nil {
+	if err := p.Provisioner.Up(blueprint, onApply); err != nil {
 		return nil, fmt.Errorf("error starting infrastructure: %w", err)
 	}
 	return blueprint, nil

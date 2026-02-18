@@ -169,11 +169,11 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 	mockNetworkManager.AssignIPsFunc = func(services []services.Service) error { return nil }
 	mockNetworkManager.ConfigureHostRouteFunc = func() error { return nil }
 	mockNetworkManager.ConfigureGuestFunc = func() error { return nil }
-	mockNetworkManager.ConfigureDNSFunc = func(dnsAddressOverride string) error { return nil }
+	mockNetworkManager.ConfigureDNSFunc = func() error { return nil }
 
 	// Set up mock virtual machine behaviors
 	mockVirtualMachine.UpFunc = func(verbose ...bool) error {
-		if err := mockConfigHandler.Set("vm.address", "192.168.1.10"); err != nil {
+		if err := mockConfigHandler.Set("workstation.address", "192.168.1.10"); err != nil {
 			return err
 		}
 		return nil
@@ -510,8 +510,9 @@ func TestWorkstation_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ConfiguresNetworking", func(t *testing.T) {
-		// Given a workstation with network manager configured and tracking flags for network configuration calls
+	t.Run("DeferNetworkConfigToHook", func(t *testing.T) {
+		// Given a workstation with network manager; host/guest/DNS are not run during Up()
+		// but via the apply hook or ConfigureNetwork() after the workstation Terraform component.
 		mocks := setupWorkstationMocks(t)
 		hostRouteCalled := false
 		guestCalled := false
@@ -525,7 +526,7 @@ func TestWorkstation_Up(t *testing.T) {
 			guestCalled = true
 			return nil
 		}
-		mocks.NetworkManager.ConfigureDNSFunc = func(dnsAddressOverride string) error {
+		mocks.NetworkManager.ConfigureDNSFunc = func() error {
 			dnsCalled = true
 			return nil
 		}
@@ -535,6 +536,7 @@ func TestWorkstation_Up(t *testing.T) {
 			NetworkManager:   mocks.NetworkManager,
 			Services:         convertToServiceSlice(mocks.Services),
 		})
+		workstation.DeferHostGuestSetup = true
 
 		// When calling Up() to start the workstation
 		err := workstation.Up()
@@ -543,17 +545,15 @@ func TestWorkstation_Up(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		// And ConfigureHostRoute should be called
-		if !hostRouteCalled {
-			t.Error("Expected ConfigureHostRoute to be called")
+		// And ConfigureHostRoute/ConfigureGuest/ConfigureDNS are not called during Up() (deferred to hook)
+		if hostRouteCalled {
+			t.Error("Expected ConfigureHostRoute not to be called during Up() (deferred to apply hook)")
 		}
-		// And ConfigureGuest should be called
-		if !guestCalled {
-			t.Error("Expected ConfigureGuest to be called")
+		if guestCalled {
+			t.Error("Expected ConfigureGuest not to be called during Up() (deferred to apply hook)")
 		}
-		// And ConfigureDNS should be called
-		if !dnsCalled {
-			t.Error("Expected ConfigureDNS to be called")
+		if dnsCalled {
+			t.Error("Expected ConfigureDNS not to be called during Up() (deferred to apply hook)")
 		}
 	})
 
@@ -669,9 +669,10 @@ func TestWorkstation_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("NetworkConfigurationError", func(t *testing.T) {
-		// Given
+	t.Run("ConfigureNetworkPropagatesHostRouteError", func(t *testing.T) {
+		// Given a workstation with network manager where ConfigureHostRoute fails
 		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
 		mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
 			return fmt.Errorf("network config failed")
 		}
@@ -682,12 +683,13 @@ func TestWorkstation_Up(t *testing.T) {
 			Services:         convertToServiceSlice(mocks.Services),
 		})
 
-		// When
-		err := workstation.Up()
+		// When ConfigureNetwork is called (e.g. from apply hook)
+		err := workstation.ConfigureNetwork("")
 
-		// Then
+		// Then the error is propagated
 		if err == nil {
 			t.Error("Expected error for network configuration failure")
+			return
 		}
 		if !strings.Contains(err.Error(), "error configuring host route") {
 			t.Errorf("Expected specific error message, got: %v", err)
@@ -801,6 +803,157 @@ func TestWorkstation_PrepareForUp(t *testing.T) {
 
 		if ws.DeferHostGuestSetup {
 			t.Error("Expected DeferHostGuestSetup false when blueprint has no workstation component")
+		}
+	})
+}
+
+func TestWorkstation_EnsureNetworkPrivilege(t *testing.T) {
+	t.Run("NoOpWhenNetworkManagerNil", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   nil,
+			Services:         convertToServiceSlice(mocks.Services),
+		})
+
+		err := ws.EnsureNetworkPrivilege()
+
+		if err != nil {
+			t.Errorf("Expected no error when NetworkManager is nil, got: %v", err)
+		}
+	})
+
+	t.Run("NoOpWhenNeedsPrivilegeFalse", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.NeedsPrivilegeFunc = func() bool {
+			return false
+		}
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+			Services:         convertToServiceSlice(mocks.Services),
+		})
+
+		err := ws.EnsureNetworkPrivilege()
+
+		if err != nil {
+			t.Errorf("Expected no error when NeedsPrivilege false, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenPrivilegeCheckFails", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.NeedsPrivilegeFunc = func() bool {
+			return true
+		}
+		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+			return "", fmt.Errorf("sudo required")
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			return "", fmt.Errorf("passwordless sudo required")
+		}
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+			Services:         convertToServiceSlice(mocks.Services),
+		})
+
+		err := ws.EnsureNetworkPrivilege()
+
+		if err == nil {
+			t.Error("Expected error when privilege check fails")
+			return
+		}
+		if !strings.Contains(err.Error(), "privileged access required") && !strings.Contains(err.Error(), "network configuration may require sudo") {
+			t.Errorf("Expected error about privilege/sudo, got: %v", err)
+		}
+	})
+}
+
+func TestWorkstation_MakeApplyHook(t *testing.T) {
+	t.Run("ReturnsNilWhenDeferHostGuestSetupFalse", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		ws := NewWorkstation(mocks.Runtime)
+		ws.DeferHostGuestSetup = false
+
+		hook := ws.MakeApplyHook()
+
+		if hook != nil {
+			t.Error("Expected nil hook when DeferHostGuestSetup is false")
+		}
+	})
+
+	t.Run("CallbackIgnoresNonWorkstationComponent", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+			Services:         convertToServiceSlice(mocks.Services),
+		})
+		ws.DeferHostGuestSetup = true
+		configureNetworkCalled := false
+		mocks.NetworkManager.ConfigureDNSFunc = func() error {
+			configureNetworkCalled = true
+			return nil
+		}
+		mocks.NetworkManager.ConfigureGuestFunc = func() error { return nil }
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { return nil }
+
+		hook := ws.MakeApplyHook()
+		if hook == nil {
+			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
+		}
+
+		err := hook("other-component")
+
+		if err != nil {
+			t.Errorf("Expected no error for non-workstation component, got: %v", err)
+		}
+		if configureNetworkCalled {
+			t.Error("Expected ConfigureNetwork not to be called for non-workstation component")
+		}
+	})
+
+	t.Run("CallbackCallsConfigureNetworkForWorkstationComponent", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		configureNetworkCalled := false
+		mocks.NetworkManager.ConfigureGuestFunc = func() error {
+			configureNetworkCalled = true
+			return nil
+		}
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
+			configureNetworkCalled = true
+			return nil
+		}
+		mocks.NetworkManager.ConfigureDNSFunc = func() error {
+			configureNetworkCalled = true
+			return nil
+		}
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+			Services:         convertToServiceSlice(mocks.Services),
+		})
+		ws.DeferHostGuestSetup = true
+
+		hook := ws.MakeApplyHook()
+		if hook == nil {
+			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
+		}
+
+		err := hook("workstation")
+
+		if err != nil {
+			t.Errorf("Expected no error for workstation component, got: %v", err)
+		}
+		if !configureNetworkCalled {
+			t.Error("Expected ConfigureNetwork to be called for workstation component")
 		}
 	})
 }

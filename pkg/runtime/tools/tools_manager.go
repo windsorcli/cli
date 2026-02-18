@@ -78,9 +78,6 @@ func (t *BaseToolsManager) Check() error {
 	defer spin.Stop()
 
 	rt := t.configHandler.GetString("workstation.runtime")
-	if rt == "" {
-		rt = t.configHandler.GetString("vm.driver")
-	}
 	dockerEnabled := t.configHandler.GetBool("docker.enabled", false)
 	needsDocker := dockerEnabled || rt == "colima" || rt == "docker-desktop" || rt == "docker"
 	if needsDocker {

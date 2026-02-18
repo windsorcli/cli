@@ -5,6 +5,7 @@ package shell
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 )
@@ -61,6 +62,30 @@ func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
 		}
 	}
 	return result.String()
+}
+
+// ExecSudo verifies the process has administrator privileges. On Windows there is no sudo;
+// the user must run PowerShell (or this executable) as Administrator. If already elevated,
+// runs the given command; otherwise returns an error instructing them to run as Administrator.
+func (s *DefaultShell) ExecSudo(message string, command string, args ...string) (string, error) {
+	out, err := s.ExecSilent("powershell", "-NoProfile", "-NonInteractive", "-Command",
+		"([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)")
+	if err != nil {
+		return "", fmt.Errorf("could not check administrator privileges: %w", err)
+	}
+	if !strings.Contains(strings.TrimSpace(strings.ToLower(out)), "true") {
+		return "", fmt.Errorf("network configuration requires administrator privileges: open a new PowerShell as Administrator, then run the command again")
+	}
+	if s.verbose {
+		fmt.Fprintln(os.Stderr, message)
+	}
+	if command == "sudo" && len(args) > 0 {
+		command, args = args[0], args[1:]
+	}
+	if command == "" || (command == "true" && len(args) == 0) {
+		return "", nil
+	}
+	return s.Exec(command, args...)
 }
 
 // =============================================================================

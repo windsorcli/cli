@@ -87,24 +87,7 @@ Now, running `windsor up` will execute your module after the `gitops/flux` modul
 
 ## Workstation network callback
 
-When your blueprint includes a Terraform component that represents the workstation (for example a component with path or name that yields id `workstation`), host/guest networking and DNS are deferred until after that component is applied. The workstation Terraform module should run the Windsor CLI once after creating its resources so that Windsor can configure host routes, guest networking, and DNS for the current platform (Colima, Docker, etc.).
-
-Run from the **project root** (e.g. in a `null_resource` with `working_dir` set to the project root). Pass the DNS service address from your Terraform output via `--dns-address`; if omitted, DNS is not configured. Windsor uses existing config for host routes and guest networking.
-
-Example (inside your workstation Terraform module):
-
-```hcl
-resource "null_resource" "windsor_configure_network" {
-  depends_on = [ /* your workstation resources */ ]
-
-  provisioner "local-exec" {
-    command     = "windsor configure network --dns-address=${module.workstation.dns_ip}"
-    working_dir = var.windsor_project_root
-  }
-}
-```
-
-Use a variable or output for the project root so the same module works across environments.
+When your blueprint includes a Terraform component that represents the workstation (for example a component with path or name that yields id `workstation`), host/guest networking and DNS are deferred until after that component is applied. A hook runs after the workstation component applies; it configures host routes, guest networking, and DNS for the current platform (Colima, Docker, etc.) using the DNS address from Terraform output when available.
 
 ## Importing Resources
 The Windsor CLI offers a unique method for importing and using remote Terraform modules. Running `windsor init local` unpacks shims that reference basic modules from Windsor's [core blueprint](https://github.com/windsorcli/core), stored in `.windsor/contexts/<context>/`.

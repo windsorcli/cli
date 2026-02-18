@@ -21,12 +21,14 @@ import (
 // Types
 // =============================================================================
 
-// NetworkManager handles configuring the local development network
+// NetworkManager handles configuring the local development network.
+// Guest address is read from config (workstation.address) where needed.
 type NetworkManager interface {
 	AssignIPs(services []services.Service) error
 	ConfigureHostRoute() error
 	ConfigureGuest() error
-	ConfigureDNS(dnsAddressOverride string) error
+	ConfigureDNS() error
+	NeedsPrivilege() bool
 }
 
 // BaseNetworkManager is a concrete implementation of NetworkManager
@@ -70,7 +72,6 @@ func NewBaseNetworkManager(rt *runtime.Runtime) *BaseNetworkManager {
 // AssignIPs sorts services and assigns IPs based on network CIDR.
 // Services are passed explicitly from Workstation to ensure we work with the same instances.
 func (n *BaseNetworkManager) AssignIPs(serviceList []services.Service) error {
-	// Sort services by name for consistent IP assignment
 	sort.Slice(serviceList, func(i, j int) bool {
 		return serviceList[i].GetName() < serviceList[j].GetName()
 	})
@@ -91,9 +92,8 @@ func (n *BaseNetworkManager) AssignIPs(serviceList []services.Service) error {
 	return nil
 }
 
-// ConfigureGuest sets up the guest VM network
+// ConfigureGuest sets up the guest VM network. Base implementation is a no-op; Colima overrides and reads guest address from config.
 func (n *BaseNetworkManager) ConfigureGuest() error {
-	// no-op
 	return nil
 }
 
@@ -104,6 +104,18 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 // isLocalhostMode checks if the system is in localhost mode
 func (n *BaseNetworkManager) isLocalhostMode() bool {
 	return n.configHandler.GetString("workstation.runtime") == "docker-desktop"
+}
+
+// effectiveResolverIP returns the resolver IP for DNS config: dns.address when set (by config, migration for
+// localhost, or ConfigureNetwork(override)); when unset and in localhost mode returns 127.0.0.1.
+func (n *BaseNetworkManager) effectiveResolverIP() string {
+	if v := n.configHandler.GetString("dns.address"); v != "" {
+		return v
+	}
+	if n.isLocalhostMode() {
+		return "127.0.0.1"
+	}
+	return ""
 }
 
 // =============================================================================
