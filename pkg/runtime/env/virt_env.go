@@ -48,7 +48,7 @@ func NewVirtEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *V
 // =============================================================================
 
 // GetEnvVars sets environment variables for virtual machine and container runtimes, using DOCKER_HOST
-// from workstation.runtime or existing env, and INCUS_SOCKET for colima-incus.
+// from workstation.runtime (or vm.driver when unset, for legacy configs) or existing env, and INCUS_SOCKET for colima-incus.
 // Defaults to WINDSORCONFIG or home dir for Docker paths, ensuring config directory exists. Writes config if
 // content changes, adds DOCKER_CONFIG, REGISTRY_URL, and INCUS_SOCKET as appropriate, and returns the map.
 // Handles "colima", "docker-desktop", and "docker" workstation runtime settings, defaulting to "default" if unrecognized.
@@ -56,6 +56,9 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	workstationRuntime := e.configHandler.GetString("workstation.runtime")
+	if workstationRuntime == "" {
+		workstationRuntime = e.configHandler.GetString("vm.driver")
+	}
 	provider := e.configHandler.GetString("provider")
 	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
 	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
