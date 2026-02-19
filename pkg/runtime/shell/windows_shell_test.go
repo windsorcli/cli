@@ -5,6 +5,7 @@ package shell
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +19,135 @@ import (
 // =============================================================================
 // Test Public Methods
 // =============================================================================
+
+// TestDefaultShell_ExecSudo tests the ExecSudo method on Windows: admin check and command execution.
+func TestDefaultShell_ExecSudo(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("ErrorWhenNotAdmin", func(t *testing.T) {
+		shell, _ := setup(t)
+
+		_, err := shell.ExecSudo("msg", "cmd", "arg")
+		if err == nil {
+			t.Fatal("Expected error when not admin")
+		}
+		if !strings.Contains(err.Error(), "administrator privileges") {
+			t.Errorf("Expected administrator privileges message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenAdminCheckFails", func(t *testing.T) {
+		shell, mocks := setup(t)
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			return nil
+		}
+
+		_, err := shell.ExecSudo("msg", "cmd", "arg")
+		if err == nil {
+			t.Fatal("Expected error when admin check fails")
+		}
+		if !strings.Contains(err.Error(), "could not check administrator privileges") {
+			t.Errorf("Expected admin check error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessWhenAdmin", func(t *testing.T) {
+		shell, mocks := setup(t)
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("true"))
+			}
+			return nil
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("cmd-output"))
+			}
+			return nil
+		}
+
+		out, err := shell.ExecSudo("msg", "echo", "cmd-output")
+		if err != nil {
+			t.Fatalf("ExecSudo: %v", err)
+		}
+		if out != "cmd-output" {
+			t.Errorf("Expected output 'cmd-output', got %q", out)
+		}
+	})
+
+	t.Run("SuccessWhenCommandIsTrue", func(t *testing.T) {
+		shell, mocks := setup(t)
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("true"))
+			}
+			return nil
+		}
+
+		out, err := shell.ExecSudo("msg", "true")
+		if err != nil {
+			t.Fatalf("ExecSudo: %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty output for 'true', got %q", out)
+		}
+	})
+
+	t.Run("SudoCommandUnwraps", func(t *testing.T) {
+		shell, mocks := setup(t)
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("true"))
+			}
+			return nil
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("unwrapped"))
+			}
+			return nil
+		}
+
+		out, err := shell.ExecSudo("msg", "sudo", "realcmd", "arg")
+		if err != nil {
+			t.Fatalf("ExecSudo: %v", err)
+		}
+		if out != "unwrapped" {
+			t.Errorf("Expected output 'unwrapped', got %q", out)
+		}
+	})
+
+	t.Run("VerbosePrintsMessage", func(t *testing.T) {
+		shell, mocks := setup(t)
+		shell.SetVerbosity(true)
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("true"))
+			}
+			return nil
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("true"))
+			}
+			return nil
+		}
+
+		out, err := shell.ExecSudo("verbose-msg", "true")
+		if err != nil {
+			t.Fatalf("ExecSudo: %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty output, got %q", out)
+		}
+	})
+}
 
 // TestDefaultShell_GetProjectRoot tests the GetProjectRoot method on Windows systems
 func TestDefaultShell_GetProjectRoot(t *testing.T) {

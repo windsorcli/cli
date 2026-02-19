@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"text/template"
@@ -484,6 +485,9 @@ func TestShell_Exec(t *testing.T) {
 }
 
 func TestShell_ExecSudo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ExecSudo Unix implementation tested here; Windows path covered in windows_shell_test.go")
+	}
 	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
 		mocks := setupShellMocks(t)

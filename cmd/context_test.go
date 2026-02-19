@@ -48,6 +48,10 @@ func TestContextCmd(t *testing.T) {
 		stdout, stderr := captureOutput(t)
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(stderr)
+		t.Cleanup(func() {
+			rootCmd.SetOut(nil)
+			rootCmd.SetErr(nil)
+		})
 		return stdout, stderr
 	}
 
@@ -55,7 +59,7 @@ func TestContextCmd(t *testing.T) {
 		// Given proper output capture in a directory without config
 		stdout, _ := setup(t)
 		// Don't set up mocks - we want to test real behavior
-
+		rootCmd.SetContext(context.Background())
 		rootCmd.SetArgs([]string{"context", "get"})
 
 		// When executing the command

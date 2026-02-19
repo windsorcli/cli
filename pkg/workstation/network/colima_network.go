@@ -49,13 +49,10 @@ func NewColimaNetworkManager(rt *runtime.Runtime, networkInterfaceProvider Netwo
 	return manager
 }
 
-// ConfigureGuest sets up guest traffic forwarding in a Colima environment.
-// Depending on the runtime, configures forwarding:
-// for Docker, iptables rules for the Docker bridge;
-// for Incus, Incus network configuration. If no guest IP is set, nothing is configured.
+// ConfigureGuest sets up guest traffic forwarding in a Colima environment. Reads guest address from config (workstation.address).
+// For Docker, configures iptables for the Docker bridge; for Incus, Incus network. No-op when guest address is empty.
 func (n *ColimaNetworkManager) ConfigureGuest() error {
-	guestIP := n.configHandler.GetString("vm.address")
-	if guestIP == "" {
+	if n.configHandler.GetString("workstation.address") == "" {
 		return nil
 	}
 
@@ -73,9 +70,8 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 // Private Methods
 // =============================================================================
 
-// configureDockerForwarding sets up iptables forwarding from col0 to the Docker bridge interface
-// It identifies the Docker bridge interface and configures forwarding rules
-// Uses colima ssh to execute the command directly, avoiding SSH session creation issues
+// configureDockerForwarding sets up iptables forwarding from col0 to the Docker bridge interface.
+// Host IP is resolved from config (workstation.address) via getHostIP. Uses colima ssh to run commands in the VM.
 func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) error {
 	contextName := n.configHandler.GetContext()
 	profileName := fmt.Sprintf("windsor-%s", contextName)
@@ -129,9 +125,8 @@ func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
 	return nil
 }
 
-// setupForwardingRule sets up iptables forwarding from col0 to the specified output interface
-// It enables IP forwarding and adds the necessary iptables rule
-// Uses colima ssh to execute the command directly, avoiding SSH session creation issues
+// setupForwardingRule sets up iptables forwarding from col0 to the specified output interface.
+// Host IP is resolved from config (workstation.address) via getHostIP.
 func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface string) error {
 	hostIP, err := n.getHostIP()
 	if err != nil {
@@ -169,16 +164,14 @@ func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface 
 	return nil
 }
 
-// getHostIP retrieves the host IP address that shares the same subnet as the guest IP address.
-// It first obtains and validates the guest IP from the configuration. Then, it iterates over the network interfaces
-// to find an IP address that belongs to the same subnet as the guest IP. If found, it returns this host IP address.
+// getHostIP returns the host IP that shares the same subnet as the guest. Guest address is read from config (workstation.address).
 func (n *ColimaNetworkManager) getHostIP() (string, error) {
-	guestIP := n.configHandler.GetString("vm.address")
-	if guestIP == "" {
-		return "", fmt.Errorf("guest IP is not configured")
+	guestAddress := n.configHandler.GetString("workstation.address")
+	if guestAddress == "" {
+		return "", fmt.Errorf("guest address is required")
 	}
 
-	guestIPAddr := net.ParseIP(guestIP)
+	guestIPAddr := net.ParseIP(guestAddress)
 	if guestIPAddr == nil {
 		return "", fmt.Errorf("invalid guest IP address")
 	}

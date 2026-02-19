@@ -3,6 +3,7 @@ package workstation
 import (
 	"fmt"
 	"os"
+	stdruntime "runtime"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -12,6 +13,7 @@ import (
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
+	"golang.org/x/term"
 )
 
 // The Workstation is a core component that manages all workstation functionality including virtualization,
@@ -101,10 +103,10 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 // on service addresses being set in config. Returns an error if any component creation
 // or IP assignment fails.
 func (w *Workstation) Prepare() error {
-	vmDriver := w.configHandler.GetString("workstation.runtime")
+	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 
 	if w.NetworkManager == nil {
-		if vmDriver == "colima" {
+		if workstationRuntime == "colima" {
 			networkInterfaceProvider := network.NewNetworkInterfaceProvider()
 			w.NetworkManager = network.NewColimaNetworkManager(w.runtime, networkInterfaceProvider)
 		} else {
@@ -126,7 +128,7 @@ func (w *Workstation) Prepare() error {
 		}
 	}
 
-	if vmDriver == "colima" && w.VirtualMachine == nil {
+	if workstationRuntime == "colima" && w.VirtualMachine == nil {
 		w.VirtualMachine = virt.NewColimaVirt(w.runtime)
 	}
 
@@ -155,8 +157,8 @@ func (w *Workstation) Up() error {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 	}
 
-	vmDriver := w.configHandler.GetString("workstation.runtime")
-	if vmDriver == "colima" && w.VirtualMachine != nil {
+	workstationRuntime := w.configHandler.GetString("workstation.runtime")
+	if workstationRuntime == "colima" && w.VirtualMachine != nil {
 		if err := w.VirtualMachine.WriteConfig(); err != nil {
 			return fmt.Errorf("error writing virtual machine config: %w", err)
 		}
@@ -164,10 +166,6 @@ func (w *Workstation) Up() error {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
 		if w.NetworkManager != nil && w.configHandler.GetString("provider") == "incus" {
-			vmAddress := w.configHandler.GetString("vm.address")
-			if vmAddress == "" {
-				return fmt.Errorf("vm.address is required for network configuration but was not set by VirtualMachine.Up()")
-			}
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest SSH: %w", err)
 			}
@@ -189,13 +187,12 @@ func (w *Workstation) Up() error {
 		}
 	}
 
+	// Host/guest and DNS are run via the hook after the workstation Terraform component when DeferHostGuestSetup.
 	if w.NetworkManager != nil && !w.DeferHostGuestSetup {
-		if vmDriver == "colima" {
+		if workstationRuntime == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest: %w", err)
 			}
-		}
-		if vmDriver == "colima" {
 			if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
@@ -226,56 +223,88 @@ func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
 	}
 }
 
+// EnsureNetworkPrivilege ensures the process has (or can obtain) privilege required for network configuration.
+// Network manager resolves guest address and other settings from config; prompts for sudo when interactive or on Windows.
+func (w *Workstation) EnsureNetworkPrivilege() error {
+	if w.NetworkManager == nil || !w.NetworkManager.NeedsPrivilege() {
+		return nil
+	}
+	if term.IsTerminal(int(os.Stdin.Fd())) || stdruntime.GOOS == "windows" {
+		if _, err := w.shell.ExecSudo("🔐 Network configuration may require elevated privileges", "true"); err != nil {
+			return fmt.Errorf("privileged access required: %w", err)
+		}
+		return nil
+	}
+	if os.Geteuid() != 0 {
+		if _, err := w.shell.ExecSilent("sudo", "-n", "true"); err != nil {
+			return fmt.Errorf("network configuration may require sudo; run from an interactive terminal or with passwordless sudo (e.g. sudo windsor up): %w", err)
+		}
+	}
+	return nil
+}
+
 // ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
-// It is intended to be called after the "workstation" Terraform component is applied. ConfigureGuest and
-// ConfigureHostRoute runs only when workstation runtime is colima; ConfigureDNS runs when dns.enabled regardless of runtime.
-// No-op when NetworkManager is nil.
-func (w *Workstation) ConfigureNetwork() error {
+// Guest address is read from config (workstation.address) by ConfigureHostRoute. DNS: dns.address
+// is set only when dnsAddressOverride is non-empty (e.g. --dns-address or Terraform output); no
+// fallback to workstation.address, so callers that omit the override do not configure DNS. DNS
+// is attempted only when dns.enabled is true and both dns.domain and dns.address are set. No-op when NetworkManager is nil.
+func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 	if w.NetworkManager == nil {
 		return nil
 	}
-	vmDriver := w.configHandler.GetString("workstation.runtime")
-	if vmDriver == "colima" {
+	if dnsAddressOverride != "" {
+		_ = w.configHandler.Set("dns.address", dnsAddressOverride)
+	}
+	workstationRuntime := w.configHandler.GetString("workstation.runtime")
+	if workstationRuntime == "colima" {
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
 			return fmt.Errorf("error configuring guest: %w", err)
 		}
 		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
 			return fmt.Errorf("error configuring host route: %w", err)
 		}
+		fmt.Fprintln(os.Stderr, "network: ready")
+	} else {
+		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
 	}
-	if w.configHandler.GetBool("dns.enabled") {
+	if w.configHandler.GetBool("dns.enabled") && w.configHandler.GetString("dns.domain") != "" && w.configHandler.GetString("dns.address") != "" {
 		if err := w.NetworkManager.ConfigureDNS(); err != nil {
 			return fmt.Errorf("error configuring DNS: %w", err)
 		}
+		fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("dns.address"))
+	} else {
+		fmt.Fprintln(os.Stderr, "dns: skipped")
 	}
 	return nil
 }
 
-// AfterWorkstationComponent returns a hook to run after each Terraform component apply.
-// When id is "workstation", it sets dns.address from that component's Terraform outputs (dns.terraform_output_key or dns_address/dns_ip) and calls ConfigureNetwork.
-// No-op for other component IDs.
-func (w *Workstation) AfterWorkstationComponent() func(id string) error {
-	return func(id string) error {
-		if id != "workstation" {
+// MakeApplyHook returns a callback for the provisioner's onApply when DeferHostGuestSetup is true.
+// The callback configures network after the "workstation" Terraform component is applied, using
+// DNS address from Terraform outputs when available. Returns nil when DeferHostGuestSetup is false.
+func (w *Workstation) MakeApplyHook() func(componentID string) error {
+	if !w.DeferHostGuestSetup {
+		return nil
+	}
+	return func(componentID string) error {
+		if componentID != "workstation" {
 			return nil
 		}
+		dnsAddr := ""
 		if w.runtime.TerraformProvider != nil {
 			outputs, err := w.runtime.TerraformProvider.GetTerraformOutputs("workstation")
-			if err == nil && outputs != nil {
-				outputKey := w.configHandler.GetString("dns.terraform_output_key")
-				if outputKey == "" {
-					for _, k := range []string{"dns_address", "dns_ip"} {
-						if v, ok := outputs[k].(string); ok && v != "" {
-							_ = w.configHandler.Set("dns.address", v)
+			if err == nil {
+				for _, key := range []string{"dns_ip", "dns_address"} {
+					if v, ok := outputs[key]; ok && v != nil {
+						s := fmt.Sprint(v)
+						if s != "" {
+							dnsAddr = s
 							break
 						}
 					}
-				} else if v, ok := outputs[outputKey].(string); ok && v != "" {
-					_ = w.configHandler.Set("dns.address", v)
 				}
 			}
 		}
-		return w.ConfigureNetwork()
+		return w.ConfigureNetwork(dnsAddr)
 	}
 }
 
@@ -284,10 +313,10 @@ func (w *Workstation) AfterWorkstationComponent() func(id string) error {
 // confirmation message to standard error and returns nil. If any step of the teardown fails, it returns an error
 // describing the issue.
 func (w *Workstation) Down() error {
-	vmDriver := w.configHandler.GetString("workstation.runtime")
+	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	provider := w.configHandler.GetString("provider")
 
-	if w.NetworkManager != nil && vmDriver == "colima" && provider == "incus" {
+	if w.NetworkManager != nil && workstationRuntime == "colima" && provider == "incus" {
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
 			return fmt.Errorf("error configuring guest: %w", err)
 		}

@@ -26,8 +26,9 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured network manager
-		manager, _ := setup(t)
+		// Given a properly configured network manager (default config has vm.address; set workstation.address)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -41,8 +42,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("NoNetworkCIDR", func(t *testing.T) {
 		// Given a network manager with no CIDR configured
 		manager, mocks := setup(t)
-
 		mocks.ConfigHandler.Set("network.cidr_block", "")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -58,10 +59,9 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 	})
 
 	t.Run("NoGuestIP", func(t *testing.T) {
-		// Given a network manager with no guest IP configured
+		// Given a network manager with no guest address in config
 		manager, mocks := setup(t)
-
-		mocks.ConfigHandler.Set("vm.address", "")
+		mocks.ConfigHandler.Set("workstation.address", "")
 
 		// And configuring the host route
 		err := manager.ConfigureHostRoute()
@@ -70,7 +70,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "guest IP is not configured"
+		expectedError := "guest address is required"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
@@ -79,9 +79,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("ErrorCheckingRoute", func(t *testing.T) {
 		// Given a network manager with route check error
 		manager, mocks := setup(t)
-
 		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.2")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.2")
 
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "powershell" && args[0] == "-Command" && strings.Contains(args[1], "Get-NetRoute") {
@@ -106,9 +105,8 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 	t.Run("AddRouteError", func(t *testing.T) {
 		// Given a network manager with route addition error
 		manager, mocks := setup(t)
-
 		mocks.ConfigHandler.Set("network.cidr_block", "192.168.1.0/24")
-		mocks.ConfigHandler.Set("vm.address", "192.168.1.2")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.2")
 
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "powershell" && args[0] == "-Command" {

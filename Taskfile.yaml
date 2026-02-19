@@ -38,6 +38,7 @@ tasks:
 
   test:
     desc: Run unit tests with coverage (excludes integration-tagged tests)
+    silent: true
     env:
       CI: true
     cmds:
@@ -51,30 +52,30 @@ tasks:
       - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -covermode=atomic -coverprofile='coverage.out' ./api/... ./pkg/... ./cmd }"
         platforms: [windows]
       - go tool cover -html=coverage.out -o coverage.html
-    silent: true
 
   test:integration:
     desc: Run only integration-tagged tests in cmd with coverage (-run TestIntegration by default)
+    silent: true
     env:
       CI: true
     cmds:
       - cmd: |
+          res=0
           if [ -n "{{.CLI_ARGS}}" ]; then
-            go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./cmd
+            go test -tags=integration -v -covermode=atomic -coverprofile=coverage_integration.out -run {{.CLI_ARGS}} ./cmd 2>&1 | tee integration_out.txt; res=${PIPESTATUS[0]}
           else
-            go test -tags=integration -v -covermode=atomic -coverprofile=coverage.out -run TestIntegration ./cmd
+            go test -tags=integration -v -covermode=atomic -coverprofile=coverage_integration.out -run TestIntegration ./cmd 2>&1 | tee integration_out.txt; res=${PIPESTATUS[0]}
           fi
+          grep -oE 'coverage: [0-9.]+% of statements' integration_out.txt | tail -1 | sed 's/coverage: /integration coverage (cmd): /' || true
+          exit $res
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -v -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -v -covermode=atomic -coverprofile='coverage.out' -run TestIntegration ./cmd }"
-        platforms: [windows]
-      - cmd: |
-          go tool cover -func=coverage.out | tail -1 | awk '{print "total coverage:", $NF}'
-        platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "go tool cover -func .\coverage.out 2>&1 | Select-Object -Last 1"
+        shell: bash
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -v -covermode=atomic -coverprofile='coverage_integration.out' -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -v -covermode=atomic -coverprofile='coverage_integration.out' -run TestIntegration ./cmd }"
         platforms: [windows]
 
   test:all:
     desc: Run full test suite (unit + integration), write coverage.out/html and print total
+    silent: true
     env:
       CI: true
     cmds:
@@ -94,7 +95,6 @@ tasks:
         platforms: [linux, darwin]
       - cmd: powershell -NoProfile -Command "go tool cover -func .\coverage.out 2>&1 | Select-Object -Last 1; exit 0"
         platforms: [windows]
-    silent: true
 
   scan:
     desc: Scan for security vulnerabilities

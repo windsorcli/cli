@@ -69,7 +69,7 @@ func (t *BaseToolsManager) Install() error {
 	return nil
 }
 
-// Check checks that appropriate tools are installed and configured.
+// Check verifies required tools are installed. Uses workstation.runtime with vm.driver fallback for legacy configs.
 func (t *BaseToolsManager) Check() error {
 	message := "🛠️ Checking tool versions"
 	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
@@ -99,7 +99,7 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
-	if t.configHandler.GetString("workstation.runtime") == "colima" {
+	if rt == "colima" {
 		if err := t.checkColima(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
@@ -148,7 +148,11 @@ func (t *BaseToolsManager) checkDocker() error {
 		return fmt.Errorf("docker is not available in the PATH")
 	}
 
-	isColimaMode := t.configHandler.GetString("workstation.runtime") == "colima"
+	workstationRuntime := t.configHandler.GetString("workstation.runtime")
+	if workstationRuntime == "" {
+		workstationRuntime = t.configHandler.GetString("vm.driver")
+	}
+	isColimaMode := workstationRuntime == "colima"
 
 	if !isColimaMode {
 		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)

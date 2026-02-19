@@ -48,16 +48,16 @@ func NewVirtEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *V
 // =============================================================================
 
 // GetEnvVars sets environment variables for virtual machine and container runtimes, using DOCKER_HOST
-// from workstation.runtime (or deprecated vm.driver) or existing env, and INCUS_SOCKET for colima-incus.
+// from workstation.runtime (or vm.driver when unset, for legacy configs) or existing env, and INCUS_SOCKET for colima-incus.
 // Defaults to WINDSORCONFIG or home dir for Docker paths, ensuring config directory exists. Writes config if
 // content changes, adds DOCKER_CONFIG, REGISTRY_URL, and INCUS_SOCKET as appropriate, and returns the map.
 // Handles "colima", "docker-desktop", and "docker" workstation runtime settings, defaulting to "default" if unrecognized.
 func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	vmDriver := e.configHandler.GetString("workstation.runtime")
-	if vmDriver == "" {
-		vmDriver = e.configHandler.GetString("vm.driver")
+	workstationRuntime := e.configHandler.GetString("workstation.runtime")
+	if workstationRuntime == "" {
+		workstationRuntime = e.configHandler.GetString("vm.driver")
 	}
 	provider := e.configHandler.GetString("provider")
 	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
@@ -71,7 +71,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	if provider != "incus" && vmDriver != "" && (!dockerHostExists || isDockerHostManaged) {
+	if provider != "incus" && workstationRuntime != "" && (!dockerHostExists || isDockerHostManaged) {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
@@ -92,7 +92,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
 			e.SetManagedEnv("DOCKER_HOST")
 		} else {
-			switch vmDriver {
+			switch workstationRuntime {
 			case "colima":
 				contextName = fmt.Sprintf("colima-windsor-%s", configContext)
 				dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
@@ -146,7 +146,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		e.SetManagedEnv("REGISTRY_URL")
 	}
 
-	if vmDriver == "colima" && provider == "incus" {
+	if workstationRuntime == "colima" && provider == "incus" {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)

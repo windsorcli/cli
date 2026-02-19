@@ -85,6 +85,10 @@ terraform:
 
 Now, running `windsor up` will execute your module after the `gitops/flux` module.
 
+## Workstation network callback
+
+When your blueprint includes a Terraform component that represents the workstation (for example a component with path or name that yields id `workstation`), host/guest networking and DNS are deferred until after that component is applied. A hook runs after the workstation component applies; it configures host routes, guest networking, and DNS for the current platform (Colima, Docker, etc.) using the DNS address from Terraform output when available.
+
 ## Importing Resources
 The Windsor CLI offers a unique method for importing and using remote Terraform modules. Running `windsor init local` unpacks shims that reference basic modules from Windsor's [core blueprint](https://github.com/windsorcli/core), stored in `.windsor/contexts/<context>/`.
 
