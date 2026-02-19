@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -21,7 +19,6 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 		mocks := setupNetworkMocks(t)
 		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
-		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
 
@@ -140,7 +137,6 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks := setupNetworkMocks(t)
 		manager := NewBaseNetworkManager(mocks.Runtime)
 		manager.shims = mocks.Shims
-		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
-	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 var (
@@ -65,15 +64,6 @@ var downCmd = &cobra.Command{
 			if proj.Workstation != nil {
 				if err := proj.Workstation.Down(); err != nil {
 					return fmt.Errorf("error tearing down workstation: %w", err)
-				}
-			}
-			dockerTeardownDoneViaWorkstation := proj.Workstation != nil && proj.Workstation.ContainerRuntime != nil
-			runDockerCleanup := proj.Runtime.UsesDockerComposeWorkstation() ||
-				proj.Runtime.ConfigHandler.GetString("provider") == "docker"
-			if runDockerCleanup && !dockerTeardownDoneViaWorkstation {
-				dockerVirt := virt.NewDockerVirt(proj.Runtime, nil)
-				if err := dockerVirt.Down(); err != nil {
-					return fmt.Errorf("error tearing down Docker workstation: %w", err)
 				}
 			}
 		} else {

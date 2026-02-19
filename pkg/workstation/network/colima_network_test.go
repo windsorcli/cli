@@ -8,41 +8,11 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
 // Test Public Methods
 // =============================================================================
-
-func TestColimaNetworkManager_AssignIPs(t *testing.T) {
-	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
-		t.Helper()
-		mocks := setupNetworkMocks(t)
-		manager := NewColimaNetworkManager(mocks.Runtime, mocks.NetworkInterfaceProvider)
-		manager.shims = mocks.Shims
-		return manager, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured network manager
-		manager, _ := setup(t)
-
-		// When assigning IPs to services
-		err := manager.AssignIPs([]services.Service{})
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("expected no error during AssignIPs, got %v", err)
-		}
-
-		// And services should be set
-		if manager.services == nil {
-			t.Fatalf("expected services to be set")
-		}
-	})
-}
 
 func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
@@ -50,7 +20,6 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		mocks := setupNetworkMocks(t)
 		manager := NewColimaNetworkManager(mocks.Runtime, mocks.NetworkInterfaceProvider)
 		manager.shims = mocks.Shims
-		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
 
@@ -91,14 +60,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		// Ensure guest address is configured
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
+		// When configuring the guest
+		err := manager.ConfigureGuest()
 
 		// Then no error should occur (rule already exists, no need to add)
 		if err != nil {
@@ -148,14 +111,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			return "", nil
 		}
 
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
+		// When configuring the guest
+		err := manager.ConfigureGuest()
 
 		// Then an error should occur
 		if err == nil {
@@ -181,14 +138,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			return "", nil
 		}
 
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
+		// When configuring the guest
+		err := manager.ConfigureGuest()
 
 		// Then an error should occur
 		if err == nil {
@@ -228,14 +179,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			return "", nil
 		}
 
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
+		// When configuring the guest
+		err := manager.ConfigureGuest()
 
 		// Then an error should occur
 		if err == nil {
@@ -255,14 +200,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			return []net.Addr{}, nil
 		}
 
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
+		// When configuring the guest
+		err := manager.ConfigureGuest()
 
 		// Then an error should occur
 		if err == nil {
@@ -303,14 +242,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 		// Ensure guest address is configured
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
+		// When configuring the guest
+		err := manager.ConfigureGuest()
 
 		// Then no error should occur (rule should be added successfully)
 		if err != nil {
@@ -344,14 +277,8 @@ func TestColimaNetworkManager_ConfigureGuest(t *testing.T) {
 			return "", nil
 		}
 
-		// When initializing the network manager
-		err := manager.AssignIPs([]services.Service{})
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And configuring the guest
-		err = manager.ConfigureGuest()
+		// When configuring the guest
+		err := manager.ConfigureGuest()
 
 		// Then the check error should have been encountered (even though it's handled gracefully)
 		if !checkErrorReturned {
@@ -474,7 +401,6 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 		t.Helper()
 		mocks := setupNetworkMocks(t)
 		manager := NewColimaNetworkManager(mocks.Runtime, mocks.NetworkInterfaceProvider)
-		manager.AssignIPs([]services.Service{})
 		return manager, mocks
 	}
 

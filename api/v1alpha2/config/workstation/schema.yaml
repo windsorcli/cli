@@ -70,6 +70,15 @@ properties:
         additionalProperties: false
     additionalProperties: false
 
+  workstation:
+    type: object
+    description: Workstation runtime state (e.g. guest VM address set at runtime)
+    properties:
+      address:
+        type: string
+        description: Guest VM IP address
+    additionalProperties: false
+
   vm:
     type: object
     description: Virtual machine configuration

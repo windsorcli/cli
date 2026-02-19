@@ -10,7 +10,6 @@ import (
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -20,7 +19,6 @@ import (
 type MockComponents struct {
 	MockShell         *shell.MockShell
 	MockConfigHandler *config.MockConfigHandler
-	MockService       *services.MockService
 }
 
 // mockYAMLEncoder is a mock implementation of YAMLEncoder for testing

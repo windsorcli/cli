@@ -466,9 +466,8 @@ func (rt *Runtime) needsDockerEnv() bool {
 	}
 }
 
-// UsesDockerComposeWorkstation returns true when the internal Docker Compose workstation should be used.
-// When true, compose-based flows (env, services, docker_virt) run for the current runtime (docker, colima, docker-desktop).
-// Depends only on docker.enabled; workstation.runtime does not disable compose when docker.enabled is true.
+// UsesDockerComposeWorkstation returns true when docker.enabled is set.
+// No longer used for compose-based workstation (removed); retained for needsDockerEnv and any legacy config checks.
 func (rt *Runtime) UsesDockerComposeWorkstation() bool {
 	return rt.ConfigHandler.GetBool("docker.enabled", false)
 }

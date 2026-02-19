@@ -17,7 +17,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/workstation"
 	"github.com/windsorcli/cli/pkg/workstation/network"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -1098,41 +1097,6 @@ func TestProject_Initialize(t *testing.T) {
 		}
 
 		if !strings.Contains(err.Error(), "error checking tools") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorOnAssignIPsFailure", func(t *testing.T) {
-		mocks := setupProjectMocks(t)
-		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfig.IsDevModeFunc = func(contextName string) bool {
-			return true
-		}
-
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
-
-		if err := proj.Configure(nil); err != nil {
-			t.Fatalf("Failed to configure project: %v", err)
-		}
-
-		if proj.Workstation == nil {
-			t.Fatal("Expected workstation to be created")
-		}
-
-		mockNetworkManager := network.NewMockNetworkManager()
-		mockNetworkManager.AssignIPsFunc = func(services []services.Service) error {
-			return fmt.Errorf("assign IPs failed")
-		}
-		proj.Workstation.NetworkManager = mockNetworkManager
-
-		err := proj.Initialize(false)
-
-		if err == nil {
-			t.Error("Expected error for AssignIPs failure")
-			return
-		}
-
-		if !strings.Contains(err.Error(), "failed to assign IPs to services") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})

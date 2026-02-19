@@ -2,8 +2,6 @@ package network
 
 import (
 	"net"
-
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // The MockNetworkManager is a test implementation of the NetworkManager interface.
@@ -18,7 +16,6 @@ import (
 // MockNetworkManager is a struct that simulates a network manager for testing purposes.
 type MockNetworkManager struct {
 	NetworkManager
-	AssignIPsFunc          func([]services.Service) error
 	ConfigureHostRouteFunc func() error
 	ConfigureGuestFunc     func() error
 	ConfigureDNSFunc       func() error
@@ -37,14 +34,6 @@ func NewMockNetworkManager() *MockNetworkManager {
 // =============================================================================
 // Public Methods
 // =============================================================================
-
-// AssignIPs calls the custom AssignIPsFunc if provided.
-func (m *MockNetworkManager) AssignIPs(services []services.Service) error {
-	if m.AssignIPsFunc != nil {
-		return m.AssignIPsFunc(services)
-	}
-	return nil
-}
 
 // ConfigureHostRoute calls the custom ConfigureHostRouteFunc if provided.
 func (m *MockNetworkManager) ConfigureHostRoute() error {
