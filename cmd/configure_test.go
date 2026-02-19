@@ -9,6 +9,7 @@ package cmd
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/project"
@@ -118,13 +119,23 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 			t.Fatalf("Init failed: %v", err)
 		}
 		_, stderr, err := runCmd(t, context.Background(), []string{"configure", "network"})
-		assertSuccessAndNoStderr(t, err, stderr)
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if stderr != "" && !strings.Contains(stderr, "skipped") {
+			t.Errorf("Expected stderr to contain user message, got %q", stderr)
+		}
 	})
 
 	t.Run("ConfigureNetworkSucceedsWithDnsAddressFlag", func(t *testing.T) {
 		env := setupConfigureTest(t)
 		_, stderr, err := runCmd(t, env.Ctx, []string{"configure", "network", "--dns-address=10.5.0.2"})
-		assertSuccessAndNoStderr(t, err, stderr)
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if stderr != "" && !strings.Contains(stderr, "network") {
+			t.Errorf("Expected stderr to contain user message, got %q", stderr)
+		}
 		if env.Capture.TotalCalls() > 0 {
 			for _, c := range env.Capture.SudoCalls {
 				t.Logf("ExecSudo: %s %v", c.Command, c.Args)
@@ -135,7 +146,12 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 	t.Run("ConfigureNetworkSucceedsWithoutDnsAddress", func(t *testing.T) {
 		env := setupConfigureTest(t)
 		_, stderr, err := runCmd(t, env.Ctx, []string{"configure", "network"})
-		assertSuccessAndNoStderr(t, err, stderr)
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if stderr != "" && !strings.Contains(stderr, "network") {
+			t.Errorf("Expected stderr to contain user message, got %q", stderr)
+		}
 		if env.Capture.TotalCalls() > 0 {
 			for _, c := range env.Capture.ExecCalls {
 				t.Logf("Exec: %s %v", c.Command, c.Args)

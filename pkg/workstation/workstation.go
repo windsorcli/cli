@@ -244,14 +244,18 @@ func (w *Workstation) EnsureNetworkPrivilege() error {
 }
 
 // ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
-// Guest address is read from config (workstation.address) by ConfigureHostRoute. When dnsAddressOverride
-// is non-empty it is stored in dns.address before ConfigureDNS. No-op when NetworkManager is nil.
+// Guest address is read from config (workstation.address) by ConfigureHostRoute. DNS: dns.address
+// is set from dnsAddressOverride when non-empty, else from workstation.address when unset; DNS
+// is attempted when both dns.domain and dns.address are set. No-op when NetworkManager is nil.
 func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 	if w.NetworkManager == nil {
 		return nil
 	}
 	if dnsAddressOverride != "" {
 		_ = w.configHandler.Set("dns.address", dnsAddressOverride)
+	}
+	if w.configHandler.GetString("dns.address") == "" && w.configHandler.GetString("workstation.address") != "" {
+		_ = w.configHandler.Set("dns.address", w.configHandler.GetString("workstation.address"))
 	}
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	if workstationRuntime == "colima" {
@@ -261,11 +265,23 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
 			return fmt.Errorf("error configuring host route: %w", err)
 		}
+		fmt.Fprintln(os.Stderr, "network: ready")
+	} else {
+		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
 	}
-	if dnsAddressOverride != "" || w.configHandler.GetBool("dns.enabled") {
+	if w.configHandler.GetString("dns.domain") != "" && w.configHandler.GetString("dns.address") != "" {
 		if err := w.NetworkManager.ConfigureDNS(); err != nil {
 			return fmt.Errorf("error configuring DNS: %w", err)
 		}
+		domain := w.configHandler.GetString("dns.domain")
+		addr := w.configHandler.GetString("dns.address")
+		if domain != "" && addr != "" {
+			fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", domain, addr)
+		} else {
+			fmt.Fprintln(os.Stderr, "dns: ready")
+		}
+	} else {
+		fmt.Fprintln(os.Stderr, "dns: skipped")
 	}
 	return nil
 }

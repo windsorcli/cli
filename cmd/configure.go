@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
@@ -18,7 +19,7 @@ var configureNetworkDnsAddress string
 var configureNetworkCmd = &cobra.Command{
 	Use:          "network",
 	Short:        "Configure workstation host/guest networking and DNS",
-	Long:         "Configure workstation host/guest networking and DNS for the current Windsor context. Intended to be run from the project root after the workstation Terraform component is applied (e.g. via a null_resource local-exec). Pass the DNS service address via --dns-address to configure DNS; if omitted, DNS is not configured. Host routes and guest networking use existing config.",
+	Long:         "Run from project root after the workstation Terraform component is applied. Use --dns-address to set the DNS service address; otherwise DNS is not configured.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var opts []*project.Project
@@ -45,19 +46,23 @@ var configureNetworkCmd = &cobra.Command{
 
 		proj.EnsureWorkstation()
 		if proj.Workstation == nil {
+			fmt.Fprintln(os.Stderr, "workstation disabled")
 			return nil
 		}
 		if err := proj.Workstation.Prepare(); err != nil {
 			return err
 		}
-
 		dnsAddr, _ := cmd.Flags().GetString("dns-address")
+		if proj.Workstation.NetworkManager == nil {
+			fmt.Fprintln(os.Stderr, "network: n/a")
+			return nil
+		}
 		return proj.Workstation.ConfigureNetwork(dnsAddr)
 	},
 }
 
 func init() {
-	configureNetworkCmd.Flags().StringVar(&configureNetworkDnsAddress, "dns-address", "", "DNS service address (e.g. from Terraform workstation output). If omitted, DNS is not configured.")
+	configureNetworkCmd.Flags().StringVar(&configureNetworkDnsAddress, "dns-address", "", "DNS service address (e.g. from Terraform workstation output)")
 	configureCmd.AddCommand(configureNetworkCmd)
 	rootCmd.AddCommand(configureCmd)
 }

@@ -1333,7 +1333,7 @@ func TestProject_Up(t *testing.T) {
 			return false
 		}
 		mockNetwork := network.NewMockNetworkManager()
-		mockNetwork.NeedsPrivilegeFunc = func(dnsAddressOverride string) bool {
+		mockNetwork.NeedsPrivilegeFunc = func() bool {
 			return true
 		}
 		proj := NewProject("test-context", &Project{
