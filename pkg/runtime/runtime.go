@@ -854,7 +854,7 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if rt.ConfigHandler.GetString("workstation.address") == "" && rt.ConfigHandler.GetString("vm.address") != "" {
 		_ = rt.ConfigHandler.Set("workstation.address", rt.ConfigHandler.GetString("vm.address"))
 	}
-	if rt.ConfigHandler.GetBool("dns.enabled") && rt.ConfigHandler.GetString("dns.domain") != "" && rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" {
+	if rt.ConfigHandler.GetBool("dns.enabled") && rt.ConfigHandler.GetString("dns.domain") != "" && rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("dns.address") == "" {
 		_ = rt.ConfigHandler.Set("dns.address", "127.0.0.1")
 	}
 	for key, value := range flagOverrides {
