@@ -1210,6 +1210,14 @@ func TestProject_Up(t *testing.T) {
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return true
 		}
+		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
+		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
+			return &v1alpha1.Blueprint{
+				TerraformComponents: []v1alpha1.TerraformComponent{
+					{Path: "workstation"},
+				},
+			}
+		}
 		var capturedOnApply []func(string) error
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
@@ -1246,6 +1254,9 @@ func TestProject_Up(t *testing.T) {
 		}
 		if len(capturedOnApply) == 0 {
 			t.Error("Expected provisioner to receive at least one onApply hook when workstation present")
+		}
+		if len(capturedOnApply) > 0 && capturedOnApply[0] == nil {
+			t.Error("Expected provisioner to receive non-nil onApply hook")
 		}
 	})
 

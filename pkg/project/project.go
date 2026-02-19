@@ -213,7 +213,11 @@ func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
 		}
 		onApply = p.Workstation.MakeApplyHook()
 	}
-	if err := p.Provisioner.Up(blueprint, onApply); err != nil {
+	if onApply != nil {
+		if err := p.Provisioner.Up(blueprint, onApply); err != nil {
+			return nil, fmt.Errorf("error starting infrastructure: %w", err)
+		}
+	} else if err := p.Provisioner.Up(blueprint); err != nil {
 		return nil, fmt.Errorf("error starting infrastructure: %w", err)
 	}
 	return blueprint, nil
