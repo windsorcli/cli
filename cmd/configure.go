@@ -8,6 +8,8 @@ import (
 	"github.com/windsorcli/cli/pkg/project"
 )
 
+var configureNetworkDnsAddress string
+
 var configureCmd = &cobra.Command{
 	Use:   "configure",
 	Short: "Configure Windsor resources",
@@ -50,7 +52,7 @@ var configureNetworkCmd = &cobra.Command{
 		if err := proj.Workstation.Prepare(); err != nil {
 			return err
 		}
-		dnsAddr, _ := cmd.Flags().GetString("dns-address")
+		dnsAddr := configureNetworkDnsAddress
 		if proj.Workstation.NetworkManager == nil {
 			fmt.Fprintln(os.Stderr, "network: n/a")
 			return nil
@@ -60,7 +62,7 @@ var configureNetworkCmd = &cobra.Command{
 }
 
 func init() {
-	configureNetworkCmd.Flags().String("dns-address", "", "DNS service address (e.g. from Terraform workstation output)")
+	configureNetworkCmd.Flags().StringVar(&configureNetworkDnsAddress, "dns-address", "", "DNS service address (e.g. from Terraform workstation output)")
 	configureCmd.AddCommand(configureNetworkCmd)
 	rootCmd.AddCommand(configureCmd)
 }
