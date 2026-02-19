@@ -133,6 +133,9 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 			return nil
 		}
 		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("true"))
+			}
 			return nil
 		}
 
