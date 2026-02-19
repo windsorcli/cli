@@ -13,7 +13,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -26,17 +25,8 @@ type WorkstationTestMocks struct {
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
 	NetworkManager   *network.MockNetworkManager
-	Services         []*services.MockService
 	VirtualMachine   *virt.MockVirt
 	ContainerRuntime *virt.MockVirt
-}
-
-func convertToServiceSlice(mockServices []*services.MockService) []services.Service {
-	serviceSlice := make([]services.Service, len(mockServices))
-	for i, mockService := range mockServices {
-		serviceSlice[i] = mockService
-	}
-	return serviceSlice
 }
 
 func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *WorkstationTestMocks {
@@ -50,12 +40,6 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 
 	// Create mock network manager
 	mockNetworkManager := network.NewMockNetworkManager()
-
-	// Create mock services
-	mockServices := []*services.MockService{
-		services.NewMockService(),
-		services.NewMockService(),
-	}
 
 	// Create mock virtual machine
 	mockVirtualMachine := virt.NewMockVirt()
@@ -158,15 +142,7 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 		return "/test/project", nil
 	}
 
-	// Set up mock service behaviors
-	for _, service := range mockServices {
-		service.SetNameFunc = func(name string) {}
-		service.GetNameFunc = func() string { return "test-service" }
-		service.WriteConfigFunc = func() error { return nil }
-	}
-
 	// Set up mock network manager behaviors
-	mockNetworkManager.AssignIPsFunc = func(services []services.Service) error { return nil }
 	mockNetworkManager.ConfigureHostRouteFunc = func() error { return nil }
 	mockNetworkManager.ConfigureGuestFunc = func() error { return nil }
 	mockNetworkManager.ConfigureDNSFunc = func() error { return nil }
@@ -199,7 +175,6 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 		ConfigHandler:    mockConfigHandler,
 		Shell:            mockShell,
 		NetworkManager:   mockNetworkManager,
-		Services:         mockServices,
 		VirtualMachine:   mockVirtualMachine,
 		ContainerRuntime: mockContainerRuntime,
 	}
@@ -340,10 +315,6 @@ func TestNewWorkstation(t *testing.T) {
 		if workstation.NetworkManager != nil {
 			t.Error("Expected NetworkManager not to be created in NewWorkstation (created in Prepare)")
 		}
-		// And Services should not be created yet (created in Prepare)
-		if workstation.Services != nil {
-			t.Error("Expected Services not to be created in NewWorkstation (created in Prepare)")
-		}
 		// And VirtualMachine should not be created yet (created in Prepare)
 		if workstation.VirtualMachine != nil {
 			t.Error("Expected VirtualMachine not to be created in NewWorkstation (created in Prepare)")
@@ -355,35 +326,24 @@ func TestNewWorkstation(t *testing.T) {
 	})
 
 	t.Run("UsesExistingDependencies", func(t *testing.T) {
-		// Given a runtime and workstation options with pre-configured dependencies
 		mocks := setupWorkstationMocks(t)
 		opts := &Workstation{
 			NetworkManager:   mocks.NetworkManager,
-			Services:         []services.Service{mocks.Services[0]},
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 		}
 
-		// When creating a new workstation with the provided options
 		workstation := NewWorkstation(mocks.Runtime, opts)
 
-		// Then the workstation should be created successfully
 		if workstation == nil {
 			t.Error("Expected workstation to be created")
 		}
-		// And the existing NetworkManager should be used
 		if workstation.NetworkManager != mocks.NetworkManager {
 			t.Error("Expected existing NetworkManager to be used")
 		}
-		// And the existing Services should be used
-		if len(workstation.Services) != 1 {
-			t.Error("Expected existing Services to be used")
-		}
-		// And the existing VirtualMachine should be used
 		if workstation.VirtualMachine != mocks.VirtualMachine {
 			t.Error("Expected existing VirtualMachine to be used")
 		}
-		// And the existing ContainerRuntime should be used
 		if workstation.ContainerRuntime != mocks.ContainerRuntime {
 			t.Error("Expected existing ContainerRuntime to be used")
 		}
@@ -402,7 +362,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When calling Up() to start the workstation
@@ -421,7 +380,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When calling Up() to start the workstation
@@ -458,7 +416,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When calling Up() to start the workstation
@@ -494,7 +451,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When calling Up() to start the workstation
@@ -534,7 +490,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 		workstation.DeferHostGuestSetup = true
 
@@ -557,36 +512,6 @@ func TestWorkstation_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("WritesServiceConfigs", func(t *testing.T) {
-		// Given a workstation with services configured and a tracking flag for WriteConfig() calls
-		mocks := setupWorkstationMocks(t)
-		writeConfigCalled := false
-		for _, service := range mocks.Services {
-			service.WriteConfigFunc = func() error {
-				writeConfigCalled = true
-				return nil
-			}
-		}
-		workstation := NewWorkstation(mocks.Runtime, &Workstation{
-			VirtualMachine:   mocks.VirtualMachine,
-			ContainerRuntime: mocks.ContainerRuntime,
-			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
-		})
-
-		// When calling Up() to start the workstation
-		err := workstation.Up()
-
-		// Then the workstation should start successfully
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		// And WriteConfig() should be called on each service
-		if !writeConfigCalled {
-			t.Error("Expected service WriteConfig to be called")
-		}
-	})
-
 	t.Run("VirtualMachineWriteConfigError", func(t *testing.T) {
 		// Given a workstation with a virtual machine that will fail when writing config
 		mocks := setupWorkstationMocks(t)
@@ -598,7 +523,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When calling Up() to start the workstation
@@ -627,7 +551,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When calling Up() to start the workstation
@@ -653,7 +576,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When calling Up() to start the workstation
@@ -680,7 +602,6 @@ func TestWorkstation_Up(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When ConfigureNetwork is called (e.g. from apply hook)
@@ -696,32 +617,6 @@ func TestWorkstation_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ServiceWriteConfigError", func(t *testing.T) {
-		// Given
-		mocks := setupWorkstationMocks(t)
-		for _, service := range mocks.Services {
-			service.WriteConfigFunc = func() error {
-				return fmt.Errorf("service config failed")
-			}
-		}
-		workstation := NewWorkstation(mocks.Runtime, &Workstation{
-			VirtualMachine:   mocks.VirtualMachine,
-			ContainerRuntime: mocks.ContainerRuntime,
-			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
-		})
-
-		// When
-		err := workstation.Up()
-
-		// Then
-		if err == nil {
-			t.Error("Expected error for service config failure")
-		}
-		if !strings.Contains(err.Error(), "Error writing config for service") {
-			t.Errorf("Expected specific error message, got: %v", err)
-		}
-	})
 }
 
 func TestWorkstation_PrepareForUp(t *testing.T) {
@@ -814,7 +709,6 @@ func TestWorkstation_EnsureNetworkPrivilege(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   nil,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		err := ws.EnsureNetworkPrivilege()
@@ -833,7 +727,6 @@ func TestWorkstation_EnsureNetworkPrivilege(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		err := ws.EnsureNetworkPrivilege()
@@ -858,7 +751,6 @@ func TestWorkstation_EnsureNetworkPrivilege(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		err := ws.EnsureNetworkPrivilege()
@@ -892,7 +784,6 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 		ws.DeferHostGuestSetup = true
 		configureNetworkCalled := false
@@ -938,7 +829,6 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 		ws.DeferHostGuestSetup = true
 
@@ -1067,176 +957,6 @@ func TestWorkstation_Down(t *testing.T) {
 }
 
 // =============================================================================
-// Test Private Methods
-// =============================================================================
-
-func TestWorkstation_createServices(t *testing.T) {
-	setComposeMode := func(mocks *WorkstationTestMocks) {
-		mock := mocks.ConfigHandler.(*config.MockConfigHandler)
-		orig := mock.GetStringFunc
-		mock.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "workstation.runtime" || key == "vm.driver" {
-				return ""
-			}
-			if orig != nil {
-				return orig(key, defaultValue...)
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupWorkstationMocks(t)
-		setComposeMode(mocks)
-		workstation := NewWorkstation(mocks.Runtime)
-
-		// When
-		services, err := workstation.createServices()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if services == nil {
-			t.Error("Expected services to be created")
-		}
-		if len(services) == 0 {
-			t.Error("Expected services to be created")
-		}
-	})
-
-	t.Run("DockerDisabled", func(t *testing.T) {
-		// Given
-		mocks := setupWorkstationMocks(t)
-		mockConfig := config.NewMockConfigHandler()
-		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "docker.enabled" {
-				return false
-			}
-			return false
-		}
-		mocks.Runtime.ConfigHandler = mockConfig
-		workstation := NewWorkstation(mocks.Runtime)
-
-		// When
-		services, err := workstation.createServices()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if len(services) != 0 {
-			t.Error("Expected no services when docker is disabled")
-		}
-	})
-
-	t.Run("ServiceInitializationError", func(t *testing.T) {
-		mocks := setupWorkstationMocks(t)
-		setComposeMode(mocks)
-		workstation := NewWorkstation(mocks.Runtime)
-
-		// When
-		services, err := workstation.createServices()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if len(services) == 0 {
-			t.Error("Expected services to be created")
-		}
-	})
-
-	t.Run("CreatesDNSService", func(t *testing.T) {
-		mocks := setupWorkstationMocks(t)
-		setComposeMode(mocks)
-		workstation := NewWorkstation(mocks.Runtime)
-
-		// When
-		services, err := workstation.createServices()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if len(services) == 0 {
-			t.Error("Expected services to be created")
-		}
-	})
-
-	t.Run("CreatesGitLivereloadService", func(t *testing.T) {
-		mocks := setupWorkstationMocks(t)
-		setComposeMode(mocks)
-		workstation := NewWorkstation(mocks.Runtime)
-
-		// When
-		services, err := workstation.createServices()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if len(services) == 0 {
-			t.Error("Expected services to be created")
-		}
-	})
-
-	t.Run("CreatesLocalstackService", func(t *testing.T) {
-		mocks := setupWorkstationMocks(t)
-		setComposeMode(mocks)
-		workstation := NewWorkstation(mocks.Runtime)
-
-		// When
-		services, err := workstation.createServices()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if len(services) == 0 {
-			t.Error("Expected services to be created")
-		}
-	})
-
-	t.Run("CreatesRegistryServices", func(t *testing.T) {
-		mocks := setupWorkstationMocks(t)
-		setComposeMode(mocks)
-		workstation := NewWorkstation(mocks.Runtime)
-
-		// When
-		services, err := workstation.createServices()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if len(services) == 0 {
-			t.Error("Expected services to be created")
-		}
-	})
-
-	t.Run("CreatesTalosServices", func(t *testing.T) {
-		mocks := setupWorkstationMocks(t)
-		setComposeMode(mocks)
-		workstation := NewWorkstation(mocks.Runtime)
-
-		// When
-		services, err := workstation.createServices()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if len(services) == 0 {
-			t.Error("Expected services to be created")
-		}
-	})
-}
-
-// =============================================================================
 // Test Helpers
 // =============================================================================
 
@@ -1248,7 +968,6 @@ func TestWorkstation_Integration(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When - Up
@@ -1272,7 +991,6 @@ func TestWorkstation_Integration(t *testing.T) {
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
 			NetworkManager:   mocks.NetworkManager,
-			Services:         convertToServiceSlice(mocks.Services),
 		})
 
 		// When - Multiple cycles

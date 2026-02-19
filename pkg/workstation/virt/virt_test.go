@@ -16,7 +16,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -28,7 +27,6 @@ type VirtTestMocks struct {
 	ConfigHandler config.ConfigHandler
 	Shell         *shell.MockShell
 	Shims         *Shims
-	Service       *services.MockService
 }
 
 // setupDefaultShims creates a new Shims instance with default implementations
@@ -111,9 +109,6 @@ func setupVirtMocks(t *testing.T, opts ...func(*VirtTestMocks)) *VirtTestMocks {
 	// Create config handler
 	configHandler := config.NewConfigHandler(mockShell)
 
-	// Create mock service
-	mockService := services.NewMockService()
-
 	// Create runtime
 	rt := &runtime.Runtime{
 		ProjectRoot:   tmpDir,
@@ -157,7 +152,6 @@ contexts:
 		Runtime:       rt,
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
-		Service:       mockService,
 		Shims:         setupDefaultShims(),
 	}
 

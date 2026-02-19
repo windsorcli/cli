@@ -12,7 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -24,7 +23,6 @@ type NetworkTestMocks struct {
 	ConfigHandler            config.ConfigHandler
 	Shell                    *shell.MockShell
 	NetworkInterfaceProvider *MockNetworkInterfaceProvider
-	Services                 []*services.MockService
 	Shims                    *Shims
 }
 
@@ -157,10 +155,6 @@ contexts:
 		},
 	}
 
-	// Create mock services
-	mockService1 := services.NewMockService()
-	mockService2 := services.NewMockService()
-
 	rt := &runtime.Runtime{
 		ProjectRoot:   tmpDir,
 		ConfigRoot:    tmpDir,
@@ -170,13 +164,11 @@ contexts:
 		Shell:         mockShell,
 	}
 
-	// Create mocks struct with references to the same instances
 	mocks := &NetworkTestMocks{
 		Runtime:                  rt,
 		ConfigHandler:            configHandler,
 		Shell:                    mockShell,
 		NetworkInterfaceProvider: mockNetworkInterfaceProvider,
-		Services:                 []*services.MockService{mockService1, mockService2},
 		Shims:                    setupDefaultShims(),
 	}
 
@@ -216,180 +208,6 @@ func TestNetworkManager_NewNetworkManager(t *testing.T) {
 // Test Public Methods
 // =============================================================================
 
-func TestNetworkManager_AssignIPs(t *testing.T) {
-	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
-		t.Helper()
-		mocks := setupNetworkMocks(t)
-		manager := NewBaseNetworkManager(mocks.Runtime)
-		manager.shims = mocks.Shims
-		return manager, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured network manager
-		manager, mocks := setup(t)
-
-		// And tracking IP address assignments
-		var setAddressCalls []string
-		mockService1 := mocks.Services[0]
-		mockService2 := mocks.Services[1]
-		mockService1.SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
-			setAddressCalls = append(setAddressCalls, address)
-			return nil
-		}
-		mockService2.SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
-			setAddressCalls = append(setAddressCalls, address)
-			return nil
-		}
-
-		// Convert mock services to service interface slice
-		serviceList := make([]services.Service, len(mocks.Services))
-		for i, s := range mocks.Services {
-			serviceList[i] = s
-		}
-
-		// When assigning IPs to services
-		err := manager.AssignIPs(serviceList)
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("expected no error during initialization, got %v", err)
-		}
-
-		// And services should be assigned IP addresses from the CIDR range
-		expectedIPs := []string{"192.168.1.2", "192.168.1.3"}
-		if len(setAddressCalls) != len(expectedIPs) {
-			t.Errorf("expected %d IP assignments, got %d", len(expectedIPs), len(setAddressCalls))
-		}
-		for i, expectedIP := range expectedIPs {
-			if i >= len(setAddressCalls) {
-				break
-			}
-			if setAddressCalls[i] != expectedIP {
-				t.Errorf("expected IP %s to be assigned, got %s", expectedIP, setAddressCalls[i])
-			}
-		}
-	})
-
-	t.Run("SetAddressFailure", func(t *testing.T) {
-		// Given a network manager with service address failure
-		manager, mocks := setup(t)
-		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
-			return fmt.Errorf("mock error setting address for service")
-		}
-
-		// Convert mock services to service interface slice
-		serviceList := make([]services.Service, len(mocks.Services))
-		for i, s := range mocks.Services {
-			serviceList[i] = s
-		}
-
-		// When assigning IPs
-		err := manager.AssignIPs(serviceList)
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error during Initialize, got nil")
-		}
-
-		// And the error should contain the expected message
-		expectedErrorSubstring := "error assigning IP addresses"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-	})
-
-	t.Run("ErrorResolvingServices", func(t *testing.T) {
-		// Given a network manager
-		manager, mocks := setup(t)
-
-		// When assigning IPs with services
-		// (services are now passed explicitly, so no resolution error can occur)
-		err := manager.AssignIPs([]services.Service{})
-
-		// Then no error should occur (services are passed directly, not resolved)
-		if err != nil {
-			t.Errorf("expected no error when services are passed explicitly, got %v", err)
-		}
-
-		// Verify manager was initialized
-		if manager.configHandler == nil {
-			t.Error("expected configHandler to be set")
-		}
-		if manager.shell == nil {
-			t.Error("expected shell to be set")
-		}
-		_ = mocks // suppress unused variable warning
-	})
-
-	t.Run("ErrorSettingNetworkCidr", func(t *testing.T) {
-		// Given a network manager with CIDR setting error
-		// Create a mock config handler that returns error for Set
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "network.cidr_block" {
-				return "" // Return empty so Set is called
-			}
-			return "10.5.0.0/16"
-		}
-		mockConfigHandler.SetFunc = func(key string, value any) error {
-			if key == "network.cidr_block" {
-				return fmt.Errorf("error setting default network CIDR")
-			}
-			return nil
-		}
-
-		// Setup with mock config handler
-		mocks := setupNetworkMocks(t, func(m *NetworkTestMocks) {
-			m.ConfigHandler = mockConfigHandler
-			m.Runtime.ConfigHandler = mockConfigHandler
-		})
-		manager := NewBaseNetworkManager(mocks.Runtime)
-		manager.shims = mocks.Shims
-
-		// When assigning IPs
-		err := manager.AssignIPs([]services.Service{})
-
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("expected error, got none")
-		}
-
-		// And the error should contain the expected message
-		expectedErrorSubstring := "error setting default network CIDR"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-	})
-
-	t.Run("ErrorAssigningIPAddresses", func(t *testing.T) {
-		// Given a network manager with IP assignment error
-		manager, mocks := setup(t)
-		// Create a service with SetAddress that returns error
-		mockService := services.NewMockService()
-		mockService.SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
-			return fmt.Errorf("mock assign IP addresses error")
-		}
-		serviceList := []services.Service{mockService}
-
-		// When assigning IPs
-		err := manager.AssignIPs(serviceList)
-
-		// Then an error should occur
-		if err == nil {
-			t.Errorf("expected error, got none")
-		}
-
-		// And the error should contain the expected message
-		expectedErrorSubstring := "error assigning IP addresses"
-		if !strings.Contains(err.Error(), expectedErrorSubstring) {
-			t.Errorf("expected error message to contain %q, got %q", expectedErrorSubstring, err.Error())
-		}
-		_ = mocks // suppress unused variable warning
-	})
-
-}
-
 func TestNetworkManager_ConfigureGuest(t *testing.T) {
 	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()
@@ -409,135 +227,6 @@ func TestNetworkManager_ConfigureGuest(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
-		}
-	})
-}
-
-func TestNetworkManager_assignIPAddresses(t *testing.T) {
-	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
-		t.Helper()
-		mocks := setupNetworkMocks(t)
-		manager := NewBaseNetworkManager(mocks.Runtime)
-		manager.shims = mocks.Shims
-		return manager, mocks
-	}
-
-	// Helper to convert mock services to service interface slice
-	toServices := func(mockServices []*services.MockService) []services.Service {
-		services := make([]services.Service, len(mockServices))
-		for i, s := range mockServices {
-			services[i] = s
-		}
-		return services
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a list of services and a network CIDR
-		_, mocks := setup(t)
-		var setAddressCalls []string
-		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
-			setAddressCalls = append(setAddressCalls, address)
-			return nil
-		}
-		mocks.Services[1].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
-			setAddressCalls = append(setAddressCalls, address)
-			return nil
-		}
-		networkCIDR := "10.5.0.0/16"
-
-		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR, services.NewPortAllocator())
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		// And services should be assigned the correct IPs
-		expectedIPs := []string{"10.5.0.2", "10.5.0.3"}
-		for i, expectedIP := range expectedIPs {
-			if setAddressCalls[i] != expectedIP {
-				t.Errorf("expected SetAddress to be called with IP %s, got %s", expectedIP, setAddressCalls[i])
-			}
-		}
-	})
-
-	t.Run("InvalidNetworkCIDR", func(t *testing.T) {
-		// Given services and an invalid network CIDR
-		_, mocks := setup(t)
-		networkCIDR := "invalid-cidr"
-
-		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR, services.NewPortAllocator())
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-
-		// And the error should be about parsing the CIDR
-		if !strings.Contains(err.Error(), "error parsing network CIDR") {
-			t.Fatalf("expected error message to contain 'error parsing network CIDR', got %v", err)
-		}
-	})
-
-	t.Run("ErrorSettingAddress", func(t *testing.T) {
-		// Given a service that fails to set address
-		_, mocks := setup(t)
-		mocks.Services[0].SetAddressFunc = func(address string, portAllocator *services.PortAllocator) error {
-			return fmt.Errorf("error setting address")
-		}
-		networkCIDR := "10.5.0.0/16"
-
-		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services[:1]), &networkCIDR, services.NewPortAllocator())
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-
-		// And the error should be about setting the address
-		if !strings.Contains(err.Error(), "error setting address") {
-			t.Fatalf("expected error message to contain 'error setting address', got %v", err)
-		}
-	})
-
-	t.Run("NotEnoughIPAddresses", func(t *testing.T) {
-		// Given more services than available IPs
-		_, mocks := setup(t)
-		networkCIDR := "10.5.0.0/30"
-
-		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services), &networkCIDR, services.NewPortAllocator())
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-
-		// And the error should be about insufficient IPs
-		if !strings.Contains(err.Error(), "not enough IP addresses in the CIDR range") {
-			t.Fatalf("expected error message to contain 'not enough IP addresses in the CIDR range', got %v", err)
-		}
-	})
-
-	t.Run("NetworkCIDRNotDefined", func(t *testing.T) {
-		// Given services but no network CIDR
-		_, mocks := setup(t)
-		var networkCIDR *string
-
-		// When assigning IP addresses
-		err := assignIPAddresses(toServices(mocks.Services[:1]), networkCIDR, services.NewPortAllocator())
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatal("expected an error, got none")
-		}
-
-		// And the error should be about undefined CIDR
-		if !strings.Contains(err.Error(), "network CIDR is not defined") {
-			t.Fatalf("expected error message to contain 'network CIDR is not defined', got %v", err)
 		}
 	})
 }

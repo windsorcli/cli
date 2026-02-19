@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -22,7 +20,7 @@ func TestIncusVirt_ensureRemote(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -132,7 +130,7 @@ func TestIncusVirt_instanceIsBusy(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -214,7 +212,7 @@ func TestIncusVirt_waitForInstanceReady(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -285,7 +283,7 @@ func TestIncusVirt_ensureFileExists(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -381,7 +379,7 @@ func TestIncusVirt_handleInstanceLaunchError(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -638,7 +636,7 @@ func TestIncusVirt_updateNetworkDevice(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -821,7 +819,7 @@ func TestIncusVirt_pollUntilNotBusy(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -948,7 +946,7 @@ func TestIncusVirt_stopInstanceIfRunning(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -1158,7 +1156,7 @@ func TestIncusVirt_addDevice(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -1288,7 +1286,7 @@ func TestIncusVirt_addNonNetworkDevices(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -1374,7 +1372,7 @@ func TestIncusVirt_ensureInstanceRunning(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -1486,7 +1484,7 @@ func TestIncusVirt_deleteInstance(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -1560,7 +1558,7 @@ func TestIncusVirt_launchInstance(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -1644,7 +1642,7 @@ func TestIncusVirt_buildLaunchArgs(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -1811,7 +1809,7 @@ func TestIncusVirt_configureNetworkDevice(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -1951,7 +1949,7 @@ func TestIncusVirt_addNetworkDevice(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2167,95 +2165,11 @@ func TestIncusVirt_sanitizeInstanceName(t *testing.T) {
 	}
 }
 
-func TestIncusVirt_buildInstanceConfig(t *testing.T) {
-	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
-		t.Helper()
-		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{mocks.Service})
-		return incusVirt, mocks
-	}
-
-	t.Run("Success", func(t *testing.T) {
-		// Given an IncusVirt with service
-		incusVirt, mocks := setup(t)
-
-		// When building instance config
-		config := incusVirt.buildInstanceConfig(mocks.Service, &services.IncusConfig{
-			Type:     "container",
-			Image:    "docker:alpine:latest",
-			Config:   map[string]string{"key": "value"},
-			Devices:  map[string]map[string]string{},
-			Profiles: []string{"default"},
-		}, "incusbr0")
-
-		// Then config should be built correctly
-		if config == nil {
-			t.Fatal("Expected config, got nil")
-		}
-		if config.Name != "test-service" {
-			t.Errorf("Expected name test-service, got %s", config.Name)
-		}
-		if config.Type != "container" {
-			t.Errorf("Expected type container, got %s", config.Type)
-		}
-		if config.Image != "docker:alpine:latest" {
-			t.Errorf("Expected image docker:alpine:latest, got %s", config.Image)
-		}
-		if config.IPv4 != "10.0.0.10" {
-			t.Errorf("Expected IPv4 10.0.0.10, got %s", config.IPv4)
-		}
-		if config.Network != "incusbr0" {
-			t.Errorf("Expected network incusbr0, got %s", config.Network)
-		}
-	})
-
-	t.Run("EmptyProfilesWithAddress", func(t *testing.T) {
-		// Given an IncusVirt with service that has address
-		incusVirt, mocks := setup(t)
-
-		// When building instance config with empty profiles but address
-		config := incusVirt.buildInstanceConfig(mocks.Service, &services.IncusConfig{
-			Type:     "container",
-			Image:    "docker:alpine:latest",
-			Config:   map[string]string{},
-			Devices:  map[string]map[string]string{},
-			Profiles: []string{},
-		}, "incusbr0")
-
-		// Then profiles should remain empty
-		if len(config.Profiles) != 0 {
-			t.Errorf("Expected empty profiles, got %v", config.Profiles)
-		}
-	})
-
-	t.Run("EmptyProfilesWithoutAddress", func(t *testing.T) {
-		// Given an IncusVirt with service without address
-		incusVirt, mocks := setup(t)
-		mocks.Service.GetAddressFunc = func() string {
-			return ""
-		}
-
-		// When building instance config with empty profiles and no address
-		config := incusVirt.buildInstanceConfig(mocks.Service, &services.IncusConfig{
-			Type:     "container",
-			Image:    "docker:alpine:latest",
-			Config:   map[string]string{},
-			Devices:  map[string]map[string]string{},
-			Profiles: []string{},
-		}, "incusbr0")
-
-		// Then default profile should be added
-		if len(config.Profiles) != 1 || config.Profiles[0] != "default" {
-			t.Errorf("Expected default profile, got %v", config.Profiles)
-		}
-	})
-}
-
 func TestIncusVirt_instanceIsRunning(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2343,7 +2257,7 @@ func TestIncusVirt_deviceExists(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2446,7 +2360,7 @@ func TestIncusVirt_getInstances(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2512,7 +2426,7 @@ func TestIncusVirt_getOperations(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2578,7 +2492,7 @@ func TestIncusVirt_instanceExists(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2653,7 +2567,7 @@ func TestIncusVirt_remoteExists(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2728,7 +2642,7 @@ func TestIncusVirt_getRemotes(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2794,7 +2708,7 @@ func TestIncusVirt_startInstance(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks
@@ -2827,7 +2741,7 @@ func TestIncusVirt_ensureInstanceNotBusy(t *testing.T) {
 	setup := func(t *testing.T) (*IncusVirt, *IncusTestMocks) {
 		t.Helper()
 		mocks := setupIncusMocks(t)
-		incusVirt := NewIncusVirt(mocks.Runtime, []services.Service{})
+		incusVirt := NewIncusVirt(mocks.Runtime)
 		incusVirt.pollInterval = 1 * time.Millisecond
 		incusVirt.maxWaitTimeout = 50 * time.Millisecond
 		return incusVirt, mocks

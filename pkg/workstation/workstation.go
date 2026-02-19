@@ -11,23 +11,19 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 	"golang.org/x/term"
 )
 
-// The Workstation is a core component that manages all workstation functionality including virtualization,
-// networking, services, and SSH operations.
-// It provides a unified interface for starting, stopping, and managing workstation infrastructure,
-// The Workstation acts as the central workstation orchestrator for the application,
-// coordinating VM lifecycle, container runtime management, network configuration, and service orchestration.
+// The Workstation is a core component that manages workstation virtualization, networking, and SSH operations.
+// It provides a unified interface for starting, stopping, and managing the VM and container runtime layer.
+// Service orchestration (DNS, registries, localstack, Talos, etc.) is handled by Terraform in the stack.
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// Workstation manages all workstation functionality including virtualization,
-// networking, services, and SSH operations.
+// Workstation manages workstation virtualization, networking, and SSH operations.
 type Workstation struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
@@ -36,7 +32,6 @@ type Workstation struct {
 
 	// Workstation-specific dependencies (created as needed)
 	NetworkManager   network.NetworkManager
-	Services         []services.Service
 	VirtualMachine   virt.VirtualMachine
 	ContainerRuntime virt.ContainerRuntime
 
@@ -79,9 +74,6 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 		if overrides.NetworkManager != nil {
 			workstation.NetworkManager = overrides.NetworkManager
 		}
-		if overrides.Services != nil {
-			workstation.Services = overrides.Services
-		}
 		if overrides.VirtualMachine != nil {
 			workstation.VirtualMachine = overrides.VirtualMachine
 		}
@@ -97,11 +89,8 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 // Public Methods
 // =============================================================================
 
-// Prepare creates all workstation components (network manager, services, virtual machine,
-// container runtime) and assigns IP addresses to services. This must be called after
-// configuration is loaded but before blueprint loading, as blueprint evaluation depends
-// on service addresses being set in config. Returns an error if any component creation
-// or IP assignment fails.
+// Prepare creates workstation components (network manager, virtual machine, container runtime).
+// Call after configuration is loaded. Returns an error if any component creation fails.
 func (w *Workstation) Prepare() error {
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 
@@ -114,44 +103,25 @@ func (w *Workstation) Prepare() error {
 		}
 	}
 
-	if w.Services == nil {
-		serviceList, err := w.createServices()
-		if err != nil {
-			return fmt.Errorf("failed to create services: %w", err)
-		}
-		w.Services = serviceList
-	}
-
-	if w.NetworkManager != nil {
-		if err := w.NetworkManager.AssignIPs(w.Services); err != nil {
-			return fmt.Errorf("failed to assign IPs to services: %w", err)
-		}
-	}
-
 	if workstationRuntime == "colima" && w.VirtualMachine == nil {
 		w.VirtualMachine = virt.NewColimaVirt(w.runtime)
 	}
 
 	if w.configHandler.GetString("provider") == "incus" {
 		if w.ContainerRuntime == nil {
-			w.ContainerRuntime = virt.NewIncusVirt(w.runtime, w.Services)
+			w.ContainerRuntime = virt.NewIncusVirt(w.runtime)
 			if incusVirt, ok := w.ContainerRuntime.(*virt.IncusVirt); ok {
 				w.VirtualMachine = incusVirt.ColimaVirt
 			}
-		}
-	} else {
-		if w.runtime.UsesDockerComposeWorkstation() && w.ContainerRuntime == nil {
-			w.ContainerRuntime = virt.NewDockerVirt(w.runtime, w.Services)
 		}
 	}
 
 	return nil
 }
 
-// Up initializes the workstation environment: starts VMs, containers, networking, and services.
-// Sets NO_CACHE environment variable, starts the virtual machine if configured, writes service
-// configs, starts the container runtime if enabled, and configures networking. All components
-// must be created via Prepare() before calling Up(). Returns error on any failure.
+// Up initializes the workstation environment: starts VMs, container runtime, and networking.
+// Sets NO_CACHE, starts the virtual machine if configured, writes container runtime config,
+// and configures networking. All components must be created via Prepare() before calling Up().
 func (w *Workstation) Up() error {
 	if err := os.Setenv("NO_CACHE", "true"); err != nil {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
@@ -169,12 +139,6 @@ func (w *Workstation) Up() error {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest SSH: %w", err)
 			}
-		}
-	}
-
-	for _, service := range w.Services {
-		if err := service.WriteConfig(); err != nil {
-			return fmt.Errorf("Error writing config for service %s: %w", service.GetName(), err)
 		}
 	}
 
@@ -308,10 +272,8 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 	}
 }
 
-// Down stops all components of the workstation environment including services, containers, VMs, and networking.
-// It gracefully shuts down the container runtime and virtual machine if present. On success, it prints a
-// confirmation message to standard error and returns nil. If any step of the teardown fails, it returns an error
-// describing the issue.
+// Down stops the workstation environment: container runtime, then VM and networking.
+// Gracefully shuts down the container runtime and virtual machine if present.
 func (w *Workstation) Down() error {
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	provider := w.configHandler.GetString("provider")
@@ -335,86 +297,4 @@ func (w *Workstation) Down() error {
 	}
 
 	return nil
-}
-
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// createServices creates and registers services based on configuration settings.
-func (w *Workstation) createServices() ([]services.Service, error) {
-	var serviceList []services.Service
-
-	if !w.runtime.UsesDockerComposeWorkstation() {
-		return serviceList, nil
-	}
-
-	// DNS Service
-	dnsEnabled := w.configHandler.GetBool("dns.enabled", false)
-	if dnsEnabled {
-		service := services.NewDNSService(w.runtime)
-		service.SetName("dns")
-		serviceList = append(serviceList, service)
-	}
-
-	// Git Livereload Service
-	gitEnabled := w.configHandler.GetBool("git.livereload.enabled", false)
-	if gitEnabled {
-		service := services.NewGitLivereloadService(w.runtime)
-		service.SetName("git")
-		serviceList = append(serviceList, service)
-	}
-
-	// Localstack Service
-	awsEnabled := w.configHandler.GetBool("aws.localstack.enabled", false)
-	if awsEnabled {
-		service := services.NewLocalstackService(w.runtime)
-		service.SetName("aws")
-		serviceList = append(serviceList, service)
-	}
-
-	// Registry Services
-	contextConfig := w.configHandler.GetConfig()
-	if contextConfig.Docker != nil && contextConfig.Docker.Registries != nil {
-		for key := range contextConfig.Docker.Registries {
-			service := services.NewRegistryService(w.runtime)
-			service.SetName(key)
-			serviceList = append(serviceList, service)
-		}
-	}
-
-	// Cluster Services - only create Talos services for Docker runtime
-	// For Incus, Talos nodes are created via blueprint/terraform
-	if w.configHandler.GetString("provider") != "incus" {
-		clusterDriver := w.configHandler.GetString("cluster.driver", "")
-		switch clusterDriver {
-		case "talos", "omni":
-			controlPlaneCount := w.configHandler.GetInt("cluster.controlplanes.count")
-			workerCount := w.configHandler.GetInt("cluster.workers.count")
-
-			for i := 1; i <= controlPlaneCount; i++ {
-				service := services.NewTalosService(w.runtime, "controlplane")
-				serviceName := fmt.Sprintf("controlplane-%d", i)
-				service.SetName(serviceName)
-				serviceList = append(serviceList, service)
-			}
-
-			for i := 1; i <= workerCount; i++ {
-				service := services.NewTalosService(w.runtime, "worker")
-				serviceName := fmt.Sprintf("worker-%d", i)
-				service.SetName(serviceName)
-				serviceList = append(serviceList, service)
-			}
-		}
-	}
-
-	// Initialize DNS service with all services after they're all created
-	for _, service := range serviceList {
-		if dnsService, ok := service.(*services.DNSService); ok {
-			dnsService.SetServices(serviceList)
-			break
-		}
-	}
-
-	return serviceList, nil
 }

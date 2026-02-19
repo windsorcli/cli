@@ -223,10 +223,8 @@ func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
 	return blueprint, nil
 }
 
-// PerformCleanup removes context-specific artifacts including volumes, terraform modules,
-// and generated configuration files. It calls the config handler's Clean method to remove
-// saved state, then deletes the .volumes directory, .windsor/contexts/<context> directory,
-// .windsor/Corefile, and .windsor/docker-compose.yaml. Returns an error if any cleanup step fails.
+// PerformCleanup removes context-specific artifacts: config state, .volumes,
+// .windsor/contexts/<context>, and .windsor/Corefile. Returns an error if any step fails.
 func (p *Project) PerformCleanup() error {
 	if err := p.configHandler.Clean(); err != nil {
 		return fmt.Errorf("error cleaning up context specific artifacts: %w", err)
@@ -245,11 +243,6 @@ func (p *Project) PerformCleanup() error {
 	corefilePath := filepath.Join(p.projectRoot, ".windsor", "Corefile")
 	if err := os.RemoveAll(corefilePath); err != nil {
 		return fmt.Errorf("error deleting .windsor/Corefile: %w", err)
-	}
-
-	dockerComposePath := filepath.Join(p.projectRoot, ".windsor", "docker-compose.yaml")
-	if err := os.RemoveAll(dockerComposePath); err != nil {
-		return fmt.Errorf("error deleting .windsor/docker-compose.yaml: %w", err)
 	}
 
 	return nil

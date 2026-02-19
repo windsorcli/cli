@@ -8,15 +8,12 @@ package virt
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/workstation/services"
 )
 
 // =============================================================================
@@ -41,12 +38,9 @@ const (
 // =============================================================================
 
 // IncusVirt implements both the ContainerRuntime and VirtualMachine interfaces for Incus.
-// It embeds ColimaVirt to inherit all Colima VM functionality and can override methods
-// to add Incus-specific behavior. When used as a VirtualMachine, it manages the Colima VM lifecycle.
-// When used as a ContainerRuntime, it creates and manages Incus container instances.
+// It embeds ColimaVirt to inherit Colima VM functionality. Instance creation is handled by Terraform in the stack.
 type IncusVirt struct {
 	*ColimaVirt
-	services       []services.Service
 	pollInterval   time.Duration
 	maxWaitTimeout time.Duration
 }
@@ -107,26 +101,10 @@ type IncusRemote struct {
 // Constructor
 // =============================================================================
 
-// NewIncusVirt creates a new instance of IncusVirt with the provided runtime and services.
-// It creates and embeds a ColimaVirt instance to inherit all Colima VM functionality.
-// Services are sorted by name to ensure consistent ordering. Default polling intervals
-// and timeouts are configured.
-func NewIncusVirt(rt *runtime.Runtime, serviceList []services.Service) *IncusVirt {
-	var serviceSlice []services.Service
-	if serviceList != nil {
-		for _, service := range serviceList {
-			if service != nil {
-				serviceSlice = append(serviceSlice, service)
-			}
-		}
-		sort.Slice(serviceSlice, func(i, j int) bool {
-			return serviceSlice[i].GetName() < serviceSlice[j].GetName()
-		})
-	}
-
+// NewIncusVirt creates a new IncusVirt with the provided runtime and embeds ColimaVirt for VM lifecycle.
+func NewIncusVirt(rt *runtime.Runtime) *IncusVirt {
 	return &IncusVirt{
 		ColimaVirt:     NewColimaVirt(rt),
-		services:       serviceSlice,
 		pollInterval:   defaultPollInterval,
 		maxWaitTimeout: defaultMaxWaitTimeout,
 	}
@@ -183,83 +161,17 @@ func (v *IncusVirt) startIncusContainers() error {
 		}
 	}
 
-	networkName := IncusNetworkName
-
-	instanceCount := 0
-	for _, service := range v.services {
-		incusConfig, err := service.GetIncusConfig()
-		if err != nil {
-			return fmt.Errorf("failed to get Incus config for service %s: %w", service.GetName(), err)
-		}
-
-		if incusConfig != nil {
-			instanceCount++
-		}
-	}
-
-	if instanceCount > 0 {
-		if err := v.withProgress("📦 Creating support services", func() error {
-			for _, service := range v.services {
-				incusConfig, err := service.GetIncusConfig()
-				if err != nil {
-					return fmt.Errorf("failed to get Incus config for service %s: %w", service.GetName(), err)
-				}
-
-				if incusConfig == nil {
-					continue
-				}
-
-				instanceConfig := v.buildInstanceConfig(service, incusConfig, networkName)
-				if err := v.createInstanceSilent(instanceConfig); err != nil {
-					return fmt.Errorf("failed to create Incus instance %s: %w", instanceConfig.Name, err)
-				}
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-// Down stops and deletes all Incus instances, then cleans up the VM.
-// For Incus runtime, runs `colima daemon stop` before the parent's Down() since the
-// colima-incus driver runs as a daemon rather than a standard VM. The parent's
-// `colima stop` becomes a harmless no-op after the daemon is stopped, then proceeds
-// with `colima delete`. Attempts graceful shutdown first, falling back to cleanup
-// as a failsafe if the VM won't stop cleanly.
+// Down stops the Colima Incus daemon and runs the parent's Down() to clean up the VM.
 func (v *IncusVirt) Down() error {
 	if v.configHandler.GetString("provider") != "incus" {
 		return v.ColimaVirt.Down()
 	}
-	{
-		instanceCount := 0
-		for _, service := range v.services {
-			incusConfig, err := service.GetIncusConfig()
-			if err == nil && incusConfig != nil {
-				instanceCount++
-			}
-		}
-
-		if instanceCount > 0 {
-			if err := v.withProgress("🗑️  Deleting support services", func() error {
-				for _, service := range v.services {
-					instanceName := sanitizeInstanceName(service.GetName())
-					if err := v.deleteInstanceSilent(instanceName); err != nil {
-						return fmt.Errorf("failed to delete Incus instance %s: %w", instanceName, err)
-					}
-				}
-				return nil
-			}); err != nil {
-				return err
-			}
-		}
-
-		contextName := v.configHandler.GetContext()
-		profileName := fmt.Sprintf("windsor-%s", contextName)
-		_, _ = v.shell.ExecProgress("🦙 Stopping Colima daemon", "colima", "daemon", "stop", profileName)
-	}
+	contextName := v.configHandler.GetContext()
+	profileName := fmt.Sprintf("windsor-%s", contextName)
+	_, _ = v.shell.ExecProgress("🦙 Stopping Colima daemon", "colima", "daemon", "stop", profileName)
 
 	err := v.ColimaVirt.Down()
 	if err != nil {
@@ -606,37 +518,6 @@ func (v *IncusVirt) ensureFileExists(filePath string) error {
 		return fmt.Errorf("file or directory does not exist or is not accessible in VM: %s", filePath)
 	}
 	return nil
-}
-
-// buildInstanceConfig builds an IncusInstanceConfig from service metadata and IncusConfig.
-// It extracts the hostname and IP address from the service, clones the service configuration,
-// sets default profiles if none are specified and no IP address is configured, and sanitizes
-// the instance name. Returns a complete configuration ready for instance creation.
-func (v *IncusVirt) buildInstanceConfig(service services.Service, incusConfig *services.IncusConfig, networkName string) *IncusInstanceConfig {
-	hostname := service.GetHostname()
-	address := service.GetAddress()
-
-	config := maps.Clone(incusConfig.Config)
-	config["user.hostname"] = hostname
-
-	profiles := incusConfig.Profiles
-	if len(profiles) == 0 && address == "" {
-		profiles = []string{"default"}
-	}
-
-	instanceName := sanitizeInstanceName(service.GetName())
-
-	return &IncusInstanceConfig{
-		Name:      instanceName,
-		Type:      incusConfig.Type,
-		Image:     incusConfig.Image,
-		Config:    config,
-		Devices:   incusConfig.Devices,
-		IPv4:      address,
-		Network:   networkName,
-		Profiles:  profiles,
-		Resources: incusConfig.Resources,
-	}
 }
 
 // createInstanceSilent creates a new Incus instance silently without individual progress messages.
