@@ -97,6 +97,19 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 	return nil
 }
 
+// NeedsPrivilege returns true when network configuration will require elevated privileges (sudo or administrator).
+// Uses effectiveResolverIP and platform-specific needsPrivilegeForResolver/needsPrivilegeForHostRoute; errors are treated as false.
+func (n *BaseNetworkManager) NeedsPrivilege() bool {
+	desiredIP := n.effectiveResolverIP()
+	willConfigureDNS := n.configHandler.GetBool("dns.enabled") &&
+		n.configHandler.GetString("dns.domain") != "" && desiredIP != ""
+	needForDNS := willConfigureDNS && n.needsPrivilegeForResolver(desiredIP)
+	workstationRuntime := n.configHandler.GetString("workstation.runtime")
+	guestAddress := n.configHandler.GetString("workstation.address")
+	needForHostRoute := workstationRuntime == "colima" && guestAddress != "" && n.needsPrivilegeForHostRoute(guestAddress)
+	return needForDNS || needForHostRoute
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================

@@ -18,19 +18,6 @@ import (
 // Public Methods
 // =============================================================================
 
-// NeedsPrivilege returns true when network config will need sudo. Resolves guest address from config.
-// Errors are treated as false.
-func (n *BaseNetworkManager) NeedsPrivilege() bool {
-	desiredIP := n.effectiveResolverIP()
-	willConfigureDNS := n.configHandler.GetBool("dns.enabled") &&
-		n.configHandler.GetString("dns.domain") != "" && desiredIP != ""
-	needForDNS := willConfigureDNS && n.needsPrivilegeForResolver(desiredIP)
-	workstationRuntime := n.configHandler.GetString("workstation.runtime")
-	guestAddress := n.configHandler.GetString("workstation.address")
-	needForHostRoute := workstationRuntime == "colima" && guestAddress != "" && n.needsPrivilegeForHostRoute(guestAddress)
-	return needForDNS || needForHostRoute
-}
-
 // ConfigureHostRoute sets up the local development network for Linux.
 // Guest address is read from config (workstation.address).
 func (n *BaseNetworkManager) ConfigureHostRoute() error {

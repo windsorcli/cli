@@ -18,19 +18,6 @@ import (
 // Public Methods
 // =============================================================================
 
-// NeedsPrivilege returns true when network config will need sudo/admin. Resolves guest address and other
-// settings from config like other privilege checks. Errors are treated as false.
-func (n *BaseNetworkManager) NeedsPrivilege() bool {
-	desiredIP := n.effectiveResolverIP()
-	willConfigureDNS := n.configHandler.GetBool("dns.enabled") &&
-		n.configHandler.GetString("dns.domain") != "" && desiredIP != ""
-	needForDNS := willConfigureDNS && n.needsPrivilegeForResolver(desiredIP)
-	workstationRuntime := n.configHandler.GetString("workstation.runtime")
-	guestAddress := n.configHandler.GetString("workstation.address")
-	needForHostRoute := workstationRuntime == "colima" && guestAddress != "" && n.needsPrivilegeForHostRoute(guestAddress)
-	return needForDNS || needForHostRoute
-}
-
 // ConfigureHostRoute ensures that a network route from the host to the VM guest is established.
 // Guest address is read from config (workstation.address). It checks if a route for the network
 // CIDR already exists with that gateway; if not, adds the route with elevated permissions.
