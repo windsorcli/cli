@@ -159,7 +159,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		for _, f := range includedFacets {
 			currSet[f.Metadata.Name] = true
 		}
-		if len(prevIncludedSet) > 0 && len(currSet) == len(prevIncludedSet) {
+		if len(currSet) == len(prevIncludedSet) {
 			eq := true
 			for n := range currSet {
 				if !prevIncludedSet[n] {
