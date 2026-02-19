@@ -246,7 +246,7 @@ func (w *Workstation) EnsureNetworkPrivilege() error {
 // ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
 // Guest address is read from config (workstation.address) by ConfigureHostRoute. DNS: dns.address
 // is set from dnsAddressOverride when non-empty, else from workstation.address when unset; DNS
-// is attempted when both dns.domain and dns.address are set. No-op when NetworkManager is nil.
+// is attempted only when dns.enabled is true and both dns.domain and dns.address are set. No-op when NetworkManager is nil.
 func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 	if w.NetworkManager == nil {
 		return nil
@@ -269,17 +269,13 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 	} else {
 		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
 	}
-	if w.configHandler.GetString("dns.domain") != "" && w.configHandler.GetString("dns.address") != "" {
+	if w.configHandler.GetBool("dns.enabled") && w.configHandler.GetString("dns.domain") != "" && w.configHandler.GetString("dns.address") != "" {
 		if err := w.NetworkManager.ConfigureDNS(); err != nil {
 			return fmt.Errorf("error configuring DNS: %w", err)
 		}
 		domain := w.configHandler.GetString("dns.domain")
 		addr := w.configHandler.GetString("dns.address")
-		if domain != "" && addr != "" {
-			fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", domain, addr)
-		} else {
-			fmt.Fprintln(os.Stderr, "dns: ready")
-		}
+		fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", domain, addr)
 	} else {
 		fmt.Fprintln(os.Stderr, "dns: skipped")
 	}
