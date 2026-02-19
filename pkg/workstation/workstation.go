@@ -273,9 +273,7 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 		if err := w.NetworkManager.ConfigureDNS(); err != nil {
 			return fmt.Errorf("error configuring DNS: %w", err)
 		}
-		domain := w.configHandler.GetString("dns.domain")
-		addr := w.configHandler.GetString("dns.address")
-		fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", domain, addr)
+		fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("dns.address"))
 	} else {
 		fmt.Fprintln(os.Stderr, "dns: skipped")
 	}
