@@ -5,15 +5,20 @@ package cmd
 
 // configure_test.go holds integration tests only (build tag: integration).
 // TestIntegration_ConfigureNetwork runs the full configure network command via runCmd with a
-// real project and mocked shell; no unit tests of the command RunE or public helpers.
+// project and mocked shell so no real Terraform, Docker, or auth are required.
 
 import (
 	"context"
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/composer/terraform"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 const windsorYAMLNoWorkstation = `version: v1alpha1
@@ -31,23 +36,40 @@ type configureTestEnv struct {
 	Capture *ShellCapture
 }
 
-// setupConfigureTest creates a real project (with init), then returns an env with a context, the project, and a
-// capturing mock shell so tests can assert on shell calls (Capture) and optionally on config (Proj).
-func setupConfigureTest(t *testing.T) *configureTestEnv {
+// runInitWithMocks runs init "local" with mocked runtime and composer so no OCI blueprint,
+// Terraform, or Docker are used. Use after SetupIntegrationProject(t, windsorYAML).
+func runInitWithMocks(t *testing.T, projectRoot string) {
 	t.Helper()
-	projectRoot := SetupIntegrationProject(t, minimalWindsorYAML)
-	_, _, err := runCmd(t, context.Background(), []string{"init", "local"})
+	m := shell.NewMockShell()
+	m.GetProjectRootFunc = func() (string, error) { return projectRoot, nil }
+	m.GetSessionTokenFunc = func() (string, error) { return "test-session-token", nil }
+	m.WriteResetTokenFunc = func() (string, error) { return "", nil }
+	mockTools := tools.NewMockToolsManager()
+	rt := runtime.NewRuntime(&runtime.Runtime{Shell: m, ProjectRoot: projectRoot, ToolsManager: mockTools})
+	mockBH := blueprint.NewMockBlueprintHandler()
+	mockTR := terraform.NewMockModuleResolver()
+	comp := composer.NewComposer(rt, &composer.Composer{BlueprintHandler: mockBH, TerraformResolver: mockTR})
+	ctx := context.WithValue(context.Background(), runtimeOverridesKey, rt)
+	ctx = context.WithValue(ctx, composerOverridesKey, comp)
+	_, _, err := runCmd(t, ctx, []string{"init", "local"})
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
+}
+
+// setupConfigureTest creates a project by running init with mocks, then returns an env with a
+// context, the project, and a capturing mock shell so tests can assert on shell calls and config.
+// No real Terraform, Docker, or auth are required.
+func setupConfigureTest(t *testing.T) *configureTestEnv {
+	t.Helper()
+	projectRoot := SetupIntegrationProject(t, minimalWindsorYAML)
+	runInitWithMocks(t, projectRoot)
 	capture := NewShellCapture()
 	m := NewMockShellWithCapture(capture)
 	m.GetProjectRootFunc = func() (string, error) { return projectRoot, nil }
 	m.GetSessionTokenFunc = func() (string, error) { return "test-session-token", nil }
 	m.WriteResetTokenFunc = func() (string, error) { return "", nil }
-	rt := runtime.NewRuntime()
-	rt.Shell = m
-	rt.ProjectRoot = projectRoot
+	rt := runtime.NewRuntime(&runtime.Runtime{Shell: m, ProjectRoot: projectRoot})
 	proj := project.NewProject("local", &project.Project{Runtime: rt})
 	return &configureTestEnv{
 		Ctx:     context.WithValue(context.Background(), projectOverridesKey, proj),
@@ -113,12 +135,16 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 	})
 
 	t.Run("ConfigureNetworkSucceedsWhenWorkstationNotEnabled", func(t *testing.T) {
-		SetupIntegrationProject(t, windsorYAMLNoWorkstation)
-		_, _, err := runCmd(t, context.Background(), []string{"init", "local"})
-		if err != nil {
-			t.Fatalf("Init failed: %v", err)
-		}
-		_, stderr, err := runCmd(t, context.Background(), []string{"configure", "network"})
+		projectRoot := SetupIntegrationProject(t, windsorYAMLNoWorkstation)
+		runInitWithMocks(t, projectRoot)
+		m := shell.NewMockShell()
+		m.GetProjectRootFunc = func() (string, error) { return projectRoot, nil }
+		m.GetSessionTokenFunc = func() (string, error) { return "test-session-token", nil }
+		m.WriteResetTokenFunc = func() (string, error) { return "", nil }
+		rt := runtime.NewRuntime(&runtime.Runtime{Shell: m, ProjectRoot: projectRoot})
+		proj := project.NewProject("local", &project.Project{Runtime: rt})
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		_, stderr, err := runCmd(t, ctx, []string{"configure", "network"})
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
