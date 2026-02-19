@@ -14,8 +14,6 @@ var configureCmd = &cobra.Command{
 	Long:  "Configure Windsor resources such as workstation host/guest networking and DNS.",
 }
 
-var configureNetworkDnsAddress string
-
 var configureNetworkCmd = &cobra.Command{
 	Use:          "network",
 	Short:        "Configure workstation host/guest networking and DNS",
@@ -62,7 +60,7 @@ var configureNetworkCmd = &cobra.Command{
 }
 
 func init() {
-	configureNetworkCmd.Flags().StringVar(&configureNetworkDnsAddress, "dns-address", "", "DNS service address (e.g. from Terraform workstation output)")
+	configureNetworkCmd.Flags().String("dns-address", "", "DNS service address (e.g. from Terraform workstation output)")
 	configureCmd.AddCommand(configureNetworkCmd)
 	rootCmd.AddCommand(configureCmd)
 }
