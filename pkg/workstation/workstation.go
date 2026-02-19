@@ -245,7 +245,8 @@ func (w *Workstation) EnsureNetworkPrivilege() error {
 
 // ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
 // Guest address is read from config (workstation.address) by ConfigureHostRoute. DNS: dns.address
-// is set from dnsAddressOverride when non-empty, else from workstation.address when unset; DNS
+// is set only when dnsAddressOverride is non-empty (e.g. --dns-address or Terraform output); no
+// fallback to workstation.address, so callers that omit the override do not configure DNS. DNS
 // is attempted only when dns.enabled is true and both dns.domain and dns.address are set. No-op when NetworkManager is nil.
 func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 	if w.NetworkManager == nil {
@@ -253,9 +254,6 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 	}
 	if dnsAddressOverride != "" {
 		_ = w.configHandler.Set("dns.address", dnsAddressOverride)
-	}
-	if w.configHandler.GetString("dns.address") == "" && w.configHandler.GetString("workstation.address") != "" {
-		_ = w.configHandler.Set("dns.address", w.configHandler.GetString("workstation.address"))
 	}
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	if workstationRuntime == "colima" {
