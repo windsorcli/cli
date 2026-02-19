@@ -59,17 +59,16 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 
 	t.Run("SuccessWhenAdmin", func(t *testing.T) {
 		shell, mocks := setup(t)
-		runCount := 0
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
-			runCount++
-			if cmd.Stdout == nil {
-				return nil
-			}
-			if runCount == 1 {
+			if cmd.Stdout != nil {
 				_, _ = cmd.Stdout.Write([]byte("true"))
-				return nil
 			}
-			_, _ = cmd.Stdout.Write([]byte("cmd-output"))
+			return nil
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("cmd-output"))
+			}
 			return nil
 		}
 
@@ -102,17 +101,16 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 
 	t.Run("SudoCommandUnwraps", func(t *testing.T) {
 		shell, mocks := setup(t)
-		runCount := 0
 		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
-			runCount++
-			if cmd.Stdout == nil {
-				return nil
-			}
-			if runCount == 1 {
+			if cmd.Stdout != nil {
 				_, _ = cmd.Stdout.Write([]byte("true"))
-				return nil
 			}
-			_, _ = cmd.Stdout.Write([]byte("unwrapped"))
+			return nil
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				_, _ = cmd.Stdout.Write([]byte("unwrapped"))
+			}
 			return nil
 		}
 
@@ -132,6 +130,9 @@ func TestDefaultShell_ExecSudo(t *testing.T) {
 			if cmd.Stdout != nil {
 				_, _ = cmd.Stdout.Write([]byte("true"))
 			}
+			return nil
+		}
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
 			return nil
 		}
 
