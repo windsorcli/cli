@@ -178,7 +178,7 @@ func assertFailureAndErrorContains(t *testing.T, err error, substring string) {
 // Shell capture (integration tests)
 // =============================================================================
 //
-// Integration tests can use the shell in three ways:
+// Integration tests can use the shell in two ways:
 //
 //  1. Real shell (default): Do not pass a project/runtime override. runCmd(t, context.Background(), args)
 //     uses the real project and shell, so terraform, docker, init, etc. run for real.
@@ -186,11 +186,6 @@ func assertFailureAndErrorContains(t *testing.T, err error, substring string) {
 //  2. Full mock: Use NewMockShellWithCapture(capture) and inject it via a project override. Every
 //     Exec/ExecSudo/ExecSilent/ExecSilentWithTimeout is captured and no-opped. Use when the test
 //     must not run any subprocesses (e.g. configure network tests that must not touch routes/DNS).
-//
-//  3. Partial mock (real + capture): Use NewMockShellWithPartialCapture(realShell, capture). Returns
-//     a MockShell that delegates to realShell for all calls except ExecSudo and ExecSilentWithTimeout,
-//     which are captured and no-opped. Use when you want real init/terraform/docker but no sudo or
-//     colima-ssh (e.g. avoid real network config while still running real CLI flows).
 
 // ShellCall records a single Exec, ExecSudo, or ExecSilent invocation (command + args).
 type ShellCall struct {
@@ -249,39 +244,5 @@ func NewMockShellWithCapture(capture *ShellCapture) *shell.MockShell {
 		capture.SilentWithTimeoutCalls = append(capture.SilentWithTimeoutCalls, ShellCallWithTimeout{Command: command, Args: args, Timeout: timeout})
 		return "", nil
 	}
-	return m
-}
-
-// NewMockShellWithPartialCapture returns a MockShell that delegates to realShell for all calls
-// except ExecSudo and ExecSilentWithTimeout, which are captured and no-opped. Use when you want
-// real terraform/docker/init but must not run network config or other privileged commands.
-func NewMockShellWithPartialCapture(realShell shell.Shell, capture *ShellCapture) *shell.MockShell {
-	m := shell.NewMockShell()
-	m.SetVerbosityFunc = func(v bool) { realShell.SetVerbosity(v) }
-	m.IsVerboseFunc = func() bool { return realShell.IsVerbose() }
-	m.RenderEnvVarsFunc = realShell.RenderEnvVars
-	m.RenderAliasesFunc = realShell.RenderAliases
-	m.GetProjectRootFunc = realShell.GetProjectRoot
-	m.ExecFunc = realShell.Exec
-	m.ExecSilentFunc = realShell.ExecSilent
-	m.ExecSilentWithTimeoutFunc = func(cmd string, args []string, timeout time.Duration) (string, error) {
-		capture.SilentWithTimeoutCalls = append(capture.SilentWithTimeoutCalls, ShellCallWithTimeout{Command: cmd, Args: args, Timeout: timeout})
-		return "", nil
-	}
-	m.ExecSudoFunc = func(_, cmd string, args ...string) (string, error) {
-		capture.SudoCalls = append(capture.SudoCalls, ShellCall{Command: cmd, Args: args})
-		return "", nil
-	}
-	m.ExecProgressFunc = realShell.ExecProgress
-	m.InstallHookFunc = realShell.InstallHook
-	m.AddCurrentDirToTrustedFileFunc = realShell.AddCurrentDirToTrustedFile
-	m.CheckTrustedDirectoryFunc = realShell.CheckTrustedDirectory
-	m.UnsetEnvsFunc = realShell.UnsetEnvs
-	m.UnsetAliasFunc = realShell.UnsetAlias
-	m.WriteResetTokenFunc = realShell.WriteResetToken
-	m.GetSessionTokenFunc = realShell.GetSessionToken
-	m.CheckResetFlagsFunc = realShell.CheckResetFlags
-	m.ResetFunc = realShell.Reset
-	m.RegisterSecretFunc = realShell.RegisterSecret
 	return m
 }
