@@ -148,7 +148,11 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
 				return nil, nil, err
 			}
-			passScope = blueprintv1alpha1.DeepMergeMaps(contextScope, globalScope)
+			mergeBase := contextScope
+			if mergeBase == nil {
+				mergeBase = make(map[string]any)
+			}
+			passScope = blueprintv1alpha1.DeepMergeMaps(mergeBase, globalScope)
 		}
 		scope = passScope
 		currSet := make(map[string]bool, len(includedFacets))
