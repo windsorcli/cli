@@ -297,8 +297,11 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 			if err == nil {
 				for _, key := range []string{"dns_ip", "dns_address"} {
 					if v, ok := outputs[key]; ok && v != nil {
-						dnsAddr = fmt.Sprint(v)
-						break
+						s := fmt.Sprint(v)
+						if s != "" {
+							dnsAddr = s
+							break
+						}
 					}
 				}
 			}
