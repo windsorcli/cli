@@ -77,16 +77,15 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // Public Methods
 // =============================================================================
 
-// ProcessFacets iterates through a list of facets, evaluating each facet's 'when' condition
-// against the provided configuration data. Facets whose conditions evaluate to true (or have no
-// condition) contribute their terraform components and kustomizations to the target blueprint.
-// Components within facets can also have individual 'when' conditions for fine-grained control.
-// Facets are sorted by ordinal (ascending), then by metadata.name for tiebreak; higher ordinal
-// means higher precedence when merging. If sourceName is provided, it sets the Source field on
-// components that don't already have one. Components and kustomizations are merged by ordinal
-// (higher wins) then by strategy precedence (remove > replace > merge) when ordinals are equal. The target blueprint is modified in place. Returns
-// the evaluated config scope and block order for this loader. Context values from the runtime
-// ConfigHandler are merged over facet-derived scope so when/component expressions see actual config.
+// ProcessFacets iterates facets, evaluating each facet's 'when' against config data. Facets with
+// true (or unset) conditions contribute their terraform components and kustomizations to target.
+// Components in facets may have 'when' for granular control. Facets are sorted by ordinal (asc),
+// then by metadata.name (tiebreak). Higher ordinal means higher precedence when merging. If
+// sourceName is set, it updates Source on components lacking it. Components/kustomizations are
+// merged by ordinal (higher wins), then by strategy precedence (remove > replace > merge) when
+// ordinals match. The target blueprint is modified in place. Returns: evaluated config scope and
+// block order for the loader. Runtime ConfigHandler context values are merged over facet-derived
+// scope so 'when' or component expressions use the actual config.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
 	if target == nil {
 		return nil, nil, fmt.Errorf("target blueprint cannot be nil")
@@ -115,30 +114,67 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	terraformByID := make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent)
 	kustomizationByName := make(map[string]*blueprintv1alpha1.ConditionalKustomization)
+	scope := contextScope
 	var globalScope map[string]any
 	var configBlockOrder []string
 	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
-
-	for _, facet := range sortedFacets {
-		shouldInclude, err := p.shouldIncludeFacet(facet, contextScope)
-		if err != nil {
-			return nil, nil, err
+	prevIncludedSet := make(map[string]bool)
+	const maxFacetRounds = 10
+	for range make([]struct{}, maxFacetRounds) {
+		includedFacets = includedFacets[:0]
+		globalScope = nil
+		configBlockOrder = nil
+		passScope := scope
+		if passScope == nil && contextScope != nil {
+			passScope = maps.Clone(contextScope)
 		}
-		if !shouldInclude {
-			continue
+		if passScope == nil {
+			passScope = make(map[string]any)
 		}
-		includedFacets = append(includedFacets, facet)
-		var errMerge error
-		globalScope, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, configBlockOrder, contextScope)
-		if errMerge != nil {
-			return nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
+		for _, facet := range sortedFacets {
+			shouldInclude, err := p.shouldIncludeFacet(facet, passScope)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !shouldInclude {
+				continue
+			}
+			includedFacets = append(includedFacets, facet)
+			var errMerge error
+			globalScope, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, configBlockOrder, passScope)
+			if errMerge != nil {
+				return nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
+			}
+			if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
+				return nil, nil, err
+			}
+			mergeBase := contextScope
+			if mergeBase == nil {
+				mergeBase = make(map[string]any)
+			}
+			passScope = blueprintv1alpha1.DeepMergeMaps(mergeBase, globalScope)
 		}
+		scope = passScope
+		currSet := make(map[string]bool, len(includedFacets))
+		for _, f := range includedFacets {
+			currSet[f.Metadata.Name] = true
+		}
+		if len(currSet) == len(prevIncludedSet) {
+			eq := true
+			for n := range currSet {
+				if !prevIncludedSet[n] {
+					eq = false
+					break
+				}
+			}
+			if eq {
+				break
+			}
+		}
+		prevIncludedSet = currSet
 	}
-	if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
-		return nil, nil, err
-	}
 
-	mergedScope := p.mergeContextOverScope(contextScope, globalScope)
+	mergedScope := flattenScopeForCondition(scope)
 	for _, facet := range includedFacets {
 		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, mergedScope); err != nil {
 			return nil, nil, err
@@ -280,7 +316,15 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			current := bodyMap
 			for pass := 0; pass < maxSameBlockPasses; pass++ {
 				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-				scopeWithBlock[name] = current
+				if pass == 0 {
+					if contextScope != nil && contextScope[name] != nil {
+						scopeWithBlock[name] = contextScope[name]
+					} else {
+						delete(scopeWithBlock, name)
+					}
+				} else {
+					scopeWithBlock[name] = current
+				}
 				evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", scopeWithBlock, false)
 				if err != nil {
 					return fmt.Errorf("config block %q: %w", name, err)
@@ -982,21 +1026,93 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 	return accumulated
 }
 
+// asMapStringAny returns v as a map with string keys if v is a map (e.g. map[string]any or
+// map[interface{}]interface{} from YAML). Uses MapRange and fmt.Sprint for keys so interface{}
+// keys from YAML decode as string keys. Returns (nil, false) otherwise.
+func asMapStringAny(v any) (map[string]any, bool) {
+	if v == nil {
+		return nil, false
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Map {
+		return nil, false
+	}
+	out := make(map[string]any, rv.Len())
+	iter := rv.MapRange()
+	for iter.Next() {
+		k := iter.Key()
+		var keyStr string
+		if k.Kind() == reflect.Interface && !k.IsNil() {
+			keyStr = fmt.Sprint(k.Elem().Interface())
+		} else {
+			keyStr = fmt.Sprint(k.Interface())
+		}
+		out[keyStr] = iter.Value().Interface()
+	}
+	return out, true
+}
+
+// unwrapConfigValue recursively unwraps config-block shapes {value: x} or {vars: {value: x}}
+// until a scalar is found (e.g. after multiple merge/evaluate rounds). Handles both
+// map[string]any and map[interface{}]interface{} from YAML. Returns the scalar or the original value.
+func unwrapConfigValue(v any) any {
+	m, ok := asMapStringAny(v)
+	if !ok {
+		return v
+	}
+	if val, has := m["value"]; has {
+		if val == nil || reflect.ValueOf(val).Kind() != reflect.Map {
+			return val
+		}
+		return unwrapConfigValue(val)
+	}
+	if vars, has := m["vars"]; has {
+		if vm, ok := asMapStringAny(vars); ok {
+			if val, has := vm["value"]; has {
+				return unwrapConfigValue(val)
+			}
+		}
+	}
+	return v
+}
+
+// flattenScopeForCondition returns a copy of scope where config-block values shaped
+// {value: <scalar>} or {vars: {value: <scalar>}} (possibly nested from multiple rounds) are
+// replaced by the scalar so when conditions like "platform == 'incus'" work. Normalizes
+// scope with ToMapStringAny first so nested maps from YAML (e.g. map[interface{}]interface{})
+// are map[string]any and unwrap can recurse correctly.
+func flattenScopeForCondition(scope map[string]any) map[string]any {
+	if scope == nil {
+		return nil
+	}
+	normalized := blueprintv1alpha1.ToMapStringAny(scope)
+	if normalized == nil {
+		normalized = scope
+	}
+	out := make(map[string]any, len(normalized))
+	for k, v := range normalized {
+		out[k] = unwrapConfigValue(v)
+	}
+	return out
+}
+
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
 // the provided configuration data. The path parameter provides context for error messages and
 // helper function resolution. Returns true if the expression evaluates to boolean true or the
 // string "true". Returns false for nil (undefined variables) or boolean false. Returns an error
 // if the expression is invalid or evaluates to an unexpected type. When scope is non-nil (e.g.
 // context merged with facet scope), expressions can reference values like workstation.runtime.
+// Config blocks that expose a single value (e.g. platform.vars.value) are flattened so
+// conditions like "platform == 'incus'" work.
 func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string, scope map[string]any) (bool, error) {
 	if !evaluator.ContainsExpression(expr) {
 		expr = "${" + expr + "}"
 	}
-	evaluated, err := p.evaluator.Evaluate(expr, path, scope, false)
+	flat := flattenScopeForCondition(scope)
+	evaluated, err := p.evaluator.Evaluate(expr, path, flat, false)
 	if err != nil {
 		return false, err
 	}
-
 	var result bool
 	switch v := evaluated.(type) {
 	case nil:
