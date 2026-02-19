@@ -174,7 +174,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		prevIncludedSet = currSet
 	}
 
-	mergedScope := scope
+	mergedScope := flattenScopeForCondition(scope)
 	for _, facet := range includedFacets {
 		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, mergedScope); err != nil {
 			return nil, nil, err
@@ -362,7 +362,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					break
 				}
 			}
-			globalScope[name] = unwrapSingleValueBlock(current)
+			globalScope[name] = current
 			if !reflect.DeepEqual(current, oldBody) {
 				anyBlockChanged = true
 			}
