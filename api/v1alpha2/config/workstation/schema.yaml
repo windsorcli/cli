@@ -72,11 +72,17 @@ properties:
 
   workstation:
     type: object
-    description: Workstation runtime state (e.g. guest VM address set at runtime)
+    description: Workstation runtime state and options (e.g. guest VM address, runtime driver, enabled flag)
     properties:
       address:
         type: string
         description: Guest VM IP address
+      enabled:
+        type: boolean
+        description: Whether the workstation is enabled for this context
+      runtime:
+        type: string
+        description: VM/runtime driver (e.g. colima, docker-desktop, incus)
     additionalProperties: false
 
   vm:
