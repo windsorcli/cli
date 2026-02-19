@@ -815,10 +815,10 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 				}
 			}
 			if workstationRuntime == "" {
-				workstationRuntime = rt.ConfigHandler.GetString("vm.driver")
+				workstationRuntime = rt.ConfigHandler.GetString("workstation.runtime")
 			}
 			if workstationRuntime == "" {
-				workstationRuntime = rt.ConfigHandler.GetString("workstation.runtime")
+				workstationRuntime = rt.ConfigHandler.GetString("vm.driver")
 			}
 			vmRuntime := ""
 			if r, ok := flagOverrides["vm.runtime"].(string); ok {
