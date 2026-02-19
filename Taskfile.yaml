@@ -60,15 +60,16 @@ tasks:
       CI: true
     cmds:
       - cmd: |
+          res=0
           if [ -n "{{.CLI_ARGS}}" ]; then
-            go test -tags=integration -v -covermode=atomic -coverprofile=coverage_integration.out -run {{.CLI_ARGS}} ./cmd 2>&1 | tee integration_out.txt
+            go test -tags=integration -v -covermode=atomic -coverprofile=coverage_integration.out -run {{.CLI_ARGS}} ./cmd 2>&1 | tee integration_out.txt; res=${PIPESTATUS[0]}
           else
-            go test -tags=integration -v -covermode=atomic -coverprofile=coverage_integration.out -run TestIntegration ./cmd 2>&1 | tee integration_out.txt
+            go test -tags=integration -v -covermode=atomic -coverprofile=coverage_integration.out -run TestIntegration ./cmd 2>&1 | tee integration_out.txt; res=${PIPESTATUS[0]}
           fi
-          res=${PIPESTATUS[0]}
-          grep -oE 'coverage: [0-9.]+% of statements' integration_out.txt | tail -1 | sed 's/coverage: /integration coverage (cmd): /'
+          grep -oE 'coverage: [0-9.]+% of statements' integration_out.txt | tail -1 | sed 's/coverage: /integration coverage (cmd): /' || true
           exit $res
         platforms: [linux, darwin]
+        shell: bash
       - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -v -covermode=atomic -coverprofile='coverage_integration.out' -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -v -covermode=atomic -coverprofile='coverage_integration.out' -run TestIntegration ./cmd }"
         platforms: [windows]
 
