@@ -1290,23 +1290,6 @@ func containsExpressionInValue(v any) bool {
 	}
 }
 
-// unwrapSingleValueBlock returns the scalar at the end of a chain of maps with a single "value" key.
-// If v is not such a map or has multiple keys, returns v unchanged. Used so config blocks that
-// resolve to a single value (e.g. platform -> "docker") are exposed as scalars at scope root.
-func unwrapSingleValueBlock(v any) any {
-	for {
-		m, ok := v.(map[string]any)
-		if !ok || len(m) != 1 {
-			return v
-		}
-		val, has := m["value"]
-		if !has {
-			return v
-		}
-		v = val
-	}
-}
-
 // MergeConfigMaps merges facet config blocks into the accumulated global scope.
 // When the same block name exists in both, block bodies are deep-merged recursively (overlay overwrites).
 // Returns a new map; does not mutate inputs.
