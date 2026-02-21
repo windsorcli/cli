@@ -174,17 +174,16 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		prevIncludedSet = currSet
 	}
 
-	mergedScope := flattenScopeForCondition(scope)
 	for _, facet := range includedFacets {
-		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, mergedScope); err != nil {
+		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, scope); err != nil {
 			return nil, nil, err
 		}
-		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, mergedScope); err != nil {
+		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, mergedScope); err != nil {
+	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {
 		return nil, nil, err
 	}
 	return globalScope, configBlockOrder, nil
