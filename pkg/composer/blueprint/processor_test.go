@@ -1093,8 +1093,10 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 					{
 						Name: "talos",
 						Body: map[string]any{
-							"controlplanes": "${cluster.controlplanes}",
-							"workers":       "${cluster.workers}",
+							"value": map[string]any{
+								"controlplanes": "${cluster.controlplanes}",
+								"workers":       "${cluster.workers}",
+							},
 						},
 					},
 				},
@@ -1147,7 +1149,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				Metadata: blueprintv1alpha1.Metadata{Name: "config-only"},
 				When:     "provider == 'incus'",
 				Config: []blueprintv1alpha1.ConfigBlock{
-					{Name: "talos", Body: map[string]any{"cluster_name": "${cluster.name}"}},
+					{Name: "talos", Body: map[string]any{"value": map[string]any{"cluster_name": "${cluster.name}"}}},
 				},
 			},
 			{
@@ -1189,8 +1191,8 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-config"},
 				When:     "provider == 'docker'",
 				Config: []blueprintv1alpha1.ConfigBlock{
-					{Name: "talos", When: "provider == 'incus'", Body: map[string]any{"x": "from-incus"}},
-					{Name: "talos", When: "provider == 'docker'", Body: map[string]any{"x": "from-docker"}},
+					{Name: "talos", When: "provider == 'incus'", Body: map[string]any{"value": map[string]any{"x": "from-incus"}}},
+					{Name: "talos", When: "provider == 'docker'", Body: map[string]any{"value": map[string]any{"x": "from-docker"}}},
 				},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
 					{
@@ -1225,9 +1227,11 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 					{
 						Name: "talos_common_docker",
 						Body: map[string]any{
-							"patchVars":    map[string]any{"key": "val"},
-							"common_patch": "${string(talos_common_docker.patchVars)}",
-							"patches":      "${string(talos_common_docker.common_patch)}",
+							"value": map[string]any{
+								"patchVars":    map[string]any{"key": "val"},
+								"common_patch": "${string(talos_common_docker.patchVars)}",
+								"patches":      "${string(talos_common_docker.common_patch)}",
+							},
 						},
 					},
 				},
@@ -1269,8 +1273,8 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-config"},
 				When:     "provider == 'docker'",
 				Config: []blueprintv1alpha1.ConfigBlock{
-					{Name: "talos_common", When: "provider == 'docker' && (workstation.enabled ?? false)", Body: map[string]any{"patches": []any{"docker-patch.yaml"}}},
-					{Name: "talos_common", When: "!(provider == 'docker' && (workstation.enabled ?? false))", Body: map[string]any{"patches": []any{"non-docker-patch.yaml"}}},
+					{Name: "talos_common", When: "provider == 'docker' && (workstation.enabled ?? false)", Body: map[string]any{"value": map[string]any{"patches": []any{"docker-patch.yaml"}}}},
+					{Name: "talos_common", When: "!(provider == 'docker' && (workstation.enabled ?? false))", Body: map[string]any{"value": map[string]any{"patches": []any{"non-docker-patch.yaml"}}}},
 				},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
 					{
@@ -1344,7 +1348,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				Metadata: blueprintv1alpha1.Metadata{Name: "empty-body"},
 				When:     "provider == 'incus'",
 				Config: []blueprintv1alpha1.ConfigBlock{
-					{Name: "empty", Body: map[string]any{}},
+					{Name: "empty", Body: map[string]any{"value": map[string]any{}}},
 				},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
 					{
@@ -4584,160 +4588,25 @@ func TestProcessor_evaluateIntegerExpression(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// flattenScopeForCondition / condition scope flattening
-// =============================================================================
-
-func TestFlattenScopeForCondition(t *testing.T) {
-	t.Run("ReturnsNilForNilScope", func(t *testing.T) {
-		// When flattening nil scope
-		out := flattenScopeForCondition(nil)
-		// Then result is nil
-		if out != nil {
-			t.Errorf("Expected nil, got %v", out)
-		}
-	})
-
-	t.Run("LeavesScalarValuesUnchanged", func(t *testing.T) {
-		// Given scope with platform as string
-		scope := map[string]any{"platform": "incus", "provider": "docker"}
-		// When flattening
-		out := flattenScopeForCondition(scope)
-		// Then platform and provider are unchanged
-		if out["platform"] != "incus" {
-			t.Errorf("Expected platform 'incus', got %v", out["platform"])
-		}
-		if out["provider"] != "docker" {
-			t.Errorf("Expected provider 'docker', got %v", out["provider"])
-		}
-	})
-
-	t.Run("UnwrapsValueShape", func(t *testing.T) {
-		// Given scope with platform as {value: "incus"}
-		scope := map[string]any{"platform": map[string]any{"value": "incus"}}
-		// When flattening
-		out := flattenScopeForCondition(scope)
-		// Then platform is the scalar
-		if out["platform"] != "incus" {
-			t.Errorf("Expected platform 'incus', got %v", out["platform"])
-		}
-	})
-
-	t.Run("UnwrapsVarsValueShape", func(t *testing.T) {
-		// Given scope with platform as {vars: {value: "incus"}}
-		scope := map[string]any{"platform": map[string]any{"vars": map[string]any{"value": "incus"}}}
-		// When flattening
-		out := flattenScopeForCondition(scope)
-		// Then platform is the scalar
-		if out["platform"] != "incus" {
-			t.Errorf("Expected platform 'incus', got %v", out["platform"])
-		}
-	})
-
-	t.Run("UnwrapsDeeplyNestedVarsValue", func(t *testing.T) {
-		// Given scope with platform as multiple rounds of vars.value (e.g. from config evaluate)
-		nested := map[string]any{"value": "docker"}
-		for i := 0; i < 4; i++ {
-			nested = map[string]any{"vars": map[string]any{"value": nested}}
-		}
-		scope := map[string]any{"platform": nested}
-		// When flattening
-		out := flattenScopeForCondition(scope)
-		// Then platform is the innermost scalar
-		if out["platform"] != "docker" {
-			t.Errorf("Expected platform 'docker', got %v", out["platform"])
-		}
-	})
-
-	t.Run("UnwrapsMapInterfaceInterfaceFromYAML", func(t *testing.T) {
-		// Given scope where platform is map[interface{}]interface{} (YAML decode)
-		scope := map[string]any{
-			"platform": map[interface{}]interface{}{
-				"vars": map[interface{}]interface{}{
-					"value": "incus",
-				},
-			},
-		}
-		// When flattening (ToMapStringAny normalizes, then unwrap)
-		out := flattenScopeForCondition(scope)
-		// Then platform is the scalar
-		if out["platform"] != "incus" {
-			t.Errorf("Expected platform 'incus', got %v", out["platform"])
-		}
-	})
-
-	t.Run("LeavesOtherKeysUnchanged", func(t *testing.T) {
-		// Given scope with mixed shapes
-		scope := map[string]any{
-			"platform": map[string]any{"vars": map[string]any{"value": "docker"}},
-			"cluster":  map[string]any{"driver": "talos"},
-		}
-		// When flattening
-		out := flattenScopeForCondition(scope)
-		// Then platform is flattened, cluster is unchanged (no value/vars.value)
-		if out["platform"] != "docker" {
-			t.Errorf("Expected platform 'docker', got %v", out["platform"])
-		}
-		cluster, ok := out["cluster"].(map[string]any)
-		if !ok {
-			t.Fatalf("Expected cluster to remain map, got %T", out["cluster"])
-		}
-		if cluster["driver"] != "talos" {
-			t.Errorf("Expected cluster.driver 'talos', got %v", cluster["driver"])
-		}
-	})
-}
-
-func TestEvaluateCondition_FlattensConfigBlockValues(t *testing.T) {
-	t.Run("PlatformEqualsIncusWhenScopeHasVarsValue", func(t *testing.T) {
-		// Given a processor and scope with platform as config-block shape
+func TestEvaluateCondition_EvaluatesAgainstScope(t *testing.T) {
+	t.Run("PlatformEqualsIncusWhenScopeHasPlainValue", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
-		scope := map[string]any{
-			"platform": map[string]any{"vars": map[string]any{"value": "incus"}},
-			"provider": "incus",
-		}
-		// When evaluating condition platform == 'incus'
+		scope := map[string]any{"platform": "incus", "provider": "incus"}
 		got, err := processor.evaluateCondition("platform == 'incus'", "", scope)
-		// Then condition is true
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !got {
-			t.Error("Expected condition to be true when platform (flattened) is 'incus'")
+			t.Error("Expected condition to be true when platform is 'incus'")
 		}
 	})
 
-	t.Run("PlatformEqualsDockerWhenScopeHasNestedVarsValue", func(t *testing.T) {
-		// Given scope with deeply nested platform (multiple evaluate rounds)
+	t.Run("PlatformEqualsFailsWhenValueDiffers", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
-		nested := map[string]any{"value": "docker"}
-		for i := 0; i < 3; i++ {
-			nested = map[string]any{"vars": map[string]any{"value": nested}}
-		}
-		scope := map[string]any{"platform": nested}
-		// When evaluating condition platform == 'docker'
-		got, err := processor.evaluateCondition("platform == 'docker'", "", scope)
-		// Then condition is true
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !got {
-			t.Error("Expected condition to be true when platform (flattened) is 'docker'")
-		}
-	})
-
-	t.Run("PlatformEqualsFailsWhenFlattenedValueDiffers", func(t *testing.T) {
-		// Given scope with platform flattened to 'docker'
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		scope := map[string]any{
-			"platform": map[string]any{"vars": map[string]any{"value": "docker"}},
-		}
-		// When evaluating condition platform == 'incus'
+		scope := map[string]any{"platform": "docker"}
 		got, err := processor.evaluateCondition("platform == 'incus'", "", scope)
-		// Then condition is false
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}

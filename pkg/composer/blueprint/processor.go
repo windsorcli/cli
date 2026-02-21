@@ -148,6 +148,9 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
 				return nil, nil, err
 			}
+			for k, v := range globalScope {
+				globalScope[k] = unwrapConfigValue(v)
+			}
 			mergeBase := contextScope
 			if mergeBase == nil {
 				mergeBase = make(map[string]any)
@@ -322,7 +325,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 						delete(scopeWithBlock, name)
 					}
 				} else {
-					scopeWithBlock[name] = current
+					scopeWithBlock[name] = unwrapConfigValue(current)
 				}
 				evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", scopeWithBlock, false)
 				if err != nil {
@@ -334,7 +337,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				current = evaluated
 			}
 			scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-			scopeWithBlock[name] = current
+			scopeWithBlock[name] = unwrapConfigValue(current)
 			const maxResolvePasses = 3
 			for resolvePass := 0; resolvePass < maxResolvePasses; resolvePass++ {
 				resolvedAny := false
@@ -1051,9 +1054,9 @@ func asMapStringAny(v any) (map[string]any, bool) {
 	return out, true
 }
 
-// unwrapConfigValue recursively unwraps config-block shapes {value: x} or {vars: {value: x}}
-// until a scalar is found (e.g. after multiple merge/evaluate rounds). Handles both
-// map[string]any and map[interface{}]interface{} from YAML. Returns the scalar or the original value.
+// unwrapConfigValue recursively unwraps maps that have a single "value" key so the exposed
+// value is the inner value. Other maps are returned unchanged. Used so conditions and inputs
+// can reference block name only. Handles both map[string]any and map[interface{}]interface{} from YAML.
 func unwrapConfigValue(v any) any {
 	m, ok := asMapStringAny(v)
 	if !ok {
@@ -1065,34 +1068,7 @@ func unwrapConfigValue(v any) any {
 		}
 		return unwrapConfigValue(val)
 	}
-	if vars, has := m["vars"]; has {
-		if vm, ok := asMapStringAny(vars); ok {
-			if val, has := vm["value"]; has {
-				return unwrapConfigValue(val)
-			}
-		}
-	}
 	return v
-}
-
-// flattenScopeForCondition returns a copy of scope where config-block values shaped
-// {value: <scalar>} or {vars: {value: <scalar>}} (possibly nested from multiple rounds) are
-// replaced by the scalar so when conditions like "platform == 'incus'" work. Normalizes
-// scope with ToMapStringAny first so nested maps from YAML (e.g. map[interface{}]interface{})
-// are map[string]any and unwrap can recurse correctly.
-func flattenScopeForCondition(scope map[string]any) map[string]any {
-	if scope == nil {
-		return nil
-	}
-	normalized := blueprintv1alpha1.ToMapStringAny(scope)
-	if normalized == nil {
-		normalized = scope
-	}
-	out := make(map[string]any, len(normalized))
-	for k, v := range normalized {
-		out[k] = unwrapConfigValue(v)
-	}
-	return out
 }
 
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
@@ -1101,14 +1077,11 @@ func flattenScopeForCondition(scope map[string]any) map[string]any {
 // string "true". Returns false for nil (undefined variables) or boolean false. Returns an error
 // if the expression is invalid or evaluates to an unexpected type. When scope is non-nil (e.g.
 // context merged with facet scope), expressions can reference values like workstation.runtime.
-// Config blocks that expose a single value (e.g. platform.vars.value) are flattened so
-// conditions like "platform == 'incus'" work.
 func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string, scope map[string]any) (bool, error) {
 	if !evaluator.ContainsExpression(expr) {
 		expr = "${" + expr + "}"
 	}
-	flat := flattenScopeForCondition(scope)
-	evaluated, err := p.evaluator.Evaluate(expr, path, flat, false)
+	evaluated, err := p.evaluator.Evaluate(expr, path, scope, false)
 	if err != nil {
 		return false, err
 	}

@@ -1604,9 +1604,11 @@ func TestHandler_processAndCompose(t *testing.T) {
 							{
 								Name: "talos_common_docker",
 								Body: map[string]any{
-									"patchVars":    map[string]any{"key": "val"},
-									"common_patch": "${string(talos_common_docker.patchVars)}",
-									"patches":      "${string(talos_common_docker.common_patch)}",
+									"value": map[string]any{
+										"patchVars":    map[string]any{"key": "val"},
+										"common_patch": "${string(talos_common_docker.patchVars)}",
+										"patches":      "${string(talos_common_docker.common_patch)}",
+									},
 								},
 							},
 						},

@@ -35,8 +35,10 @@ func TestFacetDeepCopy(t *testing.T) {
 					Name: "talos",
 					When: "provider == 'incus'",
 					Body: map[string]any{
-						"controlplanes": "${cluster.controlplanes}",
-						"patchVars":     map[string]any{"certSANs": "original", "poolPath": "default"},
+						"value": map[string]any{
+							"controlplanes": "${cluster.controlplanes}",
+							"patchVars":     map[string]any{"certSANs": "original", "poolPath": "default"},
+						},
 					},
 				},
 			},
@@ -107,13 +109,14 @@ func TestFacetDeepCopy(t *testing.T) {
 		if len(copy.Config) != len(original.Config) {
 			t.Error("Deep copy failed: config slice length mismatch")
 		}
-		original.Config[0].Body["controlplanes"] = "modified"
-		if copy.Config[0].Body["controlplanes"] == "modified" {
+		valOrig := original.Config[0].Body["value"].(map[string]any)
+		valOrig["controlplanes"] = "modified"
+		if copy.Config[0].Body["value"].(map[string]any)["controlplanes"] == "modified" {
 			t.Error("Deep copy failed: config block body was not copied")
 		}
-		nested := original.Config[0].Body["patchVars"].(map[string]any)
+		nested := valOrig["patchVars"].(map[string]any)
 		nested["certSANs"] = "modified"
-		if copy.Config[0].Body["patchVars"].(map[string]any)["certSANs"] == "modified" {
+		if copy.Config[0].Body["value"].(map[string]any)["patchVars"].(map[string]any)["certSANs"] == "modified" {
 			t.Error("Deep copy failed: config block body nested map was not copied")
 		}
 	})
@@ -287,10 +290,11 @@ when: provider == 'incus'
 config:
   - name: talos
     when: provider == 'incus' || provider == 'docker'
-    controlplanes: ${cluster.controlplanes}
-    workers: ${cluster.workers}
-    patchVars:
-      certSANs: ${cluster.apiServer.certSANs}
+    value:
+      controlplanes: ${cluster.controlplanes}
+      workers: ${cluster.workers}
+      patchVars:
+        certSANs: ${cluster.apiServer.certSANs}
 terraform:
   - name: cluster
     path: cluster
@@ -313,11 +317,15 @@ terraform:
 		if block.When != "provider == 'incus' || provider == 'docker'" {
 			t.Errorf("Expected when condition, got %q", block.When)
 		}
-		if _, ok := block.Body["controlplanes"]; !ok {
-			t.Error("Expected controlplanes in config block body")
+		val, ok := block.Body["value"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected config block body to have value map, got %T", block.Body["value"])
 		}
-		if _, ok := block.Body["patchVars"]; !ok {
-			t.Error("Expected patchVars in config block body")
+		if _, ok := val["controlplanes"]; !ok {
+			t.Error("Expected controlplanes in config block value")
+		}
+		if _, ok := val["patchVars"]; !ok {
+			t.Error("Expected patchVars in config block value")
 		}
 	})
 
@@ -325,7 +333,7 @@ terraform:
 		block := ConfigBlock{
 			Name: "talos",
 			When: "provider == 'docker'",
-			Body: map[string]any{"controlplanes": "${cluster.controlplanes}", "workers": "${cluster.workers}"},
+			Body: map[string]any{"value": map[string]any{"controlplanes": "${cluster.controlplanes}", "workers": "${cluster.workers}"}},
 		}
 		out, err := yaml.Marshal(&block)
 		if err != nil {
@@ -338,11 +346,29 @@ terraform:
 		if !strings.Contains(outStr, "when: provider == 'docker'") {
 			t.Error("Expected marshaled YAML to contain when condition")
 		}
+		if !strings.Contains(outStr, "value:") {
+			t.Error("Expected marshaled YAML to contain value key")
+		}
 		if !strings.Contains(outStr, "controlplanes") || !strings.Contains(outStr, "workers") {
-			t.Error("Expected marshaled YAML to contain body keys controlplanes and workers")
+			t.Error("Expected marshaled YAML to contain value body keys controlplanes and workers")
 		}
 		if !strings.Contains(outStr, "cluster.controlplanes") {
 			t.Error("Expected marshaled YAML to contain body value reference")
+		}
+	})
+
+	t.Run("ConfigBlockUnmarshalErrorsWhenValueMissing", func(t *testing.T) {
+		y := []byte(`name: talos
+when: provider == 'incus'
+controlplanes: ${cluster.controlplanes}
+`)
+		var block ConfigBlock
+		err := yaml.Unmarshal(y, &block)
+		if err == nil {
+			t.Error("Expected error when config block value is missing")
+		}
+		if block.Body != nil {
+			t.Error("Expected Body to be nil when unmarshal fails")
 		}
 	})
 
