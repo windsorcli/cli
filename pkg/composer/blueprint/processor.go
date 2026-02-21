@@ -323,7 +323,20 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		for _, name := range names {
 			body := globalScope[name]
 			bodyMap, ok := body.(map[string]any)
-			if !ok || len(bodyMap) == 0 {
+			if !ok {
+				if !containsExpressionInValue(body) {
+					continue
+				}
+				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
+				evaluated, err := p.evaluateConfigBlockValue(body, "", scopeWithBlock)
+				if err != nil {
+					return fmt.Errorf("config block %q: %w", name, err)
+				}
+				globalScope[name] = evaluated
+				anyBlockChanged = true
+				continue
+			}
+			if len(bodyMap) == 0 {
 				continue
 			}
 			oldBody := bodyMap
@@ -386,6 +399,33 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		}
 	}
 	return nil
+}
+
+// evaluateConfigBlockValue recursively evaluates a config block value (scalar, list, or map) so that
+// expressions in scalar or list entries are evaluated. Used when a config block has value: <scalar>
+// or value: [ ... ] instead of a map. Returns the evaluated value or an error.
+func (p *BaseBlueprintProcessor) evaluateConfigBlockValue(v any, path string, scope map[string]any) (any, error) {
+	switch x := v.(type) {
+	case string:
+		if !evaluator.ContainsExpression(x) {
+			return x, nil
+		}
+		return p.evaluator.Evaluate(x, path, scope, false)
+	case map[string]any:
+		return p.evaluator.EvaluateMap(x, path, scope, false)
+	case []any:
+		out := make([]any, 0, len(x))
+		for i, item := range x {
+			evaluated, err := p.evaluateConfigBlockValue(item, path, scope)
+			if err != nil {
+				return nil, fmt.Errorf("config block list[%d]: %w", i, err)
+			}
+			out = append(out, evaluated)
+		}
+		return out, nil
+	default:
+		return v, nil
+	}
 }
 
 // collectTerraformComponents processes and collects all Terraform components from the provided facet.

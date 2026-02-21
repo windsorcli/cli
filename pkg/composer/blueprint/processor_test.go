@@ -1411,6 +1411,47 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 			t.Error("Expected tags to be set (list config block preserved)")
 		}
 	})
+
+	t.Run("EvaluatesExpressionsInScalarAndListConfigBlockValues", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "incus", "tag1": "x", "tag2": "y"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "expr-scalar-list-config"},
+				When:     "provider == 'incus'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "platform", Body: map[string]any{"value": "${provider}"}},
+					{Name: "tags", Body: map[string]any{"value": []any{"${tag1}", "${tag2}"}}},
+				},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:   "cluster",
+							Inputs: map[string]any{"platform": "${platform}", "tags": "${string(tags)}"},
+						},
+					},
+				},
+			},
+		}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		if target.TerraformComponents[0].Inputs["platform"] != "incus" {
+			t.Errorf("Expected platform='incus' (scalar expression ${provider} evaluated), got %v", target.TerraformComponents[0].Inputs["platform"])
+		}
+		tagsStr, _ := target.TerraformComponents[0].Inputs["tags"].(string)
+		if tagsStr == "" || !strings.Contains(tagsStr, "x") || !strings.Contains(tagsStr, "y") {
+			t.Errorf("Expected tags to contain evaluated list (${tag1}/${tag2}), got %q", tagsStr)
+		}
+	})
 }
 
 func TestProcessor_mergeHelpers(t *testing.T) {
