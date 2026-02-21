@@ -25,7 +25,7 @@ func TestSchemaValidator_LoadSchema(t *testing.T) {
 
 		// And a valid schema file
 		schemaContent := `
-$schema: https://schemas.windsorcli.dev/blueprint-config/v1alpha1
+$schema: https://windsorcli.dev/schema/2026-02/schema
 title: Test Schema
 type: object
 properties:
@@ -363,7 +363,6 @@ additionalProperties: false
 		}
 	})
 }
-
 
 func TestSchemaValidator_ExtractDefaults(t *testing.T) {
 	t.Run("SuccessSimpleDefaults", func(t *testing.T) {

@@ -1,4 +1,4 @@
-$schema: https://json-schema.org/draft/2020-12/schema
+$schema: https://windsorcli.dev/schema/2026-02/schema
 type: object
 properties:
   substitutions:

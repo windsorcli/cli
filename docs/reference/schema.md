@@ -8,10 +8,10 @@ Blueprints can include a JSON Schema file (`_template/schema.yaml`) that defines
 
 ## Schema File Structure
 
-The schema file must be valid JSON Schema Draft 2020-12. The schema is located at `_template/schema.yaml` in blueprint templates.
+The schema file must use the Windsor schema dialect. The schema is located at `_template/schema.yaml` in blueprint templates.
 
 ```yaml
-$schema: https://json-schema.org/draft/2020-12/schema
+$schema: https://windsorcli.dev/schema/2026-02/schema
 type: object
 properties:
   # ... property definitions
@@ -90,7 +90,7 @@ The schema file must be located at `contexts/_template/schema.yaml` in your blue
 ## Example
 
 ```yaml
-$schema: https://json-schema.org/draft/2020-12/schema
+$schema: https://windsorcli.dev/schema/2026-02/schema
 type: object
 properties:
   provider:
