@@ -174,17 +174,16 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		prevIncludedSet = currSet
 	}
 
-	mergedScope := flattenScopeForCondition(scope)
 	for _, facet := range includedFacets {
-		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, mergedScope); err != nil {
+		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, scope); err != nil {
 			return nil, nil, err
 		}
-		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, mergedScope); err != nil {
+		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, mergedScope); err != nil {
+	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {
 		return nil, nil, err
 	}
 	return globalScope, configBlockOrder, nil
@@ -220,7 +219,7 @@ func (p *BaseBlueprintProcessor) mergeContextOverScope(contextScope, globalScope
 // with the same name have when true, their bodies are deep-merged in list order (later overlay).
 // This ensures mutually exclusive when conditions resolve to the single matching block.
 func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, order []string, contextScope map[string]any) (map[string]any, []string, error) {
-	byName := make(map[string][]map[string]any)
+	byName := make(map[string][]any)
 	nameOrder := make([]string, 0)
 	seen := make(map[string]bool)
 	for _, block := range facet.Config {
@@ -240,13 +239,16 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			seen[block.Name] = true
 			nameOrder = append(nameOrder, block.Name)
 		}
-		var body map[string]any
-		if len(block.Body) == 0 {
-			body = make(map[string]any)
-		} else {
-			body = block.Body
+		var rawValue any
+		if block.Body != nil {
+			if v, ok := block.Body["value"]; ok && v != nil {
+				rawValue = v
+			}
 		}
-		byName[block.Name] = append(byName[block.Name], body)
+		if rawValue == nil {
+			rawValue = make(map[string]any)
+		}
+		byName[block.Name] = append(byName[block.Name], rawValue)
 	}
 	configMap := make(map[string]any)
 	for _, name := range nameOrder {
@@ -257,11 +259,23 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		if len(bodies) == 1 {
 			configMap[name] = bodies[0]
 		} else {
-			merged := bodies[0]
-			for i := 1; i < len(bodies); i++ {
-				merged = deepMergeMap(merged, bodies[i])
+			allMaps := true
+			for _, b := range bodies {
+				if _, ok := asMapStringAny(b); !ok {
+					allMaps = false
+					break
+				}
 			}
-			configMap[name] = merged
+			if allMaps {
+				merged, _ := asMapStringAny(bodies[0])
+				for i := 1; i < len(bodies); i++ {
+					next, _ := asMapStringAny(bodies[i])
+					merged = deepMergeMap(merged, next)
+				}
+				configMap[name] = merged
+			} else {
+				configMap[name] = bodies[len(bodies)-1]
+			}
 		}
 		n := name
 		for i := 0; i < len(order); i++ {
@@ -309,7 +323,20 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		for _, name := range names {
 			body := globalScope[name]
 			bodyMap, ok := body.(map[string]any)
-			if !ok || len(bodyMap) == 0 {
+			if !ok {
+				if !containsExpressionInValue(body) {
+					continue
+				}
+				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
+				evaluated, err := p.evaluateConfigBlockValue(body, "", scopeWithBlock)
+				if err != nil {
+					return fmt.Errorf("config block %q: %w", name, err)
+				}
+				globalScope[name] = evaluated
+				anyBlockChanged = true
+				continue
+			}
+			if len(bodyMap) == 0 {
 				continue
 			}
 			oldBody := bodyMap
@@ -372,6 +399,33 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 		}
 	}
 	return nil
+}
+
+// evaluateConfigBlockValue recursively evaluates a config block value (scalar, list, or map) so that
+// expressions in scalar or list entries are evaluated. Used when a config block has value: <scalar>
+// or value: [ ... ] instead of a map. Returns the evaluated value or an error.
+func (p *BaseBlueprintProcessor) evaluateConfigBlockValue(v any, path string, scope map[string]any) (any, error) {
+	switch x := v.(type) {
+	case string:
+		if !evaluator.ContainsExpression(x) {
+			return x, nil
+		}
+		return p.evaluator.Evaluate(x, path, scope, false)
+	case map[string]any:
+		return p.evaluator.EvaluateMap(x, path, scope, false)
+	case []any:
+		out := make([]any, 0, len(x))
+		for i, item := range x {
+			evaluated, err := p.evaluateConfigBlockValue(item, path, scope)
+			if err != nil {
+				return nil, fmt.Errorf("config block list[%d]: %w", i, err)
+			}
+			out = append(out, evaluated)
+		}
+		return out, nil
+	default:
+		return v, nil
+	}
 }
 
 // collectTerraformComponents processes and collects all Terraform components from the provided facet.
@@ -1052,64 +1106,17 @@ func asMapStringAny(v any) (map[string]any, bool) {
 	return out, true
 }
 
-// unwrapConfigValue recursively unwraps config-block shapes {value: x} or {vars: {value: x}}
-// until a scalar is found (e.g. after multiple merge/evaluate rounds). Handles both
-// map[string]any and map[interface{}]interface{} from YAML. Returns the scalar or the original value.
-func unwrapConfigValue(v any) any {
-	m, ok := asMapStringAny(v)
-	if !ok {
-		return v
-	}
-	if val, has := m["value"]; has {
-		if val == nil || reflect.ValueOf(val).Kind() != reflect.Map {
-			return val
-		}
-		return unwrapConfigValue(val)
-	}
-	if vars, has := m["vars"]; has {
-		if vm, ok := asMapStringAny(vars); ok {
-			if val, has := vm["value"]; has {
-				return unwrapConfigValue(val)
-			}
-		}
-	}
-	return v
-}
-
-// flattenScopeForCondition returns a copy of scope where config-block values shaped
-// {value: <scalar>} or {vars: {value: <scalar>}} (possibly nested from multiple rounds) are
-// replaced by the scalar so when conditions like "platform == 'incus'" work. Normalizes
-// scope with ToMapStringAny first so nested maps from YAML (e.g. map[interface{}]interface{})
-// are map[string]any and unwrap can recurse correctly.
-func flattenScopeForCondition(scope map[string]any) map[string]any {
-	if scope == nil {
-		return nil
-	}
-	normalized := blueprintv1alpha1.ToMapStringAny(scope)
-	if normalized == nil {
-		normalized = scope
-	}
-	out := make(map[string]any, len(normalized))
-	for k, v := range normalized {
-		out[k] = unwrapConfigValue(v)
-	}
-	return out
-}
-
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
 // the provided configuration data. The path parameter provides context for error messages and
 // helper function resolution. Returns true if the expression evaluates to boolean true or the
 // string "true". Returns false for nil (undefined variables) or boolean false. Returns an error
 // if the expression is invalid or evaluates to an unexpected type. When scope is non-nil (e.g.
 // context merged with facet scope), expressions can reference values like workstation.runtime.
-// Config blocks that expose a single value (e.g. platform.vars.value) are flattened so
-// conditions like "platform == 'incus'" work.
 func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string, scope map[string]any) (bool, error) {
 	if !evaluator.ContainsExpression(expr) {
 		expr = "${" + expr + "}"
 	}
-	flat := flattenScopeForCondition(scope)
-	evaluated, err := p.evaluator.Evaluate(expr, path, flat, false)
+	evaluated, err := p.evaluator.Evaluate(expr, path, scope, false)
 	if err != nil {
 		return false, err
 	}

@@ -2,22 +2,23 @@
 // +groupName=blueprints.windsorcli.dev
 package v1alpha1
 
-import "maps"
+import "fmt"
 
 // =============================================================================
 // Types
 // =============================================================================
 
 // ConfigBlock represents a named, optionally conditional configuration block in a facet.
-// The block has a name (exposed at scope root, e.g. talos.controlplanes), an optional when
-// expression, and a body of key-value pairs evaluated in blueprint context. References
-// from terraform.inputs and kustomize.substitutions use <name>.<key> (same style as context: cluster.*, network.*).
+// Only name, when, and value are allowed; value is required and may be a scalar, list, or map.
+// The block is exposed at scope root: expressions use <name> for scalar/list values, or
+// <name>.<key> when value is a map. References from terraform.inputs and kustomize.substitutions
+// use the block name (e.g. talos, platform).
 type ConfigBlock struct {
-	// Name identifies the block; exposed at scope root so expressions use name.key (e.g. talos.controlplanes).
+	// Name identifies the block; exposed at scope root.
 	Name string `yaml:"name"`
 	// When is an expression that determines if this config block is evaluated; if empty, always evaluated when facet is active.
 	When string `yaml:"when,omitempty"`
-	// Body is the block content (all keys other than name and when); values may contain expressions.
+	// Body holds the canonical content as map[string]any{"value": <content>} for merge and evaluation. Not YAML-marshaled directly.
 	Body map[string]any `yaml:"-"`
 }
 
@@ -104,7 +105,8 @@ type ConditionalKustomization struct {
 // Public Methods
 // =============================================================================
 
-// UnmarshalYAML implements custom unmarshaling so Body receives all keys except name and when.
+// UnmarshalYAML implements custom unmarshaling. Only name, when, and value are read; value is required.
+// Body is set to {"value": raw["value"]} for merge and evaluation.
 func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 	var raw map[string]any
 	if err := unmarshal(&raw); err != nil {
@@ -116,22 +118,26 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 	if w, ok := raw["when"]; ok {
 		c.When, _ = w.(string)
 	}
-	delete(raw, "name")
-	delete(raw, "when")
-	c.Body = raw
+	if _, hasValue := raw["value"]; !hasValue {
+		return fmt.Errorf("config block %q: value is required", c.Name)
+	}
+	c.Body = map[string]any{"value": raw["value"]}
 	return nil
 }
 
-// MarshalYAML implements custom marshaling so name, when, and Body keys are written.
-// Body is copied first so struct Name and When take precedence over any name/when in Body.
+// MarshalYAML implements custom marshaling. Only name, when, and value are written.
 func (c *ConfigBlock) MarshalYAML() (any, error) {
 	out := make(map[string]any)
-	maps.Copy(out, c.Body)
 	if c.Name != "" {
 		out["name"] = c.Name
 	}
 	if c.When != "" {
 		out["when"] = c.When
+	}
+	if c.Body != nil {
+		if v, ok := c.Body["value"]; ok {
+			out["value"] = v
+		}
 	}
 	return out, nil
 }
