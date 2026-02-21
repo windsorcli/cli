@@ -1371,6 +1371,46 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 			t.Errorf("Expected key=default (undefined empty.foo with ?? fallback), got %v", target.TerraformComponents[0].Inputs["key"])
 		}
 	})
+
+	t.Run("PreservesScalarAndListConfigBlockValuesInScope", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "incus"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "scalar-list-config"},
+				When:     "provider == 'incus'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "platform", Body: map[string]any{"value": "incus"}},
+					{Name: "tags", Body: map[string]any{"value": []any{"a", "b"}}},
+				},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:   "cluster",
+							Inputs: map[string]any{"platform": "${platform}", "tags": "${string(tags)}"},
+						},
+					},
+				},
+			},
+		}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		if target.TerraformComponents[0].Inputs["platform"] != "incus" {
+			t.Errorf("Expected platform='incus' (scalar config block preserved), got %v", target.TerraformComponents[0].Inputs["platform"])
+		}
+		if target.TerraformComponents[0].Inputs["tags"] == nil {
+			t.Error("Expected tags to be set (list config block preserved)")
+		}
+	})
 }
 
 func TestProcessor_mergeHelpers(t *testing.T) {

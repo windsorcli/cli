@@ -219,7 +219,7 @@ func (p *BaseBlueprintProcessor) mergeContextOverScope(contextScope, globalScope
 // with the same name have when true, their bodies are deep-merged in list order (later overlay).
 // This ensures mutually exclusive when conditions resolve to the single matching block.
 func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, order []string, contextScope map[string]any) (map[string]any, []string, error) {
-	byName := make(map[string][]map[string]any)
+	byName := make(map[string][]any)
 	nameOrder := make([]string, 0)
 	seen := make(map[string]bool)
 	for _, block := range facet.Config {
@@ -239,18 +239,16 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			seen[block.Name] = true
 			nameOrder = append(nameOrder, block.Name)
 		}
-		var body map[string]any
+		var rawValue any
 		if block.Body != nil {
 			if v, ok := block.Body["value"]; ok && v != nil {
-				if m, ok := asMapStringAny(v); ok {
-					body = m
-				}
+				rawValue = v
 			}
 		}
-		if body == nil {
-			body = make(map[string]any)
+		if rawValue == nil {
+			rawValue = make(map[string]any)
 		}
-		byName[block.Name] = append(byName[block.Name], body)
+		byName[block.Name] = append(byName[block.Name], rawValue)
 	}
 	configMap := make(map[string]any)
 	for _, name := range nameOrder {
@@ -261,11 +259,23 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		if len(bodies) == 1 {
 			configMap[name] = bodies[0]
 		} else {
-			merged := bodies[0]
-			for i := 1; i < len(bodies); i++ {
-				merged = deepMergeMap(merged, bodies[i])
+			allMaps := true
+			for _, b := range bodies {
+				if _, ok := asMapStringAny(b); !ok {
+					allMaps = false
+					break
+				}
 			}
-			configMap[name] = merged
+			if allMaps {
+				merged, _ := asMapStringAny(bodies[0])
+				for i := 1; i < len(bodies); i++ {
+					next, _ := asMapStringAny(bodies[i])
+					merged = deepMergeMap(merged, next)
+				}
+				configMap[name] = merged
+			} else {
+				configMap[name] = bodies[len(bodies)-1]
+			}
 		}
 		n := name
 		for i := 0; i < len(order); i++ {

@@ -9,9 +9,10 @@ import "fmt"
 // =============================================================================
 
 // ConfigBlock represents a named, optionally conditional configuration block in a facet.
-// Only name, when, and value are allowed; value is required. The block is exposed at scope
-// root so expressions use <name> or <name>.<key> when value is a map. References from
-// terraform.inputs and kustomize.substitutions use the block name (e.g. talos, platform).
+// Only name, when, and value are allowed; value is required and may be a scalar, list, or map.
+// The block is exposed at scope root: expressions use <name> for scalar/list values, or
+// <name>.<key> when value is a map. References from terraform.inputs and kustomize.substitutions
+// use the block name (e.g. talos, platform).
 type ConfigBlock struct {
 	// Name identifies the block; exposed at scope root.
 	Name string `yaml:"name"`
