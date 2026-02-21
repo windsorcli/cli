@@ -148,9 +148,6 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
 				return nil, nil, err
 			}
-			for k, v := range globalScope {
-				globalScope[k] = unwrapConfigValue(v)
-			}
 			mergeBase := contextScope
 			if mergeBase == nil {
 				mergeBase = make(map[string]any)
@@ -243,10 +240,15 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			nameOrder = append(nameOrder, block.Name)
 		}
 		var body map[string]any
-		if len(block.Body) == 0 {
+		if block.Body != nil {
+			if v, ok := block.Body["value"]; ok && v != nil {
+				if m, ok := asMapStringAny(v); ok {
+					body = m
+				}
+			}
+		}
+		if body == nil {
 			body = make(map[string]any)
-		} else {
-			body = block.Body
 		}
 		byName[block.Name] = append(byName[block.Name], body)
 	}
@@ -325,7 +327,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 						delete(scopeWithBlock, name)
 					}
 				} else {
-					scopeWithBlock[name] = unwrapConfigValue(current)
+					scopeWithBlock[name] = current
 				}
 				evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", scopeWithBlock, false)
 				if err != nil {
@@ -337,7 +339,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				current = evaluated
 			}
 			scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-			scopeWithBlock[name] = unwrapConfigValue(current)
+			scopeWithBlock[name] = current
 			const maxResolvePasses = 3
 			for resolvePass := 0; resolvePass < maxResolvePasses; resolvePass++ {
 				resolvedAny := false
@@ -1052,23 +1054,6 @@ func asMapStringAny(v any) (map[string]any, bool) {
 		out[keyStr] = iter.Value().Interface()
 	}
 	return out, true
-}
-
-// unwrapConfigValue recursively unwraps maps that have a single "value" key so the exposed
-// value is the inner value. Other maps are returned unchanged. Used so conditions and inputs
-// can reference block name only. Handles both map[string]any and map[interface{}]interface{} from YAML.
-func unwrapConfigValue(v any) any {
-	m, ok := asMapStringAny(v)
-	if !ok {
-		return v
-	}
-	if val, has := m["value"]; has {
-		if val == nil || reflect.ValueOf(val).Kind() != reflect.Map {
-			return val
-		}
-		return unwrapConfigValue(val)
-	}
-	return v
 }
 
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
