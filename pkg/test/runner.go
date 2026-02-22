@@ -263,7 +263,7 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 			if _, err := os.Stat(templateRoot); err == nil {
 				initURLs = nil
 			} else {
-				useDefaultOCI := values["platform"] != nil
+				useDefaultOCI := values["platform"] != nil || values["provider"] != nil
 				if useDefaultOCI {
 					initURLs = []string{defaultURL}
 				} else {
