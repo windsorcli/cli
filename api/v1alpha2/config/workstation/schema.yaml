@@ -1,4 +1,4 @@
-$schema: https://json-schema.org/draft/2020-12/schema
+$schema: https://windsorcli.dev/schema/2026-02/schema
 title: Workstation Configuration Schema
 description: Schema for local development workstation configuration
 type: object

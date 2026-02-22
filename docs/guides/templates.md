@@ -75,15 +75,16 @@ JSON Schema file that defines the expected structure and default values for conf
 - Provide default values for missing configuration keys
 - Ensure configuration consistency across contexts
 
-The schema file must be valid JSON Schema. Supported schema versions:
-- `https://json-schema.org/draft/2020-12/schema` - Standard JSON Schema Draft 2020-12
+The schema file must use the Windsor schema dialect. Supported `$schema` values:
+- `https://windsorcli.dev/schema/2026-02/schema` - Windsor schema dialect (recommended)
+- `https://json-schema.org/draft/2020-12/schema` - JSON Schema Draft 2020-12 (compatibility)
 
 **Note:** Windsor implements a subset of JSON Schema Draft 2020-12. See [Schema Reference](../reference/schema.md) for supported features.
 
 Example:
 
 ```yaml
-$schema: https://json-schema.org/draft/2020-12/schema
+$schema: https://windsorcli.dev/schema/2026-02/schema
 type: object
 properties:
   provider:
