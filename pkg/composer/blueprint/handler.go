@@ -248,25 +248,30 @@ func (h *BaseBlueprintHandler) loadInitBlueprints() error {
 
 			bp := loader.GetBlueprint()
 			if bp != nil && bp.Metadata.Name != "" {
-				for i := range bp.Sources {
-					if bp.Sources[i].Name == tempName {
-						bp.Sources[i].Name = bp.Metadata.Name
-						break
+				useMetadataName := bp.Metadata.Name != "template" || h.hasLocalTemplate()
+				storageKey := tempName
+				if useMetadataName {
+					storageKey = bp.Metadata.Name
+					for i := range bp.Sources {
+						if bp.Sources[i].Name == tempName {
+							bp.Sources[i].Name = bp.Metadata.Name
+							break
+						}
 					}
-				}
-				for i := range bp.TerraformComponents {
-					if bp.TerraformComponents[i].Source == tempName {
-						bp.TerraformComponents[i].Source = bp.Metadata.Name
+					for i := range bp.TerraformComponents {
+						if bp.TerraformComponents[i].Source == tempName {
+							bp.TerraformComponents[i].Source = bp.Metadata.Name
+						}
 					}
-				}
-				for i := range bp.Kustomizations {
-					if bp.Kustomizations[i].Source == tempName {
-						bp.Kustomizations[i].Source = bp.Metadata.Name
+					for i := range bp.Kustomizations {
+						if bp.Kustomizations[i].Source == tempName {
+							bp.Kustomizations[i].Source = bp.Metadata.Name
+						}
 					}
 				}
 				mu.Lock()
-				if _, exists := h.sourceBlueprintLoaders[bp.Metadata.Name]; !exists {
-					h.sourceBlueprintLoaders[bp.Metadata.Name] = loader
+				if _, exists := h.sourceBlueprintLoaders[storageKey]; !exists {
+					h.sourceBlueprintLoaders[storageKey] = loader
 				}
 				mu.Unlock()
 			}
@@ -291,6 +296,17 @@ func (h *BaseBlueprintHandler) getTempSourceName(url string) string {
 		return info.Name
 	}
 	return "init-blueprint"
+}
+
+// hasLocalTemplate returns true when the runtime has a TemplateRoot and that directory exists.
+// When false, init OCI blueprints with metadata.name "template" are stored under URL-derived name
+// so the name "template" is not introduced without a local _template.
+func (h *BaseBlueprintHandler) hasLocalTemplate() bool {
+	if h.runtime == nil || h.runtime.TemplateRoot == "" {
+		return false
+	}
+	_, err := h.shims.Stat(h.runtime.TemplateRoot)
+	return err == nil
 }
 
 // loadUser initializes and loads the user blueprint from the config root directory. The user
@@ -392,7 +408,10 @@ func (h *BaseBlueprintHandler) loadNestedSources() error {
 			}
 
 			for _, source := range bp.Sources {
-				if source.Name == "" || source.Name == "template" {
+				if source.Name == "" {
+					continue
+				}
+				if source.Name == "template" && !strings.HasPrefix(source.Url, "oci://") {
 					continue
 				}
 				if _, exists := h.sourceBlueprintLoaders[source.Name]; exists {

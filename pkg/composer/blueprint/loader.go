@@ -231,6 +231,10 @@ func (l *BaseBlueprintLoader) loadFromOCI() error {
 		return err
 	}
 
+	if l.blueprint != nil && l.blueprint.Metadata.Name == "template" {
+		l.applyArtifactMetadataName(cacheDir)
+	}
+
 	if err := l.loadFacetsFromDirectory(templateDir); err != nil {
 		return err
 	}
@@ -312,6 +316,32 @@ func (l *BaseBlueprintLoader) normalizeOCISourceRefs(bp *blueprintv1alpha1.Bluep
 		if strings.Contains(pathPart, ":") {
 			s.Ref = blueprintv1alpha1.Reference{}
 		}
+	}
+}
+
+// applyArtifactMetadataName sets the blueprint's Metadata.Name from the artifact's root
+// metadata.yaml when the blueprint declared "template". The artifact name (e.g. "windsorcli/core")
+// is used; the last path segment (e.g. "core") becomes Metadata.Name so the source identity
+// matches the artifact rather than the legacy "template" value.
+func (l *BaseBlueprintLoader) applyArtifactMetadataName(cacheDir string) {
+	if l.blueprint == nil {
+		return
+	}
+	metadataPath := filepath.Join(cacheDir, "metadata.yaml")
+	if _, err := l.shims.Stat(metadataPath); os.IsNotExist(err) {
+		return
+	}
+	data, err := l.shims.ReadFile(metadataPath)
+	if err != nil {
+		return
+	}
+	var meta artifact.BlueprintMetadataInput
+	if err := l.shims.YamlUnmarshal(data, &meta); err != nil || meta.Name == "" {
+		return
+	}
+	segments := strings.Split(meta.Name, "/")
+	if len(segments) > 0 && segments[len(segments)-1] != "" {
+		l.blueprint.Metadata.Name = segments[len(segments)-1]
 	}
 }
 
