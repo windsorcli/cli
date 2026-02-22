@@ -324,6 +324,8 @@ func (h *BaseBlueprintHandler) loadUser() error {
 // Sources are loaded in parallel. After loading direct sources, it recursively loads any sources
 // referenced by those blueprints. When the user blueprint is nil (e.g. no blueprint.yaml yet), the
 // local template is loaded if present so initial composition produces kustomizations to apply.
+// When there are no init blueprint URLs (e.g. test runner with local _template only) and the user
+// blueprint has no sources, the local template is also loaded so its facets are included in composition.
 func (h *BaseBlueprintHandler) loadSources() error {
 	userBp := h.userBlueprintLoader.GetBlueprint()
 	if userBp == nil {
@@ -336,6 +338,17 @@ func (h *BaseBlueprintHandler) loadSources() error {
 			}
 		}
 		return nil
+	}
+
+	if len(userBp.Sources) == 0 && len(h.initBlueprintURLs) == 0 && h.runtime != nil && h.runtime.TemplateRoot != "" {
+		if _, err := h.shims.Stat(h.runtime.TemplateRoot); err == nil {
+			if _, exists := h.sourceBlueprintLoaders["template"]; !exists {
+				loader := NewBlueprintLoader(h.runtime, h.artifactBuilder)
+				if loadErr := loader.Load("template", ""); loadErr == nil && loader.GetBlueprint() != nil {
+					h.sourceBlueprintLoaders["template"] = loader
+				}
+			}
+		}
 	}
 
 	var wg sync.WaitGroup
