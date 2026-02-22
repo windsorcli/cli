@@ -102,7 +102,7 @@ func createTestCommand() *cobra.Command {
 	return cmd
 }
 
-func createTestDir(baseDir, dir string) error {
+func createTestDir(_, dir string) error {
 	return os.MkdirAll(dir, 0755)
 }
 
