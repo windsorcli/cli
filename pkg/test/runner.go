@@ -259,7 +259,17 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 		}
 		var initURLs []string
 		if defaultURL != "" && defaultURL != SkipDefaultBlueprintURL {
-			initURLs = []string{defaultURL}
+			templateRoot := filepath.Join(r.baseProjectRoot, "contexts", "_template")
+			if _, err := os.Stat(templateRoot); err == nil {
+				initURLs = nil
+			} else {
+				useDefaultOCI := values["platform"] != nil
+				if useDefaultOCI {
+					initURLs = []string{defaultURL}
+				} else {
+					initURLs = nil
+				}
+			}
 		}
 		if err := testBlueprintHandler.LoadBlueprint(initURLs...); err != nil {
 			return nil, fmt.Errorf("failed to load blueprint: %w", err)
