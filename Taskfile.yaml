@@ -54,19 +54,19 @@ tasks:
       - go tool cover -html=coverage.out -o coverage.html
 
   test:integration:
-    desc: Run integration tests (./integration; in-process for coverage)
+    desc: Run integration tests (./integration; subprocess, no cmd/pkg coverage)
     silent: true
     env:
       CI: true
     cmds:
       - cmd: |
           if [ -n "{{.CLI_ARGS}}" ]; then
-            go test -tags=integration -covermode=atomic -cover -coverpkg=./cmd/...,./pkg/... -coverprofile=coverage_integration.out -v -run {{.CLI_ARGS}} ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration.out -v -run {{.CLI_ARGS}} ./integration
           else
-            go test -tags=integration -covermode=atomic -cover -coverpkg=./cmd/...,./pkg/... -coverprofile=coverage_integration.out -v ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration.out -v ./integration
           fi
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverpkg=./cmd/...,./pkg/... -coverprofile=coverage_integration.out -v -run '{{.CLI_ARGS}}' ./integration } else { go test -tags=integration -covermode=atomic -cover -coverpkg=./cmd/...,./pkg/... -coverprofile=coverage_integration.out -v ./integration }"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration.out -v -run '{{.CLI_ARGS}}' ./integration } else { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration.out -v ./integration }"
         platforms: [windows]
 
   test:all:

@@ -133,8 +133,9 @@ func CopyFixtureOnly(t *testing.T, name string) (workDir string, env []string) {
 func PrepareFixture(t *testing.T, name string) (workDir string, env []string) {
 	t.Helper()
 	workDir, env = CopyFixtureOnly(t, name)
-	if _, _, err := RunCLI(workDir, []string{"init"}, env); err != nil {
-		t.Fatalf("windsor init: %v", err)
+	stdout, stderr, err := RunCLI(workDir, []string{"init"}, env)
+	if err != nil {
+		t.Fatalf("windsor init: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
 	return workDir, env
 }
