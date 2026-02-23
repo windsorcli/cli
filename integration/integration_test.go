@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/windsorcli/cli/integration/helpers"
@@ -33,7 +34,11 @@ func TestMain(m *testing.M) {
 	defer func() { _ = os.Chdir(origWd) }()
 
 	helpers.RepoRoot = root
-	bin := filepath.Join(root, "integration", "windsor-integration-test-binary")
+	binName := "windsor-integration-test-binary"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	bin := filepath.Join(root, "integration", binName)
 	if err := helpers.BuildBinary(root, bin); err != nil {
 		fmt.Fprintf(os.Stderr, "integration TestMain: build: %v\n", err)
 		os.Exit(1)
