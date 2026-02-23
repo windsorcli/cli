@@ -49,6 +49,15 @@ jobs:
       - name: Install tools
         run: aqua install
 
+      - name: Add Aqua bin to PATH (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: echo "PATH=${HOME}/.local/share/aquaproj-aqua/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Add Aqua bin to PATH (Windows)
+        if: matrix.os == 'windows-latest'
+        run: echo "PATH=$env:USERPROFILE\AppData\Local\aquaproj-aqua\bin;$env:PATH" >> $env:GITHUB_ENV
+        shell: pwsh
+
       - name: Install Terraform (for integration tests)
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2 renovate: depName=hashicorp/setup-terraform
         with:

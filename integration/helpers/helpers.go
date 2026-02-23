@@ -104,10 +104,12 @@ func FixturePath(name string) string {
 
 // envForHome returns env vars so the subprocess uses homeDir for home (Unix HOME,
 // Windows USERPROFILE). Use when running the CLI so trusted-file and config paths are isolated.
+// Forwards PATH from the current process so the CLI and any tools it runs (e.g. docker) see the same PATH.
 func envForHome(homeDir string) []string {
 	return []string{
 		"HOME=" + homeDir,
 		"USERPROFILE=" + homeDir,
+		"PATH=" + os.Getenv("PATH"),
 	}
 }
 
