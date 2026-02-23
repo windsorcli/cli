@@ -39,5 +39,5 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	helpers.BinaryPath = bin
-	os.Exit(m.Run())
+	m.Run()
 }
