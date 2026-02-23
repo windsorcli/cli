@@ -69,16 +69,10 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 			return fmt.Sprintf("%s", constants.MinimumVersionDocker), nil
 		case name == "docker" && args[0] == "version":
 			return fmt.Sprintf("Docker version %s", constants.MinimumVersionDocker), nil
-		case name == "docker" && args[0] == "compose" && args[1] == "version":
-			return fmt.Sprintf("Docker Compose version %s", constants.MinimumVersionDockerCompose), nil
-		case name == "docker-compose" && args[0] == "version":
-			return fmt.Sprintf("docker-compose version %s", constants.MinimumVersionDockerCompose), nil
 		case name == "colima" && args[0] == "version":
 			return fmt.Sprintf("colima version %s", constants.MinimumVersionColima), nil
 		case name == "limactl" && args[0] == "--version":
 			return fmt.Sprintf("limactl version %s", constants.MinimumVersionLima), nil
-		case name == "talosctl" && args[0] == "version" && args[1] == "--client" && args[2] == "--short":
-			return fmt.Sprintf("v%s", constants.MinimumVersionTalosctl), nil
 		case name == "terraform" && args[0] == "version":
 			return fmt.Sprintf("Terraform v%s", constants.MinimumVersionTerraform), nil
 		case name == "op" && args[0] == "--version":
@@ -100,10 +94,6 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		switch {
 		case command == "docker" && len(args) == 1 && args[0] == "--version":
 			legacyArgs = []string{"version"}
-		case command == "docker" && len(args) >= 3 && args[0] == "compose" && args[1] == "version" && args[2] == "--short":
-			legacyArgs = []string{"compose", "version"}
-		case command == "docker-compose" && len(args) >= 2 && args[0] == "version" && args[1] == "--short":
-			legacyArgs = []string{"version"}
 		default:
 			legacyArgs = nil
 		}
@@ -120,16 +110,10 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 		switch {
 		case command == "docker" && len(args) == 1 && args[0] == "--version":
 			return fmt.Sprintf("Docker version %s", constants.MinimumVersionDocker), nil
-		case command == "docker" && len(args) >= 3 && args[0] == "compose" && args[1] == "version" && args[2] == "--short":
-			return fmt.Sprintf("%s", constants.MinimumVersionDockerCompose), nil
-		case command == "docker-compose" && len(args) >= 2 && args[0] == "version" && args[1] == "--short":
-			return fmt.Sprintf("%s", constants.MinimumVersionDockerCompose), nil
 		case command == "colima" && len(args) == 1 && args[0] == "version":
 			return fmt.Sprintf("colima version %s", constants.MinimumVersionColima), nil
 		case command == "limactl" && len(args) == 1 && args[0] == "--version":
 			return fmt.Sprintf("limactl version %s", constants.MinimumVersionLima), nil
-		case command == "talosctl" && len(args) >= 3 && args[0] == "version" && args[1] == "--client" && args[2] == "--short":
-			return fmt.Sprintf("v%s", constants.MinimumVersionTalosctl), nil
 		case command == "terraform" && len(args) == 1 && args[0] == "version":
 			return fmt.Sprintf("Terraform v%s", constants.MinimumVersionTerraform), nil
 		case command == "op" && len(args) == 1 && args[0] == "--version":
@@ -166,7 +150,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 
 	execLookPath = func(name string) (string, error) {
 		switch name {
-		case "docker", "docker-compose", "docker-cli-plugin-docker-compose", "talosctl", "terraform", "op", "colima", "limactl", "sops":
+		case "docker", "terraform", "op", "colima", "limactl", "sops":
 			return "/usr/bin/" + name, nil
 		default:
 			return "", exec.ErrNotFound
@@ -287,25 +271,18 @@ func TestToolsManager_Check(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// When all tools are enabled and available with correct versions
 		mocks, toolsManager := setup(t, defaultConfig)
-		// Given all tools are available with correct versions
 		toolVersions := map[string][]string{
-			"docker":         {"version", "--format"},
-			"docker-compose": {"version"},
-			"colima":         {"version"},
-			"limactl":        {"--version"},
-			"talosctl":       {"version", "--client", "--short"},
-			"terraform":      {"version"},
-			"op":             {"--version"},
+			"docker":    {"version", "--format"},
+			"colima":    {"version"},
+			"limactl":   {"--version"},
+			"terraform": {"version"},
+			"op":        {"--version"},
 		}
-		// When checking tool versions
 		err := toolsManager.Check()
-		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected Check to succeed, but got error: %v", err)
 		}
-		// And all tool versions should be validated
 		for tool, args := range toolVersions {
 			output, err := mocks.Shell.ExecSilent(tool, args...)
 			if err != nil {
@@ -313,10 +290,8 @@ func TestToolsManager_Check(t *testing.T) {
 				continue
 			}
 			if !strings.Contains(output, constants.MinimumVersionDocker) &&
-				!strings.Contains(output, constants.MinimumVersionDockerCompose) &&
 				!strings.Contains(output, constants.MinimumVersionColima) &&
 				!strings.Contains(output, constants.MinimumVersionLima) &&
-				!strings.Contains(output, constants.MinimumVersionTalosctl) &&
 				!strings.Contains(output, constants.MinimumVersionTerraform) &&
 				!strings.Contains(output, constants.MinimumVersion1Password) {
 				t.Errorf("Expected %s version check to pass, got output: %s", tool, output)
@@ -330,7 +305,7 @@ func TestToolsManager_Check(t *testing.T) {
 		mocks.ConfigHandler.Set("docker.enabled", false)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
-			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
+			if name == "docker" {
 				return "", exec.ErrNotFound
 			}
 			return originalExecLookPath(name)
@@ -348,7 +323,7 @@ func TestToolsManager_Check(t *testing.T) {
 		mocks.ConfigHandler.Set("docker.enabled", false)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
-			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
+			if name == "docker" {
 				return "", exec.ErrNotFound
 			}
 			return originalExecLookPath(name)
@@ -366,7 +341,7 @@ func TestToolsManager_Check(t *testing.T) {
 		mocks.ConfigHandler.Set("docker.enabled", true)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
-			if name == "docker" || name == "docker-compose" || name == "docker-cli-plugin-docker-compose" {
+			if name == "docker" {
 				return "", exec.ErrNotFound
 			}
 			return originalExecLookPath(name)
@@ -582,71 +557,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 	})
 
-	t.Run("DockerComposeVersionThroughDockerCompose", func(t *testing.T) {
-		// When docker compose is available as a standalone command
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
-			}
-			if name == "docker" && args[0] == "compose" {
-				return "", fmt.Errorf("command not found")
-			}
-			if name == "docker-compose" && args[0] == "version" {
-				return "docker-compose version 2.25.0", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		err := toolsManager.checkDocker()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected success with docker-compose version check, got %v", err)
-		}
-	})
-
-	t.Run("DockerComposeVersionTooLow", func(t *testing.T) {
-		// When docker compose version is below minimum required version
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
-			}
-			if name == "docker" && args[0] == "compose" {
-				return "Docker Compose version 1.0.0", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		err := toolsManager.checkDocker()
-		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "docker-compose version 1.0.0 is below the minimum required version") {
-			t.Errorf("Expected docker-compose version too low error, got %v", err)
-		}
-	})
-
-	t.Run("DockerComposePluginFallback", func(t *testing.T) {
-		// When docker compose is available as a plugin
-		mocks, toolsManager := setup(t)
-		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
-			if name == "docker" && args[0] == "version" {
-				return "Docker version 25.0.0", nil
-			}
-			return "", fmt.Errorf("command not found")
-		}
-		execLookPath = func(name string) (string, error) {
-			if name == "docker" || name == "docker-cli-plugin-docker-compose" {
-				return "/usr/bin/" + name, nil
-			}
-			return "", fmt.Errorf("not found")
-		}
-		err := toolsManager.checkDocker()
-		// Then no error should be returned
-		if err != nil {
-			t.Errorf("Expected success with docker-cli-plugin-docker-compose fallback, got %v", err)
-		}
-	})
-
-	t.Run("DockerComposeNotAvailable", func(t *testing.T) {
-		// When neither docker compose nor its plugin are available
+	t.Run("DockerOnlySucceeds", func(t *testing.T) {
 		mocks, toolsManager := setup(t)
 		mocks.Shell.ExecSilentFunc = func(name string, args ...string) (string, error) {
 			if name == "docker" && args[0] == "version" {
@@ -661,14 +572,12 @@ func TestToolsManager_checkDocker(t *testing.T) {
 			return "", fmt.Errorf("not found")
 		}
 		err := toolsManager.checkDocker()
-		// Then an error indicating docker-compose is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "docker-compose is not available in the PATH") {
-			t.Errorf("Expected docker-compose not available error, got %v", err)
+		if err != nil {
+			t.Errorf("Expected success with docker only (no compose required), got %v", err)
 		}
 	})
 
 	t.Run("ColimaModeSkipsDaemonChecks", func(t *testing.T) {
-		// When in Colima mode and docker daemon is not running
 		mocks, toolsManager := setup(t)
 		mocks.ConfigHandler.Set("vm.driver", "colima")
 		mocks.ConfigHandler.Set("workstation.runtime", "colima")
@@ -678,19 +587,15 @@ func TestToolsManager_checkDocker(t *testing.T) {
 				daemonCheckCalled = true
 				return "", fmt.Errorf("Cannot connect to the Docker daemon")
 			}
-			if name == "docker-compose" && args[0] == "version" {
-				return fmt.Sprintf("docker-compose version %s", constants.MinimumVersionDockerCompose), nil
-			}
 			return "", fmt.Errorf("command not found")
 		}
 		execLookPath = func(name string) (string, error) {
-			if name == "docker" || name == "docker-compose" {
-				return "/usr/bin/" + name, nil
+			if name == "docker" {
+				return "/usr/bin/docker", nil
 			}
 			return "", fmt.Errorf("not found")
 		}
 		err := toolsManager.checkDocker()
-		// Then no error should be returned and daemon check should be skipped
 		if err != nil {
 			t.Errorf("Expected checkDocker to succeed in Colima mode, but got error: %v", err)
 		}
