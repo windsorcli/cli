@@ -31,7 +31,6 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "integration TestMain: chdir to root: %v\n", err)
 		os.Exit(1)
 	}
-	defer func() { _ = os.Chdir(origWd) }()
 
 	helpers.RepoRoot = root
 	binName := "windsor-integration-test-binary"
@@ -44,5 +43,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	helpers.BinaryPath = bin
-	m.Run()
+	code := m.Run()
+	_ = os.Chdir(origWd)
+	os.Exit(code)
 }
