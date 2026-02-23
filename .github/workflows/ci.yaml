@@ -47,6 +47,8 @@ jobs:
           aqua_version: v2.56.5
 
       - name: Install tools
+        env:
+          AQUA_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: aqua install
 
       - name: Add Aqua bin to PATH (Linux/macOS)
@@ -136,6 +138,8 @@ jobs:
           aqua_version: v2.56.5
 
       - name: Install tools
+        env:
+          AQUA_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: aqua install
       - name: Cache Go Modules
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
