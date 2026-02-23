@@ -84,7 +84,7 @@ jobs:
             ${{ runner.os }}-go-
   
       - name: Install Dependencies
-        run: go install ./...
+        run: go install ./... && go install github.com/go-task/task/v3/cmd/task@latest
 
       - name: Add Go bin to PATH (Linux/macOS)
         if: matrix.os != 'windows-latest'
