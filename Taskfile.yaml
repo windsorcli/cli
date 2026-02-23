@@ -54,19 +54,23 @@ tasks:
       - go tool cover -html=coverage.out -o coverage.html
 
   test:integration:
-    desc: Run integration tests (./integration; subprocess, no cmd/pkg coverage)
+    desc: Run integration tests (./integration subprocess + ./cmd in-process), merge coverage to coverage_integration_out
     silent: true
     env:
       CI: true
     cmds:
       - cmd: |
           if [ -n "{{.CLI_ARGS}}" ]; then
-            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_out -v -run {{.CLI_ARGS}} ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v -run {{.CLI_ARGS}} ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v -run {{.CLI_ARGS}} ./cmd
           else
-            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_out -v ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v ./cmd
           fi
+          go install github.com/wadey/gocovmerge@latest
+          gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out > coverage_integration_out
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_out -v -run '{{.CLI_ARGS}}' ./integration } else { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_out -v ./integration }"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v -run '{{.CLI_ARGS}}' ./integration; go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v ./integration; go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v ./cmd }; go install github.com/wadey/gocovmerge@latest; gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out | Set-Content -Path coverage_integration_out"
         platforms: [windows]
 
   test:all:
