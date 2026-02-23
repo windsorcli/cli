@@ -60,6 +60,7 @@ tasks:
       CI: true
     cmds:
       - cmd: |
+          set -e
           if [ -n "{{.CLI_ARGS}}" ]; then
             go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v -run {{.CLI_ARGS}} ./integration
             go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v -run {{.CLI_ARGS}} ./cmd
@@ -70,7 +71,19 @@ tasks:
           go install github.com/wadey/gocovmerge@latest
           gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out > coverage_integration_out
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v -run '{{.CLI_ARGS}}' ./integration; go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v ./integration; go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v ./cmd }; go install github.com/wadey/gocovmerge@latest; gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out | Set-Content -Path coverage_integration_out"
+      - cmd: >
+          powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') {
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v -run '{{.CLI_ARGS}}' ./integration;
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE };
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v -run '{{.CLI_ARGS}}' ./cmd
+          } else {
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v ./integration;
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE };
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v ./cmd
+          };
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE };
+          go install github.com/wadey/gocovmerge@latest;
+          gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out | Set-Content -Path coverage_integration_out"
         platforms: [windows]
 
   test:all:
