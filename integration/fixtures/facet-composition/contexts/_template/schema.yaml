@@ -1,0 +1,547 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Windsor Core Blueprint Configuration Schema
+description: Schema for configuring Windsor platform blueprints
+type: object
+
+$defs:
+  diskItem: &diskItem
+    type: object
+    properties:
+      name:
+        type: string
+        description: Disk device name (e.g., "data-disk", "backup-disk")
+      size:
+        type: integer
+        description: Disk size in GB
+      type:
+        type: string
+        description: Disk type (platform-specific; e.g. cloud disk type or "default")
+      path:
+        type: string
+        description: Mount point inside instance (e.g. /mnt/data, /var/mnt/local); used after platform attach. Optional for block storage when device is set.
+      source:
+        type: string
+        description: Source path for bind mounts or volume name
+      device:
+        type: string
+        description: Block device path or URI for block storage (e.g. /dev/sdb). When set, used for node storage pools; platform may still attach by size/type.
+      read_only:
+        type: boolean
+        default: false
+        description: Mount as read-only
+    required:
+      - name
+      - size
+  nodesSchema: &nodesSchema
+    type: object
+    additionalProperties:
+      type: object
+      properties:
+        endpoint:
+          type: string
+          description: Node endpoint/IP address
+        hostname:
+          type: string
+          description: Node hostname
+        node:
+          type: string
+          description: Node identifier
+        image:
+          type: string
+          description: Node image. Overrides pool-level image when set.
+        disks:
+          type: array
+          items: *diskItem
+          description: Data disks for this node only. Overrides pool-level disks for this node (no merge).
+        volumes:
+          type: array
+          items:
+            type: string
+          description: Reserved; only pool-level volumes (controlplanes.volumes / workers.volumes) are used today for extraMounts and compute bind mounts.
+      required:
+        - endpoint
+        - node
+    description: Named node configurations
+  nodePool: &nodePool
+    count:
+      type: integer
+      description: Number of nodes
+    image:
+      type: string
+      description: Node image for this pool. Per-node image overrides when set.
+    instance_type:
+      type: string
+      description: Cloud provider instance type
+    cpu:
+      type: integer
+      description: CPU cores per node
+    memory:
+      type: integer
+      description: Memory in GB per node
+    root_disk_size:
+      type: integer
+      description: Root/OS disk size in GB
+    disks:
+      type: array
+      items: *diskItem
+      description: Additional data disks (pool-level). Platform attach and/or block storage.
+    hostports:
+      type: array
+      items:
+        type: string
+        pattern: "^[0-9]+:[0-9]+/(tcp|udp)$"
+      description: Host port mappings (format "host:container/protocol")
+    nodes: *nodesSchema
+    volumes:
+      type: array
+      items:
+        type: string
+      description: Node directory paths for extra mounts. For directory-based storage include cluster.storage.local_base_path. Path format (e.g. /var/mnt/local); host:dest only for local dev bind mounts. Block/device storage uses disks.
+
+properties:
+  # Context identity (from windsor.yaml or values)
+  id:
+    type: string
+    description: Context id (e.g. short identifier for this deployment)
+
+  # Infrastructure provider / platform. Use platform ?? provider as effective value;
+  provider:
+    type: string
+    enum:
+      - none
+      - aws
+      - azure
+      - incus
+      - metal
+      - docker
+    default: none
+    description: Infrastructure provider - includes policy, PKI, telemetry, ingress, and storage
+  platform:
+    type: string
+    enum:
+      - none
+      - aws
+      - azure
+      - incus
+      - metal
+      - docker
+    description: Alias for provider; when set overrides provider. Facets use effective_provider (platform ?? provider).
+
+  # Development mode
+  dev:
+    type: boolean
+    default: false
+    description: Enable development mode with additional observability and debugging tools
+
+  # Terraform execution config
+  terraform:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: Enable Terraform in stacks
+      backend:
+        type: object
+        properties:
+          type:
+            type: string
+            description: Backend type (e.g. local, s3, gcs)
+        additionalProperties: true
+        description: Terraform backend configuration
+    additionalProperties: true
+    description: Terraform execution and backend overrides
+
+  # Demo mode
+  demo:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Enable demo resources
+      resources:
+        type: object
+        properties:
+          database:
+            type: boolean
+            default: true
+            description: Enable demo database cluster
+          static:
+            type: boolean
+            default: false
+            description: Enable static website demo
+          bookinfo:
+            type: boolean
+            default: false
+            description: Enable Istio bookinfo demo application
+        additionalProperties: false
+    additionalProperties: false
+
+  # Timezone
+  timezone:
+    type: string
+    default: utc
+    description: Default timezone for Grafana dashboards (utc, browser, or IANA zone like America/New_York)
+
+  # Time format
+  time_format:
+    type: string
+    enum:
+      - 12h
+      - 24h
+    default: 24h
+    description: Time format for Grafana dashboards (12h or 24h)
+
+  # Log level
+  log_level:
+    type: string
+    enum:
+      - trace
+      - debug
+      - info
+      - warn
+      - error
+    default: info
+    description: Minimum log level to retain (logs below this level are dropped)
+
+  # Telemetry configuration
+  telemetry:
+    type: object
+    properties:
+      log_aggregation:
+        type: object
+        properties:
+          driver:
+            type: string
+            enum:
+              - fluentd
+              - none
+            default: fluentd
+            description: Log aggregation driver for FluentBit output (fluentd is default, none disables aggregation)
+        additionalProperties: false
+    additionalProperties: false
+
+  docker:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: "[DEPRECATED] Unused. Local dev is via terraform compute/workstation only."
+      registries:
+        type: object
+        additionalProperties:
+          type: object
+          properties:
+            remote:
+              type: string
+              description: Upstream registry URL (e.g. https://gcr.io). Proxy supports remoteurl, username, password, ttl.
+            local:
+              type: string
+              description: Client-facing registry host for mirror key (e.g. docker.io). When set, used as the mirror name so pulls to this host use the proxy. Omit to use the registry map key.
+            hostname:
+              type: string
+              description: Hostname for registry mirror config (e.g. registry.test)
+          additionalProperties: false
+        description: Registry mirror config keyed by registry host (e.g. gcr.io, ghcr.io). Used by workstation proxy registries and cluster machine config.
+    additionalProperties: false
+
+  # High availability mode
+  ha:
+    type: boolean
+    default: false
+    description: Enable high availability mode for all components (multiple replicas, PDBs, etc.)
+
+  # Network configuration (used by terraform templates)
+  network:
+    type: object
+    properties:
+      cidr_block:
+        type: string
+        pattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
+        default: "10.5.0.0/16"
+        description: Primary network CIDR block
+      loadbalancer_ips:
+        type: object
+        properties:
+          start:
+            type: string
+            pattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
+            default: "10.5.1.10"
+            description: Load balancer IP pool start
+          end:
+            type: string
+            pattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
+            default: "10.5.1.100"
+            description: Load balancer IP pool end
+        additionalProperties: false
+      loadbalancer_driver:
+        type: string
+        enum:
+          - metallb
+          - kube-vip
+        default: kube-vip
+        description: In-cluster load balancer driver
+      loadbalancer_mode:
+        type: string
+        enum:
+          - arp
+        default: arp
+        description: Load balancer mode (only 'arp' is currently supported; use for flat L2 networks with ARP broadcasts)
+    additionalProperties: false
+
+  # Cluster configuration
+  cluster:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: Enable cluster Terraform (and compute when platform is docker with workstation enabled)
+      driver:
+        type: string
+        enum:
+          - talos
+          - aks
+          - eks
+        default: talos
+        description: Cluster driver
+      endpoint:
+        type: string
+        description: External controlplane API endpoint
+      controlplanes:
+        type: object
+        properties:
+          <<: *nodePool
+          count:
+            type: integer
+            minimum: 1
+            default: 1
+            description: Number of control plane nodes
+          nodes:
+            <<: *nodesSchema
+            default:
+              controlplane-1:
+                endpoint: 10.5.0.1
+                node: 10.5.0.1
+                hostname: controlplane-1
+            description: Named control plane node configurations
+          schedulable:
+            type: boolean
+            default: false
+            description: Allow scheduling workloads on control plane nodes (useful for single-node clusters or resource-constrained environments)
+        additionalProperties: false
+      workers:
+        type: object
+        properties:
+          <<: *nodePool
+          count:
+            type: integer
+            minimum: 0
+            default: 0
+            description: Number of worker nodes
+          nodes:
+            <<: *nodesSchema
+            default:
+              worker-1:
+                endpoint: 10.5.0.2
+                node: 10.5.0.2
+                hostname: worker-1
+            description: Named worker node configurations
+          volumes:
+            type: array
+            items:
+              type: string
+            default:
+              - "/var/mnt/local"
+            description: "Node directory paths for extra mounts. For directory-based storage include cluster.storage.local_base_path. Path or host:dest for local dev bind mounts. Block/device storage uses disks."
+        additionalProperties: false
+      storage:
+        type: object
+        properties:
+          single_storage_type:
+            type: string
+            description: Default storage driver. Directory-based (local_base_path), cloud default, or block (cluster.*.disks).
+          local_base_path:
+            type: string
+            default: "/var/mnt/local"
+            description: Base path for directory-based storage. Must be in the volumes list of every pool that can schedule pods using this storage (controlplanes.volumes when schedulable, workers.volumes).
+        additionalProperties: false
+    additionalProperties: false
+
+  # DNS configuration
+  dns:
+    type: object
+    properties:
+      domain:
+        type: string
+        description: Single domain for local/private DNS (used by workstation, addons when set)
+      public_domain:
+        type: string
+        description: Public domain name
+      private_domain:
+        type: string
+        description: Private domain name
+    additionalProperties: false
+
+  # Ingress configuration
+  ingress:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: Enable ingress controller
+      driver:
+        type: string
+        enum:
+          - nginx
+        default: nginx
+        description: Ingress controller driver
+    additionalProperties: false
+
+  # VM configuration
+  # Deprecated: use workstation.runtime and workstation.enabled instead. vm.driver is still used as fallback when workstation.runtime is unset.
+  vm:
+    type: object
+    deprecated: true
+    description: Deprecated. Prefer workstation.runtime (and workstation.enabled). vm.driver remains as fallback for effective runtime when option-workstation is not applied.
+    properties:
+      driver:
+        type: string
+        enum:
+          - ""
+          - docker-desktop
+          - colima
+        default: ""
+        description: VM driver for local clusters (empty = not colima)
+      runtime:
+        type: string
+        enum:
+          - docker
+          - incus
+        description: Container/VM runtime
+    additionalProperties: false
+
+  # Workstation (DNS, registries, git livereload)
+  workstation:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Enable workstation stack (DNS, registries, git livereload)
+      runtime:
+        type: string
+        enum:
+          - colima
+          - docker-desktop
+          - docker
+        description: Host runtime for local clusters. VM-backed (colima, docker-desktop) or plain engine (docker). When unset, falls back to vm.driver.
+      services:
+        type: object
+        properties:
+          dns:
+            type: boolean
+            default: true
+            description: Create the DNS (CoreDNS) container
+          git:
+            type: boolean
+            default: true
+            description: Create the git livereload container
+          registries:
+            type: boolean
+            default: true
+            description: Create registry proxy containers (from docker.registries when true)
+        additionalProperties: false
+        description: Toggle workstation services
+    additionalProperties: false
+
+  # Optional addons
+  addons:
+    type: object
+    properties:
+      private_ca:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: Enable private certificate authority with trust-manager
+        additionalProperties: false
+      private_dns:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: Enable self-hosted CoreDNS for private DNS zones
+        additionalProperties: false
+      observability:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: Enable observability stack
+          metrics_backend:
+            type: string
+            enum:
+              - prometheus
+            default: prometheus
+            description: Metrics backend (prometheus is default and included in base telemetry)
+          dashboards:
+            type: string
+            enum:
+              - grafana
+            default: grafana
+            description: Dashboards provider (grafana for self-hosted Grafana)
+          logs_driver:
+            type: string
+            enum:
+              - stdout
+              - quickwit
+              - elasticsearch
+            default: quickwit
+            description: Log storage driver (stdout for console output, quickwit for local storage, elasticsearch for ELK stack)
+          admin_password:
+            type: string
+            description: Grafana admin password
+        additionalProperties: false
+      object_store:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: Enable object storage service
+          driver:
+            type: string
+            enum:
+              - minio
+            default: minio
+            description: Object storage driver
+        additionalProperties: false
+      database:
+        type: object
+        properties:
+          postgres:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+                description: Enable PostgreSQL database service
+              driver:
+                type: string
+                enum:
+                  - cloudnativepg
+                default: cloudnativepg
+                description: PostgreSQL database driver
+            additionalProperties: false
+        additionalProperties: false
+    additionalProperties: false
+
+required: []
+additionalProperties: false

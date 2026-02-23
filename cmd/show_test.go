@@ -132,6 +132,8 @@ func TestShowBlueprintCmd(t *testing.T) {
 			cmd.Flags().AddFlag(flag)
 		})
 
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
 		return cmd
 	}
 
@@ -375,6 +377,8 @@ func TestShowKustomizationCmd(t *testing.T) {
 			cmd.Flags().AddFlag(flag)
 		})
 
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
 		return cmd
 	}
 

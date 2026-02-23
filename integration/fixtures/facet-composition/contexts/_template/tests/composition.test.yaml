@@ -1,0 +1,113 @@
+# Facet composition integration tests: platform from provider, block-level when scope,
+# facet when (addon included/excluded).
+
+x-defaults:
+  network: &default-network
+    cidr_block: 10.5.0.0/16
+    loadbalancer_driver: kube-vip
+    loadbalancer_mode: arp
+    loadbalancer_ips:
+      start: "10.5.1.10"
+      end: "10.5.1.100"
+
+cases:
+
+- name: platform_from_provider
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    network: *default-network
+  expect:
+    kustomize:
+    - name: lb-base
+      path: lb/base
+    - name: lb-resources
+      path: lb/resources
+
+- name: block_level_when_sees_merged_scope
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    network: *default-network
+  expect:
+    kustomize:
+    - name: lb-base
+      path: lb/base
+
+- name: facet_when_excludes_addon
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    addons:
+      observability:
+        enabled: false
+    network: *default-network
+  expect:
+    kustomize:
+    - name: lb-base
+      path: lb/base
+  exclude:
+    kustomize:
+    - name: addon-dns
+
+- name: facet_when_includes_addon
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    addons:
+      observability:
+        enabled: true
+    network: *default-network
+  expect:
+    kustomize:
+    - name: lb-base
+      path: lb/base
+    - name: addon-dns
+      path: addons/dns
+
+# Reproduces "Block-level when and block-level expressions do not see merged config".
+# Values set only vm.driver (no workstation.runtime); provider-base sets config effective_runtime.
+# Expected: lb-colima included. Without fix, block-level when is evaluated without merged config and lb-colima is skipped.
+- name: block_level_when_sees_effective_runtime_from_fallback
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    vm:
+      driver: colima
+    network: *default-network
+  expect:
+    kustomize:
+    - name: lb-colima
+      path: lb/colima
+
+# Ordinal: option-ordinal-override (300) runs after provider-base (199). Same-name kustomization
+# policy-base is replaced (strategy: replace), so path comes from higher ordinal.
+- name: higher_ordinal_replace_wins
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    network: *default-network
+  expect:
+    kustomize:
+    - name: policy-base
+      path: policy/overridden
+
+# Strategy merge: option-ordinal-override merges into policy-resources; merged components
+# must include the overlay component.
+- name: strategy_merge_combines_components
+  values:
+    provider: docker
+    cluster:
+      driver: talos
+    network: *default-network
+  expect:
+    kustomize:
+    - name: policy-resources
+      components:
+      - ordinal-merge-test

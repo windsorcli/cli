@@ -1,0 +1,31 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: docker
+  description: "Docker runtime option"
+
+when: "platform == 'docker' && cluster.driver == 'talos'"
+
+kustomize:
+
+- name: lb-base
+  path: lb/base
+  when: platform == 'docker'
+  dependsOn:
+  - policy-resources
+  components: []
+  timeout: 5m
+  interval: 5m
+
+- name: lb-resources
+  path: lb/resources
+  when: platform == 'docker'
+  dependsOn:
+  - lb-base
+  components:
+  - kube-vip
+  - kube-vip/arp
+  substitutions:
+    loadbalancer_ip_range: ${network.loadbalancer_ips.start + '-' + network.loadbalancer_ips.end}
+  timeout: 5m
+  interval: 5m

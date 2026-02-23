@@ -1,0 +1,16 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: provider-colima
+  description: Reproduces block-level when scope bug; lb-colima only when effective_runtime == 'colima' (from vm.driver fallback).
+
+when: effective_runtime != ''
+
+kustomize:
+
+- name: lb-colima
+  path: lb/colima
+  when: effective_runtime == 'colima'
+  components: []
+  timeout: 5m
+  interval: 5m

@@ -1,0 +1,53 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: provider-base
+  description: "Base infrastructure components for all providers"
+
+when: (platform ?? provider) != 'none'
+
+config:
+- name: platform
+  value: "${platform ?? provider ?? 'none'}"
+- name: workstation
+  value:
+    runtime: "${workstation.runtime ?? vm.driver ?? ''}"
+- name: effective_runtime
+  value: "${workstation.runtime ?? vm.driver ?? ''}"
+
+kustomize:
+
+- name: cleanup
+  path: cleanup
+  destroyOnly: true
+  components:
+  - ingresses
+  - loadbalancers
+  - pvcs
+  timeout: 10m
+  interval: 5m
+
+- name: policy-base
+  path: policy/base
+  components:
+  - kyverno
+  timeout: 30m
+  interval: 5m
+
+- name: policy-resources
+  path: policy/resources
+  dependsOn:
+  - policy-base
+  components:
+  - kyverno/audit-resource-limits-requests
+  - kyverno/require-image-digest
+  timeout: 5m
+  interval: 5m
+
+- name: telemetry-base
+  path: telemetry/base
+  components:
+  - prometheus
+  - fluentbit
+  timeout: 30m
+  interval: 10m

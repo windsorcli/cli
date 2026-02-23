@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestExecCmd(t *testing.T) {
 	})
 
 	createTestCmd := func() *cobra.Command {
-		return &cobra.Command{
+		cmd := &cobra.Command{
 			Use:          "exec [command]",
 			Short:        "Execute a shell command with environment variables",
 			Long:         "Execute a shell command with environment variables set for the application.",
@@ -28,6 +29,9 @@ func TestExecCmd(t *testing.T) {
 			SilenceUsage: true,
 			RunE:         execCmd.RunE,
 		}
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		return cmd
 	}
 
 	setup := func(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {

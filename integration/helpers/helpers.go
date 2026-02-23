@@ -12,10 +12,12 @@ import (
 	"testing"
 )
 
-// BinaryPath and RepoRoot are set by integration TestMain after building the CLI.
+// BinaryPath, RepoRoot, and CoverDir are set by integration TestMain after building the CLI.
+// When CoverDir is set, RunCLI passes GOCOVERDIR to the subprocess so coverage is written there.
 var (
 	BinaryPath string
 	RepoRoot   string
+	CoverDir   string
 )
 
 // FindRepoRoot walks up from dir until it finds a directory containing go.mod.
@@ -39,6 +41,17 @@ func FindRepoRoot(dir string) (string, error) {
 // BuildBinary runs `go build -o out ./cmd/windsor` from repo root.
 func BuildBinary(repoRoot, outPath string) error {
 	cmd := exec.Command("go", "build", "-o", outPath, "./cmd/windsor")
+	cmd.Dir = repoRoot
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// BuildBinaryWithCover builds the CLI with coverage instrumentation so the binary writes
+// coverage to GOCOVERDIR when run. coverPkg is the -coverpkg value (e.g. ./cmd/...,./pkg/...).
+// Uses -covermode=atomic so the resulting profile merges with go test -covermode=atomic outputs.
+func BuildBinaryWithCover(repoRoot, outPath, coverPkg string) error {
+	cmd := exec.Command("go", "build", "-cover", "-covermode=atomic", "-coverpkg="+coverPkg, "-o", outPath, "./cmd/windsor")
 	cmd.Dir = repoRoot
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -78,13 +91,19 @@ func CopyFixture(src, dst string) error {
 }
 
 // RunCLI runs the built binary in dir with args and optional env (e.g. WINDSOR_CONTEXT=default).
+// When CoverDir is set, GOCOVERDIR is added to the subprocess env so the instrumented binary writes coverage.
 // Returns stdout, stderr, and any run error.
 func RunCLI(dir string, args []string, env []string) (stdout, stderr []byte, err error) {
 	cmd := exec.Command(BinaryPath, args...)
 	cmd.Dir = dir
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+	baseEnv := os.Environ()
+	if CoverDir != "" {
+		baseEnv = append(baseEnv, "GOCOVERDIR="+CoverDir)
 	}
+	if len(env) > 0 {
+		baseEnv = append(baseEnv, env...)
+	}
+	cmd.Env = baseEnv
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -103,9 +104,14 @@ func TestInitCmd(t *testing.T) {
 		// Disable help text printing
 		cmd.SilenceUsage = true
 		cmd.SilenceErrors = true
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
 
 		return cmd
 	}
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies

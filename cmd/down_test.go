@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -85,9 +86,14 @@ func TestDownCmd(t *testing.T) {
 		})
 
 		cmd.SetHelpFunc(func(*cobra.Command, []string) {})
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
 
 		return cmd
 	}
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
 
 	t.Run("Success", func(t *testing.T) {
 		// Given a properly configured down command

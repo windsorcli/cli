@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,9 @@ func setupBundleTest(t *testing.T, opts ...*SetupOptions) *BundleMocks {
 // =============================================================================
 
 func TestBundleCmdWithRuntime(t *testing.T) {
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
 	t.Run("SuccessWithRuntime", func(t *testing.T) {
 		// Given a properly configured bundle command
 		mocks := setupBundleTest(t)
@@ -102,6 +106,8 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		}
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
 
 		ctx := context.Background()
 		ctx = context.WithValue(ctx, runtimeOverridesKey, mocks.Runtime.Runtime)
@@ -133,6 +139,8 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		}
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
 
 		ctx := context.Background()
 		cmd.SetContext(ctx)
@@ -162,6 +170,8 @@ func TestBundleCmdWithRuntime(t *testing.T) {
 		}
 		cmd.Flags().StringP("output", "o", ".", "Output path for bundle archive")
 		cmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format")
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
 
 		ctx := context.Background()
 		ctx = context.WithValue(ctx, runtimeOverridesKey, mocks.Runtime.Runtime)
