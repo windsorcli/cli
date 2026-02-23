@@ -81,7 +81,11 @@ tasks:
       CI: true
     cmds:
       - task: test
+        vars:
+          CLI_ARGS: "{{.CLI_ARGS}}"
       - task: test:integration
+        vars:
+          CLI_ARGS: "{{.CLI_ARGS}}"
       - go install github.com/wadey/gocovmerge@latest
       - cmd: gocovmerge coverage.out coverage_integration_out > coverage_merged.out
         platforms: [linux, darwin]
