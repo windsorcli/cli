@@ -139,10 +139,8 @@ func (t *BaseToolsManager) Check() error {
 // Private Methods
 // =============================================================================
 
-// checkDocker ensures Docker and Docker Compose are available in the system's PATH using execLookPath and shell.ExecSilent.
-// It checks for 'docker', 'docker-compose', 'docker-cli-plugin-docker-compose', or 'docker compose'.
-// When in Colima mode, skips daemon-dependent checks since the Docker daemon may not be running yet.
-// Returns nil if any are found, else an error indicating Docker Compose is not available in the PATH.
+// checkDocker ensures Docker is available in the system's PATH. When not in Colima mode it also
+// verifies the docker CLI version meets the minimum. Docker Compose is not required.
 func (t *BaseToolsManager) checkDocker() error {
 	if _, err := execLookPath("docker"); err != nil {
 		return fmt.Errorf("docker is not available in the PATH")
@@ -165,49 +163,7 @@ func (t *BaseToolsManager) checkDocker() error {
 		}
 	}
 
-	var dockerComposeVersion string
-
-	if !isColimaMode {
-		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"compose", "version", "--short"}, 5*time.Second)
-		if err == nil {
-			dockerComposeVersion = extractVersion(output)
-		}
-		if dockerComposeVersion == "" {
-			// Docker 27+ removed --short; fall back to full version output.
-			output, err := t.shell.ExecSilentWithTimeout("docker", []string{"compose", "version"}, 5*time.Second)
-			if err == nil {
-				dockerComposeVersion = extractVersion(output)
-			}
-		}
-	}
-
-	if dockerComposeVersion == "" {
-		if _, err := execLookPath("docker-compose"); err == nil {
-			output, err := t.shell.ExecSilentWithTimeout("docker-compose", []string{"version", "--short"}, 5*time.Second)
-			if err == nil {
-				dockerComposeVersion = extractVersion(output)
-			}
-			if dockerComposeVersion == "" {
-				output, err := t.shell.ExecSilentWithTimeout("docker-compose", []string{"version"}, 5*time.Second)
-				if err == nil {
-					dockerComposeVersion = extractVersion(output)
-				}
-			}
-		}
-	}
-
-	if dockerComposeVersion != "" {
-		if compareVersion(dockerComposeVersion, constants.MinimumVersionDockerCompose) >= 0 {
-			return nil
-		}
-		return fmt.Errorf("docker-compose version %s is below the minimum required version %s", dockerComposeVersion, constants.MinimumVersionDockerCompose)
-	}
-
-	if _, err := execLookPath("docker-cli-plugin-docker-compose"); err == nil {
-		return nil
-	}
-
-	return fmt.Errorf("docker-compose is not available in the PATH")
+	return nil
 }
 
 // checkColima ensures Colima and Limactl are available in the system's PATH using execLookPath.

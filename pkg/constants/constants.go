@@ -109,19 +109,13 @@ const MinimumVersionColima = "0.9.0"
 
 const MinimumVersionDocker = "23.0.0"
 
-const MinimumVersionDockerCompose = "2.20.0"
-
 const MinimumVersionKubectl = "1.27.0"
 
 const MinimumVersionLima = "1.0.0"
 
-const MinimumVersionTalosctl = "1.7.0"
-
 const MinimumVersionTerraform = "1.7.0"
 
 const MinimumVersion1Password = "2.15.0"
-
-const MinimumVersionAWSCLI = "2.15.0"
 
 const MinimumVersionKubelogin = "0.1.7"
 
