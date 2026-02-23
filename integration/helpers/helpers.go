@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -105,26 +104,13 @@ func FixturePath(name string) string {
 
 // envForHome returns env vars so the subprocess uses homeDir for home (Unix HOME,
 // Windows USERPROFILE). Use when running the CLI so trusted-file and config paths are isolated.
-// Forwards PATH and AQUA_ROOT_DIR so aqua-installed tools (e.g. docker) work when HOME is overridden:
-// the docker binary on PATH may be an aqua wrapper that resolves the real binary via AQUA_ROOT_DIR.
+// Forwards PATH so tools installed on the host (e.g. docker, terraform) are found.
 func envForHome(homeDir string) []string {
-	env := []string{
+	return []string{
 		"HOME=" + homeDir,
 		"USERPROFILE=" + homeDir,
 		"PATH=" + os.Getenv("PATH"),
 	}
-	if v := os.Getenv("AQUA_ROOT_DIR"); v != "" {
-		env = append(env, "AQUA_ROOT_DIR="+v)
-	} else {
-		var defaultRoot string
-		if runtime.GOOS == "windows" {
-			defaultRoot = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local", "aquaproj-aqua")
-		} else {
-			defaultRoot = filepath.Join(os.Getenv("HOME"), ".local", "share", "aquaproj-aqua")
-		}
-		env = append(env, "AQUA_ROOT_DIR="+defaultRoot)
-	}
-	return env
 }
 
 // CopyFixtureOnly copies the named fixture into a temp dir and returns workDir and env
