@@ -61,12 +61,12 @@ tasks:
     cmds:
       - cmd: |
           if [ -n "{{.CLI_ARGS}}" ]; then
-            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration.out -v -run {{.CLI_ARGS}} ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_out -v -run {{.CLI_ARGS}} ./integration
           else
-            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration.out -v ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_out -v ./integration
           fi
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration.out -v -run '{{.CLI_ARGS}}' ./integration } else { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration.out -v ./integration }"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_out -v -run '{{.CLI_ARGS}}' ./integration } else { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_out -v ./integration }"
         platforms: [windows]
 
   test:all:
@@ -78,9 +78,9 @@ tasks:
       - task: test
       - task: test:integration
       - go install github.com/wadey/gocovmerge@latest
-      - cmd: gocovmerge coverage.out coverage_integration.out > coverage_merged.out
+      - cmd: gocovmerge coverage.out coverage_integration_out > coverage_merged.out
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "gocovmerge coverage.out coverage_integration.out | Set-Content -Path coverage_merged.out"
+      - cmd: powershell -NoProfile -Command "gocovmerge coverage.out coverage_integration_out | Set-Content -Path coverage_merged.out"
         platforms: [windows]
       - cmd: go tool cover -func=coverage_merged.out 2>&1 | grep '^total:' || true
         platforms: [linux, darwin]
