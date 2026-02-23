@@ -49,6 +49,19 @@ jobs:
       - name: Install tools
         run: aqua install
 
+      - name: Set aqua root and PATH (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          echo "AQUA_ROOT_DIR=$HOME/.local/share/aquaproj-aqua" >> $GITHUB_ENV
+          echo "PATH=$HOME/.local/share/aquaproj-aqua/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Set aqua root and PATH (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "AQUA_ROOT_DIR=$HOME/AppData/Local/aquaproj-aqua" >> $env:GITHUB_ENV
+          echo "PATH=$HOME/AppData/Local/aquaproj-aqua/bin;$env:PATH" >> $env:GITHUB_ENV
+        shell: pwsh
+
       - name: Cache Go Modules (Linux/macOS)
         if: ${{ matrix.os != 'windows-latest' }}
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
