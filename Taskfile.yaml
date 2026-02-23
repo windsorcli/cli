@@ -71,7 +71,7 @@ tasks:
           go install github.com/wadey/gocovmerge@latest
           gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out > coverage_integration_out
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v -run '{{.CLI_ARGS}}' ./integration; if ({{"$"}}LASTEXITCODE -ne 0) { exit {{"$"}}LASTEXITCODE }; go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v ./integration; if ({{"$"}}LASTEXITCODE -ne 0) { exit {{"$"}}LASTEXITCODE }; go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v ./cmd }; if ({{"$"}}LASTEXITCODE -ne 0) { exit {{"$"}}LASTEXITCODE }; go install github.com/wadey/gocovmerge@latest; gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out | Set-Content -Path coverage_integration_out"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile={{ \"coverage_integration_pkg.out\" }} -v -run '{{.CLI_ARGS}}' ./integration; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; go test -tags=integration -covermode=atomic -cover -coverprofile={{ \"coverage_integration_cmd.out\" }} -v -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -covermode=atomic -cover -coverprofile={{ \"coverage_integration_pkg.out\" }} -v ./integration; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; go test -tags=integration -covermode=atomic -cover -coverprofile={{ \"coverage_integration_cmd.out\" }} -v ./cmd }; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; go install github.com/wadey/gocovmerge@latest; gocovmerge {{ \"coverage_integration_pkg.out\" }} {{ \"coverage_integration_cmd.out\" }} | Set-Content -Path {{ \"coverage_integration_out\" }}"
         platforms: [windows]
 
   test:all:
@@ -85,13 +85,13 @@ tasks:
       - go install github.com/wadey/gocovmerge@latest
       - cmd: gocovmerge coverage.out coverage_integration_out > coverage_merged.out
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "gocovmerge coverage.out coverage_integration_out | Set-Content -Path coverage_merged.out"
+      - cmd: powershell -NoProfile -Command "gocovmerge {{ \"coverage.out\" }} {{ \"coverage_integration_out\" }} | Set-Content -Path {{ \"coverage_merged.out\" }}"
         platforms: [windows]
       - cmd: go tool cover -func=coverage_merged.out 2>&1 | grep '^total:' || true
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "go tool cover -func=coverage_merged.out 2>&1 | Select-String '^total:'; exit 0"
+      - cmd: powershell -NoProfile -Command "go tool cover -func={{ \"coverage_merged.out\" }} 2>&1 | Select-String '^total:'; exit 0"
         platforms: [windows]
-      - go tool cover -html=coverage_merged.out -o coverage.html
+      - go tool cover -html={{ "coverage_merged.out" }} -o {{ "coverage.html" }}
 
   scan:
     desc: Scan for security vulnerabilities
