@@ -1,0 +1,11 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: provider-base
+  description: Base config for provider/platform and workstation fallbacks
+config:
+  - name: platform
+    value: "${platform ?? provider ?? 'none'}"
+  - name: workstation
+    value:
+      runtime: "${workstation.runtime ?? vm.driver ?? ''}"

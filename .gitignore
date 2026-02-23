@@ -10,6 +10,8 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 coverage.html
+coverage_integration.html
+coverage_integration_out
 *.out
 integration_out.txt
 
@@ -28,6 +30,10 @@ go.work
 # The build directory
 dist/
 
+# Integration test binary (built by TestMain)
+integration/windsor-integration-test-binary
+integration/windsor-integration-test-binary.exe
+
 python_old
 age.key
 age.public.key
@@ -36,7 +42,7 @@ age.public.key
 /contexts/
 /kustomize/
 /terraform/
-windsor.yaml
+/windsor.yaml
 
 # managed by windsor cli
 .windsor/

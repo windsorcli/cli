@@ -54,47 +54,50 @@ tasks:
       - go tool cover -html=coverage.out -o coverage.html
 
   test:integration:
-    desc: Run only integration-tagged tests in cmd with coverage (-run TestIntegration by default)
+    desc: Run integration tests (./integration subprocess + ./cmd in-process), merge coverage to coverage_integration_out
     silent: true
     env:
       CI: true
+    vars:
+      DOLLAR: "$"
     cmds:
       - cmd: |
-          res=0
+          set -e
           if [ -n "{{.CLI_ARGS}}" ]; then
-            go test -tags=integration -v -covermode=atomic -coverprofile=coverage_integration.out -run {{.CLI_ARGS}} ./cmd 2>&1 | tee integration_out.txt; res=${PIPESTATUS[0]}
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v -run {{.CLI_ARGS}} ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v -run {{.CLI_ARGS}} ./cmd
           else
-            go test -tags=integration -v -covermode=atomic -coverprofile=coverage_integration.out -run TestIntegration ./cmd 2>&1 | tee integration_out.txt; res=${PIPESTATUS[0]}
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_pkg.out -v ./integration
+            go test -tags=integration -covermode=atomic -cover -coverprofile=coverage_integration_cmd.out -v ./cmd
           fi
-          grep -oE 'coverage: [0-9.]+% of statements' integration_out.txt | tail -1 | sed 's/coverage: /integration coverage (cmd): /' || true
-          exit $res
+          go install github.com/wadey/gocovmerge@latest
+          gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out > coverage_integration_out
         platforms: [linux, darwin]
-        shell: bash
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -v -covermode=atomic -coverprofile='coverage_integration.out' -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -v -covermode=atomic -coverprofile='coverage_integration.out' -run TestIntegration ./cmd }"
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -cover -coverprofile='coverage_integration_pkg.out' -v -run '{{.CLI_ARGS}}' ./integration; if ({{.DOLLAR}}LASTEXITCODE -ne 0) { exit {{.DOLLAR}}LASTEXITCODE }; go test -tags=integration -covermode=atomic -cover -coverprofile='coverage_integration_cmd.out' -v -run '{{.CLI_ARGS}}' ./cmd } else { go test -tags=integration -covermode=atomic -cover -coverprofile='coverage_integration_pkg.out' -v ./integration; if ({{.DOLLAR}}LASTEXITCODE -ne 0) { exit {{.DOLLAR}}LASTEXITCODE }; go test -tags=integration -covermode=atomic -cover -coverprofile='coverage_integration_cmd.out' -v ./cmd }; if ({{.DOLLAR}}LASTEXITCODE -ne 0) { exit {{.DOLLAR}}LASTEXITCODE }; go install github.com/wadey/gocovmerge@latest; gocovmerge coverage_integration_pkg.out coverage_integration_cmd.out | Set-Content -Path coverage_integration_out"
         platforms: [windows]
 
   test:all:
-    desc: Run full test suite (unit + integration), write coverage.out/html and print total
+    desc: Run full test suite (unit + integration), merge coverage, show final coverage
     silent: true
     env:
       CI: true
     cmds:
-      - cmd: |
-          if [ -n "{{.CLI_ARGS}}" ]; then
-            go test -tags=integration -covermode=atomic -coverprofile=coverage.out -run {{.CLI_ARGS}} ./api/... ./pkg/... ./cmd
-          else
-            go test -tags=integration -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
-          fi
+      - task: test
+        vars:
+          CLI_ARGS: "{{.CLI_ARGS}}"
+      - task: test:integration
+        vars:
+          CLI_ARGS: "{{.CLI_ARGS}}"
+      - go install github.com/wadey/gocovmerge@latest
+      - cmd: gocovmerge coverage.out coverage_integration_out > coverage_merged.out
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -tags=integration -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -tags=integration -covermode=atomic -coverprofile='coverage.out' ./api/... ./pkg/... ./cmd }"
+      - cmd: powershell -NoProfile -Command "gocovmerge coverage.out coverage_integration_out | Set-Content -Path coverage_merged.out"
         platforms: [windows]
-      - cmd: go tool cover -html=coverage.out -o coverage.html
+      - cmd: go tool cover -func=coverage_merged.out 2>&1 | grep '^total:' || true
         platforms: [linux, darwin]
-      - cmd: |
-          go tool cover -func=coverage.out | tail -1 | awk '{print "total coverage:", $NF}'
-        platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "go tool cover -func .\coverage.out 2>&1 | Select-Object -Last 1; exit 0"
+      - cmd: powershell -NoProfile -Command "go tool cover -func=coverage_merged.out 2>&1 | Select-String '^total:'; exit 0"
         platforms: [windows]
+      - go tool cover -html=coverage_merged.out -o coverage.html
 
   scan:
     desc: Scan for security vulnerabilities

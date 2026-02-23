@@ -11,7 +11,6 @@ registries:
   - type: standard
     ref: v4.461.0 # renovate: depName=aquaproj/aqua-registry
 packages:
-- name: hashicorp/terraform@v1.14.5
 - name: siderolabs/talos@v1.12.4
 - name: siderolabs/omni/omnictl@v1.5.5
 - name: siderolabs/omni/omni@v1.5.5
@@ -30,4 +29,3 @@ packages:
 - name: fluxcd/flux2@v2.7.5
 - name: aws/aws-cli@2.33.27
 - name: twistedpair/google-cloud-sdk@557.0.0
-- name: opentofu/opentofu@v1.11.5
