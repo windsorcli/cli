@@ -78,11 +78,18 @@ func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *Test
 func (r *TestRunner) RunAndPrint(filter string) error {
 	originalContext := os.Getenv("WINDSOR_CONTEXT")
 	_ = os.Setenv("WINDSOR_CONTEXT", "test")
+	contextFile := filepath.Join(r.projectRoot, ".windsor", "context")
+	originalContextFile, _ := os.ReadFile(contextFile)
 	defer func() {
 		if originalContext != "" {
 			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
 		} else {
 			_ = os.Unsetenv("WINDSOR_CONTEXT")
+		}
+		if originalContextFile != nil {
+			_ = os.WriteFile(contextFile, originalContextFile, 0644)
+		} else {
+			_ = os.Remove(contextFile)
 		}
 	}()
 
@@ -139,11 +146,18 @@ func (r *TestRunner) RunAndPrint(filter string) error {
 func (r *TestRunner) Run(filter string) ([]TestResult, error) {
 	originalContext := os.Getenv("WINDSOR_CONTEXT")
 	_ = os.Setenv("WINDSOR_CONTEXT", "test")
+	contextFile := filepath.Join(r.projectRoot, ".windsor", "context")
+	originalContextFile, _ := os.ReadFile(contextFile)
 	defer func() {
 		if originalContext != "" {
 			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
 		} else {
 			_ = os.Unsetenv("WINDSOR_CONTEXT")
+		}
+		if originalContextFile != nil {
+			_ = os.WriteFile(contextFile, originalContextFile, 0644)
+		} else {
+			_ = os.Remove(contextFile)
 		}
 	}()
 
