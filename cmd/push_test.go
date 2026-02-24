@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,8 @@ func createTestPushCmd() *cobra.Command {
 	}
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
 	return cmd
 }
 
@@ -90,6 +93,9 @@ func createTestPushCmd() *cobra.Command {
 // =============================================================================
 
 func TestPushCmdWithRuntime(t *testing.T) {
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
 	t.Run("SuccessWithRuntime", func(t *testing.T) {
 		// Given proper setup with runtime override
 		_, mocks := setupPushTest(t)
@@ -196,10 +202,6 @@ func TestPushCmdWithRuntime(t *testing.T) {
 
 		// Then it may succeed or fail depending on environment
 		// Runtime is resilient and will create default dependencies
-		if err != nil {
-			t.Logf("Command failed as expected: %v", err)
-		} else {
-			t.Logf("Command succeeded (runtime may be available from environment)")
-		}
+		_ = err
 	})
 }

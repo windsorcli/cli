@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -99,6 +100,8 @@ func createTestCommand() *cobra.Command {
 		cmd.Flags().AddFlag(flag)
 	})
 
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
 	return cmd
 }
 
@@ -118,6 +121,9 @@ func createTestYamlFile(t *testing.T, dir, filename, content string) {
 // =============================================================================
 
 func TestTestCmd(t *testing.T) {
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
 	t.Run("SuccessWithAllTestsPassing", func(t *testing.T) {
 		mocks := setupTestCmdMocks(t)
 
@@ -251,6 +257,9 @@ cases:
 // =============================================================================
 
 func TestTestCmd_ErrorScenarios(t *testing.T) {
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
 	t.Run("HandlesCheckTrustedDirectoryError", func(t *testing.T) {
 		mocks := setupTestCmdMocks(t)
 

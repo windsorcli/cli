@@ -1990,7 +1990,10 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 			done <- true
 		}()
 
-		err := runner.runTestsSequentially(testCasesWithFiles)
+		results, err := runner.runTestCases(testCasesWithFiles)
+		if err == nil {
+			err = runner.printResults(results)
+		}
 		w.Close()
 		<-done
 		os.Stdout = oldStdout
@@ -2042,7 +2045,13 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 			done <- true
 		}()
 
-		err := runner.runTestsSequentially(testCasesWithFiles)
+		results, runErr := runner.runTestCases(testCasesWithFiles)
+		var err error
+		if runErr != nil {
+			err = runErr
+		} else {
+			err = runner.printResults(results)
+		}
 		w.Close()
 		<-done
 		os.Stdout = oldStdout
@@ -2050,7 +2059,7 @@ func TestTestRunner_runTestsSequentially(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when tests fail")
 		}
-		if !strings.Contains(err.Error(), "test(s) failed") {
+		if err != nil && !strings.Contains(err.Error(), "test(s) failed") {
 			t.Errorf("Expected failure message, got: %v", err)
 		}
 		output := buf.String()

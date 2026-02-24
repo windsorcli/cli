@@ -8,6 +8,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"testing"
@@ -43,6 +44,40 @@ type SetupOptions struct {
 	ConfigStr     string
 	Shims         *Shims
 	TmpDir        string
+}
+
+// suppressProcessStdout redirects os.Stdout to a pipe drained to io.Discard for the
+// duration of the test so that commands using fmt.Print do not pollute the terminal. Restores on t.Cleanup.
+func suppressProcessStdout(t *testing.T) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() {
+		w.Close()
+		io.Copy(io.Discard, r)
+		os.Stdout = orig
+	})
+}
+
+// suppressProcessStderr redirects os.Stderr to a pipe drained to io.Discard for the
+// duration of the test so that command error and progress messages do not pollute the terminal. Restores on t.Cleanup.
+func suppressProcessStderr(t *testing.T) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() {
+		w.Close()
+		io.Copy(io.Discard, r)
+		os.Stderr = orig
+	})
 }
 
 // setupMocks creates mock components for testing the root command

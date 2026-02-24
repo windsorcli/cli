@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -32,9 +33,14 @@ func TestInstallCmd(t *testing.T) {
 
 		cmd.SilenceUsage = true
 		cmd.SilenceErrors = true
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
 
 		return cmd
 	}
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
 
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupMocks(t)

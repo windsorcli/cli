@@ -1,0 +1,16 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: addon-optional
+  description: Optional addon for facet when integration tests
+
+when: addons.observability.enabled == true
+
+kustomize:
+
+- name: addon-dns
+  path: addons/dns
+  components:
+  - coredns
+  timeout: 5m
+  interval: 5m

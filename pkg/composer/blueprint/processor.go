@@ -328,6 +328,11 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					continue
 				}
 				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
+				if contextScope != nil && contextScope[name] != nil {
+					scopeWithBlock[name] = contextScope[name]
+				} else {
+					delete(scopeWithBlock, name)
+				}
 				evaluated, err := p.evaluateConfigBlockValue(body, "", scopeWithBlock)
 				if err != nil {
 					return fmt.Errorf("config block %q: %w", name, err)

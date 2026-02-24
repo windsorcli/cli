@@ -1,0 +1,27 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: option-ordinal-override
+  description: Integration test facet for ordinal (higher wins) and strategy (replace, merge).
+
+when: true
+
+kustomize:
+
+- name: policy-base
+  path: policy/overridden
+  strategy: replace
+  components:
+  - kyverno
+  timeout: 30m
+  interval: 5m
+
+- name: policy-resources
+  path: policy/resources
+  strategy: merge
+  dependsOn:
+  - policy-base
+  components:
+  - ordinal-merge-test
+  timeout: 5m
+  interval: 5m
