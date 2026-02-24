@@ -78,18 +78,26 @@ func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *Test
 func (r *TestRunner) RunAndPrint(filter string) error {
 	originalContext := os.Getenv("WINDSOR_CONTEXT")
 	_ = os.Setenv("WINDSOR_CONTEXT", "test")
-	contextFile := filepath.Join(r.projectRoot, ".windsor", "context")
-	originalContextFile, _ := os.ReadFile(contextFile)
+	cleanedRoot := filepath.Clean(r.projectRoot)
+	contextFile := filepath.Join(cleanedRoot, ".windsor", "context")
+	rel, relErr := filepath.Rel(cleanedRoot, filepath.Clean(contextFile))
+	pathSafe := relErr == nil && !strings.HasPrefix(rel, "..")
+	var originalContextFile []byte
+	if pathSafe {
+		originalContextFile, _ = os.ReadFile(contextFile) // #nosec G304 - path constrained to project root via filepath.Rel
+	}
 	defer func() {
 		if originalContext != "" {
 			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
 		} else {
 			_ = os.Unsetenv("WINDSOR_CONTEXT")
 		}
-		if originalContextFile != nil {
-			_ = os.WriteFile(contextFile, originalContextFile, 0644)
-		} else {
-			_ = os.Remove(contextFile)
+		if pathSafe {
+			if originalContextFile != nil {
+				_ = os.WriteFile(contextFile, originalContextFile, 0600)
+			} else {
+				_ = os.Remove(contextFile)
+			}
 		}
 	}()
 
@@ -146,18 +154,26 @@ func (r *TestRunner) RunAndPrint(filter string) error {
 func (r *TestRunner) Run(filter string) ([]TestResult, error) {
 	originalContext := os.Getenv("WINDSOR_CONTEXT")
 	_ = os.Setenv("WINDSOR_CONTEXT", "test")
-	contextFile := filepath.Join(r.projectRoot, ".windsor", "context")
-	originalContextFile, _ := os.ReadFile(contextFile)
+	cleanedRoot := filepath.Clean(r.projectRoot)
+	contextFile := filepath.Join(cleanedRoot, ".windsor", "context")
+	rel, relErr := filepath.Rel(cleanedRoot, filepath.Clean(contextFile))
+	pathSafe := relErr == nil && !strings.HasPrefix(rel, "..")
+	var originalContextFile []byte
+	if pathSafe {
+		originalContextFile, _ = os.ReadFile(contextFile) // #nosec G304 - path constrained to project root via filepath.Rel
+	}
 	defer func() {
 		if originalContext != "" {
 			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
 		} else {
 			_ = os.Unsetenv("WINDSOR_CONTEXT")
 		}
-		if originalContextFile != nil {
-			_ = os.WriteFile(contextFile, originalContextFile, 0644)
-		} else {
-			_ = os.Remove(contextFile)
+		if pathSafe {
+			if originalContextFile != nil {
+				_ = os.WriteFile(contextFile, originalContextFile, 0600)
+			} else {
+				_ = os.Remove(contextFile)
+			}
 		}
 	}()
 
