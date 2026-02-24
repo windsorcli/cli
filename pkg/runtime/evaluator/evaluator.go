@@ -152,27 +152,20 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 // Evaluate resolves Windsor expressions in the provided string s, supporting both complete and interpolated
 // (${...}) expressions, arithmetic operations, and complex object types. The evaluation will process dynamic
 // file and jsonnet loading as needed, and can defer unresolved expressions when evaluateDeferred is false.
-// The facetPath parameter is used for relative expression resolution, and evaluateDeferred controls
-// whether to process unresolved expressions immediately. When scope is non-nil, it is merged into the
-// evaluation environment (e.g. facet config so expressions can reference talos.controlplanes). Returns the
-// fully evaluated value, or an error if evaluation fails or the input is malformed. Empty strings are returned
-// as-is. If the result is nil (such as from an undefined variable without a ?? fallback), nil is returned for
-// complete expressions or an empty string is used for interpolation.
+// The facetPath parameter is used for relative expression resolution. When scope is nil, the environment is
+// enriched config (getConfig plus context, project_root, etc.). When scope is non-nil, the environment is
+// that scope (with runtime keys injected so helpers have context and paths). Returns the fully evaluated value,
+// or an error if evaluation fails or the input is malformed.
 func (e *expressionEvaluator) Evaluate(s string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
 	return e.evaluate(s, facetPath, scope, evaluateDeferred)
 }
 
 // EvaluateMap evaluates a map of values using this expression evaluator. Each string value is evaluated as an
 // expression; maps and arrays are recursively evaluated. When evaluateDeferred is false and evaluation fails
-// with a DeferredError, the original value is preserved in the result. The facetPath parameter is used for
-// context during evaluation. When scope is non-nil, it is merged into the evaluation environment. Returns a
-// new map containing evaluated values (or original values if deferred), or an error if evaluation fails with
-// a non-deferred error.
+// with a DeferredError, the original value is preserved in the result. Environment is determined by scope the
+// same way as Evaluate (nil = enriched config, non-nil = that scope with runtime keys). Returns a new map
+// containing evaluated values, or an error if evaluation fails with a non-deferred error.
 func (e *expressionEvaluator) EvaluateMap(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
-	return e.evaluateMap(values, facetPath, scope, evaluateDeferred)
-}
-
-func (e *expressionEvaluator) evaluateMap(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
 	result := make(map[string]any)
 	for key, value := range values {
 		evaluated, err := e.evaluateValue(value, facetPath, evaluateDeferred, scope)
@@ -263,16 +256,18 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 	return result, nil
 }
 
-// evaluateExpression compiles and evaluates a single expression using the given scope as the variable
-// environment. Context (getConfig + enrichConfig) is always used as the base; when scope is non-nil
-// (e.g. for yaml(path, input) templating), it is merged on top so expressions see both context and
-// scope (scope keys override). The expression should not include ${} bookends. Returns the evaluation
-// result or an error if compilation or execution fails.
+// evaluateExpression compiles and evaluates a single expression. When scope is nil, the environment
+// is enriched config (getConfig + context, project_root, etc.). When scope is non-nil, the environment
+// is that scope (with runtime keys injected so helpers like file() and jsonnet() have context and paths).
+// The expression should not include ${} bookends. Returns the evaluation result or an error.
 func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
-	config := e.getConfig()
-	merged := e.enrichConfig(config)
+	var merged map[string]any
 	if scope != nil {
+		merged = make(map[string]any)
 		maps.Copy(merged, scope)
+		injectRuntimeKeys(merged, e)
+	} else {
+		merged = e.enrichConfig(e.getConfig())
 	}
 	env := e.buildExprEnvironment(merged, facetPath, evaluateDeferred)
 	program, err := expr.Compile(expression, env...)
@@ -312,16 +307,21 @@ func (e *expressionEvaluator) getConfig() map[string]any {
 func (e *expressionEvaluator) enrichConfig(config map[string]any) map[string]any {
 	enrichedConfig := make(map[string]any)
 	maps.Copy(enrichedConfig, config)
+	injectRuntimeKeys(enrichedConfig, e)
+	return enrichedConfig
+}
 
-	enrichedConfig["context"] = e.configHandler.GetContext()
+// injectRuntimeKeys writes context, context_path, project_root, and projectName into the map so
+// helpers (file(), jsonnet()) and expressions have runtime context when scope is used as the environment.
+func injectRuntimeKeys(m map[string]any, e *expressionEvaluator) {
+	m["context"] = e.configHandler.GetContext()
 	if configRoot, err := e.configHandler.GetConfigRoot(); err == nil {
-		enrichedConfig["context_path"] = strings.ReplaceAll(configRoot, "\\", "/")
+		m["context_path"] = strings.ReplaceAll(configRoot, "\\", "/")
 	}
 	if e.projectRoot != "" {
-		enrichedConfig["project_root"] = strings.ReplaceAll(e.projectRoot, "\\", "/")
-		enrichedConfig["projectName"] = e.Shims.FilepathBase(e.projectRoot)
+		m["project_root"] = strings.ReplaceAll(e.projectRoot, "\\", "/")
+		m["projectName"] = e.Shims.FilepathBase(e.projectRoot)
 	}
-	return enrichedConfig
 }
 
 // buildExprEnvironment configures the expression evaluation environment with helper functions.

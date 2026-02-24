@@ -204,6 +204,9 @@ func (r *TestRunner) Run(filter string) ([]TestResult, error) {
 func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any) func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 	return func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 		freshConfigHandler := config.NewConfigHandler(r.baseShell)
+		if err := freshConfigHandler.SetContext("test"); err != nil {
+			return nil, fmt.Errorf("failed to set test context: %w", err)
+		}
 
 		rt := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         r.baseShell,
@@ -227,7 +230,8 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 			if key == "_testName" || key == "context" {
 				continue
 			}
-			if err := rt.ConfigHandler.Set(key, value); err != nil {
+			normalized := normalizeTestValue(value)
+			if err := rt.ConfigHandler.Set(key, normalized); err != nil {
 				return nil, fmt.Errorf("failed to set value %s: %w", key, err)
 			}
 		}
@@ -282,6 +286,21 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 
 		return bp, nil
 	}
+}
+
+// normalizeTestValue converts YAML-unmarshaled values (e.g. map[interface{}]interface{}) to
+// map[string]any and []any so ConfigHandler and expression evaluation resolve nested keys correctly.
+func normalizeTestValue(v any) any {
+	if v == nil {
+		return v
+	}
+	if m := blueprintv1alpha1.ToMapStringAny(v); m != nil {
+		return m
+	}
+	if s := blueprintv1alpha1.ToSliceAny(v); s != nil {
+		return s
+	}
+	return v
 }
 
 // printResults formats and prints test results to stdout in a human-readable format.
