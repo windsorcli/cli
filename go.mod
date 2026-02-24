@@ -21,7 +21,7 @@ require (
 	github.com/siderolabs/talos/pkg/machinery v1.12.4
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/zclconf/go-cty v1.17.0
+	github.com/zclconf/go-cty v1.18.0
 	golang.org/x/term v0.40.0
 	k8s.io/api v0.35.1
 	k8s.io/apimachinery v0.35.1
