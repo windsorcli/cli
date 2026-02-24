@@ -33,9 +33,10 @@ const SkipDefaultBlueprintURL = " "
 
 // TestResult represents the result of running a single test case.
 type TestResult struct {
-	Name   string
-	Passed bool
-	Diffs  []string
+	Name       string
+	Passed     bool
+	Diffs      []string
+	SourceFile string
 }
 
 // TestRunner discovers and executes blueprint composition tests.
@@ -76,82 +77,85 @@ func NewTestRunner(rt *runtime.Runtime, artifactBuilder artifact.Artifact) *Test
 // If filter is provided, only tests matching the filter name are executed.
 // Returns an error if tests fail or execution encounters an error.
 func (r *TestRunner) RunAndPrint(filter string) error {
-	originalContext := os.Getenv("WINDSOR_CONTEXT")
-	_ = os.Setenv("WINDSOR_CONTEXT", "test")
-	cleanedRoot := filepath.Clean(r.projectRoot)
-	contextFile := filepath.Join(cleanedRoot, ".windsor", "context")
-	rel, relErr := filepath.Rel(cleanedRoot, filepath.Clean(contextFile))
-	pathSafe := relErr == nil && !strings.HasPrefix(rel, "..")
-	var originalContextFile []byte
-	if pathSafe {
-		originalContextFile, _ = os.ReadFile(contextFile) // #nosec G304 - path constrained to project root via filepath.Rel
-	}
-	defer func() {
-		if originalContext != "" {
-			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
-		} else {
-			_ = os.Unsetenv("WINDSOR_CONTEXT")
-		}
-		if pathSafe {
-			if originalContextFile != nil {
-				_ = os.WriteFile(contextFile, originalContextFile, 0600)
-			} else {
-				_ = os.Remove(contextFile)
-			}
-		}
-	}()
-
-	if r.RunFunc != nil {
-		results, err := r.RunFunc(filter)
-		if err != nil {
-			return err
-		}
-		return r.printResults(results)
-	}
-
-	testsDir := filepath.Join(r.projectRoot, "contexts", "_template", "tests")
-
-	testFiles, err := r.discoverTestFiles(testsDir)
+	results, err := r.Run(filter)
 	if err != nil {
-		return fmt.Errorf("failed to discover test files: %w", err)
+		return err
 	}
-
-	if len(testFiles) == 0 {
-		return fmt.Errorf("no test files found in %s", testsDir)
-	}
-
-	var testCasesWithFiles []testCaseWithFile
-	for _, testFilePath := range testFiles {
-		testFile, err := r.parseTestFile(testFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to parse test file %s: %w", testFilePath, err)
-		}
-
-		fileName := filepath.Base(testFilePath)
-		for _, tc := range testFile.Cases {
-			if filter != "" && tc.Name != filter {
-				continue
-			}
-			testCasesWithFiles = append(testCasesWithFiles, testCaseWithFile{
-				testCase: tc,
-				fileName: fileName,
-			})
-		}
-	}
-
-	if len(testCasesWithFiles) == 0 {
-		if filter != "" {
-			return fmt.Errorf("no test cases found matching filter: %s", filter)
-		}
-		return nil
-	}
-
-	return r.runTestsSequentially(testCasesWithFiles)
+	return r.printResults(results)
 }
 
 // Run discovers and executes test cases, returning results for each test.
 // If filter is provided, only tests matching the filter name are executed.
 func (r *TestRunner) Run(filter string) ([]TestResult, error) {
+	restore := r.withTestContextEnv()
+	defer restore()
+
+	if r.RunFunc != nil {
+		return r.RunFunc(filter)
+	}
+
+	testCasesWithFiles, err := r.discoverTestCases(filter)
+	if err != nil {
+		return nil, err
+	}
+	return r.runTestCases(testCasesWithFiles)
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// runTestCases executes the given test cases and returns their results with SourceFile set.
+// Used by Run and by tests that need to run a specific list of cases then print.
+func (r *TestRunner) runTestCases(testCasesWithFiles []testCaseWithFile) ([]TestResult, error) {
+	results := make([]TestResult, 0, len(testCasesWithFiles))
+	for _, tcf := range testCasesWithFiles {
+		result, err := r.runTestCase(tcf.testCase)
+		if err != nil {
+			return nil, fmt.Errorf("failed to run test case %s: %w", tcf.testCase.Name, err)
+		}
+		result.SourceFile = tcf.fileName
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+// discoverTestCases finds all .test.yaml files under contexts/_template/tests, parses them,
+// and returns test cases that match the filter (or all if filter is empty). Returns an error
+// for discovery failure, missing test directory, parse failure, or when filter is set and no case matches.
+func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error) {
+	testsDir := filepath.Join(r.projectRoot, "contexts", "_template", "tests")
+	testFiles, err := r.discoverTestFiles(testsDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover test files: %w", err)
+	}
+	if len(testFiles) == 0 {
+		return nil, fmt.Errorf("no test files found in %s", testsDir)
+	}
+	var out []testCaseWithFile
+	for _, testFilePath := range testFiles {
+		testFile, err := r.parseTestFile(testFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse test file %s: %w", testFilePath, err)
+		}
+		fileName := filepath.Base(testFilePath)
+		for _, tc := range testFile.Cases {
+			if filter != "" && tc.Name != filter {
+				continue
+			}
+			out = append(out, testCaseWithFile{testCase: tc, fileName: fileName})
+		}
+	}
+	if len(out) == 0 && filter != "" {
+		return nil, fmt.Errorf("no test cases found matching filter: %s", filter)
+	}
+	return out, nil
+}
+
+// withTestContextEnv sets WINDSOR_CONTEXT to "test" and captures the project's .windsor/context
+// file when the path is under project root. Returns a restore function that reverts the env var
+// and writes back (or removes) the context file; call it in defer so test runs do not mutate context.
+func (r *TestRunner) withTestContextEnv() (restore func()) {
 	originalContext := os.Getenv("WINDSOR_CONTEXT")
 	_ = os.Setenv("WINDSOR_CONTEXT", "test")
 	cleanedRoot := filepath.Clean(r.projectRoot)
@@ -162,7 +166,7 @@ func (r *TestRunner) Run(filter string) ([]TestResult, error) {
 	if pathSafe {
 		originalContextFile, _ = os.ReadFile(contextFile) // #nosec G304 - path constrained to project root via filepath.Rel
 	}
-	defer func() {
+	return func() {
 		if originalContext != "" {
 			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
 		} else {
@@ -175,54 +179,8 @@ func (r *TestRunner) Run(filter string) ([]TestResult, error) {
 				_ = os.Remove(contextFile)
 			}
 		}
-	}()
-
-	if r.RunFunc != nil {
-		return r.RunFunc(filter)
 	}
-
-	testsDir := filepath.Join(r.projectRoot, "contexts", "_template", "tests")
-
-	testFiles, err := r.discoverTestFiles(testsDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover test files: %w", err)
-	}
-
-	if len(testFiles) == 0 {
-		return nil, fmt.Errorf("no test files found in %s", testsDir)
-	}
-
-	var results []TestResult
-
-	for _, testFilePath := range testFiles {
-		testFile, err := r.parseTestFile(testFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse test file %s: %w", testFilePath, err)
-		}
-
-		for _, tc := range testFile.Cases {
-			if filter != "" && tc.Name != filter {
-				continue
-			}
-
-			result, err := r.runTestCase(tc)
-			if err != nil {
-				return nil, fmt.Errorf("failed to run test case %s: %w", tc.Name, err)
-			}
-			results = append(results, result)
-		}
-	}
-
-	if len(results) == 0 && filter != "" {
-		return nil, fmt.Errorf("no test cases found matching filter: %s", filter)
-	}
-
-	return results, nil
 }
-
-// =============================================================================
-// Private Methods
-// =============================================================================
 
 // createGenerator creates a function that generates blueprints from test values.
 // It sets up an isolated runtime environment for each test case, ensuring complete test isolation by creating
@@ -345,8 +303,15 @@ func (r *TestRunner) printResults(results []TestResult) error {
 
 	passed := 0
 	failed := 0
-
+	currentFile := ""
 	for _, result := range results {
+		if result.SourceFile != "" && result.SourceFile != currentFile {
+			if currentFile != "" {
+				fmt.Fprintf(os.Stdout, "\n")
+			}
+			fmt.Fprintf(os.Stdout, "=== %s ===\n", result.SourceFile)
+			currentFile = result.SourceFile
+		}
 		if result.Passed {
 			passed++
 			fmt.Fprintf(os.Stdout, "✓ %s\n", result.Name)
@@ -362,57 +327,6 @@ func (r *TestRunner) printResults(results []TestResult) error {
 	fmt.Fprintf(os.Stdout, "\n")
 	if failed > 0 {
 		fmt.Fprintf(os.Stdout, "FAIL: %d of %d test(s) failed\n", failed, len(results))
-		return fmt.Errorf("%d test(s) failed", failed)
-	}
-
-	fmt.Fprintf(os.Stdout, "PASS: %d test(s) passed\n", passed)
-	return nil
-}
-
-// runTestsSequentially executes test cases one at a time and streams results to stdout as they complete.
-// This sequential execution avoids resource contention that occurs when multiple tests run in parallel,
-// as each test case creates a new Runtime instance and performs heavy I/O operations including config loading,
-// schema parsing, blueprint loading, and Jsonnet evaluation. The function groups test output by source file,
-// printing a file header (=== filename ===) when encountering tests from a new file. It tracks passing and
-// failing tests, prints results immediately as they complete, and returns an error if any tests fail.
-func (r *TestRunner) runTestsSequentially(testCasesWithFiles []testCaseWithFile) error {
-	passed := 0
-	failed := 0
-
-	currentFile := ""
-	for _, tcf := range testCasesWithFiles {
-		if tcf.fileName != currentFile {
-			if currentFile != "" {
-				fmt.Fprintf(os.Stdout, "\n")
-			}
-			fmt.Fprintf(os.Stdout, "=== %s ===\n", tcf.fileName)
-			currentFile = tcf.fileName
-		}
-
-		result, err := r.runTestCase(tcf.testCase)
-		if err != nil {
-			result = TestResult{
-				Name:   tcf.testCase.Name,
-				Passed: false,
-				Diffs:  []string{fmt.Sprintf("test execution error: %v", err)},
-			}
-		}
-
-		if result.Passed {
-			passed++
-			fmt.Fprintf(os.Stdout, "✓ %s\n", result.Name)
-		} else {
-			failed++
-			fmt.Fprintf(os.Stdout, "✗ %s\n", result.Name)
-			for _, diff := range result.Diffs {
-				fmt.Fprintf(os.Stdout, "  %s\n", diff)
-			}
-		}
-	}
-
-	fmt.Fprintf(os.Stdout, "\n")
-	if failed > 0 {
-		fmt.Fprintf(os.Stdout, "FAIL: %d of %d test(s) failed\n", failed, len(testCasesWithFiles))
 		return fmt.Errorf("%d test(s) failed", failed)
 	}
 
