@@ -26,6 +26,6 @@ packages:
 - name: goreleaser/goreleaser@v2.14.0
 - name: helm/helm@v4.1.1
 - name: 1password/cli@v2.30.3
-- name: fluxcd/flux2@v2.7.5
+- name: fluxcd/flux2@v2.8.0
 - name: aws/aws-cli@2.33.28
 - name: twistedpair/google-cloud-sdk@557.0.0
