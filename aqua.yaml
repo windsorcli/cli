@@ -20,7 +20,7 @@ packages:
 - name: getsops/sops@v3.11.0
 - name: docker/cli@v27.4.1
 - name: securego/gosec@v2.23.0
-- name: docker/compose@v5.0.2
+- name: docker/compose@v5.1.0
 - name: google/go-jsonnet@v0.21.0
 - name: mikefarah/yq@v4.52.4
 - name: goreleaser/goreleaser@v2.14.0
