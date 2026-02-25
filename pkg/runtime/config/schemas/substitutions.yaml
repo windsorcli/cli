@@ -10,3 +10,4 @@ properties:
       - metal
       - aws
       - azure
+      - gcp
