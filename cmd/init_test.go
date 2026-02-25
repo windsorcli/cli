@@ -772,8 +772,8 @@ func TestInitCmd(t *testing.T) {
 		ctx = context.WithValue(ctx, "reset", false)
 		ctx = context.WithValue(ctx, "trust", true)
 
-		// Handle deprecated --platform flag and set blueprint
-		if initPlatform != "" && initProvider == "" && initBlueprint == "" {
+		// When --platform is set (primary) and no blueprint, set default blueprint
+		if initPlatform != "" && initBlueprint == "" {
 			initBlueprint = constants.DefaultOCIBlueprintURL
 		}
 
@@ -966,29 +966,34 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("RunEDeprecatedPlatformFlag", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
+	t.Run("RunEPlatformFlag", func(t *testing.T) {
 		mocks := setupInitTest(t)
-
-		// When executing the init command with deprecated platform flag
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"--platform", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
-
-		// Then no error should occur and the deprecated flag should be handled
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 	})
 
-	t.Run("RunEPlatformAndProviderConflict", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
+	t.Run("RunEDeprecatedProviderFlag", func(t *testing.T) {
 		mocks := setupInitTest(t)
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{"--provider", "aws"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+		if err != nil {
+			t.Errorf("Expected success with deprecated --provider, got error: %v", err)
+		}
+	})
 
-		// When executing the init command with both platform and provider flags
+	t.Run("RunEPlatformAndProviderConflict", func(t *testing.T) {
+		mocks := setupInitTest(t)
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
