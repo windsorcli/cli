@@ -27,9 +27,10 @@ type Config struct {
 	Contexts     map[string]*Context  `yaml:"contexts"`
 }
 
-// Context represents the context configuration
+// Context represents the context configuration.
 type Context struct {
 	ID          *string                    `yaml:"id,omitempty"`
+	Platform    *string                    `yaml:"platform,omitempty"`
 	Provider    *string                    `yaml:"provider,omitempty"`
 	Environment map[string]string          `yaml:"environment,omitempty"`
 	Secrets     *secrets.SecretsConfig     `yaml:"secrets,omitempty"`
@@ -52,6 +53,9 @@ func (base *Context) Merge(overlay *Context) {
 	}
 	if overlay.ID != nil {
 		base.ID = overlay.ID
+	}
+	if overlay.Platform != nil {
+		base.Platform = overlay.Platform
 	}
 	if overlay.Provider != nil {
 		base.Provider = overlay.Provider
@@ -146,6 +150,7 @@ func (c *Context) DeepCopy() *Context {
 	}
 	return &Context{
 		ID:          c.ID,
+		Platform:    c.Platform,
 		Provider:    c.Provider,
 		Environment: environmentCopy,
 		Secrets:     c.Secrets.Copy(),

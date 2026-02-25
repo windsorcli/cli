@@ -175,7 +175,7 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 		return fmt.Errorf("failed to load blueprint data: %w", err)
 	}
 
-	if err := p.configHandler.SaveConfig(overwrite); err != nil {
+	if err := p.Runtime.SaveConfig(overwrite); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 

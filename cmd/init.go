@@ -76,15 +76,15 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		if initPlatform != "" {
-			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --platform flag is deprecated and will be removed in a future version. Please use --provider instead.\033[0m\n")
-			initProvider = initPlatform
+		if initProvider != "" {
+			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --provider flag is deprecated and will be removed in a future version. Please use --platform instead.\033[0m\n")
+			initPlatform = initProvider
 		}
 
 		// Build flag overrides map
 		flagOverrides := make(map[string]any)
-		if initProvider != "" {
-			flagOverrides["provider"] = initProvider
+		if initPlatform != "" {
+			flagOverrides["platform"] = initPlatform
 		}
 		if initBackend != "" {
 			flagOverrides["terraform.backend.type"] = initBackend
@@ -103,14 +103,14 @@ var initCmd = &cobra.Command{
 			}
 			flagOverrides["workstation.runtime"] = runtimeVal
 			flagOverrides["vm.driver"] = runtimeVal
-			if initProvider == "" {
+			if initPlatform == "" {
 				switch initVmDriver {
 				case "colima-incus":
-					flagOverrides["provider"] = "incus"
+					flagOverrides["platform"] = "incus"
 				case "colima":
-					flagOverrides["provider"] = "docker"
+					flagOverrides["platform"] = "docker"
 				case "docker-desktop", "docker":
-					flagOverrides["provider"] = "docker"
+					flagOverrides["platform"] = "docker"
 				}
 			}
 		}
@@ -168,7 +168,7 @@ var initCmd = &cobra.Command{
 		var blueprintURL []string
 		if initBlueprint != "" {
 			blueprintURL = []string{initBlueprint}
-		} else if initProvider != "" {
+		} else if initPlatform != "" {
 			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
 		} else if contextName == "local" {
 			if _, err := os.Stat(rt.TemplateRoot); os.IsNotExist(err) {
@@ -182,7 +182,7 @@ var initCmd = &cobra.Command{
 		}
 
 		hasSetFlags := len(initSetFlags) > 0
-		if err := proj.Runtime.ConfigHandler.SaveConfig(hasSetFlags); err != nil {
+		if err := proj.Runtime.SaveConfig(hasSetFlags); err != nil {
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
@@ -204,8 +204,8 @@ func init() {
 	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable Git Livereload")
-	initCmd.Flags().StringVar(&initProvider, "provider", "", "Specify the provider to use [none|metal|docker|aws|azure|gcp]")
-	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Deprecated: use --provider instead")
+	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp]")
+	initCmd.Flags().StringVar(&initProvider, "provider", "", "Deprecated: use --platform instead")
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")

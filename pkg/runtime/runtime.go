@@ -750,7 +750,7 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 					return fmt.Errorf("failed to set provider from overrides: %w", err)
 				}
 			} else if workstationRuntime == "colima" && vmRuntime == "incus" {
-				fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use provider: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
+				fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
 				if err := rt.ConfigHandler.Set("provider", "incus"); err != nil {
 					return fmt.Errorf("failed to set provider to incus: %w", err)
 				}
@@ -801,6 +801,10 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if flagOverrides == nil {
 		flagOverrides = make(map[string]any)
 	}
+	if p, ok := flagOverrides["platform"]; ok {
+		flagOverrides["provider"] = p
+		delete(flagOverrides, "platform")
+	}
 	isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
 	if isDevMode {
 		if _, exists := flagOverrides["provider"]; !exists && rt.ConfigHandler.GetString("provider") == "" {
@@ -827,7 +831,7 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 				vmRuntime = rt.ConfigHandler.GetString("vm.runtime", "docker")
 			}
 			if workstationRuntime == "colima" && vmRuntime == "incus" {
-				fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use provider: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
+				fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
 				flagOverrides["provider"] = "incus"
 			} else {
 				flagOverrides["provider"] = "docker"
@@ -846,6 +850,9 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	}
 	if err := rt.ConfigHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if p := rt.ConfigHandler.GetString("platform"); p != "" {
+		_ = rt.ConfigHandler.Set("provider", p)
 	}
 	if rt.ConfigHandler.GetString("workstation.runtime") == "" && rt.ConfigHandler.GetString("vm.driver") != "" {
 		_ = rt.ConfigHandler.Set("workstation.runtime", rt.ConfigHandler.GetString("vm.driver"))
@@ -869,7 +876,7 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		}
 		vmRuntime := rt.ConfigHandler.GetString("vm.runtime", "docker")
 		if (provider == "" || provider == "docker") && workstationRuntime == "colima" && vmRuntime == "incus" {
-			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use provider: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
+			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
 			if err := rt.ConfigHandler.Set("provider", "incus"); err != nil {
 				return fmt.Errorf("failed to set provider to incus: %w", err)
 			}
@@ -938,6 +945,21 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 	}
 
 	return nil
+}
+
+// SaveConfig normalizes deprecated keys before persisting: provider→platform, workstation.runtime→vm.driver.
+func (rt *Runtime) SaveConfig(overwrite ...bool) error {
+	if rt.ConfigHandler == nil {
+		return fmt.Errorf("config handler not initialized")
+	}
+	if v := rt.ConfigHandler.GetString("provider"); v != "" {
+		_ = rt.ConfigHandler.Set("platform", v)
+		_ = rt.ConfigHandler.Set("provider", nil)
+	}
+	if v := rt.ConfigHandler.GetString("workstation.runtime"); v != "" {
+		_ = rt.ConfigHandler.Set("vm.driver", v)
+	}
+	return rt.ConfigHandler.SaveConfig(overwrite...)
 }
 
 // PrepareTools checks and installs required tools using the tools manager.
