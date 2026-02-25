@@ -78,7 +78,9 @@ var initCmd = &cobra.Command{
 
 		if initProvider != "" {
 			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --provider flag is deprecated and will be removed in a future version. Please use --platform instead.\033[0m\n")
-			initPlatform = initProvider
+			if initPlatform == "" {
+				initPlatform = initProvider
+			}
 		}
 
 		// Build flag overrides map
