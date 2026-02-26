@@ -446,7 +446,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 }
 
 // needsDockerEnv returns true when VirtEnvPrinter (DOCKER_HOST, DOCKER_CONFIG, etc.) should be used:
-// either the internal compose workstation or any Docker-based workstation runtime (colima, docker-desktop, docker).
+// provider must be "docker" and workstation.runtime (or vm.driver) must be colima, docker-desktop, or docker.
 func (rt *Runtime) needsDockerEnv() bool {
 	if rt.ConfigHandler.GetString("provider") != "docker" {
 		return false

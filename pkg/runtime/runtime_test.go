@@ -2953,19 +2953,10 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesDockerEnvWhenEnabled", func(t *testing.T) {
+	t.Run("InitializesDockerEnvWhenProviderDockerAndWorkstationRuntimeDockerDesktop", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "docker.enabled" {
-				return true
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "provider" {
 				return "docker"
@@ -2982,7 +2973,7 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.initializeEnvPrinters()
 
 		if rt.EnvPrinters.DockerEnv == nil {
-			t.Error("Expected DockerEnv to be initialized")
+			t.Error("Expected DockerEnv to be initialized when provider=docker and workstation.runtime=docker-desktop")
 		}
 	})
 
