@@ -2065,6 +2065,52 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 	})
 }
 
+func TestRuntime_SaveConfig(t *testing.T) {
+	t.Run("DoesNotOverwritePlatformWithSchemaDefaultWhenProviderCleared", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		saveCount := 0
+		platformValue := ""
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.GetStringFunc = func(key string, _ ...string) string {
+			switch key {
+			case "provider":
+				if saveCount == 0 {
+					return "docker"
+				}
+				return "none"
+			case "platform":
+				return platformValue
+			case "workstation.runtime":
+				return ""
+			default:
+				return ""
+			}
+		}
+		mockConfig.SetFunc = func(key string, value any) error {
+			if key == "platform" && value != nil {
+				platformValue = fmt.Sprint(value)
+			}
+			return nil
+		}
+		mockConfig.SaveConfigFunc = func(_ ...bool) error {
+			saveCount++
+			return nil
+		}
+
+		if err := rt.SaveConfig(); err != nil {
+			t.Fatalf("first SaveConfig: %v", err)
+		}
+		if err := rt.SaveConfig(); err != nil {
+			t.Fatalf("second SaveConfig: %v", err)
+		}
+		if platformValue != "docker" {
+			t.Errorf("platform must remain docker after second SaveConfig (schema default would overwrite), got %q", platformValue)
+		}
+	})
+}
+
 func TestRuntime_PrepareTools(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a runtime with a tools manager
@@ -2907,22 +2953,16 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesDockerEnvWhenEnabled", func(t *testing.T) {
+	t.Run("InitializesDockerEnvWhenProviderDockerAndWorkstationRuntimeDockerDesktop", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "docker.enabled" {
-				return true
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return "docker"
+			}
 			if key == "workstation.runtime" {
-				return ""
+				return "docker-desktop"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -2933,7 +2973,7 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.initializeEnvPrinters()
 
 		if rt.EnvPrinters.DockerEnv == nil {
-			t.Error("Expected DockerEnv to be initialized")
+			t.Error("Expected DockerEnv to be initialized when provider=docker and workstation.runtime=docker-desktop")
 		}
 	})
 

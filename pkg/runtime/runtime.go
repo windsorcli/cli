@@ -446,11 +446,8 @@ func (rt *Runtime) initializeEnvPrinters() {
 }
 
 // needsDockerEnv returns true when VirtEnvPrinter (DOCKER_HOST, DOCKER_CONFIG, etc.) should be used:
-// either the internal compose workstation or any Docker-based workstation runtime (colima, docker-desktop, docker).
+// provider must be "docker" and workstation.runtime (or vm.driver) must be colima, docker-desktop, or docker.
 func (rt *Runtime) needsDockerEnv() bool {
-	if rt.UsesDockerComposeWorkstation() {
-		return true
-	}
 	if rt.ConfigHandler.GetString("provider") != "docker" {
 		return false
 	}
@@ -464,12 +461,6 @@ func (rt *Runtime) needsDockerEnv() bool {
 	default:
 		return false
 	}
-}
-
-// UsesDockerComposeWorkstation returns true when docker.enabled is set.
-// No longer used for compose-based workstation (removed); retained for needsDockerEnv and any legacy config checks.
-func (rt *Runtime) UsesDockerComposeWorkstation() bool {
-	return rt.ConfigHandler.GetBool("docker.enabled", false)
 }
 
 // initializeToolsManager initializes the tools manager if not already set.
@@ -948,12 +939,17 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 }
 
 // SaveConfig normalizes deprecated keys before persisting: provider→platform, workstation.runtime→vm.driver.
+// Copies provider to platform only when platform is not already set (so a second SaveConfig does not
+// overwrite platform with the schema default). Always clears provider when set so the deprecated key
+// is never persisted (Initialize copies platform→provider in memory; SaveConfig must remove provider).
 func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if rt.ConfigHandler == nil {
 		return fmt.Errorf("config handler not initialized")
 	}
 	if v := rt.ConfigHandler.GetString("provider"); v != "" {
-		_ = rt.ConfigHandler.Set("platform", v)
+		if rt.ConfigHandler.GetString("platform") == "" {
+			_ = rt.ConfigHandler.Set("platform", v)
+		}
 		_ = rt.ConfigHandler.Set("provider", nil)
 	}
 	if v := rt.ConfigHandler.GetString("workstation.runtime"); v != "" {
