@@ -2967,8 +2967,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 			return false
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "provider" {
+				return "docker"
+			}
 			if key == "workstation.runtime" {
-				return ""
+				return "docker-desktop"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
