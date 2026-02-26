@@ -91,7 +91,7 @@ const DefaultKustomizationWaitMaxFailures = 5
 const DefaultAWSLocalstackImage = "localstack/localstack:4.14.0"
 
 // renovate: datasource=docker depName=localstack/localstack-pro
-const DefaultAWSLocalstackProImage = "localstack/localstack-pro:4.13.1"
+const DefaultAWSLocalstackProImage = "localstack/localstack-pro:4.14.0"
 
 // renovate: datasource=docker depName=coredns/coredns
 const DefaultDNSImage = "coredns/coredns:1.14.1"
