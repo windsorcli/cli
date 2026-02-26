@@ -866,7 +866,8 @@ func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source 
 func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) error {
 	shimOutputsPath := filepath.Join(moduleDir, "outputs.tf")
 	outputsPath := filepath.Join(modulePath, "outputs.tf")
-	if _, err := h.shims.Stat(outputsPath); err == nil {
+	_, err := h.shims.Stat(outputsPath)
+	if err == nil {
 		outputsContent, err := h.shims.ReadFile(outputsPath)
 		if err != nil {
 			return fmt.Errorf("failed to read outputs.tf: %w", err)
@@ -908,10 +909,12 @@ func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) er
 		if err := h.shims.WriteFile(shimOutputsPath, shimOutputsContent.Bytes(), 0644); err != nil {
 			return fmt.Errorf("failed to write shim outputs.tf: %w", err)
 		}
-	} else {
+	} else if os.IsNotExist(err) {
 		if err := h.shims.WriteFile(shimOutputsPath, nil, 0644); err != nil {
 			return fmt.Errorf("failed to write shim outputs.tf: %w", err)
 		}
+	} else {
+		return fmt.Errorf("failed to stat source outputs.tf: %w", err)
 	}
 	return nil
 }
