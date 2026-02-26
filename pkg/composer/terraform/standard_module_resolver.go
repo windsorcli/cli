@@ -84,6 +84,9 @@ func (h *StandardModuleResolver) ProcessModules() error {
 			if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
 				return fmt.Errorf("failed to create module directory for %s: %w", componentID, err)
 			}
+			if err := h.clearShimDirTfFiles(moduleDir); err != nil {
+				return fmt.Errorf("failed to clear shim directory for %s: %w", componentID, err)
+			}
 
 			relPath, err := h.shims.FilepathRel(moduleDir, sourcePath)
 			if err != nil {
@@ -114,6 +117,9 @@ func (h *StandardModuleResolver) ProcessModules() error {
 		componentID := component.GetID()
 		if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
 			return fmt.Errorf("failed to create module directory for %s: %w", componentID, err)
+		}
+		if err := h.clearShimDirTfFiles(moduleDir); err != nil {
+			return fmt.Errorf("failed to clear shim directory for %s: %w", componentID, err)
 		}
 
 		if filepath.IsAbs(sourcePath) {
@@ -231,6 +237,9 @@ func (h *StandardModuleResolver) processLocalComponent(component blueprintv1alph
 
 	if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create module directory for %s: %w", component.GetID(), err)
+	}
+	if err := h.clearShimDirTfFiles(moduleDir); err != nil {
+		return fmt.Errorf("failed to clear shim directory for %s: %w", component.GetID(), err)
 	}
 
 	if err := h.writeShimMainTf(moduleDir, relPath); err != nil {

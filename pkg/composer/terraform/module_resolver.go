@@ -333,6 +333,39 @@ func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath strin
 	return nil
 }
 
+// clearShimDirTfFiles removes all .tf files in the shim directory before writing shim files,
+// so that the directory only contains the files written by writeShimMainTf, writeShimVariablesTf,
+// and writeShimOutputsTf. Prevents residual files (e.g. outputs.tf from a previous run when
+// the source module no longer has outputs) from persisting.
+func (h *BaseModuleResolver) clearShimDirTfFiles(moduleDir string) error {
+	if _, err := h.shims.Stat(moduleDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	entries, err := h.shims.ReadDir(moduleDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(strings.ToLower(name), ".tf") {
+			fullPath := filepath.Join(moduleDir, name)
+			if err := h.shims.RemoveAll(fullPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // removeTfvarsFiles removes any .tfvars files directly under the specified directory.
 // This is used to ensure module directories do not retain stale tfvars prior to regeneration.
 func (h *BaseModuleResolver) removeTfvarsFiles(dir string) error {
@@ -828,8 +861,10 @@ func (h *BaseModuleResolver) writeShimVariablesTf(moduleDir, modulePath, source 
 // writeShimOutputsTf creates the outputs.tf file for the shim module by reading the original
 // module's outputs.tf file and generating corresponding output blocks that reference the
 // main module. It preserves output descriptions and creates value references using the
-// module.main.output_name traversal pattern.
+// module.main.output_name traversal pattern. When the source module has no outputs.tf,
+// it writes an empty outputs.tf so that any previous shim outputs.tf is overwritten.
 func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) error {
+	shimOutputsPath := filepath.Join(moduleDir, "outputs.tf")
 	outputsPath := filepath.Join(modulePath, "outputs.tf")
 	if _, err := h.shims.Stat(outputsPath); err == nil {
 		outputsContent, err := h.shims.ReadFile(outputsPath)
@@ -870,7 +905,11 @@ func (h *BaseModuleResolver) writeShimOutputsTf(moduleDir, modulePath string) er
 			}
 		}
 
-		if err := h.shims.WriteFile(filepath.Join(moduleDir, "outputs.tf"), shimOutputsContent.Bytes(), 0644); err != nil {
+		if err := h.shims.WriteFile(shimOutputsPath, shimOutputsContent.Bytes(), 0644); err != nil {
+			return fmt.Errorf("failed to write shim outputs.tf: %w", err)
+		}
+	} else {
+		if err := h.shims.WriteFile(shimOutputsPath, nil, 0644); err != nil {
 			return fmt.Errorf("failed to write shim outputs.tf: %w", err)
 		}
 	}

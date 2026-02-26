@@ -647,6 +647,62 @@ variable "beta" {
 	})
 }
 
+func TestBaseModuleResolver_clearShimDirTfFiles(t *testing.T) {
+	setup := func(t *testing.T) (*BaseModuleResolver, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupTerraformMocks(t)
+		resolver := NewBaseModuleResolver(mocks.Runtime, mocks.BlueprintHandler)
+		return resolver, mocks
+	}
+
+	t.Run("RemovesAllTfFilesFromShimDir", func(t *testing.T) {
+		resolver, _ := setup(t)
+		tmpDir := t.TempDir()
+		moduleDir := filepath.Join(tmpDir, "shim")
+		if err := resolver.shims.MkdirAll(moduleDir, 0755); err != nil {
+			t.Fatalf("Failed to create shim directory: %v", err)
+		}
+		if err := resolver.shims.WriteFile(filepath.Join(moduleDir, "main.tf"), []byte("old"), 0644); err != nil {
+			t.Fatalf("Failed to write main.tf: %v", err)
+		}
+		if err := resolver.shims.WriteFile(filepath.Join(moduleDir, "output.tf"), []byte("stale"), 0644); err != nil {
+			t.Fatalf("Failed to write output.tf: %v", err)
+		}
+		if err := resolver.shims.WriteFile(filepath.Join(moduleDir, "outputs.tf"), []byte("stale"), 0644); err != nil {
+			t.Fatalf("Failed to write outputs.tf: %v", err)
+		}
+		if err := resolver.shims.WriteFile(filepath.Join(moduleDir, "keep.txt"), []byte("keep"), 0644); err != nil {
+			t.Fatalf("Failed to write keep.txt: %v", err)
+		}
+
+		err := resolver.clearShimDirTfFiles(moduleDir)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if _, err := resolver.shims.Stat(filepath.Join(moduleDir, "main.tf")); err == nil {
+			t.Error("Expected main.tf to be removed")
+		}
+		if _, err := resolver.shims.Stat(filepath.Join(moduleDir, "output.tf")); err == nil {
+			t.Error("Expected output.tf to be removed")
+		}
+		if _, err := resolver.shims.Stat(filepath.Join(moduleDir, "outputs.tf")); err == nil {
+			t.Error("Expected outputs.tf to be removed")
+		}
+		keepContent, err := resolver.shims.ReadFile(filepath.Join(moduleDir, "keep.txt"))
+		if err != nil || string(keepContent) != "keep" {
+			t.Error("Expected keep.txt to remain unchanged")
+		}
+	})
+
+	t.Run("SucceedsWhenDirDoesNotExist", func(t *testing.T) {
+		resolver, _ := setup(t)
+		err := resolver.clearShimDirTfFiles(filepath.Join(t.TempDir(), "nonexistent"))
+		if err != nil {
+			t.Errorf("Expected nil when dir does not exist, got: %v", err)
+		}
+	})
+}
+
 func TestBaseModuleResolver_writeShimOutputsTf(t *testing.T) {
 	setup := func(t *testing.T) (*BaseModuleResolver, *TerraformTestMocks) {
 		t.Helper()
@@ -741,15 +797,19 @@ output "endpoint" {
 		// When writing the shim outputs.tf
 		err := resolver.writeShimOutputsTf(moduleDir, modulePath)
 
-		// Then no error should be returned (missing outputs.tf is not an error)
+		// Then no error should be returned (missing source outputs.tf writes empty shim file)
 		if err != nil {
 			t.Errorf("Expected no error for missing outputs.tf, got: %v", err)
 		}
 
-		// And no outputs.tf file should be created
+		// And an empty outputs.tf file should be created (overwrites any stale outputs.tf)
 		shimOutputsPath := filepath.Join(moduleDir, "outputs.tf")
-		if _, err := resolver.shims.Stat(shimOutputsPath); err == nil {
-			t.Error("Expected no outputs.tf to be created when source doesn't have one")
+		content, err := resolver.shims.ReadFile(shimOutputsPath)
+		if err != nil {
+			t.Errorf("Expected outputs.tf to be created when source has none (empty file), got: %v", err)
+		}
+		if len(content) != 0 {
+			t.Errorf("Expected empty outputs.tf when source has none, got %d bytes", len(content))
 		}
 	})
 
