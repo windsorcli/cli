@@ -948,7 +948,7 @@ func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if v := rt.ConfigHandler.GetString("provider"); v != "" {
 		if rt.ConfigHandler.GetString("platform") == "" {
 			_ = rt.ConfigHandler.Set("platform", v)
-			_ = rt.ConfigHandler.Set("provider", v)
+			_ = rt.ConfigHandler.Set("provider", nil)
 		}
 	}
 	if v := rt.ConfigHandler.GetString("workstation.runtime"); v != "" {
