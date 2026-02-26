@@ -939,8 +939,9 @@ func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
 }
 
 // SaveConfig normalizes deprecated keys before persisting: provider→platform, workstation.runtime→vm.driver.
-// Copies provider to platform only when platform is not already set, so a second SaveConfig does not
-// overwrite platform with the schema default (e.g. "none") when provider has been cleared from data.
+// Copies provider to platform only when platform is not already set (so a second SaveConfig does not
+// overwrite platform with the schema default). Always clears provider when set so the deprecated key
+// is never persisted (Initialize copies platform→provider in memory; SaveConfig must remove provider).
 func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if rt.ConfigHandler == nil {
 		return fmt.Errorf("config handler not initialized")
@@ -948,8 +949,8 @@ func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if v := rt.ConfigHandler.GetString("provider"); v != "" {
 		if rt.ConfigHandler.GetString("platform") == "" {
 			_ = rt.ConfigHandler.Set("platform", v)
-			_ = rt.ConfigHandler.Set("provider", nil)
 		}
+		_ = rt.ConfigHandler.Set("provider", nil)
 	}
 	if v := rt.ConfigHandler.GetString("workstation.runtime"); v != "" {
 		_ = rt.ConfigHandler.Set("vm.driver", v)
