@@ -113,6 +113,9 @@ func (h *OCIModuleResolver) processComponent(component blueprintv1alpha1.Terrafo
 	if err := h.shims.MkdirAll(moduleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create module directory: %w", err)
 	}
+	if err := h.clearShimDirTfFiles(moduleDir); err != nil {
+		return fmt.Errorf("failed to clear shim directory: %w", err)
+	}
 
 	extractedPath, err := h.extractOCIModule(component.Source, component.Path, ociArtifacts)
 	if err != nil {
