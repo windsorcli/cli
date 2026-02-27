@@ -165,7 +165,7 @@ func setupIncusMocks(t *testing.T, opts ...func(*IncusTestMocks)) *IncusTestMock
 	configStr := `
 contexts:
   mock-context:
-    provider: incus
+    platform: incus
     vm:
       runtime: incus
     network:
@@ -262,8 +262,11 @@ func TestIncusVirt_Up(t *testing.T) {
 	})
 
 	t.Run("NotIncusRuntime", func(t *testing.T) {
-		// Given an IncusVirt with docker provider (not incus)
+		// Given an IncusVirt with docker platform (not incus)
 		incusVirt, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("platform", "docker"); err != nil {
+			t.Fatalf("Failed to set platform: %v", err)
+		}
 		if err := mocks.ConfigHandler.Set("provider", "docker"); err != nil {
 			t.Fatalf("Failed to set provider: %v", err)
 		}
@@ -359,8 +362,11 @@ func TestIncusVirt_Down(t *testing.T) {
 	})
 
 	t.Run("NotIncusRuntime", func(t *testing.T) {
-		// Given an IncusVirt with docker provider (not incus)
+		// Given an IncusVirt with docker platform (not incus)
 		incusVirt, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("platform", "docker"); err != nil {
+			t.Fatalf("Failed to set platform: %v", err)
+		}
 		if err := mocks.ConfigHandler.Set("provider", "docker"); err != nil {
 			t.Fatalf("Failed to set provider: %v", err)
 		}

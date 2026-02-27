@@ -130,7 +130,7 @@ func (v *ColimaVirt) WriteConfig() error {
 
 	runtime := "docker"
 	nestedVirtualization := false
-	if v.configHandler.GetString("provider") == "incus" {
+	if v.configHandler.GetString("platform") == "incus" {
 		runtime = "incus"
 		nestedVirtualization = true
 	}
