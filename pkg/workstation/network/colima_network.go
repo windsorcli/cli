@@ -56,8 +56,9 @@ func (n *ColimaNetworkManager) ConfigureGuest() error {
 		return nil
 	}
 
+	platform := n.configHandler.GetString("platform")
 	networkCIDR := n.configHandler.GetString("network.cidr_block", constants.DefaultNetworkCIDR)
-	if n.configHandler.GetString("provider") == "incus" {
+	if platform == "incus" {
 		if err := n.configureIncusNetwork(networkCIDR); err != nil {
 			return fmt.Errorf("error configuring incus network: %w", err)
 		}

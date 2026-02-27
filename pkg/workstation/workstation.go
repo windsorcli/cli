@@ -115,6 +115,8 @@ func (w *Workstation) Prepare() error {
 				w.VirtualMachine = incusVirt.ColimaVirt
 			}
 		}
+	} else if platform == "docker" && w.ContainerRuntime == nil {
+		w.ContainerRuntime = virt.NewDockerVirt(w.runtime)
 	}
 
 	return nil

@@ -132,6 +132,22 @@ func (v *IncusVirt) Up() error {
 	return v.startIncusContainers()
 }
 
+// Down stops the Colima Incus daemon and runs the parent's Down() to clean up the VM.
+func (v *IncusVirt) Down() error {
+	if v.configHandler.GetString("platform") != "incus" {
+		return v.ColimaVirt.Down()
+	}
+	contextName := v.configHandler.GetContext()
+	profileName := fmt.Sprintf("windsor-%s", contextName)
+	_, _ = v.shell.ExecProgress("🦙 Stopping Colima daemon", "colima", "daemon", "stop", profileName)
+
+	err := v.ColimaVirt.Down()
+	if err != nil {
+		_ = v.cleanupVMForIncus()
+	}
+	return err
+}
+
 // startIncusContainers creates Incus instances for all configured services.
 // This method assumes the Colima VM is already running and has been validated.
 // It ensures required Incus remotes are configured, validates the VM state, and creates
@@ -163,31 +179,6 @@ func (v *IncusVirt) startIncusContainers() error {
 
 	return nil
 }
-
-// Down stops the Colima Incus daemon and runs the parent's Down() to clean up the VM.
-func (v *IncusVirt) Down() error {
-	if v.configHandler.GetString("platform") != "incus" {
-		return v.ColimaVirt.Down()
-	}
-	contextName := v.configHandler.GetContext()
-	profileName := fmt.Sprintf("windsor-%s", contextName)
-	_, _ = v.shell.ExecProgress("🦙 Stopping Colima daemon", "colima", "daemon", "stop", profileName)
-
-	err := v.ColimaVirt.Down()
-	if err != nil {
-		_ = v.cleanupVMForIncus()
-	}
-	return err
-}
-
-// WriteConfig configures the VM for Incus runtime and delegates to the embedded ColimaVirt's WriteConfig.
-func (v *IncusVirt) WriteConfig() error {
-	return v.ColimaVirt.WriteConfig()
-}
-
-// =============================================================================
-// Private Methods
-// =============================================================================
 
 // validateVMForIncus validates that the VM is ready for Incus operations.
 // It checks that the VM has a valid IP address when running in incus mode.
@@ -520,26 +511,6 @@ func (v *IncusVirt) ensureFileExists(filePath string) error {
 	return nil
 }
 
-// createInstanceSilent creates a new Incus instance silently without individual progress messages.
-// Used when creating multiple instances under a single progress indicator.
-func (v *IncusVirt) createInstanceSilent(config *IncusInstanceConfig) error {
-	if err := v.launchInstanceSilent(config); err != nil {
-		return err
-	}
-
-	if config.Network != "" && config.IPv4 != "" {
-		if err := v.configureNetworkDevice(config); err != nil {
-			return err
-		}
-	}
-
-	if err := v.addNonNetworkDevices(config); err != nil {
-		return err
-	}
-
-	return v.ensureInstanceRunning(config.Name)
-}
-
 // launchInstance launches a new Incus instance or ensures an existing one is ready.
 // If the instance already exists, it waits for any in-progress operations to complete.
 // If the instance does not exist, it launches a new instance with the provided configuration
@@ -564,34 +535,6 @@ func (v *IncusVirt) launchInstance(config *IncusInstanceConfig) error {
 	_, err = v.execInVMProgress(message, "incus", launchArgs...)
 	if err != nil {
 		return v.handleInstanceLaunchError(config.Name, message, args, err)
-	}
-
-	if err := v.pollUntilNotBusy(config.Name, maxIterationsForLaunch, time.Time{}); err != nil {
-		return fmt.Errorf("instance is still busy after launch, cannot proceed: %w", err)
-	}
-
-	return nil
-}
-
-// launchInstanceSilent launches a new Incus instance silently without progress messages.
-func (v *IncusVirt) launchInstanceSilent(config *IncusInstanceConfig) error {
-	exists, err := v.instanceExists(config.Name)
-	if err != nil {
-		return fmt.Errorf("failed to check if instance exists: %w", err)
-	}
-
-	if exists {
-		deadline := time.Now().Add(instanceExistsWaitTimeout)
-		if err := v.pollUntilNotBusy(config.Name, 0, deadline); err != nil {
-			return fmt.Errorf("instance exists but is still busy after waiting: %w", err)
-		}
-		return nil
-	}
-
-	args := v.buildLaunchArgs(config)
-	_, err = v.execInVMQuiet("incus", args, 5*time.Minute)
-	if err != nil {
-		return v.retryInstanceLaunch(config.Name, args, err)
 	}
 
 	if err := v.pollUntilNotBusy(config.Name, maxIterationsForLaunch, time.Time{}); err != nil {
@@ -659,32 +602,6 @@ func (v *IncusVirt) handleInstanceLaunchError(instanceName, message string, args
 		}
 		updateArgs := v.addQuietFlag(args)
 		_, err := v.execInVMProgress(message, "incus", updateArgs...)
-		if err != nil {
-			exists, checkErr := v.instanceExists(instanceName)
-			if checkErr == nil && exists {
-				return v.ensureInstanceNotBusy(instanceName, "instance exists but is busy")
-			}
-			return fmt.Errorf("failed to launch Incus instance after wait: %w", err)
-		}
-		return nil
-	}
-
-	return fmt.Errorf("failed to launch Incus instance: %w", launchErr)
-}
-
-// retryInstanceLaunch retries instance launch after handling errors, without progress messages.
-func (v *IncusVirt) retryInstanceLaunch(instanceName string, args []string, launchErr error) error {
-	exists, checkErr := v.instanceExists(instanceName)
-	if checkErr == nil && exists {
-		return v.ensureInstanceNotBusy(instanceName, "instance exists but is busy")
-	}
-
-	busy, checkErr := v.instanceIsBusy(instanceName)
-	if checkErr == nil && busy {
-		if err := v.waitForInstanceReady(instanceName, 0); err != nil {
-			return fmt.Errorf("instance is busy: %w", err)
-		}
-		_, err := v.execInVM("incus", v.addQuietFlag(args)...)
 		if err != nil {
 			exists, checkErr := v.instanceExists(instanceName)
 			if checkErr == nil && exists {
@@ -1020,42 +937,6 @@ func (v *IncusVirt) deleteInstance(name string) error {
 	args = v.addQuietFlag(args)
 	message := fmt.Sprintf("📦 Deleting Incus instance %s", name)
 	_, err = v.execInVMProgress(message, "incus", args...)
-	if err != nil {
-		if isSSHError(err) {
-			return nil
-		}
-		exists, checkErr := v.instanceExists(name)
-		if checkErr == nil && !exists {
-			return nil
-		}
-		return fmt.Errorf("failed to delete Incus instance: %w", err)
-	}
-
-	return nil
-}
-
-// deleteInstanceSilent deletes the Incus instance silently without progress messages.
-// Used when deleting multiple instances under a single progress indicator.
-func (v *IncusVirt) deleteInstanceSilent(name string) error {
-	exists, err := v.instanceExists(name)
-	if err != nil {
-		if isSSHError(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to check if instance exists: %w", err)
-	}
-	if !exists {
-		return nil
-	}
-
-	deadline := time.Now().Add(deleteInstanceWaitTimeout)
-	if err := v.pollUntilNotBusy(name, 0, deadline); err != nil {
-		return fmt.Errorf("failed to wait for instance to be ready: %w", err)
-	}
-
-	args := []string{"delete", name, "--force"}
-	args = v.addQuietFlag(args)
-	_, err = v.execInVM("incus", args...)
 	if err != nil {
 		if isSSHError(err) {
 			return nil
