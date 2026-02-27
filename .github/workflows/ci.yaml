@@ -47,7 +47,7 @@ jobs:
         shell: pwsh
 
       - name: Install Terraform (integration tests)
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2 renovate: depName=hashicorp/setup-terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4 renovate: depName=hashicorp/setup-terraform
         with:
           terraform_version: "1.9.8" # 1.9.x line: OpenTofu migration-compatible per OpenTofu docs; satisfies CLI min 1.7.0
           terraform_wrapper: false
