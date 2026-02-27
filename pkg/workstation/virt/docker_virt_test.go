@@ -189,6 +189,34 @@ func TestDockerVirt_Down(t *testing.T) {
 		}
 	})
 
+	t.Run("WhenOnlyOtherContextsWindsorNetworksExistCleansNone", func(t *testing.T) {
+		// Given a DockerVirt (context mock-context) with shell that returns other contexts' Windsor networks only
+		var execCalls []string
+		mocks, dockerVirt := setupDockerVirt(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			call := command + " " + strings.Join(args, " ")
+			execCalls = append(execCalls, call)
+			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
+				return "bridge\nwindsor-staging\nwindsor-dev\n", nil
+			}
+			return "", nil
+		}
+
+		// When calling Down
+		err := dockerVirt.Down()
+
+		// Then no error
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		// And no network inspect or network rm was called (only current context's network is cleaned)
+		for _, c := range execCalls {
+			if strings.Contains(c, "network inspect") || strings.Contains(c, "network rm") {
+				t.Errorf("Expected no cleanup of other contexts' networks, got exec call: %s", c)
+			}
+		}
+	})
+
 	t.Run("WhenNetworkInspectFailsReturnsNil", func(t *testing.T) {
 		// Given a DockerVirt with Windsor network but inspect fails
 		mocks, dockerVirt := setupDockerVirt(t)

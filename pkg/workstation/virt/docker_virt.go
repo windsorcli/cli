@@ -17,7 +17,7 @@ import (
 // =============================================================================
 
 // WindsorNetworkPrefix is the prefix for Windsor-managed Docker networks (e.g. windsor-local).
-// Down() targets networks with this prefix or exact name windsor-<context>.
+// Down() targets only the current context's network, windsor-<context>.
 const WindsorNetworkPrefix = "windsor-"
 
 // =============================================================================
@@ -60,9 +60,9 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// Down stops and removes containers on Windsor-managed networks (including their anonymous
-// volumes via rm -v), then removes those networks. Best-effort: errors are logged to stderr
-// but do not cause Down to return an error. Shows a progress spinner with broom emoji.
+// Down stops and removes containers on the current context's Windsor network (windsor-<context>),
+// including their anonymous volumes via rm -v, then removes that network. Best-effort: errors
+// are logged to stderr but do not cause Down to return an error. Shows a progress spinner with broom emoji.
 func (v *DockerVirt) Down() error {
 	return v.withProgress("🧹 Cleaning residual Docker containers and networks", func() error {
 		contextName := v.configHandler.GetContext()
@@ -80,7 +80,7 @@ func (v *DockerVirt) Down() error {
 			if name == "" {
 				continue
 			}
-			if name == projectName || strings.HasPrefix(name, WindsorNetworkPrefix) {
+			if name == projectName {
 				toClean = append(toClean, name)
 			}
 		}
