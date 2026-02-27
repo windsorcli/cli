@@ -1736,9 +1736,10 @@ func TestColimaVirt_WriteConfig_NestedVirtualization(t *testing.T) {
 		}
 
 		if runtime == "incus" {
-			if err := mocks.ConfigHandler.Set("provider", "incus"); err != nil {
-				t.Fatalf("Failed to set provider: %v", err)
+			if err := mocks.ConfigHandler.Set("platform", "incus"); err != nil {
+				t.Fatalf("Failed to set platform: %v", err)
 			}
+			_ = mocks.ConfigHandler.Set("provider", "incus")
 		}
 
 		colimaVirt := NewColimaVirt(mocks.Runtime)

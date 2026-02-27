@@ -107,7 +107,8 @@ func (w *Workstation) Prepare() error {
 		w.VirtualMachine = virt.NewColimaVirt(w.runtime)
 	}
 
-	if w.configHandler.GetString("provider") == "incus" {
+	platform := w.configHandler.GetString("platform")
+	if platform == "incus" {
 		if w.ContainerRuntime == nil {
 			w.ContainerRuntime = virt.NewIncusVirt(w.runtime)
 			if incusVirt, ok := w.ContainerRuntime.(*virt.IncusVirt); ok {
@@ -135,7 +136,7 @@ func (w *Workstation) Up() error {
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
-		if w.NetworkManager != nil && w.configHandler.GetString("provider") == "incus" {
+		if w.NetworkManager != nil && w.configHandler.GetString("platform") == "incus" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest SSH: %w", err)
 			}
@@ -276,9 +277,9 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 // Gracefully shuts down the container runtime and virtual machine if present.
 func (w *Workstation) Down() error {
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
-	provider := w.configHandler.GetString("provider")
+	platform := w.configHandler.GetString("platform")
 
-	if w.NetworkManager != nil && workstationRuntime == "colima" && provider == "incus" {
+	if w.NetworkManager != nil && workstationRuntime == "colima" && platform == "incus" {
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
 			return fmt.Errorf("error configuring guest: %w", err)
 		}
@@ -290,7 +291,7 @@ func (w *Workstation) Down() error {
 		}
 	}
 
-	if w.VirtualMachine != nil && provider != "incus" {
+	if w.VirtualMachine != nil && platform != "incus" {
 		if err := w.VirtualMachine.Down(); err != nil {
 			return fmt.Errorf("Error running virtual machine Down command: %w", err)
 		}

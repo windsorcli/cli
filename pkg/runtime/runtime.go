@@ -845,6 +845,9 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if p := rt.ConfigHandler.GetString("platform"); p != "" {
 		_ = rt.ConfigHandler.Set("provider", p)
 	}
+	if rt.ConfigHandler.GetString("platform") == "" && rt.ConfigHandler.GetString("provider") != "" {
+		_ = rt.ConfigHandler.Set("platform", rt.ConfigHandler.GetString("provider"))
+	}
 	if rt.ConfigHandler.GetString("workstation.runtime") == "" && rt.ConfigHandler.GetString("vm.driver") != "" {
 		_ = rt.ConfigHandler.Set("workstation.runtime", rt.ConfigHandler.GetString("vm.driver"))
 	}
@@ -860,17 +863,18 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		}
 	}
 	if isDevMode {
-		provider := rt.ConfigHandler.GetString("provider")
+		platform := rt.ConfigHandler.GetString("platform")
 		workstationRuntime := rt.ConfigHandler.GetString("workstation.runtime")
 		if workstationRuntime == "" {
 			workstationRuntime = rt.ConfigHandler.GetString("vm.driver")
 		}
 		vmRuntime := rt.ConfigHandler.GetString("vm.runtime", "docker")
-		if (provider == "" || provider == "docker") && workstationRuntime == "colima" && vmRuntime == "incus" {
+		if (platform == "" || platform == "docker") && workstationRuntime == "colima" && vmRuntime == "incus" {
 			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-			if err := rt.ConfigHandler.Set("provider", "incus"); err != nil {
-				return fmt.Errorf("failed to set provider to incus: %w", err)
+			if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
+				return fmt.Errorf("failed to set platform to incus: %w", err)
 			}
+			_ = rt.ConfigHandler.Set("provider", "incus")
 		}
 	}
 	return nil

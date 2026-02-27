@@ -896,6 +896,7 @@ contexts:
 version: v1alpha1
 contexts:
   test-context:
+    platform: incus
     provider: incus
     vm:
       driver: colima
