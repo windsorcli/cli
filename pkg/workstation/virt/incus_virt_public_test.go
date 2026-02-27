@@ -391,6 +391,9 @@ func TestIncusVirt_Down(t *testing.T) {
 
 	t.Run("StopsColimaDaemonWithCorrectProfile", func(t *testing.T) {
 		incusVirt, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "colima"); err != nil {
+			t.Fatalf("Failed to set workstation.runtime: %v", err)
+		}
 		originalExecSilentWithTimeout := mocks.Shell.ExecSilentWithTimeoutFunc
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "colima" && len(args) >= 7 && args[0] == "ssh" && args[3] == "--" && args[4] == "sh" && args[5] == "-c" {

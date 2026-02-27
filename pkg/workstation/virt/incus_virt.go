@@ -166,7 +166,7 @@ func (v *IncusVirt) startIncusContainers() error {
 
 // Down stops the Colima Incus daemon and runs the parent's Down() to clean up the VM.
 func (v *IncusVirt) Down() error {
-	if v.configHandler.GetString("provider") != "incus" {
+	if v.configHandler.GetString("platform") != "incus" {
 		return v.ColimaVirt.Down()
 	}
 	contextName := v.configHandler.GetContext()
@@ -193,7 +193,7 @@ func (v *IncusVirt) WriteConfig() error {
 // It checks that the VM has a valid IP address when running in incus mode.
 // Returns an error with helpful troubleshooting information if the VM is in an invalid state.
 func (v *IncusVirt) validateVMForIncus(info VMInfo) (VMInfo, error) {
-	if v.configHandler.GetString("provider") != "incus" {
+	if v.configHandler.GetString("platform") != "incus" {
 		return info, nil
 	}
 	if info.Address == "" {
@@ -209,7 +209,7 @@ func (v *IncusVirt) validateVMForIncus(info VMInfo) (VMInfo, error) {
 }
 
 // cleanupVMForIncus performs Incus-specific cleanup on the VM before deletion.
-// It only runs when workstation runtime is colima and provider is incus.
+// It only runs when workstation runtime is colima and platform is incus.
 func (v *IncusVirt) cleanupVMForIncus() error {
 	if v.configHandler.GetString("workstation.runtime") != "colima" || v.configHandler.GetString("platform") != "incus" {
 		return nil
