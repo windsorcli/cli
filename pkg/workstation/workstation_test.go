@@ -3,6 +3,7 @@ package workstation
 import (
 	"fmt"
 	"os"
+	stdruntime "runtime"
 	"strings"
 	"testing"
 
@@ -346,6 +347,64 @@ func TestNewWorkstation(t *testing.T) {
 		}
 		if workstation.ContainerRuntime != mocks.ContainerRuntime {
 			t.Error("Expected existing ContainerRuntime to be used")
+		}
+	})
+
+	t.Run("SetsWorkstationConfigDefaultsWhenEmpty", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		recorded := make(map[string]any)
+		mockHandler := config.NewMockConfigHandler()
+		mockHandler.SetFunc = func(key string, value any) error {
+			recorded[key] = value
+			return nil
+		}
+		mockHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if v, ok := recorded[key]; ok {
+				if s, ok := v.(string); ok {
+					return s
+				}
+			}
+			switch key {
+			case "vm.driver":
+				return "colima"
+			case "vm.address":
+				return "192.168.1.1"
+			case "workstation.arch", "workstation.runtime", "workstation.address":
+				return ""
+			default:
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		}
+		rt := &ctxpkg.Runtime{
+			ContextName:   "test",
+			ProjectRoot:   "/test/project",
+			ConfigRoot:    "/test/project/contexts/test",
+			TemplateRoot:  "/test/project/contexts/_template",
+			ConfigHandler: mockHandler,
+			Shell:         mocks.Shell,
+			Evaluator:     evaluator.NewExpressionEvaluator(mockHandler, "/test/project", "/test/project/contexts/_template"),
+		}
+
+		ws := NewWorkstation(rt, &Workstation{NetworkManager: mocks.NetworkManager, VirtualMachine: mocks.VirtualMachine})
+		if err := ws.Prepare(); err != nil {
+			t.Fatalf("Prepare failed: %v", err)
+		}
+
+		expectedArch := stdruntime.GOARCH
+		if expectedArch == "arm" {
+			expectedArch = "arm64"
+		}
+		if got, ok := recorded["workstation.arch"]; !ok || got != expectedArch {
+			t.Errorf("Expected workstation.arch to be set to %q, got recorded %v", expectedArch, recorded["workstation.arch"])
+		}
+		if got, ok := recorded["workstation.runtime"]; !ok || got != "colima" {
+			t.Errorf("Expected workstation.runtime to be set from vm.driver (colima), got recorded %v", recorded["workstation.runtime"])
+		}
+		if got, ok := recorded["workstation.address"]; !ok || got != "192.168.1.1" {
+			t.Errorf("Expected workstation.address to be set from vm.address (192.168.1.1), got recorded %v", recorded["workstation.address"])
 		}
 	})
 }

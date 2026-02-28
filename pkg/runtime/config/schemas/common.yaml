@@ -1,0 +1,55 @@
+$schema: https://windsorcli.dev/schema/2026-02/schema
+type: object
+properties:
+  platform:
+    type: string
+    enum:
+      - none
+      - docker
+      - incus
+      - metal
+      - aws
+      - azure
+      - gcp
+
+  workstation:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Enable workstation stack (DNS, registries, git livereload)
+      arch:
+        type: string
+        enum:
+          - amd64
+          - arm64
+        description: CPU architecture for Incus Talos images (host arch when workstation enabled; target arch for server deployments). Used by talos.incus_image.
+      address:
+        type: string
+        description: Address of the workstation, used for SSH to configure workstation networking
+      runtime:
+        type: string
+        enum:
+          - colima
+          - docker-desktop
+          - docker
+        description: Host runtime for local clusters. VM-backed (colima, docker-desktop) or plain engine (docker). When unset, falls back to vm.driver.
+      services:
+        type: object
+        properties:
+          dns:
+            type: boolean
+            default: true
+            description: Create the DNS (CoreDNS) container
+          git:
+            type: boolean
+            default: true
+            description: Create the git livereload container
+          registries:
+            type: boolean
+            default: true
+            description: Create registry proxy containers (from docker.registries when true)
+        additionalProperties: false
+        description: Toggle workstation services
+    additionalProperties: false
