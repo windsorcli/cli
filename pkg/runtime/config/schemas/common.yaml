@@ -24,7 +24,6 @@ properties:
         enum:
           - amd64
           - arm64
-        default: amd64
         description: CPU architecture for Incus Talos images (host arch when workstation enabled; target arch for server deployments). Used by talos.incus_image.
       address:
         type: string
