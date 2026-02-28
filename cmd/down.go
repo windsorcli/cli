@@ -76,7 +76,6 @@ var downCmd = &cobra.Command{
 			}
 		}
 
-		fmt.Fprintln(os.Stderr, "Windsor environment torn down successfully.")
 		return nil
 	},
 }
