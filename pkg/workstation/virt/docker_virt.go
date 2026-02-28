@@ -20,6 +20,10 @@ import (
 // Down() targets only the current context's network, windsor-<context>.
 const WindsorNetworkPrefix = "windsor-"
 
+// DockerComposeProjectPrefix is the prefix for the compose-style project label value (e.g. workstation-windsor-local).
+// Containers are grouped by label com.docker.compose.project=<prefix><context> for display and cleanup.
+const DockerComposeProjectPrefix = "workstation-windsor-"
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -60,33 +64,18 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// Down stops and removes containers on the current context's Windsor network (windsor-<context>),
-// including their anonymous volumes via rm -v, then removes that network. Best-effort: errors
-// are logged to stderr but do not cause Down to return an error. Shows a progress spinner with broom emoji.
+// Down stops and removes containers in the current context's project (label com.docker.compose.project=workstation-windsor-<context>),
+// including their anonymous volumes via rm -v, then removes the context's network (windsor-<context>). Keying off project
+// includes containers in "created" (never-started) state and matches how resources are grouped in Docker Desktop.
+// Best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner with broom emoji.
 func (v *DockerVirt) Down() error {
 	return v.withProgress("🧹 Cleaning residual Docker containers and networks", func() error {
 		contextName := v.configHandler.GetContext()
-		projectName := WindsorNetworkPrefix + contextName
+		projectLabelValue := DockerComposeProjectPrefix + contextName
+		netName := WindsorNetworkPrefix + contextName
 
-		out, err := v.shell.ExecSilent("docker", "network", "ls", "--format", "{{.Name}}")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Warning: could not list Docker networks:", err)
-			return nil
-		}
-		names := strings.Split(strings.TrimSpace(out), "\n")
-		var toClean []string
-		for _, name := range names {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				continue
-			}
-			if name == projectName {
-				toClean = append(toClean, name)
-			}
-		}
-		for _, netName := range toClean {
-			v.cleanNetwork(netName)
-		}
+		v.cleanProjectContainers(projectLabelValue)
+		v.removeNetworkIfExists(netName)
 		return nil
 	})
 }
@@ -95,22 +84,37 @@ func (v *DockerVirt) Down() error {
 // Private Methods
 // =============================================================================
 
-func (v *DockerVirt) cleanNetwork(netName string) {
-	out, err := v.shell.ExecSilent("docker", "network", "inspect", netName, "-f", "{{range .Containers}}{{.Name}} {{end}}")
+// cleanProjectContainers stops and removes all containers with the given compose project label value
+// (com.docker.compose.project=<projectLabelValue>), including created-but-never-started.
+func (v *DockerVirt) cleanProjectContainers(projectLabelValue string) {
+	out, err := v.shell.ExecSilent("docker", "ps", "-a", "-q", "--filter", "label=com.docker.compose.project="+projectLabelValue)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not inspect network %s: %v\n", netName, err)
+		fmt.Fprintf(os.Stderr, "Warning: could not list containers for project %s: %v\n", projectLabelValue, err)
 		return
 	}
-	parts := strings.Fields(strings.TrimSpace(out))
-	for _, raw := range parts {
-		name := strings.TrimPrefix(raw, "/")
-		if name == "" {
+	ids := strings.Fields(strings.TrimSpace(out))
+	for _, id := range ids {
+		if id == "" {
 			continue
 		}
-		_, _ = v.shell.ExecSilent("docker", "stop", name)
-		_, _ = v.shell.ExecSilent("docker", "rm", "-f", "-v", name)
+		_, _ = v.shell.ExecSilent("docker", "stop", id)
+		_, _ = v.shell.ExecSilent("docker", "rm", "-f", "-v", id)
 	}
-	_, _ = v.shell.ExecSilent("docker", "network", "rm", netName)
+}
+
+// removeNetworkIfExists removes the Docker network if it exists. Best-effort; errors are logged.
+func (v *DockerVirt) removeNetworkIfExists(netName string) {
+	out, err := v.shell.ExecSilent("docker", "network", "ls", "--format", "{{.Name}}")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not list Docker networks: %v\n", err)
+		return
+	}
+	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.TrimSpace(name) == netName {
+			_, _ = v.shell.ExecSilent("docker", "network", "rm", netName)
+			return
+		}
+	}
 }
 
 var _ ContainerRuntime = (*DockerVirt)(nil)

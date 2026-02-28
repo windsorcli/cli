@@ -96,7 +96,7 @@ func TestDockerVirt_WriteConfig(t *testing.T) {
 
 func TestDockerVirt_Down(t *testing.T) {
 	t.Run("WhenNetworkListFailsReturnsNil", func(t *testing.T) {
-		// Given a DockerVirt with shell that fails on docker network ls
+		// Given a DockerVirt with shell that fails on docker network ls (in removeNetworkIfExists)
 		mocks, dockerVirt := setupDockerVirt(t)
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
@@ -115,9 +115,12 @@ func TestDockerVirt_Down(t *testing.T) {
 	})
 
 	t.Run("WhenNoWindsorNetworksReturnsNil", func(t *testing.T) {
-		// Given a DockerVirt with shell that returns non-Windsor networks only
+		// Given a DockerVirt with shell that returns no project containers and non-Windsor networks only
 		mocks, dockerVirt := setupDockerVirt(t)
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
+				return "", nil
+			}
 			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
 				return "bridge\nhost\nother_net\n", nil
 			}
@@ -127,24 +130,24 @@ func TestDockerVirt_Down(t *testing.T) {
 		// When calling Down
 		err := dockerVirt.Down()
 
-		// Then no error (no Windsor networks to clean)
+		// Then no error (no project containers; context network not present)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
 
-	t.Run("WhenWindsorNetworksExistCleansNetworksAndContainers", func(t *testing.T) {
-		// Given a DockerVirt with shell that returns Windsor networks and inspect output
+	t.Run("WhenProjectContainersAndNetworkExistCleansBoth", func(t *testing.T) {
+		// Given a DockerVirt with shell that returns project container IDs and context network present
 		var execCalls []string
 		mocks, dockerVirt := setupDockerVirt(t)
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			call := command + " " + strings.Join(args, " ")
 			execCalls = append(execCalls, call)
+			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
+				return "id1 id2", nil
+			}
 			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
 				return "bridge\nwindsor-mock-context\n", nil
-			}
-			if command == "docker" && len(args) >= 3 && args[0] == "network" && args[1] == "inspect" {
-				return "/c1 /c2 ", nil
 			}
 			return "", nil
 		}
@@ -156,14 +159,14 @@ func TestDockerVirt_Down(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		// And network inspect, stop, rm, network rm were invoked
-		hasInspect := false
+		// And ps -a -q --filter label=com.docker.compose.project=, stop, rm, network rm were invoked
+		hasProjectLabel := false
 		hasStop := false
 		hasRm := false
 		hasNetworkRm := false
 		for _, c := range execCalls {
-			if strings.Contains(c, "network inspect") && strings.Contains(c, "windsor-mock-context") {
-				hasInspect = true
+			if strings.Contains(c, "ps") && strings.Contains(c, "label=com.docker.compose.project=workstation-windsor-mock-context") {
+				hasProjectLabel = true
 			}
 			if strings.Contains(c, "docker stop") {
 				hasStop = true
@@ -175,8 +178,8 @@ func TestDockerVirt_Down(t *testing.T) {
 				hasNetworkRm = true
 			}
 		}
-		if !hasInspect {
-			t.Error("Expected docker network inspect to be called for Windsor network")
+		if !hasProjectLabel {
+			t.Error("Expected docker ps -a -q --filter label=com.docker.compose.project= to be called for project")
 		}
 		if !hasStop {
 			t.Error("Expected docker stop to be called for containers")
@@ -196,6 +199,9 @@ func TestDockerVirt_Down(t *testing.T) {
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			call := command + " " + strings.Join(args, " ")
 			execCalls = append(execCalls, call)
+			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
+				return "", nil
+			}
 			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
 				return "bridge\nwindsor-staging\nwindsor-dev\n", nil
 			}
@@ -209,23 +215,23 @@ func TestDockerVirt_Down(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		// And no network inspect or network rm was called (only current context's network is cleaned)
+		// And network rm was not called (current context's network not in list)
 		for _, c := range execCalls {
-			if strings.Contains(c, "network inspect") || strings.Contains(c, "network rm") {
-				t.Errorf("Expected no cleanup of other contexts' networks, got exec call: %s", c)
+			if strings.Contains(c, "network rm") {
+				t.Errorf("Expected no network rm when context network does not exist, got exec call: %s", c)
 			}
 		}
 	})
 
-	t.Run("WhenNetworkInspectFailsReturnsNil", func(t *testing.T) {
-		// Given a DockerVirt with Windsor network but inspect fails
+	t.Run("WhenListContainersForProjectFailsReturnsNil", func(t *testing.T) {
+		// Given a DockerVirt but ps -a -q --filter label=com.docker.compose.project= fails
 		mocks, dockerVirt := setupDockerVirt(t)
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
+				return "", fmt.Errorf("ps failed")
+			}
 			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
 				return "windsor-mock-context\n", nil
-			}
-			if command == "docker" && len(args) >= 3 && args[0] == "network" && args[1] == "inspect" {
-				return "", fmt.Errorf("inspect failed")
 			}
 			return "", nil
 		}
@@ -233,7 +239,7 @@ func TestDockerVirt_Down(t *testing.T) {
 		// When calling Down
 		err := dockerVirt.Down()
 
-		// Then Down returns nil (best-effort; inspect failure is logged, cleanup skipped for that network)
+		// Then Down returns nil (best-effort; list failure is logged, network still removed if present)
 		if err != nil {
 			t.Errorf("Expected nil (best-effort), got %v", err)
 		}
