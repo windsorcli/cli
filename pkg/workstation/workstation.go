@@ -82,6 +82,8 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 		}
 	}
 
+	workstation.applyWorkstationConfigDefaults()
+
 	return workstation
 }
 
@@ -300,4 +302,25 @@ func (w *Workstation) Down() error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// applyWorkstationConfigDefaults sets workstation.arch from GOARCH, workstation.runtime from vm.driver, and workstation.address from vm.address when each is empty.
+func (w *Workstation) applyWorkstationConfigDefaults() {
+	if w.configHandler.GetString("workstation.arch") == "" {
+		arch := stdruntime.GOARCH
+		if arch == "arm" {
+			arch = "arm64"
+		}
+		_ = w.configHandler.Set("workstation.arch", arch)
+	}
+	if w.configHandler.GetString("workstation.runtime") == "" && w.configHandler.GetString("vm.driver") != "" {
+		_ = w.configHandler.Set("workstation.runtime", w.configHandler.GetString("vm.driver"))
+	}
+	if w.configHandler.GetString("workstation.address") == "" && w.configHandler.GetString("vm.address") != "" {
+		_ = w.configHandler.Set("workstation.address", w.configHandler.GetString("vm.address"))
+	}
 }
