@@ -3,6 +3,7 @@ package workstation
 import (
 	"fmt"
 	"os"
+	stdruntime "runtime"
 	"strings"
 	"testing"
 
@@ -384,7 +385,7 @@ func TestNewWorkstation(t *testing.T) {
 
 		_ = NewWorkstation(rt)
 
-		expectedArch := runtime.GOARCH
+		expectedArch := stdruntime.GOARCH
 		if expectedArch == "arm" {
 			expectedArch = "arm64"
 		}
