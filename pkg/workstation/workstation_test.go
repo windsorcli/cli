@@ -359,6 +359,11 @@ func TestNewWorkstation(t *testing.T) {
 			return nil
 		}
 		mockHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if v, ok := recorded[key]; ok {
+				if s, ok := v.(string); ok {
+					return s
+				}
+			}
 			switch key {
 			case "vm.driver":
 				return "colima"
@@ -383,7 +388,10 @@ func TestNewWorkstation(t *testing.T) {
 			Evaluator:     evaluator.NewExpressionEvaluator(mockHandler, "/test/project", "/test/project/contexts/_template"),
 		}
 
-		_ = NewWorkstation(rt)
+		ws := NewWorkstation(rt, &Workstation{NetworkManager: mocks.NetworkManager, VirtualMachine: mocks.VirtualMachine})
+		if err := ws.Prepare(); err != nil {
+			t.Fatalf("Prepare failed: %v", err)
+		}
 
 		expectedArch := stdruntime.GOARCH
 		if expectedArch == "arm" {

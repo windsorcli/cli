@@ -82,8 +82,6 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 		}
 	}
 
-	workstation.applyWorkstationConfigDefaults()
-
 	return workstation
 }
 
@@ -92,8 +90,9 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 // =============================================================================
 
 // Prepare creates workstation components (network manager, virtual machine, container runtime).
-// Call after configuration is loaded. Returns an error if any component creation fails.
+// Call after configuration is loaded. Applies workstation config defaults (arch, runtime, address from vm.*) when empty, then returns an error if any component creation fails.
 func (w *Workstation) Prepare() error {
+	w.applyWorkstationConfigDefaults()
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 
 	if w.NetworkManager == nil {
