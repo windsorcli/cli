@@ -848,12 +848,6 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if rt.ConfigHandler.GetString("platform") == "" && rt.ConfigHandler.GetString("provider") != "" {
 		_ = rt.ConfigHandler.Set("platform", rt.ConfigHandler.GetString("provider"))
 	}
-	if rt.ConfigHandler.GetString("workstation.runtime") == "" && rt.ConfigHandler.GetString("vm.driver") != "" {
-		_ = rt.ConfigHandler.Set("workstation.runtime", rt.ConfigHandler.GetString("vm.driver"))
-	}
-	if rt.ConfigHandler.GetString("workstation.address") == "" && rt.ConfigHandler.GetString("vm.address") != "" {
-		_ = rt.ConfigHandler.Set("workstation.address", rt.ConfigHandler.GetString("vm.address"))
-	}
 	if rt.ConfigHandler.GetBool("dns.enabled") && rt.ConfigHandler.GetString("dns.domain") != "" && rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("dns.address") == "" {
 		_ = rt.ConfigHandler.Set("dns.address", "127.0.0.1")
 	}
