@@ -57,7 +57,7 @@ var configureNetworkCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "network: n/a")
 			return nil
 		}
-		return proj.Workstation.ConfigureNetwork(dnsAddr)
+		return proj.Workstation.ConfigureNetwork(dnsAddr, true)
 	},
 }
 

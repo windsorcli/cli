@@ -664,7 +664,7 @@ func TestWorkstation_Up(t *testing.T) {
 		})
 
 		// When ConfigureNetwork is called (e.g. from apply hook)
-		err := workstation.ConfigureNetwork("")
+		err := workstation.ConfigureNetwork("", false)
 
 		// Then the error is propagated
 		if err == nil {

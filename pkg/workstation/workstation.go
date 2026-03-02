@@ -198,7 +198,8 @@ func (w *Workstation) EnsureNetworkPrivilege() error {
 		return nil
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) || stdruntime.GOOS == "windows" {
-		if _, err := w.shell.ExecSudo("🔐 Network configuration may require elevated privileges", "true"); err != nil {
+		fmt.Fprintln(os.Stderr, "🔐 Network configuration may require elevated privileges")
+		if _, err := w.shell.ExecSudo("", "true"); err != nil {
 			return fmt.Errorf("privileged access required: %w", err)
 		}
 		return nil
@@ -216,7 +217,8 @@ func (w *Workstation) EnsureNetworkPrivilege() error {
 // is set only when dnsAddressOverride is non-empty (e.g. --dns-address or Terraform output); no
 // fallback to workstation.address, so callers that omit the override do not configure DNS. DNS
 // is attempted only when dns.enabled is true and both dns.domain and dns.address are set. No-op when NetworkManager is nil.
-func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
+// When showStatus is true, prints network and DNS status lines to stderr (e.g. for "windsor configure network").
+func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus bool) error {
 	if w.NetworkManager == nil {
 		return nil
 	}
@@ -231,16 +233,20 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string) error {
 		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
 			return fmt.Errorf("error configuring host route: %w", err)
 		}
-		fmt.Fprintln(os.Stderr, "network: ready")
-	} else {
+		if showStatus {
+			fmt.Fprintln(os.Stderr, "network: ready")
+		}
+	} else if showStatus {
 		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
 	}
 	if w.configHandler.GetBool("dns.enabled") && w.configHandler.GetString("dns.domain") != "" && w.configHandler.GetString("dns.address") != "" {
 		if err := w.NetworkManager.ConfigureDNS(); err != nil {
 			return fmt.Errorf("error configuring DNS: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("dns.address"))
-	} else {
+		if showStatus {
+			fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("dns.address"))
+		}
+	} else if showStatus {
 		fmt.Fprintln(os.Stderr, "dns: skipped")
 	}
 	return nil
@@ -272,7 +278,7 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 				}
 			}
 		}
-		return w.ConfigureNetwork(dnsAddr)
+		return w.ConfigureNetwork(dnsAddr, false)
 	}
 }
 
@@ -307,7 +313,7 @@ func (w *Workstation) Down() error {
 // Private Methods
 // =============================================================================
 
-// applyWorkstationConfigDefaults sets workstation.arch from GOARCH, workstation.runtime from vm.driver, and workstation.address from vm.address when each is empty.
+// applyWorkstationConfigDefaults sets workstation.arch from GOARCH, workstation.runtime from vm.driver, and workstation.address from vm.address when each is empty. Canonical location for these defaults; do not duplicate in runtime.ResolveConfig.
 func (w *Workstation) applyWorkstationConfigDefaults() {
 	if w.configHandler.GetString("workstation.arch") == "" {
 		arch := stdruntime.GOARCH

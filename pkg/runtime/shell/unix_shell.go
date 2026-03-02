@@ -72,7 +72,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	}
 
 	if s.verbose || !s.shims.IsTerminal(int(os.Stdin.Fd())) {
-		if s.verbose {
+		if s.verbose && message != "" {
 			fmt.Fprintln(os.Stderr, message)
 		}
 		return s.Exec(command, args...)
@@ -100,18 +100,24 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	cmd.Stdout = &stdoutBuf
 
 	if err := s.shims.CmdStart(cmd); err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+		if message != "" {
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+		}
 		return stdoutBuf.String(), err
 	}
 
 	err = s.shims.CmdWait(cmd)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+		if message != "" {
+			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+		}
 		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	if message != "" {
+		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	}
 
 	return s.scrubString(stdoutBuf.String()), nil
 }
