@@ -64,9 +64,9 @@ func (v *DockerVirt) WriteConfig() error {
 	return nil
 }
 
-// Down stops and removes containers in the current context's project (label com.docker.compose.project=workstation-windsor-<context>),
-// including their anonymous volumes via rm -v, then removes the context's network (windsor-<context>). Keying off project
-// includes containers in "created" (never-started) state and matches how resources are grouped in Docker Desktop.
+// Down stops and removes only resources for the current project/context: containers and named volumes
+// with label com.docker.compose.project=workstation-windsor-<context>, and the network windsor-<context>.
+// Anonymous volumes are removed with containers via rm -v. No global Docker cleanup is performed.
 // Best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner with broom emoji.
 func (v *DockerVirt) Down() error {
 	return v.withProgress("🧹 Cleaning residual Docker containers and networks", func() error {
@@ -75,6 +75,7 @@ func (v *DockerVirt) Down() error {
 		netName := WindsorNetworkPrefix + contextName
 
 		v.cleanProjectContainers(projectLabelValue)
+		v.removeVolumes(projectLabelValue)
 		v.removeNetworkIfExists(netName)
 		return nil
 	})
@@ -84,8 +85,8 @@ func (v *DockerVirt) Down() error {
 // Private Methods
 // =============================================================================
 
-// cleanProjectContainers stops and removes all containers with the given compose project label value
-// (com.docker.compose.project=<projectLabelValue>), including created-but-never-started.
+// cleanProjectContainers stops and removes only containers with the given compose project label
+// (com.docker.compose.project=<projectLabelValue>), including created-but-never-started. No other containers are touched.
 func (v *DockerVirt) cleanProjectContainers(projectLabelValue string) {
 	out, err := v.shell.ExecSilent("docker", "ps", "-a", "-q", "--filter", "label=com.docker.compose.project="+projectLabelValue)
 	if err != nil {
@@ -102,7 +103,24 @@ func (v *DockerVirt) cleanProjectContainers(projectLabelValue string) {
 	}
 }
 
-// removeNetworkIfExists removes the Docker network if it exists. Best-effort; errors are logged.
+// removeVolumes removes only Docker volumes with the given compose project label
+// (com.docker.compose.project=<projectLabelValue>). Best-effort; errors are logged.
+func (v *DockerVirt) removeVolumes(projectLabelValue string) {
+	out, err := v.shell.ExecSilent("docker", "volume", "ls", "-q", "--filter", "label=com.docker.compose.project="+projectLabelValue)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not list volumes for project %s: %v\n", projectLabelValue, err)
+		return
+	}
+	for _, name := range strings.FieldsFunc(out, func(r rune) bool { return r == ' ' || r == '\n' || r == '\t' }) {
+		if name == "" {
+			continue
+		}
+		_, _ = v.shell.ExecSilent("docker", "volume", "rm", name)
+	}
+}
+
+// removeNetworkIfExists removes only the Docker network with the given name (e.g. windsor-<context>).
+// Best-effort; errors are logged. No other networks are touched.
 func (v *DockerVirt) removeNetworkIfExists(netName string) {
 	out, err := v.shell.ExecSilent("docker", "network", "ls", "--format", "{{.Name}}")
 	if err != nil {
