@@ -76,7 +76,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	if !strings.Contains(strings.TrimSpace(strings.ToLower(out)), "true") {
 		return "", fmt.Errorf("network configuration requires administrator privileges: open a new PowerShell as Administrator, then run the command again")
 	}
-	if s.verbose {
+	if s.verbose && message != "" {
 		fmt.Fprintln(os.Stderr, message)
 	}
 	if command == "sudo" && len(args) > 0 {
