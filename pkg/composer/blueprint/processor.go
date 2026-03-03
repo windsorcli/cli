@@ -1337,9 +1337,8 @@ func deepCopyMapStringAny(m map[string]any) map[string]any {
 }
 
 // deepCopyProvenanceValue recursively copies a value for provenance storage. map[string]any and
-// map[any]any (via asMapStringAny) are deep-copied; []any and []any are
-// deep-copied element-wise. Primitives and other types are returned as-is. Used by
-// deepCopyMapStringAny and the slice copy helpers.
+// map[any]any (via asMapStringAny) are deep-copied; []any is deep-copied element-wise.
+// Primitives and other types are returned as-is. Used by deepCopyMapStringAny and deepCopySliceAny.
 func deepCopyProvenanceValue(v any) any {
 	if v == nil {
 		return nil
@@ -1353,29 +1352,12 @@ func deepCopyProvenanceValue(v any) any {
 	if s, ok := v.([]any); ok {
 		return deepCopySliceAny(s)
 	}
-	if s, ok := v.([]any); ok {
-		return deepCopySliceInterface(s)
-	}
 	return v
 }
 
 // deepCopySliceAny returns a deep copy of s for provenance storage. Each element is copied via
 // deepCopyProvenanceValue so nested maps and slices are not shared. Returns nil if s is nil.
 func deepCopySliceAny(s []any) []any {
-	if s == nil {
-		return nil
-	}
-	out := make([]any, len(s))
-	for i, v := range s {
-		out[i] = deepCopyProvenanceValue(v)
-	}
-	return out
-}
-
-// deepCopySliceInterface copies a []any (e.g. from YAML decode) into a new []any with each
-// element deep-copied via deepCopyProvenanceValue. Used when provenance values come from
-// decoded YAML. Returns nil if s is nil.
-func deepCopySliceInterface(s []any) []any {
 	if s == nil {
 		return nil
 	}
