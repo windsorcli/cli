@@ -94,12 +94,6 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // Public Methods
 // =============================================================================
 
-// GetProvenance returns the accumulated provenance entries for a given composed path (e.g.
-// "terraform.cluster.inputs.cluster_endpoint"). Returns nil if no provenance was recorded.
-func (p *BaseBlueprintProcessor) GetProvenance(path string) []ProvenanceEntry {
-	return p.provenance[path]
-}
-
 // GetAllProvenance returns the full provenance map accumulated during composition.
 func (p *BaseBlueprintProcessor) GetAllProvenance() map[string][]ProvenanceEntry {
 	return p.provenance
