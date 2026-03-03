@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sort"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -558,7 +559,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			Ordinal:    effectiveOrdinal,
 			Strategy:   strategy,
 			Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID)),
-			RawInputs:  tc.Inputs,
+			RawInputs:  deepCopyMapStringAny(tc.Inputs),
 		})
 
 		if _, exists := terraformByID[componentID]; !exists {
@@ -658,8 +659,8 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			Ordinal:       effectiveOrdinal,
 			Strategy:      strategy,
 			Line:          yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name)),
-			RawSubs:       k.Substitutions,
-			RawComponents: k.Components,
+			RawSubs:       maps.Clone(k.Substitutions),
+			RawComponents: slices.Clone(k.Components),
 		})
 
 		if _, exists := kustomizationByName[processed.Name]; !exists {
@@ -1319,8 +1320,74 @@ func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
 	return OrdinalFromFacetPath(f.Path)
 }
 
+// deepCopyMapStringAny returns a deep copy of m for use in ProvenanceEntry.RawInputs so that
+// provenance holds a snapshot of the original facet inputs that cannot be mutated by later
+// evaluation or normalization. Nested maps and slices are copied recursively. Values that are
+// map[any]any from YAML decode are converted via asMapStringAny. Returns nil
+// if m is nil.
+func deepCopyMapStringAny(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = deepCopyProvenanceValue(v)
+	}
+	return out
+}
+
+// deepCopyProvenanceValue recursively copies a value for provenance storage. map[string]any and
+// map[any]any (via asMapStringAny) are deep-copied; []any and []any are
+// deep-copied element-wise. Primitives and other types are returned as-is. Used by
+// deepCopyMapStringAny and the slice copy helpers.
+func deepCopyProvenanceValue(v any) any {
+	if v == nil {
+		return nil
+	}
+	if m, ok := v.(map[string]any); ok {
+		return deepCopyMapStringAny(m)
+	}
+	if m, ok := asMapStringAny(v); ok {
+		return deepCopyMapStringAny(m)
+	}
+	if s, ok := v.([]any); ok {
+		return deepCopySliceAny(s)
+	}
+	if s, ok := v.([]any); ok {
+		return deepCopySliceInterface(s)
+	}
+	return v
+}
+
+// deepCopySliceAny returns a deep copy of s for provenance storage. Each element is copied via
+// deepCopyProvenanceValue so nested maps and slices are not shared. Returns nil if s is nil.
+func deepCopySliceAny(s []any) []any {
+	if s == nil {
+		return nil
+	}
+	out := make([]any, len(s))
+	for i, v := range s {
+		out[i] = deepCopyProvenanceValue(v)
+	}
+	return out
+}
+
+// deepCopySliceInterface copies a []any (e.g. from YAML decode) into a new []any with each
+// element deep-copied via deepCopyProvenanceValue. Used when provenance values come from
+// decoded YAML. Returns nil if s is nil.
+func deepCopySliceInterface(s []any) []any {
+	if s == nil {
+		return nil
+	}
+	out := make([]any, len(s))
+	for i, v := range s {
+		out[i] = deepCopyProvenanceValue(v)
+	}
+	return out
+}
+
 // asMapStringAny returns v as a map with string keys if v is a map (e.g. map[string]any or
-// map[interface{}]interface{} from YAML). Uses MapRange and fmt.Sprint for keys so interface{}
+// map[any]any from YAML). Uses MapRange and fmt.Sprint for keys so any
 // keys from YAML decode as string keys. Returns (nil, false) otherwise.
 func asMapStringAny(v any) (map[string]any, bool) {
 	if v == nil {
