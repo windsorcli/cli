@@ -8,13 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
 // =============================================================================
@@ -34,20 +32,6 @@ const (
 // =============================================================================
 // Types
 // =============================================================================
-
-// ComponentProvenance records a single facet's contribution to a component in the composed blueprint.
-// ComponentLine is the 1-based line number where the component is defined in the facet file.
-type ComponentProvenance struct {
-	SourceName    string
-	FacetName     string
-	FacetPath     string
-	Ordinal       int
-	Strategy      string
-	RawInputs     map[string]any
-	RawSubs       map[string]string
-	RawComponents []string
-	ComponentLine int
-}
 
 // ExplainPath is a parsed explain path identifying a single value in the composed blueprint.
 type ExplainPath struct {
@@ -166,10 +150,10 @@ func ParseExplainPath(path string) (ExplainPath, error) {
 
 // Explain resolves a dotted blueprint path against the composed blueprint and returns a trace
 // containing the resolved value, provenance contributions, and scope reference resolution.
-// Provenance records are derived from active facets, with path shortening relative to the
-// template root and line numbers resolved to the specific key within each facet file. Scope
-// references in expressions are resolved against the composed scope to determine their status
-// (resolved, not set, or deferred) and config block source locations.
+// Provenance is read from records accumulated during composition (not retroactively scanned).
+// Scope references in expressions are resolved against the composed scope to determine their
+// status (resolved, not set, or deferred) and config block source locations are looked up from
+// the accumulated config block provenance.
 func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
 	p, err := ParseExplainPath(pathStr)
 	if err != nil {
@@ -180,23 +164,25 @@ func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
 		return nil, fmt.Errorf("blueprint not composed")
 	}
 
-	var componentType, keySection string
+	provMap := h.getProcessorProvenance()
+
+	var provenanceKey, keySection string
 	switch p.Kind {
 	case ExplainPathKindTerraformInput:
-		componentType = "terraform"
+		provenanceKey = "terraform." + p.Segment
 		keySection = "inputs"
 	case ExplainPathKindKustomizeSubstitution:
-		componentType = "kustomize"
+		provenanceKey = "kustomize." + p.Segment
 		keySection = "substitutions"
 	case ExplainPathKindKustomizeComponents:
-		componentType = "kustomize"
+		provenanceKey = "kustomize." + p.Segment
 		keySection = "components"
 	}
 
 	var contributions []ExplainContribution
-	if componentType != "" {
-		for _, cp := range h.getProvenance(componentType, p.Segment) {
-			contributions = append(contributions, h.toExplainContribution(cp, keySection, p.Key))
+	if provenanceKey != "" {
+		for _, pe := range provMap[provenanceKey] {
+			contributions = append(contributions, h.provenanceToContribution(pe, keySection, p.Key, p.Segment))
 		}
 	}
 
@@ -263,7 +249,7 @@ func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
 		return nil, errors.New("unknown path kind")
 	}
 
-	h.resolveScopeRefs(trace)
+	h.resolveScopeRefs(trace, provMap)
 
 	return trace, nil
 }
@@ -272,12 +258,11 @@ func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
 // Private Methods
 // =============================================================================
 
-// toExplainContribution converts a ComponentProvenance into an ExplainContribution, shortening
-// the facet path to a user-friendly display form and resolving the line number for the specific
-// key within the facet file. For local facets under the template root, the path is shown relative
-// to that root. For OCI-sourced facets outside the template root, only the filename is shown.
-func (h *BaseBlueprintHandler) toExplainContribution(cp ComponentProvenance, keySection, key string) ExplainContribution {
-	displayPath := cp.FacetPath
+// provenanceToContribution converts a ProvenanceEntry (recorded during composition) into an
+// ExplainContribution. The line number for the specific key within the component is resolved
+// via AST on demand. The facet path is shortened relative to the template root for display.
+func (h *BaseBlueprintHandler) provenanceToContribution(pe ProvenanceEntry, keySection, key, componentID string) ExplainContribution {
+	displayPath := pe.FacetPath
 	if displayPath != "" {
 		shortened := false
 		if h.runtime != nil && h.runtime.TemplateRoot != "" {
@@ -291,29 +276,33 @@ func (h *BaseBlueprintHandler) toExplainContribution(cp ComponentProvenance, key
 		}
 	}
 
-	line := cp.ComponentLine
-	if line > 0 && keySection != "" && key != "" {
-		if keyLine := findKeyLine(cp.FacetPath, line, keySection, key); keyLine > 0 {
+	line := pe.Line
+	if keySection != "" && key != "" && keySection != "components" {
+		componentType := "terraform"
+		if keySection == "substitutions" {
+			componentType = "kustomize"
+		}
+		if keyLine := yamlNodeLine(pe.FacetPath, componentType, namedItem(componentID), keySection, key); keyLine > 0 {
 			line = keyLine
 		}
 	}
 
 	c := ExplainContribution{
-		SourceName:    cp.SourceName,
+		SourceName:    pe.SourceName,
 		FacetPath:     displayPath,
-		AbsFacetPath:  cp.FacetPath,
+		AbsFacetPath:  pe.FacetPath,
 		Line:          line,
-		Ordinal:       cp.Ordinal,
-		Strategy:      cp.Strategy,
-		RawComponents: cp.RawComponents,
+		Ordinal:       pe.Ordinal,
+		Strategy:      pe.Strategy,
+		RawComponents: pe.RawComponents,
 	}
 
-	if cp.RawInputs != nil && keySection == "inputs" {
-		if rawVal, ok := cp.RawInputs[key]; ok {
+	if pe.RawInputs != nil && keySection == "inputs" {
+		if rawVal, ok := pe.RawInputs[key]; ok {
 			c.Expression = formatValue(rawVal)
 		}
-	} else if cp.RawSubs != nil && keySection == "substitutions" {
-		if rawVal, ok := cp.RawSubs[key]; ok {
+	} else if pe.RawSubs != nil && keySection == "substitutions" {
+		if rawVal, ok := pe.RawSubs[key]; ok {
 			c.Expression = rawVal
 		}
 	}
@@ -321,11 +310,20 @@ func (h *BaseBlueprintHandler) toExplainContribution(cp ComponentProvenance, key
 	return c
 }
 
+// getProcessorProvenance retrieves the accumulated provenance map from the processor. Returns an
+// empty map if the processor is not a BaseBlueprintProcessor or has no provenance.
+func (h *BaseBlueprintHandler) getProcessorProvenance() map[string][]ProvenanceEntry {
+	if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		return bp.GetAllProvenance()
+	}
+	return make(map[string][]ProvenanceEntry)
+}
+
 // resolveScopeRefs populates the ScopeRefs field on each effective contribution by extracting
 // dotted identifier references from the expression, resolving them against the composed scope,
-// and looking up config block source locations. Only references that are not set, deferred, or
-// traceable to a config block source are included.
-func (h *BaseBlueprintHandler) resolveScopeRefs(trace *ExplainTrace) {
+// and looking up config block source locations from the accumulated provenance. Only references
+// that are not set, deferred, or traceable to a config block source are included.
+func (h *BaseBlueprintHandler) resolveScopeRefs(trace *ExplainTrace, provMap map[string][]ProvenanceEntry) {
 	scope := h.composedScope
 	if scope == nil {
 		return
@@ -344,7 +342,16 @@ func (h *BaseBlueprintHandler) resolveScopeRefs(trace *ExplainTrace) {
 			}
 			s := formatScopeValue(val)
 			deferred := strings.Contains(s, "${")
-			blockSource, blockLine := h.getConfigBlockSource(strings.SplitN(ref, ".", 2)[0])
+
+			provKey := "config." + ref
+			entries := provMap[provKey]
+			var blockSource string
+			var blockLine int
+			if len(entries) > 0 {
+				last := entries[len(entries)-1]
+				blockSource = last.FacetPath
+				blockLine = last.Line
+			}
 			hasSource := blockSource != "" && blockLine > 0
 			if !deferred && !hasSource {
 				continue
@@ -355,164 +362,6 @@ func (h *BaseBlueprintHandler) resolveScopeRefs(trace *ExplainTrace) {
 			}
 			c.ScopeRefs = append(c.ScopeRefs, sr)
 		}
-	}
-}
-
-// getProvenance scans all loaded facets across all source loaders and returns only the facets
-// that actually contributed to the given component in the current context. Facets and components
-// whose 'when' conditions evaluate to false are excluded. componentType is "terraform" or
-// "kustomize"; componentID is the component's GetID() or kustomization Name.
-func (h *BaseBlueprintHandler) getProvenance(componentType, componentID string) []ComponentProvenance {
-	scope := h.composedScope
-	if scope == nil {
-		scope = h.getConfigValues()
-	}
-	if scope == nil {
-		scope = make(map[string]any)
-	}
-
-	var results []ComponentProvenance
-	for sourceName, loader := range h.sourceBlueprintLoaders {
-		for _, facet := range loader.GetFacets() {
-			if !h.evaluateWhen(facet.When, facet.Path, scope) {
-				continue
-			}
-
-			ordinal := resolvedFacetOrdinal(facet)
-
-			switch componentType {
-			case "terraform":
-				for _, tc := range facet.TerraformComponents {
-					if tc.GetID() != componentID {
-						continue
-					}
-					when := tc.When
-					if when == "" {
-						when = facet.When
-					}
-					if !h.evaluateWhen(when, facet.Path, scope) {
-						continue
-					}
-					strategy := tc.Strategy
-					if strategy == "" {
-						strategy = "merge"
-					}
-					effOrd := ordinal
-					if tc.Ordinal != nil {
-						effOrd = *tc.Ordinal
-					}
-					results = append(results, ComponentProvenance{
-						SourceName:    sourceName,
-						FacetName:     facet.Metadata.Name,
-						FacetPath:     facet.Path,
-						Ordinal:       effOrd,
-						Strategy:      strategy,
-						RawInputs:     tc.Inputs,
-						ComponentLine: findComponentLine(facet.Path, componentType, componentID),
-					})
-				}
-			case "kustomize":
-				for _, k := range facet.Kustomizations {
-					if k.Name != componentID {
-						continue
-					}
-					when := k.When
-					if when == "" {
-						when = facet.When
-					}
-					if !h.evaluateWhen(when, facet.Path, scope) {
-						continue
-					}
-					strategy := k.Strategy
-					if strategy == "" {
-						strategy = "merge"
-					}
-					effOrd := ordinal
-					if k.Ordinal != nil {
-						effOrd = *k.Ordinal
-					}
-					results = append(results, ComponentProvenance{
-						SourceName:    sourceName,
-						FacetName:     facet.Metadata.Name,
-						FacetPath:     facet.Path,
-						Ordinal:       effOrd,
-						Strategy:      strategy,
-						RawSubs:       k.Substitutions,
-						RawComponents: k.Components,
-						ComponentLine: findComponentLine(facet.Path, componentType, componentID),
-					})
-				}
-			}
-		}
-	}
-	return results
-}
-
-// getConfigBlockSource finds the active facet that defines a config block with the given name
-// and returns the facet file path and 1-based line number of the "- name: <name>" declaration.
-// Facets whose 'when' conditions evaluate to false are skipped. When multiple facets define
-// the same config block name, the last one in ordinal order wins (matching composition semantics).
-// Returns ("", 0) if the config block is not found or comes from context values.
-func (h *BaseBlueprintHandler) getConfigBlockSource(name string) (string, int) {
-	scope := h.composedScope
-	if scope == nil {
-		scope = h.getConfigValues()
-	}
-	if scope == nil {
-		scope = make(map[string]any)
-	}
-	var bestPath string
-	var bestLine int
-	for _, loader := range h.sourceBlueprintLoaders {
-		for _, facet := range loader.GetFacets() {
-			if !h.evaluateWhen(facet.When, facet.Path, scope) {
-				continue
-			}
-			for _, cb := range facet.Config {
-				if cb.Name != name {
-					continue
-				}
-				when := cb.When
-				if when == "" {
-					when = facet.When
-				}
-				if !h.evaluateWhen(when, facet.Path, scope) {
-					continue
-				}
-				bestPath = facet.Path
-				bestLine = findConfigBlockLine(facet.Path, name)
-			}
-		}
-	}
-	return bestPath, bestLine
-}
-
-// evaluateWhen evaluates a 'when' condition expression against the given scope using the
-// runtime's expression evaluator. Returns true when the expression is empty (unconditional),
-// evaluates to true, or when the evaluator is unavailable. Returns false on evaluation error
-// or when the condition is false.
-func (h *BaseBlueprintHandler) evaluateWhen(when, facetPath string, scope map[string]any) bool {
-	if when == "" {
-		return true
-	}
-	if h.runtime == nil || h.runtime.Evaluator == nil {
-		return true
-	}
-	expr := when
-	if !evaluator.ContainsExpression(expr) {
-		expr = "${" + expr + "}"
-	}
-	evaluated, err := h.runtime.Evaluator.Evaluate(expr, facetPath, scope, false)
-	if err != nil {
-		return false
-	}
-	switch v := evaluated.(type) {
-	case bool:
-		return v
-	case string:
-		return v == "true"
-	default:
-		return false
 	}
 }
 
@@ -761,194 +610,9 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// findKeyLine returns the 1-based line number of a specific key within a component block in a
-// facet YAML file. componentLine is the 1-based line where the component starts (its "- name:"
-// line). section is "inputs" or "substitutions". The scan reads from componentLine forward
-// until it finds the section header, then the key within that section. Returns 0 if the key
-// cannot be located, in which case the caller should fall back to componentLine.
-func findKeyLine(facetPath string, componentLine int, section, key string) int {
-	if facetPath == "" || componentLine <= 0 {
-		return 0
-	}
-	data, err := os.ReadFile(facetPath)
-	if err != nil {
-		return 0
-	}
-	lines := strings.Split(string(data), "\n")
-	if componentLine > len(lines) {
-		return 0
-	}
-
-	compIndent := leadingSpaces(lines[componentLine-1])
-	inSection := false
-	sectionIndent := -1
-	for i := componentLine; i < len(lines); i++ {
-		line := lines[i]
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		indent := leadingSpaces(line)
-		if indent <= compIndent && i > componentLine-1 {
-			break
-		}
-		if !inSection {
-			if trimmed == section+":" {
-				inSection = true
-				sectionIndent = indent
-				continue
-			}
-		} else {
-			if indent <= sectionIndent {
-				break
-			}
-			colonIdx := strings.Index(trimmed, ":")
-			if colonIdx > 0 && trimmed[:colonIdx] == key {
-				return i + 1
-			}
-		}
-	}
-	return 0
-}
-
-// findConfigBlockLine scans a facet YAML file for the line number of a config block definition
-// matching "- name: <blockName>" under the top-level "config:" section. Returns 0 if not found.
-func findConfigBlockLine(facetPath, blockName string) int {
-	return findComponentLine(facetPath, "config", blockName)
-}
-
-// findComponentLine scans a facet YAML file for the line number of a component definition
-// matching "- name: <componentID>" under the given top-level section (terraform or kustomize).
-// Returns 0 if the component cannot be located.
-func findComponentLine(facetPath, componentType, componentID string) int {
-	if facetPath == "" {
-		return 0
-	}
-	data, err := os.ReadFile(facetPath)
-	if err != nil {
-		return 0
-	}
-	lines := strings.Split(string(data), "\n")
-	inSection := false
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == componentType+":" {
-			inSection = true
-			continue
-		}
-		if inSection {
-			if len(trimmed) > 0 && leadingSpaces(line) == 0 && !strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "#") {
-				inSection = false
-				continue
-			}
-			if trimmed == "- name: "+componentID {
-				return i + 1
-			}
-		}
-	}
-	return 0
-}
-
-// matchesExpressionEntry checks whether a resolved component value could have been produced by
-// a raw expression. It extracts single-quoted string literals from the expression and returns
-// true if the entry exactly matches a literal or if the entry starts with a literal that is at
-// least 4 characters long (handles string concatenation patterns like 'prefix/' + variable).
-func matchesExpressionEntry(raw, entry string) bool {
-	if strings.Contains(raw, "'"+entry+"'") {
-		return true
-	}
-	for i := 0; i < len(raw); i++ {
-		if raw[i] != '\'' {
-			continue
-		}
-		j := strings.Index(raw[i+1:], "'")
-		if j < 0 {
-			break
-		}
-		literal := raw[i+1 : i+1+j]
-		i = i + 1 + j
-		if len(literal) >= 4 && strings.HasPrefix(entry, literal) {
-			return true
-		}
-	}
-	return false
-}
-
-// findComponentValueLine scans a facet YAML file for a specific component list entry across ALL
-// blocks matching "- name: <componentName>" under the given componentType section. For each
-// matching block's "components:" list, it checks for literal matches (bare, single-quoted, or
-// double-quoted) and expression matches where the value appears as a string literal inside a
-// ${...} expression. Returns the 1-based line number or 0 if not found.
+// findComponentValueLine returns the line of a specific component list entry within the
+// "components" sequence of a named item under the given componentType section. Uses AST
+// navigation for precise line numbers.
 func findComponentValueLine(facetPath, componentType, componentName, value string) int {
-	if facetPath == "" {
-		return 0
-	}
-	data, err := os.ReadFile(facetPath)
-	if err != nil {
-		return 0
-	}
-	lines := strings.Split(string(data), "\n")
-
-	inSection := false
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == componentType+":" {
-			inSection = true
-			continue
-		}
-		if inSection {
-			if len(trimmed) > 0 && leadingSpaces(line) == 0 && !strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "#") {
-				inSection = false
-				continue
-			}
-			if trimmed != "- name: "+componentName {
-				continue
-			}
-			blockIndent := leadingSpaces(line)
-			inComponents := false
-			componentsIndent := -1
-			for j := i + 1; j < len(lines); j++ {
-				bline := lines[j]
-				btrimmed := strings.TrimSpace(bline)
-				if btrimmed == "" || strings.HasPrefix(btrimmed, "#") {
-					continue
-				}
-				bindent := leadingSpaces(bline)
-				if bindent <= blockIndent {
-					break
-				}
-				if !inComponents {
-					if btrimmed == "components:" {
-						inComponents = true
-						componentsIndent = bindent
-						continue
-					}
-				} else {
-					if bindent <= componentsIndent {
-						inComponents = false
-						continue
-					}
-					entry := strings.TrimPrefix(btrimmed, "- ")
-					entry = strings.Trim(entry, "\"'")
-					if entry == value {
-						return j + 1
-					}
-					if strings.HasPrefix(entry, "${") && matchesExpressionEntry(entry, value) {
-						return j + 1
-					}
-				}
-			}
-		}
-	}
-	return 0
-}
-
-// leadingSpaces returns the number of leading space characters in s.
-func leadingSpaces(s string) int {
-	for i, c := range s {
-		if c != ' ' {
-			return i
-		}
-	}
-	return len(s)
+	return yamlNodeLine(facetPath, componentType, namedItem(componentName), "components", seqEntryMatch{value: value})
 }

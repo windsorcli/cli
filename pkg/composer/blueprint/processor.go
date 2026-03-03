@@ -28,7 +28,7 @@ var strategyPrecedence = map[string]int{
 }
 
 // =============================================================================
-// Interface
+// Interfaces
 // =============================================================================
 
 // BlueprintProcessor evaluates when: conditions on facets, terraform components, and kustomizations.
@@ -44,10 +44,26 @@ type BlueprintProcessor interface {
 // Types
 // =============================================================================
 
+// ProvenanceEntry records the origin of a single value contribution during blueprint composition.
+// Entries are keyed by composed path (e.g. "terraform.cluster.inputs.cluster_endpoint") and
+// accumulated as composition proceeds, capturing the facet, line, expression, and merge metadata
+// at the point each value is set.
+type ProvenanceEntry struct {
+	FacetPath     string
+	SourceName    string
+	Ordinal       int
+	Strategy      string
+	Line          int
+	RawInputs     map[string]any
+	RawSubs       map[string]string
+	RawComponents []string
+}
+
 // BaseBlueprintProcessor provides the default implementation of the BlueprintProcessor interface.
 type BaseBlueprintProcessor struct {
-	runtime   *runtime.Runtime
-	evaluator evaluator.ExpressionEvaluator
+	runtime    *runtime.Runtime
+	evaluator  evaluator.ExpressionEvaluator
+	provenance map[string][]ProvenanceEntry
 }
 
 // =============================================================================
@@ -68,14 +84,26 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 	}
 
 	return &BaseBlueprintProcessor{
-		runtime:   rt,
-		evaluator: rt.Evaluator,
+		runtime:    rt,
+		evaluator:  rt.Evaluator,
+		provenance: make(map[string][]ProvenanceEntry),
 	}
 }
 
 // =============================================================================
 // Public Methods
 // =============================================================================
+
+// GetProvenance returns the accumulated provenance entries for a given composed path (e.g.
+// "terraform.cluster.inputs.cluster_endpoint"). Returns nil if no provenance was recorded.
+func (p *BaseBlueprintProcessor) GetProvenance(path string) []ProvenanceEntry {
+	return p.provenance[path]
+}
+
+// GetAllProvenance returns the full provenance map accumulated during composition.
+func (p *BaseBlueprintProcessor) GetAllProvenance() map[string][]ProvenanceEntry {
+	return p.provenance
+}
 
 // ProcessFacets iterates facets, evaluating each facet's 'when' against config data. Facets with
 // true (or unset) conditions contribute their terraform components and kustomizations to target.
@@ -193,12 +221,9 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // Private Methods
 // =============================================================================
 
-// resolvedFacetOrdinal returns the ordinal used to order the facet. When the facet has Ordinal set, that value is used; otherwise the default is derived from the facet file path.
-func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
-	if f.Ordinal != nil {
-		return *f.Ordinal
-	}
-	return OrdinalFromFacetPath(f.Path)
+// recordProvenance appends a provenance entry for the given composed path.
+func (p *BaseBlueprintProcessor) recordProvenance(path string, entry ProvenanceEntry) {
+	p.provenance[path] = append(p.provenance[path], entry)
 }
 
 // mergeContextOverScope returns a new map by deep-merging contextScope over globalScope so
@@ -247,6 +272,21 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		}
 		if rawValue == nil {
 			rawValue = make(map[string]any)
+		}
+		if vm, ok := asMapStringAny(rawValue); ok {
+			for key := range vm {
+				p.recordProvenance("config."+block.Name+"."+key, ProvenanceEntry{
+					FacetPath:  facet.Path,
+					SourceName: "",
+					Line:       yamlNodeLine(facet.Path, "config", namedItem(block.Name), "value", key),
+				})
+			}
+		} else {
+			p.recordProvenance("config."+block.Name, ProvenanceEntry{
+				FacetPath:  facet.Path,
+				SourceName: "",
+				Line:       yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
+			})
 		}
 		byName[block.Name] = append(byName[block.Name], rawValue)
 	}
@@ -377,9 +417,6 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 						continue
 					}
 					resolved, err := p.evaluator.Evaluate(s, "", scopeWithBlock, false)
-					if err == nil && resolved != nil && reflect.DeepEqual(resolved, v) {
-						resolved, err = p.evaluator.Evaluate(s, "", scopeWithBlock, true)
-					}
 					if err != nil || resolved == nil {
 						continue
 					}
@@ -517,6 +554,19 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 		}
 
 		componentID := processed.GetID()
+		sn := ""
+		if len(sourceName) > 0 {
+			sn = sourceName[0]
+		}
+		p.recordProvenance("terraform."+componentID, ProvenanceEntry{
+			FacetPath:  facet.Path,
+			SourceName: sn,
+			Ordinal:    effectiveOrdinal,
+			Strategy:   strategy,
+			Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID)),
+			RawInputs:  tc.Inputs,
+		})
+
 		if _, exists := terraformByID[componentID]; !exists {
 			processed.Strategy = strategy
 			terraformByID[componentID] = &processed
@@ -603,6 +653,20 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		if strategy == "" {
 			strategy = "merge"
 		}
+
+		sn := ""
+		if len(sourceName) > 0 {
+			sn = sourceName[0]
+		}
+		p.recordProvenance("kustomize."+processed.Name, ProvenanceEntry{
+			FacetPath:     facet.Path,
+			SourceName:    sn,
+			Ordinal:       effectiveOrdinal,
+			Strategy:      strategy,
+			Line:          yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name)),
+			RawSubs:       k.Substitutions,
+			RawComponents: k.Components,
+		})
 
 		if _, exists := kustomizationByName[processed.Name]; !exists {
 			processed.Strategy = strategy
@@ -1085,32 +1149,6 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 	return accumulated
 }
 
-// asMapStringAny returns v as a map with string keys if v is a map (e.g. map[string]any or
-// map[interface{}]interface{} from YAML). Uses MapRange and fmt.Sprint for keys so interface{}
-// keys from YAML decode as string keys. Returns (nil, false) otherwise.
-func asMapStringAny(v any) (map[string]any, bool) {
-	if v == nil {
-		return nil, false
-	}
-	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Map {
-		return nil, false
-	}
-	out := make(map[string]any, rv.Len())
-	iter := rv.MapRange()
-	for iter.Next() {
-		k := iter.Key()
-		var keyStr string
-		if k.Kind() == reflect.Interface && !k.IsNil() {
-			keyStr = fmt.Sprint(k.Elem().Interface())
-		} else {
-			keyStr = fmt.Sprint(k.Interface())
-		}
-		out[keyStr] = iter.Value().Interface()
-	}
-	return out, true
-}
-
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
 // the provided configuration data. The path parameter provides context for error messages and
 // helper function resolution. Returns true if the expression evaluates to boolean true or the
@@ -1278,6 +1316,40 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// resolvedFacetOrdinal returns the ordinal used to order the facet. When the facet has Ordinal set, that value is used; otherwise the default is derived from the facet file path.
+func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
+	if f.Ordinal != nil {
+		return *f.Ordinal
+	}
+	return OrdinalFromFacetPath(f.Path)
+}
+
+// asMapStringAny returns v as a map with string keys if v is a map (e.g. map[string]any or
+// map[interface{}]interface{} from YAML). Uses MapRange and fmt.Sprint for keys so interface{}
+// keys from YAML decode as string keys. Returns (nil, false) otherwise.
+func asMapStringAny(v any) (map[string]any, bool) {
+	if v == nil {
+		return nil, false
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Map {
+		return nil, false
+	}
+	out := make(map[string]any, rv.Len())
+	iter := rv.MapRange()
+	for iter.Next() {
+		k := iter.Key()
+		var keyStr string
+		if k.Kind() == reflect.Interface && !k.IsNil() {
+			keyStr = fmt.Sprint(k.Elem().Interface())
+		} else {
+			keyStr = fmt.Sprint(k.Interface())
+		}
+		out[keyStr] = iter.Value().Interface()
+	}
+	return out, true
+}
 
 func containsExpressionInValue(v any) bool {
 	switch x := v.(type) {
