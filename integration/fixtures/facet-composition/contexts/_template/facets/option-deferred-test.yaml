@@ -1,0 +1,23 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: option-deferred-test
+  description: Facet testing that config blocks with terraform_output stay deferred.
+
+when: true
+
+config:
+- name: deferred_endpoint
+  value:
+    endpoint: >-
+      ${len(terraform_output("compute", "controlplanes") ?? []) > 0
+        ? "https://" + terraform_output("compute", "controlplanes")[0].endpoint + ":6443"
+        : "https://localhost:6443"}
+
+terraform:
+
+- name: deferred-cluster
+  path: stacks/deferred-cluster
+  inputs:
+    api_endpoint: "${cluster.endpoint ?? deferred_endpoint.endpoint}"
+    static_value: hello

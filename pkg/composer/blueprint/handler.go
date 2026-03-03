@@ -20,6 +20,7 @@ type BlueprintHandler interface {
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
+	Explain(path string) (*ExplainTrace, error)
 }
 
 // =============================================================================
@@ -39,6 +40,7 @@ type BaseBlueprintHandler struct {
 	sourceBlueprintLoaders map[string]BlueprintLoader
 	userBlueprintLoader    BlueprintLoader
 	composedBlueprint      *blueprintv1alpha1.Blueprint
+	composedScope          map[string]any
 	initBlueprintURLs      []string
 }
 
@@ -569,6 +571,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	if contextValues := h.getConfigValues(); contextValues != nil {
 		mergedScope = MergeConfigMaps(mergedScope, contextValues)
 	}
+	h.composedScope = mergedScope
 	scopeMu.Unlock()
 
 	userPath := ""

@@ -25,3 +25,11 @@ kustomize:
   - ordinal-merge-test
   timeout: 5m
   interval: 5m
+
+- name: monitoring
+  path: monitoring/override
+  strategy: merge
+  substitutions:
+    log_level: debug
+  timeout: 10m
+  interval: 5m
