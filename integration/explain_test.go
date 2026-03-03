@@ -95,6 +95,49 @@ func TestExplain(t *testing.T) {
 		})
 	})
 
+	t.Run("KustomizeComponentsList", func(t *testing.T) {
+		t.Parallel()
+		dir, env := helpers.PrepareFixture(t, "facet-composition")
+		env = append(env, "WINDSOR_CONTEXT=default")
+		stdout, stderr, err := helpers.RunCLI(dir, []string{"explain", "kustomize.monitoring.components"}, env)
+		if err != nil {
+			t.Fatalf("explain failed: %v\nstderr: %s", err, stderr)
+		}
+		out := string(stdout)
+		if !strings.Contains(out, "kustomize.monitoring.components") {
+			t.Errorf("expected header containing 'kustomize.monitoring.components', got:\n%s", out)
+		}
+		if !strings.Contains(out, "prometheus") {
+			t.Errorf("expected 'prometheus' in output, got:\n%s", out)
+		}
+		if !strings.Contains(out, "option-explain-test.yaml") {
+			t.Errorf("expected source 'option-explain-test.yaml' in output, got:\n%s", out)
+		}
+	})
+
+	t.Run("KustomizeComponentsMultiFacet", func(t *testing.T) {
+		t.Parallel()
+		dir, env := helpers.PrepareFixture(t, "facet-composition")
+		env = append(env, "WINDSOR_CONTEXT=default")
+		stdout, stderr, err := helpers.RunCLI(dir, []string{"explain", "kustomize.monitoring.components"}, env)
+		if err != nil {
+			t.Fatalf("explain failed: %v\nstderr: %s", err, stderr)
+		}
+		out := string(stdout)
+		if !strings.Contains(out, "prometheus") {
+			t.Errorf("expected 'prometheus' in output, got:\n%s", out)
+		}
+		if !strings.Contains(out, "grafana") {
+			t.Errorf("expected 'grafana' in output, got:\n%s", out)
+		}
+		if !strings.Contains(out, "option-explain-test.yaml") {
+			t.Errorf("expected source 'option-explain-test.yaml' in output, got:\n%s", out)
+		}
+		if !strings.Contains(out, "option-ordinal-override.yaml") {
+			t.Errorf("expected source 'option-ordinal-override.yaml' in output, got:\n%s", out)
+		}
+	})
+
 	t.Run("DeferredTerraformOutputPreservesExpression", func(t *testing.T) {
 		t.Parallel()
 		dir, env := helpers.PrepareFixture(t, "facet-composition")

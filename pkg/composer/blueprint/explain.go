@@ -27,6 +27,7 @@ type ExplainPathKind int
 const (
 	ExplainPathKindTerraformInput ExplainPathKind = iota
 	ExplainPathKindKustomizeSubstitution
+	ExplainPathKindKustomizeComponents
 	ExplainPathKindConfigMap
 )
 
@@ -44,6 +45,7 @@ type ComponentProvenance struct {
 	Strategy      string
 	RawInputs     map[string]any
 	RawSubs       map[string]string
+	RawComponents []string
 	ComponentLine int
 }
 
@@ -69,15 +71,16 @@ type ExplainScopeRef struct {
 // component definition if the key is not locatable). Effective is true when this contribution
 // produced the final composed value; false means it was overridden by a higher-ordinal facet.
 type ExplainContribution struct {
-	SourceName   string
-	FacetPath    string
-	AbsFacetPath string
-	Line         int
-	Ordinal      int
-	Strategy     string
-	Expression   string
-	Effective    bool
-	ScopeRefs    []ExplainScopeRef
+	SourceName    string
+	FacetPath     string
+	AbsFacetPath  string
+	Line          int
+	Ordinal       int
+	Strategy      string
+	Expression    string
+	Effective     bool
+	ScopeRefs     []ExplainScopeRef
+	RawComponents []string
 }
 
 // ExplainTrace holds the result of explaining a path: the value and its contributions.
@@ -98,6 +101,8 @@ func (p ExplainPath) String() string {
 		return fmt.Sprintf("terraform.%s.inputs.%s", p.Segment, p.Key)
 	case ExplainPathKindKustomizeSubstitution:
 		return fmt.Sprintf("kustomize.%s.substitutions.%s", p.Segment, p.Key)
+	case ExplainPathKindKustomizeComponents:
+		return fmt.Sprintf("kustomize.%s.components", p.Segment)
 	case ExplainPathKindConfigMap:
 		return fmt.Sprintf("configMaps.%s.%s", p.Segment, p.Key)
 	default:
@@ -131,8 +136,14 @@ func ParseExplainPath(path string) (ExplainPath, error) {
 			Key:     strings.Join(parts[3:], "."),
 		}, nil
 	case "kustomize":
+		if len(parts) == 3 && parts[2] == "components" {
+			return ExplainPath{
+				Kind:    ExplainPathKindKustomizeComponents,
+				Segment: parts[1],
+			}, nil
+		}
 		if len(parts) < 4 || parts[2] != "substitutions" {
-			return ExplainPath{}, fmt.Errorf("invalid kustomize path %q: expected kustomize.<name>.substitutions.<key>", path)
+			return ExplainPath{}, fmt.Errorf("invalid kustomize path %q: expected kustomize.<name>.substitutions.<key> or kustomize.<name>.components", path)
 		}
 		return ExplainPath{
 			Kind:    ExplainPathKindKustomizeSubstitution,
@@ -177,6 +188,9 @@ func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
 	case ExplainPathKindKustomizeSubstitution:
 		componentType = "kustomize"
 		keySection = "substitutions"
+	case ExplainPathKindKustomizeComponents:
+		componentType = "kustomize"
+		keySection = "components"
 	}
 
 	var contributions []ExplainContribution
@@ -222,6 +236,13 @@ func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
 		}
 		trace.Value = val
 		trace.Contributions = markEffective(contributions)
+
+	case ExplainPathKindKustomizeComponents:
+		k := findKustomization(bp, p.Segment)
+		if k == nil {
+			return nil, fmt.Errorf("kustomization %q not found in blueprint", p.Segment)
+		}
+		trace.Contributions = buildComponentContributions(k.Components, contributions, "kustomize", p.Segment)
 
 	case ExplainPathKindConfigMap:
 		if bp.ConfigMaps == nil {
@@ -278,12 +299,13 @@ func (h *BaseBlueprintHandler) toExplainContribution(cp ComponentProvenance, key
 	}
 
 	c := ExplainContribution{
-		SourceName:   cp.SourceName,
-		FacetPath:    displayPath,
-		AbsFacetPath: cp.FacetPath,
-		Line:         line,
-		Ordinal:      cp.Ordinal,
-		Strategy:     cp.Strategy,
+		SourceName:    cp.SourceName,
+		FacetPath:     displayPath,
+		AbsFacetPath:  cp.FacetPath,
+		Line:          line,
+		Ordinal:       cp.Ordinal,
+		Strategy:      cp.Strategy,
+		RawComponents: cp.RawComponents,
 	}
 
 	if cp.RawInputs != nil && keySection == "inputs" {
@@ -416,6 +438,7 @@ func (h *BaseBlueprintHandler) getProvenance(componentType, componentID string) 
 						Ordinal:       effOrd,
 						Strategy:      strategy,
 						RawSubs:       k.Substitutions,
+						RawComponents: k.Components,
 						ComponentLine: findComponentLine(facet.Path, componentType, componentID),
 					})
 				}
@@ -589,6 +612,89 @@ func findKustomization(bp *blueprintv1alpha1.Blueprint, name string) *blueprintv
 	return nil
 }
 
+// buildComponentContributions maps each resolved component entry back to the facet that
+// contributed it. For each entry in the composed components list, the provenance records are
+// scanned to find a facet whose RawComponents contains a matching value. All contributions
+// are marked effective since each list entry is independently contributed.
+func buildComponentContributions(resolved []string, provenance []ExplainContribution, componentType, componentName string) []ExplainContribution {
+	if len(resolved) == 0 {
+		return nil
+	}
+	var result []ExplainContribution
+	for _, entry := range resolved {
+		var matched *ExplainContribution
+
+		for _, c := range provenance {
+			if c.RawComponents == nil {
+				continue
+			}
+			for _, raw := range c.RawComponents {
+				if raw == entry {
+					line := findComponentValueLine(c.AbsFacetPath, componentType, componentName, entry)
+					if line == 0 {
+						line = c.Line
+					}
+					matched = &ExplainContribution{
+						SourceName:   c.SourceName,
+						FacetPath:    c.FacetPath,
+						AbsFacetPath: c.AbsFacetPath,
+						Line:         line,
+						Ordinal:      c.Ordinal,
+						Strategy:     c.Strategy,
+						Expression:   entry,
+						Effective:    true,
+					}
+					break
+				}
+			}
+			if matched != nil {
+				break
+			}
+		}
+
+		if matched == nil {
+			for _, c := range provenance {
+				if c.RawComponents == nil {
+					continue
+				}
+				for _, raw := range c.RawComponents {
+					if strings.HasPrefix(raw, "${") && matchesExpressionEntry(raw, entry) {
+						line := findComponentValueLine(c.AbsFacetPath, componentType, componentName, entry)
+						if line == 0 {
+							line = c.Line
+						}
+						matched = &ExplainContribution{
+							SourceName:   c.SourceName,
+							FacetPath:    c.FacetPath,
+							AbsFacetPath: c.AbsFacetPath,
+							Line:         line,
+							Ordinal:      c.Ordinal,
+							Strategy:     c.Strategy,
+							Expression:   entry,
+							Effective:    true,
+						}
+						break
+					}
+				}
+				if matched != nil {
+					break
+				}
+			}
+		}
+
+		if matched != nil {
+			result = append(result, *matched)
+		} else {
+			result = append(result, ExplainContribution{
+				SourceName: "composed blueprint",
+				Expression: entry,
+				Effective:  true,
+			})
+		}
+	}
+	return result
+}
+
 // getNestedValue traverses nested maps to resolve a dotted key path.
 func getNestedValue(m map[string]any, key string) (any, bool) {
 	if key == "" {
@@ -737,6 +843,100 @@ func findComponentLine(facetPath, componentType, componentID string) int {
 			}
 			if trimmed == "- name: "+componentID {
 				return i + 1
+			}
+		}
+	}
+	return 0
+}
+
+// matchesExpressionEntry checks whether a resolved component value could have been produced by
+// a raw expression. It extracts single-quoted string literals from the expression and returns
+// true if the entry exactly matches a literal or if the entry starts with a literal that is at
+// least 4 characters long (handles string concatenation patterns like 'prefix/' + variable).
+func matchesExpressionEntry(raw, entry string) bool {
+	if strings.Contains(raw, "'"+entry+"'") {
+		return true
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\'' {
+			continue
+		}
+		j := strings.Index(raw[i+1:], "'")
+		if j < 0 {
+			break
+		}
+		literal := raw[i+1 : i+1+j]
+		i = i + 1 + j
+		if len(literal) >= 4 && strings.HasPrefix(entry, literal) {
+			return true
+		}
+	}
+	return false
+}
+
+// findComponentValueLine scans a facet YAML file for a specific component list entry across ALL
+// blocks matching "- name: <componentName>" under the given componentType section. For each
+// matching block's "components:" list, it checks for literal matches (bare, single-quoted, or
+// double-quoted) and expression matches where the value appears as a string literal inside a
+// ${...} expression. Returns the 1-based line number or 0 if not found.
+func findComponentValueLine(facetPath, componentType, componentName, value string) int {
+	if facetPath == "" {
+		return 0
+	}
+	data, err := os.ReadFile(facetPath)
+	if err != nil {
+		return 0
+	}
+	lines := strings.Split(string(data), "\n")
+
+	inSection := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == componentType+":" {
+			inSection = true
+			continue
+		}
+		if inSection {
+			if len(trimmed) > 0 && leadingSpaces(line) == 0 && !strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "#") {
+				inSection = false
+				continue
+			}
+			if trimmed != "- name: "+componentName {
+				continue
+			}
+			blockIndent := leadingSpaces(line)
+			inComponents := false
+			componentsIndent := -1
+			for j := i + 1; j < len(lines); j++ {
+				bline := lines[j]
+				btrimmed := strings.TrimSpace(bline)
+				if btrimmed == "" || strings.HasPrefix(btrimmed, "#") {
+					continue
+				}
+				bindent := leadingSpaces(bline)
+				if bindent <= blockIndent {
+					break
+				}
+				if !inComponents {
+					if btrimmed == "components:" {
+						inComponents = true
+						componentsIndent = bindent
+						continue
+					}
+				} else {
+					if bindent <= componentsIndent {
+						inComponents = false
+						continue
+					}
+					entry := strings.TrimPrefix(btrimmed, "- ")
+					entry = strings.Trim(entry, "\"'")
+					if entry == value {
+						return j + 1
+					}
+					if strings.HasPrefix(entry, "${") && matchesExpressionEntry(entry, value) {
+						return j + 1
+					}
+				}
 			}
 		}
 	}

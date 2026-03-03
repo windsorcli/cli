@@ -58,6 +58,18 @@ func runExplain(cmd *cobra.Command, args []string) error {
 }
 
 func printTrace(t *blueprint.ExplainTrace) {
+	isList := strings.HasSuffix(t.Path, ".components")
+	if isList {
+		fmt.Printf("%s\n", t.Path)
+		for i, c := range t.Contributions {
+			if !c.Effective {
+				continue
+			}
+			fmt.Printf("  [%d] %s\n", i, c.Expression)
+			printContribution(c)
+		}
+		return
+	}
 	value := t.Value
 	switch {
 	case value == "":
@@ -78,12 +90,13 @@ func printTrace(t *blueprint.ExplainTrace) {
 }
 
 func printContribution(c blueprint.ExplainContribution) {
+	indent := "  "
 	if c.AbsFacetPath != "" && c.Line > 0 {
-		fmt.Printf("  %s:%d\n", c.AbsFacetPath, c.Line)
+		fmt.Printf("%s%s:%d\n", indent, c.AbsFacetPath, c.Line)
 	} else if c.FacetPath != "" {
-		fmt.Printf("  %s\n", c.FacetPath)
+		fmt.Printf("%s%s\n", indent, c.FacetPath)
 	} else {
-		fmt.Printf("  %s\n", c.SourceName)
+		fmt.Printf("%s%s\n", indent, c.SourceName)
 		return
 	}
 	for _, ref := range c.ScopeRefs {

@@ -29,6 +29,8 @@ kustomize:
 - name: monitoring
   path: monitoring/override
   strategy: merge
+  components:
+  - grafana
   substitutions:
     log_level: debug
   timeout: 10m
