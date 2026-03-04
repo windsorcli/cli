@@ -64,11 +64,13 @@ func printTrace(t *blueprint.ExplainTrace) {
 	isList := strings.HasSuffix(t.Path, ".components")
 	if isList {
 		fmt.Printf("%s\n", t.Path)
-		for i, c := range t.Contributions {
+		idx := 0
+		for _, c := range t.Contributions {
 			if !c.Effective {
 				continue
 			}
-			fmt.Printf("  [%d] %s\n", i, c.Expression)
+			fmt.Printf("  [%d] %s\n", idx, c.Expression)
+			idx++
 			printContribution(c)
 		}
 		return
