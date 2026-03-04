@@ -111,7 +111,7 @@ func (v *DockerVirt) removeVolumes(projectLabelValue string) {
 		fmt.Fprintf(os.Stderr, "Warning: could not list volumes for project %s: %v\n", projectLabelValue, err)
 		return
 	}
-	for _, name := range strings.FieldsFunc(out, func(r rune) bool { return r == ' ' || r == '\n' || r == '\t' }) {
+	for _, name := range strings.Fields(strings.TrimSpace(out)) {
 		if name == "" {
 			continue
 		}
