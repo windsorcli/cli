@@ -473,7 +473,7 @@ func (c *DefaultTraceCollector) expandScopeRef(refPath string, visited map[strin
 	visited[refPath] = true
 	defer delete(visited, refPath)
 
-	_, inScope := resolveScopePath(c.scope, refPath)
+	evalVal, inScope := resolveScopePath(c.scope, refPath)
 	blockSource, blockLine, rawVal, record, remaining := c.getConfigBlockWithRecord(refPath)
 
 	if !inScope && rawVal == nil {
@@ -481,8 +481,6 @@ func (c *DefaultTraceCollector) expandScopeRef(refPath string, visited map[strin
 	}
 
 	sr := ExplainScopeRef{Name: refPath, Source: blockSource, Line: blockLine}
-
-	evalVal, _ := resolveScopePath(c.scope, refPath)
 	evalDeferred := containsExpressionInValue(evalVal)
 
 	if record != nil && len(remaining) > 0 && record.NestedRefs != nil {
