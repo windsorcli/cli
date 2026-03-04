@@ -6,6 +6,12 @@ metadata:
 
 when: true
 
+config:
+- name: net_config
+  value:
+    primary_cidr: "${network.cidr_block ?? '10.0.0.0/16'}"
+    lb_start: "${network.loadbalancer_ips.start ?? '10.0.1.10'}"
+
 terraform:
 
 - name: networking
@@ -13,6 +19,7 @@ terraform:
   inputs:
     domain_name: test.example.com
     cidr_block: ${network.cidr_block ?? '10.0.0.0/16'}
+    net_config_ref: "${net_config}"
 
 kustomize:
 

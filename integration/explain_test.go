@@ -138,6 +138,32 @@ func TestExplain(t *testing.T) {
 		}
 	})
 
+	t.Run("ScopeRefChainWithMapConfigBlock", func(t *testing.T) {
+		t.Parallel()
+		dir, env := helpers.PrepareFixture(t, "facet-composition")
+		env = append(env, "WINDSOR_CONTEXT=default")
+		stdout, stderr, err := helpers.RunCLI(dir, []string{"explain", "terraform.networking.inputs.net_config_ref"}, env)
+		if err != nil {
+			t.Fatalf("explain failed: %v\nstderr: %s", err, stderr)
+		}
+		out := string(stdout)
+		if !strings.Contains(out, "terraform.networking.inputs.net_config_ref") {
+			t.Errorf("expected header with path, got:\n%s", out)
+		}
+		if !strings.Contains(out, "net_config") {
+			t.Errorf("expected scope ref 'net_config' in output, got:\n%s", out)
+		}
+		if !strings.Contains(out, "net_config.primary_cidr") {
+			t.Errorf("expected nested ref 'net_config.primary_cidr' from map expansion, got:\n%s", out)
+		}
+		if !strings.Contains(out, "net_config.lb_start") {
+			t.Errorf("expected nested ref 'net_config.lb_start' from map expansion, got:\n%s", out)
+		}
+		if !strings.Contains(out, "network.cidr_block") {
+			t.Errorf("expected terminal ref 'network.cidr_block' from chain resolution, got:\n%s", out)
+		}
+	})
+
 	t.Run("DeferredTerraformOutputResolvesViaFallback", func(t *testing.T) {
 		t.Parallel()
 		dir, env := helpers.PrepareFixture(t, "facet-composition")

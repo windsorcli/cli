@@ -661,6 +661,73 @@ func TestExplain(t *testing.T) {
 		}
 	})
 
+	t.Run("ExpandTopLevelConfigBlockMapWithNestedExpr", func(t *testing.T) {
+		// Given an expression referencing a top-level config block (no dot) whose raw value
+		// is a map containing nested expressions
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "x", Inputs: map[string]any{"patches": "resolved"}},
+			},
+		}
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.patches": {{FacetPath: "/tmp/f.yaml", RawValue: "${mypatch}"}},
+		}
+		configBlocks := map[string][]ConfigBlockRecord{
+			"config.mypatch": {{
+				FacetPath: "/tmp/f.yaml",
+				RawValue: map[string]any{
+					"machine": map[string]any{
+						"network": "${net.driver}",
+					},
+					"cluster": map[string]any{
+						"sans": "${cert.list}",
+					},
+				},
+			}},
+		}
+		scope := map[string]any{
+			"mypatch": map[string]any{
+				"machine": map[string]any{"network": "resolved"},
+				"cluster": map[string]any{"sans": "resolved"},
+			},
+			"net":  map[string]any{"driver": "bridge"},
+			"cert": map[string]any{"list": "san1,san2"},
+		}
+		h := setupExplainHandler(t, bp, scope, contribs, configBlocks)
+
+		// When explaining the input
+		trace, err := h.Explain("terraform.x.inputs.patches")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		effective := findEffective(trace.Contributions)
+		if effective == nil {
+			t.Fatal("expected an effective contribution")
+		}
+		var patchRef *ExplainScopeRef
+		for i := range effective.ScopeRefs {
+			if effective.ScopeRefs[i].Name == "mypatch" {
+				patchRef = &effective.ScopeRefs[i]
+				break
+			}
+		}
+		if patchRef == nil {
+			t.Fatal("expected scope ref mypatch")
+		}
+		nestedNames := make(map[string]bool)
+		for _, n := range patchRef.Nested {
+			nestedNames[n.Name] = true
+		}
+
+		// Then the top-level map config block should expand nested expression paths
+		if !nestedNames["mypatch.machine.network"] {
+			t.Error("expected nested ref mypatch.machine.network")
+		}
+		if !nestedNames["mypatch.cluster.sans"] {
+			t.Error("expected nested ref mypatch.cluster.sans")
+		}
+	})
+
 	t.Run("ExpandScopeRefNilValue", func(t *testing.T) {
 		// Given a ref that is in scope but value is nil and no config block
 		bp := &blueprintv1alpha1.Blueprint{
@@ -1445,6 +1512,54 @@ func TestDefaultTraceCollector_RecordConfigBlock(t *testing.T) {
 		}
 		if records[0].Line != 10 {
 			t.Errorf("expected line 10, got %d", records[0].Line)
+		}
+	})
+
+	t.Run("PopulatesNestedRefsForMapValue", func(t *testing.T) {
+		// Given a trace collector
+		c := NewTraceCollector()
+
+		// When recording a config block with a map value containing expressions
+		c.RecordConfigBlock("config.my_patch", ConfigBlockRecord{
+			FacetPath: "/f.yaml",
+			Line:      5,
+			RawValue: map[string]any{
+				"machine": map[string]any{
+					"network": "${net.driver}",
+				},
+				"cluster": map[string]any{
+					"sans": "${cert.list}",
+				},
+			},
+		})
+
+		// Then NestedPaths and NestedRefs are populated on the record
+		records := c.configBlocks["config.my_patch"]
+		if len(records) != 1 {
+			t.Fatalf("expected 1 record, got %d", len(records))
+		}
+		rec := records[0]
+		if len(rec.NestedPaths) != 2 {
+			t.Fatalf("expected 2 nested paths, got %d: %v", len(rec.NestedPaths), rec.NestedPaths)
+		}
+		if rec.NestedRefs == nil {
+			t.Fatal("expected NestedRefs to be populated")
+		}
+		netRefs := rec.NestedRefs["machine.network"]
+		if len(netRefs) != 1 || netRefs[0] != "net.driver" {
+			t.Errorf("expected NestedRefs[machine.network] = [net.driver], got %v", netRefs)
+		}
+		sansRefs := rec.NestedRefs["cluster.sans"]
+		if len(sansRefs) != 1 || sansRefs[0] != "cert.list" {
+			t.Errorf("expected NestedRefs[cluster.sans] = [cert.list], got %v", sansRefs)
+		}
+
+		// And no child config block entries are created
+		if len(c.configBlocks["config.my_patch.machine.network"]) != 0 {
+			t.Error("expected no child entries for config.my_patch.machine.network")
+		}
+		if len(c.configBlocks["config.my_patch.cluster.sans"]) != 0 {
+			t.Error("expected no child entries for config.my_patch.cluster.sans")
 		}
 	})
 }

@@ -98,12 +98,14 @@ type TraceContribution struct {
 
 // ConfigBlockRecord records a config block value for scope reference resolution. ScopeRefs
 // and NestedPaths are pre-extracted during recording so query-time AST parsing is not needed.
+// NestedRefs maps each nested expression path to its pre-extracted scope variable references.
 type ConfigBlockRecord struct {
 	FacetPath   string
 	Line        int
 	RawValue    any
 	ScopeRefs   []string
 	NestedPaths []string
+	NestedRefs  map[string][]string
 }
 
 // DefaultTraceCollector is the standard TraceCollector implementation backed by in-memory maps.
@@ -162,9 +164,9 @@ func (c *DefaultTraceCollector) RecordContribution(composedPath string, tc Trace
 	c.mu.Unlock()
 }
 
-// RecordConfigBlock stores a config block value and pre-extracts scope references and nested
-// expression paths from the raw value. Called from the processor during config block processing.
-// Thread-safe.
+// RecordConfigBlock stores a config block value and pre-extracts scope references, nested
+// expression paths, and per-path refs from the raw value. No child entries are created;
+// getConfigBlockWithRecord's fallback logic resolves lines via YAML AST. Thread-safe.
 func (c *DefaultTraceCollector) RecordConfigBlock(configPath string, record ConfigBlockRecord) {
 	if record.ScopeRefs == nil && record.NestedPaths == nil {
 		switch v := record.RawValue.(type) {
@@ -175,20 +177,13 @@ func (c *DefaultTraceCollector) RecordConfigBlock(configPath string, record Conf
 		default:
 			if m, ok := asMapStringAny(record.RawValue); ok && containsExpressionInValue(record.RawValue) {
 				record.NestedPaths = collectNestedExprPaths(m, "")
+				record.NestedRefs = make(map[string][]string)
 				for _, np := range record.NestedPaths {
 					childVal := navigateMapPath(m, np)
 					if s, ok := childVal.(string); ok && strings.Contains(s, "${") {
-						childRefs := extractExprASTRefs(s)
-						if len(childRefs) > 0 {
-							childPath := configPath + "." + np
-							c.mu.Lock()
-							c.configBlocks[childPath] = append(c.configBlocks[childPath], ConfigBlockRecord{
-								FacetPath: record.FacetPath,
-								Line:      record.Line,
-								RawValue:  s,
-								ScopeRefs: childRefs,
-							})
-							c.mu.Unlock()
+						refs := extractExprASTRefs(s)
+						if len(refs) > 0 {
+							record.NestedRefs[np] = refs
 						}
 					}
 				}
@@ -477,7 +472,7 @@ func (c *DefaultTraceCollector) expandScopeRef(refPath string, visited map[strin
 	defer delete(visited, refPath)
 
 	_, inScope := resolveScopePath(c.scope, refPath)
-	blockSource, blockLine, rawVal, record := c.getConfigBlockWithRecord(refPath)
+	blockSource, blockLine, rawVal, record, remaining := c.getConfigBlockWithRecord(refPath)
 
 	if !inScope && rawVal == nil {
 		return ExplainScopeRef{Name: refPath, Status: "not set"}, true
@@ -487,6 +482,22 @@ func (c *DefaultTraceCollector) expandScopeRef(refPath string, visited map[strin
 
 	evalVal, _ := resolveScopePath(c.scope, refPath)
 	evalDeferred := containsExpressionInValue(evalVal)
+
+	if record != nil && len(remaining) > 0 && record.NestedRefs != nil {
+		nestedKey := strings.Join(remaining, ".")
+		if refs, ok := record.NestedRefs[nestedKey]; ok && len(refs) > 0 {
+			if evalDeferred {
+				sr.Status = "deferred"
+			}
+			for _, nestedRef := range refs {
+				nested, include := c.expandScopeRef(nestedRef, visited)
+				if include {
+					sr.Nested = append(sr.Nested, nested)
+				}
+			}
+			return sr, true
+		}
+	}
 
 	if record != nil && len(record.ScopeRefs) > 0 {
 		if evalDeferred {
@@ -505,13 +516,11 @@ func (c *DefaultTraceCollector) expandScopeRef(refPath string, visited map[strin
 		if evalDeferred {
 			sr.Status = "deferred"
 		}
-		if strings.Contains(refPath, ".") {
-			for _, path := range record.NestedPaths {
-				fullPath := refPath + "." + path
-				nested, include := c.expandScopeRef(fullPath, visited)
-				if include {
-					sr.Nested = append(sr.Nested, nested)
-				}
+		for _, path := range record.NestedPaths {
+			fullPath := refPath + "." + path
+			nested, include := c.expandScopeRef(fullPath, visited)
+			if include {
+				sr.Nested = append(sr.Nested, nested)
 			}
 		}
 		return sr, true
@@ -532,11 +541,12 @@ func (c *DefaultTraceCollector) expandScopeRef(refPath string, visited map[strin
 	return sr, true
 }
 
-// getConfigBlockWithRecord returns the facet path, line, raw config value, and the matching
-// ConfigBlockRecord for a scope path by matching the longest config.* prefix in configBlocks.
-// When the matched record is a parent of refPath, the remaining path segments navigate into
-// the raw value. The returned record provides pre-computed ScopeRefs and NestedPaths.
-func (c *DefaultTraceCollector) getConfigBlockWithRecord(refPath string) (string, int, any, *ConfigBlockRecord) {
+// getConfigBlockWithRecord returns the facet path, line, raw config value, matching
+// ConfigBlockRecord, and remaining path segments for a scope path by matching the longest
+// config.* prefix in configBlocks. When the matched record is a parent of refPath, the
+// remaining segments navigate into the raw value and resolve nested line numbers via YAML AST.
+// The caller can use remaining with record.NestedRefs to look up pre-computed scope refs.
+func (c *DefaultTraceCollector) getConfigBlockWithRecord(refPath string) (string, int, any, *ConfigBlockRecord, []string) {
 	key := "config." + refPath
 	var remainingSegments []string
 	for {
@@ -560,7 +570,7 @@ func (c *DefaultTraceCollector) getConfigBlockWithRecord(refPath string) (string
 				}
 			}
 			if !navigated && len(remainingSegments) > 0 {
-				return "", 0, nil, nil
+				return "", 0, nil, nil, nil
 			}
 			line := last.Line
 			if len(remainingSegments) > 0 && last.FacetPath != "" {
@@ -568,11 +578,11 @@ func (c *DefaultTraceCollector) getConfigBlockWithRecord(refPath string) (string
 					line = nested
 				}
 			}
-			return last.FacetPath, line, rawVal, &last
+			return last.FacetPath, line, rawVal, &last, remainingSegments
 		}
 		i := strings.LastIndex(key, ".")
 		if i <= 6 {
-			return "", 0, nil, nil
+			return "", 0, nil, nil, nil
 		}
 		remainingSegments = append([]string{key[i+1:]}, remainingSegments...)
 		key = key[:i]
