@@ -138,7 +138,7 @@ func TestExplain(t *testing.T) {
 		}
 	})
 
-	t.Run("DeferredTerraformOutputPreservesExpression", func(t *testing.T) {
+	t.Run("DeferredTerraformOutputResolvesViaFallback", func(t *testing.T) {
 		t.Parallel()
 		dir, env := helpers.PrepareFixture(t, "facet-composition")
 		env = append(env, "WINDSOR_CONTEXT=default")
@@ -146,21 +146,11 @@ func TestExplain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("explain failed: %v\nstderr: %s", err, stderr)
 		}
-		out := string(stdout)
-		if strings.Contains(out, "= https://localhost:6443") {
-			t.Errorf("deferred terraform_output was eagerly resolved to https://localhost:6443; expression should be preserved:\n%s", out)
-		}
-		assertExplainOutput(t, out, explainExpectation{
-			header:             "terraform.deferred-cluster.inputs.api_endpoint (deferred)",
+		assertExplainOutput(t, string(stdout), explainExpectation{
+			header:             "terraform.deferred-cluster.inputs.api_endpoint = https://localhost:6443",
 			sourceContains:     "option-deferred-test.yaml",
 			expressionContains: "deferred_endpoint.endpoint",
 		})
-		if !strings.Contains(out, "cluster.endpoint (not set)") {
-			t.Errorf("expected 'cluster.endpoint (not set)' in output:\n%s", out)
-		}
-		if !strings.Contains(out, "deferred_endpoint.endpoint (deferred)") {
-			t.Errorf("expected 'deferred_endpoint.endpoint (deferred)' in output:\n%s", out)
-		}
 	})
 
 	t.Run("DeferredConfigBlockDoesNotAffectLiterals", func(t *testing.T) {
