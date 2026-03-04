@@ -40,7 +40,6 @@ type BaseBlueprintHandler struct {
 	sourceBlueprintLoaders map[string]BlueprintLoader
 	userBlueprintLoader    BlueprintLoader
 	composedBlueprint      *blueprintv1alpha1.Blueprint
-	composedScope          map[string]any
 	traceCollector         TraceCollector
 	initBlueprintURLs      []string
 }
@@ -585,7 +584,6 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	if contextValues := h.getConfigValues(); contextValues != nil {
 		mergedScope = MergeConfigMaps(mergedScope, contextValues)
 	}
-	h.composedScope = mergedScope
 	scopeMu.Unlock()
 
 	userPath := ""

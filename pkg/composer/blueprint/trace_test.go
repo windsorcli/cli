@@ -41,7 +41,6 @@ func setupExplainHandler(t *testing.T, bp *blueprintv1alpha1.Blueprint, scope ma
 		runtime:           rt,
 		processor:         &BaseBlueprintProcessor{runtime: rt},
 		composedBlueprint: bp,
-		composedScope:     scope,
 		traceCollector:    tc,
 	}
 }
@@ -1253,7 +1252,6 @@ func TestExplain(t *testing.T) {
 			runtime:           &runtime.Runtime{},
 			processor:         explainTestProcessor{},
 			composedBlueprint: bp,
-			composedScope:     nil,
 		}
 
 		// When explaining the input
