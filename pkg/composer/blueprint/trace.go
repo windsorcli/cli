@@ -156,7 +156,7 @@ func (c *DefaultTraceCollector) RecordValue(loc SourceLocation, val any) {
 			c.Record(loc, extractExprASTRefs(v), nil)
 		}
 	default:
-		if m, ok := asMapStringAny(val); ok && containsExprInValue(val) {
+		if m, ok := asMapStringAny(val); ok && containsExpressionInValue(val) {
 			nestedPaths := collectNestedExprPaths(m, "")
 			if len(nestedPaths) > 0 {
 				c.Record(loc, nil, nestedPaths)
@@ -485,7 +485,7 @@ func expandScopeRef(scope map[string]any, provMap map[string][]ProvenanceEntry, 
 	sr := ExplainScopeRef{Name: refPath, Source: blockSource, Line: blockLine}
 
 	evalVal, _ := resolveScopePath(scope, refPath)
-	evalDeferred := containsExprInValue(evalVal)
+	evalDeferred := containsExpressionInValue(evalVal)
 
 	traceVal := rawVal
 	if traceVal == nil {
@@ -516,7 +516,7 @@ func expandScopeRef(scope map[string]any, provMap map[string][]ProvenanceEntry, 
 		return sr, true
 	}
 
-	if m, ok := asMapStringAny(traceVal); ok && containsExprInValue(traceVal) {
+	if m, ok := asMapStringAny(traceVal); ok && containsExpressionInValue(traceVal) {
 		if evalDeferred {
 			sr.Status = "deferred"
 		}
@@ -658,45 +658,12 @@ func collectNestedExprPaths(m map[string]any, prefix string) []string {
 			continue
 		}
 		if nested, ok := asMapStringAny(v); ok {
-			if containsExprInValue(v) {
+			if containsExpressionInValue(v) {
 				out = append(out, collectNestedExprPaths(nested, p+".")...)
 			}
 		}
 	}
 	return out
-}
-
-func containsExprInValue(v any) bool {
-	if v == nil {
-		return false
-	}
-	switch x := v.(type) {
-	case string:
-		return strings.Contains(x, "${")
-	case map[string]any:
-		for _, val := range x {
-			if containsExprInValue(val) {
-				return true
-			}
-		}
-		return false
-	default:
-		if m, ok := asMapStringAny(v); ok {
-			for _, val := range m {
-				if containsExprInValue(val) {
-					return true
-				}
-			}
-		}
-		if sl, ok := v.([]any); ok {
-			for _, val := range sl {
-				if containsExprInValue(val) {
-					return true
-				}
-			}
-		}
-		return false
-	}
 }
 
 // =============================================================================

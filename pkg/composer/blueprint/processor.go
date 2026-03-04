@@ -1448,6 +1448,14 @@ func containsExpressionInValue(v any) bool {
 		}
 		return false
 	default:
+		if m, ok := asMapStringAny(v); ok {
+			for _, val := range m {
+				if containsExpressionInValue(val) {
+					return true
+				}
+			}
+			return false
+		}
 		return false
 	}
 }
