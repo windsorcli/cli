@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/parser"
@@ -89,6 +90,7 @@ type SourceLocation struct {
 
 // DefaultTraceCollector is the standard TraceCollector implementation backed by in-memory maps.
 type DefaultTraceCollector struct {
+	mu          sync.Mutex
 	scopeRefs   map[string][]string
 	nestedPaths map[string][]string
 }
@@ -126,6 +128,8 @@ func NewTraceCollector() *DefaultTraceCollector {
 
 // Record stores scope references and nested expression paths for the given source location.
 func (c *DefaultTraceCollector) Record(loc SourceLocation, scopeRefs []string, nestedPaths []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if len(scopeRefs) > 0 {
 		c.scopeRefs[loc.DocumentPath] = scopeRefs
 	}
@@ -136,11 +140,15 @@ func (c *DefaultTraceCollector) Record(loc SourceLocation, scopeRefs []string, n
 
 // GetScopeRefs returns the scope variable references recorded for a document path.
 func (c *DefaultTraceCollector) GetScopeRefs(documentPath string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.scopeRefs[documentPath]
 }
 
 // GetNestedPaths returns the nested expression paths recorded for a document path.
 func (c *DefaultTraceCollector) GetNestedPaths(documentPath string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.nestedPaths[documentPath]
 }
 

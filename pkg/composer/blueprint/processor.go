@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -67,6 +68,7 @@ type BaseBlueprintProcessor struct {
 	runtime        *runtime.Runtime
 	evaluator      evaluator.ExpressionEvaluator
 	provenance     map[string][]ProvenanceEntry
+	provenanceMu   sync.Mutex
 	traceCollector TraceCollector
 }
 
@@ -100,6 +102,8 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 
 // GetAllProvenance returns the full provenance map accumulated during composition.
 func (p *BaseBlueprintProcessor) GetAllProvenance() map[string][]ProvenanceEntry {
+	p.provenanceMu.Lock()
+	defer p.provenanceMu.Unlock()
 	return p.provenance
 }
 
@@ -228,7 +232,9 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 // recordProvenance appends a provenance entry for the given composed path.
 func (p *BaseBlueprintProcessor) recordProvenance(path string, entry ProvenanceEntry) {
+	p.provenanceMu.Lock()
 	p.provenance[path] = append(p.provenance[path], entry)
+	p.provenanceMu.Unlock()
 }
 
 // recordExpressionTrace delegates to the TraceCollector when set. All expression extraction
