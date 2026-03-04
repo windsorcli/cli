@@ -68,6 +68,7 @@ type ExplainContribution struct {
 	Ordinal         int
 	Strategy        string
 	Expression      string
+	HasValue        bool
 	Effective       bool
 	ScopeRefs       []ExplainScopeRef
 	RawComponents   []string
@@ -431,6 +432,7 @@ func (c *DefaultTraceCollector) traceToContribution(tc TraceContribution) Explai
 
 	if tc.RawValue != nil {
 		ec.Expression = formatValue(tc.RawValue)
+		ec.HasValue = true
 	}
 
 	return ec
@@ -718,7 +720,7 @@ func markEffective(contributions []ExplainContribution) []ExplainContribution {
 		c := &contributions[i]
 		if c.Strategy == "replace" {
 			effectiveIdx = i
-		} else if c.Expression != "" {
+		} else if c.HasValue {
 			effectiveIdx = i
 		} else if effectiveIdx == -1 {
 			effectiveIdx = i
