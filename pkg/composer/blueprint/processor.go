@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -445,6 +446,16 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 						continue
 					}
 					if reflect.DeepEqual(resolved, v) {
+						if evaluator.ContainsExpression(s) && isSimplePathExpression(s) {
+							strictResolved, strictErr := p.evaluator.Evaluate(s, "", scopeWithBlock, true)
+							if strictErr == nil && strictResolved != nil && !reflect.DeepEqual(strictResolved, v) {
+								if str, ok := strictResolved.(string); !ok || !evaluator.ContainsExpression(str) {
+									current[k] = strictResolved
+									scopeWithBlock[name] = current
+									resolvedAny = true
+								}
+							}
+						}
 						continue
 					}
 					current[k] = resolved
@@ -1427,6 +1438,16 @@ func asMapStringAny(v any) (map[string]any, bool) {
 		out[keyStr] = iter.Value().Interface()
 	}
 	return out, true
+}
+
+// isSimplePathExpression returns true if s looks like a single simple path reference (e.g. ${foo.bar})
+// with no function calls or ternary/coalesce. Used to decide when to re-evaluate with strict mode:
+// only for path-like expressions that may resolve in strict scope, not for deferred or complex expressions.
+func isSimplePathExpression(s string) bool {
+	if !evaluator.ContainsExpression(s) {
+		return false
+	}
+	return !strings.Contains(s, "(") && !strings.Contains(s, "?")
 }
 
 func containsExpressionInValue(v any) bool {
