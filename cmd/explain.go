@@ -50,6 +50,9 @@ func runExplain(cmd *cobra.Command, args []string) error {
 
 	trace, err := proj.Composer.BlueprintHandler.Explain(pathStr)
 	if err != nil {
+		if validationErr != nil {
+			return fmt.Errorf("%w: %v", validationErr, err)
+		}
 		return err
 	}
 
