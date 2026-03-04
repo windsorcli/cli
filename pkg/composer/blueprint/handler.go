@@ -592,14 +592,15 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			userPath = ul.GetBlueprintPath()
 		}
 	}
-	composedBp, err := h.composer.Compose(loaders, initLoaderNames, userPath, mergedScope)
+	composedBp, composeErr := h.composer.Compose(loaders, initLoaderNames, userPath, mergedScope)
 	h.composedBlueprint = composedBp
-	if err != nil {
-		return err
-	}
 
 	if h.traceCollector != nil {
 		h.traceCollector.Finalize(h.composedBlueprint, mergedScope, h.runtime.TemplateRoot)
+	}
+
+	if composeErr != nil {
+		return composeErr
 	}
 
 	if h.runtime.Evaluator != nil {
