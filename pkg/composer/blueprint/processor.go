@@ -50,21 +50,23 @@ type BlueprintProcessor interface {
 // accumulated as composition proceeds, capturing the facet, line, expression, and merge metadata
 // at the point each value is set.
 type ProvenanceEntry struct {
-	FacetPath     string
-	SourceName    string
-	Ordinal       int
-	Strategy      string
-	Line          int
-	RawInputs     map[string]any
-	RawSubs       map[string]string
-	RawComponents []string
+	FacetPath      string
+	SourceName     string
+	Ordinal        int
+	Strategy       string
+	Line           int
+	RawInputs      map[string]any
+	RawSubs        map[string]string
+	RawComponents  []string
+	RawConfigValue any
 }
 
 // BaseBlueprintProcessor provides the default implementation of the BlueprintProcessor interface.
 type BaseBlueprintProcessor struct {
-	runtime    *runtime.Runtime
-	evaluator  evaluator.ExpressionEvaluator
-	provenance map[string][]ProvenanceEntry
+	runtime        *runtime.Runtime
+	evaluator      evaluator.ExpressionEvaluator
+	provenance     map[string][]ProvenanceEntry
+	traceCollector TraceCollector
 }
 
 // =============================================================================
@@ -98,6 +100,13 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // GetAllProvenance returns the full provenance map accumulated during composition.
 func (p *BaseBlueprintProcessor) GetAllProvenance() map[string][]ProvenanceEntry {
 	return p.provenance
+}
+
+// SetTraceCollector sets the trace collector for recording expression traces during composition.
+// When non-nil, expression scope references and nested paths are recorded into the collector.
+// Set to nil to disable trace collection.
+func (p *BaseBlueprintProcessor) SetTraceCollector(tc TraceCollector) {
+	p.traceCollector = tc
 }
 
 // ProcessFacets iterates facets, evaluating each facet's 'when' against config data. Facets with
@@ -221,6 +230,14 @@ func (p *BaseBlueprintProcessor) recordProvenance(path string, entry ProvenanceE
 	p.provenance[path] = append(p.provenance[path], entry)
 }
 
+// recordExpressionTrace delegates to the TraceCollector when set. All expression extraction
+// and trace structure is handled inside the collector so the processor stays thin.
+func (p *BaseBlueprintProcessor) recordExpressionTrace(basePath string, val any, facetPath string) {
+	if p.traceCollector != nil {
+		p.traceCollector.RecordValue(SourceLocation{FacetPath: facetPath, DocumentPath: basePath}, val)
+	}
+}
+
 // mergeContextOverScope returns a new map by deep-merging contextScope over globalScope so
 // expressions see actual context values (e.g. workstation.runtime) while preserving facet-derived
 // nested structure under shared top-level keys (e.g. cluster, workstation).
@@ -269,19 +286,31 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			rawValue = make(map[string]any)
 		}
 		if vm, ok := asMapStringAny(rawValue); ok {
-			for key := range vm {
-				p.recordProvenance("config."+block.Name+"."+key, ProvenanceEntry{
-					FacetPath:  facet.Path,
-					SourceName: "",
-					Line:       yamlNodeLine(facet.Path, "config", namedItem(block.Name), "value", key),
+			p.recordProvenance("config."+block.Name, ProvenanceEntry{
+				FacetPath:      facet.Path,
+				SourceName:     "",
+				Line:           yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
+				RawConfigValue: deepCopyProvenanceValue(rawValue),
+			})
+			for key, val := range vm {
+				configPath := "config." + block.Name + "." + key
+				p.recordProvenance(configPath, ProvenanceEntry{
+					FacetPath:      facet.Path,
+					SourceName:     "",
+					Line:           yamlNodeLine(facet.Path, "config", namedItem(block.Name), "value", mapKeyLine(key)),
+					RawConfigValue: deepCopyProvenanceValue(val),
 				})
+				p.recordExpressionTrace(configPath, val, facet.Path)
 			}
 		} else {
-			p.recordProvenance("config."+block.Name, ProvenanceEntry{
-				FacetPath:  facet.Path,
-				SourceName: "",
-				Line:       yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
+			configPath := "config." + block.Name
+			p.recordProvenance(configPath, ProvenanceEntry{
+				FacetPath:      facet.Path,
+				SourceName:     "",
+				Line:           yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
+				RawConfigValue: deepCopyProvenanceValue(rawValue),
 			})
+			p.recordExpressionTrace(configPath, rawValue, facet.Path)
 		}
 		byName[block.Name] = append(byName[block.Name], rawValue)
 	}
@@ -561,6 +590,9 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID)),
 			RawInputs:  deepCopyMapStringAny(tc.Inputs),
 		})
+		for k, v := range tc.Inputs {
+			p.recordExpressionTrace("terraform."+componentID+".inputs."+k, v, facet.Path)
+		}
 
 		if _, exists := terraformByID[componentID]; !exists {
 			processed.Strategy = strategy
@@ -662,6 +694,9 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			RawSubs:       maps.Clone(k.Substitutions),
 			RawComponents: slices.Clone(k.Components),
 		})
+		for sk, sv := range k.Substitutions {
+			p.recordExpressionTrace("kustomize."+processed.Name+".substitutions."+sk, sv, facet.Path)
+		}
 
 		if _, exists := kustomizationByName[processed.Name]; !exists {
 			processed.Strategy = strategy

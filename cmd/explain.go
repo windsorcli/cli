@@ -40,6 +40,9 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	if err := proj.Configure(nil); err != nil {
 		return err
 	}
+	if bh, ok := proj.Composer.BlueprintHandler.(*blueprint.BaseBlueprintHandler); ok {
+		bh.SetTraceCollector(blueprint.NewTraceCollector())
+	}
 	var validationErr error
 	if err := proj.ComposeBlueprint(); err != nil {
 		validationErr = err
@@ -97,19 +100,30 @@ func printContribution(c blueprint.ExplainContribution) {
 		fmt.Printf("%s%s\n", indent, c.FacetPath)
 	} else {
 		fmt.Printf("%s%s\n", indent, c.SourceName)
-		return
+		if len(c.ScopeRefs) == 0 {
+			return
+		}
 	}
 	for _, ref := range c.ScopeRefs {
-		switch ref.Status {
-		case "not set":
-			fmt.Printf("    %s (not set)\n", ref.Name)
-		case "deferred":
-			fmt.Printf("    %s (deferred)\n", ref.Name)
-		default:
-			fmt.Printf("    %s\n", ref.Name)
-		}
-		if ref.Source != "" && ref.Line > 0 {
-			fmt.Printf("      %s:%d\n", ref.Source, ref.Line)
-		}
+		printScopeRef(ref, "    ")
+	}
+}
+
+func printScopeRef(ref blueprint.ExplainScopeRef, indent string) {
+	switch ref.Status {
+	case "not set":
+		fmt.Printf("%s%s (not set)\n", indent, ref.Name)
+	case "deferred":
+		fmt.Printf("%s%s (deferred)\n", indent, ref.Name)
+	case "cycle":
+		fmt.Printf("%s%s (cycle)\n", indent, ref.Name)
+	default:
+		fmt.Printf("%s%s\n", indent, ref.Name)
+	}
+	if ref.Source != "" && ref.Line > 0 {
+		fmt.Printf("%s  %s:%d\n", indent, ref.Source, ref.Line)
+	}
+	for _, n := range ref.Nested {
+		printScopeRef(n, indent+"  ")
 	}
 }
