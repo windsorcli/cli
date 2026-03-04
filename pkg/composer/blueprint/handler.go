@@ -600,6 +600,10 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		return err
 	}
 
+	if h.traceCollector != nil {
+		h.traceCollector.Finalize(h.composedBlueprint, mergedScope, h.runtime.TemplateRoot)
+	}
+
 	if h.runtime.Evaluator != nil {
 		evalPath := filepath.Join(h.runtime.TemplateRoot, "facets", "_eval.yaml")
 		if h.runtime.TemplateRoot == "" {

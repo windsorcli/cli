@@ -13,21 +13,36 @@ import (
 // Test Setup
 // =============================================================================
 
-func setupExplainHandler(t *testing.T, bp *blueprintv1alpha1.Blueprint, scope map[string]any, provenance map[string][]ProvenanceEntry) *BaseBlueprintHandler {
+// setupTraceCollector creates a DefaultTraceCollector pre-loaded with contributions and config
+// blocks, then finalized with the given blueprint, scope, and template root.
+func setupTraceCollector(t *testing.T, bp *blueprintv1alpha1.Blueprint, scope map[string]any, contributions map[string][]TraceContribution, configBlocks map[string][]ConfigBlockRecord) *DefaultTraceCollector {
+	t.Helper()
+	c := NewTraceCollector()
+	for path, tcs := range contributions {
+		for _, tc := range tcs {
+			c.RecordContribution(path, tc)
+		}
+	}
+	for path, records := range configBlocks {
+		for _, rec := range records {
+			c.RecordConfigBlock(path, rec)
+		}
+	}
+	c.Finalize(bp, scope, "")
+	return c
+}
+
+// setupExplainHandler creates a BaseBlueprintHandler with a pre-loaded trace collector.
+func setupExplainHandler(t *testing.T, bp *blueprintv1alpha1.Blueprint, scope map[string]any, contributions map[string][]TraceContribution, configBlocks map[string][]ConfigBlockRecord) *BaseBlueprintHandler {
 	t.Helper()
 	rt := &runtime.Runtime{}
-	proc := &BaseBlueprintProcessor{
-		runtime:    rt,
-		provenance: provenance,
-	}
-	if proc.provenance == nil {
-		proc.provenance = make(map[string][]ProvenanceEntry)
-	}
+	tc := setupTraceCollector(t, bp, scope, contributions, configBlocks)
 	return &BaseBlueprintHandler{
 		runtime:           rt,
-		processor:         proc,
+		processor:         &BaseBlueprintProcessor{runtime: rt},
 		composedBlueprint: bp,
 		composedScope:     scope,
+		traceCollector:    tc,
 	}
 }
 
@@ -43,13 +58,10 @@ func (explainTestProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, f
 
 func TestParseExplainPath(t *testing.T) {
 	t.Run("ParsesTerraformInputPath", func(t *testing.T) {
-		// Given a terraform input path string
 		path := "terraform.cluster.inputs.cluster_endpoint"
 
-		// When parsing the path
 		p, err := ParseExplainPath(path)
 
-		// Then the path should be parsed as a terraform input
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -65,13 +77,10 @@ func TestParseExplainPath(t *testing.T) {
 	})
 
 	t.Run("ParsesKustomizeSubstitutionPath", func(t *testing.T) {
-		// Given a kustomize substitution path string
 		path := "kustomize.monitoring.substitutions.cluster_domain"
 
-		// When parsing the path
 		p, err := ParseExplainPath(path)
 
-		// Then the path should be parsed as a kustomize substitution
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -87,13 +96,10 @@ func TestParseExplainPath(t *testing.T) {
 	})
 
 	t.Run("ParsesKustomizeComponentsPath", func(t *testing.T) {
-		// Given a kustomize components path string
 		path := "kustomize.monitoring.components"
 
-		// When parsing the path
 		p, err := ParseExplainPath(path)
 
-		// Then the path should be parsed as kustomize components
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -109,13 +115,10 @@ func TestParseExplainPath(t *testing.T) {
 	})
 
 	t.Run("ParsesConfigMapPath", func(t *testing.T) {
-		// Given a configMap path string
 		path := "configMaps.values-common.CONTEXT"
 
-		// When parsing the path
 		p, err := ParseExplainPath(path)
 
-		// Then the path should be parsed as a configMap
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -131,52 +134,40 @@ func TestParseExplainPath(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorForEmptyPath", func(t *testing.T) {
-		// Given an empty path string
 		path := ""
 
-		// When parsing the path
 		_, err := ParseExplainPath(path)
 
-		// Then an error should be returned
 		if err == nil {
 			t.Fatal("expected error for empty path")
 		}
 	})
 
 	t.Run("ReturnsErrorForMalformedPath", func(t *testing.T) {
-		// Given a path with insufficient segments
 		path := "terraform.cluster"
 
-		// When parsing the path
 		_, err := ParseExplainPath(path)
 
-		// Then an error should be returned
 		if err == nil {
 			t.Fatal("expected error for malformed path")
 		}
 	})
 
 	t.Run("ReturnsErrorForUnknownPrefix", func(t *testing.T) {
-		// Given a path with an unrecognized prefix
 		path := "unknown.foo.bar"
 
-		// When parsing the path
 		_, err := ParseExplainPath(path)
 
-		// Then an error should be returned
 		if err == nil {
 			t.Fatal("expected error for unknown prefix")
 		}
 	})
 
 	t.Run("TrimsWhitespace", func(t *testing.T) {
-		// Given a path with leading and trailing space
 		path := "  kustomize.monitoring.components  "
 
-		// When parsing the path
 		p, err := ParseExplainPath(path)
 
-		// Then the path should be parsed as kustomize components
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -186,26 +177,20 @@ func TestParseExplainPath(t *testing.T) {
 	})
 
 	t.Run("ReturnsErrorForInvalidTerraformPath", func(t *testing.T) {
-		// Given a terraform path with wrong middle segment (not "inputs")
 		path := "terraform.cluster.outputs.endpoint"
 
-		// When parsing the path
 		_, err := ParseExplainPath(path)
 
-		// Then an error should be returned
 		if err == nil {
 			t.Fatal("expected error for terraform path without inputs segment")
 		}
 	})
 
 	t.Run("ReturnsErrorForInvalidKustomizePath", func(t *testing.T) {
-		// Given a kustomize path with 4 segments but middle is not "substitutions"
 		path := "kustomize.monitoring.foo.bar"
 
-		// When parsing the path
 		_, err := ParseExplainPath(path)
 
-		// Then an error should be returned
 		if err == nil {
 			t.Fatal("expected error for kustomize path without substitutions or components")
 		}
@@ -214,65 +199,50 @@ func TestParseExplainPath(t *testing.T) {
 
 func TestExplainPath_String(t *testing.T) {
 	t.Run("ReturnsTerraformInputString", func(t *testing.T) {
-		// Given a terraform input ExplainPath
 		p := ExplainPath{Kind: ExplainPathKindTerraformInput, Segment: "cluster", Key: "endpoint"}
 
-		// When converting to string
 		s := p.String()
 
-		// Then the canonical path string should be returned
 		if s != "terraform.cluster.inputs.endpoint" {
 			t.Errorf("expected %q, got %q", "terraform.cluster.inputs.endpoint", s)
 		}
 	})
 
 	t.Run("ReturnsKustomizeSubstitutionString", func(t *testing.T) {
-		// Given a kustomize substitution ExplainPath
 		p := ExplainPath{Kind: ExplainPathKindKustomizeSubstitution, Segment: "monitoring", Key: "domain"}
 
-		// When converting to string
 		s := p.String()
 
-		// Then the canonical path string should be returned
 		if s != "kustomize.monitoring.substitutions.domain" {
 			t.Errorf("expected %q, got %q", "kustomize.monitoring.substitutions.domain", s)
 		}
 	})
 
 	t.Run("ReturnsKustomizeComponentsString", func(t *testing.T) {
-		// Given a kustomize components ExplainPath
 		p := ExplainPath{Kind: ExplainPathKindKustomizeComponents, Segment: "monitoring"}
 
-		// When converting to string
 		s := p.String()
 
-		// Then the canonical path string should be returned
 		if s != "kustomize.monitoring.components" {
 			t.Errorf("expected %q, got %q", "kustomize.monitoring.components", s)
 		}
 	})
 
 	t.Run("ReturnsConfigMapString", func(t *testing.T) {
-		// Given a configMap ExplainPath
 		p := ExplainPath{Kind: ExplainPathKindConfigMap, Segment: "values-common", Key: "CONTEXT"}
 
-		// When converting to string
 		s := p.String()
 
-		// Then the canonical path string should be returned
 		if s != "configMaps.values-common.CONTEXT" {
 			t.Errorf("expected %q, got %q", "configMaps.values-common.CONTEXT", s)
 		}
 	})
 
 	t.Run("ReturnsEmptyStringForUnknownKind", func(t *testing.T) {
-		// Given an ExplainPath with an unknown kind value (default branch in String)
 		p := ExplainPath{Kind: ExplainPathKind(99), Segment: "x", Key: "y"}
 
-		// When converting to string
 		s := p.String()
 
-		// Then an empty string should be returned
 		if s != "" {
 			t.Errorf("expected empty string, got %q", s)
 		}
@@ -281,22 +251,22 @@ func TestExplainPath_String(t *testing.T) {
 
 func TestExplain(t *testing.T) {
 	t.Run("ResolvesLiteralTerraformInput", func(t *testing.T) {
-		// Given a handler with a composed blueprint containing a literal terraform input
+		// Given a trace collector with a literal terraform input contribution
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "networking", Inputs: map[string]any{"domain_name": "example.com"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.networking": {{
+		contribs := map[string][]TraceContribution{
+			"terraform.networking.inputs.domain_name": {{
 				FacetPath:  "/tmp/facets/base.yaml",
 				SourceName: "template",
 				Ordinal:    100,
 				Strategy:   "merge",
-				RawInputs:  map[string]any{"domain_name": "example.com"},
+				RawValue:   "example.com",
 			}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the terraform input path
 		trace, err := h.Explain("terraform.networking.inputs.domain_name")
@@ -317,25 +287,25 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ResolvesExpressionTerraformInput", func(t *testing.T) {
-		// Given a handler with a composed blueprint containing an expression-derived input
+		// Given a trace collector with an expression-derived input
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "networking", Inputs: map[string]any{"cidr_block": "10.0.0.0/16"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.networking": {{
+		contribs := map[string][]TraceContribution{
+			"terraform.networking.inputs.cidr_block": {{
 				FacetPath:  "/tmp/facets/base.yaml",
 				SourceName: "template",
 				Ordinal:    100,
 				Strategy:   "merge",
-				RawInputs:  map[string]any{"cidr_block": "${network.cidr_block}"},
+				RawValue:   "${network.cidr_block}",
 			}},
 		}
 		scope := map[string]any{
 			"network": map[string]any{"cidr_block": "10.0.0.0/16"},
 		}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, nil)
 
 		// When explaining the expression input
 		trace, err := h.Explain("terraform.networking.inputs.cidr_block")
@@ -357,20 +327,22 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ResolvesDeferredTerraformInput", func(t *testing.T) {
-		// Given a handler with a composed blueprint containing a deferred expression
+		// Given a trace collector with a deferred expression
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "cluster", Inputs: map[string]any{"endpoint": "${cluster.endpoint ?? fallback.endpoint}"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.cluster": {{
+		contribs := map[string][]TraceContribution{
+			"terraform.cluster.inputs.endpoint": {{
 				FacetPath:  "/tmp/facets/provider.yaml",
 				SourceName: "template",
 				Ordinal:    200,
 				Strategy:   "merge",
-				RawInputs:  map[string]any{"endpoint": "${cluster.endpoint ?? fallback.endpoint}"},
+				RawValue:   "${cluster.endpoint ?? fallback.endpoint}",
 			}},
+		}
+		configBlocks := map[string][]ConfigBlockRecord{
 			"config.fallback.endpoint": {{
 				FacetPath: "/tmp/facets/provider.yaml",
 				Line:      12,
@@ -379,7 +351,7 @@ func TestExplain(t *testing.T) {
 		scope := map[string]any{
 			"fallback": map[string]any{"endpoint": "${terraform_output(\"compute\")}"},
 		}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, configBlocks)
 
 		// When explaining the deferred input
 		trace, err := h.Explain("terraform.cluster.inputs.endpoint")
@@ -413,14 +385,14 @@ func TestExplain(t *testing.T) {
 				{Name: "x", Inputs: map[string]any{"out": "yes"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.out": {{
 				FacetPath: "/tmp/f.yaml",
-				RawInputs: map[string]any{"out": "${addons.enabled ? 'yes' : 'no'}"},
+				RawValue:  "${addons.enabled ? 'yes' : 'no'}",
 			}},
 		}
 		scope := map[string]any{"addons": map[string]any{"enabled": true}}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, nil)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.x.inputs.out")
@@ -454,14 +426,14 @@ func TestExplain(t *testing.T) {
 				{Name: "x", Inputs: map[string]any{"out": "10.0.0.1"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.out": {{
 				FacetPath: "/tmp/f.yaml",
-				RawInputs: map[string]any{"out": "${env(network.ip)}"},
+				RawValue:  "${env(network.ip)}",
 			}},
 		}
 		scope := map[string]any{"network": map[string]any{"ip": "IP_ADDR"}}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, nil)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.x.inputs.out")
@@ -492,14 +464,14 @@ func TestExplain(t *testing.T) {
 				{Name: "x", Inputs: map[string]any{"out": "resolved"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.out": {{
 				FacetPath: "/tmp/f.yaml",
-				RawInputs: map[string]any{"out": "${let x = config.base; x}"},
+				RawValue:  "${let x = config.base; x}",
 			}},
 		}
 		scope := map[string]any{"config": map[string]any{"base": "resolved"}}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, nil)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.x.inputs.out")
@@ -530,13 +502,13 @@ func TestExplain(t *testing.T) {
 				{Name: "x", Inputs: map[string]any{"config": "${refs.block}"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{FacetPath: "/tmp/f.yaml", RawInputs: map[string]any{"config": "${refs.block}"}}},
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.config": {{FacetPath: "/tmp/f.yaml", RawValue: "${refs.block}"}},
 		}
 		scope := map[string]any{
 			"refs": map[string]any{"block": map[string]any{"key": "val"}},
 		}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, nil)
 
 		// When explaining the input (value is resolved from scope map)
 		trace, err := h.Explain("terraform.x.inputs.config")
@@ -546,7 +518,6 @@ func TestExplain(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if trace.Value != "map[key:val]" && trace.Value != "{\"key\":\"val\"}" {
-			// Value is fmt'd map from evaluator
 			if trace.Value == "" {
 				t.Error("expected non-empty value")
 			}
@@ -560,11 +531,11 @@ func TestExplain(t *testing.T) {
 				{Name: "x", Inputs: map[string]any{"out": ""}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{FacetPath: "/tmp/f.yaml", RawInputs: map[string]any{"out": "${missing.nested}"}}},
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.out": {{FacetPath: "/tmp/f.yaml", RawValue: "${missing.nested}"}},
 		}
 		scope := map[string]any{"missing": map[string]any{}}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, nil)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.x.inputs.out")
@@ -598,12 +569,14 @@ func TestExplain(t *testing.T) {
 				{Name: "x", Inputs: map[string]any{"out": "val"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{FacetPath: "/tmp/f.yaml", RawInputs: map[string]any{"out": "${self}"}}},
-			"config.self": {{FacetPath: "/tmp/f.yaml", RawConfigValue: "${self}"}},
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.out": {{FacetPath: "/tmp/f.yaml", RawValue: "${self}"}},
+		}
+		configBlocks := map[string][]ConfigBlockRecord{
+			"config.self": {{FacetPath: "/tmp/f.yaml", RawValue: "${self}"}},
 		}
 		scope := map[string]any{"self": "val"}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, configBlocks)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.x.inputs.out")
@@ -644,15 +617,17 @@ func TestExplain(t *testing.T) {
 				{Name: "x", Inputs: map[string]any{"out": "resolved"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x":       {{FacetPath: "/tmp/f.yaml", RawInputs: map[string]any{"out": "${refs.block}"}}},
-			"config.refs.block": {{FacetPath: "/tmp/f.yaml", RawConfigValue: map[string]any{"inner": "${other.ref}"}}},
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.out": {{FacetPath: "/tmp/f.yaml", RawValue: "${refs.block}"}},
+		}
+		configBlocks := map[string][]ConfigBlockRecord{
+			"config.refs.block": {{FacetPath: "/tmp/f.yaml", RawValue: map[string]any{"inner": "${other.ref}"}}},
 		}
 		scope := map[string]any{
 			"refs":  map[string]any{"block": map[string]any{"inner": "resolved"}},
 			"other": map[string]any{"ref": "resolved"},
 		}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, configBlocks)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.x.inputs.out")
@@ -687,17 +662,17 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ExpandScopeRefNilValue", func(t *testing.T) {
-		// Given a ref that is in scope but value is nil and no provenance
+		// Given a ref that is in scope but value is nil and no config block
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "x", Inputs: map[string]any{"out": ""}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{FacetPath: "/tmp/f.yaml", RawInputs: map[string]any{"out": "${nilkey}"}}},
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.out": {{FacetPath: "/tmp/f.yaml", RawValue: "${nilkey}"}},
 		}
 		scope := map[string]any{"nilkey": nil}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, nil)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.x.inputs.out")
@@ -722,22 +697,22 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ResolvesKustomizeSubstitution", func(t *testing.T) {
-		// Given a handler with a composed blueprint containing a kustomize substitution
+		// Given a trace collector with a kustomize substitution contribution
 		bp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "monitoring", Substitutions: map[string]string{"domain": "test.example.com"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"kustomize.monitoring": {{
+		contribs := map[string][]TraceContribution{
+			"kustomize.monitoring.substitutions.domain": {{
 				FacetPath:  "/tmp/facets/base.yaml",
 				SourceName: "template",
 				Ordinal:    100,
 				Strategy:   "merge",
-				RawSubs:    map[string]string{"domain": "${dns.domain}"},
+				RawValue:   "${dns.domain}",
 			}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the substitution
 		trace, err := h.Explain("kustomize.monitoring.substitutions.domain")
@@ -752,14 +727,14 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ResolvesKustomizeComponents", func(t *testing.T) {
-		// Given a handler with a composed blueprint containing kustomize components
+		// Given a trace collector with kustomize components contributions
 		bp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "monitoring", Components: []string{"prometheus", "grafana"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"kustomize.monitoring": {{
+		contribs := map[string][]TraceContribution{
+			"kustomize.monitoring.components": {{
 				FacetPath:     "/tmp/facets/base.yaml",
 				SourceName:    "template",
 				Ordinal:       100,
@@ -767,7 +742,7 @@ func TestExplain(t *testing.T) {
 				RawComponents: []string{"prometheus", "grafana"},
 			}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the components list
 		trace, err := h.Explain("kustomize.monitoring.components")
@@ -806,14 +781,14 @@ func TestExplain(t *testing.T) {
 				{Name: "monitoring", Components: []string{"prometheus", "grafana"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"kustomize.monitoring": {{
+		contribs := map[string][]TraceContribution{
+			"kustomize.monitoring.components": {{
 				FacetPath:     facetPath,
 				SourceName:    "template",
 				RawComponents: []string{"prometheus", "grafana"},
 			}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the components path
 		trace, err := h.Explain("kustomize.monitoring.components")
@@ -849,14 +824,16 @@ func TestExplain(t *testing.T) {
 				{Name: "cluster", Inputs: map[string]any{"domain_name": "example.com"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.cluster": {{
+		keyLine := yamlNodeLine(facetPath, "terraform", namedItem("cluster"), "inputs", "domain_name")
+		contribs := map[string][]TraceContribution{
+			"terraform.cluster.inputs.domain_name": {{
 				FacetPath:  facetPath,
 				SourceName: "template",
-				RawInputs:  map[string]any{"domain_name": "example.com"},
+				RawValue:   "example.com",
+				Line:       keyLine,
 			}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the terraform input path
 		trace, err := h.Explain("terraform.cluster.inputs.domain_name")
@@ -873,7 +850,7 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ExplainResolvesNestedConfigKeyLineFromRealFacetFile", func(t *testing.T) {
-		// Given a real facet with config block and nested value map, and provenance for the parent key
+		// Given a real facet with config block and nested value map, and config block for the parent key
 		dir := t.TempDir()
 		facetPath := filepath.Join(dir, "facet.yaml")
 		facetYAML := `config:
@@ -890,16 +867,18 @@ func TestExplain(t *testing.T) {
 				{Name: "x", Inputs: map[string]any{"domain": "${cluster.nested.value}"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.domain": {{
 				FacetPath:  facetPath,
 				SourceName: "template",
-				RawInputs:  map[string]any{"domain": "${cluster.nested.value}"},
+				RawValue:   "${cluster.nested.value}",
 			}},
+		}
+		configBlocks := map[string][]ConfigBlockRecord{
 			"config.cluster.nested": {{
-				FacetPath:      facetPath,
-				Line:           1,
-				RawConfigValue: map[string]any{"value": "val"},
+				FacetPath: facetPath,
+				Line:      1,
+				RawValue:  map[string]any{"value": "val"},
 			}},
 		}
 		scope := map[string]any{
@@ -907,7 +886,7 @@ func TestExplain(t *testing.T) {
 				"nested": map[string]any{"value": "val"},
 			},
 		}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, configBlocks)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.x.inputs.domain")
@@ -952,14 +931,14 @@ func TestExplain(t *testing.T) {
 				{Name: "monitoring", Components: []string{"base/prometheus"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"kustomize.monitoring": {{
+		contribs := map[string][]TraceContribution{
+			"kustomize.monitoring.components": {{
 				FacetPath:     facetPath,
 				SourceName:    "template",
 				RawComponents: []string{"${'base/' + base}"},
 			}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the components path
 		trace, err := h.Explain("kustomize.monitoring.components")
@@ -982,7 +961,7 @@ func TestExplain(t *testing.T) {
 				"values-common": {"CONTEXT": "default"},
 			},
 		}
-		h := setupExplainHandler(t, bp, nil, nil)
+		h := setupExplainHandler(t, bp, nil, nil, nil)
 
 		// When explaining the configMap value
 		trace, err := h.Explain("configMaps.values-common.CONTEXT")
@@ -1005,7 +984,7 @@ func TestExplain(t *testing.T) {
 	t.Run("ReturnsErrorForMissingComponent", func(t *testing.T) {
 		// Given a handler with an empty composed blueprint
 		bp := &blueprintv1alpha1.Blueprint{}
-		h := setupExplainHandler(t, bp, nil, nil)
+		h := setupExplainHandler(t, bp, nil, nil, nil)
 
 		// When explaining a nonexistent terraform component
 		_, err := h.Explain("terraform.nonexistent.inputs.foo")
@@ -1018,7 +997,7 @@ func TestExplain(t *testing.T) {
 
 	t.Run("ReturnsErrorWhenBlueprintNotComposed", func(t *testing.T) {
 		// Given a handler with no composed blueprint
-		h := setupExplainHandler(t, nil, nil, nil)
+		h := setupExplainHandler(t, nil, nil, nil, nil)
 
 		// When explaining any path
 		_, err := h.Explain("terraform.cluster.inputs.endpoint")
@@ -1030,31 +1009,31 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("MarksEffectiveContributor", func(t *testing.T) {
-		// Given a handler with two provenance entries where the second replaces the first
+		// Given a trace collector with two contributions where the second replaces the first
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "networking", Inputs: map[string]any{"domain_name": "override.com"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.networking": {
+		contribs := map[string][]TraceContribution{
+			"terraform.networking.inputs.domain_name": {
 				{
 					FacetPath:  "/tmp/facets/base.yaml",
 					SourceName: "template",
 					Ordinal:    100,
 					Strategy:   "merge",
-					RawInputs:  map[string]any{"domain_name": "base.com"},
+					RawValue:   "base.com",
 				},
 				{
 					FacetPath:  "/tmp/facets/override.yaml",
 					SourceName: "template",
 					Ordinal:    200,
 					Strategy:   "replace",
-					RawInputs:  map[string]any{"domain_name": "override.com"},
+					RawValue:   "override.com",
 				},
 			},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the input
 		trace, err := h.Explain("terraform.networking.inputs.domain_name")
@@ -1075,16 +1054,16 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ResolvesTerraformInputWithNestedKey", func(t *testing.T) {
-		// Given a handler with a terraform input using a dotted key
+		// Given a trace collector with a terraform input using a dotted key path
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "x", Inputs: map[string]any{"nested": map[string]any{"deep": map[string]any{"key": "val"}}}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{FacetPath: "/tmp/f.yaml", RawInputs: map[string]any{"nested": map[string]any{"deep": map[string]any{"key": "val"}}}}},
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.nested.deep.key": {{FacetPath: "/tmp/f.yaml", RawValue: "val"}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the nested key path
 		trace, err := h.Explain("terraform.x.inputs.nested.deep.key")
@@ -1099,16 +1078,16 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ResolvesTerraformInputWithMapValue", func(t *testing.T) {
-		// Given a handler with a terraform input whose value is a map (hits formatValue map branch)
+		// Given a trace collector with a terraform input whose value is a map
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "x", Inputs: map[string]any{"tags": map[string]any{"env": "test", "role": "web"}}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{FacetPath: "/tmp/f.yaml", RawInputs: map[string]any{"tags": map[string]any{"env": "test"}}}},
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.tags": {{FacetPath: "/tmp/f.yaml", RawValue: map[string]any{"env": "test"}}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the map input
 		trace, err := h.Explain("terraform.x.inputs.tags")
@@ -1123,20 +1102,20 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ResolvesKustomizeComponentsWithExpressionDerivedEntry", func(t *testing.T) {
-		// Given a handler where a resolved component came from an expression in RawComponents
+		// Given a trace collector where a resolved component came from an expression
 		bp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "lb", Components: []string{"fluentd"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"kustomize.lb": {{
+		contribs := map[string][]TraceContribution{
+			"kustomize.lb.components": {{
 				FacetPath:     "/tmp/f.yaml",
 				SourceName:    "template",
 				RawComponents: []string{"${'fluentd'}"},
 			}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the components list
 		trace, err := h.Explain("kustomize.lb.components")
@@ -1157,19 +1136,19 @@ func TestExplain(t *testing.T) {
 	})
 
 	t.Run("ResolvesKustomizeComponentsWithUnmatchedEntry", func(t *testing.T) {
-		// Given a handler where one resolved component has no matching provenance
+		// Given a trace collector where one resolved component has no matching contribution
 		bp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "lb", Components: []string{"prometheus", "unknown-component"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"kustomize.lb": {{
+		contribs := map[string][]TraceContribution{
+			"kustomize.lb.components": {{
 				FacetPath:     "/tmp/f.yaml",
 				RawComponents: []string{"prometheus"},
 			}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the components list
 		trace, err := h.Explain("kustomize.lb.components")
@@ -1196,8 +1175,8 @@ func TestExplain(t *testing.T) {
 		}
 	})
 
-	t.Run("ExplainWithNonProvenanceProcessor", func(t *testing.T) {
-		// Given a handler whose processor is not BaseBlueprintProcessor (e.g. mock)
+	t.Run("ExplainWithNoTraceCollector", func(t *testing.T) {
+		// Given a handler whose trace collector is not set
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "x", Inputs: map[string]any{"key": "val"}},
@@ -1211,24 +1190,18 @@ func TestExplain(t *testing.T) {
 		}
 
 		// When explaining the input
-		trace, err := h.Explain("terraform.x.inputs.key")
+		_, err := h.Explain("terraform.x.inputs.key")
 
-		// Then we still get a trace with "composed blueprint" as the contribution
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if trace.Value != "val" {
-			t.Errorf("expected value %q, got %q", "val", trace.Value)
-		}
-		if len(trace.Contributions) != 1 || trace.Contributions[0].SourceName != "composed blueprint" {
-			t.Errorf("expected single contribution \"composed blueprint\", got %v", trace.Contributions)
+		// Then an error should be returned since no trace collector is set
+		if err == nil {
+			t.Fatal("expected error when trace collector not set")
 		}
 	})
 
 	t.Run("ReturnsErrorForMissingKustomization", func(t *testing.T) {
 		// Given a handler with a blueprint that has no kustomizations
 		bp := &blueprintv1alpha1.Blueprint{}
-		h := setupExplainHandler(t, bp, nil, nil)
+		h := setupExplainHandler(t, bp, nil, nil, nil)
 
 		// When explaining a nonexistent kustomization
 		_, err := h.Explain("kustomize.nonexistent.components")
@@ -1246,10 +1219,10 @@ func TestExplain(t *testing.T) {
 				{Name: "monitoring", Substitutions: nil},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"kustomize.monitoring": {{FacetPath: "/tmp/f.yaml", SourceName: "template"}},
+		contribs := map[string][]TraceContribution{
+			"kustomize.monitoring.substitutions.domain": {{FacetPath: "/tmp/f.yaml", SourceName: "template"}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining any substitution key
 		trace, err := h.Explain("kustomize.monitoring.substitutions.domain")
@@ -1270,10 +1243,10 @@ func TestExplain(t *testing.T) {
 				{Name: "monitoring", Substitutions: map[string]string{"other": "val"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"kustomize.monitoring": {{FacetPath: "/tmp/f.yaml", RawSubs: map[string]string{"other": "val"}}},
+		contribs := map[string][]TraceContribution{
+			"kustomize.monitoring.substitutions.other": {{FacetPath: "/tmp/f.yaml", RawValue: "val"}},
 		}
-		h := setupExplainHandler(t, bp, nil, prov)
+		h := setupExplainHandler(t, bp, nil, contribs, nil)
 
 		// When explaining the missing substitution key
 		trace, err := h.Explain("kustomize.monitoring.substitutions.missing")
@@ -1292,7 +1265,7 @@ func TestExplain(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{
 			ConfigMaps: map[string]map[string]string{"other": {}},
 		}
-		h := setupExplainHandler(t, bp, nil, nil)
+		h := setupExplainHandler(t, bp, nil, nil, nil)
 
 		// When explaining a nonexistent configMap name
 		_, err := h.Explain("configMaps.nonexistent.KEY")
@@ -1310,7 +1283,7 @@ func TestExplain(t *testing.T) {
 				"values-common": {"OTHER": "val"},
 			},
 		}
-		h := setupExplainHandler(t, bp, nil, nil)
+		h := setupExplainHandler(t, bp, nil, nil, nil)
 
 		// When explaining a missing key
 		_, err := h.Explain("configMaps.values-common.MISSING")
@@ -1328,7 +1301,7 @@ func TestExplain(t *testing.T) {
 				{Name: "cluster", Inputs: nil},
 			},
 		}
-		h := setupExplainHandler(t, bp, nil, nil)
+		h := setupExplainHandler(t, bp, nil, nil, nil)
 
 		// When explaining an input path
 		_, err := h.Explain("terraform.cluster.inputs.endpoint")
@@ -1339,23 +1312,25 @@ func TestExplain(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolvesNestedConfigLineWhenScopeRefIsDeeperThanProvenance", func(t *testing.T) {
-		// Given an expression that references a nested config path and provenance only has the parent key
+	t.Run("ResolvesNestedConfigLineWhenScopeRefIsDeeperThanConfigBlock", func(t *testing.T) {
+		// Given an expression that references a nested config path and config blocks only have the parent key
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Name: "x", Inputs: map[string]any{"domain": "val"}},
 			},
 		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{
+		contribs := map[string][]TraceContribution{
+			"terraform.x.inputs.domain": {{
 				FacetPath:  "/tmp/f.yaml",
 				SourceName: "template",
-				RawInputs:  map[string]any{"domain": "${cluster.nested.deep}"},
+				RawValue:   "${cluster.nested.deep}",
 			}},
+		}
+		configBlocks := map[string][]ConfigBlockRecord{
 			"config.cluster.nested": {{
-				FacetPath:      "/tmp/f.yaml",
-				Line:           10,
-				RawConfigValue: map[string]any{"deep": "val"},
+				FacetPath: "/tmp/f.yaml",
+				Line:      10,
+				RawValue:  map[string]any{"deep": "val"},
 			}},
 		}
 		scope := map[string]any{
@@ -1363,7 +1338,7 @@ func TestExplain(t *testing.T) {
 				"nested": map[string]any{"deep": "val"},
 			},
 		}
-		h := setupExplainHandler(t, bp, scope, prov)
+		h := setupExplainHandler(t, bp, scope, contribs, configBlocks)
 
 		// When explaining the input (resolveScopeRefs expands the nested ref)
 		trace, err := h.Explain("terraform.x.inputs.domain")
@@ -1387,49 +1362,6 @@ func TestExplain(t *testing.T) {
 			t.Error("expected scope ref cluster.nested.deep")
 		}
 	})
-
-	t.Run("ExplainUsesTraceCollectorWhenSet", func(t *testing.T) {
-		// Given a handler with a pre-loaded trace collector and an expression that references scope
-		bp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Name: "x", Inputs: map[string]any{"domain": "resolved.example.com"}},
-			},
-		}
-		prov := map[string][]ProvenanceEntry{
-			"terraform.x": {{
-				FacetPath:  "/tmp/f.yaml",
-				SourceName: "template",
-				RawInputs:  map[string]any{"domain": "${dns.domain}"},
-			}},
-		}
-		scope := map[string]any{"dns": map[string]any{"domain": "resolved.example.com"}}
-		collector := NewTraceCollector()
-		collector.Record(SourceLocation{DocumentPath: "terraform.x.inputs.domain"}, []string{"dns.domain"}, nil)
-		h := setupExplainHandler(t, bp, scope, prov)
-		h.SetTraceCollector(collector)
-
-		// When explaining the input
-		trace, err := h.Explain("terraform.x.inputs.domain")
-
-		// Then the trace resolves and scope refs come from the collector
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		effective := findEffective(trace.Contributions)
-		if effective == nil {
-			t.Fatal("expected an effective contribution")
-		}
-		var found bool
-		for _, ref := range effective.ScopeRefs {
-			if ref.Name == "dns.domain" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Error("expected scope ref dns.domain from collector")
-		}
-	})
 }
 
 // =============================================================================
@@ -1441,103 +1373,101 @@ func TestNewTraceCollector(t *testing.T) {
 		// When creating a new trace collector
 		c := NewTraceCollector()
 
-		// Then the collector should be non-nil and return empty refs/paths for unknown keys
+		// Then the collector should be non-nil
 		if c == nil {
 			t.Fatal("expected non-nil collector")
 		}
-		if refs := c.GetScopeRefs("any.path"); refs != nil {
-			t.Errorf("expected nil scope refs, got %v", refs)
+		if c.contributions == nil {
+			t.Error("expected initialized contributions map")
 		}
-		if paths := c.GetNestedPaths("any.path"); paths != nil {
-			t.Errorf("expected nil nested paths, got %v", paths)
-		}
-	})
-}
-
-func TestDefaultTraceCollector_Record(t *testing.T) {
-	t.Run("StoresScopeRefsAndNestedPaths", func(t *testing.T) {
-		// Given a trace collector
-		c := NewTraceCollector()
-		loc := SourceLocation{FacetPath: "/f.yaml", DocumentPath: "config.cluster.endpoint"}
-
-		// When recording scope refs and nested paths
-		c.Record(loc, []string{"dns.domain"}, []string{"cluster", "endpoint"})
-
-		// Then GetScopeRefs and GetNestedPaths return the stored data
-		refs := c.GetScopeRefs(loc.DocumentPath)
-		if len(refs) != 1 || refs[0] != "dns.domain" {
-			t.Errorf("expected [dns.domain], got %v", refs)
-		}
-		paths := c.GetNestedPaths(loc.DocumentPath)
-		if len(paths) != 2 || paths[0] != "cluster" || paths[1] != "endpoint" {
-			t.Errorf("expected [cluster endpoint], got %v", paths)
-		}
-	})
-
-	t.Run("IgnoresEmptySlices", func(t *testing.T) {
-		// Given a trace collector
-		c := NewTraceCollector()
-		loc := SourceLocation{DocumentPath: "config.x"}
-
-		// When recording with empty scope refs and nested paths
-		c.Record(loc, nil, nil)
-
-		// Then nothing is stored
-		if c.GetScopeRefs(loc.DocumentPath) != nil {
-			t.Error("expected nil scope refs")
-		}
-		if c.GetNestedPaths(loc.DocumentPath) != nil {
-			t.Error("expected nil nested paths")
+		if c.configBlocks == nil {
+			t.Error("expected initialized configBlocks map")
 		}
 	})
 }
 
-func TestDefaultTraceCollector_RecordValue(t *testing.T) {
-	t.Run("ExtractsAndStoresRefsFromStringExpression", func(t *testing.T) {
+func TestDefaultTraceCollector_RecordContribution(t *testing.T) {
+	t.Run("StoresContribution", func(t *testing.T) {
 		// Given a trace collector
 		c := NewTraceCollector()
-		loc := SourceLocation{DocumentPath: "terraform.x.inputs.domain"}
 
-		// When recording a string value containing an expression
-		c.RecordValue(loc, "${dns.domain}")
-
-		// Then scope refs are stored for that path
-		refs := c.GetScopeRefs(loc.DocumentPath)
-		if len(refs) == 0 {
-			t.Error("expected at least one scope ref extracted from expression")
-		}
-	})
-
-	t.Run("IgnoresNilValue", func(t *testing.T) {
-		// Given a trace collector
-		c := NewTraceCollector()
-		loc := SourceLocation{DocumentPath: "config.x"}
-
-		// When recording nil
-		c.RecordValue(loc, nil)
-
-		// Then nothing is stored
-		if c.GetScopeRefs(loc.DocumentPath) != nil {
-			t.Error("expected nil scope refs")
-		}
-	})
-
-	t.Run("StoresNestedPathsFromMapWithExpressions", func(t *testing.T) {
-		// Given a trace collector
-		c := NewTraceCollector()
-		loc := SourceLocation{DocumentPath: "config.block"}
-
-		// When recording a map that contains a nested string with an expression
-		c.RecordValue(loc, map[string]any{
-			"nested": map[string]any{
-				"key": "${some.ref}",
-			},
+		// When recording a contribution
+		c.RecordContribution("terraform.x.inputs.domain", TraceContribution{
+			FacetPath:  "/f.yaml",
+			SourceName: "template",
+			Ordinal:    100,
+			Strategy:   "merge",
+			Line:       5,
+			RawValue:   "example.com",
 		})
 
-		// Then nested paths are stored and child expression refs are recorded
-		paths := c.GetNestedPaths(loc.DocumentPath)
-		if len(paths) == 0 {
-			t.Error("expected nested paths for map with expression")
+		// Then the contribution is stored
+		records := c.contributions["terraform.x.inputs.domain"]
+		if len(records) != 1 {
+			t.Fatalf("expected 1 record, got %d", len(records))
+		}
+		if records[0].SourceName != "template" {
+			t.Errorf("expected source %q, got %q", "template", records[0].SourceName)
+		}
+	})
+
+	t.Run("AppendsMultipleContributions", func(t *testing.T) {
+		// Given a trace collector with an existing contribution
+		c := NewTraceCollector()
+		c.RecordContribution("terraform.x.inputs.k", TraceContribution{Ordinal: 100})
+
+		// When recording a second contribution for the same path
+		c.RecordContribution("terraform.x.inputs.k", TraceContribution{Ordinal: 200})
+
+		// Then both contributions are stored
+		if len(c.contributions["terraform.x.inputs.k"]) != 2 {
+			t.Errorf("expected 2 records, got %d", len(c.contributions["terraform.x.inputs.k"]))
+		}
+	})
+}
+
+func TestDefaultTraceCollector_RecordConfigBlock(t *testing.T) {
+	t.Run("StoresConfigBlock", func(t *testing.T) {
+		// Given a trace collector
+		c := NewTraceCollector()
+
+		// When recording a config block
+		c.RecordConfigBlock("config.cluster.endpoint", ConfigBlockRecord{
+			FacetPath: "/f.yaml",
+			Line:      10,
+			RawValue:  "${terraform_output(\"compute\")}",
+		})
+
+		// Then the config block is stored
+		records := c.configBlocks["config.cluster.endpoint"]
+		if len(records) != 1 {
+			t.Fatalf("expected 1 record, got %d", len(records))
+		}
+		if records[0].Line != 10 {
+			t.Errorf("expected line 10, got %d", records[0].Line)
+		}
+	})
+}
+
+func TestDefaultTraceCollector_Finalize(t *testing.T) {
+	t.Run("StoresBlueprintAndScope", func(t *testing.T) {
+		// Given a trace collector
+		c := NewTraceCollector()
+		bp := &blueprintv1alpha1.Blueprint{}
+		scope := map[string]any{"key": "val"}
+
+		// When finalizing
+		c.Finalize(bp, scope, "/template/root")
+
+		// Then the blueprint, scope, and template root are stored
+		if c.blueprint != bp {
+			t.Error("expected blueprint to be stored")
+		}
+		if c.scope == nil || c.scope["key"] != "val" {
+			t.Error("expected scope to be stored")
+		}
+		if c.templateRoot != "/template/root" {
+			t.Errorf("expected template root %q, got %q", "/template/root", c.templateRoot)
 		}
 	})
 }

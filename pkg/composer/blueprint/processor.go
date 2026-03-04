@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"slices"
 	"sort"
-	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -46,28 +45,10 @@ type BlueprintProcessor interface {
 // Types
 // =============================================================================
 
-// ProvenanceEntry records the origin of a single value contribution during blueprint composition.
-// Entries are keyed by composed path (e.g. "terraform.cluster.inputs.cluster_endpoint") and
-// accumulated as composition proceeds, capturing the facet, line, expression, and merge metadata
-// at the point each value is set.
-type ProvenanceEntry struct {
-	FacetPath      string
-	SourceName     string
-	Ordinal        int
-	Strategy       string
-	Line           int
-	RawInputs      map[string]any
-	RawSubs        map[string]string
-	RawComponents  []string
-	RawConfigValue any
-}
-
 // BaseBlueprintProcessor provides the default implementation of the BlueprintProcessor interface.
 type BaseBlueprintProcessor struct {
 	runtime        *runtime.Runtime
 	evaluator      evaluator.ExpressionEvaluator
-	provenance     map[string][]ProvenanceEntry
-	provenanceMu   sync.Mutex
 	traceCollector TraceCollector
 }
 
@@ -89,9 +70,8 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 	}
 
 	return &BaseBlueprintProcessor{
-		runtime:    rt,
-		evaluator:  rt.Evaluator,
-		provenance: make(map[string][]ProvenanceEntry),
+		runtime:   rt,
+		evaluator: rt.Evaluator,
 	}
 }
 
@@ -99,15 +79,8 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // Public Methods
 // =============================================================================
 
-// GetAllProvenance returns the full provenance map accumulated during composition.
-func (p *BaseBlueprintProcessor) GetAllProvenance() map[string][]ProvenanceEntry {
-	p.provenanceMu.Lock()
-	defer p.provenanceMu.Unlock()
-	return p.provenance
-}
-
-// SetTraceCollector sets the trace collector for recording expression traces during composition.
-// When non-nil, expression scope references and nested paths are recorded into the collector.
+// SetTraceCollector sets the trace collector for recording per-key contributions and config
+// blocks during composition. When non-nil, all contributions are recorded into the collector.
 // Set to nil to disable trace collection.
 func (p *BaseBlueprintProcessor) SetTraceCollector(tc TraceCollector) {
 	p.traceCollector = tc
@@ -229,18 +202,17 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // Private Methods
 // =============================================================================
 
-// recordProvenance appends a provenance entry for the given composed path.
-func (p *BaseBlueprintProcessor) recordProvenance(path string, entry ProvenanceEntry) {
-	p.provenanceMu.Lock()
-	p.provenance[path] = append(p.provenance[path], entry)
-	p.provenanceMu.Unlock()
+// recordTrace records a per-key contribution to the trace collector when set.
+func (p *BaseBlueprintProcessor) recordTrace(composedPath string, tc TraceContribution) {
+	if p.traceCollector != nil {
+		p.traceCollector.RecordContribution(composedPath, tc)
+	}
 }
 
-// recordExpressionTrace delegates to the TraceCollector when set. All expression extraction
-// and trace structure is handled inside the collector so the processor stays thin.
-func (p *BaseBlueprintProcessor) recordExpressionTrace(basePath string, val any, facetPath string) {
+// recordConfigTrace records a config block value to the trace collector when set.
+func (p *BaseBlueprintProcessor) recordConfigTrace(configPath string, record ConfigBlockRecord) {
 	if p.traceCollector != nil {
-		p.traceCollector.RecordValue(SourceLocation{FacetPath: facetPath, DocumentPath: basePath}, val)
+		p.traceCollector.RecordConfigBlock(configPath, record)
 	}
 }
 
@@ -292,31 +264,26 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			rawValue = make(map[string]any)
 		}
 		if vm, ok := asMapStringAny(rawValue); ok {
-			p.recordProvenance("config."+block.Name, ProvenanceEntry{
-				FacetPath:      facet.Path,
-				SourceName:     "",
-				Line:           yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
-				RawConfigValue: deepCopyProvenanceValue(rawValue),
+			p.recordConfigTrace("config."+block.Name, ConfigBlockRecord{
+				FacetPath: facet.Path,
+				Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
+				RawValue:  deepCopyValue(rawValue),
 			})
 			for key, val := range vm {
 				configPath := "config." + block.Name + "." + key
-				p.recordProvenance(configPath, ProvenanceEntry{
-					FacetPath:      facet.Path,
-					SourceName:     "",
-					Line:           yamlNodeLine(facet.Path, "config", namedItem(block.Name), "value", mapKeyLine(key)),
-					RawConfigValue: deepCopyProvenanceValue(val),
+				p.recordConfigTrace(configPath, ConfigBlockRecord{
+					FacetPath: facet.Path,
+					Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name), "value", mapKeyLine(key)),
+					RawValue:  deepCopyValue(val),
 				})
-				p.recordExpressionTrace(configPath, val, facet.Path)
 			}
 		} else {
 			configPath := "config." + block.Name
-			p.recordProvenance(configPath, ProvenanceEntry{
-				FacetPath:      facet.Path,
-				SourceName:     "",
-				Line:           yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
-				RawConfigValue: deepCopyProvenanceValue(rawValue),
+			p.recordConfigTrace(configPath, ConfigBlockRecord{
+				FacetPath: facet.Path,
+				Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
+				RawValue:  deepCopyValue(rawValue),
 			})
-			p.recordExpressionTrace(configPath, rawValue, facet.Path)
 		}
 		byName[block.Name] = append(byName[block.Name], rawValue)
 	}
@@ -591,16 +558,16 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 		if len(sourceName) > 0 {
 			sn = sourceName[0]
 		}
-		p.recordProvenance("terraform."+componentID, ProvenanceEntry{
-			FacetPath:  facet.Path,
-			SourceName: sn,
-			Ordinal:    effectiveOrdinal,
-			Strategy:   strategy,
-			Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID)),
-			RawInputs:  deepCopyMapStringAny(tc.Inputs),
-		})
 		for k, v := range tc.Inputs {
-			p.recordExpressionTrace("terraform."+componentID+".inputs."+k, v, facet.Path)
+			composedPath := "terraform." + componentID + ".inputs." + k
+			p.recordTrace(composedPath, TraceContribution{
+				FacetPath:  facet.Path,
+				SourceName: sn,
+				Ordinal:    effectiveOrdinal,
+				Strategy:   strategy,
+				Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID), "inputs", k),
+				RawValue:   deepCopyValue(v),
+			})
 		}
 
 		if _, exists := terraformByID[componentID]; !exists {
@@ -694,17 +661,27 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		if len(sourceName) > 0 {
 			sn = sourceName[0]
 		}
-		p.recordProvenance("kustomize."+processed.Name, ProvenanceEntry{
-			FacetPath:     facet.Path,
-			SourceName:    sn,
-			Ordinal:       effectiveOrdinal,
-			Strategy:      strategy,
-			Line:          yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name)),
-			RawSubs:       maps.Clone(k.Substitutions),
-			RawComponents: slices.Clone(k.Components),
-		})
 		for sk, sv := range k.Substitutions {
-			p.recordExpressionTrace("kustomize."+processed.Name+".substitutions."+sk, sv, facet.Path)
+			composedPath := "kustomize." + processed.Name + ".substitutions." + sk
+			p.recordTrace(composedPath, TraceContribution{
+				FacetPath:  facet.Path,
+				SourceName: sn,
+				Ordinal:    effectiveOrdinal,
+				Strategy:   strategy,
+				Line:       yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name), "substitutions", sk),
+				RawValue:   deepCopyValue(sv),
+			})
+		}
+		if len(k.Components) > 0 {
+			componentsPath := "kustomize." + processed.Name + ".components"
+			p.recordTrace(componentsPath, TraceContribution{
+				FacetPath:     facet.Path,
+				SourceName:    sn,
+				Ordinal:       effectiveOrdinal,
+				Strategy:      strategy,
+				Line:          yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name), "components"),
+				RawComponents: slices.Clone(k.Components),
+			})
 		}
 
 		if _, exists := kustomizationByName[processed.Name]; !exists {
@@ -1364,26 +1341,25 @@ func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
 	return OrdinalFromFacetPath(f.Path)
 }
 
-// deepCopyMapStringAny returns a deep copy of m for use in ProvenanceEntry.RawInputs so that
-// provenance holds a snapshot of the original facet inputs that cannot be mutated by later
-// evaluation or normalization. Nested maps and slices are copied recursively. Values that are
-// map[any]any from YAML decode are converted via asMapStringAny. Returns nil
-// if m is nil.
+// deepCopyMapStringAny returns a deep copy of m so that trace records hold a snapshot of the
+// original facet inputs that cannot be mutated by later evaluation or normalization. Nested
+// maps and slices are copied recursively. Values that are map[any]any from YAML decode are
+// converted via asMapStringAny. Returns nil if m is nil.
 func deepCopyMapStringAny(m map[string]any) map[string]any {
 	if m == nil {
 		return nil
 	}
 	out := make(map[string]any, len(m))
 	for k, v := range m {
-		out[k] = deepCopyProvenanceValue(v)
+		out[k] = deepCopyValue(v)
 	}
 	return out
 }
 
-// deepCopyProvenanceValue recursively copies a value for provenance storage. map[string]any and
+// deepCopyValue recursively copies a value for provenance storage. map[string]any and
 // map[any]any (via asMapStringAny) are deep-copied; []any is deep-copied element-wise.
 // Primitives and other types are returned as-is. Used by deepCopyMapStringAny and deepCopySliceAny.
-func deepCopyProvenanceValue(v any) any {
+func deepCopyValue(v any) any {
 	if v == nil {
 		return nil
 	}
@@ -1400,14 +1376,14 @@ func deepCopyProvenanceValue(v any) any {
 }
 
 // deepCopySliceAny returns a deep copy of s for provenance storage. Each element is copied via
-// deepCopyProvenanceValue so nested maps and slices are not shared. Returns nil if s is nil.
+// deepCopyValue so nested maps and slices are not shared. Returns nil if s is nil.
 func deepCopySliceAny(s []any) []any {
 	if s == nil {
 		return nil
 	}
 	out := make([]any, len(s))
 	for i, v := range s {
-		out[i] = deepCopyProvenanceValue(v)
+		out[i] = deepCopyValue(v)
 	}
 	return out
 }

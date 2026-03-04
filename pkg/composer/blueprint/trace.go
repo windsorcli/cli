@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -60,16 +61,17 @@ type ExplainScopeRef struct {
 // component definition if the key is not locatable). Effective is true when this contribution
 // produced the final composed value; false means it was overridden by a higher-ordinal facet.
 type ExplainContribution struct {
-	SourceName    string
-	FacetPath     string
-	AbsFacetPath  string
-	Line          int
-	Ordinal       int
-	Strategy      string
-	Expression    string
-	Effective     bool
-	ScopeRefs     []ExplainScopeRef
-	RawComponents []string
+	SourceName      string
+	FacetPath       string
+	AbsFacetPath    string
+	Line            int
+	Ordinal         int
+	Strategy        string
+	Expression      string
+	Effective       bool
+	ScopeRefs       []ExplainScopeRef
+	RawComponents   []string
+	preComputedRefs []string
 }
 
 // ExplainTrace holds the result of explaining a path: the value and its contributions.
@@ -79,35 +81,57 @@ type ExplainTrace struct {
 	Contributions []ExplainContribution
 }
 
-// SourceLocation identifies a specific value location within a facet YAML document, used as
-// the recording key for trace data. DocumentPath is the composed path key (e.g.
-// "terraform.networking.inputs.domain_name" or "config.cluster.endpoint") and FacetPath is
-// the absolute filesystem path to the facet file that defines it.
-type SourceLocation struct {
-	FacetPath    string
-	DocumentPath string
+// TraceContribution records a single per-key contribution from a facet during composition.
+// Recorded at the per-key level (e.g. "terraform.networking.inputs.domain_name") with all
+// metadata resolved at record time so no retroactive YAML reparsing is needed. ScopeRefs
+// are pre-extracted from expressions during recording.
+type TraceContribution struct {
+	FacetPath     string
+	SourceName    string
+	Ordinal       int
+	Strategy      string
+	Line          int
+	RawValue      any
+	RawComponents []string
+	ScopeRefs     []string
+}
+
+// ConfigBlockRecord records a config block value for scope reference resolution. ScopeRefs
+// and NestedPaths are pre-extracted during recording so query-time AST parsing is not needed.
+type ConfigBlockRecord struct {
+	FacetPath   string
+	Line        int
+	RawValue    any
+	ScopeRefs   []string
+	NestedPaths []string
 }
 
 // DefaultTraceCollector is the standard TraceCollector implementation backed by in-memory maps.
+// Contributions and config blocks are recorded during composition (Phase 1). After composition,
+// Finalize stores the composed blueprint, scope, and template root. GetTrace performs lazy
+// resolution on demand.
 type DefaultTraceCollector struct {
-	mu          sync.Mutex
-	scopeRefs   map[string][]string
-	nestedPaths map[string][]string
+	mu            sync.Mutex
+	contributions map[string][]TraceContribution
+	configBlocks  map[string][]ConfigBlockRecord
+
+	blueprint    *blueprintv1alpha1.Blueprint
+	scope        map[string]any
+	templateRoot string
 }
 
 // =============================================================================
 // Interfaces
 // =============================================================================
 
-// TraceCollector records and retrieves expression trace data during blueprint composition.
-// Implementations are set on the processor before composition begins and are only active
-// when the explain command is running. RecordValue accepts a raw value and performs
-// extraction internally; the processor only passes location and value.
+// TraceCollector records per-key contributions and config blocks during blueprint composition,
+// then provides trace queries after finalization. Implementations are set on the processor
+// before composition begins and are only active when the explain command is running.
 type TraceCollector interface {
-	Record(loc SourceLocation, scopeRefs []string, nestedPaths []string)
-	RecordValue(loc SourceLocation, val any)
-	GetScopeRefs(documentPath string) []string
-	GetNestedPaths(documentPath string) []string
+	RecordContribution(composedPath string, tc TraceContribution)
+	RecordConfigBlock(configPath string, record ConfigBlockRecord)
+	Finalize(bp *blueprintv1alpha1.Blueprint, scope map[string]any, templateRoot string)
+	GetTrace(pathStr string) (*ExplainTrace, error)
 }
 
 // =============================================================================
@@ -117,8 +141,8 @@ type TraceCollector interface {
 // NewTraceCollector creates a new DefaultTraceCollector with initialized storage.
 func NewTraceCollector() *DefaultTraceCollector {
 	return &DefaultTraceCollector{
-		scopeRefs:   make(map[string][]string),
-		nestedPaths: make(map[string][]string),
+		contributions: make(map[string][]TraceContribution),
+		configBlocks:  make(map[string][]ConfigBlockRecord),
 	}
 }
 
@@ -126,57 +150,148 @@ func NewTraceCollector() *DefaultTraceCollector {
 // Public Methods
 // =============================================================================
 
-// Record stores scope references and nested expression paths for the given source location.
-func (c *DefaultTraceCollector) Record(loc SourceLocation, scopeRefs []string, nestedPaths []string) {
+// RecordContribution stores a per-key contribution from a facet and pre-extracts scope
+// references from the raw value expression. Called from the processor during composition for
+// each terraform input, kustomize substitution, and kustomize components list. Thread-safe.
+func (c *DefaultTraceCollector) RecordContribution(composedPath string, tc TraceContribution) {
+	if tc.ScopeRefs == nil {
+		tc.ScopeRefs = extractRefsFromValue(tc.RawValue)
+	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(scopeRefs) > 0 {
-		c.scopeRefs[loc.DocumentPath] = scopeRefs
-	}
-	if len(nestedPaths) > 0 {
-		c.nestedPaths[loc.DocumentPath] = nestedPaths
-	}
+	c.contributions[composedPath] = append(c.contributions[composedPath], tc)
+	c.mu.Unlock()
 }
 
-// GetScopeRefs returns the scope variable references recorded for a document path.
-func (c *DefaultTraceCollector) GetScopeRefs(documentPath string) []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.scopeRefs[documentPath]
-}
-
-// GetNestedPaths returns the nested expression paths recorded for a document path.
-func (c *DefaultTraceCollector) GetNestedPaths(documentPath string) []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.nestedPaths[documentPath]
-}
-
-// RecordValue extracts scope refs and nested paths from val and records them. The processor
-// calls this only with location and raw value; all expression/trace logic lives here.
-func (c *DefaultTraceCollector) RecordValue(loc SourceLocation, val any) {
-	if val == nil {
-		return
-	}
-	switch v := val.(type) {
-	case string:
-		if strings.Contains(v, "${") {
-			c.Record(loc, extractExprASTRefs(v), nil)
-		}
-	default:
-		if m, ok := asMapStringAny(val); ok && containsExpressionInValue(val) {
-			nestedPaths := collectNestedExprPaths(m, "")
-			if len(nestedPaths) > 0 {
-				c.Record(loc, nil, nestedPaths)
-				for _, np := range nestedPaths {
+// RecordConfigBlock stores a config block value and pre-extracts scope references and nested
+// expression paths from the raw value. Called from the processor during config block processing.
+// Thread-safe.
+func (c *DefaultTraceCollector) RecordConfigBlock(configPath string, record ConfigBlockRecord) {
+	if record.ScopeRefs == nil && record.NestedPaths == nil {
+		switch v := record.RawValue.(type) {
+		case string:
+			if strings.Contains(v, "${") {
+				record.ScopeRefs = extractExprASTRefs(v)
+			}
+		default:
+			if m, ok := asMapStringAny(record.RawValue); ok && containsExpressionInValue(record.RawValue) {
+				record.NestedPaths = collectNestedExprPaths(m, "")
+				for _, np := range record.NestedPaths {
 					childVal := navigateMapPath(m, np)
 					if s, ok := childVal.(string); ok && strings.Contains(s, "${") {
-						c.Record(SourceLocation{FacetPath: loc.FacetPath, DocumentPath: loc.DocumentPath + "." + np}, extractExprASTRefs(s), nil)
+						childRefs := extractExprASTRefs(s)
+						if len(childRefs) > 0 {
+							childPath := configPath + "." + np
+							c.mu.Lock()
+							c.configBlocks[childPath] = append(c.configBlocks[childPath], ConfigBlockRecord{
+								FacetPath: record.FacetPath,
+								Line:      record.Line,
+								RawValue:  s,
+								ScopeRefs: childRefs,
+							})
+							c.mu.Unlock()
+						}
 					}
 				}
 			}
 		}
 	}
+	c.mu.Lock()
+	c.configBlocks[configPath] = append(c.configBlocks[configPath], record)
+	c.mu.Unlock()
+}
+
+// Finalize stores the composed blueprint, scope, and template root for lazy trace resolution.
+// Called once after all facet processing and scope merging completes.
+func (c *DefaultTraceCollector) Finalize(bp *blueprintv1alpha1.Blueprint, scope map[string]any, templateRoot string) {
+	c.blueprint = bp
+	c.scope = scope
+	c.templateRoot = templateRoot
+}
+
+// GetTrace resolves a dotted blueprint path and returns a trace with the composed value,
+// contributions sorted by ordinal, effective marking, and scope reference resolution.
+func (c *DefaultTraceCollector) GetTrace(pathStr string) (*ExplainTrace, error) {
+	p, err := ParseExplainPath(pathStr)
+	if err != nil {
+		return nil, err
+	}
+	bp := c.blueprint
+	if bp == nil {
+		return nil, fmt.Errorf("blueprint not composed")
+	}
+
+	trace := &ExplainTrace{Path: p.String()}
+
+	switch p.Kind {
+	case ExplainPathKindTerraformInput:
+		comp := findTerraformComponent(bp, p.Segment)
+		if comp == nil {
+			return nil, fmt.Errorf("terraform component %q not found in blueprint", p.Segment)
+		}
+		if comp.Inputs == nil {
+			return nil, fmt.Errorf("terraform component %q has no inputs", p.Segment)
+		}
+		v, ok := getNestedValue(comp.Inputs, p.Key)
+		if !ok {
+			return nil, fmt.Errorf("terraform component %q has no input %q", p.Segment, p.Key)
+		}
+		trace.Value = formatValue(v)
+		composedPath := fmt.Sprintf("terraform.%s.inputs.%s", p.Segment, p.Key)
+		trace.Contributions = c.buildContributions(composedPath)
+
+	case ExplainPathKindKustomizeSubstitution:
+		k := findKustomization(bp, p.Segment)
+		if k == nil {
+			return nil, fmt.Errorf("kustomization %q not found in blueprint", p.Segment)
+		}
+		if k.Substitutions == nil {
+			trace.Value = ""
+			composedPath := fmt.Sprintf("kustomize.%s.substitutions.%s", p.Segment, p.Key)
+			trace.Contributions = c.buildContributions(composedPath)
+			return trace, nil
+		}
+		val, ok := k.Substitutions[p.Key]
+		if !ok {
+			trace.Value = ""
+			composedPath := fmt.Sprintf("kustomize.%s.substitutions.%s", p.Segment, p.Key)
+			trace.Contributions = c.buildContributions(composedPath)
+			return trace, nil
+		}
+		trace.Value = val
+		composedPath := fmt.Sprintf("kustomize.%s.substitutions.%s", p.Segment, p.Key)
+		trace.Contributions = c.buildContributions(composedPath)
+
+	case ExplainPathKindKustomizeComponents:
+		k := findKustomization(bp, p.Segment)
+		if k == nil {
+			return nil, fmt.Errorf("kustomization %q not found in blueprint", p.Segment)
+		}
+		composedPath := fmt.Sprintf("kustomize.%s.components", p.Segment)
+		provContribs := c.toExplainContributions(composedPath)
+		trace.Contributions = buildComponentContributions(k.Components, provContribs, "kustomize", p.Segment)
+
+	case ExplainPathKindConfigMap:
+		if bp.ConfigMaps == nil {
+			return nil, fmt.Errorf("configMap %q not found in blueprint", p.Segment)
+		}
+		cm, ok := bp.ConfigMaps[p.Segment]
+		if !ok {
+			return nil, fmt.Errorf("configMap %q not found in blueprint", p.Segment)
+		}
+		val, ok := cm[p.Key]
+		if !ok {
+			return nil, fmt.Errorf("configMap %q has no key %q", p.Segment, p.Key)
+		}
+		trace.Value = val
+		trace.Contributions = []ExplainContribution{{SourceName: "composition (runtime config)", Effective: true}}
+
+	default:
+		return nil, errors.New("unknown path kind")
+	}
+
+	c.resolveScopeRefs(trace)
+
+	return trace, nil
 }
 
 // String returns the canonical path string (e.g. terraform.cluster.inputs.domain_name).
@@ -249,139 +364,56 @@ func ParseExplainPath(path string) (ExplainPath, error) {
 	}
 }
 
-// Explain resolves a dotted blueprint path against the composed blueprint and returns a trace
-// containing the resolved value, provenance contributions, and scope reference resolution.
-// Provenance is read from records accumulated during composition (not retroactively scanned).
-// Scope references in expressions are resolved against the composed scope to determine their
-// status (resolved, not set, or deferred) and config block source locations are looked up from
-// the accumulated config block provenance.
+// Explain delegates to the trace collector if set, otherwise returns an error. The handler
+// method exists only to satisfy the BlueprintHandler interface.
 func (h *BaseBlueprintHandler) Explain(pathStr string) (*ExplainTrace, error) {
-	p, err := ParseExplainPath(pathStr)
+	if h.traceCollector != nil {
+		return h.traceCollector.GetTrace(pathStr)
+	}
+	_, err := ParseExplainPath(pathStr)
 	if err != nil {
 		return nil, err
 	}
-	bp := h.composedBlueprint
-	if bp == nil {
+	if h.composedBlueprint == nil {
 		return nil, fmt.Errorf("blueprint not composed")
 	}
-
-	provMap := h.getProcessorProvenance()
-
-	var provenanceKey, keySection string
-	switch p.Kind {
-	case ExplainPathKindTerraformInput:
-		provenanceKey = "terraform." + p.Segment
-		keySection = "inputs"
-	case ExplainPathKindKustomizeSubstitution:
-		provenanceKey = "kustomize." + p.Segment
-		keySection = "substitutions"
-	case ExplainPathKindKustomizeComponents:
-		provenanceKey = "kustomize." + p.Segment
-		keySection = "components"
-	}
-
-	var contributions []ExplainContribution
-	if provenanceKey != "" {
-		for _, pe := range provMap[provenanceKey] {
-			contributions = append(contributions, h.provenanceToContribution(pe, keySection, p.Key, p.Segment))
-		}
-	}
-
-	trace := &ExplainTrace{Path: p.String()}
-
-	switch p.Kind {
-	case ExplainPathKindTerraformInput:
-		comp := findTerraformComponent(bp, p.Segment)
-		if comp == nil {
-			return nil, fmt.Errorf("terraform component %q not found in blueprint", p.Segment)
-		}
-		if comp.Inputs == nil {
-			return nil, fmt.Errorf("terraform component %q has no inputs", p.Segment)
-		}
-		v, ok := getNestedValue(comp.Inputs, p.Key)
-		if !ok {
-			return nil, fmt.Errorf("terraform component %q has no input %q", p.Segment, p.Key)
-		}
-		trace.Value = formatValue(v)
-		trace.Contributions = markEffective(contributions)
-
-	case ExplainPathKindKustomizeSubstitution:
-		k := findKustomization(bp, p.Segment)
-		if k == nil {
-			return nil, fmt.Errorf("kustomization %q not found in blueprint", p.Segment)
-		}
-		if k.Substitutions == nil {
-			trace.Value = ""
-			trace.Contributions = markEffective(contributions)
-			return trace, nil
-		}
-		val, ok := k.Substitutions[p.Key]
-		if !ok {
-			trace.Value = ""
-			trace.Contributions = markEffective(contributions)
-			return trace, nil
-		}
-		trace.Value = val
-		trace.Contributions = markEffective(contributions)
-
-	case ExplainPathKindKustomizeComponents:
-		k := findKustomization(bp, p.Segment)
-		if k == nil {
-			return nil, fmt.Errorf("kustomization %q not found in blueprint", p.Segment)
-		}
-		trace.Contributions = buildComponentContributions(k.Components, contributions, "kustomize", p.Segment)
-
-	case ExplainPathKindConfigMap:
-		if bp.ConfigMaps == nil {
-			return nil, fmt.Errorf("configMap %q not found in blueprint", p.Segment)
-		}
-		cm, ok := bp.ConfigMaps[p.Segment]
-		if !ok {
-			return nil, fmt.Errorf("configMap %q not found in blueprint", p.Segment)
-		}
-		val, ok := cm[p.Key]
-		if !ok {
-			return nil, fmt.Errorf("configMap %q has no key %q", p.Segment, p.Key)
-		}
-		trace.Value = val
-		trace.Contributions = []ExplainContribution{{SourceName: "composition (runtime config)", Effective: true}}
-
-	default:
-		return nil, errors.New("unknown path kind")
-	}
-
-	h.resolveScopeRefs(trace, provMap)
-
-	return trace, nil
+	return nil, fmt.Errorf("trace collector not set")
 }
 
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// navigateMapPath traverses a map using a dotted path to reach a nested value.
-func navigateMapPath(m map[string]any, dottedPath string) any {
-	parts := strings.Split(dottedPath, ".")
-	var current any = m
-	for _, part := range parts {
-		cm, ok := current.(map[string]any)
-		if !ok {
-			return nil
-		}
-		current = cm[part]
-	}
-	return current
+// buildContributions converts recorded TraceContributions into ExplainContributions, sorts
+// by ordinal, and marks the effective contributor.
+func (c *DefaultTraceCollector) buildContributions(composedPath string) []ExplainContribution {
+	contribs := c.toExplainContributions(composedPath)
+	return markEffective(contribs)
 }
 
-// provenanceToContribution converts a ProvenanceEntry (recorded during composition) into an
-// ExplainContribution. The line number for the specific key within the component is resolved
-// via AST on demand. The facet path is shortened relative to the template root for display.
-func (h *BaseBlueprintHandler) provenanceToContribution(pe ProvenanceEntry, keySection, key, componentID string) ExplainContribution {
-	displayPath := pe.FacetPath
+// toExplainContributions converts recorded TraceContributions for a path into ExplainContributions
+// with display paths shortened relative to the template root.
+func (c *DefaultTraceCollector) toExplainContributions(composedPath string) []ExplainContribution {
+	records := c.contributions[composedPath]
+	if len(records) == 0 {
+		return nil
+	}
+	contribs := make([]ExplainContribution, 0, len(records))
+	for _, tc := range records {
+		contribs = append(contribs, c.traceToContribution(tc))
+	}
+	return contribs
+}
+
+// traceToContribution converts a TraceContribution (recorded during composition) into an
+// ExplainContribution. The facet path is shortened relative to the template root for display.
+// Line numbers and expression values are taken directly from the record (resolved at record time).
+func (c *DefaultTraceCollector) traceToContribution(tc TraceContribution) ExplainContribution {
+	displayPath := tc.FacetPath
 	if displayPath != "" {
 		shortened := false
-		if h.runtime != nil && h.runtime.TemplateRoot != "" {
-			if rel, err := filepath.Rel(h.runtime.TemplateRoot, displayPath); err == nil && !strings.HasPrefix(rel, "..") {
+		if c.templateRoot != "" {
+			if rel, err := filepath.Rel(c.templateRoot, displayPath); err == nil && !strings.HasPrefix(rel, "..") {
 				displayPath = rel
 				shortened = true
 			}
@@ -391,90 +423,51 @@ func (h *BaseBlueprintHandler) provenanceToContribution(pe ProvenanceEntry, keyS
 		}
 	}
 
-	line := pe.Line
-	if keySection != "" && key != "" && keySection != "components" {
-		componentType := "terraform"
-		if keySection == "substitutions" {
-			componentType = "kustomize"
-		}
-		if keyLine := yamlNodeLine(pe.FacetPath, componentType, namedItem(componentID), keySection, key); keyLine > 0 {
-			line = keyLine
-		}
+	ec := ExplainContribution{
+		SourceName:      tc.SourceName,
+		FacetPath:       displayPath,
+		AbsFacetPath:    tc.FacetPath,
+		Line:            tc.Line,
+		Ordinal:         tc.Ordinal,
+		Strategy:        tc.Strategy,
+		RawComponents:   tc.RawComponents,
+		preComputedRefs: tc.ScopeRefs,
 	}
 
-	c := ExplainContribution{
-		SourceName:    pe.SourceName,
-		FacetPath:     displayPath,
-		AbsFacetPath:  pe.FacetPath,
-		Line:          line,
-		Ordinal:       pe.Ordinal,
-		Strategy:      pe.Strategy,
-		RawComponents: pe.RawComponents,
+	if tc.RawValue != nil {
+		ec.Expression = formatValue(tc.RawValue)
 	}
 
-	if pe.RawInputs != nil && keySection == "inputs" {
-		if rawVal, ok := pe.RawInputs[key]; ok {
-			c.Expression = formatValue(rawVal)
-		}
-	} else if pe.RawSubs != nil && keySection == "substitutions" {
-		if rawVal, ok := pe.RawSubs[key]; ok {
-			c.Expression = rawVal
-		}
-	}
-
-	return c
+	return ec
 }
 
-// getProcessorProvenance retrieves the accumulated provenance map from the processor. Returns an
-// empty map if the processor is not a BaseBlueprintProcessor or has no provenance.
-func (h *BaseBlueprintHandler) getProcessorProvenance() map[string][]ProvenanceEntry {
-	if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
-		return bp.GetAllProvenance()
-	}
-	return make(map[string][]ProvenanceEntry)
-}
-
-// resolveScopeRefs populates the ScopeRefs field on each effective contribution that has an
-// expression containing scope references. When a TraceCollector is available, pre-recorded
-// scope refs are used; otherwise refs are extracted on-demand via AST parsing. Refs are
-// resolved against the composed scope and recursively expanded until origins (literals or
-// not set). A visited set prevents infinite recursion on circular config references.
-func (h *BaseBlueprintHandler) resolveScopeRefs(trace *ExplainTrace, provMap map[string][]ProvenanceEntry) {
-	scope := h.composedScope
-	if scope == nil {
+// resolveScopeRefs populates the ScopeRefs field on each effective contribution using
+// pre-computed scope reference names from the recording phase. No AST parsing occurs here;
+// only scope resolution and recursive config block expansion.
+func (c *DefaultTraceCollector) resolveScopeRefs(trace *ExplainTrace) {
+	if c.scope == nil {
 		return
 	}
 	visited := make(map[string]bool)
 	for i := range trace.Contributions {
-		c := &trace.Contributions[i]
-		if !c.Effective || c.Expression == "" || !strings.Contains(c.Expression, "${") {
+		contrib := &trace.Contributions[i]
+		if !contrib.Effective || len(contrib.preComputedRefs) == 0 {
 			continue
 		}
-		var refs []string
-		if h.traceCollector != nil {
-			refs = h.traceCollector.GetScopeRefs(trace.Path)
-		}
-		if len(refs) == 0 {
-			refs = extractExprASTRefs(c.Expression)
-		}
-		for _, ref := range refs {
-			sr, include := expandScopeRef(scope, provMap, ref, visited, h.traceCollector)
+		for _, ref := range contrib.preComputedRefs {
+			sr, include := c.expandScopeRef(ref, visited)
 			if include {
-				c.ScopeRefs = append(c.ScopeRefs, sr)
+				contrib.ScopeRefs = append(contrib.ScopeRefs, sr)
 			}
 		}
 	}
 }
 
-// expandScopeRef builds one scope ref and recursively expands Nested by tracing RAW config
-// values from provenance rather than evaluated scope values. This allows following the
-// definition chain through expressions that were already evaluated. When a TraceCollector
-// is provided (non-nil), pre-recorded scope refs and nested paths are used for expansion;
-// otherwise falls back to on-demand AST extraction. When no raw value is available (e.g.
-// context values), falls back to the evaluated scope. Uses visited to detect cycles and
-// isKnownScopeRoot to filter false-positive matches.
-func expandScopeRef(scope map[string]any, provMap map[string][]ProvenanceEntry, refPath string, visited map[string]bool, collector TraceCollector) (ExplainScopeRef, bool) {
-	if !isKnownScopeRoot(scope, provMap, refPath) {
+// expandScopeRef builds one scope ref and recursively expands Nested using pre-computed
+// ScopeRefs and NestedPaths from recorded config blocks. No AST parsing or map traversal
+// occurs here. Uses visited to detect cycles and isKnownScopeRoot to filter false positives.
+func (c *DefaultTraceCollector) expandScopeRef(refPath string, visited map[string]bool) (ExplainScopeRef, bool) {
+	if !c.isKnownScopeRoot(refPath) {
 		return ExplainScopeRef{}, false
 	}
 	if visited[refPath] {
@@ -483,8 +476,8 @@ func expandScopeRef(scope map[string]any, provMap map[string][]ProvenanceEntry, 
 	visited[refPath] = true
 	defer delete(visited, refPath)
 
-	_, inScope := resolveScopePath(scope, refPath)
-	blockSource, blockLine, rawVal := getProvenanceWithRawValue(provMap, refPath)
+	_, inScope := resolveScopePath(c.scope, refPath)
+	blockSource, blockLine, rawVal, record := c.getConfigBlockWithRecord(refPath)
 
 	if !inScope && rawVal == nil {
 		return ExplainScopeRef{Name: refPath, Status: "not set"}, true
@@ -492,8 +485,37 @@ func expandScopeRef(scope map[string]any, provMap map[string][]ProvenanceEntry, 
 
 	sr := ExplainScopeRef{Name: refPath, Source: blockSource, Line: blockLine}
 
-	evalVal, _ := resolveScopePath(scope, refPath)
+	evalVal, _ := resolveScopePath(c.scope, refPath)
 	evalDeferred := containsExpressionInValue(evalVal)
+
+	if record != nil && len(record.ScopeRefs) > 0 {
+		if evalDeferred {
+			sr.Status = "deferred"
+		}
+		for _, nestedRef := range record.ScopeRefs {
+			nested, include := c.expandScopeRef(nestedRef, visited)
+			if include {
+				sr.Nested = append(sr.Nested, nested)
+			}
+		}
+		return sr, true
+	}
+
+	if record != nil && len(record.NestedPaths) > 0 {
+		if evalDeferred {
+			sr.Status = "deferred"
+		}
+		if strings.Contains(refPath, ".") {
+			for _, path := range record.NestedPaths {
+				fullPath := refPath + "." + path
+				nested, include := c.expandScopeRef(fullPath, visited)
+				if include {
+					sr.Nested = append(sr.Nested, nested)
+				}
+			}
+		}
+		return sr, true
+	}
 
 	traceVal := rawVal
 	if traceVal == nil {
@@ -503,66 +525,24 @@ func expandScopeRef(scope map[string]any, provMap map[string][]ProvenanceEntry, 
 		return sr, true
 	}
 
-	configDocPath := "config." + refPath
-	if s, ok := traceVal.(string); ok && strings.Contains(s, "${") {
-		if evalDeferred {
-			sr.Status = "deferred"
-		}
-		var allRefs []string
-		if collector != nil {
-			allRefs = collector.GetScopeRefs(configDocPath)
-		}
-		if len(allRefs) == 0 {
-			allRefs = extractExprASTRefs(s)
-		}
-		for _, nestedRef := range allRefs {
-			nested, include := expandScopeRef(scope, provMap, nestedRef, visited, collector)
-			if include {
-				sr.Nested = append(sr.Nested, nested)
-			}
-		}
-		return sr, true
-	}
-
-	if m, ok := asMapStringAny(traceVal); ok && containsExpressionInValue(traceVal) {
-		if evalDeferred {
-			sr.Status = "deferred"
-		}
-		if strings.Contains(refPath, ".") {
-			var nestedExprPaths []string
-			if collector != nil {
-				nestedExprPaths = collector.GetNestedPaths(configDocPath)
-			}
-			if len(nestedExprPaths) == 0 {
-				nestedExprPaths = collectNestedExprPaths(m, "")
-			}
-			for _, path := range nestedExprPaths {
-				fullPath := refPath + "." + path
-				nested, include := expandScopeRef(scope, provMap, fullPath, visited, collector)
-				if include {
-					sr.Nested = append(sr.Nested, nested)
-				}
-			}
-		}
-		return sr, true
+	if evalDeferred {
+		sr.Status = "deferred"
 	}
 
 	return sr, true
 }
 
-// getProvenanceWithRawValue returns the facet path, line, and raw config value for a scope
-// path by matching the longest config.* prefix in provMap. When the matched provenance is a
-// parent of refPath, the remaining path segments are used to navigate into the raw value
-// (drilling into nested maps) so that deeply-nested keys get their specific raw value.
-// The line number is re-resolved via YAML AST when remaining segments exist so that nested
-// keys report their own line rather than the parent block's line.
-func getProvenanceWithRawValue(provMap map[string][]ProvenanceEntry, refPath string) (string, int, any) {
+// getConfigBlockWithRecord returns the facet path, line, raw config value, and the matching
+// ConfigBlockRecord for a scope path by matching the longest config.* prefix in configBlocks.
+// When the matched record is a parent of refPath, the remaining path segments navigate into
+// the raw value. The returned record provides pre-computed ScopeRefs and NestedPaths.
+func (c *DefaultTraceCollector) getConfigBlockWithRecord(refPath string) (string, int, any, *ConfigBlockRecord) {
 	key := "config." + refPath
 	var remainingSegments []string
 	for {
-		if entries := provMap[key]; len(entries) > 0 {
+		if entries := c.configBlocks[key]; len(entries) > 0 {
 			last := entries[len(entries)-1]
-			rawVal := last.RawConfigValue
+			rawVal := last.RawValue
 			navigated := true
 			for _, seg := range remainingSegments {
 				if m, ok := asMapStringAny(rawVal); ok {
@@ -580,7 +560,7 @@ func getProvenanceWithRawValue(provMap map[string][]ProvenanceEntry, refPath str
 				}
 			}
 			if !navigated && len(remainingSegments) > 0 {
-				return "", 0, nil
+				return "", 0, nil, nil
 			}
 			line := last.Line
 			if len(remainingSegments) > 0 && last.FacetPath != "" {
@@ -588,22 +568,79 @@ func getProvenanceWithRawValue(provMap map[string][]ProvenanceEntry, refPath str
 					line = nested
 				}
 			}
-			return last.FacetPath, line, rawVal
+			return last.FacetPath, line, rawVal, &last
 		}
 		i := strings.LastIndex(key, ".")
 		if i <= 6 {
-			return "", 0, nil
+			return "", 0, nil, nil
 		}
 		remainingSegments = append([]string{key[i+1:]}, remainingSegments...)
 		key = key[:i]
 	}
 }
 
+// isKnownScopeRoot returns true when the first segment of refPath exists as a top-level scope
+// key or has config block records. Filters out false-positive matches like URL fragments.
+func (c *DefaultTraceCollector) isKnownScopeRoot(refPath string) bool {
+	root := refPath
+	if i := strings.Index(refPath, "."); i > 0 {
+		root = refPath[:i]
+	}
+	if _, ok := c.scope[root]; ok {
+		return true
+	}
+	prefix := "config." + root
+	for key := range c.configBlocks {
+		if key == prefix || strings.HasPrefix(key, prefix+".") {
+			return true
+		}
+	}
+	return false
+}
+
+// extractRefsFromValue extracts scope references from a raw value at record time. For strings
+// containing "${", it parses the expression AST. For maps, it traverses nested values to find
+// all expression references.
+func extractRefsFromValue(v any) []string {
+	switch val := v.(type) {
+	case string:
+		if strings.Contains(val, "${") {
+			return extractExprASTRefs(val)
+		}
+	default:
+		if m, ok := asMapStringAny(v); ok {
+			var refs []string
+			paths := collectNestedExprPaths(m, "")
+			for _, p := range paths {
+				childVal := navigateMapPath(m, p)
+				if s, ok := childVal.(string); ok && strings.Contains(s, "${") {
+					refs = append(refs, extractExprASTRefs(s)...)
+				}
+			}
+			return refs
+		}
+	}
+	return nil
+}
+
+// navigateMapPath walks a map[string]any by dot-separated path segments.
+func navigateMapPath(m map[string]any, path string) any {
+	parts := strings.Split(path, ".")
+	var cur any = m
+	for _, p := range parts {
+		if cm, ok := asMapStringAny(cur); ok {
+			cur = cm[p]
+		} else {
+			return nil
+		}
+	}
+	return cur
+}
+
 // resolveNestedConfigLine uses YAML AST navigation to find the line number of a nested key
-// within a config block value. matchedKey is the provenance key that was found (e.g.
+// within a config block value. matchedKey is the config block key that was found (e.g.
 // "config.talos_common.common_patch") and remaining holds the path segments beyond it
-// (e.g. ["cluster", "allowSchedulingOnControlPlanes"]). The YAML path is reconstructed
-// from the provenance key structure and the remaining segments are appended.
+// (e.g. ["cluster", "allowSchedulingOnControlPlanes"]).
 func resolveNestedConfigLine(facetPath, matchedKey string, remaining []string) int {
 	afterConfig := matchedKey[len("config."):]
 
@@ -630,26 +667,6 @@ func resolveNestedConfigLine(facetPath, matchedKey string, remaining []string) i
 	return yamlNodeLine(facetPath, segs...)
 }
 
-// isKnownScopeRoot returns true when the first segment of refPath exists as a top-level scope
-// key or has config provenance. This filters out false-positive regex matches like URL
-// fragments (raw.githubusercontent.com) or filenames (install.yaml).
-func isKnownScopeRoot(scope map[string]any, provMap map[string][]ProvenanceEntry, refPath string) bool {
-	root := refPath
-	if i := strings.Index(refPath, "."); i > 0 {
-		root = refPath[:i]
-	}
-	if _, ok := scope[root]; ok {
-		return true
-	}
-	prefix := "config." + root
-	for key := range provMap {
-		if key == prefix || strings.HasPrefix(key, prefix+".") {
-			return true
-		}
-	}
-	return false
-}
-
 // collectNestedExprPaths returns dotted paths into the map for which the value contains "${".
 // Only descends into nested maps; slice elements are skipped (scope paths are map-key only).
 func collectNestedExprPaths(m map[string]any, prefix string) []string {
@@ -674,213 +691,18 @@ func collectNestedExprPaths(m map[string]any, prefix string) []string {
 	return out
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
-// extractExprASTRefs parses each ${...} expression in s using the expr-lang parser and walks the
-// AST to find all scope variable reference paths. Unlike regex extraction, this correctly
-// distinguishes variable references from function calls, string literals, map keys, and other
-// non-reference identifiers. Returns deduplicated dotted paths (e.g. ["cluster.endpoint",
-// "common_patch"]) in discovery order.
-func extractExprASTRefs(s string) []string {
-	var refs []string
-	seen := make(map[string]bool)
-	searchStart := 0
-	for {
-		idx := strings.Index(s[searchStart:], "${")
-		if idx == -1 {
-			break
-		}
-		start := searchStart + idx
-		end := findExprEnd(s, start)
-		if end == -1 {
-			break
-		}
-		exprContent := s[start+2 : end]
-		tree, err := parser.Parse(exprContent)
-		if err != nil {
-			searchStart = end + 1
-			continue
-		}
-		walkASTForRefs(tree.Node, &refs, seen)
-		searchStart = end + 1
-	}
-	return refs
-}
-
-// findExprEnd returns the index of the closing '}' that matches the '${' at position start.
-// Tracks brace depth and skips string literals (single and double quoted) so that braces inside
-// strings are not counted.
-func findExprEnd(s string, start int) int {
-	if start < 0 || start+2 > len(s) || s[start] != '$' || s[start+1] != '{' {
-		return -1
-	}
-	depth := 1
-	i := start + 2
-	for i < len(s) {
-		c := s[i]
-		switch c {
-		case '"', '\'':
-			i++
-			for i < len(s) {
-				if s[i] == '\\' {
-					i += 2
-					continue
-				}
-				if s[i] == c {
-					i++
-					break
-				}
-				i++
-			}
-		case '{':
-			depth++
-			i++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i
-			}
-			i++
-		default:
-			i++
-		}
-	}
-	return -1
-}
-
-// walkASTForRefs recursively walks an expr-lang AST node, collecting scope variable reference
-// paths. Member chains (a.b.c) are extracted as complete dotted paths. Function call callees
-// and map literal keys are skipped. Let-bound variable names are tracked to avoid reporting
-// local bindings as scope references.
-func walkASTForRefs(node ast.Node, refs *[]string, seen map[string]bool) {
-	if node == nil {
-		return
-	}
-	switch n := node.(type) {
-	case *ast.MemberNode:
-		path := buildMemberPath(n)
-		if path != "" {
-			if !seen[path] {
-				seen[path] = true
-				*refs = append(*refs, path)
-			}
-		} else {
-			walkASTForRefs(n.Node, refs, seen)
-			walkASTForRefs(n.Property, refs, seen)
-		}
-	case *ast.IdentifierNode:
-		if !seen[n.Value] {
-			seen[n.Value] = true
-			*refs = append(*refs, n.Value)
-		}
-	case *ast.CallNode:
-		for _, arg := range n.Arguments {
-			walkASTForRefs(arg, refs, seen)
-		}
-	case *ast.BuiltinNode:
-		for _, arg := range n.Arguments {
-			walkASTForRefs(arg, refs, seen)
-		}
-	case *ast.ChainNode:
-		walkASTForRefs(n.Node, refs, seen)
-	case *ast.BinaryNode:
-		walkASTForRefs(n.Left, refs, seen)
-		walkASTForRefs(n.Right, refs, seen)
-	case *ast.UnaryNode:
-		walkASTForRefs(n.Node, refs, seen)
-	case *ast.ConditionalNode:
-		walkASTForRefs(n.Cond, refs, seen)
-		walkASTForRefs(n.Exp1, refs, seen)
-		walkASTForRefs(n.Exp2, refs, seen)
-	case *ast.ArrayNode:
-		for _, elem := range n.Nodes {
-			walkASTForRefs(elem, refs, seen)
-		}
-	case *ast.MapNode:
-		for _, pair := range n.Pairs {
-			if p, ok := pair.(*ast.PairNode); ok {
-				walkASTForRefs(p.Value, refs, seen)
-			}
-		}
-	case *ast.PairNode:
-		walkASTForRefs(n.Value, refs, seen)
-	case *ast.SliceNode:
-		walkASTForRefs(n.Node, refs, seen)
-		walkASTForRefs(n.From, refs, seen)
-		walkASTForRefs(n.To, refs, seen)
-	case *ast.PredicateNode:
-		walkASTForRefs(n.Node, refs, seen)
-	case *ast.SequenceNode:
-		for _, child := range n.Nodes {
-			walkASTForRefs(child, refs, seen)
-		}
-	case *ast.VariableDeclaratorNode:
-		walkASTForRefs(n.Value, refs, seen)
-		innerSeen := make(map[string]bool)
-		for k, v := range seen {
-			innerSeen[k] = v
-		}
-		innerSeen[n.Name] = true
-		walkASTForRefs(n.Expr, refs, innerSeen)
-	}
-}
-
-// buildMemberPath follows a chain of MemberNode → IdentifierNode to produce a dotted path like
-// "cluster.endpoint". Returns "" if the chain contains computed property access (non-string
-// property) or the root is not an IdentifierNode.
-func buildMemberPath(n *ast.MemberNode) string {
-	var parts []string
-	var node ast.Node = n
-	for {
-		switch m := node.(type) {
-		case *ast.MemberNode:
-			prop, ok := m.Property.(*ast.StringNode)
-			if !ok {
-				return ""
-			}
-			parts = append([]string{prop.Value}, parts...)
-			node = m.Node
-		case *ast.ChainNode:
-			node = m.Node
-		case *ast.IdentifierNode:
-			parts = append([]string{m.Value}, parts...)
-			return strings.Join(parts, ".")
-		default:
-			return ""
-		}
-	}
-}
-
-// resolveScopePath traverses nested maps to resolve a dotted path like "cluster.endpoint".
-func resolveScopePath(scope map[string]any, path string) (any, bool) {
-	parts := strings.Split(path, ".")
-	current := any(scope)
-	for _, part := range parts {
-		m, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		current, ok = m[part]
-		if !ok {
-			return nil, false
-		}
-	}
-	if current == nil {
-		return nil, false
-	}
-	return current, true
-}
-
 // markEffective determines which contribution produced the final composed value and sets its
-// Effective flag. Follows Windsor composition semantics: contributions are assumed sorted by
-// ascending ordinal. A replace strategy resets the effective index; for merge, the highest-ordinal
-// contributor that defines the key wins. Returns a placeholder when contributions are empty.
+// Effective flag. Contributions are sorted by ascending ordinal to ensure deterministic results
+// regardless of goroutine scheduling during parallel facet processing. A replace strategy resets
+// the effective index; for merge, the highest-ordinal contributor that defines the key wins.
+// Returns a placeholder when contributions are empty.
 func markEffective(contributions []ExplainContribution) []ExplainContribution {
 	if len(contributions) == 0 {
 		return []ExplainContribution{{SourceName: "composed blueprint"}}
 	}
+	sort.SliceStable(contributions, func(i, j int) bool {
+		return contributions[i].Ordinal < contributions[j].Ordinal
+	})
 	effectiveIdx := -1
 	for i := range contributions {
 		c := &contributions[i]
@@ -897,6 +719,10 @@ func markEffective(contributions []ExplainContribution) []ExplainContribution {
 	}
 	return contributions
 }
+
+// =============================================================================
+// Helpers
+// =============================================================================
 
 // findTerraformComponent finds a terraform component by ID in the blueprint.
 func findTerraformComponent(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1alpha1.TerraformComponent {
@@ -1052,9 +878,196 @@ func truncate(s string, maxLen int) string {
 }
 
 // findComponentValueLine returns the line of a specific component list entry within the
-// "components" sequence. When multiple blocks share the same name (merge), scans all blocks
-// and returns the line from the one that contains this value so the line is the list entry,
-// not the top-level block (e.g. - name: observability).
+// "components" sequence.
 func findComponentValueLine(facetPath, componentType, componentName, value string) int {
 	return yamlComponentEntryLine(facetPath, componentType, componentName, value)
+}
+
+// resolveScopePath traverses nested maps to resolve a dotted path like "cluster.endpoint".
+func resolveScopePath(scope map[string]any, path string) (any, bool) {
+	parts := strings.Split(path, ".")
+	current := any(scope)
+	for _, part := range parts {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = m[part]
+		if !ok {
+			return nil, false
+		}
+	}
+	if current == nil {
+		return nil, false
+	}
+	return current, true
+}
+
+// extractExprASTRefs parses each ${...} expression in s using the expr-lang parser and walks the
+// AST to find all scope variable reference paths. Returns deduplicated dotted paths in discovery order.
+func extractExprASTRefs(s string) []string {
+	var refs []string
+	seen := make(map[string]bool)
+	searchStart := 0
+	for {
+		idx := strings.Index(s[searchStart:], "${")
+		if idx == -1 {
+			break
+		}
+		start := searchStart + idx
+		end := findExprEnd(s, start)
+		if end == -1 {
+			break
+		}
+		exprContent := s[start+2 : end]
+		tree, err := parser.Parse(exprContent)
+		if err != nil {
+			searchStart = end + 1
+			continue
+		}
+		walkASTForRefs(tree.Node, &refs, seen)
+		searchStart = end + 1
+	}
+	return refs
+}
+
+// findExprEnd returns the index of the closing '}' that matches the '${' at position start.
+// Tracks brace depth and skips string literals so that braces inside strings are not counted.
+func findExprEnd(s string, start int) int {
+	if start < 0 || start+2 > len(s) || s[start] != '$' || s[start+1] != '{' {
+		return -1
+	}
+	depth := 1
+	i := start + 2
+	for i < len(s) {
+		c := s[i]
+		switch c {
+		case '"', '\'':
+			i++
+			for i < len(s) {
+				if s[i] == '\\' {
+					i += 2
+					continue
+				}
+				if s[i] == c {
+					i++
+					break
+				}
+				i++
+			}
+		case '{':
+			depth++
+			i++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+			i++
+		default:
+			i++
+		}
+	}
+	return -1
+}
+
+// walkASTForRefs recursively walks an expr-lang AST node, collecting scope variable reference
+// paths. Member chains (a.b.c) are extracted as complete dotted paths. Function call callees
+// and map literal keys are skipped.
+func walkASTForRefs(node ast.Node, refs *[]string, seen map[string]bool) {
+	if node == nil {
+		return
+	}
+	switch n := node.(type) {
+	case *ast.MemberNode:
+		path := buildMemberPath(n)
+		if path != "" {
+			if !seen[path] {
+				seen[path] = true
+				*refs = append(*refs, path)
+			}
+		} else {
+			walkASTForRefs(n.Node, refs, seen)
+			walkASTForRefs(n.Property, refs, seen)
+		}
+	case *ast.IdentifierNode:
+		if !seen[n.Value] {
+			seen[n.Value] = true
+			*refs = append(*refs, n.Value)
+		}
+	case *ast.CallNode:
+		for _, arg := range n.Arguments {
+			walkASTForRefs(arg, refs, seen)
+		}
+	case *ast.BuiltinNode:
+		for _, arg := range n.Arguments {
+			walkASTForRefs(arg, refs, seen)
+		}
+	case *ast.ChainNode:
+		walkASTForRefs(n.Node, refs, seen)
+	case *ast.BinaryNode:
+		walkASTForRefs(n.Left, refs, seen)
+		walkASTForRefs(n.Right, refs, seen)
+	case *ast.UnaryNode:
+		walkASTForRefs(n.Node, refs, seen)
+	case *ast.ConditionalNode:
+		walkASTForRefs(n.Cond, refs, seen)
+		walkASTForRefs(n.Exp1, refs, seen)
+		walkASTForRefs(n.Exp2, refs, seen)
+	case *ast.ArrayNode:
+		for _, elem := range n.Nodes {
+			walkASTForRefs(elem, refs, seen)
+		}
+	case *ast.MapNode:
+		for _, pair := range n.Pairs {
+			if p, ok := pair.(*ast.PairNode); ok {
+				walkASTForRefs(p.Value, refs, seen)
+			}
+		}
+	case *ast.PairNode:
+		walkASTForRefs(n.Value, refs, seen)
+	case *ast.SliceNode:
+		walkASTForRefs(n.Node, refs, seen)
+		walkASTForRefs(n.From, refs, seen)
+		walkASTForRefs(n.To, refs, seen)
+	case *ast.PredicateNode:
+		walkASTForRefs(n.Node, refs, seen)
+	case *ast.SequenceNode:
+		for _, child := range n.Nodes {
+			walkASTForRefs(child, refs, seen)
+		}
+	case *ast.VariableDeclaratorNode:
+		walkASTForRefs(n.Value, refs, seen)
+		innerSeen := make(map[string]bool)
+		for k, v := range seen {
+			innerSeen[k] = v
+		}
+		innerSeen[n.Name] = true
+		walkASTForRefs(n.Expr, refs, innerSeen)
+	}
+}
+
+// buildMemberPath follows a chain of MemberNode -> IdentifierNode to produce a dotted path like
+// "cluster.endpoint". Returns "" if the chain contains computed property access or non-identifier root.
+func buildMemberPath(n *ast.MemberNode) string {
+	var parts []string
+	var node ast.Node = n
+	for {
+		switch m := node.(type) {
+		case *ast.MemberNode:
+			prop, ok := m.Property.(*ast.StringNode)
+			if !ok {
+				return ""
+			}
+			parts = append([]string{prop.Value}, parts...)
+			node = m.Node
+		case *ast.ChainNode:
+			node = m.Node
+		case *ast.IdentifierNode:
+			parts = append([]string{m.Value}, parts...)
+			return strings.Join(parts, ".")
+		default:
+			return ""
+		}
+	}
 }
