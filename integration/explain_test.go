@@ -164,7 +164,7 @@ func TestExplain(t *testing.T) {
 		}
 	})
 
-	t.Run("DeferredTerraformOutputResolvesViaFallback", func(t *testing.T) {
+	t.Run("DeferredTerraformOutputPreservesRawExpression", func(t *testing.T) {
 		t.Parallel()
 		dir, env := helpers.PrepareFixture(t, "facet-composition")
 		env = append(env, "WINDSOR_CONTEXT=default")
@@ -173,7 +173,7 @@ func TestExplain(t *testing.T) {
 			t.Fatalf("explain failed: %v\nstderr: %s", err, stderr)
 		}
 		assertExplainOutput(t, string(stdout), explainExpectation{
-			header:             "terraform.deferred-cluster.inputs.api_endpoint = https://localhost:6443",
+			header:             "terraform.deferred-cluster.inputs.api_endpoint (deferred)",
 			sourceContains:     "option-deferred-test.yaml",
 			expressionContains: "deferred_endpoint.endpoint",
 		})
