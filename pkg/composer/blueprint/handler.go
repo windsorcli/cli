@@ -20,6 +20,7 @@ type BlueprintHandler interface {
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
+	Explain(path string) (*ExplainTrace, error)
 }
 
 // =============================================================================
@@ -39,6 +40,7 @@ type BaseBlueprintHandler struct {
 	sourceBlueprintLoaders map[string]BlueprintLoader
 	userBlueprintLoader    BlueprintLoader
 	composedBlueprint      *blueprintv1alpha1.Blueprint
+	traceCollector         TraceCollector
 	initBlueprintURLs      []string
 }
 
@@ -89,6 +91,13 @@ func NewBlueprintHandler(rt *runtime.Runtime, artifactBuilder artifact.Artifact,
 // =============================================================================
 // Public Methods
 // =============================================================================
+
+// SetTraceCollector enables opt-in trace collection for the explain command. When set, the
+// collector is propagated to the processor at the start of composition so expression scope
+// references and nested paths are recorded during facet processing. Pass nil to disable.
+func (h *BaseBlueprintHandler) SetTraceCollector(tc TraceCollector) {
+	h.traceCollector = tc
+}
 
 // LoadBlueprint orchestrates the complete blueprint loading pipeline. It loads the user blueprint
 // first, then loads all sources from the user's sources array (including "name: template" for local
@@ -483,6 +492,12 @@ func (h *BaseBlueprintHandler) loadNestedSources() error {
 // against the merged scope if possible. If a Terraform provider is configured, the composed components
 // are registered with the provider. Any errors during facet processing or composition are returned.
 func (h *BaseBlueprintHandler) processAndCompose() error {
+	if h.traceCollector != nil {
+		if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
+			bp.SetTraceCollector(h.traceCollector)
+		}
+	}
+
 	var loadersToProcess []BlueprintLoader
 	loaderNames := make(map[BlueprintLoader]string)
 
@@ -577,10 +592,15 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			userPath = ul.GetBlueprintPath()
 		}
 	}
-	composedBp, err := h.composer.Compose(loaders, initLoaderNames, userPath, mergedScope)
+	composedBp, composeErr := h.composer.Compose(loaders, initLoaderNames, userPath, mergedScope)
 	h.composedBlueprint = composedBp
-	if err != nil {
-		return err
+
+	if h.traceCollector != nil {
+		h.traceCollector.Finalize(h.composedBlueprint, mergedScope, h.runtime.TemplateRoot)
+	}
+
+	if composeErr != nil {
+		return composeErr
 	}
 
 	if h.runtime.Evaluator != nil {

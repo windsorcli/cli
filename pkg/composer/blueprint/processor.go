@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sort"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -28,7 +29,7 @@ var strategyPrecedence = map[string]int{
 }
 
 // =============================================================================
-// Interface
+// Interfaces
 // =============================================================================
 
 // BlueprintProcessor evaluates when: conditions on facets, terraform components, and kustomizations.
@@ -46,8 +47,9 @@ type BlueprintProcessor interface {
 
 // BaseBlueprintProcessor provides the default implementation of the BlueprintProcessor interface.
 type BaseBlueprintProcessor struct {
-	runtime   *runtime.Runtime
-	evaluator evaluator.ExpressionEvaluator
+	runtime        *runtime.Runtime
+	evaluator      evaluator.ExpressionEvaluator
+	traceCollector TraceCollector
 }
 
 // =============================================================================
@@ -76,6 +78,13 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // =============================================================================
 // Public Methods
 // =============================================================================
+
+// SetTraceCollector sets the trace collector for recording per-key contributions and config
+// blocks during composition. When non-nil, all contributions are recorded into the collector.
+// Set to nil to disable trace collection.
+func (p *BaseBlueprintProcessor) SetTraceCollector(tc TraceCollector) {
+	p.traceCollector = tc
+}
 
 // ProcessFacets iterates facets, evaluating each facet's 'when' against config data. Facets with
 // true (or unset) conditions contribute their terraform components and kustomizations to target.
@@ -193,12 +202,18 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 // Private Methods
 // =============================================================================
 
-// resolvedFacetOrdinal returns the ordinal used to order the facet. When the facet has Ordinal set, that value is used; otherwise the default is derived from the facet file path.
-func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
-	if f.Ordinal != nil {
-		return *f.Ordinal
+// recordTrace records a per-key contribution to the trace collector when set.
+func (p *BaseBlueprintProcessor) recordTrace(composedPath string, tc TraceContribution) {
+	if p.traceCollector != nil {
+		p.traceCollector.RecordContribution(composedPath, tc)
 	}
-	return OrdinalFromFacetPath(f.Path)
+}
+
+// recordConfigTrace records a config block value to the trace collector when set.
+func (p *BaseBlueprintProcessor) recordConfigTrace(configPath string, record ConfigBlockRecord) {
+	if p.traceCollector != nil {
+		p.traceCollector.RecordConfigBlock(configPath, record)
+	}
 }
 
 // mergeContextOverScope returns a new map by deep-merging contextScope over globalScope so
@@ -247,6 +262,28 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		}
 		if rawValue == nil {
 			rawValue = make(map[string]any)
+		}
+		if vm, ok := asMapStringAny(rawValue); ok {
+			p.recordConfigTrace("config."+block.Name, ConfigBlockRecord{
+				FacetPath: facet.Path,
+				Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
+				RawValue:  deepCopyValue(rawValue),
+			})
+			for key, val := range vm {
+				configPath := "config." + block.Name + "." + key
+				p.recordConfigTrace(configPath, ConfigBlockRecord{
+					FacetPath: facet.Path,
+					Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name), "value", mapKeyLine(key)),
+					RawValue:  deepCopyValue(val),
+				})
+			}
+		} else {
+			configPath := "config." + block.Name
+			p.recordConfigTrace(configPath, ConfigBlockRecord{
+				FacetPath: facet.Path,
+				Line:      yamlNodeLine(facet.Path, "config", namedItem(block.Name)),
+				RawValue:  deepCopyValue(rawValue),
+			})
 		}
 		byName[block.Name] = append(byName[block.Name], rawValue)
 	}
@@ -517,6 +554,22 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 		}
 
 		componentID := processed.GetID()
+		sn := ""
+		if len(sourceName) > 0 {
+			sn = sourceName[0]
+		}
+		for k, v := range tc.Inputs {
+			composedPath := "terraform." + componentID + ".inputs." + k
+			p.recordTrace(composedPath, TraceContribution{
+				FacetPath:  facet.Path,
+				SourceName: sn,
+				Ordinal:    effectiveOrdinal,
+				Strategy:   strategy,
+				Line:       yamlNodeLine(facet.Path, "terraform", namedItem(componentID), "inputs", k),
+				RawValue:   deepCopyValue(v),
+			})
+		}
+
 		if _, exists := terraformByID[componentID]; !exists {
 			processed.Strategy = strategy
 			terraformByID[componentID] = &processed
@@ -602,6 +655,33 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		strategy := processed.Strategy
 		if strategy == "" {
 			strategy = "merge"
+		}
+
+		sn := ""
+		if len(sourceName) > 0 {
+			sn = sourceName[0]
+		}
+		for sk, sv := range k.Substitutions {
+			composedPath := "kustomize." + processed.Name + ".substitutions." + sk
+			p.recordTrace(composedPath, TraceContribution{
+				FacetPath:  facet.Path,
+				SourceName: sn,
+				Ordinal:    effectiveOrdinal,
+				Strategy:   strategy,
+				Line:       yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name), "substitutions", sk),
+				RawValue:   deepCopyValue(sv),
+			})
+		}
+		if len(k.Components) > 0 {
+			componentsPath := "kustomize." + processed.Name + ".components"
+			p.recordTrace(componentsPath, TraceContribution{
+				FacetPath:     facet.Path,
+				SourceName:    sn,
+				Ordinal:       effectiveOrdinal,
+				Strategy:      strategy,
+				Line:          yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name), "components"),
+				RawComponents: slices.Clone(k.Components),
+			})
 		}
 
 		if _, exists := kustomizationByName[processed.Name]; !exists {
@@ -1085,32 +1165,6 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 	return accumulated
 }
 
-// asMapStringAny returns v as a map with string keys if v is a map (e.g. map[string]any or
-// map[interface{}]interface{} from YAML). Uses MapRange and fmt.Sprint for keys so interface{}
-// keys from YAML decode as string keys. Returns (nil, false) otherwise.
-func asMapStringAny(v any) (map[string]any, bool) {
-	if v == nil {
-		return nil, false
-	}
-	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Map {
-		return nil, false
-	}
-	out := make(map[string]any, rv.Len())
-	iter := rv.MapRange()
-	for iter.Next() {
-		k := iter.Key()
-		var keyStr string
-		if k.Kind() == reflect.Interface && !k.IsNil() {
-			keyStr = fmt.Sprint(k.Elem().Interface())
-		} else {
-			keyStr = fmt.Sprint(k.Interface())
-		}
-		out[keyStr] = iter.Value().Interface()
-	}
-	return out, true
-}
-
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against
 // the provided configuration data. The path parameter provides context for error messages and
 // helper function resolution. Returns true if the expression evaluates to boolean true or the
@@ -1278,6 +1332,87 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// resolvedFacetOrdinal returns the ordinal used to order the facet. When the facet has Ordinal set, that value is used; otherwise the default is derived from the facet file path.
+func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
+	if f.Ordinal != nil {
+		return *f.Ordinal
+	}
+	return OrdinalFromFacetPath(f.Path)
+}
+
+// deepCopyMapStringAny returns a deep copy of m so that trace records hold a snapshot of the
+// original facet inputs that cannot be mutated by later evaluation or normalization. Nested
+// maps and slices are copied recursively. Values that are map[any]any from YAML decode are
+// converted via asMapStringAny. Returns nil if m is nil.
+func deepCopyMapStringAny(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = deepCopyValue(v)
+	}
+	return out
+}
+
+// deepCopyValue recursively copies a value for provenance storage. map[string]any and
+// map[any]any (via asMapStringAny) are deep-copied; []any is deep-copied element-wise.
+// Primitives and other types are returned as-is. Used by deepCopyMapStringAny and deepCopySliceAny.
+func deepCopyValue(v any) any {
+	if v == nil {
+		return nil
+	}
+	if m, ok := v.(map[string]any); ok {
+		return deepCopyMapStringAny(m)
+	}
+	if m, ok := asMapStringAny(v); ok {
+		return deepCopyMapStringAny(m)
+	}
+	if s, ok := v.([]any); ok {
+		return deepCopySliceAny(s)
+	}
+	return v
+}
+
+// deepCopySliceAny returns a deep copy of s for provenance storage. Each element is copied via
+// deepCopyValue so nested maps and slices are not shared. Returns nil if s is nil.
+func deepCopySliceAny(s []any) []any {
+	if s == nil {
+		return nil
+	}
+	out := make([]any, len(s))
+	for i, v := range s {
+		out[i] = deepCopyValue(v)
+	}
+	return out
+}
+
+// asMapStringAny returns v as a map with string keys if v is a map (e.g. map[string]any or
+// map[any]any from YAML). Uses MapRange and fmt.Sprint for keys so any
+// keys from YAML decode as string keys. Returns (nil, false) otherwise.
+func asMapStringAny(v any) (map[string]any, bool) {
+	if v == nil {
+		return nil, false
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Map {
+		return nil, false
+	}
+	out := make(map[string]any, rv.Len())
+	iter := rv.MapRange()
+	for iter.Next() {
+		k := iter.Key()
+		var keyStr string
+		if k.Kind() == reflect.Interface && !k.IsNil() {
+			keyStr = fmt.Sprint(k.Elem().Interface())
+		} else {
+			keyStr = fmt.Sprint(k.Interface())
+		}
+		out[keyStr] = iter.Value().Interface()
+	}
+	return out, true
+}
 
 func containsExpressionInValue(v any) bool {
 	switch x := v.(type) {
