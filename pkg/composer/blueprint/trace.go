@@ -907,9 +907,6 @@ func resolveScopePath(scope map[string]any, path string) (any, bool) {
 			return nil, false
 		}
 	}
-	if current == nil {
-		return nil, false
-	}
 	return current, true
 }
 
