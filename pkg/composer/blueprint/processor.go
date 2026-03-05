@@ -414,9 +414,6 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 						continue
 					}
 					resolved, err := p.evaluator.Evaluate(s, "", scopeWithBlock, false)
-					if err == nil && resolved != nil && reflect.DeepEqual(resolved, v) {
-						resolved, err = p.evaluator.Evaluate(s, "", scopeWithBlock, true)
-					}
 					if err != nil || resolved == nil {
 						continue
 					}
