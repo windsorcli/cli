@@ -94,7 +94,7 @@ const DefaultAWSLocalstackImage = "localstack/localstack:4.14.0"
 const DefaultAWSLocalstackProImage = "localstack/localstack-pro:4.14.0"
 
 // renovate: datasource=docker depName=coredns/coredns
-const DefaultDNSImage = "coredns/coredns:1.14.1"
+const DefaultDNSImage = "coredns/coredns:1.14.2"
 
 // renovate: datasource=docker depName=registry
 const RegistryDefaultImage = "registry:3.0.0"
