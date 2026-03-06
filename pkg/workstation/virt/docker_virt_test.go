@@ -244,4 +244,66 @@ func TestDockerVirt_Down(t *testing.T) {
 			t.Errorf("Expected nil (best-effort), got %v", err)
 		}
 	})
+
+	t.Run("WhenProjectVolumesExistRemovesThem", func(t *testing.T) {
+		// Given a DockerVirt with shell that returns no containers, project volumes, and no context network
+		var execCalls []string
+		mocks, dockerVirt := setupDockerVirt(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			call := command + " " + strings.Join(args, " ")
+			execCalls = append(execCalls, call)
+			if command == "docker" && len(args) >= 1 && args[0] == "ps" {
+				return "", nil
+			}
+			if command == "docker" && len(args) >= 2 && args[0] == "volume" && args[1] == "ls" {
+				return "controlplane_1_etc_kubernetes\ncontrolplane_1_var\n", nil
+			}
+			if command == "docker" && len(args) >= 2 && args[0] == "network" && args[1] == "ls" {
+				return "bridge\n", nil
+			}
+			return "", nil
+		}
+
+		// When calling Down
+		err := dockerVirt.Down()
+
+		// Then no error
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		// And volume ls with project label was called
+		var hasVolumeLs bool
+		for _, c := range execCalls {
+			if strings.Contains(c, "volume ls") && strings.Contains(c, "label=com.docker.compose.project=workstation-windsor-mock-context") {
+				hasVolumeLs = true
+				break
+			}
+		}
+		if !hasVolumeLs {
+			t.Error("Expected docker volume ls with project label to be called")
+		}
+		// And volume rm was called for each volume
+		var volumeRmCalls []string
+		for _, c := range execCalls {
+			if strings.Contains(c, "volume rm") {
+				volumeRmCalls = append(volumeRmCalls, c)
+			}
+		}
+		if len(volumeRmCalls) != 2 {
+			t.Errorf("Expected 2 volume rm calls, got %d: %v", len(volumeRmCalls), volumeRmCalls)
+		}
+		volumeNames := []string{"controlplane_1_etc_kubernetes", "controlplane_1_var"}
+		for _, name := range volumeNames {
+			found := false
+			for _, c := range volumeRmCalls {
+				if strings.Contains(c, name) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected volume rm to be called for %q", name)
+			}
+		}
+	})
 }
