@@ -69,7 +69,7 @@ func (v *DockerVirt) WriteConfig() error {
 // Anonymous volumes are removed with containers via rm -v. No global Docker cleanup is performed.
 // Best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner with broom emoji.
 func (v *DockerVirt) Down() error {
-	return v.withProgress("🧹 Cleaning residual Docker containers and networks", func() error {
+	return v.withProgress("🧹 Cleaning up residual Docker resources", func() error {
 		contextName := v.configHandler.GetContext()
 		projectLabelValue := DockerComposeProjectPrefix + contextName
 		netName := WindsorNetworkPrefix + contextName
