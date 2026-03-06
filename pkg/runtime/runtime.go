@@ -571,14 +571,14 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if err := rt.ConfigHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	rt.migrateLoadedConfig()
-	if rt.ConfigHandler.GetBool("dns.enabled") && rt.ConfigHandler.GetString("dns.domain") != "" && rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("dns.address") == "" {
-		_ = rt.ConfigHandler.Set("dns.address", "127.0.0.1")
-	}
 	for key, value := range flagOverrides {
 		if err := rt.ConfigHandler.Set(key, value); err != nil {
 			return fmt.Errorf("failed to set %s: %w", key, err)
 		}
+	}
+	rt.migrateLoadedConfig()
+	if rt.ConfigHandler.GetBool("dns.enabled") && rt.ConfigHandler.GetString("dns.domain") != "" && rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("dns.address") == "" {
+		_ = rt.ConfigHandler.Set("dns.address", "127.0.0.1")
 	}
 	if isDevMode {
 		platform := rt.ConfigHandler.GetString("platform")
