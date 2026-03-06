@@ -245,7 +245,6 @@ func (rt *Runtime) HandleSessionReset() error {
 // secrets if requested, and aggregates all environment variables and aliases into the Runtime
 // instance. Returns an error if any step fails.
 func (rt *Runtime) LoadEnvironment(decrypt bool) error {
-	rt.migrateLoadedConfig()
 	rt.initializeSecretsProviders()
 	rt.initializeEnvPrinters()
 	rt.initializeToolsManager()
@@ -751,7 +750,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 }
 
-// migrateLoadedConfig normalizes in-memory config after load: platform↔provider and vm.driver→workstation.runtime when empty. Temporary migration for deprecated keys; call after LoadConfig (or at start of LoadEnvironment when config was loaded by caller).
+// migrateLoadedConfig normalizes in-memory config after load: platform↔provider and vm.driver→workstation.runtime when empty. Temporary migration for deprecated keys; call after LoadConfig only. Must not be called from LoadEnvironment so that provider overrides applied in ResolveConfig (e.g. from --platform) are not reset by platform synced from disk.
 func (rt *Runtime) migrateLoadedConfig() {
 	if p := rt.ConfigHandler.GetString("platform"); p != "" {
 		_ = rt.ConfigHandler.Set("provider", p)
