@@ -400,13 +400,16 @@ func (rt *Runtime) InitializeComponents() error {
 // ApplyConfigDefaults applies base configuration defaults if no config is currently loaded.
 // It sets "dev" mode in config if the context is a dev context, chooses a default workstation runtime
 // (optionally honoring flagOverrides["workstation.runtime"] or deprecated flagOverrides["vm.driver"]), and sets
-// provider to "docker" in dev mode if not already set, or "incus" when overrides or config specify provider incus.
+// platform to "docker" in dev mode if not already set, or "incus" when overrides or config specify incus.
 // After those, it loads a default configuration set, choosing among standard, full, localhost, or none
-// defaults depending on provider, dev mode, and workstation runtime.
+// defaults depending on platform, dev mode, and workstation runtime.
 // This must be called before loading from disk to ensure proper defaulting. Returns error on config operation failure.
 func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 	if !rt.ConfigHandler.IsLoaded() {
-		existingProvider := rt.ConfigHandler.GetString("provider")
+		existingPlatform := rt.ConfigHandler.GetString("platform")
+		if existingPlatform == "" {
+			existingPlatform = rt.ConfigHandler.GetString("provider")
+		}
 		isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
 
 		if isDevMode {
@@ -458,25 +461,25 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			vmRuntime = rt.ConfigHandler.GetString("vm.runtime", "docker")
 		}
 
-		if existingProvider == "" && isDevMode {
-			overrideProvider := ""
+		if existingPlatform == "" && isDevMode {
+			overridePlatform := ""
 			if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-				if p, ok := flagOverrides[0]["provider"].(string); ok && p != "" {
-					overrideProvider = p
+				if p, ok := flagOverrides[0]["platform"].(string); ok && p != "" {
+					overridePlatform = p
 				}
 			}
-			if overrideProvider != "" {
-				if err := rt.ConfigHandler.Set("provider", overrideProvider); err != nil {
-					return fmt.Errorf("failed to set provider from overrides: %w", err)
+			if overridePlatform != "" {
+				if err := rt.ConfigHandler.Set("platform", overridePlatform); err != nil {
+					return fmt.Errorf("failed to set platform from overrides: %w", err)
 				}
 			} else if workstationRuntime == "colima" && vmRuntime == "incus" {
 				fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-				if err := rt.ConfigHandler.Set("provider", "incus"); err != nil {
-					return fmt.Errorf("failed to set provider to incus: %w", err)
+				if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
+					return fmt.Errorf("failed to set platform to incus: %w", err)
 				}
 			} else {
-				if err := rt.ConfigHandler.Set("provider", "docker"); err != nil {
-					return fmt.Errorf("failed to set provider from context name: %w", err)
+				if err := rt.ConfigHandler.Set("platform", "docker"); err != nil {
+					return fmt.Errorf("failed to set platform: %w", err)
 				}
 			}
 		}
@@ -487,11 +490,14 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			}
 		}
 
-		provider := rt.ConfigHandler.GetString("provider")
-		if provider == "none" {
+		platform := rt.ConfigHandler.GetString("platform")
+		if platform == "" {
+			platform = rt.ConfigHandler.GetString("provider")
+		}
+		if platform == "none" {
 			defaultConfig := config.DefaultConfig
-			noneProvider := "none"
-			defaultConfig.Provider = &noneProvider
+			nonePlatform := "none"
+			defaultConfig.Platform = &nonePlatform
 			if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
 				return fmt.Errorf("failed to set default config: %w", err)
 			}
@@ -513,21 +519,33 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 	return nil
 }
 
-// ResolveConfig runs the full config pipeline: infer provider for dev when missing, apply pre-load
+// ResolveConfig runs the full config pipeline: infer platform for dev when missing, apply pre-load
 // defaults, load from disk, migrate vm.driver to workstation.runtime, apply flag overrides, then
-// apply dev-mode provider normalization (colima+incus). Call this once to produce final config.
-// Mutates flagOverrides when inferring provider. Returns error on config load or set failure.
+// apply dev-mode platform normalization (colima+incus). Call this once to produce final config.
+// Mutates flagOverrides when inferring platform. Returns error on config load or set failure.
 func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if flagOverrides == nil {
 		flagOverrides = make(map[string]any)
 	}
-	if p, ok := flagOverrides["platform"]; ok {
-		flagOverrides["provider"] = p
-		delete(flagOverrides, "platform")
+	if p, ok := flagOverrides["provider"]; ok {
+		if _, hasPlatform := flagOverrides["platform"]; !hasPlatform {
+			flagOverrides["platform"] = p
+		}
+		delete(flagOverrides, "provider")
 	}
 	isDevMode := rt.ConfigHandler.IsDevMode(rt.ContextName)
 	if isDevMode {
-		if _, exists := flagOverrides["provider"]; !exists && rt.ConfigHandler.GetString("provider") == "" {
+		existingPlatform := ""
+		if _, exists := flagOverrides["platform"]; exists {
+			existingPlatform, _ = flagOverrides["platform"].(string)
+		}
+		if existingPlatform == "" {
+			existingPlatform = rt.ConfigHandler.GetString("platform")
+		}
+		if existingPlatform == "" {
+			existingPlatform = rt.ConfigHandler.GetString("provider")
+		}
+		if existingPlatform == "" {
 			workstationRuntime := ""
 			if driver, ok := flagOverrides["workstation.runtime"].(string); ok && driver != "" {
 				workstationRuntime = driver
@@ -552,20 +570,20 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 			}
 			if workstationRuntime == "colima" && vmRuntime == "incus" {
 				fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
-				flagOverrides["provider"] = "incus"
+				flagOverrides["platform"] = "incus"
 			} else {
-				flagOverrides["provider"] = "docker"
+				flagOverrides["platform"] = "docker"
 			}
 		}
 	}
 	if err := rt.ApplyConfigDefaults(flagOverrides); err != nil {
 		return fmt.Errorf("failed to apply config defaults: %w", err)
 	}
-	providerOverride := ""
-	if prov, ok := flagOverrides["provider"].(string); ok {
-		providerOverride = prov
+	platformOverride := ""
+	if p, ok := flagOverrides["platform"].(string); ok {
+		platformOverride = p
 	}
-	if err := rt.ApplyProviderDefaults(providerOverride); err != nil {
+	if err := rt.ApplyPlatformDefaults(platformOverride); err != nil {
 		return err
 	}
 	if err := rt.ConfigHandler.LoadConfig(); err != nil {
@@ -592,29 +610,31 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 			if err := rt.ConfigHandler.Set("platform", "incus"); err != nil {
 				return fmt.Errorf("failed to set platform to incus: %w", err)
 			}
-			_ = rt.ConfigHandler.Set("provider", "incus")
 		}
 	}
 	return nil
 }
 
-// ApplyProviderDefaults sets provider-specific configuration values based on the provider type.
+// ApplyPlatformDefaults sets platform-specific configuration values based on the platform type.
 // For "aws", it enables AWS and sets the cluster driver to "eks".
 // For "azure", it enables Azure and sets the cluster driver to "aks".
 // For "gcp", it enables GCP and sets the cluster driver to "gke".
 // For "docker", it sets the cluster driver to "talos".
 // For "metal", it sets the cluster driver to "talos".
 // For "incus", it sets the cluster driver to "talos".
-// If no provider is set but dev mode is enabled, it defaults the cluster driver to "talos".
+// If no platform is set but dev mode is enabled, it defaults the cluster driver to "talos".
 // The context name is read from rt.ContextName. Returns an error if any configuration operation fails.
-func (rt *Runtime) ApplyProviderDefaults(providerOverride string) error {
-	provider := providerOverride
-	if provider == "" {
-		provider = rt.ConfigHandler.GetString("provider")
+func (rt *Runtime) ApplyPlatformDefaults(platformOverride string) error {
+	platform := platformOverride
+	if platform == "" {
+		platform = rt.ConfigHandler.GetString("platform")
+	}
+	if platform == "" {
+		platform = rt.ConfigHandler.GetString("provider")
 	}
 
-	if provider != "" {
-		switch provider {
+	if platform != "" {
+		switch platform {
 		case "aws":
 			if err := rt.ConfigHandler.Set("aws.enabled", true); err != nil {
 				return fmt.Errorf("failed to set aws.enabled: %w", err)
@@ -750,12 +770,14 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 }
 
-// migrateLoadedConfig normalizes in-memory config after load: platform↔provider and vm.driver→workstation.runtime when empty. Temporary migration for deprecated keys; call after LoadConfig only. Must not be called from LoadEnvironment so that provider overrides applied in ResolveConfig (e.g. from --platform) are not reset by platform synced from disk.
+// migrateLoadedConfig normalizes in-memory config after load: copies provider→platform when
+// platform is empty (legacy config migration) and vm.driver→workstation.runtime when empty.
+// Call after LoadConfig only.
 func (rt *Runtime) migrateLoadedConfig() {
-	if p := rt.ConfigHandler.GetString("platform"); p != "" {
-		_ = rt.ConfigHandler.Set("provider", p)
-	} else if p := rt.ConfigHandler.GetString("provider"); p != "" {
-		_ = rt.ConfigHandler.Set("platform", p)
+	if rt.ConfigHandler.GetString("platform") == "" {
+		if p := rt.ConfigHandler.GetString("provider"); p != "" {
+			_ = rt.ConfigHandler.Set("platform", p)
+		}
 	}
 	if rt.ConfigHandler.GetString("workstation.runtime") == "" && rt.ConfigHandler.GetString("vm.driver") != "" {
 		_ = rt.ConfigHandler.Set("workstation.runtime", rt.ConfigHandler.GetString("vm.driver"))
@@ -763,16 +785,21 @@ func (rt *Runtime) migrateLoadedConfig() {
 }
 
 // needsDockerEnv returns true when VirtEnvPrinter (DOCKER_HOST, DOCKER_CONFIG, etc.) should be used:
-// provider must be "docker" and workstation.runtime (or vm.driver) must be colima, docker-desktop, or docker.
+// platform must be "docker" (falls back to provider for legacy configs) and workstation.runtime
+// (or vm.driver) must be colima, docker-desktop, or docker.
 func (rt *Runtime) needsDockerEnv() bool {
-	if rt.ConfigHandler.GetString("provider") != "docker" {
+	platform := rt.ConfigHandler.GetString("platform")
+	if platform == "" {
+		platform = rt.ConfigHandler.GetString("provider")
+	}
+	if platform != "docker" {
 		return false
 	}
-	runtime := rt.ConfigHandler.GetString("workstation.runtime")
-	if runtime == "" {
-		runtime = rt.ConfigHandler.GetString("vm.driver")
+	wsRuntime := rt.ConfigHandler.GetString("workstation.runtime")
+	if wsRuntime == "" {
+		wsRuntime = rt.ConfigHandler.GetString("vm.driver")
 	}
-	switch runtime {
+	switch wsRuntime {
 	case "colima", "docker-desktop", "docker":
 		return true
 	default:

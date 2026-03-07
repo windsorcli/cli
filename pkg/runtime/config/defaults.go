@@ -64,7 +64,7 @@ var commonTerraformConfig = terraform.TerraformConfig{
 }
 
 // commonClusterConfig_Minimal is a minimal cluster configuration with only enabled set to true.
-// Used for provider-specific configurations where the driver will be set by ApplyProviderDefaults.
+// Used for platform-specific configurations where the driver will be set by ApplyPlatformDefaults.
 var commonClusterConfig_Minimal = cluster.ClusterConfig{
 	Enabled: ptrBool(true),
 }
@@ -107,11 +107,11 @@ var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
 	},
 }
 
-// DefaultConfig returns the default configuration for non-dev contexts
-// Uses minimal config since non-dev contexts default to provider "none"
-// Includes cluster.enabled=true for provider-specific contexts (aws, azure)
+// DefaultConfig returns the default configuration for non-dev contexts.
+// Uses minimal config since non-dev contexts default to platform "none".
+// Includes cluster.enabled=true for platform-specific contexts (aws, azure).
 var DefaultConfig = v1alpha1.Context{
-	Provider:  ptrString("none"),
+	Platform:  ptrString("none"),
 	Terraform: commonTerraformConfig.Copy(),
 	Cluster:   commonClusterConfig_Minimal.Copy(),
 }

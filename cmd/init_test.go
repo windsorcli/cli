@@ -286,8 +286,8 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("Execute failed: %v", err)
 		}
 
-		if v, ok := setCalls["provider"]; !ok || v != "docker" {
-			t.Errorf("Expected Set(provider, docker), got provider=%v (ok=%v)", v, ok)
+		if v, ok := setCalls["platform"]; !ok || v != "docker" {
+			t.Errorf("Expected Set(platform, docker), got platform=%v (ok=%v)", v, ok)
 		}
 		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
 			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
@@ -300,7 +300,7 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("VmDriverDockerDesktopSetsProviderAndWorkstation", func(t *testing.T) {
+	t.Run("VmDriverDockerDesktopSetsPlatformAndWorkstation", func(t *testing.T) {
 		mocks := setupInitTest(t)
 		setCalls := make(map[string]any)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -322,8 +322,8 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("Execute failed: %v", err)
 		}
 
-		if v, ok := setCalls["provider"]; !ok || v != "docker" {
-			t.Errorf("Expected Set(provider, docker), got provider=%v (ok=%v)", v, ok)
+		if v, ok := setCalls["platform"]; !ok || v != "docker" {
+			t.Errorf("Expected Set(platform, docker), got platform=%v (ok=%v)", v, ok)
 		}
 		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
 			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
@@ -336,7 +336,7 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("VmDriverColimaIncusSetsProviderIncusAndWorkstation", func(t *testing.T) {
+	t.Run("VmDriverColimaIncusSetsPlatformIncusAndWorkstation", func(t *testing.T) {
 		mocks := setupInitTest(t)
 		setCalls := make(map[string]any)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -358,8 +358,8 @@ func TestInitCmd(t *testing.T) {
 			t.Fatalf("Execute failed: %v", err)
 		}
 
-		if v, ok := setCalls["provider"]; !ok || v != "incus" {
-			t.Errorf("Expected Set(provider, incus), got provider=%v (ok=%v)", v, ok)
+		if v, ok := setCalls["platform"]; !ok || v != "incus" {
+			t.Errorf("Expected Set(platform, incus), got platform=%v (ok=%v)", v, ok)
 		}
 		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
 			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)

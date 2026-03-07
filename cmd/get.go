@@ -74,12 +74,14 @@ var getContextsCmd = &cobra.Command{
 
 		var contextInfos []contextInfo
 		for _, ctx := range contexts {
-			provider := "<none>"
+			platform := "<none>"
 			backend := "<none>"
 			ctxConfigHandler := config.NewConfigHandler(rt.Shell)
 			if err := ctxConfigHandler.LoadConfigForContext(ctx); err == nil {
-				if p := ctxConfigHandler.GetString("provider"); p != "" {
-					provider = p
+				if p := ctxConfigHandler.GetString("platform"); p != "" {
+					platform = p
+				} else if p := ctxConfigHandler.GetString("provider"); p != "" {
+					platform = p
 				}
 				if b := ctxConfigHandler.GetString("terraform.backend.type"); b != "" {
 					backend = b
@@ -88,7 +90,7 @@ var getContextsCmd = &cobra.Command{
 
 			contextInfos = append(contextInfos, contextInfo{
 				name:     ctx,
-				provider: provider,
+				provider: platform,
 				backend:  backend,
 				current:  ctx == currentContext,
 			})
