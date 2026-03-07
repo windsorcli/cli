@@ -430,29 +430,23 @@ func TestProject_Configure(t *testing.T) {
 		_ = NewProject("test-context", &Project{Runtime: mocks.Runtime})
 	})
 
-	t.Run("SetsDockerProviderInDevModeWhenProviderNotSet", func(t *testing.T) {
+	t.Run("SetsDockerPlatformInDevModeWhenPlatformNotSet", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return true
 		}
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
-				return ""
-			}
-			if key == "vm.driver" {
-				return ""
-			}
 			if key == "vm.runtime" {
 				return "docker"
 			}
 			return ""
 		}
 
-		providerSet := false
+		platformSet := false
 		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "provider" && value == "docker" {
-				providerSet = true
+			if key == "platform" && value == "docker" {
+				platformSet = true
 			}
 			return nil
 		}
@@ -460,21 +454,18 @@ func TestProject_Configure(t *testing.T) {
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		_ = proj.Configure(nil)
 
-		if !providerSet {
-			t.Error("Expected provider to be set to 'docker' in dev mode")
+		if !platformSet {
+			t.Error("Expected platform to be set to 'docker' in dev mode")
 		}
 	})
 
-	t.Run("SetsIncusProviderInDevModeWhenColimaIncus", func(t *testing.T) {
+	t.Run("SetsIncusPlatformInDevModeWhenColimaIncus", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return true
 		}
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
-				return ""
-			}
 			if key == "vm.driver" {
 				return "colima"
 			}
@@ -487,10 +478,10 @@ func TestProject_Configure(t *testing.T) {
 			return ""
 		}
 
-		providerSet := false
+		platformSet := false
 		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "provider" && value == "incus" {
-				providerSet = true
+			if key == "platform" && value == "incus" {
+				platformSet = true
 			}
 			return nil
 		}
@@ -498,8 +489,8 @@ func TestProject_Configure(t *testing.T) {
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		_ = proj.Configure(nil)
 
-		if !providerSet {
-			t.Error("Expected provider to be set to 'incus' in dev mode when vm.driver is colima and vm.runtime is incus")
+		if !platformSet {
+			t.Error("Expected platform to be set to 'incus' in dev mode when vm.driver is colima and vm.runtime is incus")
 		}
 	})
 
@@ -614,7 +605,7 @@ func TestProject_Configure(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorOnApplyProviderDefaultsFailure", func(t *testing.T) {
+	t.Run("ErrorOnApplyPlatformDefaultsFailure", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SetFunc = func(key string, value any) error {
@@ -626,10 +617,10 @@ func TestProject_Configure(t *testing.T) {
 
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
-		err := proj.Configure(map[string]any{"provider": "aws"})
+		err := proj.Configure(map[string]any{"platform": "aws"})
 
 		if err == nil {
-			t.Error("Expected error for ApplyProviderDefaults failure")
+			t.Error("Expected error for ApplyPlatformDefaults failure")
 			return
 		}
 	})
@@ -754,14 +745,14 @@ func TestProject_Configure(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsProviderToIncusAfterLoadConfigWhenColimaIncus", func(t *testing.T) {
+	t.Run("SetsPlatformToIncusAfterLoadConfigWhenColimaIncus", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return true
 		}
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
+			if key == "platform" {
 				return "docker"
 			}
 			if key == "vm.driver" {
@@ -776,10 +767,10 @@ func TestProject_Configure(t *testing.T) {
 			return nil
 		}
 
-		var providerSet string
+		var platformSet string
 		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "provider" {
-				providerSet = value.(string)
+			if key == "platform" {
+				platformSet = value.(string)
 			}
 			return nil
 		}
@@ -787,8 +778,8 @@ func TestProject_Configure(t *testing.T) {
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 		_ = proj.Configure(nil)
 
-		if providerSet != "incus" {
-			t.Errorf("Expected provider to be set to 'incus' after LoadConfig when vm.driver is 'colima' and vm.runtime is 'incus', got: %s", providerSet)
+		if platformSet != "incus" {
+			t.Errorf("Expected platform to be set to 'incus' after LoadConfig when vm.driver is 'colima' and vm.runtime is 'incus', got: %s", platformSet)
 		}
 	})
 }

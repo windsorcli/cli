@@ -1028,12 +1028,12 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Error("Expected dev to be set to true")
 		}
 
-		if setCalls["provider"] != "docker" {
-			t.Error("Expected provider to be set to docker")
+		if setCalls["platform"] != "docker" {
+			t.Error("Expected platform to be set to docker")
 		}
 	})
 
-	t.Run("SetsIncusProviderInDevModeWhenColimaIncus", func(t *testing.T) {
+	t.Run("SetsIncusPlatformInDevModeWhenColimaIncus", func(t *testing.T) {
 		// Given a runtime in dev mode with colima-incus configuration
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -1071,13 +1071,13 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		// When ApplyConfigDefaults is called
 		err := rt.ApplyConfigDefaults()
 
-		// Then provider should be set to incus
+		// Then platform should be set to incus
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		if setCalls["provider"] != "incus" {
-			t.Errorf("Expected provider to be set to incus, got: %v", setCalls["provider"])
+		if setCalls["platform"] != "incus" {
+			t.Errorf("Expected platform to be set to incus, got: %v", setCalls["platform"])
 		}
 	})
 
@@ -1385,8 +1385,8 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenSetProviderFails", func(t *testing.T) {
-		// Given a runtime with a config handler that fails to set provider
+	t.Run("ErrorWhenSetPlatformFails", func(t *testing.T) {
+		// Given a runtime with a config handler that fails to set platform
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "local"
@@ -1407,8 +1407,8 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "provider" {
-				return fmt.Errorf("set provider failed")
+			if key == "platform" {
+				return fmt.Errorf("set platform failed")
 			}
 			return nil
 		}
@@ -1418,11 +1418,11 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 
 		// Then an error should be returned
 		if err == nil {
-			t.Error("Expected error when Set provider fails")
+			t.Error("Expected error when Set platform fails")
 		}
 
-		if !strings.Contains(err.Error(), "failed to set provider") {
-			t.Errorf("Expected error about set provider, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to set platform") {
+			t.Errorf("Expected error about set platform, got: %v", err)
 		}
 	})
 
@@ -1565,7 +1565,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("UsesDefaultConfigNoneWhenProviderIsNone", func(t *testing.T) {
+	t.Run("UsesDefaultConfigNoneWhenPlatformIsNone", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "test"
@@ -1578,7 +1578,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return false
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
+			if key == "platform" {
 				return "none"
 			}
 			return ""
@@ -1600,8 +1600,8 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		if setDefaultConfig.Provider == nil || *setDefaultConfig.Provider != "none" {
-			t.Error("Expected DefaultConfig to be set with provider 'none'")
+		if setDefaultConfig.Platform == nil || *setDefaultConfig.Platform != "none" {
+			t.Error("Expected DefaultConfig to be set with platform 'none'")
 		}
 		if setDefaultConfig.Cluster == nil || setDefaultConfig.Cluster.Enabled == nil || !*setDefaultConfig.Cluster.Enabled {
 			t.Error("Expected DefaultConfig to have cluster.enabled=true")
@@ -1655,7 +1655,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsProviderToIncusWhenColimaIncusInFlagOverrides", func(t *testing.T) {
+	t.Run("SetsPlatformToIncusWhenColimaIncusInFlagOverrides", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "local"
@@ -1668,16 +1668,13 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return true
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
-				return ""
-			}
 			return ""
 		}
 
-		var providerSet string
+		var platformSet string
 		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "provider" {
-				providerSet = value.(string)
+			if key == "platform" {
+				platformSet = value.(string)
 			}
 			return nil
 		}
@@ -1697,13 +1694,13 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		if providerSet != "incus" {
-			t.Errorf("Expected provider to be set to 'incus', got: %s", providerSet)
+		if platformSet != "incus" {
+			t.Errorf("Expected platform to be set to 'incus', got: %s", platformSet)
 		}
 	})
 }
 
-func TestRuntime_ApplyProviderDefaults(t *testing.T) {
+func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 	t.Run("SetsAWSDefaults", func(t *testing.T) {
 		// Given a runtime with AWS provider
 		mocks := setupRuntimeMocks(t)
@@ -1717,8 +1714,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with "aws"
-		err := rt.ApplyProviderDefaults("aws")
+		// When ApplyPlatformDefaults is called with "aws"
+		err := rt.ApplyPlatformDefaults("aws")
 
 		// Then AWS defaults should be set
 		if err != nil {
@@ -1747,8 +1744,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with "azure"
-		err := rt.ApplyProviderDefaults("azure")
+		// When ApplyPlatformDefaults is called with "azure"
+		err := rt.ApplyPlatformDefaults("azure")
 
 		// Then Azure defaults should be set
 		if err != nil {
@@ -1777,8 +1774,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with "gcp"
-		err := rt.ApplyProviderDefaults("gcp")
+		// When ApplyPlatformDefaults is called with "gcp"
+		err := rt.ApplyPlatformDefaults("gcp")
 
 		// Then GCP defaults should be set
 		if err != nil {
@@ -1807,8 +1804,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with "docker"
-		err := rt.ApplyProviderDefaults("docker")
+		// When ApplyPlatformDefaults is called with "docker"
+		err := rt.ApplyPlatformDefaults("docker")
 
 		// Then docker defaults should be set
 		if err != nil {
@@ -1833,8 +1830,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with "metal"
-		err := rt.ApplyProviderDefaults("metal")
+		// When ApplyPlatformDefaults is called with "metal"
+		err := rt.ApplyPlatformDefaults("metal")
 
 		// Then metal defaults should be set
 		if err != nil {
@@ -1850,14 +1847,14 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 		// Given a runtime with nil config handler
 		rt := &Runtime{}
 
-		// When ApplyProviderDefaults is called
+		// When ApplyPlatformDefaults is called
 		// Then it should panic
 		defer func() {
 			if r := recover(); r == nil {
 				t.Error("Expected panic when ConfigHandler is nil")
 			}
 		}()
-		_ = rt.ApplyProviderDefaults("aws")
+		_ = rt.ApplyPlatformDefaults("aws")
 	})
 
 	t.Run("ErrorWhenSetFails", func(t *testing.T) {
@@ -1874,8 +1871,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called
-		err := rt.ApplyProviderDefaults("aws")
+		// When ApplyPlatformDefaults is called
+		err := rt.ApplyPlatformDefaults("aws")
 
 		// Then an error should be returned
 
@@ -1914,8 +1911,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with empty provider
-		err := rt.ApplyProviderDefaults("")
+		// When ApplyPlatformDefaults is called with empty provider
+		err := rt.ApplyPlatformDefaults("")
 
 		// Then dev mode defaults should be set
 
@@ -1948,8 +1945,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with empty provider
-		err := rt.ApplyProviderDefaults("")
+		// When ApplyPlatformDefaults is called with empty provider
+		err := rt.ApplyPlatformDefaults("")
 
 		// Then provider defaults should be set from config
 
@@ -1982,8 +1979,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called
-		err := rt.ApplyProviderDefaults("docker")
+		// When ApplyPlatformDefaults is called
+		err := rt.ApplyPlatformDefaults("docker")
 
 		// Then an error should be returned
 
@@ -2010,8 +2007,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called with "azure"
-		err := rt.ApplyProviderDefaults("azure")
+		// When ApplyPlatformDefaults is called with "azure"
+		err := rt.ApplyPlatformDefaults("azure")
 
 		// Then an error should be returned
 
@@ -2050,8 +2047,8 @@ func TestRuntime_ApplyProviderDefaults(t *testing.T) {
 			return nil
 		}
 
-		// When ApplyProviderDefaults is called
-		err := rt.ApplyProviderDefaults("")
+		// When ApplyPlatformDefaults is called
+		err := rt.ApplyPlatformDefaults("")
 
 		// Then an error should be returned
 
