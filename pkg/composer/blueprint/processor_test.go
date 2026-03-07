@@ -1065,6 +1065,54 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			t.Errorf("Expected error about invalid strategy, got: %v", err)
 		}
 	})
+
+	t.Run("RemoveStrategyDeletesBlockFromScope", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "add-cluster"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Body: map[string]any{"value": map[string]any{"endpoint": "x"}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "remove-cluster"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Strategy: "remove", Body: map[string]any{"value": nil}},
+				},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		scope, _, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, ok := scope["cluster"]; ok {
+			t.Error("Expected 'cluster' to be removed from scope by remove strategy")
+		}
+	})
+
+	t.Run("ReturnsErrorForInvalidConfigBlockStrategy", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "invalid-config-strategy"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Strategy: "overwrite", Body: map[string]any{"value": map[string]any{"endpoint": "x"}}},
+				},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err == nil {
+			t.Error("Expected error for invalid config block strategy")
+		}
+		if err != nil && !strings.Contains(err.Error(), "invalid strategy") {
+			t.Errorf("Expected error about invalid strategy, got: %v", err)
+		}
+	})
 }
 
 // =============================================================================
@@ -1474,14 +1522,14 @@ func TestProcessor_mergeHelpers(t *testing.T) {
 		}
 	})
 
-	t.Run("mergeConfigMapsDeepMergesSameBlockName", func(t *testing.T) {
+	t.Run("MergeScopeMapsDeepMergesSameBlockName", func(t *testing.T) {
 		globalScope := map[string]any{
 			"talos": map[string]any{"controlplanes": []any{"cp0"}, "workers": []any{"w0"}},
 		}
 		facetConfig := map[string]any{
 			"talos": map[string]any{"workers": []any{"w1", "w2"}},
 		}
-		out := MergeConfigMaps(globalScope, facetConfig)
+		out := MergeScopeMaps(globalScope, facetConfig)
 		talos := out["talos"].(map[string]any)
 		if _, ok := talos["controlplanes"]; !ok {
 			t.Error("Expected controlplanes from global to remain")
