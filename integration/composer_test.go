@@ -48,3 +48,17 @@ func TestWindsorTest_FacetCompositionFixture(t *testing.T) {
 		t.Errorf("expected PASS or ✓ in output: %s", out)
 	}
 }
+
+func TestWindsorTest_DerivedConfigFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "derived-config")
+	env = append(env, "WINDSOR_CONTEXT=test")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"test"}, env)
+	if err != nil {
+		t.Fatalf("windsor test: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
+		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}

@@ -216,14 +216,24 @@ func (p *BaseBlueprintProcessor) recordConfigTrace(configPath string, record Con
 	}
 }
 
-// mergeContextOverScope returns a new map by deep-merging contextScope over globalScope so
-// expressions see actual context values (e.g. workstation.runtime) while preserving facet-derived
-// nested structure under shared top-level keys (e.g. cluster, workstation).
-func (p *BaseBlueprintProcessor) mergeContextOverScope(contextScope, globalScope map[string]any) map[string]any {
+// scopeForConfigBlock builds the evaluation scope for evaluating a single config block so that
+// facet-derived config (globalScope) wins over context for all keys; the current block is set to
+// currentBlockValue when non-nil (e.g. in-place evaluation or resolve pass), otherwise to
+// contextScope[blockName] or omitted to avoid self-reference. This prevents context from
+// overwriting other blocks' facet values when one block has a scalar value.
+func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope map[string]any, blockName string, currentBlockValue any) map[string]any {
 	if globalScope == nil {
 		globalScope = make(map[string]any)
 	}
-	return blueprintv1alpha1.DeepMergeMaps(globalScope, contextScope)
+	scope := blueprintv1alpha1.DeepMergeMaps(contextScope, globalScope)
+	if currentBlockValue != nil {
+		scope[blockName] = currentBlockValue
+	} else if contextScope != nil && contextScope[blockName] != nil {
+		scope[blockName] = contextScope[blockName]
+	} else {
+		delete(scope, blockName)
+	}
+	return scope
 }
 
 // mergeFacetScopeIntoGlobal merges the facet's config block structure into the global scope
@@ -294,7 +304,8 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 			continue
 		}
 		if len(bodies) == 1 {
-			configMap[name] = bodies[0]
+			v := bodies[0]
+			configMap[name] = v
 		} else {
 			allMaps := true
 			for _, b := range bodies {
@@ -311,7 +322,22 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 				}
 				configMap[name] = merged
 			} else {
-				configMap[name] = bodies[len(bodies)-1]
+				var mapBodies []map[string]any
+				for _, b := range bodies {
+					if m, ok := asMapStringAny(b); ok {
+						mapBodies = append(mapBodies, m)
+					}
+				}
+				if len(mapBodies) > 0 {
+					merged := mapBodies[0]
+					for i := 1; i < len(mapBodies); i++ {
+						merged = deepMergeMap(merged, mapBodies[i])
+					}
+					configMap[name] = merged
+				} else {
+					v := bodies[len(bodies)-1]
+					configMap[name] = v
+				}
 			}
 		}
 		n := name
@@ -364,12 +390,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				if !containsExpressionInValue(body) {
 					continue
 				}
-				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-				if contextScope != nil && contextScope[name] != nil {
-					scopeWithBlock[name] = contextScope[name]
-				} else {
-					delete(scopeWithBlock, name)
-				}
+				scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, nil)
 				evaluated, err := p.evaluateConfigBlockValue(body, "", scopeWithBlock)
 				if err != nil {
 					return fmt.Errorf("config block %q: %w", name, err)
@@ -383,34 +404,50 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			}
 			oldBody := bodyMap
 			current := bodyMap
-			for pass := 0; pass < maxSameBlockPasses; pass++ {
-				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-				if pass == 0 {
-					if contextScope != nil && contextScope[name] != nil {
-						scopeWithBlock[name] = contextScope[name]
-					} else {
-						delete(scopeWithBlock, name)
+			var derivedKeys map[string]string
+			for k, v := range bodyMap {
+				if s, ok := v.(string); ok && evaluator.ContainsExpression(s) && expressionIsDerivedFromBlock(s, name) {
+					if derivedKeys == nil {
+						derivedKeys = make(map[string]string)
 					}
-				} else {
-					scopeWithBlock[name] = current
+					derivedKeys[k] = s
 				}
-				evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", scopeWithBlock, false)
+			}
+			for pass := 0; pass < maxSameBlockPasses; pass++ {
+				var blockVal any
+				if pass > 0 {
+					blockVal = current
+				}
+				scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, blockVal)
+				nonDerivedBody := make(map[string]any, len(bodyMap))
+				for k, v := range bodyMap {
+					if _, isDerived := derivedKeys[k]; isDerived {
+						continue
+					}
+					nonDerivedBody[k] = v
+				}
+				evaluated, err := p.evaluator.EvaluateMap(nonDerivedBody, "", scopeWithBlock, false)
 				if err != nil {
 					return fmt.Errorf("config block %q: %w", name, err)
+				}
+				for k, orig := range derivedKeys {
+					evaluated[k] = orig
 				}
 				if reflect.DeepEqual(evaluated, current) && !containsExpressionInValue(current) {
 					break
 				}
 				current = evaluated
 			}
-			scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-			scopeWithBlock[name] = current
+			scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, current)
 			const maxResolvePasses = 3
 			for resolvePass := 0; resolvePass < maxResolvePasses; resolvePass++ {
 				resolvedAny := false
 				for k, v := range current {
 					s, ok := v.(string)
 					if !ok || !evaluator.ContainsExpression(s) {
+						continue
+					}
+					if expressionIsDerivedFromBlock(s, name) {
 						continue
 					}
 					resolved, err := p.evaluator.Evaluate(s, "", scopeWithBlock, false)
@@ -1330,6 +1367,26 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 // Helpers
 // =============================================================================
 
+// MergeConfigMaps merges facet config blocks into the accumulated global scope.
+// When the same block name exists in both, block bodies are deep-merged recursively (overlay overwrites).
+// Returns a new map; does not mutate inputs.
+func MergeConfigMaps(globalScope map[string]any, facetConfig map[string]any) map[string]any {
+	out := make(map[string]any)
+	maps.Copy(out, globalScope)
+	for name, body := range facetConfig {
+		existing, ok := out[name].(map[string]any)
+		if ok && body != nil {
+			if newBody, ok2 := body.(map[string]any); ok2 {
+				out[name] = deepMergeMap(existing, newBody)
+				continue
+			}
+			continue
+		}
+		out[name] = body
+	}
+	return out
+}
+
 // resolvedFacetOrdinal returns the ordinal used to order the facet. When the facet has Ordinal set, that value is used; otherwise the default is derived from the facet file path.
 func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
 	if f.Ordinal != nil {
@@ -1432,25 +1489,6 @@ func containsExpressionInValue(v any) bool {
 	default:
 		return false
 	}
-}
-
-// MergeConfigMaps merges facet config blocks into the accumulated global scope.
-// When the same block name exists in both, block bodies are deep-merged recursively (overlay overwrites).
-// Returns a new map; does not mutate inputs.
-func MergeConfigMaps(globalScope map[string]any, facetConfig map[string]any) map[string]any {
-	out := make(map[string]any)
-	maps.Copy(out, globalScope)
-	for name, body := range facetConfig {
-		existing, ok := out[name].(map[string]any)
-		if ok && body != nil {
-			if newBody, ok2 := body.(map[string]any); ok2 {
-				out[name] = deepMergeMap(existing, newBody)
-				continue
-			}
-		}
-		out[name] = body
-	}
-	return out
 }
 
 // deepMergeMap recursively merges overlay into base. Values in overlay overwrite base for the same key.
