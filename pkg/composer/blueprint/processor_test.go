@@ -1066,6 +1066,33 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 	})
 
+	t.Run("RemoveStrategyDeletesBlockFromScope", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "add-cluster"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Body: map[string]any{"value": map[string]any{"endpoint": "x"}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "remove-cluster"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "cluster", Strategy: "remove", Body: map[string]any{"value": nil}},
+				},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		scope, _, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, ok := scope["cluster"]; ok {
+			t.Error("Expected 'cluster' to be removed from scope by remove strategy")
+		}
+	})
+
 	t.Run("ReturnsErrorForInvalidConfigBlockStrategy", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)

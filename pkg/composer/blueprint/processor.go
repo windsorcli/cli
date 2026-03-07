@@ -338,12 +338,12 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		}
 		order = append(order, name)
 	}
+	if len(incoming) == 0 {
+		return globalScope, existing, order, nil
+	}
 	mergedScope, mergedEntries, err := p.mergeConfigBlocks(globalScope, existing, incoming)
 	if err != nil {
 		return nil, nil, order, err
-	}
-	if len(mergedScope) == 0 {
-		return globalScope, existing, order, nil
 	}
 	return mergedScope, mergedEntries, order, nil
 }
