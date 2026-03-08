@@ -413,6 +413,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					derivedKeys[k] = s
 				}
 			}
+			var previousEvaluatedOnly map[string]any
 			for pass := 0; pass < maxSameBlockPasses; pass++ {
 				var blockVal any
 				if pass > 0 {
@@ -430,11 +431,16 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				if err != nil {
 					return fmt.Errorf("config block %q: %w", name, err)
 				}
+				if previousEvaluatedOnly != nil && reflect.DeepEqual(evaluated, previousEvaluatedOnly) && !containsExpressionInValue(evaluated) {
+					for k, orig := range derivedKeys {
+						evaluated[k] = orig
+					}
+					current = evaluated
+					break
+				}
+				previousEvaluatedOnly = deepCopyMapStringAny(evaluated)
 				for k, orig := range derivedKeys {
 					evaluated[k] = orig
-				}
-				if reflect.DeepEqual(evaluated, current) && !containsExpressionInValue(current) {
-					break
 				}
 				current = evaluated
 			}
