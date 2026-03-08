@@ -1380,7 +1380,6 @@ func MergeConfigMaps(globalScope map[string]any, facetConfig map[string]any) map
 				out[name] = deepMergeMap(existing, newBody)
 				continue
 			}
-			continue
 		}
 		out[name] = body
 	}
