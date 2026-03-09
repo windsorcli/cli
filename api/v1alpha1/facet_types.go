@@ -9,7 +9,7 @@ import "fmt"
 // =============================================================================
 
 // ConfigBlock represents a named, optionally conditional configuration block in a facet.
-// Only name, when, and value are allowed; value is required and may be a scalar, list, or map.
+// Only name, when, value, strategy, and ordinal are allowed; value is required and may be a scalar, list, or map.
 // The block is exposed at scope root: expressions use <name> for scalar/list values, or
 // <name>.<key> when value is a map. References from terraform.inputs and kustomize.substitutions
 // use the block name (e.g. talos, platform).
@@ -18,6 +18,13 @@ type ConfigBlock struct {
 	Name string `yaml:"name"`
 	// When is an expression that determines if this config block is evaluated; if empty, always evaluated when facet is active.
 	When string `yaml:"when,omitempty"`
+	// Strategy determines how this block is merged with blocks of the same name from other facets.
+	// Valid values are "merge" (default), "replace", and "remove". If "merge", the block is deep-merged.
+	// If "replace", the block replaces any existing block with the same name. If "remove", the block is removed from scope.
+	Strategy string `yaml:"strategy,omitempty"`
+	// Ordinal overrides the facet ordinal for this block's merge precedence. When nil, the facet's ordinal is used.
+	// Higher ordinal means higher precedence when merging (wins on conflict).
+	Ordinal *int `yaml:"ordinal,omitempty"`
 	// Body holds the canonical content as map[string]any{"value": <content>} for merge and evaluation. Not YAML-marshaled directly.
 	Body map[string]any `yaml:"-"`
 }
@@ -105,7 +112,7 @@ type ConditionalKustomization struct {
 // Public Methods
 // =============================================================================
 
-// UnmarshalYAML implements custom unmarshaling. Only name, when, and value are read; value is required.
+// UnmarshalYAML implements custom unmarshaling. Only name, when, value, strategy, and ordinal are read; value is required.
 // Body is set to {"value": raw["value"]} for merge and evaluation.
 func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 	var raw map[string]any
@@ -118,6 +125,21 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 	if w, ok := raw["when"]; ok {
 		c.When, _ = w.(string)
 	}
+	if s, ok := raw["strategy"]; ok {
+		c.Strategy, _ = s.(string)
+	}
+	if o, ok := raw["ordinal"]; ok && o != nil {
+		switch v := o.(type) {
+		case int:
+			c.Ordinal = &v
+		case int64:
+			i := int(v)
+			c.Ordinal = &i
+		case float64:
+			i := int(v)
+			c.Ordinal = &i
+		}
+	}
 	if _, hasValue := raw["value"]; !hasValue {
 		return fmt.Errorf("config block %q: value is required", c.Name)
 	}
@@ -125,7 +147,7 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// MarshalYAML implements custom marshaling. Only name, when, and value are written.
+// MarshalYAML implements custom marshaling. Only name, when, value, strategy, and ordinal are written.
 func (c *ConfigBlock) MarshalYAML() (any, error) {
 	out := make(map[string]any)
 	if c.Name != "" {
@@ -133,6 +155,12 @@ func (c *ConfigBlock) MarshalYAML() (any, error) {
 	}
 	if c.When != "" {
 		out["when"] = c.When
+	}
+	if c.Strategy != "" {
+		out["strategy"] = c.Strategy
+	}
+	if c.Ordinal != nil {
+		out["ordinal"] = *c.Ordinal
 	}
 	if c.Body != nil {
 		if v, ok := c.Body["value"]; ok {
@@ -147,7 +175,12 @@ func (c *ConfigBlock) DeepCopy() *ConfigBlock {
 	if c == nil {
 		return nil
 	}
-	return &ConfigBlock{Name: c.Name, When: c.When, Body: deepCopyMapStringAny(c.Body)}
+	var ordinalCopy *int
+	if c.Ordinal != nil {
+		o := *c.Ordinal
+		ordinalCopy = &o
+	}
+	return &ConfigBlock{Name: c.Name, When: c.When, Strategy: c.Strategy, Ordinal: ordinalCopy, Body: deepCopyMapStringAny(c.Body)}
 }
 
 // DeepCopy creates a deep copy of the Facet object.

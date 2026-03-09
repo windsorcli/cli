@@ -87,14 +87,15 @@ func (p *BaseBlueprintProcessor) SetTraceCollector(tc TraceCollector) {
 }
 
 // ProcessFacets iterates facets, evaluating each facet's 'when' against config data. Facets with
-// true (or unset) conditions contribute their terraform components and kustomizations to target.
+// true (or unset) conditions contribute their terraform components, kustomizations, and config blocks to target.
 // Components in facets may have 'when' for granular control. Facets are sorted by ordinal (asc),
-// then by metadata.name (tiebreak). Higher ordinal means higher precedence when merging. If
-// sourceName is set, it updates Source on components lacking it. Components/kustomizations are
-// merged by ordinal (higher wins), then by strategy precedence (remove > replace > merge) when
-// ordinals match. The target blueprint is modified in place. Returns: evaluated config scope and
-// block order for the loader. Runtime ConfigHandler context values are merged over facet-derived
-// scope so 'when' or component expressions use the actual config.
+// then by metadata.name (tiebreak). Higher ordinal means higher precedence when merging. Config blocks,
+// terraform components, and kustomizations are merged by ordinal (higher wins), then by strategy precedence
+// (remove > replace > merge) when ordinals match. Config block expressions are evaluated once per round
+// after all same-name blocks are merged, so expressions see the final merged value for each block.
+// If sourceName is set, it updates Source on components lacking it. The target blueprint is modified in place.
+// Returns: evaluated config scope and block order for the loader. Runtime ConfigHandler context values are
+// merged over facet-derived scope so 'when' or component expressions use the actual config.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
 	if target == nil {
 		return nil, nil, fmt.Errorf("target blueprint cannot be nil")
@@ -125,6 +126,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	kustomizationByName := make(map[string]*blueprintv1alpha1.ConditionalKustomization)
 	scope := contextScope
 	var globalScope map[string]any
+	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
 	var configBlockOrder []string
 	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
 	prevIncludedSet := make(map[string]bool)
@@ -132,6 +134,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	for range make([]struct{}, maxFacetRounds) {
 		includedFacets = includedFacets[:0]
 		globalScope = nil
+		cfgEntries = nil
 		configBlockOrder = nil
 		passScope := scope
 		if passScope == nil && contextScope != nil {
@@ -150,19 +153,19 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			}
 			includedFacets = append(includedFacets, facet)
 			var errMerge error
-			globalScope, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, configBlockOrder, passScope)
+			globalScope, cfgEntries, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, configBlockOrder, passScope)
 			if errMerge != nil {
 				return nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 			}
-			if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
-				return nil, nil, err
-			}
-			mergeBase := contextScope
-			if mergeBase == nil {
-				mergeBase = make(map[string]any)
-			}
-			passScope = blueprintv1alpha1.DeepMergeMaps(mergeBase, globalScope)
 		}
+		if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
+			return nil, nil, err
+		}
+		mergeBase := contextScope
+		if mergeBase == nil {
+			mergeBase = make(map[string]any)
+		}
+		passScope = blueprintv1alpha1.DeepMergeMaps(mergeBase, globalScope)
 		scope = passScope
 		currSet := make(map[string]bool, len(includedFacets))
 		for _, f := range includedFacets {
@@ -238,12 +241,14 @@ func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope m
 
 // mergeFacetScopeIntoGlobal merges the facet's config block structure into the global scope
 // (accumulated from prior facets) without evaluating config body expressions. Returns the
-// updated global scope and the config block name order (later in list takes precedence).
+// updated global scope, per-block meta (ordinal and strategy), and config block name order.
 // Config body expressions are evaluated later in evaluateGlobalScopeConfig.
 // For a given name, only blocks whose when condition is true contribute; if multiple blocks
 // with the same name have when true, their bodies are deep-merged in list order (later overlay).
-// This ensures mutually exclusive when conditions resolve to the single matching block.
-func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, order []string, contextScope map[string]any) (map[string]any, []string, error) {
+// Merge precedence: higher ordinal wins; when ordinals match, strategy precedence remove > replace > merge.
+func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, order []string, contextScope map[string]any) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, []string, error) {
+	facetOrdinal := resolvedFacetOrdinal(facet)
+	incoming := make(map[string]*blueprintv1alpha1.ConfigBlock)
 	byName := make(map[string][]any)
 	nameOrder := make([]string, 0)
 	seen := make(map[string]bool)
@@ -254,7 +259,7 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		if block.When != "" {
 			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path, contextScope)
 			if err != nil {
-				return nil, order, fmt.Errorf("config block %q when: %w", block.Name, err)
+				return nil, nil, order, fmt.Errorf("config block %q when: %w", block.Name, err)
 			}
 			if !shouldInclude {
 				continue
@@ -263,6 +268,15 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		if !seen[block.Name] {
 			seen[block.Name] = true
 			nameOrder = append(nameOrder, block.Name)
+		}
+		ordinal := facetOrdinal
+		if block.Ordinal != nil {
+			ordinal = *block.Ordinal
+		}
+		incoming[block.Name] = &blueprintv1alpha1.ConfigBlock{
+			Name:     block.Name,
+			Strategy: block.Strategy,
+			Ordinal:  &ordinal,
 		}
 		var rawValue any
 		if block.Body != nil {
@@ -297,15 +311,14 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		}
 		byName[block.Name] = append(byName[block.Name], rawValue)
 	}
-	configMap := make(map[string]any)
 	for _, name := range nameOrder {
 		bodies := byName[name]
 		if len(bodies) == 0 {
 			continue
 		}
+		var body any
 		if len(bodies) == 1 {
-			v := bodies[0]
-			configMap[name] = v
+			body = bodies[0]
 		} else {
 			allMaps := true
 			for _, b := range bodies {
@@ -320,40 +333,98 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 					next, _ := asMapStringAny(bodies[i])
 					merged = deepMergeMap(merged, next)
 				}
-				configMap[name] = merged
+				body = merged
 			} else {
-				var mapBodies []map[string]any
-				for _, b := range bodies {
-					if m, ok := asMapStringAny(b); ok {
-						mapBodies = append(mapBodies, m)
-					}
-				}
-				if len(mapBodies) > 0 {
-					merged := mapBodies[0]
-					for i := 1; i < len(mapBodies); i++ {
-						merged = deepMergeMap(merged, mapBodies[i])
-					}
-					configMap[name] = merged
-				} else {
-					v := bodies[len(bodies)-1]
-					configMap[name] = v
-				}
+				body = bodies[len(bodies)-1]
 			}
 		}
-		n := name
+		cb := incoming[name]
+		cb.Body = map[string]any{"value": body}
 		for i := 0; i < len(order); i++ {
-			if order[i] == n {
+			if order[i] == name {
 				order = append(order[:i], order[i+1:]...)
 				break
 			}
 		}
-		order = append(order, n)
+		order = append(order, name)
 	}
-	mergedConfig := MergeConfigMaps(globalScope, configMap)
-	if len(mergedConfig) == 0 {
-		return globalScope, order, nil
+	if len(incoming) == 0 {
+		return globalScope, existing, order, nil
 	}
-	return mergedConfig, order, nil
+	mergedScope, mergedEntries, err := p.mergeConfigBlocks(globalScope, existing, incoming)
+	if err != nil {
+		return nil, nil, order, err
+	}
+	return mergedScope, mergedEntries, order, nil
+}
+
+// mergeConfigBlocks merges incoming config blocks into the global scope using ordinal and strategy.
+// Higher ordinal wins; equal ordinals use strategy precedence (remove > replace > merge);
+// equal ordinal and equal strategy merges new over existing (matching terraform/kustomize behavior).
+// Returns the updated scope, updated entries, or an error on invalid strategy.
+func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existing, incoming map[string]*blueprintv1alpha1.ConfigBlock) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
+	out := make(map[string]any)
+	maps.Copy(out, scope)
+	if existing == nil {
+		existing = make(map[string]*blueprintv1alpha1.ConfigBlock)
+	}
+	merged := make(map[string]*blueprintv1alpha1.ConfigBlock, len(existing))
+	for k, v := range existing {
+		merged[k] = v
+	}
+	for name, inc := range incoming {
+		strategy := inc.Strategy
+		if strategy == "" {
+			strategy = "merge"
+		}
+		if strategy != "merge" && strategy != "replace" && strategy != "remove" {
+			return nil, nil, fmt.Errorf("invalid strategy %q for config block %q: must be 'merge', 'replace', or 'remove'", strategy, name)
+		}
+		incOrdinal := 0
+		if inc.Ordinal != nil {
+			incOrdinal = *inc.Ordinal
+		}
+		if prev, hasPrev := merged[name]; hasPrev {
+			prevOrdinal := 0
+			if prev.Ordinal != nil {
+				prevOrdinal = *prev.Ordinal
+			}
+			prevStrategy := prev.Strategy
+			if prevStrategy == "" {
+				prevStrategy = "merge"
+			}
+			if incOrdinal < prevOrdinal {
+				continue
+			}
+			if incOrdinal == prevOrdinal && strategyPrecedence[strategy] < strategyPrecedence[prevStrategy] {
+				continue
+			}
+		}
+		resolved := inc.DeepCopy()
+		resolved.Strategy = strategy
+		merged[name] = resolved
+		var rawValue any
+		if inc.Body == nil {
+			rawValue = nil
+		} else {
+			rawValue = inc.Body["value"]
+		}
+		switch strategy {
+		case "remove":
+			delete(out, name)
+		case "replace":
+			out[name] = rawValue
+		case "merge":
+			exMap, exOk := asMapStringAny(out[name])
+			newMap, newOk := asMapStringAny(rawValue)
+			if exOk && newOk && rawValue != nil {
+				out[name] = deepMergeMap(exMap, newMap)
+				continue
+			}
+			out[name] = rawValue
+		}
+	}
+	return out, merged, nil
 }
 
 // evaluateGlobalScopeConfig evaluates all config block body expressions in globalScope in
@@ -1373,19 +1444,17 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 // Helpers
 // =============================================================================
 
-// MergeConfigMaps merges facet config blocks into the accumulated global scope.
-// When the same block name exists in both, block bodies are deep-merged recursively (overlay overwrites).
-// Returns a new map; does not mutate inputs.
-func MergeConfigMaps(globalScope map[string]any, facetConfig map[string]any) map[string]any {
+// MergeScopeMaps deep-merges two scope maps (e.g. from multiple loaders or scope plus context values).
+// When the same block name exists in both, block bodies are deep-merged recursively (maps by key, lists/scalars replaced at that path). Returns a new map; does not mutate inputs.
+func MergeScopeMaps(globalScope map[string]any, overlay map[string]any) map[string]any {
 	out := make(map[string]any)
 	maps.Copy(out, globalScope)
-	for name, body := range facetConfig {
-		existing, ok := out[name].(map[string]any)
-		if ok && body != nil {
-			if newBody, ok2 := body.(map[string]any); ok2 {
-				out[name] = deepMergeMap(existing, newBody)
-				continue
-			}
+	for name, body := range overlay {
+		exMap, exOk := asMapStringAny(out[name])
+		newMap, newOk := asMapStringAny(body)
+		if exOk && newOk && body != nil {
+			out[name] = deepMergeMap(exMap, newMap)
+			continue
 		}
 		out[name] = body
 	}
@@ -1496,20 +1565,20 @@ func containsExpressionInValue(v any) bool {
 	}
 }
 
-// deepMergeMap recursively merges overlay into base. Values in overlay overwrite base for the same key.
-// When both values are maps, they are merged recursively. Returns a new map; does not mutate inputs.
+// deepMergeMap recursively merges overlay into base. At each key: if both values are maps they are
+// merged recursively; otherwise the overlay value replaces (no list concatenation). Handles
+// map[any]any from YAML by normalizing to map[string]any. Returns a new map; does not mutate inputs.
 func deepMergeMap(base, overlay map[string]any) map[string]any {
 	result := make(map[string]any, len(base)+len(overlay))
 	for k, v := range base {
 		result[k] = v
 	}
 	for k, v := range overlay {
-		existing, ok := result[k].(map[string]any)
-		if ok && v != nil {
-			if overlayMap, ok2 := v.(map[string]any); ok2 {
-				result[k] = deepMergeMap(existing, overlayMap)
-				continue
-			}
+		existingNorm, exOk := asMapStringAny(result[k])
+		overlayNorm, ovOk := asMapStringAny(v)
+		if exOk && ovOk {
+			result[k] = deepMergeMap(existingNorm, overlayNorm)
+			continue
 		}
 		result[k] = v
 	}

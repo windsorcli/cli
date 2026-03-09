@@ -578,11 +578,11 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			continue
 		}
 		if scope, ok := collectedScopes[name]; ok && scope != nil {
-			mergedScope = MergeConfigMaps(mergedScope, scope)
+			mergedScope = MergeScopeMaps(mergedScope, scope)
 		}
 	}
 	if contextValues := h.getConfigValues(); contextValues != nil {
-		mergedScope = MergeConfigMaps(mergedScope, contextValues)
+		mergedScope = MergeScopeMaps(mergedScope, contextValues)
 	}
 	scopeMu.Unlock()
 
