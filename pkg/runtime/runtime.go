@@ -590,11 +590,17 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	for key, value := range flagOverrides {
-		if key == "platform" && rt.ConfigHandler.GetString("platform") != "" {
-			continue
-		}
 		if err := rt.ConfigHandler.Set(key, value); err != nil {
 			return fmt.Errorf("failed to set %s: %w", key, err)
+		}
+	}
+	if _, hasPlatformOverride := flagOverrides["platform"]; hasPlatformOverride {
+		finalPlatform := rt.ConfigHandler.GetString("platform")
+		if finalPlatform == "" {
+			finalPlatform = rt.ConfigHandler.GetString("provider")
+		}
+		if err := rt.ApplyPlatformDefaults(finalPlatform); err != nil {
+			return err
 		}
 	}
 	rt.migrateLoadedConfig()
