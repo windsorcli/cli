@@ -228,6 +228,9 @@ func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope m
 	if globalScope == nil {
 		globalScope = make(map[string]any)
 	}
+	if contextScope == nil {
+		contextScope = make(map[string]any)
+	}
 	scope := blueprintv1alpha1.DeepMergeMaps(contextScope, globalScope)
 	if currentBlockValue != nil {
 		scope[blockName] = currentBlockValue
