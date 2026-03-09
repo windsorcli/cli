@@ -524,6 +524,7 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 // apply dev-mode platform normalization (colima+incus). Call this once to produce final config.
 // Mutates flagOverrides when inferring platform. Returns error on config load or set failure.
 func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
+	hadExplicitPlatformKey := flagOverrides != nil && func() bool { _, ok := flagOverrides["platform"]; return ok }()
 	if flagOverrides == nil {
 		flagOverrides = make(map[string]any)
 	}
@@ -590,15 +591,18 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	for key, value := range flagOverrides {
+		if key == "platform" && !hadExplicitPlatformKey {
+			continue
+		}
 		if err := rt.ConfigHandler.Set(key, value); err != nil {
 			return fmt.Errorf("failed to set %s: %w", key, err)
 		}
 	}
-	if _, hasPlatformOverride := flagOverrides["platform"]; hasPlatformOverride {
-		finalPlatform := rt.ConfigHandler.GetString("platform")
-		if finalPlatform == "" {
-			finalPlatform = rt.ConfigHandler.GetString("provider")
-		}
+	finalPlatform := rt.ConfigHandler.GetString("platform")
+	if finalPlatform == "" {
+		finalPlatform = rt.ConfigHandler.GetString("provider")
+	}
+	if finalPlatform != "" {
 		if err := rt.ApplyPlatformDefaults(finalPlatform); err != nil {
 			return err
 		}
