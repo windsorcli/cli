@@ -18,7 +18,7 @@ require (
 	github.com/google/go-jsonnet v0.21.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/siderolabs/talos/pkg/machinery v1.12.4
+	github.com/siderolabs/talos/pkg/machinery v1.12.5
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/zclconf/go-cty v1.18.0
@@ -37,7 +37,7 @@ require (
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
-	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/containerd/go-cni v1.1.13 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.18.2 // indirect
 	github.com/containernetworking/cni v1.3.0 // indirect
@@ -118,7 +118,7 @@ require (
 	go.yaml.in/yaml/v4 v4.0.0-rc.3 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/mod v0.33.0 // indirect
-	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
