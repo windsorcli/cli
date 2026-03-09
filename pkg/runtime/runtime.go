@@ -568,6 +568,11 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 			return fmt.Errorf("failed to set %s: %w", key, err)
 		}
 	}
+	if hasExplicitPlatform && explicitPlatform != "" {
+		if err := rt.ConfigHandler.Set("platform", explicitPlatform); err != nil {
+			return fmt.Errorf("failed to set platform: %w", err)
+		}
+	}
 	finalPlatform := rt.canonicalPlatform()
 	if finalPlatform != "" {
 		if err := rt.applyPlatformDefaults(finalPlatform, true); err != nil {
