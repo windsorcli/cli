@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+// The ordinal helpers are utilities that provide default facet ordering from file paths and basenames.
+// They are used when a facet does not set ordinal explicitly so that processing order is deterministic.
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
 // OrdinalFromFacetPath returns the default ordinal for a facet based on its file path.
 // The basename of the path is used to match prefix rules. When the facet does not set
 // ordinal explicitly, the loader uses this to assign a default so that facet processing

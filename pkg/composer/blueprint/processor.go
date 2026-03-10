@@ -219,14 +219,27 @@ func (p *BaseBlueprintProcessor) recordConfigTrace(configPath string, record Con
 	}
 }
 
-// mergeContextOverScope returns a new map by deep-merging contextScope over globalScope so
-// expressions see actual context values (e.g. workstation.runtime) while preserving facet-derived
-// nested structure under shared top-level keys (e.g. cluster, workstation).
-func (p *BaseBlueprintProcessor) mergeContextOverScope(contextScope, globalScope map[string]any) map[string]any {
+// scopeForConfigBlock builds the evaluation scope for evaluating a single config block so that
+// facet-derived config (globalScope) wins over context for all keys; the current block is set to
+// currentBlockValue when non-nil (e.g. in-place evaluation or resolve pass), otherwise to
+// contextScope[blockName] or omitted to avoid self-reference. This prevents context from
+// overwriting other blocks' facet values when one block has a scalar value.
+func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope map[string]any, blockName string, currentBlockValue any) map[string]any {
 	if globalScope == nil {
 		globalScope = make(map[string]any)
 	}
-	return blueprintv1alpha1.DeepMergeMaps(globalScope, contextScope)
+	if contextScope == nil {
+		contextScope = make(map[string]any)
+	}
+	scope := blueprintv1alpha1.DeepMergeMaps(contextScope, globalScope)
+	if currentBlockValue != nil {
+		scope[blockName] = currentBlockValue
+	} else if contextScope != nil && contextScope[blockName] != nil {
+		scope[blockName] = contextScope[blockName]
+	} else {
+		delete(scope, blockName)
+	}
+	return scope
 }
 
 // mergeFacetScopeIntoGlobal merges the facet's config block structure into the global scope
@@ -451,12 +464,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				if !containsExpressionInValue(body) {
 					continue
 				}
-				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-				if contextScope != nil && contextScope[name] != nil {
-					scopeWithBlock[name] = contextScope[name]
-				} else {
-					delete(scopeWithBlock, name)
-				}
+				scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, nil)
 				evaluated, err := p.evaluateConfigBlockValue(body, "", scopeWithBlock)
 				if err != nil {
 					return fmt.Errorf("config block %q: %w", name, err)
@@ -470,34 +478,56 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			}
 			oldBody := bodyMap
 			current := bodyMap
-			for pass := 0; pass < maxSameBlockPasses; pass++ {
-				scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-				if pass == 0 {
-					if contextScope != nil && contextScope[name] != nil {
-						scopeWithBlock[name] = contextScope[name]
-					} else {
-						delete(scopeWithBlock, name)
+			var derivedKeys map[string]string
+			for k, v := range bodyMap {
+				if s, ok := v.(string); ok && evaluator.ContainsExpression(s) && expressionIsDerivedFromBlock(s, name) {
+					if derivedKeys == nil {
+						derivedKeys = make(map[string]string)
 					}
-				} else {
-					scopeWithBlock[name] = current
+					derivedKeys[k] = s
 				}
-				evaluated, err := p.evaluator.EvaluateMap(bodyMap, "", scopeWithBlock, false)
+			}
+			var previousEvaluatedOnly map[string]any
+			for pass := 0; pass < maxSameBlockPasses; pass++ {
+				var blockVal any
+				if pass > 0 {
+					blockVal = current
+				}
+				scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, blockVal)
+				nonDerivedBody := make(map[string]any, len(bodyMap))
+				for k, v := range bodyMap {
+					if _, isDerived := derivedKeys[k]; isDerived {
+						continue
+					}
+					nonDerivedBody[k] = v
+				}
+				evaluated, err := p.evaluator.EvaluateMap(nonDerivedBody, "", scopeWithBlock, false)
 				if err != nil {
 					return fmt.Errorf("config block %q: %w", name, err)
 				}
-				if reflect.DeepEqual(evaluated, current) && !containsExpressionInValue(current) {
+				if previousEvaluatedOnly != nil && reflect.DeepEqual(evaluated, previousEvaluatedOnly) && !containsExpressionInValue(evaluated) {
+					for k, orig := range derivedKeys {
+						evaluated[k] = orig
+					}
+					current = evaluated
 					break
+				}
+				previousEvaluatedOnly = deepCopyMapStringAny(evaluated)
+				for k, orig := range derivedKeys {
+					evaluated[k] = orig
 				}
 				current = evaluated
 			}
-			scopeWithBlock := p.mergeContextOverScope(contextScope, globalScope)
-			scopeWithBlock[name] = current
+			scopeWithBlock := p.scopeForConfigBlock(contextScope, globalScope, name, current)
 			const maxResolvePasses = 3
 			for resolvePass := 0; resolvePass < maxResolvePasses; resolvePass++ {
 				resolvedAny := false
 				for k, v := range current {
 					s, ok := v.(string)
 					if !ok || !evaluator.ContainsExpression(s) {
+						continue
+					}
+					if expressionIsDerivedFromBlock(s, name) {
 						continue
 					}
 					resolved, err := p.evaluator.Evaluate(s, "", scopeWithBlock, false)

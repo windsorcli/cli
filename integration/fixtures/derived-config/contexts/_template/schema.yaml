@@ -1,0 +1,22 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Derived Config Fixture Schema
+type: object
+properties:
+  provider:
+    type: string
+  cluster:
+    type: object
+    properties:
+      driver:
+        type: string
+  workstation:
+    type: object
+    properties:
+      runtime:
+        type: string
+  vm:
+    type: object
+    properties:
+      driver:
+        type: string
+additionalProperties: true

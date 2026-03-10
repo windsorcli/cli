@@ -87,6 +87,21 @@ func setupProcessorMocks(t *testing.T) *ProcessorTestMocks {
 	return mocks
 }
 
+// evalTerraformInputsWithScope evaluates component inputs with the given scope (same as handler does
+// with mergedScope). Used by processor config tests because the processor no longer evaluates inputs;
+// inputs are evaluated once by the handler with the full merged config (Terraform-locals style).
+func evalTerraformInputsWithScope(t *testing.T, rt *runtime.Runtime, inputs map[string]any, scope map[string]any) map[string]any {
+	t.Helper()
+	if rt == nil || rt.Evaluator == nil || inputs == nil {
+		return inputs
+	}
+	evaluated, err := rt.Evaluator.EvaluateMap(inputs, "", scope, false)
+	if err != nil {
+		t.Fatalf("evalTerraformInputsWithScope: %v", err)
+	}
+	return evaluated
+}
+
 // =============================================================================
 // Test Constructor
 // =============================================================================
@@ -487,18 +502,16 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			}, nil
 		}
 
-		// When processing facets
+		// When processing facets (inputs are not evaluated in processor; handler evaluates with merged scope)
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
-
-		// Then inputs should be evaluated
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		inputs := target.TerraformComponents[0].Inputs
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
 		if inputs["region"] != "us-east-1" {
 			t.Errorf("Expected evaluated value 'us-east-1', got '%v'", inputs["region"])
 		}
@@ -1161,14 +1174,14 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		inputs := target.TerraformComponents[0].Inputs
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
 		cp, ok := inputs["controlplanes"].([]any)
 		if !ok {
 			t.Fatalf("Expected controlplanes to be []any, got %T", inputs["controlplanes"])
@@ -1215,15 +1228,81 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		if target.TerraformComponents[0].Inputs["name"] != "mycluster" {
-			t.Errorf("Expected name=mycluster, got %v", target.TerraformComponents[0].Inputs["name"])
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
+		if inputs["name"] != "mycluster" {
+			t.Errorf("Expected name=mycluster, got %v", inputs["name"])
+		}
+	})
+
+	t.Run("ScalarConfigBlockDoesNotCorruptLaterMapBlockMerge", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"provider":     "docker",
+				"talos_common": map[string]any{"allowSchedulingOnControlPlanes": false},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "scalar-and-map-config"},
+				When:     "provider == 'docker'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{
+						Name: "primary_node_ip",
+						Body: map[string]any{"value": "${'10.0.0.5'}"},
+					},
+					{
+						Name: "talos_common",
+						Body: map[string]any{
+							"value": map[string]any{"allowSchedulingOnControlPlanes": true},
+						},
+					},
+				},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path: "cluster",
+							Inputs: map[string]any{
+								"primary_ip":  "${primary_node_ip}",
+								"schedulable": "${talos_common.allowSchedulingOnControlPlanes}",
+							},
+						},
+					},
+				},
+			},
+		}
+		scope, _, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		if scope["primary_node_ip"] != "10.0.0.5" {
+			t.Errorf("Expected scope primary_node_ip='10.0.0.5', got %v", scope["primary_node_ip"])
+		}
+		talosCommon, ok := scope["talos_common"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected scope talos_common to be map, got %T", scope["talos_common"])
+		}
+		if v, ok := talosCommon["allowSchedulingOnControlPlanes"].(bool); !ok || !v {
+			t.Errorf("Expected talos_common.allowSchedulingOnControlPlanes=true (facet wins over context), got %v", talosCommon["allowSchedulingOnControlPlanes"])
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
+		if inputs["primary_ip"] != "10.0.0.5" {
+			t.Errorf("Expected inputs primary_ip='10.0.0.5', got %v", inputs["primary_ip"])
+		}
+		if inputs["schedulable"] != true {
+			t.Errorf("Expected inputs schedulable=true, got %v", inputs["schedulable"])
 		}
 	})
 
@@ -1252,12 +1331,13 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
-		if target.TerraformComponents[0].Inputs["val"] != "from-docker" {
-			t.Errorf("Expected val=from-docker (second block when matched), got %v", target.TerraformComponents[0].Inputs["val"])
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
+		if inputs["val"] != "from-docker" {
+			t.Errorf("Expected val=from-docker (second block when matched), got %v", inputs["val"])
 		}
 	})
 
@@ -1293,16 +1373,17 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		out, ok := target.TerraformComponents[0].Inputs["out"].(string)
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
+		out, ok := inputs["out"].(string)
 		if !ok {
-			t.Fatalf("Expected out to be string, got %T", target.TerraformComponents[0].Inputs["out"])
+			t.Fatalf("Expected out to be string, got %T", inputs["out"])
 		}
 		if out == "" || out == "null" {
 			t.Errorf("Expected patches (and thus out) to resolve from same-block common_patch, got %q", out)
@@ -1334,16 +1415,17 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		patches, ok := target.TerraformComponents[0].Inputs["common_config_patches"].([]any)
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
+		patches, ok := inputs["common_config_patches"].([]any)
 		if !ok {
-			t.Fatalf("Expected common_config_patches to be []any, got %T", target.TerraformComponents[0].Inputs["common_config_patches"])
+			t.Fatalf("Expected common_config_patches to be []any, got %T", inputs["common_config_patches"])
 		}
 		if len(patches) != 1 || patches[0] != "docker-patch.yaml" {
 			t.Errorf("Expected common_config_patches=[docker-patch.yaml] (matching block is first in list), got %v", patches)
@@ -1408,15 +1490,16 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		if target.TerraformComponents[0].Inputs["key"] != "default" {
-			t.Errorf("Expected key=default (undefined empty.foo with ?? fallback), got %v", target.TerraformComponents[0].Inputs["key"])
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
+		if inputs["key"] != "default" {
+			t.Errorf("Expected key=default (undefined empty.foo with ?? fallback), got %v", inputs["key"])
 		}
 	})
 
@@ -1445,17 +1528,18 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		if target.TerraformComponents[0].Inputs["platform"] != "incus" {
-			t.Errorf("Expected platform='incus' (scalar config block preserved), got %v", target.TerraformComponents[0].Inputs["platform"])
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
+		if inputs["platform"] != "incus" {
+			t.Errorf("Expected platform='incus' (scalar config block preserved), got %v", inputs["platform"])
 		}
-		if target.TerraformComponents[0].Inputs["tags"] == nil {
+		if inputs["tags"] == nil {
 			t.Error("Expected tags to be set (list config block preserved)")
 		}
 	})
@@ -1485,17 +1569,18 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		scope, _, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
 		if len(target.TerraformComponents) != 1 {
 			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
 		}
-		if target.TerraformComponents[0].Inputs["platform"] != "incus" {
-			t.Errorf("Expected platform='incus' (scalar expression ${provider} evaluated), got %v", target.TerraformComponents[0].Inputs["platform"])
+		inputs := evalTerraformInputsWithScope(t, mocks.Runtime, target.TerraformComponents[0].Inputs, scope)
+		if inputs["platform"] != "incus" {
+			t.Errorf("Expected platform='incus' (scalar expression ${provider} evaluated), got %v", inputs["platform"])
 		}
-		tagsStr, _ := target.TerraformComponents[0].Inputs["tags"].(string)
+		tagsStr, _ := inputs["tags"].(string)
 		if tagsStr == "" || !strings.Contains(tagsStr, "x") || !strings.Contains(tagsStr, "y") {
 			t.Errorf("Expected tags to contain evaluated list (${tag1}/${tag2}), got %q", tagsStr)
 		}
@@ -4713,6 +4798,51 @@ func TestProcessor_evaluateIntegerExpression(t *testing.T) {
 		}
 		if result != nil {
 			t.Error("Expected nil result on error")
+		}
+	})
+}
+
+func TestExpressionIsDerivedFromBlock(t *testing.T) {
+	t.Run("ReturnsTrueWhenBlockRefIsFunctionArgument", func(t *testing.T) {
+		got := expressionIsDerivedFromBlock("${string(talos_common.common_patch)}", "talos_common")
+		if !got {
+			t.Error("Expected function argument reference to be treated as derived")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenNestedFunctionUsesBlockRef", func(t *testing.T) {
+		expr := "${len(string(talos_common.common_patch)) > 0}"
+		got := expressionIsDerivedFromBlock(expr, "talos_common")
+		if !got {
+			t.Error("Expected nested function argument reference to be treated as derived")
+		}
+	})
+
+	t.Run("ReturnsFalseForSimplePropertyRead", func(t *testing.T) {
+		got := expressionIsDerivedFromBlock("${workstation.runtime ?? vm.driver ?? 'colima'}", "workstation")
+		if got {
+			t.Error("Expected simple property reads to not be treated as derived")
+		}
+	})
+
+	t.Run("ReturnsFalseForNonFunctionComparison", func(t *testing.T) {
+		got := expressionIsDerivedFromBlock("${talos_common.common_patch != nil}", "talos_common")
+		if got {
+			t.Error("Expected non-function comparisons to not be treated as derived")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenBlockNameDoesNotMatch", func(t *testing.T) {
+		got := expressionIsDerivedFromBlock("${string(other_block.common_patch)}", "talos_common")
+		if got {
+			t.Error("Expected references to different blocks to not be treated as derived")
+		}
+	})
+
+	t.Run("ReturnsFalseForMalformedExpression", func(t *testing.T) {
+		got := expressionIsDerivedFromBlock("${string(talos_common.common_patch)", "talos_common")
+		if got {
+			t.Error("Expected malformed expressions to not be treated as derived")
 		}
 	})
 }
