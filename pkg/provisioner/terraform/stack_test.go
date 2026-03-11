@@ -589,6 +589,60 @@ func TestStack_Down(t *testing.T) {
 		}
 	})
 
+	t.Run("ExcludesComponentsWithEnabledFalse", func(t *testing.T) {
+		stack, mocks := setup(t)
+
+		mocks.Runtime.TerraformProvider.ClearCache()
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		enabledFalse := false
+		blueprint := createTestBlueprint()
+		blueprint.Sources = append(blueprint.Sources, blueprintv1alpha1.Source{
+			Name: "source2",
+			Url:  "https://github.com/example/example2.git",
+			Ref:  blueprintv1alpha1.Reference{Branch: "main"},
+		})
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{
+				Source: "source1",
+				Path:   "module/path1",
+			},
+			{
+				Source:  "source2",
+				Path:    "module/path2",
+				Enabled: &blueprintv1alpha1.BoolExpression{Value: &enabledFalse, IsExpr: false},
+			},
+		}
+
+		path1Dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", "module/path1")
+		if err := os.MkdirAll(path1Dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+
+		var terraformCommands []string
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" {
+				terraformCommands = append(terraformCommands, strings.Join(args, " "))
+			}
+			return "", nil
+		}
+
+		if err := stack.Down(blueprint); err != nil {
+			t.Errorf("Expected Down to return nil, got %v", err)
+		}
+
+		for _, cmd := range terraformCommands {
+			if strings.Contains(cmd, "path2") {
+				t.Errorf("Expected no terraform commands for path2 (enabled: false), but found: %v", terraformCommands)
+				break
+			}
+		}
+		if len(terraformCommands) == 0 {
+			t.Errorf("Expected terraform commands for path1 (enabled), but got none: %v", terraformCommands)
+		}
+	})
+
 	t.Run("SkipComponentsWithDestroyFalse", func(t *testing.T) {
 		stack, mocks := setup(t)
 

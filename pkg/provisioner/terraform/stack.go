@@ -241,11 +241,19 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 // =============================================================================
 
 // resolveTerraformComponents resolves terraform components from the blueprint by resolving sources and paths.
+// Components with Enabled set to false are excluded from the returned list.
 func (s *TerraformStack) resolveTerraformComponents(blueprint *blueprintv1alpha1.Blueprint, projectRoot string) []blueprintv1alpha1.TerraformComponent {
 	blueprintCopy := *blueprint
 	s.resolveComponentSources(&blueprintCopy)
 	s.resolveComponentPaths(&blueprintCopy, projectRoot)
-	return blueprintCopy.TerraformComponents
+	out := make([]blueprintv1alpha1.TerraformComponent, 0, len(blueprintCopy.TerraformComponents))
+	for _, c := range blueprintCopy.TerraformComponents {
+		if c.Enabled != nil && !c.Enabled.IsEnabled() {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // resolveComponentSources resolves component source names to full URLs using blueprint sources.
