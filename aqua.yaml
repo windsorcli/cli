@@ -13,7 +13,7 @@ registries:
 packages:
 - name: siderolabs/talos@v1.12.5
 - name: siderolabs/omni/omnictl@v1.5.9
-- name: siderolabs/omni/omni@v1.5.9
+- name: siderolabs/omni/omni@v1.5.10
 - name: kubernetes/kubectl@v1.34.3 # renovate: ignore
 - name: go-task/task@v3.49.1
 - name: golang/go@go1.26.1
