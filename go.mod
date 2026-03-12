@@ -9,9 +9,9 @@ require (
 	github.com/briandowns/spinner v1.23.2
 	github.com/expr-lang/expr v1.17.8
 	github.com/fluxcd/helm-controller/api v1.5.1
-	github.com/fluxcd/kustomize-controller/api v1.8.1
-	github.com/fluxcd/pkg/apis/kustomize v1.15.0
-	github.com/fluxcd/pkg/apis/meta v1.25.0
+	github.com/fluxcd/kustomize-controller/api v1.8.2
+	github.com/fluxcd/pkg/apis/kustomize v1.15.1
+	github.com/fluxcd/pkg/apis/meta v1.25.1
 	github.com/fluxcd/source-controller/api v1.8.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-containerregistry v0.21.2
@@ -132,7 +132,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
-	k8s.io/apiextensions-apiserver v0.35.0 // indirect
+	k8s.io/apiextensions-apiserver v0.35.2 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20251125145642-4e65d59e963e // indirect
 	k8s.io/utils v0.0.0-20251219084037-98d557b7f1e7 // indirect
