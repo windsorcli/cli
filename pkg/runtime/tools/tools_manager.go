@@ -196,8 +196,12 @@ func (t *BaseToolsManager) checkColima() error {
 	if limactlVersion == "" {
 		return fmt.Errorf("failed to extract limactl version")
 	}
-	if compareVersion(limactlVersion, constants.MinimumVersionLima) < 0 {
-		return fmt.Errorf("limactl version %s is below the minimum required version %s", limactlVersion, constants.MinimumVersionLima)
+	minLima := constants.MinimumVersionLima
+	if t.configHandler.GetString("platform") == "incus" {
+		minLima = constants.MinimumVersionLimaIncus
+	}
+	if compareVersion(limactlVersion, minLima) < 0 {
+		return fmt.Errorf("limactl version %s is below the minimum required version %s (use same PATH as in core repo or upgrade limactl)", limactlVersion, minLima)
 	}
 
 	return nil
