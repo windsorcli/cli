@@ -12,7 +12,7 @@ require (
 	github.com/fluxcd/kustomize-controller/api v1.8.2
 	github.com/fluxcd/pkg/apis/kustomize v1.15.1
 	github.com/fluxcd/pkg/apis/meta v1.25.1
-	github.com/fluxcd/source-controller/api v1.8.0
+	github.com/fluxcd/source-controller/api v1.8.1
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-containerregistry v0.21.2
 	github.com/google/go-jsonnet v0.21.0
