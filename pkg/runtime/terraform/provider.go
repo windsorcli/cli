@@ -812,7 +812,7 @@ func (p *terraformProvider) prepareTerraformContext(componentID string) (*terraf
 func (p *terraformProvider) withTerraformContext(componentID string, fn func(*terraformContext) (map[string]any, error)) (map[string]any, error) {
 	ctx, originalEnvVars, err := p.prepareTerraformContext(componentID)
 	if err != nil {
-		return make(map[string]any), nil
+		return nil, fmt.Errorf("failed to prepare terraform context for component '%s': %w", componentID, err)
 	}
 
 	cleanup := func() {
