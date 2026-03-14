@@ -289,13 +289,16 @@ func TestTerraformProvider_CacheOutputs(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsNoErrorWhenComponentNotFound", func(t *testing.T) {
+	t.Run("ReturnsErrorWhenComponentNotFound", func(t *testing.T) {
 		mocks := setupMocks(t)
 
 		err := mocks.Provider.CacheOutputs("nonexistent-component")
 
-		if err != nil {
-			t.Errorf("Expected no error for nonexistent component (graceful fallback), got: %v", err)
+		if err == nil {
+			t.Fatal("Expected error for nonexistent component")
+		}
+		if !strings.Contains(err.Error(), "failed to prepare terraform context") {
+			t.Errorf("Expected terraform context preparation error, got: %v", err)
 		}
 	})
 }
@@ -831,12 +834,15 @@ terraform:
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, true)
 
-		// Then it should return nil without error (graceful fallback)
-		if err != nil {
-			t.Errorf("Expected no error for graceful fallback, got: %v", err)
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error when context preparation fails")
+		}
+		if !strings.Contains(err.Error(), "failed to get terraform outputs") {
+			t.Errorf("Expected output retrieval error, got: %v", err)
 		}
 		if output != nil {
-			t.Errorf("Expected nil output when context prep fails, got %v", output)
+			t.Errorf("Expected nil output when error occurs, got %v", output)
 		}
 	})
 
@@ -855,12 +861,15 @@ terraform:
 		// When getting output
 		output, err := mocks.Provider.getOutput("test-component", "any-key", `terraform_output("test-component", "any-key")`, true)
 
-		// Then it should return nil without error (graceful fallback)
-		if err != nil {
-			t.Errorf("Expected no error for graceful fallback, got: %v", err)
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error when backend override generation fails")
+		}
+		if !strings.Contains(err.Error(), "failed to get terraform outputs") {
+			t.Errorf("Expected output retrieval error, got: %v", err)
 		}
 		if output != nil {
-			t.Errorf("Expected nil output when context prep fails, got %v", output)
+			t.Errorf("Expected nil output when error occurs, got %v", output)
 		}
 	})
 
@@ -2408,19 +2417,21 @@ terraform:
 		}
 	})
 
-	t.Run("ReturnsEmptyMapWhenComponentNotFound", func(t *testing.T) {
+	t.Run("ReturnsErrorWhenComponentNotFound", func(t *testing.T) {
 		// Given a provider with nonexistent component
 		mocks := setupMocks(t)
 
 		// When getting terraform outputs for nonexistent component
 		outputs, err := mocks.Provider.GetTerraformOutputs("nonexistent")
-		// Then it should return empty map without error (enables ?? fallback)
-		if err != nil {
-			t.Fatalf("Expected no error for graceful fallback, got: %v", err)
+		// Then it should return an error
+		if err == nil {
+			t.Fatal("Expected error for nonexistent component")
 		}
-
-		if len(outputs) != 0 {
-			t.Errorf("Expected empty map, got: %v", outputs)
+		if !strings.Contains(err.Error(), "failed to prepare terraform context") {
+			t.Errorf("Expected terraform context preparation error, got: %v", err)
+		}
+		if outputs != nil {
+			t.Errorf("Expected nil outputs when context preparation fails, got: %v", outputs)
 		}
 	})
 
