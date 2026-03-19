@@ -199,7 +199,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -272,7 +272,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with no DNS address
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
 		mocks.ConfigHandler.Set("vm.driver", "colima")
 
 		// And mocking systemd-resolved being in use
@@ -342,7 +342,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with drop-in directory creation error
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {
@@ -379,7 +379,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with DNS config writing error
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {
@@ -416,7 +416,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with systemd-resolved restart error
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {

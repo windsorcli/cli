@@ -1155,6 +1155,72 @@ func TestColimaVirt_calculateVMResources(t *testing.T) {
 			t.Errorf("expected minimum memory 4GB, got %d", memory)
 		}
 	})
+
+	t.Run("SingleControlPlaneNoWorkersUsesLargerDefaults", func(t *testing.T) {
+		// Given a colima virt instance with 1 controlplane and no workers, no explicit CPU/memory
+		colimaVirt, mocks := setup(t)
+
+		_ = mocks.ConfigHandler.Set("cluster.controlplanes.count", 1)
+
+		// When calculating VM resources
+		cpu, memory := colimaVirt.calculateVMResources()
+
+		// Then CPU = (1 * 8) + 1 overhead = 9 (uses DefaultControlPlaneCPU=8)
+		if cpu != 9 {
+			t.Errorf("expected CPU 9, got %d", cpu)
+		}
+
+		// And memory = (1 * 12) + 3 overhead = 15 (uses DefaultControlPlaneMemory=12)
+		if memory != 15 {
+			t.Errorf("expected memory 15GB, got %d", memory)
+		}
+	})
+
+	t.Run("ControlPlaneWithWorkersUsesSmallerCPDefaults", func(t *testing.T) {
+		// Given a colima virt instance with 1 controlplane and 1 worker, no explicit CPU/memory
+		colimaVirt, mocks := setup(t)
+
+		_ = mocks.ConfigHandler.Set("cluster.controlplanes.count", 1)
+		_ = mocks.ConfigHandler.Set("cluster.workers.count", 1)
+
+		// When calculating VM resources
+		cpu, memory := colimaVirt.calculateVMResources()
+
+		// Then CPU = (1 * 4) + (1 * 4) + 1 overhead = 9
+		if cpu != 9 {
+			t.Errorf("expected CPU 9, got %d", cpu)
+		}
+
+		// And memory = (1 * 6) + (1 * 6) + 3 overhead = 15
+		if memory != 15 {
+			t.Errorf("expected memory 15GB, got %d", memory)
+		}
+	})
+
+	t.Run("ExplicitValuesOverrideTopologyDefaults", func(t *testing.T) {
+		// Given a colima virt instance with explicit CPU/memory set
+		colimaVirt, mocks := setup(t)
+
+		_ = mocks.ConfigHandler.Set("cluster.controlplanes.count", 1)
+		_ = mocks.ConfigHandler.Set("cluster.controlplanes.cpu", 6)
+		_ = mocks.ConfigHandler.Set("cluster.controlplanes.memory", 8)
+		_ = mocks.ConfigHandler.Set("cluster.workers.count", 1)
+		_ = mocks.ConfigHandler.Set("cluster.workers.cpu", 2)
+		_ = mocks.ConfigHandler.Set("cluster.workers.memory", 4)
+
+		// When calculating VM resources
+		cpu, memory := colimaVirt.calculateVMResources()
+
+		// Then CPU = (1 * 6) + (1 * 2) + 1 overhead = 9
+		if cpu != 9 {
+			t.Errorf("expected CPU 9, got %d", cpu)
+		}
+
+		// And memory = (1 * 8) + (1 * 4) + 3 overhead = 15
+		if memory != 15 {
+			t.Errorf("expected memory 15GB, got %d", memory)
+		}
+	})
 }
 
 // TestColimaVirt_validateVMResources tests the validateVMResources method.

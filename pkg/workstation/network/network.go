@@ -89,7 +89,7 @@ func (n *BaseNetworkManager) isLocalhostMode() bool {
 // effectiveResolverIP returns the resolver IP for DNS config: dns.address when set (by config, migration for
 // localhost, or ConfigureNetwork(override)); when unset and in localhost mode returns 127.0.0.1.
 func (n *BaseNetworkManager) effectiveResolverIP() string {
-	if v := n.configHandler.GetString("dns.address"); v != "" {
+	if v := n.configHandler.GetString("workstation.dns.address"); v != "" {
 		return v
 	}
 	if n.isLocalhostMode() {

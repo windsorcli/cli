@@ -484,12 +484,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			}
 		}
 
-		if isDevMode {
-			if err := rt.ConfigHandler.Set("workstation.enabled", true); err != nil {
-				return fmt.Errorf("failed to set workstation.enabled for dev context: %w", err)
-			}
-		}
-
 		platform := rt.ConfigHandler.GetString("platform")
 		if platform == "" {
 			platform = rt.ConfigHandler.GetString("provider")
@@ -580,8 +574,14 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		}
 	}
 	rt.migrateLoadedConfig()
-	if rt.ConfigHandler.GetBool("dns.enabled") && rt.ConfigHandler.GetString("dns.domain") != "" && rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("dns.address") == "" {
-		_ = rt.ConfigHandler.Set("dns.address", "127.0.0.1")
+	dnsEnabled := rt.ConfigHandler.Get("dns.enabled")
+	if (dnsEnabled == nil || dnsEnabled == true) && rt.ConfigHandler.GetString("workstation.runtime") != "" {
+		if rt.ConfigHandler.GetString("dns.domain") == "" {
+			_ = rt.ConfigHandler.Set("dns.domain", "test")
+		}
+		if rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("workstation.dns.address") == "" {
+			_ = rt.ConfigHandler.Set("workstation.dns.address", "127.0.0.1")
+		}
 	}
 	if rt.ConfigHandler.IsDevMode(rt.ContextName) {
 		platform := rt.ConfigHandler.GetString("platform")
@@ -607,10 +607,10 @@ func (rt *Runtime) ApplyPlatformDefaults(platformOverride string) error {
 	return rt.applyPlatformDefaults(platformOverride, false)
 }
 
-// SaveConfig normalizes deprecated keys before persisting: provider→platform, workstation.runtime→vm.driver.
-// Copies provider to platform only when platform is not already set (so a second SaveConfig does not
-// overwrite platform with the schema default). Always clears provider when set so the deprecated key
-// is never persisted (Initialize copies platform→provider in memory; SaveConfig must remove provider).
+// SaveConfig migrates provider→platform if needed (via transient layer so the deprecated key
+// is never persisted) and delegates to the config handler. Workstation-managed keys
+// (workstation.*, platform, dns.*) are written to .windsor/contexts/<context>/workstation.yaml and excluded
+// from values.yaml. vm.driver is already transient-only and does not need migration here.
 func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if rt.ConfigHandler == nil {
 		return fmt.Errorf("config handler not initialized")
@@ -619,10 +619,9 @@ func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 		if rt.ConfigHandler.GetString("platform") == "" {
 			_ = rt.ConfigHandler.Set("platform", v)
 		}
-		_ = rt.ConfigHandler.Set("provider", nil)
 	}
-	if v := rt.ConfigHandler.GetString("workstation.runtime"); v != "" {
-		_ = rt.ConfigHandler.Set("vm.driver", v)
+	if err := rt.ConfigHandler.SaveWorkstationState(); err != nil {
+		return fmt.Errorf("failed to save workstation state: %w", err)
 	}
 	return rt.ConfigHandler.SaveConfig(overwrite...)
 }

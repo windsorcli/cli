@@ -98,13 +98,11 @@ var initCmd = &cobra.Command{
 			flagOverrides["aws.endpoint_url"] = initAwsEndpointURL
 		}
 		if initVmDriver != "" {
-			flagOverrides["workstation.enabled"] = true
 			runtimeVal := initVmDriver
 			if initVmDriver == "colima-incus" {
 				runtimeVal = "colima"
 			}
 			flagOverrides["workstation.runtime"] = runtimeVal
-			flagOverrides["vm.driver"] = runtimeVal
 			if initPlatform == "" {
 				switch initVmDriver {
 				case "colima-incus":
@@ -170,9 +168,7 @@ var initCmd = &cobra.Command{
 		var blueprintURL []string
 		if initBlueprint != "" {
 			blueprintURL = []string{initBlueprint}
-		} else if initPlatform != "" {
-			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
-		} else if contextName == "local" {
+		} else if initPlatform != "" || contextName == "local" {
 			if _, err := os.Stat(rt.TemplateRoot); os.IsNotExist(err) {
 				blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
 			} else if err != nil {

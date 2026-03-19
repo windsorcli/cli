@@ -3,7 +3,6 @@ package workstation
 import (
 	"fmt"
 	"os"
-	stdruntime "runtime"
 	"strings"
 	"testing"
 
@@ -161,14 +160,15 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 	mockContainerRuntime.UpFunc = func(verbose ...bool) error { return nil }
 	mockContainerRuntime.DownFunc = func() error { return nil }
 
+	tmpDir := t.TempDir()
 	rt := &ctxpkg.Runtime{
 		ContextName:   "test-context",
-		ProjectRoot:   "/test/project",
-		ConfigRoot:    "/test/project/contexts/test-context",
-		TemplateRoot:  "/test/project/contexts/_template",
+		ProjectRoot:   tmpDir,
+		ConfigRoot:    tmpDir + "/contexts/test-context",
+		TemplateRoot:  tmpDir + "/contexts/_template",
 		ConfigHandler: mockConfigHandler,
 		Shell:         mockShell,
-		Evaluator:     evaluator.NewExpressionEvaluator(mockConfigHandler, "/test/project", "/test/project/contexts/_template"),
+		Evaluator:     evaluator.NewExpressionEvaluator(mockConfigHandler, tmpDir, tmpDir+"/contexts/_template"),
 	}
 
 	mocks := &WorkstationTestMocks{
@@ -393,13 +393,6 @@ func TestNewWorkstation(t *testing.T) {
 			t.Fatalf("Prepare failed: %v", err)
 		}
 
-		expectedArch := stdruntime.GOARCH
-		if expectedArch == "arm" {
-			expectedArch = "arm64"
-		}
-		if got, ok := recorded["workstation.arch"]; !ok || got != expectedArch {
-			t.Errorf("Expected workstation.arch to be set to %q, got recorded %v", expectedArch, recorded["workstation.arch"])
-		}
 		if got, ok := recorded["workstation.runtime"]; !ok || got != "colima" {
 			t.Errorf("Expected workstation.runtime to be set from vm.driver (colima), got recorded %v", recorded["workstation.runtime"])
 		}

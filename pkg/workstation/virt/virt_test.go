@@ -127,7 +127,9 @@ contexts:
     dns:
       domain: mock.domain.com
       enabled: true
-      address: 10.0.0.53
+    workstation:
+      dns:
+        address: 10.0.0.53
     network:
       cidr_block: 10.0.0.0/24
     docker:

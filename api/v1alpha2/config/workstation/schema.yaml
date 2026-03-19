@@ -83,6 +83,19 @@ properties:
       runtime:
         type: string
         description: VM/runtime driver (e.g. colima, docker-desktop, incus)
+      dns:
+        type: object
+        description: Workstation-specific DNS state (server address, forwarders)
+        properties:
+          address:
+            type: string
+            description: DNS server address resolved from workstation infrastructure
+          forward:
+            type: array
+            items:
+              type: string
+            description: Forward DNS servers
+        additionalProperties: false
     additionalProperties: false
 
   vm:
@@ -262,6 +275,7 @@ properties:
     properties:
       enabled:
         type: boolean
+        default: true
         description: Enable or disable DNS
       domain:
         type: string
