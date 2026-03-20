@@ -168,7 +168,8 @@ func (w *Workstation) Up() error {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
 		}
-		if dnsEnabled := w.configHandler.GetBool("dns.enabled"); dnsEnabled {
+		dnsEnabled := w.configHandler.Get("dns.enabled")
+		if dnsEnabled == nil || dnsEnabled == true {
 			if err := w.NetworkManager.ConfigureDNS(); err != nil {
 				return fmt.Errorf("error configuring DNS: %w", err)
 			}
