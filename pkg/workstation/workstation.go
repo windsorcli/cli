@@ -317,6 +317,10 @@ func (w *Workstation) Down() error {
 		}
 	}
 
+	if err := w.DeleteState(); err != nil {
+		return fmt.Errorf("Error deleting workstation state: %w", err)
+	}
+
 	return nil
 }
 

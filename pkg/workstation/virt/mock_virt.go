@@ -14,7 +14,6 @@ type MockVirt struct {
 	UpFunc          func(verbose ...bool) error
 	DownFunc        func() error
 	WriteConfigFunc func() error
-	GetAddressFunc  func() string
 }
 
 // =============================================================================
@@ -55,15 +54,6 @@ func (m *MockVirt) WriteConfig() error {
 		return m.WriteConfigFunc()
 	}
 	return nil
-}
-
-// GetAddress returns the mock VM address.
-// If a custom GetAddressFunc is provided, it will use that function instead.
-func (m *MockVirt) GetAddress() string {
-	if m.GetAddressFunc != nil {
-		return m.GetAddressFunc()
-	}
-	return ""
 }
 
 // =============================================================================

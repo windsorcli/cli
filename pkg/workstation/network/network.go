@@ -68,7 +68,8 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 // Uses effectiveResolverIP and platform-specific needsPrivilegeForResolver/needsPrivilegeForHostRoute; errors are treated as false.
 func (n *BaseNetworkManager) NeedsPrivilege() bool {
 	desiredIP := n.effectiveResolverIP()
-	willConfigureDNS := n.configHandler.GetBool("dns.enabled") &&
+	dnsEnabled := n.configHandler.Get("dns.enabled")
+	willConfigureDNS := (dnsEnabled == nil || dnsEnabled == true) &&
 		n.configHandler.GetString("dns.domain") != "" && desiredIP != ""
 	needForDNS := willConfigureDNS && n.needsPrivilegeForResolver(desiredIP)
 	workstationRuntime := n.configHandler.GetString("workstation.runtime")

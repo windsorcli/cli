@@ -68,7 +68,6 @@ type Virt interface {
 // VirtualMachine defines methods for VirtualMachine operations
 type VirtualMachine interface {
 	Virt
-	GetAddress() string
 }
 
 // ContainerRuntime defines methods for container operations

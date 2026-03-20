@@ -85,16 +85,6 @@ func (v *ColimaVirt) Up() error {
 	return nil
 }
 
-// GetAddress returns the guest VM address by querying the running Colima instance.
-// Returns empty string if the VM is not running or address cannot be determined.
-func (v *ColimaVirt) GetAddress() string {
-	info, err := v.getVMInfo()
-	if err != nil {
-		return ""
-	}
-	return info.Address
-}
-
 // Down stops and deletes the Colima VM, ensuring resources are reclaimed.
 // Attempts graceful shutdown, then deletes the VM. Returns an error if deletion fails.
 func (v *ColimaVirt) Down() error {

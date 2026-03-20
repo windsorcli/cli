@@ -1006,6 +1006,50 @@ func TestWorkstation_Down(t *testing.T) {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
+
+	t.Run("DeletesStateAfterStoppingServices", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		deleteStateCalled := false
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.DeleteWorkstationStateFunc = func() error {
+			deleteStateCalled = true
+			return nil
+		}
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			ContainerRuntime: mocks.ContainerRuntime,
+			VirtualMachine:   mocks.VirtualMachine,
+		})
+
+		err := workstation.Down()
+
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if !deleteStateCalled {
+			t.Error("Expected DeleteWorkstationState to be called")
+		}
+	})
+
+	t.Run("DeleteStateError", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.DeleteWorkstationStateFunc = func() error {
+			return fmt.Errorf("delete state failed")
+		}
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			ContainerRuntime: mocks.ContainerRuntime,
+			VirtualMachine:   mocks.VirtualMachine,
+		})
+
+		err := workstation.Down()
+
+		if err == nil {
+			t.Error("Expected error for DeleteState failure")
+		}
+		if !strings.Contains(err.Error(), "Error deleting workstation state") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
 }
 
 // =============================================================================
