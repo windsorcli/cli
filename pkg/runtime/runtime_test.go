@@ -2063,12 +2063,13 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 }
 
 func TestRuntime_SaveConfig(t *testing.T) {
-	t.Run("DoesNotOverwritePlatformWithSchemaDefaultWhenProviderCleared", func(t *testing.T) {
+	t.Run("MigratesProviderToPlatformAndClearsProvider", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		saveCount := 0
 		platformValue := ""
+		providerCleared := false
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GetStringFunc = func(key string, _ ...string) string {
 			switch key {
@@ -2089,6 +2090,9 @@ func TestRuntime_SaveConfig(t *testing.T) {
 			if key == "platform" && value != nil {
 				platformValue = fmt.Sprint(value)
 			}
+			if key == "provider" && value == nil {
+				providerCleared = true
+			}
 			return nil
 		}
 		mockConfig.SaveConfigFunc = func(_ ...bool) error {
@@ -2104,6 +2108,9 @@ func TestRuntime_SaveConfig(t *testing.T) {
 		}
 		if platformValue != "docker" {
 			t.Errorf("platform must remain docker after second SaveConfig (schema default would overwrite), got %q", platformValue)
+		}
+		if !providerCleared {
+			t.Error("expected provider to be cleared before persistence")
 		}
 	})
 }

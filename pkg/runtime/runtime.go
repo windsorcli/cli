@@ -607,10 +607,9 @@ func (rt *Runtime) ApplyPlatformDefaults(platformOverride string) error {
 	return rt.applyPlatformDefaults(platformOverride, false)
 }
 
-// SaveConfig migrates provider→platform if needed (via transient layer so the deprecated key
-// is never persisted) and delegates to the config handler. Workstation-managed keys
-// (workstation.*, platform, dns.*) are written to .windsor/contexts/<context>/workstation.yaml and excluded
-// from values.yaml. vm.driver is already transient-only and does not need migration here.
+// SaveConfig migrates provider→platform and clears the deprecated provider key before persistence.
+// Delegates persistence to the config handler. Workstation-managed keys are written to
+// .windsor/contexts/<context>/workstation.yaml and excluded from values.yaml.
 func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if rt.ConfigHandler == nil {
 		return fmt.Errorf("config handler not initialized")
@@ -619,6 +618,7 @@ func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 		if rt.ConfigHandler.GetString("platform") == "" {
 			_ = rt.ConfigHandler.Set("platform", v)
 		}
+		_ = rt.ConfigHandler.Set("provider", nil)
 	}
 	if err := rt.ConfigHandler.SaveWorkstationState(); err != nil {
 		return fmt.Errorf("failed to save workstation state: %w", err)
