@@ -2694,6 +2694,11 @@ terraform:
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			if !evaluateDeferred {
+				return map[string]any{
+					"vpc_id": "${terraform_output('vpc', 'id')}",
+				}, nil
+			}
 			result := make(map[string]any)
 			for key, value := range values {
 				if strVal, ok := value.(string); ok && strings.Contains(strVal, "${") {
@@ -2838,6 +2843,11 @@ terraform:
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			if !evaluateDeferred {
+				return map[string]any{
+					"vpc_id": "${terraform_output('vpc', 'id')}",
+				}, nil
+			}
 			return map[string]any{
 				"vpc_id": 42,
 			}, nil
@@ -2872,6 +2882,11 @@ terraform:
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 		mockEvaluator := evaluator.NewMockExpressionEvaluator()
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			if !evaluateDeferred {
+				return map[string]any{
+					"vpc_id": "${terraform_output('vpc', 'id')}",
+				}, nil
+			}
 			return map[string]any{
 				"vpc_id": make(chan int),
 			}, nil
@@ -2994,7 +3009,7 @@ terraform:
 		}
 	})
 
-	t.Run("UsesConfigScopeWhenEvaluatingInputsWithScopeReferences", func(t *testing.T) {
+	t.Run("SkipsTFVarForNonRuntimeScopeExpressions", func(t *testing.T) {
 		// Given a provider with config scope and component input referencing scope
 		configHandler := config.NewMockConfigHandler()
 		configHandler.GetContextFunc = func() string { return "default" }
@@ -3031,16 +3046,12 @@ terraform:
 		// When getting env vars
 		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
-		// Then expression should be evaluated with scope and TF_VAR set
+		// Then non-runtime expressions should remain tfvars-only and not emit TF_VAR
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		val, ok := envVars["TF_VAR_common_config_patches"]
-		if !ok {
-			t.Fatal("Expected TF_VAR_common_config_patches to be set when config scope provides value")
-		}
-		if val != `[{"op":"add","path":"/machine/foo"}]` {
-			t.Errorf("Expected TF_VAR_common_config_patches to be JSON of scope value, got: %s", val)
+		if _, exists := envVars["TF_VAR_common_config_patches"]; exists {
+			t.Fatal("Expected TF_VAR_common_config_patches to be skipped for non-runtime scope expression")
 		}
 	})
 
@@ -3067,6 +3078,51 @@ terraform:
 		}
 		if _, exists := envVars["TF_VAR_common_config_patches"]; exists {
 			t.Fatal("Expected TF_VAR_common_config_patches to be skipped for resolved non-expression input")
+		}
+	})
+
+	t.Run("SkipsTFVarForSimpleExpression", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+terraform:
+  - path: cluster
+    inputs:
+      talos_version: "${config.kubernetes.version}"`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if _, exists := envVars["TF_VAR_talos_version"]; exists {
+			t.Fatal("Expected TF_VAR_talos_version to be skipped for simple expression")
+		}
+	})
+
+	t.Run("AllowsRuntimeDeferredExpression", func(t *testing.T) {
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+terraform:
+  - path: cluster
+    inputs:
+      talos_version: "${terraform_output('bootstrap', 'talos_version')}"`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			if evaluateDeferred {
+				return map[string]any{"talos_version": "v1.12.6"}, nil
+			}
+			return map[string]any{"talos_version": "${terraform_output('bootstrap', 'talos_version')}"}, nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if envVars["TF_VAR_talos_version"] != "v1.12.6" {
+			t.Fatalf("Expected runtime deferred TF_VAR_talos_version to be exported, got %q", envVars["TF_VAR_talos_version"])
 		}
 	})
 }

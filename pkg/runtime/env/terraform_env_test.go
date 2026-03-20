@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -340,6 +341,78 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 		if val, exists := envVars["TF_CLI_ARGS_init"]; !exists || val != "" {
 			t.Errorf("Expected TF_CLI_ARGS_init to be empty string, got %v", val)
+		}
+	})
+
+	t.Run("ResetManagedDynamicTFVarsWhenNoProjectPathFound", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_ENV" {
+				return "WINDSOR_CONTEXT,TF_VAR_cluster_endpoint,TF_VAR_controlplanes,TF_CLI_ARGS_refresh"
+			}
+			return ""
+		}
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			switch key {
+			case "TF_VAR_cluster_endpoint", "TF_VAR_controlplanes", "TF_CLI_ARGS_refresh":
+				return "set", true
+			default:
+				return "", false
+			}
+		}
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "", nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if val, exists := envVars["TF_VAR_cluster_endpoint"]; !exists || val != "" {
+			t.Errorf("Expected TF_VAR_cluster_endpoint to be empty string, got %v", val)
+		}
+		if val, exists := envVars["TF_VAR_controlplanes"]; !exists || val != "" {
+			t.Errorf("Expected TF_VAR_controlplanes to be empty string, got %v", val)
+		}
+		if val, exists := envVars["TF_CLI_ARGS_refresh"]; !exists || val != "" {
+			t.Errorf("Expected TF_CLI_ARGS_refresh to be empty string, got %v", val)
+		}
+	})
+
+	t.Run("TrackManagedTFVarsWhenProjectPathFound", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "cluster", nil
+		}
+		mockProvider.GetEnvVarsFunc = func(componentID string, withOutputs bool) (map[string]string, *terraform.TerraformArgs, error) {
+			return map[string]string{
+				"TF_DATA_DIR":             "/tmp/data",
+				"TF_CLI_ARGS_refresh":     "-var-file=/tmp/cluster.tfvars",
+				"TF_VAR_cluster_endpoint": "https://10.0.0.1:6443",
+			}, &terraform.TerraformArgs{}, nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		_, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		managed := printer.GetManagedEnv()
+		if !slices.Contains(managed, "TF_DATA_DIR") {
+			t.Errorf("Expected TF_DATA_DIR to be tracked in managed env, got %v", managed)
+		}
+		if !slices.Contains(managed, "TF_CLI_ARGS_refresh") {
+			t.Errorf("Expected TF_CLI_ARGS_refresh to be tracked in managed env, got %v", managed)
+		}
+		if !slices.Contains(managed, "TF_VAR_cluster_endpoint") {
+			t.Errorf("Expected TF_VAR_cluster_endpoint to be tracked in managed env, got %v", managed)
 		}
 	})
 
