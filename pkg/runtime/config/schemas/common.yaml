@@ -52,4 +52,17 @@ properties:
             description: Create registry proxy containers (from docker.registries when true)
         additionalProperties: false
         description: Toggle workstation services
+      dns:
+        type: object
+        description: Workstation-specific DNS state (server address, forwarders)
+        properties:
+          address:
+            type: string
+            description: DNS server address resolved from workstation infrastructure
+          forward:
+            type: array
+            items:
+              type: string
+            description: Forward DNS servers
+        additionalProperties: false
     additionalProperties: false
