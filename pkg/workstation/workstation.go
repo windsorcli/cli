@@ -293,7 +293,7 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 		if err := w.WriteState(); err != nil {
 			return fmt.Errorf("error writing workstation state: %w", err)
 		}
-		return w.ConfigureNetwork(dnsAddr, false)
+		return w.ConfigureNetwork("", false)
 	}
 }
 
