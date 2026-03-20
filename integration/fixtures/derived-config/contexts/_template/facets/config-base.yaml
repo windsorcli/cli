@@ -9,7 +9,7 @@ when: (cluster.driver ?? '') == 'talos'
 config:
 - name: workstation
   value:
-    runtime: "${workstation.runtime ?? vm.driver ?? 'colima'}"
+    runtime: "${workstation.runtime ?? 'colima'}"
 
 - name: block_a
   value:

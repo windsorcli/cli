@@ -37,6 +37,8 @@ type ConfigHandler interface {
 	Set(key string, value any) error
 	Get(key string) any
 	SaveConfig(overwrite ...bool) error
+	SaveWorkstationState() error
+	DeleteWorkstationState() error
 	SetDefault(context v1alpha1.Context) error
 	GetConfig() *v1alpha1.Context
 	GetContext() string
@@ -262,6 +264,20 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 		hasLoadedFiles = true
 	}
 
+	workstationStatePath := c.getWorkstationStatePath(projectRoot, contextName)
+	if _, err := c.shims.Stat(workstationStatePath); err == nil {
+		fileData, err := c.shims.ReadFile(workstationStatePath)
+		if err != nil {
+			return fmt.Errorf("error reading workstation state: %w", err)
+		}
+
+		var wsState map[string]any
+		if err := c.shims.YamlUnmarshal(fileData, &wsState); err != nil {
+			return fmt.Errorf("error unmarshalling workstation state: %w", err)
+		}
+		c.data = c.deepMerge(c.data, wsState)
+	}
+
 	valuesPath := filepath.Join(contextConfigDir, "values.yaml")
 	if _, err := c.shims.Stat(valuesPath); err == nil {
 		fileData, err := c.shims.ReadFile(valuesPath)
@@ -334,7 +350,8 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
-	staticFields, dynamicFields := c.separateStaticAndDynamicFields(c.data)
+	persistedData := c.filterWorkstationKeys(c.data)
+	staticFields, dynamicFields := c.separateStaticAndDynamicFields(persistedData)
 
 	if len(staticFields) > 0 {
 		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
@@ -410,6 +427,111 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	}
 
 	return nil
+}
+
+// workstationManagedKeys lists top-level config keys that are always system-managed via
+// .windsor/contexts/<context>/workstation.yaml and excluded from values.yaml during SaveConfig.
+var workstationManagedKeys = []string{"workstation"}
+
+// SaveWorkstationState extracts workstation-managed keys from config data and writes them
+// to .windsor/contexts/<context>/workstation.yaml. This is the canonical persistence point for system-derived
+// workstation configuration (runtime, address, platform, DNS settings).
+func (c *configHandler) SaveWorkstationState() error {
+	if c.shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
+	projectRoot, err := c.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+	statePath := c.getWorkstationStatePath(projectRoot, c.GetContext())
+	stateDir := filepath.Dir(statePath)
+	if err := c.shims.MkdirAll(stateDir, 0755); err != nil {
+		return fmt.Errorf("error creating workstation state directory: %w", err)
+	}
+
+	state := make(map[string]any)
+	for _, key := range workstationManagedKeys {
+		if v, ok := c.data[key]; ok {
+			state[key] = v
+		}
+	}
+	if c.shouldPersistPlatformInWorkstationState() {
+		if v, ok := c.data["platform"]; ok {
+			state["platform"] = v
+		}
+	}
+
+	if len(state) == 0 {
+		return c.DeleteWorkstationState()
+	}
+
+	data, err := c.shims.YamlMarshal(state)
+	if err != nil {
+		return fmt.Errorf("error marshalling workstation state: %w", err)
+	}
+	if err := c.shims.WriteFile(statePath, data, 0644); err != nil {
+		return fmt.Errorf("error writing workstation state: %w", err)
+	}
+	return nil
+}
+
+// DeleteWorkstationState removes .windsor/contexts/<context>/workstation.yaml.
+func (c *configHandler) DeleteWorkstationState() error {
+	if c.shell == nil {
+		return fmt.Errorf("shell not initialized")
+	}
+	projectRoot, err := c.shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error retrieving project root: %w", err)
+	}
+	statePath := c.getWorkstationStatePath(projectRoot, c.GetContext())
+	if _, err := c.shims.Stat(statePath); err == nil {
+		if err := c.shims.RemoveAll(statePath); err != nil {
+			return fmt.Errorf("error removing workstation state: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// filterWorkstationKeys returns a shallow copy of data with workstation-managed top-level keys removed.
+func (c *configHandler) filterWorkstationKeys(data map[string]any) map[string]any {
+	filtered := make(map[string]any, len(data))
+	persistPlatformInState := c.shouldPersistPlatformInWorkstationState()
+	for k, v := range data {
+		skip := false
+		for _, managed := range workstationManagedKeys {
+			if k == managed {
+				skip = true
+				break
+			}
+		}
+		if k == "platform" && persistPlatformInState {
+			skip = true
+		}
+		if !skip {
+			filtered[k] = v
+		}
+	}
+	return filtered
+}
+
+// shouldPersistPlatformInWorkstationState reports whether platform should be saved in
+// .windsor/contexts/<context>/workstation.yaml (and excluded from values.yaml). Platform is workstation-managed
+// when running dev/local contexts, when workstation is explicitly enabled, or when a
+// workstation runtime is configured.
+func (c *configHandler) shouldPersistPlatformInWorkstationState() bool {
+	contextName := c.GetContext()
+	if c.IsDevMode(contextName) {
+		return true
+	}
+	return c.GetString("workstation.runtime") != ""
+}
+
+// getWorkstationStatePath returns the context-scoped workstation state file path.
+func (c *configHandler) getWorkstationStatePath(projectRoot, contextName string) string {
+	return filepath.Join(projectRoot, ".windsor", "contexts", contextName, "workstation.yaml")
 }
 
 // SetDefault sets the default context configuration in the config handler's internal data.

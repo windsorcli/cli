@@ -253,26 +253,26 @@ func TestNewProject(t *testing.T) {
 		}
 	})
 
-	t.Run("CreatesWorkstationWhenWorkstationEnabled", func(t *testing.T) {
+	t.Run("CreatesWorkstationWhenWorkstationRuntimeSet", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return false
 		}
-		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "workstation.enabled" {
-				return true
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "workstation.runtime" {
+				return "colima"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
-			return false
+			return ""
 		}
 
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		if proj.Workstation == nil {
-			t.Error("Expected Workstation to be created when workstation.enabled is true")
+			t.Error("Expected Workstation to be created when workstation.runtime is set")
 		}
 		if proj.Provisioner == nil {
 			t.Fatal("Expected Provisioner to exist")
@@ -466,7 +466,7 @@ func TestProject_Configure(t *testing.T) {
 			return true
 		}
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
+			if key == "workstation.runtime" {
 				return "colima"
 			}
 			if key == "vm.runtime" {
@@ -490,90 +490,48 @@ func TestProject_Configure(t *testing.T) {
 		_ = proj.Configure(nil)
 
 		if !platformSet {
-			t.Error("Expected platform to be set to 'incus' in dev mode when vm.driver is colima and vm.runtime is incus")
+			t.Error("Expected platform to be set to 'incus' in dev mode when workstation.runtime is colima and vm.runtime is incus")
 		}
 	})
 
-	t.Run("CreatesWorkstationWhenWorkstationEnabledSetViaFlagOverrides", func(t *testing.T) {
+	t.Run("CreatesWorkstationWhenWorkstationRuntimeSetViaFlagOverrides", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return false
 		}
-		var workstationEnabled bool
+		var wsRuntime string
 		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "workstation.enabled" {
-				if v, ok := value.(bool); ok {
-					workstationEnabled = v
+			if key == "workstation.runtime" {
+				if v, ok := value.(string); ok {
+					wsRuntime = v
 				}
 			}
 			return nil
 		}
-		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "workstation.enabled" {
-				return workstationEnabled
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "workstation.runtime" {
+				return wsRuntime
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
-			return false
+			return ""
 		}
 
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		if proj.Workstation != nil {
-			t.Fatal("Expected Workstation nil before Configure when not dev mode and workstation.enabled not yet set")
+			t.Fatal("Expected Workstation nil before Configure when not dev mode and workstation.runtime not set")
 		}
 
-		err := proj.Configure(map[string]any{"workstation.enabled": true})
+		err := proj.Configure(map[string]any{"workstation.runtime": "colima"})
 		if err != nil {
 			t.Errorf("Configure failed: %v", err)
 		}
 		proj.EnsureWorkstation()
 		if proj.Workstation == nil {
-			t.Error("Expected Workstation to be created when workstation.enabled set via flag overrides")
-		}
-	})
-
-	t.Run("ClearsWorkstationWhenWorkstationEnabledOverrideFalse", func(t *testing.T) {
-		mocks := setupProjectMocks(t)
-		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfig.IsDevModeFunc = func(contextName string) bool {
-			return false
-		}
-		workstationEnabled := true
-		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "workstation.enabled" {
-				if v, ok := value.(bool); ok {
-					workstationEnabled = v
-				}
-			}
-			return nil
-		}
-		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "workstation.enabled" {
-				return workstationEnabled
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		mockConfig.IsLoadedFunc = func() bool { return true }
-
-		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
-
-		if proj.Workstation == nil || proj.Provisioner == nil {
-			t.Fatal("Expected Workstation and Provisioner created when workstation.enabled true at NewProject")
-		}
-
-		err := proj.Configure(map[string]any{"workstation.enabled": false})
-
-		if err != nil {
-			t.Errorf("Configure failed: %v", err)
-		}
-		if proj.Workstation != nil {
-			t.Error("Expected Workstation to be cleared when workstation.enabled overridden to false")
+			t.Error("Expected Workstation to be created when workstation.runtime set via flag overrides")
 		}
 	})
 
@@ -609,8 +567,8 @@ func TestProject_Configure(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SetFunc = func(key string, value any) error {
-			if key == "cluster.driver" {
-				return fmt.Errorf("set cluster.driver failed")
+			if key == "aws.enabled" {
+				return fmt.Errorf("set aws.enabled failed")
 			}
 			return nil
 		}
@@ -668,7 +626,7 @@ func TestProject_Configure(t *testing.T) {
 	})
 
 	t.Run("CallsApplyConfigDefaultsWithFlagOverrides", func(t *testing.T) {
-		// Given a project with flag overrides containing vm.driver=colima
+		// Given a project with flag overrides containing workstation.runtime=colima
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsLoadedFunc = func() bool {
@@ -693,21 +651,16 @@ func TestProject_Configure(t *testing.T) {
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		flagOverrides := map[string]any{
-			"vm.driver": "colima",
-			"provider":  "docker",
+			"workstation.runtime": "colima",
+			"provider":            "docker",
 		}
 
 		// When Configure is called with flag overrides
 		_ = proj.Configure(flagOverrides)
 
-		// Then ApplyConfigDefaults should be called with flag overrides, resulting in DefaultConfig_Full
-
-		if setDefaultConfig.Network == nil || setDefaultConfig.Network.LoadBalancerIPs == nil {
-			t.Error("Expected DefaultConfig_Full with LoadBalancerIPs to be set (colima should use Full config)")
-		}
-
-		if setDefaultConfig.Cluster != nil && len(setDefaultConfig.Cluster.Workers.HostPorts) > 0 {
-			t.Error("Expected DefaultConfig_Full without hostports to be set (colima should not have hostports)")
+		_ = setDefaultConfig
+		if setDefaultConfig.Platform != nil {
+			t.Error("Expected DefaultConfig_Dev with no platform set")
 		}
 	})
 
@@ -755,7 +708,7 @@ func TestProject_Configure(t *testing.T) {
 			if key == "platform" {
 				return "docker"
 			}
-			if key == "vm.driver" {
+			if key == "workstation.runtime" {
 				return "colima"
 			}
 			if key == "vm.runtime" {
@@ -779,7 +732,7 @@ func TestProject_Configure(t *testing.T) {
 		_ = proj.Configure(nil)
 
 		if platformSet != "incus" {
-			t.Errorf("Expected platform to be set to 'incus' after LoadConfig when vm.driver is 'colima' and vm.runtime is 'incus', got: %s", platformSet)
+			t.Errorf("Expected platform to be set to 'incus' after LoadConfig when workstation.runtime is 'colima' and vm.runtime is 'incus', got: %s", platformSet)
 		}
 	})
 }

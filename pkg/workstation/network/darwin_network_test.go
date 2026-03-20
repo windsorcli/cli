@@ -174,7 +174,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a properly configured network manager
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -189,10 +189,9 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager in localhost mode
 		manager, mocks := setup(t)
 
-		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And capturing resolver file content
 		var capturedContent []byte
@@ -241,7 +240,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		manager, mocks := setup(t)
 
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -260,12 +259,12 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with existing resolver file
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And mocking existing resolver file
 		mocks.Shims.ReadFile = func(filename string) ([]byte, error) {
 			if filename == fmt.Sprintf("/etc/resolver/%s", mocks.ConfigHandler.GetString("dns.domain")) {
-				return []byte(fmt.Sprintf("nameserver %s\n", mocks.ConfigHandler.GetString("dns.address"))), nil
+				return []byte(fmt.Sprintf("nameserver %s\n", mocks.ConfigHandler.GetString("workstation.dns.address"))), nil
 			}
 			return nil, nil // Return nil error to simulate file existing
 		}
@@ -283,7 +282,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with resolver directory error
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And mocking resolver directory error
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
@@ -317,7 +316,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with file write error
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And mocking file write error
 		mocks.Shims.WriteFile = func(_ string, _ []byte, _ os.FileMode) error {
@@ -341,7 +340,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with file move error
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		// And mocking successful write but failed move
 		mocks.Shims.WriteFile = func(_ string, _ []byte, _ os.FileMode) error {
@@ -372,7 +371,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with DNS cache flush error
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "dscacheutil" && args[0] == "-flushcache" {
@@ -398,7 +397,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager with mDNSResponder restart error
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "1.2.3.4")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
 
 		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
 			if command == "killall" && args[0] == "-HUP" {
@@ -424,7 +423,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager in localhost mode
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "127.0.0.1")
+		mocks.ConfigHandler.Set("workstation.dns.address", "127.0.0.1")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()

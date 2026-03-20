@@ -84,7 +84,7 @@ func NewProject(contextName string, opts ...*Project) *Project {
 		if !rt.ConfigHandler.IsLoaded() {
 			_ = rt.ConfigHandler.LoadConfig()
 		}
-		if rt.ConfigHandler.GetBool("workstation.enabled", false) {
+		if rt.ConfigHandler.GetString("workstation.runtime") != "" {
 			ws = workstation.NewWorkstation(rt)
 		}
 	}
@@ -107,18 +107,11 @@ func NewProject(contextName string, opts ...*Project) *Project {
 	}
 }
 
-// Configure resolves configuration (defaults, load, migration, overrides), applies
-// workstation.enabled override to the project (nils Workstation when override is false),
-// and loads environment. Does not create Workstation; use EnsureWorkstation() when
-// a code path needs the workstation. Returns error on resolve or load failure.
+// Configure resolves project configuration including defaults, file loading, migration, and override processing.
+// Loads project environment variables and returns an error if resolution or environment loading fails.
 func (p *Project) Configure(flagOverrides map[string]any) error {
 	if err := p.Runtime.ResolveConfig(flagOverrides); err != nil {
 		return err
-	}
-	if flagOverrides != nil {
-		if v, ok := flagOverrides["workstation.enabled"].(bool); ok && !v {
-			p.Workstation = nil
-		}
 	}
 	if err := p.Runtime.LoadEnvironment(false); err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
@@ -126,10 +119,10 @@ func (p *Project) Configure(flagOverrides map[string]any) error {
 	return nil
 }
 
-// EnsureWorkstation creates Workstation if it is nil and config has workstation.enabled true.
+// EnsureWorkstation creates Workstation if it is nil and workstation.runtime is set.
 // Call before using p.Workstation in code paths that need it (e.g. Initialize, Up, Down).
 func (p *Project) EnsureWorkstation() {
-	if p.Workstation == nil && p.configHandler.GetBool("workstation.enabled", false) {
+	if p.Workstation == nil && p.configHandler.GetString("workstation.runtime") != "" {
 		p.Workstation = workstation.NewWorkstation(p.Runtime)
 	}
 }

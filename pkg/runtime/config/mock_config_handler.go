@@ -19,8 +19,10 @@ type MockConfigHandler struct {
 	GetStringSliceFunc        func(key string, defaultValue ...[]string) []string
 	GetStringMapFunc          func(key string, defaultValue ...map[string]string) map[string]string
 	SetFunc                   func(key string, value any) error
-	SaveConfigFunc            func(overwrite ...bool) error
-	GetFunc                   func(key string) any
+	SaveConfigFunc              func(overwrite ...bool) error
+	SaveWorkstationStateFunc    func() error
+	DeleteWorkstationStateFunc  func() error
+	GetFunc                     func(key string) any
 	SetDefaultFunc            func(context v1alpha1.Context) error
 	GetConfigFunc             func() *v1alpha1.Context
 	GetContextFunc            func() string
@@ -157,6 +159,22 @@ func (m *MockConfigHandler) Get(key string) any {
 func (m *MockConfigHandler) SaveConfig(overwrite ...bool) error {
 	if m.SaveConfigFunc != nil {
 		return m.SaveConfigFunc(overwrite...)
+	}
+	return nil
+}
+
+// SaveWorkstationState calls the mock SaveWorkstationStateFunc if set, otherwise returns nil
+func (m *MockConfigHandler) SaveWorkstationState() error {
+	if m.SaveWorkstationStateFunc != nil {
+		return m.SaveWorkstationStateFunc()
+	}
+	return nil
+}
+
+// DeleteWorkstationState calls the mock DeleteWorkstationStateFunc if set, otherwise returns nil
+func (m *MockConfigHandler) DeleteWorkstationState() error {
+	if m.DeleteWorkstationStateFunc != nil {
+		return m.DeleteWorkstationStateFunc()
 	}
 	return nil
 }

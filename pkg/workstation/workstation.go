@@ -90,9 +90,8 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 // =============================================================================
 
 // Prepare creates workstation components (network manager, virtual machine, container runtime).
-// Call after configuration is loaded. Applies workstation config defaults (arch, runtime, address from vm.*) when empty, then returns an error if any component creation fails.
+// Call after configuration is loaded, then returns an error if any component creation fails.
 func (w *Workstation) Prepare() error {
-	w.applyWorkstationConfigDefaults()
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 
 	if w.NetworkManager == nil {
@@ -139,6 +138,9 @@ func (w *Workstation) Up() error {
 		if err := w.VirtualMachine.Up(); err != nil {
 			return fmt.Errorf("error running virtual machine Up command: %w", err)
 		}
+		if err := w.WriteState(); err != nil {
+			return fmt.Errorf("error writing workstation state: %w", err)
+		}
 		if w.NetworkManager != nil && w.configHandler.GetString("platform") == "incus" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
 				return fmt.Errorf("error configuring guest SSH: %w", err)
@@ -165,9 +167,13 @@ func (w *Workstation) Up() error {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
 		}
-		if dnsEnabled := w.configHandler.GetBool("dns.enabled"); dnsEnabled {
-			if err := w.NetworkManager.ConfigureDNS(); err != nil {
-				return fmt.Errorf("error configuring DNS: %w", err)
+		dnsEnabled := w.configHandler.Get("dns.enabled")
+		dnsDomain := w.configHandler.GetString("dns.domain")
+		if dnsEnabled == nil || dnsEnabled == true {
+			if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
+				if err := w.NetworkManager.ConfigureDNS(); err != nil {
+					return fmt.Errorf("error configuring DNS: %w", err)
+				}
 			}
 		}
 	}
@@ -212,18 +218,17 @@ func (w *Workstation) EnsureNetworkPrivilege() error {
 	return nil
 }
 
-// ConfigureNetwork runs host/guest and DNS setup (same logic as the deferred block in Up).
-// Guest address is read from config (workstation.address) by ConfigureHostRoute. DNS: dns.address
-// is set only when dnsAddressOverride is non-empty (e.g. --dns-address or Terraform output); no
-// fallback to workstation.address, so callers that omit the override do not configure DNS. DNS
-// is attempted only when dns.enabled is true and both dns.domain and dns.address are set. No-op when NetworkManager is nil.
-// When showStatus is true, prints network and DNS status lines to stderr (e.g. for "windsor configure network").
+// ConfigureNetwork runs host/guest and DNS setup. Workstation address and DNS config are
+// expected in the config handler, loaded from .windsor/contexts/<context>/workstation.yaml (written during
+// windsor up) or set explicitly. dnsAddressOverride (from --dns-address flag or Terraform
+// output) takes priority over config. DNS is configured unless dns.enabled is explicitly false.
+// No-op when NetworkManager is nil.
 func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus bool) error {
 	if w.NetworkManager == nil {
 		return nil
 	}
 	if dnsAddressOverride != "" {
-		_ = w.configHandler.Set("dns.address", dnsAddressOverride)
+		_ = w.configHandler.Set("workstation.dns.address", dnsAddressOverride)
 	}
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	if workstationRuntime == "colima" {
@@ -239,15 +244,21 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus boo
 	} else if showStatus {
 		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
 	}
-	if w.configHandler.GetBool("dns.enabled") && w.configHandler.GetString("dns.domain") != "" && w.configHandler.GetString("dns.address") != "" {
-		if err := w.NetworkManager.ConfigureDNS(); err != nil {
-			return fmt.Errorf("error configuring DNS: %w", err)
-		}
-		if showStatus {
-			fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("dns.address"))
+	dnsEnabled := w.configHandler.Get("dns.enabled")
+	dnsDomain := w.configHandler.GetString("dns.domain")
+	if dnsEnabled == nil || dnsEnabled == true {
+		if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
+			if err := w.NetworkManager.ConfigureDNS(); err != nil {
+				return fmt.Errorf("error configuring DNS: %w", err)
+			}
+			if showStatus {
+				fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("workstation.dns.address"))
+			}
+		} else if showStatus {
+			fmt.Fprintln(os.Stderr, "dns: skipped (domain or address not set)")
 		}
 	} else if showStatus {
-		fmt.Fprintln(os.Stderr, "dns: skipped")
+		fmt.Fprintln(os.Stderr, "dns: disabled")
 	}
 	return nil
 }
@@ -278,21 +289,20 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 				}
 			}
 		}
-		return w.ConfigureNetwork(dnsAddr, false)
+		if dnsAddr != "" {
+			_ = w.configHandler.Set("workstation.dns.address", dnsAddr)
+		}
+		if err := w.WriteState(); err != nil {
+			return fmt.Errorf("error writing workstation state: %w", err)
+		}
+		return w.ConfigureNetwork("", false)
 	}
 }
 
 // Down stops the workstation environment: container runtime, then VM and networking.
 // Gracefully shuts down the container runtime and virtual machine if present.
 func (w *Workstation) Down() error {
-	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 	platform := w.configHandler.GetString("platform")
-
-	if w.NetworkManager != nil && workstationRuntime == "colima" && platform == "incus" {
-		if err := w.NetworkManager.ConfigureGuest(); err != nil {
-			return fmt.Errorf("error configuring guest: %w", err)
-		}
-	}
 
 	if w.ContainerRuntime != nil {
 		if err := w.ContainerRuntime.Down(); err != nil {
@@ -306,26 +316,21 @@ func (w *Workstation) Down() error {
 		}
 	}
 
+	if err := w.DeleteState(); err != nil {
+		return fmt.Errorf("Error deleting workstation state: %w", err)
+	}
+
 	return nil
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// applyWorkstationConfigDefaults sets workstation.arch from GOARCH, workstation.runtime from vm.driver, and workstation.address from vm.address when each is empty. Canonical location for these defaults; do not duplicate in runtime.ResolveConfig.
-func (w *Workstation) applyWorkstationConfigDefaults() {
-	if w.configHandler.GetString("workstation.arch") == "" {
-		arch := stdruntime.GOARCH
-		if arch == "arm" {
-			arch = "arm64"
-		}
-		_ = w.configHandler.Set("workstation.arch", arch)
-	}
-	if w.configHandler.GetString("workstation.runtime") == "" && w.configHandler.GetString("vm.driver") != "" {
-		_ = w.configHandler.Set("workstation.runtime", w.configHandler.GetString("vm.driver"))
-	}
-	if w.configHandler.GetString("workstation.address") == "" && w.configHandler.GetString("vm.address") != "" {
-		_ = w.configHandler.Set("workstation.address", w.configHandler.GetString("vm.address"))
-	}
+// WriteState delegates to ConfigHandler.SaveWorkstationState to persist workstation-managed
+// config keys (workstation.*, platform, dns.*) to .windsor/contexts/<context>/workstation.yaml.
+func (w *Workstation) WriteState() error {
+	return w.configHandler.SaveWorkstationState()
 }
+
+// DeleteState delegates to ConfigHandler.DeleteWorkstationState to remove .windsor/contexts/<context>/workstation.yaml.
+func (w *Workstation) DeleteState() error {
+	return w.configHandler.DeleteWorkstationState()
+}
+

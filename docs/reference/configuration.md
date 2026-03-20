@@ -28,7 +28,7 @@ Windsor applies default values for various configuration options when they are n
 
 - **Cluster**: `cluster.enabled` defaults to `true` for all contexts. This ensures that cluster resources are available by default.
 - **Terraform**: `terraform.enabled` defaults to `true` with a `local` backend.
-- **Docker**: `docker.enabled` defaults to `false` and is **deprecated**; internal workstation is determined by provider and vm.driver. Registry configuration is still used.
+- **Docker**: `docker.enabled` defaults to `false` and is **deprecated**; internal workstation is determined by provider and `workstation.runtime`. Registry configuration is still used.
 - **Provider**: Defaults to `"none"` for non-dev contexts, `"docker"` for dev contexts (or `"incus"` when using colima-incus vm-driver).
 
 These defaults ensure that basic functionality is available without requiring explicit configuration. You can override any default by explicitly setting the value in your `windsor.yaml` file.
@@ -145,7 +145,7 @@ dns:
 | `records` | `[]string` | Additional DNS records to include in the Corefile.         |
 
 ### Docker
-Configures details related to using Docker locally (registries, etc.). Internal workstation (compose) is controlled by provider and vm.driver.
+Configures details related to using Docker locally (registries, etc.). Internal workstation (compose) is controlled by provider and `workstation.runtime`.
 
 ```yaml
 docker:
@@ -154,7 +154,7 @@ docker:
 
 | Field          | Type                       | Description                                                                 |
 |----------------|----------------------------|-----------------------------------------------------------------------------|
-| `enabled`      | `bool`                     | **Deprecated.** When true, uses internal workstation (docker-compose). Defaults to false; omit or set to false. Use provider and vm.driver instead. |
+| `enabled`      | `bool`                     | **Deprecated.** When true, uses internal workstation (docker-compose). Defaults to false; omit or set to false. Use provider and `workstation.runtime` instead. |
 | `registries`   | `map[string]RegistryConfig`| Configuration for Docker registries, mapping registry names to their config.|
 
 #### RegistryConfig

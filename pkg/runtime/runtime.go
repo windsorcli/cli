@@ -399,7 +399,7 @@ func (rt *Runtime) InitializeComponents() error {
 
 // ApplyConfigDefaults applies base configuration defaults if no config is currently loaded.
 // It sets "dev" mode in config if the context is a dev context, chooses a default workstation runtime
-// (optionally honoring flagOverrides["workstation.runtime"] or deprecated flagOverrides["vm.driver"]), and sets
+// (optionally honoring flagOverrides["workstation.runtime"]), and sets
 // platform to "docker" in dev mode if not already set, or "incus" when overrides or config specify incus.
 // After those, it loads a default configuration set, choosing among standard, full, localhost, or none
 // defaults depending on platform, dev mode, and workstation runtime.
@@ -419,18 +419,10 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 		}
 
 		workstationRuntime := rt.ConfigHandler.GetString("workstation.runtime")
-		if workstationRuntime == "" {
-			workstationRuntime = rt.ConfigHandler.GetString("vm.driver")
-		}
 		hadRuntime := workstationRuntime != ""
 		if workstationRuntime == "" && len(flagOverrides) > 0 && flagOverrides[0] != nil {
 			if driver, ok := flagOverrides[0]["workstation.runtime"].(string); ok && driver != "" {
 				workstationRuntime = driver
-			}
-			if workstationRuntime == "" {
-				if driver, ok := flagOverrides[0]["vm.driver"].(string); ok && driver != "" {
-					workstationRuntime = driver
-				}
 			}
 		}
 		if isDevMode && workstationRuntime == "" {
@@ -445,9 +437,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 		if isDevMode && !hadRuntime && workstationRuntime != "" {
 			if err := rt.ConfigHandler.Set("workstation.runtime", workstationRuntime); err != nil {
 				return fmt.Errorf("failed to set workstation.runtime: %w", err)
-			}
-			if err := rt.ConfigHandler.Set("vm.driver", workstationRuntime); err != nil {
-				return fmt.Errorf("failed to set vm.driver: %w", err)
 			}
 		}
 
@@ -484,12 +473,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			}
 		}
 
-		if isDevMode {
-			if err := rt.ConfigHandler.Set("workstation.enabled", true); err != nil {
-				return fmt.Errorf("failed to set workstation.enabled for dev context: %w", err)
-			}
-		}
-
 		platform := rt.ConfigHandler.GetString("platform")
 		if platform == "" {
 			platform = rt.ConfigHandler.GetString("provider")
@@ -520,7 +503,7 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 }
 
 // ResolveConfig runs the full config pipeline: infer platform for dev when missing, apply pre-load
-// defaults, load from disk, migrate vm.driver to workstation.runtime, apply flag overrides, then
+// defaults, load from disk, apply flag overrides, then
 // apply dev-mode platform normalization (colima+incus). Call this once to produce final config.
 // Mutates flagOverrides when inferring platform. Returns error on config load or set failure.
 func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
@@ -580,15 +563,18 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		}
 	}
 	rt.migrateLoadedConfig()
-	if rt.ConfigHandler.GetBool("dns.enabled") && rt.ConfigHandler.GetString("dns.domain") != "" && rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("dns.address") == "" {
-		_ = rt.ConfigHandler.Set("dns.address", "127.0.0.1")
+	dnsEnabled := rt.ConfigHandler.Get("dns.enabled")
+	if (dnsEnabled == nil || dnsEnabled == true) && rt.ConfigHandler.GetString("workstation.runtime") != "" {
+		if rt.ConfigHandler.GetString("dns.domain") == "" {
+			_ = rt.ConfigHandler.Set("dns.domain", "test")
+		}
+		if rt.ConfigHandler.GetString("workstation.runtime") == "docker-desktop" && rt.ConfigHandler.GetString("workstation.dns.address") == "" {
+			_ = rt.ConfigHandler.Set("workstation.dns.address", "127.0.0.1")
+		}
 	}
 	if rt.ConfigHandler.IsDevMode(rt.ContextName) {
 		platform := rt.ConfigHandler.GetString("platform")
 		workstationRuntime := rt.ConfigHandler.GetString("workstation.runtime")
-		if workstationRuntime == "" {
-			workstationRuntime = rt.ConfigHandler.GetString("vm.driver")
-		}
 		vmRuntime := rt.ConfigHandler.GetString("vm.runtime", "docker")
 		if (platform == "" || platform == "docker") && workstationRuntime == "colima" && vmRuntime == "incus" {
 			fmt.Fprintln(os.Stderr, "\033[33mWarning: vm.runtime is deprecated; use platform: incus in your context configuration instead. Support for vm.runtime will be removed in a future version.\033[0m")
@@ -607,10 +593,9 @@ func (rt *Runtime) ApplyPlatformDefaults(platformOverride string) error {
 	return rt.applyPlatformDefaults(platformOverride, false)
 }
 
-// SaveConfig normalizes deprecated keys before persisting: provider→platform, workstation.runtime→vm.driver.
-// Copies provider to platform only when platform is not already set (so a second SaveConfig does not
-// overwrite platform with the schema default). Always clears provider when set so the deprecated key
-// is never persisted (Initialize copies platform→provider in memory; SaveConfig must remove provider).
+// SaveConfig migrates provider→platform and clears the deprecated provider key before persistence.
+// Delegates persistence to the config handler. Workstation-managed keys are written to
+// .windsor/contexts/<context>/workstation.yaml and excluded from values.yaml.
 func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if rt.ConfigHandler == nil {
 		return fmt.Errorf("config handler not initialized")
@@ -621,8 +606,8 @@ func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 		}
 		_ = rt.ConfigHandler.Set("provider", nil)
 	}
-	if v := rt.ConfigHandler.GetString("workstation.runtime"); v != "" {
-		_ = rt.ConfigHandler.Set("vm.driver", v)
+	if err := rt.ConfigHandler.SaveWorkstationState(); err != nil {
+		return fmt.Errorf("failed to save workstation state: %w", err)
 	}
 	return rt.ConfigHandler.SaveConfig(overwrite...)
 }
@@ -702,15 +687,7 @@ func (rt *Runtime) inferDevPlatformOverride(flagOverrides map[string]any) string
 		workstationRuntime = driver
 	}
 	if workstationRuntime == "" {
-		if driver, ok := flagOverrides["vm.driver"].(string); ok {
-			workstationRuntime = driver
-		}
-	}
-	if workstationRuntime == "" {
 		workstationRuntime = rt.ConfigHandler.GetString("workstation.runtime")
-	}
-	if workstationRuntime == "" {
-		workstationRuntime = rt.ConfigHandler.GetString("vm.driver")
 	}
 	vmRuntime := ""
 	if r, ok := flagOverrides["vm.runtime"].(string); ok {
@@ -861,8 +838,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 }
 
-// migrateLoadedConfig normalizes in-memory config after load: copies provider→platform when
-// platform is empty (legacy config migration) and vm.driver→workstation.runtime when empty.
+// migrateLoadedConfig normalizes in-memory config after load by copying provider→platform when platform is empty.
 // Call after LoadConfig only.
 func (rt *Runtime) migrateLoadedConfig() {
 	if rt.ConfigHandler.GetString("platform") == "" {
@@ -870,14 +846,10 @@ func (rt *Runtime) migrateLoadedConfig() {
 			_ = rt.ConfigHandler.Set("platform", p)
 		}
 	}
-	if rt.ConfigHandler.GetString("workstation.runtime") == "" && rt.ConfigHandler.GetString("vm.driver") != "" {
-		_ = rt.ConfigHandler.Set("workstation.runtime", rt.ConfigHandler.GetString("vm.driver"))
-	}
 }
 
 // needsDockerEnv returns true when VirtEnvPrinter (DOCKER_HOST, DOCKER_CONFIG, etc.) should be used:
-// platform must be "docker" (falls back to provider for legacy configs) and workstation.runtime
-// (or vm.driver) must be colima, docker-desktop, or docker.
+// platform must be "docker" (falls back to provider for legacy configs) and workstation.runtime must be colima, docker-desktop, or docker.
 func (rt *Runtime) needsDockerEnv() bool {
 	platform := rt.ConfigHandler.GetString("platform")
 	if platform == "" {
@@ -887,9 +859,6 @@ func (rt *Runtime) needsDockerEnv() bool {
 		return false
 	}
 	wsRuntime := rt.ConfigHandler.GetString("workstation.runtime")
-	if wsRuntime == "" {
-		wsRuntime = rt.ConfigHandler.GetString("vm.driver")
-	}
 	switch wsRuntime {
 	case "colima", "docker-desktop", "docker":
 		return true

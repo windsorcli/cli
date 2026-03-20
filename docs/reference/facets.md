@@ -108,7 +108,7 @@ Expressions support:
 - **Equality/inequality**: `==`, `!=`
 - **Logical operators**: `&&`, `||`
 - **Parentheses for grouping**: `(expression)`
-- **Nested object access**: `provider`, `cluster.enabled`, `vm.driver`, `cluster.workers.count`
+- **Nested object access**: `provider`, `cluster.enabled`, `workstation.runtime`, `cluster.workers.count`
 - **String literals**: Use single quotes: `'aws'`, `'talos'`, `'local'`
 - **Boolean values**: `true`, `false`
 - **Numeric values**: `1`, `2.5`

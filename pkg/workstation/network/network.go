@@ -68,7 +68,8 @@ func (n *BaseNetworkManager) ConfigureGuest() error {
 // Uses effectiveResolverIP and platform-specific needsPrivilegeForResolver/needsPrivilegeForHostRoute; errors are treated as false.
 func (n *BaseNetworkManager) NeedsPrivilege() bool {
 	desiredIP := n.effectiveResolverIP()
-	willConfigureDNS := n.configHandler.GetBool("dns.enabled") &&
+	dnsEnabled := n.configHandler.Get("dns.enabled")
+	willConfigureDNS := (dnsEnabled == nil || dnsEnabled == true) &&
 		n.configHandler.GetString("dns.domain") != "" && desiredIP != ""
 	needForDNS := willConfigureDNS && n.needsPrivilegeForResolver(desiredIP)
 	workstationRuntime := n.configHandler.GetString("workstation.runtime")
@@ -89,7 +90,7 @@ func (n *BaseNetworkManager) isLocalhostMode() bool {
 // effectiveResolverIP returns the resolver IP for DNS config: dns.address when set (by config, migration for
 // localhost, or ConfigureNetwork(override)); when unset and in localhost mode returns 127.0.0.1.
 func (n *BaseNetworkManager) effectiveResolverIP() string {
-	if v := n.configHandler.GetString("dns.address"); v != "" {
+	if v := n.configHandler.GetString("workstation.dns.address"); v != "" {
 		return v
 	}
 	if n.isLocalhostMode() {

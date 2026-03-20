@@ -402,11 +402,11 @@ properties:
     additionalProperties: false
 
   # VM configuration
-  # Deprecated: use workstation.runtime and workstation.enabled instead. vm.driver is still used as fallback when workstation.runtime is unset.
+  # Deprecated: use workstation.runtime and workstation.enabled instead.
   vm:
     type: object
     deprecated: true
-    description: Deprecated. Prefer workstation.runtime (and workstation.enabled). vm.driver remains as fallback for effective runtime when option-workstation is not applied.
+    description: Deprecated. Prefer workstation.runtime (and workstation.enabled).
     properties:
       driver:
         type: string
@@ -438,7 +438,7 @@ properties:
           - colima
           - docker-desktop
           - docker
-        description: Host runtime for local clusters. VM-backed (colima, docker-desktop) or plain engine (docker). When unset, falls back to vm.driver.
+        description: Host runtime for local clusters. VM-backed (colima, docker-desktop) or plain engine (docker).
       services:
         type: object
         properties:
@@ -456,6 +456,19 @@ properties:
             description: Create registry proxy containers (from docker.registries when true)
         additionalProperties: false
         description: Toggle workstation services
+      dns:
+        type: object
+        description: Workstation-specific DNS state (server address, forwarders)
+        properties:
+          address:
+            type: string
+            description: DNS server address resolved from workstation infrastructure
+          forward:
+            type: array
+            items:
+              type: string
+            description: Forward DNS servers
+        additionalProperties: false
     additionalProperties: false
 
   # Optional addons

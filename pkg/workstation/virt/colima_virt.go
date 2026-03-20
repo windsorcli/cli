@@ -16,6 +16,7 @@ import (
 	"time"
 
 	colimaConfig "github.com/abiosoft/colima/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -320,12 +321,12 @@ func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, st
 }
 
 // calculateVMResources calculates the required CPU and memory for the Colima VM
-// based on cluster node resources, Docker services, and overhead requirements
-// Formula: node resources + fixed overhead (for VM base system and services)
-// Fixed overhead is constant regardless of node count since it covers Ubuntu VM and Docker services
-// Only allocates what's needed for the workload, not maximum available resources
-// Warns if calculated resources exceed available host resources
-// Returns calculated CPU count and memory in GB
+// based on cluster node topology and overhead. Explicit values from config take precedence;
+// when unset (0), topology-aware defaults are applied: a single controlplane with no workers
+// gets larger resources since it handles everything, while a CP/worker split uses smaller CP
+// resources. Fixed overhead covers the Ubuntu VM base system and Docker services.
+// Warns if calculated resources exceed available host resources.
+// Returns calculated CPU count and memory in GB.
 func (v *ColimaVirt) calculateVMResources() (int, int) {
 	const (
 		vmAndServiceCPUOverhead    = 1
@@ -342,6 +343,29 @@ func (v *ColimaVirt) calculateVMResources() (int, int) {
 	workerCount := v.configHandler.GetInt("cluster.workers.count", 0)
 	workerCPU := v.configHandler.GetInt("cluster.workers.cpu", 0)
 	workerMemory := v.configHandler.GetInt("cluster.workers.memory", 0)
+
+	if controlPlaneCPU == 0 {
+		if workerCount > 0 {
+			controlPlaneCPU = constants.DefaultControlPlaneCPUDedicated
+		} else {
+			controlPlaneCPU = constants.DefaultControlPlaneCPUSchedulable
+		}
+	}
+	if controlPlaneMemory == 0 {
+		if workerCount > 0 {
+			controlPlaneMemory = constants.DefaultControlPlaneMemoryDedicated
+		} else {
+			controlPlaneMemory = constants.DefaultControlPlaneMemorySchedulable
+		}
+	}
+	if workerCount > 0 {
+		if workerCPU == 0 {
+			workerCPU = constants.DefaultWorkerCPU
+		}
+		if workerMemory == 0 {
+			workerMemory = constants.DefaultWorkerMemory
+		}
+	}
 
 	totalNodeCPU := (controlPlaneCount * controlPlaneCPU) + (workerCount * workerCPU)
 	totalNodeMemory := (controlPlaneCount * controlPlaneMemory) + (workerCount * workerMemory)

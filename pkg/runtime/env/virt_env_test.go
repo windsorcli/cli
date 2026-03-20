@@ -47,8 +47,8 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		if mocks.ConfigHandler.GetString("workstation.runtime") == "" && mocks.ConfigHandler.GetString("vm.driver") != "" {
-			_ = mocks.ConfigHandler.Set("workstation.runtime", mocks.ConfigHandler.GetString("vm.driver"))
+		if mocks.ConfigHandler.GetString("workstation.runtime") == "" {
+			_ = mocks.ConfigHandler.Set("workstation.runtime", "colima")
 		}
 
 		// Set the context (this also updates the environment variable)
@@ -170,9 +170,7 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		if v := mocks.ConfigHandler.GetString("vm.driver"); v != "" {
-			_ = mocks.ConfigHandler.Set("workstation.runtime", v)
-		}
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 		// And Linux OS environment
 		mocks.Shims.Goos = func() string {
@@ -264,9 +262,7 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		if v := mocks.ConfigHandler.GetString("vm.driver"); v != "" {
-			_ = mocks.ConfigHandler.Set("workstation.runtime", v)
-		}
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "docker")
 
 		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
@@ -411,9 +407,7 @@ contexts:
 				if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 					t.Fatalf("Failed to load config: %v", err)
 				}
-				if v := mocks.ConfigHandler.GetString("vm.driver"); v != "" {
-					_ = mocks.ConfigHandler.Set("workstation.runtime", v)
-				}
+				_ = mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 				mocks.Shims.Goos = func() string {
 					return tc.os
@@ -618,7 +612,7 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should be set based on vm.driver (not the old managed value)
+		// And DOCKER_HOST should be set based on workstation.runtime (not the old managed value)
 		var expectedDockerHost string
 		if mocks.Shims.Goos() == "windows" {
 			expectedDockerHost = "npipe:////./pipe/docker_engine"
@@ -639,7 +633,7 @@ contexts:
 			}
 		}
 		if !isManaged {
-			t.Error("Expected DOCKER_HOST to be marked as managed when set by vm.driver")
+			t.Error("Expected DOCKER_HOST to be marked as managed when set by workstation.runtime")
 		}
 	})
 
@@ -709,8 +703,8 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostNotSetWithVmDriver", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with vm.driver set but no DOCKER_HOST
+	t.Run("DockerHostNotSetWithWorkstationRuntime", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with workstation.runtime set but no DOCKER_HOST
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
@@ -727,9 +721,7 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
-		if v := mocks.ConfigHandler.GetString("vm.driver"); v != "" {
-			_ = mocks.ConfigHandler.Set("workstation.runtime", v)
-		}
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			return "", false // DOCKER_HOST doesn't exist
@@ -746,7 +738,7 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should be set based on vm.driver and OS
+		// And DOCKER_HOST should be set based on workstation.runtime and OS
 		var expectedDockerHost string
 		if mocks.Shims.Goos() == "windows" {
 			expectedDockerHost = "npipe:////./pipe/docker_engine"
@@ -767,12 +759,12 @@ contexts:
 			}
 		}
 		if !isManaged {
-			t.Error("Expected DOCKER_HOST to be marked as managed when set by vm.driver")
+			t.Error("Expected DOCKER_HOST to be marked as managed when set by workstation.runtime")
 		}
 	})
 
-	t.Run("DockerHostNotSetWithoutVmDriver", func(t *testing.T) {
-		// Given a new VirtEnvPrinter without vm.driver and no DOCKER_HOST
+	t.Run("DockerHostNotSetWithoutWorkstationRuntime", func(t *testing.T) {
+		// Given a new VirtEnvPrinter without workstation.runtime and no DOCKER_HOST
 		os.Unsetenv("DOCKER_HOST")
 		baseMocks := setupEnvMocks(t)
 		mocks := setupVirtEnvMocks(t, &EnvTestMocks{
@@ -808,7 +800,7 @@ contexts:
 
 		// And DOCKER_HOST should not be set
 		if _, exists := envVars["DOCKER_HOST"]; exists {
-			t.Errorf("Expected DOCKER_HOST not to be set when vm.driver is empty, got %v", envVars["DOCKER_HOST"])
+			t.Errorf("Expected DOCKER_HOST not to be set when workstation.runtime is empty, got %v", envVars["DOCKER_HOST"])
 		}
 
 		// And DOCKER_HOST should not be marked as managed

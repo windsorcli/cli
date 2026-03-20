@@ -4819,7 +4819,7 @@ func TestExpressionIsDerivedFromBlock(t *testing.T) {
 	})
 
 	t.Run("ReturnsFalseForSimplePropertyRead", func(t *testing.T) {
-		got := expressionIsDerivedFromBlock("${workstation.runtime ?? vm.driver ?? 'colima'}", "workstation")
+		got := expressionIsDerivedFromBlock("${workstation.runtime ?? 'colima'}", "workstation")
 		if got {
 			t.Error("Expected simple property reads to not be treated as derived")
 		}

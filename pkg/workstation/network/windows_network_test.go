@@ -23,7 +23,7 @@ func TestWindowsNetworkManager_ConfigureHostRoute(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured network manager (default config has vm.address; set workstation.address)
+		// Given a properly configured network manager
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
@@ -146,7 +146,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// And mocking DNS configuration
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "8.8.8.8")
+		mocks.ConfigHandler.Set("workstation.dns.address", "8.8.8.8")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -163,8 +163,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// And mocking localhost mode configuration
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "")
-		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 		// And configuring DNS
@@ -201,7 +200,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		manager, mocks := setup(t)
 
 		// And mocking missing DNS address
-		mocks.ConfigHandler.Set("dns.address", "")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -222,7 +221,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// And mocking DNS check error
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "192.168.1.1")
+		mocks.ConfigHandler.Set("workstation.dns.address", "192.168.1.1")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -239,8 +238,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 
 		// And mocking localhost mode configuration
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "")
-		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 		// And configuring DNS
@@ -326,7 +325,7 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		manager, mocks := setup(t)
 
 		// And mocking missing DNS address
-		mocks.ConfigHandler.Set("dns.address", "")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
@@ -413,8 +412,8 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		manager, mocks := setup(t)
 
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("dns.address", "")
-		mocks.ConfigHandler.Set("vm.driver", "hyperv")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
+		mocks.ConfigHandler.Set("workstation.runtime", "hyperv")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()

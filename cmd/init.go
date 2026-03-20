@@ -98,13 +98,11 @@ var initCmd = &cobra.Command{
 			flagOverrides["aws.endpoint_url"] = initAwsEndpointURL
 		}
 		if initVmDriver != "" {
-			flagOverrides["workstation.enabled"] = true
 			runtimeVal := initVmDriver
 			if initVmDriver == "colima-incus" {
 				runtimeVal = "colima"
 			}
 			flagOverrides["workstation.runtime"] = runtimeVal
-			flagOverrides["vm.driver"] = runtimeVal
 			if initPlatform == "" {
 				switch initVmDriver {
 				case "colima-incus":

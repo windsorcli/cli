@@ -1047,7 +1047,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return true
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
+			if key == "workstation.runtime" {
 				return "colima"
 			}
 			if key == "vm.runtime" {
@@ -1172,7 +1172,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsVMDriverForDockerDesktop", func(t *testing.T) {
+	t.Run("SetsWorkstationRuntimeForDockerDesktop", func(t *testing.T) {
 		// Given a runtime in dev mode with Docker Desktop
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
@@ -1203,21 +1203,21 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		// When ApplyConfigDefaults is called
 		err := rt.ApplyConfigDefaults()
 
-		// Then VM driver should be set
+		// Then workstation runtime should be set
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		vmDriverSet := false
+		workstationRuntimeSet := false
 		for key := range setCalls {
-			if key == "vm.driver" {
-				vmDriverSet = true
+			if key == "workstation.runtime" {
+				workstationRuntimeSet = true
 				break
 			}
 		}
 
-		if !vmDriverSet {
-			t.Error("Expected vm.driver to be set")
+		if !workstationRuntimeSet {
+			t.Error("Expected workstation.runtime to be set")
 		}
 	})
 
@@ -1236,7 +1236,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
+			if key == "workstation.runtime" {
 				return "colima"
 			}
 			return ""
@@ -1344,8 +1344,8 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenSetVMDriverFails", func(t *testing.T) {
-		// Given a runtime with a config handler that fails to set VM driver
+	t.Run("ErrorWhenSetWorkstationRuntimeFails", func(t *testing.T) {
+		// Given a runtime with a config handler that fails to set workstation runtime
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "local"
@@ -1366,8 +1366,8 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "vm.driver" {
-				return fmt.Errorf("set vm.driver failed")
+			if key == "workstation.runtime" {
+				return fmt.Errorf("set workstation.runtime failed")
 			}
 			return nil
 		}
@@ -1377,11 +1377,11 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 
 		// Then an error should be returned
 		if err == nil {
-			t.Error("Expected error when Set vm.driver fails")
+			t.Error("Expected error when Set workstation.runtime fails")
 		}
 
-		if !strings.Contains(err.Error(), "failed to set vm.driver") {
-			t.Errorf("Expected error about set vm.driver, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to set workstation.runtime") {
+			t.Errorf("Expected error about set workstation.runtime, got: %v", err)
 		}
 	})
 
@@ -1454,7 +1454,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		flagOverrides := map[string]any{
-			"vm.driver": "colima",
+			"workstation.runtime": "colima",
 		}
 
 		// When ApplyConfigDefaults is called with flag overrides
@@ -1502,7 +1502,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		flagOverrides := map[string]any{
-			"vm.driver": "docker-desktop",
+			"workstation.runtime": "docker-desktop",
 		}
 
 		// When ApplyConfigDefaults is called with flag overrides
@@ -1518,8 +1518,8 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("IgnoresFlagOverridesWhenVMDriverAlreadySet", func(t *testing.T) {
-		// Given a runtime in dev mode with vm.driver already set in config
+	t.Run("IgnoresFlagOverridesWhenWorkstationRuntimeAlreadySet", func(t *testing.T) {
+		// Given a runtime in dev mode with workstation.runtime already set in config
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "local"
@@ -1532,7 +1532,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return true
 		}
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
+			if key == "workstation.runtime" {
 				return "colima"
 			}
 			return ""
@@ -1549,7 +1549,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		flagOverrides := map[string]any{
-			"vm.driver": "docker-desktop",
+			"workstation.runtime": "docker-desktop",
 		}
 
 		// When ApplyConfigDefaults is called with flag overrides
@@ -1684,8 +1684,8 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 
 		flagOverrides := map[string]any{
-			"vm.driver":  "colima",
-			"vm.runtime": "incus",
+			"workstation.runtime": "colima",
+			"vm.runtime":          "incus",
 		}
 
 		err := rt.ApplyConfigDefaults(flagOverrides)
@@ -2063,12 +2063,13 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 }
 
 func TestRuntime_SaveConfig(t *testing.T) {
-	t.Run("DoesNotOverwritePlatformWithSchemaDefaultWhenProviderCleared", func(t *testing.T) {
+	t.Run("MigratesProviderToPlatformAndClearsProvider", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		saveCount := 0
 		platformValue := ""
+		providerCleared := false
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GetStringFunc = func(key string, _ ...string) string {
 			switch key {
@@ -2089,6 +2090,9 @@ func TestRuntime_SaveConfig(t *testing.T) {
 			if key == "platform" && value != nil {
 				platformValue = fmt.Sprint(value)
 			}
+			if key == "provider" && value == nil {
+				providerCleared = true
+			}
 			return nil
 		}
 		mockConfig.SaveConfigFunc = func(_ ...bool) error {
@@ -2104,6 +2108,9 @@ func TestRuntime_SaveConfig(t *testing.T) {
 		}
 		if platformValue != "docker" {
 			t.Errorf("platform must remain docker after second SaveConfig (schema default would overwrite), got %q", platformValue)
+		}
+		if !providerCleared {
+			t.Error("expected provider to be cleared before persistence")
 		}
 	})
 }

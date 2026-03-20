@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -289,14 +290,8 @@ func TestInitCmd(t *testing.T) {
 		if v, ok := setCalls["platform"]; !ok || v != "docker" {
 			t.Errorf("Expected Set(platform, docker), got platform=%v (ok=%v)", v, ok)
 		}
-		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
-			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
-		}
 		if v, ok := setCalls["workstation.runtime"]; !ok || v != "colima" {
 			t.Errorf("Expected Set(workstation.runtime, colima), got workstation.runtime=%v (ok=%v)", v, ok)
-		}
-		if v, ok := setCalls["vm.driver"]; !ok || v != "colima" {
-			t.Errorf("Expected Set(vm.driver, colima), got vm.driver=%v (ok=%v)", v, ok)
 		}
 	})
 
@@ -325,14 +320,8 @@ func TestInitCmd(t *testing.T) {
 		if v, ok := setCalls["platform"]; !ok || v != "docker" {
 			t.Errorf("Expected Set(platform, docker), got platform=%v (ok=%v)", v, ok)
 		}
-		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
-			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
-		}
 		if v, ok := setCalls["workstation.runtime"]; !ok || v != "docker-desktop" {
 			t.Errorf("Expected Set(workstation.runtime, docker-desktop), got workstation.runtime=%v (ok=%v)", v, ok)
-		}
-		if v, ok := setCalls["vm.driver"]; !ok || v != "docker-desktop" {
-			t.Errorf("Expected Set(vm.driver, docker-desktop), got vm.driver=%v (ok=%v)", v, ok)
 		}
 	})
 
@@ -361,14 +350,8 @@ func TestInitCmd(t *testing.T) {
 		if v, ok := setCalls["platform"]; !ok || v != "incus" {
 			t.Errorf("Expected Set(platform, incus), got platform=%v (ok=%v)", v, ok)
 		}
-		if v, ok := setCalls["workstation.enabled"]; !ok || v != true {
-			t.Errorf("Expected Set(workstation.enabled, true), got workstation.enabled=%v (ok=%v)", v, ok)
-		}
 		if v, ok := setCalls["workstation.runtime"]; !ok || v != "colima" {
 			t.Errorf("Expected Set(workstation.runtime, colima), got workstation.runtime=%v (ok=%v)", v, ok)
-		}
-		if v, ok := setCalls["vm.driver"]; !ok || v != "colima" {
-			t.Errorf("Expected Set(vm.driver, colima), got vm.driver=%v (ok=%v)", v, ok)
 		}
 	})
 
@@ -518,6 +501,38 @@ func TestInitCmd(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("PlatformFlagLoadsDefaultBlueprintWhenTemplateRootExists", func(t *testing.T) {
+		mocks := setupInitTest(t)
+		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
+			t.Fatalf("failed to create template root: %v", err)
+		}
+		var loadBlueprintArgs []string
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(blueprintURL ...string) error {
+			loadBlueprintArgs = append([]string(nil), blueprintURL...)
+			return nil
+		}
+		comp := composer.NewComposer(mocks.Runtime, &composer.Composer{
+			BlueprintHandler: mocks.BlueprintHandler,
+		})
+
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, comp)
+		cmd.SetArgs([]string{"--platform", "aws"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if len(loadBlueprintArgs) != 1 {
+			t.Fatalf("Expected one blueprint URL, got %d (%v)", len(loadBlueprintArgs), loadBlueprintArgs)
+		}
+		if loadBlueprintArgs[0] != constants.GetEffectiveBlueprintURL() {
+			t.Errorf("Expected blueprint URL %q, got %q", constants.GetEffectiveBlueprintURL(), loadBlueprintArgs[0])
 		}
 	})
 

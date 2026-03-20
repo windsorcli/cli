@@ -173,6 +173,7 @@ contexts:
 	}
 
 	configHandler.SetContext("mock-context")
+	configHandler.Set("workstation.dns.address", "1.2.3.4")
 
 	// Apply any overrides
 	for _, opt := range opts {
