@@ -165,7 +165,6 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
 		mocks.ConfigHandler.Set("workstation.dns.address", "")
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
-		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 
 		// And configuring DNS
 		err := manager.ConfigureDNS()
