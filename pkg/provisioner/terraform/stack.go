@@ -350,6 +350,17 @@ func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.T
 // selectTerraformCommandEnv builds per-command env overrides without mutating process-wide environment.
 func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bool) map[string]string {
 	selected := make(map[string]string)
+	for _, key := range []string{
+		"TF_CLI_ARGS",
+		"TF_CLI_ARGS_init",
+		"TF_CLI_ARGS_plan",
+		"TF_CLI_ARGS_apply",
+		"TF_CLI_ARGS_destroy",
+		"TF_CLI_ARGS_import",
+		"TF_CLI_ARGS_refresh",
+	} {
+		selected[key] = ""
+	}
 	for key, value := range terraformVars {
 		if key == "TF_DATA_DIR" {
 			selected[key] = value

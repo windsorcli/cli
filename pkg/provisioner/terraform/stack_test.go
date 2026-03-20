@@ -983,6 +983,12 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 		if _, ok := selected["OTHER"]; ok {
 			t.Error("Expected non-TF keys to be omitted")
 		}
+		if val, ok := selected["TF_CLI_ARGS_apply"]; !ok || val != "" {
+			t.Error("Expected TF_CLI_ARGS_apply to be explicitly cleared")
+		}
+		if val, ok := selected["TF_CLI_ARGS_plan"]; !ok || val != "" {
+			t.Error("Expected TF_CLI_ARGS_plan to be explicitly cleared")
+		}
 	})
 
 	t.Run("SelectCommandEnvWithTFVars", func(t *testing.T) {
