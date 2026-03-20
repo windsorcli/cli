@@ -1231,15 +1231,15 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("CallsHandleSessionResetWhenNoContextProvided", func(t *testing.T) {
+	t.Run("WritesResetTokenWhenNoContextProvided", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
-		// And tracking whether Shell.CheckResetFlags is called (which HandleSessionReset calls)
-		var checkResetFlagsCalled bool
-		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
-			checkResetFlagsCalled = true
-			return false, nil
+		// And tracking whether WriteResetToken is called
+		var writeResetTokenCalled bool
+		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
+			writeResetTokenCalled = true
+			return "test-token", nil
 		}
 
 		// When executing the init command without a context name
@@ -1255,20 +1255,20 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 
-		// And CheckResetFlags should have been called (indicating HandleSessionReset was called)
-		if !checkResetFlagsCalled {
-			t.Error("Expected CheckResetFlags to be called (via HandleSessionReset), but it was not")
+		// And WriteResetToken should have been called
+		if !writeResetTokenCalled {
+			t.Error("Expected WriteResetToken to be called when no context name is provided, but it was not")
 		}
 	})
 
-	t.Run("HandlesHandleSessionResetError", func(t *testing.T) {
+	t.Run("HandlesWriteResetTokenErrorWhenNoContextProvided", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
-		// And CheckResetFlags returns an error (which HandleSessionReset will propagate)
-		expectedError := fmt.Errorf("failed to check reset flags")
-		mocks.Shell.Shell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, expectedError
+		// And WriteResetToken returns an error
+		expectedError := fmt.Errorf("failed to write reset token")
+		mocks.Shell.Shell.WriteResetTokenFunc = func() (string, error) {
+			return "", expectedError
 		}
 
 		// When executing the init command
@@ -1280,13 +1280,13 @@ func TestInitCmd(t *testing.T) {
 
 		// Then an error should occur
 		if err == nil {
-			t.Error("Expected error when HandleSessionReset fails, got nil")
+			t.Error("Expected error when WriteResetToken fails, got nil")
 			return
 		}
 
 		// And the error should contain the expected message
-		if !strings.Contains(err.Error(), "failed to handle session reset") {
-			t.Errorf("Expected error message to contain 'failed to handle session reset', got: %v", err)
+		if !strings.Contains(err.Error(), "failed to write reset token") {
+			t.Errorf("Expected error message to contain 'failed to write reset token', got: %v", err)
 		}
 	})
 
@@ -1388,9 +1388,9 @@ func TestInitCmd(t *testing.T) {
 			t.Errorf("Expected success, got error: %v", err)
 		}
 
-		// And WriteResetToken should not have been called
-		if writeResetTokenCalled {
-			t.Error("Expected WriteResetToken to not be called when no context name is provided, but it was called")
+		// And WriteResetToken should have been called
+		if !writeResetTokenCalled {
+			t.Error("Expected WriteResetToken to be called when no context name is provided, but it was not")
 		}
 
 		// And SetContext should not have been called
@@ -1398,9 +1398,9 @@ func TestInitCmd(t *testing.T) {
 			t.Error("Expected SetContext to not be called when no context name is provided, but it was called")
 		}
 
-		// And HandleSessionReset SHOULD have been called (not skipped when not changing contexts)
-		if !checkResetFlagsCalled {
-			t.Error("Expected HandleSessionReset to be called when no context name is provided, but it was not")
+		// And HandleSessionReset should not have been called (reset is deferred to next env command)
+		if checkResetFlagsCalled {
+			t.Error("Expected HandleSessionReset not to be called when no context name is provided, but it was called")
 		}
 	})
 

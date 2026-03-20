@@ -49,14 +49,12 @@ var initCmd = &cobra.Command{
 
 		contextName := "local"
 		changingContext := len(args) > 0
+		tempRt := runtime.NewRuntime(rtOpts...)
+		if _, err := tempRt.Shell.WriteResetToken(); err != nil {
+			return fmt.Errorf("failed to write reset token: %w", err)
+		}
 		if changingContext {
 			contextName = args[0]
-
-			tempRt := runtime.NewRuntime(rtOpts...)
-
-			if _, err := tempRt.Shell.WriteResetToken(); err != nil {
-				return fmt.Errorf("failed to write reset token: %w", err)
-			}
 
 			if err := tempRt.ConfigHandler.SetContext(contextName); err != nil {
 				return fmt.Errorf("failed to set context: %w", err)
@@ -157,12 +155,6 @@ var initCmd = &cobra.Command{
 
 		if err := proj.Configure(flagOverrides); err != nil {
 			return err
-		}
-
-		if !changingContext {
-			if err := rt.HandleSessionReset(); err != nil {
-				return fmt.Errorf("failed to handle session reset: %w", err)
-			}
 		}
 
 		var blueprintURL []string
