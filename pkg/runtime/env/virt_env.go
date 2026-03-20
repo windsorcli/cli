@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -58,17 +57,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	workstationRuntime := e.configHandler.GetString("workstation.runtime")
 	platform := e.configHandler.GetString("platform")
 	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
-	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
-
-	isDockerHostManaged := false
-	if managedEnvExists {
-		managedEnvStr := e.shims.Getenv("WINDSOR_MANAGED_ENV")
-		if strings.Contains(managedEnvStr, "DOCKER_HOST") {
-			isDockerHostManaged = true
-		}
-	}
-
-	if platform != "incus" && workstationRuntime != "" && (!dockerHostExists || isDockerHostManaged) {
+	if platform != "incus" && workstationRuntime != "" && !dockerHostExists {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
@@ -111,7 +100,6 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 				contextName = "default"
 			}
 		}
-
 		dockerConfigContent := fmt.Sprintf(`{
 			"auths": {},
 			"currentContext": "%s",
@@ -134,6 +122,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	} else if platform != "incus" && dockerHostExists {
 		if dockerHostValue, _ := e.shims.LookupEnv("DOCKER_HOST"); dockerHostValue != "" {
 			envVars["DOCKER_HOST"] = dockerHostValue
+			e.SetManagedEnv("DOCKER_HOST")
 		}
 	}
 
@@ -153,7 +142,6 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		envVars["INCUS_SOCKET"] = filepath.ToSlash(incusSocketPath)
 		e.SetManagedEnv("INCUS_SOCKET")
 	}
-
 	return envVars, nil
 }
 

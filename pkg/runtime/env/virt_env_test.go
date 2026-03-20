@@ -551,7 +551,7 @@ contexts:
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 
-		// And DOCKER_HOST should NOT be marked as managed (since it was manually set)
+		// And DOCKER_HOST should be marked as managed for reset tracking
 		managedEnv := printer.GetManagedEnv()
 		isManaged := false
 		for _, env := range managedEnv {
@@ -560,12 +560,12 @@ contexts:
 				break
 			}
 		}
-		if isManaged {
-			t.Error("Expected DOCKER_HOST not to be marked as managed when manually set")
+		if !isManaged {
+			t.Error("Expected DOCKER_HOST to be marked as managed for reset tracking")
 		}
 	})
 
-	t.Run("DockerHostManagedByWindsorIsOverridden", func(t *testing.T) {
+	t.Run("DockerHostManagedByWindsorIsPreserved", func(t *testing.T) {
 		// Given a new VirtEnvPrinter with DOCKER_HOST already managed by Windsor
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
@@ -612,18 +612,13 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should be set based on workstation.runtime (not the old managed value)
-		var expectedDockerHost string
-		if mocks.Shims.Goos() == "windows" {
-			expectedDockerHost = "npipe:////./pipe/docker_engine"
-		} else {
-			expectedDockerHost = fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
-		}
+		// And DOCKER_HOST should preserve the existing managed value unless reset has cleared it
+		expectedDockerHost := "tcp://old-managed-host:2375"
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 
-		// And DOCKER_HOST should be marked as managed
+		// And DOCKER_HOST should be marked as managed for reset tracking
 		managedEnv := printer.GetManagedEnv()
 		isManaged := false
 		for _, env := range managedEnv {
@@ -633,7 +628,7 @@ contexts:
 			}
 		}
 		if !isManaged {
-			t.Error("Expected DOCKER_HOST to be marked as managed when set by workstation.runtime")
+			t.Error("Expected DOCKER_HOST to be marked as managed when preserved")
 		}
 	})
 
@@ -689,7 +684,7 @@ contexts:
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 
-		// And DOCKER_HOST should NOT be marked as managed
+		// And DOCKER_HOST should be marked as managed for reset tracking
 		managedEnv := printer.GetManagedEnv()
 		isManaged := false
 		for _, env := range managedEnv {
@@ -698,8 +693,8 @@ contexts:
 				break
 			}
 		}
-		if isManaged {
-			t.Error("Expected DOCKER_HOST not to be marked as managed when unmanaged value is preserved")
+		if !isManaged {
+			t.Error("Expected DOCKER_HOST to be marked as managed when unmanaged value is preserved")
 		}
 	})
 
