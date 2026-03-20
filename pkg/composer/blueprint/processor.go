@@ -728,12 +728,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			if err != nil {
 				return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
 			}
-			origins := make(map[string]string, len(evaluated))
-			for sk := range evaluated {
-				origins[sk] = facet.Path
-			}
 			processed.Substitutions = evaluated
-			processed.SubstitutionOrigins = origins
 		}
 		if len(processed.DependsOn) > 0 {
 			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
