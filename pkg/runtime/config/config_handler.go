@@ -422,6 +422,11 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 			if err := c.shims.WriteFile(valuesPath, data, 0644); err != nil {
 				return fmt.Errorf("error writing values.yaml: %w", err)
 			}
+		}
+	}
+
+	return nil
+}
 
 // workstationManagedKeys lists top-level config keys that are always system-managed via
 // .windsor/contexts/<context>/workstation.yaml and excluded from values.yaml during SaveConfig.
