@@ -411,6 +411,10 @@ type TerraformComponent struct {
 	// Defaults to true if not specified.
 	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
 	Enabled *BoolExpression `yaml:"enabled,omitempty"`
+
+	// InputOrigins maps each input key to the facet file path that defined it.
+	// Used internally for resolving relative paths in deferred expression evaluation.
+	InputOrigins map[string]string `yaml:"-"`
 }
 
 // =============================================================================
@@ -451,15 +455,16 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 	}
 
 	return &TerraformComponent{
-		Name:        t.Name,
-		Source:      t.Source,
-		Path:        t.Path,
-		FullPath:    t.FullPath,
-		DependsOn:   dependsOnCopy,
-		Inputs:      inputsCopy,
-		Destroy:     destroyCopy,
-		Parallelism: parallelismCopy,
-		Enabled:     enabledCopy,
+		Name:         t.Name,
+		Source:       t.Source,
+		Path:         t.Path,
+		FullPath:     t.FullPath,
+		DependsOn:    dependsOnCopy,
+		Inputs:       inputsCopy,
+		Destroy:      destroyCopy,
+		Parallelism:  parallelismCopy,
+		Enabled:      enabledCopy,
+		InputOrigins: maps.Clone(t.InputOrigins),
 	}
 }
 
@@ -538,6 +543,10 @@ type Kustomization struct {
 	// All values are converted to strings as required by Flux variable substitution.
 	// These are used for generating ConfigMaps and are not written to the final context blueprint.yaml.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
+
+	// SubstitutionOrigins maps each substitution key to the facet file path that defined it.
+	// Used internally for resolving relative paths in deferred expression evaluation.
+	SubstitutionOrigins map[string]string `yaml:"-"`
 }
 
 // PostBuild is a post-build step to run after the kustomization is applied.
@@ -856,23 +865,24 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 	}
 
 	return &Kustomization{
-		Name:          k.Name,
-		Path:          k.Path,
-		Source:        k.Source,
-		DependsOn:     slices.Clone(k.DependsOn),
-		Interval:      k.Interval,
-		RetryInterval: k.RetryInterval,
-		Timeout:       k.Timeout,
-		Patches:       slices.Clone(k.Patches),
-		Wait:          k.Wait,
-		Force:         k.Force,
-		Prune:         k.Prune,
-		Components:    slices.Clone(k.Components),
-		Cleanup:       slices.Clone(k.Cleanup),
-		Destroy:       destroyCopy,
-		DestroyOnly:   k.DestroyOnly,
-		Enabled:       enabledCopy,
-		Substitutions: maps.Clone(k.Substitutions),
+		Name:                k.Name,
+		Path:                k.Path,
+		Source:              k.Source,
+		DependsOn:           slices.Clone(k.DependsOn),
+		Interval:            k.Interval,
+		RetryInterval:       k.RetryInterval,
+		Timeout:             k.Timeout,
+		Patches:             slices.Clone(k.Patches),
+		Wait:                k.Wait,
+		Force:               k.Force,
+		Prune:               k.Prune,
+		Components:          slices.Clone(k.Components),
+		Cleanup:             slices.Clone(k.Cleanup),
+		Destroy:             destroyCopy,
+		DestroyOnly:         k.DestroyOnly,
+		Enabled:             enabledCopy,
+		Substitutions:       maps.Clone(k.Substitutions),
+		SubstitutionOrigins: maps.Clone(k.SubstitutionOrigins),
 	}
 }
 
@@ -1054,6 +1064,12 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 					existing.Inputs = make(map[string]any)
 				}
 				existing.Inputs = b.deepMergeMaps(existing.Inputs, component.Inputs)
+				if component.InputOrigins != nil {
+					if existing.InputOrigins == nil {
+						existing.InputOrigins = make(map[string]string)
+					}
+					maps.Copy(existing.InputOrigins, component.InputOrigins)
+				}
 			}
 			for _, dep := range component.DependsOn {
 				if !slices.Contains(existing.DependsOn, dep) {
@@ -1142,6 +1158,12 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 					existing.Substitutions = make(map[string]string)
 				}
 				maps.Copy(existing.Substitutions, kustomization.Substitutions)
+				if kustomization.SubstitutionOrigins != nil {
+					if existing.SubstitutionOrigins == nil {
+						existing.SubstitutionOrigins = make(map[string]string)
+					}
+					maps.Copy(existing.SubstitutionOrigins, kustomization.SubstitutionOrigins)
+				}
 			}
 			b.Kustomizations[i] = existing
 			return b.sortKustomize()

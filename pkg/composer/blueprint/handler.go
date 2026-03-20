@@ -604,18 +604,24 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 
 	if h.runtime.Evaluator != nil {
-		evalPath := filepath.Join(h.runtime.TemplateRoot, "facets", "_eval.yaml")
-		if h.runtime.TemplateRoot == "" {
-			evalPath = ""
-		}
 		for i := range h.composedBlueprint.TerraformComponents {
-			if h.composedBlueprint.TerraformComponents[i].Inputs == nil {
+			comp := h.composedBlueprint.TerraformComponents[i]
+			if comp.Inputs == nil {
 				continue
 			}
-			comp := h.composedBlueprint.TerraformComponents[i]
-			evaluated, err := h.runtime.Evaluator.EvaluateMap(comp.Inputs, evalPath, mergedScope, false)
-			if err != nil {
-				return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
+			evaluated := make(map[string]any, len(comp.Inputs))
+			for key, value := range comp.Inputs {
+				originPath := ""
+				if comp.InputOrigins != nil {
+					originPath = comp.InputOrigins[key]
+				}
+				result, err := h.runtime.Evaluator.EvaluateMap(
+					map[string]any{key: value}, originPath, mergedScope, false,
+				)
+				if err != nil {
+					return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
+				}
+				evaluated[key] = result[key]
 			}
 			h.composedBlueprint.TerraformComponents[i].Inputs = evaluated
 		}
