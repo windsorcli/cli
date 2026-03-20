@@ -168,7 +168,9 @@ var initCmd = &cobra.Command{
 		var blueprintURL []string
 		if initBlueprint != "" {
 			blueprintURL = []string{initBlueprint}
-		} else if initPlatform != "" || contextName == "local" {
+		} else if initPlatform != "" {
+			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
+		} else if contextName == "local" {
 			if _, err := os.Stat(rt.TemplateRoot); os.IsNotExist(err) {
 				blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
 			} else if err != nil {
