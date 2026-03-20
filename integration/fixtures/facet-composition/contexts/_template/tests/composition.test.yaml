@@ -77,8 +77,8 @@ cases:
     provider: docker
     cluster:
       driver: talos
-    vm:
-      driver: colima
+    workstation:
+      runtime: colima
     network: *default-network
   expect:
     kustomize:
