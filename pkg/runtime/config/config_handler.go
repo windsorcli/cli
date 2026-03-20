@@ -350,7 +350,8 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
-	staticFields, dynamicFields := c.separateStaticAndDynamicFields(c.data)
+	persistedData := c.filterWorkstationKeys(c.data)
+	staticFields, dynamicFields := c.separateStaticAndDynamicFields(persistedData)
 
 	if len(staticFields) > 0 {
 		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
