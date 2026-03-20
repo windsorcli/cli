@@ -473,17 +473,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					}
 					envVars[envKey] = envValue
 				} else {
-					var envValue string
-					if valueStr, ok := value.(string); ok {
-						envValue = valueStr
-					} else {
-						valueBytes, err := p.Shims.JsonMarshal(value)
-						if err != nil {
-							continue
-						}
-						envValue = string(valueBytes)
-					}
-					envVars[envKey] = envValue
+					continue
 				}
 			}
 		}
