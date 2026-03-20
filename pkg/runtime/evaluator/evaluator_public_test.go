@@ -453,7 +453,7 @@ func TestExpressionEvaluator_Evaluate(t *testing.T) {
 		}
 
 		// When evaluating an expression with parentheses
-		result, err := evaluator.Evaluate("${provider == 'generic' && (vm.driver != 'docker-desktop' || loadbalancer.enabled == true)}", "", nil, false)
+		result, err := evaluator.Evaluate("${provider == 'generic' && (workstation.runtime != 'docker-desktop' || loadbalancer.enabled == true)}", "", nil, false)
 
 		// Then the result should be true
 		if err != nil {

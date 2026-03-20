@@ -2,7 +2,7 @@ kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: provider-colima
-  description: Reproduces block-level when scope bug; lb-colima only when effective_runtime == 'colima' (from vm.driver fallback).
+  description: Reproduces block-level when scope bug; lb-colima only when effective_runtime == 'colima' (from workstation.runtime).
 
 when: effective_runtime != ''
 

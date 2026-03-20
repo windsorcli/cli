@@ -24,7 +24,7 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured network manager (default config has workstation.address via vm.address in YAML; set explicitly)
+		// Given a properly configured network manager
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
 
@@ -196,7 +196,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("SuccessLocalhostMode", func(t *testing.T) {
 		// Given a network manager in localhost mode
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
 		mocks.ConfigHandler.Set("workstation.dns.address", "")
@@ -273,7 +273,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
 		mocks.ConfigHandler.Set("workstation.dns.address", "")
-		mocks.ConfigHandler.Set("vm.driver", "colima")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
 
 		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {

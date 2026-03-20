@@ -63,7 +63,7 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 			}
 		}
 		switch key {
-		case "vm.driver", "workstation.runtime":
+		case "workstation.runtime":
 			return "colima"
 		case "docker.enabled":
 			return "true"
@@ -350,7 +350,7 @@ func TestNewWorkstation(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsWorkstationConfigDefaultsWhenEmpty", func(t *testing.T) {
+	t.Run("DoesNotBackfillWorkstationAddressFromVmAddress", func(t *testing.T) {
 		mocks := setupWorkstationMocks(t)
 		recorded := make(map[string]any)
 		mockHandler := config.NewMockConfigHandler()
@@ -365,11 +365,11 @@ func TestNewWorkstation(t *testing.T) {
 				}
 			}
 			switch key {
-			case "vm.driver":
+			case "workstation.arch":
+				return ""
+			case "workstation.runtime":
 				return "colima"
-			case "vm.address":
-				return "192.168.1.1"
-			case "workstation.arch", "workstation.runtime", "workstation.address":
+			case "workstation.address":
 				return ""
 			default:
 				if len(defaultValue) > 0 {
@@ -393,11 +393,8 @@ func TestNewWorkstation(t *testing.T) {
 			t.Fatalf("Prepare failed: %v", err)
 		}
 
-		if got, ok := recorded["workstation.runtime"]; !ok || got != "colima" {
-			t.Errorf("Expected workstation.runtime to be set from vm.driver (colima), got recorded %v", recorded["workstation.runtime"])
-		}
-		if got, ok := recorded["workstation.address"]; !ok || got != "192.168.1.1" {
-			t.Errorf("Expected workstation.address to be set from vm.address (192.168.1.1), got recorded %v", recorded["workstation.address"])
+		if _, ok := recorded["workstation.address"]; ok {
+			t.Errorf("Expected workstation.address to remain unset, got recorded %v", recorded["workstation.address"])
 		}
 	})
 }
@@ -463,7 +460,7 @@ func TestWorkstation_Up(t *testing.T) {
 			callOrder = append(callOrder, "Up")
 			return nil
 		}
-		mocks.ConfigHandler.Set("vm.driver", "colima")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
 		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
@@ -570,7 +567,7 @@ func TestWorkstation_Up(t *testing.T) {
 		mocks.VirtualMachine.WriteConfigFunc = func() error {
 			return fmt.Errorf("VM config write failed")
 		}
-		mocks.ConfigHandler.Set("vm.driver", "colima")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
 		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
@@ -598,7 +595,7 @@ func TestWorkstation_Up(t *testing.T) {
 		mocks.VirtualMachine.UpFunc = func(verbose ...bool) error {
 			return fmt.Errorf("VM start failed")
 		}
-		mocks.ConfigHandler.Set("vm.driver", "colima")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
 		workstation := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,

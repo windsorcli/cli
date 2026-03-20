@@ -189,7 +189,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Given a network manager in localhost mode
 		manager, mocks := setup(t)
 
-		mocks.ConfigHandler.Set("vm.driver", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
 		mocks.ConfigHandler.Set("workstation.dns.address", "")

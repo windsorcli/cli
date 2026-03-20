@@ -90,9 +90,8 @@ func NewWorkstation(rt *runtime.Runtime, opts ...*Workstation) *Workstation {
 // =============================================================================
 
 // Prepare creates workstation components (network manager, virtual machine, container runtime).
-// Call after configuration is loaded. Applies workstation config defaults (arch, runtime, address from vm.*) when empty, then returns an error if any component creation fails.
+// Call after configuration is loaded, then returns an error if any component creation fails.
 func (w *Workstation) Prepare() error {
-	w.applyWorkstationConfigDefaults()
 	workstationRuntime := w.configHandler.GetString("workstation.runtime")
 
 	if w.NetworkManager == nil {
@@ -335,16 +334,3 @@ func (w *Workstation) DeleteState() error {
 	return w.configHandler.DeleteWorkstationState()
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
-
-// applyWorkstationConfigDefaults migrates vm.driver to workstation.runtime and vm.address to workstation.address when each is empty.
-func (w *Workstation) applyWorkstationConfigDefaults() {
-	if w.configHandler.GetString("workstation.runtime") == "" && w.configHandler.GetString("vm.driver") != "" {
-		_ = w.configHandler.Set("workstation.runtime", w.configHandler.GetString("vm.driver"))
-	}
-	if w.configHandler.GetString("workstation.address") == "" && w.configHandler.GetString("vm.address") != "" {
-		_ = w.configHandler.Set("workstation.address", w.configHandler.GetString("vm.address"))
-	}
-}

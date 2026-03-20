@@ -8,4 +8,4 @@ config:
     value: "${platform ?? provider ?? 'none'}"
   - name: workstation
     value:
-      runtime: "${workstation.runtime ?? vm.driver ?? ''}"
+      runtime: "${workstation.runtime ?? ''}"

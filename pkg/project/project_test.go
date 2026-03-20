@@ -466,7 +466,7 @@ func TestProject_Configure(t *testing.T) {
 			return true
 		}
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "vm.driver" {
+			if key == "workstation.runtime" {
 				return "colima"
 			}
 			if key == "vm.runtime" {
@@ -490,7 +490,7 @@ func TestProject_Configure(t *testing.T) {
 		_ = proj.Configure(nil)
 
 		if !platformSet {
-			t.Error("Expected platform to be set to 'incus' in dev mode when vm.driver is colima and vm.runtime is incus")
+			t.Error("Expected platform to be set to 'incus' in dev mode when workstation.runtime is colima and vm.runtime is incus")
 		}
 	})
 
@@ -626,7 +626,7 @@ func TestProject_Configure(t *testing.T) {
 	})
 
 	t.Run("CallsApplyConfigDefaultsWithFlagOverrides", func(t *testing.T) {
-		// Given a project with flag overrides containing vm.driver=colima
+		// Given a project with flag overrides containing workstation.runtime=colima
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsLoadedFunc = func() bool {
@@ -651,8 +651,8 @@ func TestProject_Configure(t *testing.T) {
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
 
 		flagOverrides := map[string]any{
-			"vm.driver": "colima",
-			"provider":  "docker",
+			"workstation.runtime": "colima",
+			"provider":            "docker",
 		}
 
 		// When Configure is called with flag overrides
@@ -708,7 +708,7 @@ func TestProject_Configure(t *testing.T) {
 			if key == "platform" {
 				return "docker"
 			}
-			if key == "vm.driver" {
+			if key == "workstation.runtime" {
 				return "colima"
 			}
 			if key == "vm.runtime" {
@@ -732,7 +732,7 @@ func TestProject_Configure(t *testing.T) {
 		_ = proj.Configure(nil)
 
 		if platformSet != "incus" {
-			t.Errorf("Expected platform to be set to 'incus' after LoadConfig when vm.driver is 'colima' and vm.runtime is 'incus', got: %s", platformSet)
+			t.Errorf("Expected platform to be set to 'incus' after LoadConfig when workstation.runtime is 'colima' and vm.runtime is 'incus', got: %s", platformSet)
 		}
 	})
 }

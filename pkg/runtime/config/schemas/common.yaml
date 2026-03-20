@@ -34,7 +34,7 @@ properties:
           - colima
           - docker-desktop
           - docker
-        description: Host runtime for local clusters. VM-backed (colima, docker-desktop) or plain engine (docker). When unset, falls back to vm.driver.
+        description: Host runtime for local clusters. VM-backed (colima, docker-desktop) or plain engine (docker).
       services:
         type: object
         properties:
