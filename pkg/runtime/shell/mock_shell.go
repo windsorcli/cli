@@ -23,6 +23,7 @@ type MockShell struct {
 	ExecSilentFunc                 func(command string, args ...string) (string, error)
 	ExecSilentWithTimeoutFunc      func(command string, args []string, timeout time.Duration) (string, error)
 	ExecProgressFunc               func(message string, command string, args ...string) (string, error)
+	ExecProgressWithEnvFunc        func(message string, command string, env map[string]string, args ...string) (string, error)
 	ExecSudoFunc                   func(message string, command string, args ...string) (string, error)
 	InstallHookFunc                func(shellName string) error
 	SetVerbosityFunc               func(verbose bool)
@@ -101,6 +102,18 @@ func (s *MockShell) ExecSilentWithTimeout(command string, args []string, timeout
 
 // ExecProgress calls the custom ExecProgressFunc if provided.
 func (s *MockShell) ExecProgress(message string, command string, args ...string) (string, error) {
+	if s.ExecProgressFunc != nil {
+		return s.ExecProgressFunc(message, command, args...)
+	}
+	return "", nil
+}
+
+// ExecProgressWithEnv calls the custom ExecProgressWithEnvFunc if provided,
+// otherwise falls back to ExecProgressFunc to preserve existing tests.
+func (s *MockShell) ExecProgressWithEnv(message string, command string, env map[string]string, args ...string) (string, error) {
+	if s.ExecProgressWithEnvFunc != nil {
+		return s.ExecProgressWithEnvFunc(message, command, env, args...)
+	}
 	if s.ExecProgressFunc != nil {
 		return s.ExecProgressFunc(message, command, args...)
 	}

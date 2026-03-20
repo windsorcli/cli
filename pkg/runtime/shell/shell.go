@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -53,6 +54,7 @@ type Shell interface {
 	ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error)
 	ExecSudo(message string, command string, args ...string) (string, error)
 	ExecProgress(message string, command string, args ...string) (string, error)
+	ExecProgressWithEnv(message string, command string, env map[string]string, args ...string) (string, error)
 	InstallHook(shellName string) error
 	AddCurrentDirToTrustedFile() error
 	CheckTrustedDirectory() error
@@ -241,20 +243,40 @@ func (s *DefaultShell) ExecSilentWithTimeout(command string, args []string, time
 // Otherwise, it captures stdout and stderr with pipes and uses a spinner to show progress.
 // The method returns the command's stdout as a string and any error encountered.
 func (s *DefaultShell) ExecProgress(message string, command string, args ...string) (string, error) {
+	return s.ExecProgressWithEnv(message, command, nil, args...)
+}
+
+// ExecProgressWithEnv executes a command with a progress indicator and command-scoped env overrides.
+func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env map[string]string, args ...string) (string, error) {
 	if s.verbose {
 		fmt.Fprintln(os.Stderr, message)
-		return s.Exec(command, args...)
+		cmd := s.shims.Command(command, args...)
+		if cmd == nil {
+			return "", fmt.Errorf("failed to create command")
+		}
+		var stdoutBuf, stderrBuf bytes.Buffer
+		scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
+		scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+		cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
+		cmd.Stderr = io.MultiWriter(scrubbingStderrWriter, &stderrBuf)
+		cmd.Env = mergeEnvVars(s.shims.Environ(), env)
+		if command == "sudo" {
+			cmd.Stdin = os.Stdin
+		}
+		if err := s.shims.CmdStart(cmd); err != nil {
+			return stdoutBuf.String(), fmt.Errorf("command start failed: %w", err)
+		}
+		if err := s.shims.CmdWait(cmd); err != nil {
+			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w", err)
+		}
+		return s.scrubString(stdoutBuf.String()), nil
 	}
 
 	cmd := s.shims.Command(command, args...)
 	if cmd == nil {
 		return "", fmt.Errorf("failed to create command")
 	}
-
-	// Ensure the command inherits the current environment
-	if cmd.Env == nil {
-		cmd.Env = s.shims.Environ()
-	}
+	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
 
 	stdoutPipe, err := s.shims.StdoutPipe(cmd)
 	if err != nil {
@@ -342,6 +364,30 @@ func (s *DefaultShell) ExecProgress(message string, command string, args ...stri
 
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	return s.scrubString(stdoutBuf.String()), nil
+}
+
+// mergeEnvVars merges env overrides onto a base env slice in KEY=VALUE form.
+func mergeEnvVars(base []string, overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return base
+	}
+	merged := make(map[string]string, len(base)+len(overrides))
+	for _, entry := range base {
+		parts := strings.SplitN(entry, "=", 2)
+		key := parts[0]
+		val := ""
+		if len(parts) > 1 {
+			val = parts[1]
+		}
+		merged[key] = val
+	}
+	maps.Copy(merged, overrides)
+	result := make([]string, 0, len(merged))
+	for key, value := range merged {
+		result = append(result, key+"="+value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 // InstallHook sets up a shell hook for a specified shell using a template with the Windsor path.

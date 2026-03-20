@@ -110,7 +110,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			return fmt.Errorf("directory %s does not exist", component.FullPath)
 		}
 
-		terraformArgs, err := s.setupTerraformEnvironment(component)
+		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
 		if err != nil {
 			return err
 		}
@@ -123,25 +123,29 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 		initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 		initArgs = append(initArgs, terraformArgs.InitArgs...)
-		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), terraformCommand, initArgs...)
+		initEnv := selectTerraformCommandEnv(terraformVars, false)
+		_, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), terraformCommand, initEnv, initArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 		}
 
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), terraformCommand, refreshArgs...)
+		refreshEnv := selectTerraformCommandEnv(terraformVars, true)
+		_, _ = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), terraformCommand, refreshEnv, refreshArgs...)
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
-		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), terraformCommand, planArgs...)
+		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		_, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), terraformCommand, planEnv, planArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		}
 
 		applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
 		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
-		_, err = s.runtime.Shell.ExecProgress(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), terraformCommand, applyArgs...)
+		applyEnv := selectTerraformCommandEnv(terraformVars, false)
+		_, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🌎 Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...)
 		if err != nil {
 			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 		}
@@ -205,7 +209,7 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			continue
 		}
 
-		terraformArgs, err := s.setupTerraformEnvironment(component)
+		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
 		if err != nil {
 			return err
 		}
@@ -218,17 +222,20 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 		refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 		refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-		_, _ = s.runtime.Shell.ExecProgress(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), terraformCommand, refreshArgs...)
+		refreshEnv := selectTerraformCommandEnv(terraformVars, true)
+		_, _ = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🔄 Refreshing Terraform state in %s", component.Path), terraformCommand, refreshEnv, refreshArgs...)
 
 		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 		planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
-		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Planning terraform destroy for %s", component.Path), terraformCommand, planArgs...); err != nil {
+		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🗑️  Planning terraform destroy for %s", component.Path), terraformCommand, planEnv, planArgs...); err != nil {
 			return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
 		}
 
 		destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy"}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
-		if _, err := s.runtime.Shell.ExecProgress(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), terraformCommand, destroyArgs...); err != nil {
+		destroyEnv := selectTerraformCommandEnv(terraformVars, true)
+		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), terraformCommand, destroyEnv, destroyArgs...); err != nil {
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
 	}
@@ -321,41 +328,37 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 	blueprint.TerraformComponents = resolvedComponents
 }
 
-// setupTerraformEnvironment configures the Terraform environment for a component.
-// It unsets TF_CLI_ARGS_* environment variables, gets terraform env vars and args,
-// sets TF_DATA_DIR and TF_VAR_* environment variables, and runs the PostEnvHook.
-// Returns the terraform args needed for command construction, or an error.
-func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.TerraformComponent) (*envvars.TerraformArgs, error) {
+// setupTerraformEnvironment computes Terraform-specific environment values and args for a component.
+func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.TerraformComponent) (map[string]string, *envvars.TerraformArgs, error) {
 	terraformEnv := s.getTerraformEnv()
 	if terraformEnv == nil {
-		return nil, fmt.Errorf("terraform environment printer not available")
-	}
-
-	tfCliArgsVars := []string{"TF_CLI_ARGS_init", "TF_CLI_ARGS_plan", "TF_CLI_ARGS_apply", "TF_CLI_ARGS_destroy", "TF_CLI_ARGS_import"}
-	for _, envVar := range tfCliArgsVars {
-		if err := s.shims.Unsetenv(envVar); err != nil {
-			return nil, fmt.Errorf("error unsetting %s: %w", envVar, err)
-		}
+		return nil, nil, fmt.Errorf("terraform environment printer not available")
 	}
 
 	terraformVars, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
 	if err != nil {
-		return nil, fmt.Errorf("error getting terraform env vars: %w", err)
-	}
-
-	for key, value := range terraformVars {
-		if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_VAR_") {
-			if err := s.shims.Setenv(key, value); err != nil {
-				return nil, fmt.Errorf("error setting %s: %w", key, err)
-			}
-		}
+		return nil, nil, fmt.Errorf("error getting terraform env vars: %w", err)
 	}
 
 	if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
-		return nil, fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
+		return nil, nil, fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 	}
 
-	return terraformArgs, nil
+	return terraformVars, terraformArgs, nil
+}
+
+// selectTerraformCommandEnv builds per-command env overrides without mutating process-wide environment.
+func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bool) map[string]string {
+	selected := make(map[string]string)
+	for key, value := range terraformVars {
+		if key == "TF_DATA_DIR" {
+			selected[key] = value
+		}
+		if includeTFVars && strings.HasPrefix(key, "TF_VAR_") {
+			selected[key] = value
+		}
+	}
+	return selected
 }
 
 // getTerraformEnv returns the terraform environment printer, checking the runtime if not set on the stack.

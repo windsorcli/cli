@@ -280,7 +280,6 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID, modulePath string
 			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", slashPath))
 		}
 	}
-
 	tfDataDir, err := p.GetTFDataDir(actualComponentID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting TF_DATA_DIR: %w", err)
@@ -453,6 +452,17 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					p.mu.RLock()
 					evalScope := p.configScope
 					p.mu.RUnlock()
+					nonDeferred, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, false)
+					if err != nil {
+						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
+					}
+					nonDeferredValue, exists := nonDeferred[key]
+					if !exists {
+						continue
+					}
+					if !evaluator.ContainsExpression(nonDeferredValue) {
+						continue
+					}
 					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, true)
 					if err != nil {
 						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
