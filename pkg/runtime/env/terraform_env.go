@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -75,6 +76,11 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	terraformVars, _, err := e.terraformProvider.GetEnvVars(projectPath, true)
+	for key := range terraformVars {
+		if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_CLI_ARGS_") || strings.HasPrefix(key, "TF_VAR_") {
+			e.SetManagedEnv(key)
+		}
+	}
 	return terraformVars, err
 }
 
@@ -128,6 +134,17 @@ func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 		"TF_VAR_context_path",
 		"TF_VAR_context_id",
 		"TF_VAR_os_type",
+	}
+	if managedEnv := e.shims.Getenv("WINDSOR_MANAGED_ENV"); managedEnv != "" {
+		for _, key := range strings.Split(managedEnv, ",") {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			if strings.HasPrefix(key, "TF_VAR_") || strings.HasPrefix(key, "TF_CLI_ARGS_") || key == "TF_DATA_DIR" {
+				managedVars = append(managedVars, key)
+			}
+		}
 	}
 
 	for _, varName := range managedVars {

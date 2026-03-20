@@ -482,8 +482,6 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 						envValue = string(valueBytes)
 					}
 					envVars[envKey] = envValue
-				} else {
-					continue
 				}
 			}
 		}
