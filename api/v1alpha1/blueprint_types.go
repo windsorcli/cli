@@ -543,10 +543,6 @@ type Kustomization struct {
 	// All values are converted to strings as required by Flux variable substitution.
 	// These are used for generating ConfigMaps and are not written to the final context blueprint.yaml.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
-
-	// SubstitutionOrigins maps each substitution key to the facet file path that defined it.
-	// Used internally for resolving relative paths in deferred expression evaluation.
-	SubstitutionOrigins map[string]string `yaml:"-"`
 }
 
 // PostBuild is a post-build step to run after the kustomization is applied.
@@ -882,7 +878,6 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		DestroyOnly:         k.DestroyOnly,
 		Enabled:             enabledCopy,
 		Substitutions:       maps.Clone(k.Substitutions),
-		SubstitutionOrigins: maps.Clone(k.SubstitutionOrigins),
 	}
 }
 
@@ -1158,12 +1153,6 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 					existing.Substitutions = make(map[string]string)
 				}
 				maps.Copy(existing.Substitutions, kustomization.Substitutions)
-				if kustomization.SubstitutionOrigins != nil {
-					if existing.SubstitutionOrigins == nil {
-						existing.SubstitutionOrigins = make(map[string]string)
-					}
-					maps.Copy(existing.SubstitutionOrigins, kustomization.SubstitutionOrigins)
-				}
 			}
 			b.Kustomizations[i] = existing
 			return b.sortKustomize()
