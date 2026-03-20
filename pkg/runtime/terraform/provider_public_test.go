@@ -2719,7 +2719,7 @@ terraform:
 		}
 	})
 
-	t.Run("EmitsTFVarForInputsWithoutExpressions", func(t *testing.T) {
+	t.Run("SkipsTFVarForInputsWithoutExpressions", func(t *testing.T) {
 		// Given a blueprint with inputs without expressions
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
 kind: Blueprint
@@ -2734,15 +2734,15 @@ terraform:
 		// When getting env vars
 		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
-		// Then TF_VAR_* should be set from resolved input values
+		// Then non-expression inputs should not be emitted as TF_VAR_*
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		if envVars["TF_VAR_cluster_name"] != "test-cluster" {
-			t.Errorf("Expected TF_VAR_cluster_name to be set from resolved input, got: %s", envVars["TF_VAR_cluster_name"])
+		if _, exists := envVars["TF_VAR_cluster_name"]; exists {
+			t.Error("Expected TF_VAR_cluster_name to be skipped for non-expression input")
 		}
-		if envVars["TF_VAR_plain_value"] != "plain" {
-			t.Errorf("Expected TF_VAR_plain_value to be set from resolved input, got: %s", envVars["TF_VAR_plain_value"])
+		if _, exists := envVars["TF_VAR_plain_value"]; exists {
+			t.Error("Expected TF_VAR_plain_value to be skipped for non-expression input")
 		}
 	})
 
@@ -3044,7 +3044,7 @@ terraform:
 		}
 	})
 
-	t.Run("EmitsTFVarForResolvedInputsWithoutExpressions", func(t *testing.T) {
+	t.Run("SkipsTFVarForResolvedInputsWithoutExpressions", func(t *testing.T) {
 		// Given a provider with component having resolved (non-expression) input
 		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
 
@@ -3061,16 +3061,12 @@ terraform:
 		// When getting env vars
 		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
-		// Then TF_VAR should be set with JSON of value
+		// Then non-expression input should remain tfvars-only and not emit TF_VAR
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
-		val, ok := envVars["TF_VAR_common_config_patches"]
-		if !ok {
-			t.Fatal("Expected TF_VAR_common_config_patches to be set for resolved (non-expression) input")
-		}
-		if val != `[{"op":"add","path":"/machine/bar"}]` {
-			t.Errorf("Expected TF_VAR_common_config_patches to be JSON of input value, got: %s", val)
+		if _, exists := envVars["TF_VAR_common_config_patches"]; exists {
+			t.Fatal("Expected TF_VAR_common_config_patches to be skipped for resolved non-expression input")
 		}
 	})
 }
