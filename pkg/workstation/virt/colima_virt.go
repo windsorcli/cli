@@ -358,11 +358,13 @@ func (v *ColimaVirt) calculateVMResources() (int, int) {
 			controlPlaneMemory = constants.DefaultControlPlaneMemorySchedulable
 		}
 	}
-	if workerCPU == 0 {
-		workerCPU = constants.DefaultWorkerCPU
-	}
-	if workerMemory == 0 {
-		workerMemory = constants.DefaultWorkerMemory
+	if workerCount > 0 {
+		if workerCPU == 0 {
+			workerCPU = constants.DefaultWorkerCPU
+		}
+		if workerMemory == 0 {
+			workerMemory = constants.DefaultWorkerMemory
+		}
 	}
 
 	totalNodeCPU := (controlPlaneCount * controlPlaneCPU) + (workerCount * workerCPU)
