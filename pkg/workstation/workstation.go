@@ -169,9 +169,12 @@ func (w *Workstation) Up() error {
 			}
 		}
 		dnsEnabled := w.configHandler.Get("dns.enabled")
+		dnsDomain := w.configHandler.GetString("dns.domain")
 		if dnsEnabled == nil || dnsEnabled == true {
-			if err := w.NetworkManager.ConfigureDNS(); err != nil {
-				return fmt.Errorf("error configuring DNS: %w", err)
+			if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
+				if err := w.NetworkManager.ConfigureDNS(); err != nil {
+					return fmt.Errorf("error configuring DNS: %w", err)
+				}
 			}
 		}
 	}
