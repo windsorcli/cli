@@ -705,11 +705,12 @@ func (h *BaseBlueprintHandler) setRepositoryDefaults() {
 			gitURL = h.shims.TrimSpace(gitURL)
 			if h.shims.HasPrefix(gitURL, "git@") && h.shims.Contains(gitURL, ":") {
 				gitURL = "ssh://" + h.shims.Replace(gitURL, ":", "/", 1)
+			} else if !h.shims.HasPrefix(gitURL, "http://") && !h.shims.HasPrefix(gitURL, "https://") && !h.shims.HasPrefix(gitURL, "ssh://") {
+				gitURL = "https://" + gitURL
 			}
 			h.composedBlueprint.Repository.Url = gitURL
 		}
 	}
-
 	if h.composedBlueprint.Repository.Url != "" {
 		if h.composedBlueprint.Repository.Ref == (blueprintv1alpha1.Reference{}) {
 			h.composedBlueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}

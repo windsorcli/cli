@@ -1362,7 +1362,7 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.shims = &Shims{
 			TrimSpace: func(s string) string { return s },
-			HasPrefix: func(s, prefix string) bool { return false },
+			HasPrefix: strings.HasPrefix,
 			Contains:  func(s, substr string) bool { return false },
 			Replace:   func(s, old, new string, n int) string { return s },
 		}
