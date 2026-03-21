@@ -80,6 +80,50 @@ func setupHandlerMocks(t *testing.T) *HandlerTestMocks {
 	return mocks
 }
 
+func TestEvaluateWithOrigins(t *testing.T) {
+	t.Run("UsesSubKeyOriginsForDeepMergedInputMaps", func(t *testing.T) {
+		facetPathByKey := make(map[string]string)
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			for k := range values {
+				facetPathByKey[k] = facetPath
+			}
+			return values, nil
+		}
+
+		value := map[string]any{
+			"from_base":    "${file(\"./base.yaml\")}",
+			"from_overlay": "${file(\"./overlay.yaml\")}",
+		}
+		origins := map[string]string{
+			"config.from_base":    "facets/base/facet.yaml",
+			"config.from_overlay": "facets/overlay/facet.yaml",
+		}
+
+		evaluated, err := EvaluateWithOrigins(mockEvaluator, "config", value, origins, nil, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		result, ok := evaluated.(map[string]any)
+		if !ok {
+			t.Fatalf("Expected evaluated value to be map[string]any, got %T", evaluated)
+		}
+		if got := result["from_base"]; got != "${file(\"./base.yaml\")}" {
+			t.Fatalf("Expected from_base to be preserved, got %v", got)
+		}
+		if got := result["from_overlay"]; got != "${file(\"./overlay.yaml\")}" {
+			t.Fatalf("Expected from_overlay to be preserved, got %v", got)
+		}
+		if got := facetPathByKey["from_base"]; got != "facets/base/facet.yaml" {
+			t.Fatalf("Expected from_base to evaluate with base facet path, got %q", got)
+		}
+		if got := facetPathByKey["from_overlay"]; got != "facets/overlay/facet.yaml" {
+			t.Fatalf("Expected from_overlay to evaluate with overlay facet path, got %q", got)
+		}
+	})
+}
+
 // =============================================================================
 // Test Constructor
 // =============================================================================

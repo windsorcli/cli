@@ -619,7 +619,9 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 				return fmt.Errorf("error evaluating inputs for component '%s': %w", processed.GetID(), err)
 			}
 			normalized := make(map[string]any, len(evaluated))
+			origins := make(map[string]string, len(evaluated))
 			for k, v := range evaluated {
+				origins[k] = facet.Path
 				if m := blueprintv1alpha1.ToMapStringAny(v); m != nil {
 					normalized[k] = m
 				} else if s := blueprintv1alpha1.ToSliceAny(v); s != nil {
@@ -629,6 +631,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 				}
 			}
 			processed.Inputs = normalized
+			processed.InputOrigins = origins
 		}
 		if len(processed.DependsOn) > 0 {
 			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)

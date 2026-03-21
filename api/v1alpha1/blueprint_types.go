@@ -283,13 +283,13 @@ type Blueprint struct {
 	Repository Repository `yaml:"repository,omitempty"`
 
 	// Sources are external resources referenced by the blueprint.
-	Sources []Source `yaml:"sources"`
+	Sources []Source `yaml:"sources,omitempty"`
 
 	// TerraformComponents are Terraform modules in the blueprint.
-	TerraformComponents []TerraformComponent `yaml:"terraform"`
+	TerraformComponents []TerraformComponent `yaml:"terraform,omitempty"`
 
 	// Kustomizations are kustomization configs in the blueprint.
-	Kustomizations []Kustomization `yaml:"kustomize"`
+	Kustomizations []Kustomization `yaml:"kustomize,omitempty"`
 
 	// ConfigMaps are standalone ConfigMaps to be created, not tied to specific kustomizations.
 	// These ConfigMaps are referenced by all kustomizations in PostBuild substitution.
@@ -308,10 +308,10 @@ type Metadata struct {
 // Repository contains source code repository info.
 type Repository struct {
 	// Url is the repository location.
-	Url string `yaml:"url"`
+	Url string `yaml:"url,omitempty"`
 
 	// Ref details the branch, tag, or commit to use.
-	Ref Reference `yaml:"ref"`
+	Ref Reference `yaml:"ref,omitempty"`
 
 	// SecretName is the secret for repository access.
 	SecretName *string `yaml:"secretName,omitempty"`
@@ -411,6 +411,10 @@ type TerraformComponent struct {
 	// Defaults to true if not specified.
 	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
 	Enabled *BoolExpression `yaml:"enabled,omitempty"`
+
+	// InputOrigins maps each input key to the facet file path that defined it.
+	// Used internally for resolving relative paths in deferred expression evaluation.
+	InputOrigins map[string]string `yaml:"-"`
 }
 
 // =============================================================================
@@ -451,15 +455,16 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 	}
 
 	return &TerraformComponent{
-		Name:        t.Name,
-		Source:      t.Source,
-		Path:        t.Path,
-		FullPath:    t.FullPath,
-		DependsOn:   dependsOnCopy,
-		Inputs:      inputsCopy,
-		Destroy:     destroyCopy,
-		Parallelism: parallelismCopy,
-		Enabled:     enabledCopy,
+		Name:         t.Name,
+		Source:       t.Source,
+		Path:         t.Path,
+		FullPath:     t.FullPath,
+		DependsOn:    dependsOnCopy,
+		Inputs:       inputsCopy,
+		Destroy:      destroyCopy,
+		Parallelism:  parallelismCopy,
+		Enabled:      enabledCopy,
+		InputOrigins: maps.Clone(t.InputOrigins),
 	}
 }
 
@@ -856,23 +861,23 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 	}
 
 	return &Kustomization{
-		Name:          k.Name,
-		Path:          k.Path,
-		Source:        k.Source,
-		DependsOn:     slices.Clone(k.DependsOn),
-		Interval:      k.Interval,
-		RetryInterval: k.RetryInterval,
-		Timeout:       k.Timeout,
-		Patches:       slices.Clone(k.Patches),
-		Wait:          k.Wait,
-		Force:         k.Force,
-		Prune:         k.Prune,
-		Components:    slices.Clone(k.Components),
-		Cleanup:       slices.Clone(k.Cleanup),
-		Destroy:       destroyCopy,
-		DestroyOnly:   k.DestroyOnly,
-		Enabled:       enabledCopy,
-		Substitutions: maps.Clone(k.Substitutions),
+		Name:                k.Name,
+		Path:                k.Path,
+		Source:              k.Source,
+		DependsOn:           slices.Clone(k.DependsOn),
+		Interval:            k.Interval,
+		RetryInterval:       k.RetryInterval,
+		Timeout:             k.Timeout,
+		Patches:             slices.Clone(k.Patches),
+		Wait:                k.Wait,
+		Force:               k.Force,
+		Prune:               k.Prune,
+		Components:          slices.Clone(k.Components),
+		Cleanup:             slices.Clone(k.Cleanup),
+		Destroy:             destroyCopy,
+		DestroyOnly:         k.DestroyOnly,
+		Enabled:             enabledCopy,
+		Substitutions:       maps.Clone(k.Substitutions),
 	}
 }
 
@@ -1053,7 +1058,26 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 				if existing.Inputs == nil {
 					existing.Inputs = make(map[string]any)
 				}
+				preMergeExisting := maps.Clone(existing.Inputs)
 				existing.Inputs = b.deepMergeMaps(existing.Inputs, component.Inputs)
+				if component.InputOrigins != nil {
+					if existing.InputOrigins == nil {
+						existing.InputOrigins = make(map[string]string)
+					}
+					for key, path := range component.InputOrigins {
+						existingVal, existingIsMap := preMergeExisting[key].(map[string]any)
+						componentVal, componentIsMap := component.Inputs[key].(map[string]any)
+						if existingIsMap && componentIsMap {
+							if existingOrigin, ok := existing.InputOrigins[key]; ok {
+								expandInputOrigins(existing.InputOrigins, key, existingVal, existingOrigin)
+							}
+							expandInputOrigins(existing.InputOrigins, key, componentVal, path)
+							delete(existing.InputOrigins, key)
+						} else {
+							existing.InputOrigins[key] = path
+						}
+					}
+				}
 			}
 			for _, dep := range component.DependsOn {
 				if !slices.Contains(existing.DependsOn, dep) {
@@ -1399,6 +1423,19 @@ func DeepMergeMaps(base, overlay map[string]any) map[string]any {
 // deepMergeMaps delegates to DeepMergeMaps so Blueprint merge logic stays in one place.
 func (b *Blueprint) deepMergeMaps(base, overlay map[string]any) map[string]any {
 	return DeepMergeMaps(base, overlay)
+}
+
+// expandInputOrigins recursively populates origins with dot-separated sub-key paths for every
+// leaf in m, allowing per-sub-key origin tracking after a deep merge of nested input maps.
+func expandInputOrigins(origins map[string]string, prefix string, m map[string]any, path string) {
+	for k, v := range m {
+		fullKey := prefix + "." + k
+		if subMap, ok := v.(map[string]any); ok {
+			expandInputOrigins(origins, fullKey, subMap, path)
+		} else {
+			origins[fullKey] = path
+		}
+	}
 }
 
 // isEmptyMergeValue returns true for empty string "", empty slice, or empty map so that

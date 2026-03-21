@@ -94,22 +94,21 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			componentValues = make(map[string]any)
 		}
 
-		// Use evaluateDeferred=false so terraform_output() and similar stay deferred; they are filtered
-		// out below and not written to tfvars, and are evaluated later when terraform runs.
-		evaluatedValues, err := h.evaluator.EvaluateMap(componentValues, "", nil, false)
-		if err != nil {
-			return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
-		}
-
 		nonDeferredValues := make(map[string]any)
-		for key, value := range evaluatedValues {
-			if evaluator.ContainsExpression(value) {
+		for key, value := range componentValues {
+			evaluated, err := blueprint.EvaluateWithOrigins(
+				h.evaluator, key, value, component.InputOrigins, nil, false,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
+			}
+			if evaluator.ContainsExpression(evaluated) {
 				continue
 			}
-			if s, ok := value.(string); ok && strings.Contains(s, "${") {
+			if s, ok := evaluated.(string); ok && strings.Contains(s, "${") {
 				continue
 			}
-			nonDeferredValues[key] = value
+			nonDeferredValues[key] = evaluated
 		}
 
 		if err := h.generateComponentTfvars(projectRoot, component, nonDeferredValues); err != nil {
