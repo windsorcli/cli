@@ -611,17 +611,13 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			}
 			evaluated := make(map[string]any, len(comp.Inputs))
 			for key, value := range comp.Inputs {
-				originPath := ""
-				if comp.InputOrigins != nil {
-					originPath = comp.InputOrigins[key]
-				}
-				result, err := h.runtime.Evaluator.EvaluateMap(
-					map[string]any{key: value}, originPath, mergedScope, false,
+				result, err := EvaluateWithOrigins(
+					h.runtime.Evaluator, key, value, comp.InputOrigins, mergedScope, false,
 				)
 				if err != nil {
 					return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
 				}
-				evaluated[key] = result[key]
+				evaluated[key] = result
 			}
 			h.composedBlueprint.TerraformComponents[i].Inputs = evaluated
 		}

@@ -96,17 +96,12 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 
 		nonDeferredValues := make(map[string]any)
 		for key, value := range componentValues {
-			originPath := ""
-			if component.InputOrigins != nil {
-				originPath = component.InputOrigins[key]
-			}
-			result, err := h.evaluator.EvaluateMap(
-				map[string]any{key: value}, originPath, nil, false,
+			evaluated, err := blueprint.EvaluateWithOrigins(
+				h.evaluator, key, value, component.InputOrigins, nil, false,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
 			}
-			evaluated := result[key]
 			if evaluator.ContainsExpression(evaluated) {
 				continue
 			}

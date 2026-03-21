@@ -187,6 +187,73 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("PreservesNestedInputOriginsAcrossDeepMergedTopLevelKeys", func(t *testing.T) {
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Name:   "cluster",
+					Path:   "terraform/cluster",
+					Source: "core",
+					Inputs: map[string]any{
+						"config": map[string]any{
+							"from_base": "${file(\"./base.yaml\")}",
+						},
+					},
+					InputOrigins: map[string]string{
+						"config": "facets/base/facet.yaml",
+					},
+				},
+			},
+		}
+
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{
+					Name:   "cluster",
+					Path:   "terraform/cluster",
+					Source: "core",
+					Inputs: map[string]any{
+						"config": map[string]any{
+							"from_overlay": "${file(\"./overlay.yaml\")}",
+						},
+					},
+					InputOrigins: map[string]string{
+						"config": "facets/overlay/facet.yaml",
+					},
+				},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		if len(base.TerraformComponents) != 1 {
+			t.Fatalf("Expected one merged terraform component, got %d", len(base.TerraformComponents))
+		}
+
+		merged := base.TerraformComponents[0]
+		config, ok := merged.Inputs["config"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected merged input key 'config' to be a map, got %T", merged.Inputs["config"])
+		}
+
+		if _, ok := config["from_base"]; !ok {
+			t.Fatalf("Expected merged config map to preserve base key")
+		}
+		if _, ok := config["from_overlay"]; !ok {
+			t.Fatalf("Expected merged config map to include overlay key")
+		}
+
+		if got := merged.InputOrigins["config.from_base"]; got != "facets/base/facet.yaml" {
+			t.Fatalf("Expected origin for config.from_base to be facets/base/facet.yaml, got %q", got)
+		}
+		if got := merged.InputOrigins["config.from_overlay"]; got != "facets/overlay/facet.yaml" {
+			t.Fatalf("Expected origin for config.from_overlay to be facets/overlay/facet.yaml, got %q", got)
+		}
+		if _, hasTopLevel := merged.InputOrigins["config"]; hasTopLevel {
+			t.Fatalf("Expected top-level config origin entry to be expanded and removed")
+		}
+	})
+
 	t.Run("MergesNamedComponentWithUnnamedComponentByPath", func(t *testing.T) {
 		// Given a base blueprint with an unnamed component
 		base := &Blueprint{

@@ -8,11 +8,56 @@ import (
 
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/parser"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
 
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// EvaluateWithOrigins evaluates a single input value using per-sub-key origin paths
+// stored in origins (dot-separated keys such as "config.db.host"). When a direct origin
+// exists for keyPath the entire value is evaluated against that path. When sub-key origins
+// exist the value is walked recursively so each leaf resolves against its originating facet.
+func EvaluateWithOrigins(eval evaluator.ExpressionEvaluator, keyPath string, value any, origins map[string]string, scope map[string]any, evaluateDeferred bool) (any, error) {
+	leafKey := keyPath
+	if idx := strings.LastIndex(keyPath, "."); idx >= 0 {
+		leafKey = keyPath[idx+1:]
+	}
+
+	if origins != nil {
+		if origin, ok := origins[keyPath]; ok {
+			result, err := eval.EvaluateMap(map[string]any{leafKey: value}, origin, scope, evaluateDeferred)
+			if err != nil {
+				return nil, err
+			}
+			return result[leafKey], nil
+		}
+
+		if m, ok := value.(map[string]any); ok {
+			prefix := keyPath + "."
+			for k := range origins {
+				if strings.HasPrefix(k, prefix) {
+					result := make(map[string]any, len(m))
+					for subKey, subValue := range m {
+						evaluated, err := EvaluateWithOrigins(eval, keyPath+"."+subKey, subValue, origins, scope, evaluateDeferred)
+						if err != nil {
+							return nil, err
+						}
+						result[subKey] = evaluated
+					}
+					return result, nil
+				}
+			}
+		}
+	}
+
+	result, err := eval.EvaluateMap(map[string]any{leafKey: value}, "", scope, evaluateDeferred)
+	if err != nil {
+		return nil, err
+	}
+	return result[leafKey], nil
+}
 
 // findExprEnd returns the index of the closing '}' that matches the '${' at position start.
 // Tracks brace depth and skips string literals so that braces inside strings are not counted.
