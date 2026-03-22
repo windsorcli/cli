@@ -1363,7 +1363,7 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		handler.shims = &Shims{
 			TrimSpace: func(s string) string { return s },
 			HasPrefix: strings.HasPrefix,
-			Contains:  func(s, substr string) bool { return false },
+			Contains:  strings.Contains,
 			Replace:   func(s, old, new string, n int) string { return s },
 		}
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
@@ -1402,6 +1402,102 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		// Then repository should be normalized to SSH URL
 		if handler.composedBlueprint.Repository.Url != "ssh://git@github.com/test/repo.git" {
 			t.Errorf("Expected URL 'ssh://git@github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		}
+	})
+
+	t.Run("PreservesGitSchemeURL", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "git://github.com/test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.shims = NewShims()
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		handler.userBlueprintLoader = nil
+
+		handler.setRepositoryDefaults()
+
+		if handler.composedBlueprint.Repository.Url != "git://github.com/test/repo.git" {
+			t.Errorf("Expected URL 'git://github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		}
+	})
+
+	t.Run("PreservesFileSchemeURL", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "file:///tmp/repo", nil
+			}
+			return "", nil
+		}
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.shims = NewShims()
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		handler.userBlueprintLoader = nil
+
+		handler.setRepositoryDefaults()
+
+		if handler.composedBlueprint.Repository.Url != "file:///tmp/repo" {
+			t.Errorf("Expected URL 'file:///tmp/repo', got '%s'", handler.composedBlueprint.Repository.Url)
+		}
+	})
+
+	t.Run("AddsHTTPSForInvalidSchemePrefix", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "1invalid://github.com/test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.shims = NewShims()
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		handler.userBlueprintLoader = nil
+
+		handler.setRepositoryDefaults()
+
+		if handler.composedBlueprint.Repository.Url != "https://1invalid://github.com/test/repo.git" {
+			t.Errorf("Expected URL 'https://1invalid://github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		}
+	})
+
+	t.Run("PreservesExtendedValidSchemeURL", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			return false
+		}
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "remote.origin.url" {
+				return "git+ssh://github.com/test/repo.git", nil
+			}
+			return "", nil
+		}
+
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.shims = NewShims()
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
+		handler.userBlueprintLoader = nil
+
+		handler.setRepositoryDefaults()
+
+		if handler.composedBlueprint.Repository.Url != "git+ssh://github.com/test/repo.git" {
+			t.Errorf("Expected URL 'git+ssh://github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
 		}
 	})
 
