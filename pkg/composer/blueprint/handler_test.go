@@ -1323,10 +1323,6 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.shims = &Shims{
 			FilepathBase: func(s string) string { return "myproject" },
-			TrimSpace:    func(s string) string { return s },
-			HasPrefix:    func(s, prefix string) bool { return false },
-			Contains:     func(s, substr string) bool { return false },
-			Replace:      func(s, old, new string, n int) string { return s },
 		}
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
 		handler.userBlueprintLoader = nil
@@ -1360,12 +1356,7 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		}
 
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
-		handler.shims = &Shims{
-			TrimSpace: func(s string) string { return s },
-			HasPrefix: func(s, prefix string) bool { return false },
-			Contains:  func(s, substr string) bool { return false },
-			Replace:   func(s, old, new string, n int) string { return s },
-		}
+		handler.shims = &Shims{}
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
 		handler.userBlueprintLoader = nil
 
