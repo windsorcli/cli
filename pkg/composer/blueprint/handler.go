@@ -9,6 +9,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -702,14 +703,9 @@ func (h *BaseBlueprintHandler) setRepositoryDefaults() {
 
 	if h.composedBlueprint.Repository.Url == "" && h.runtime.Shell != nil {
 		if gitURL, err := h.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil && gitURL != "" {
-			gitURL = h.shims.TrimSpace(gitURL)
-			if h.shims.HasPrefix(gitURL, "git@") && h.shims.Contains(gitURL, ":") {
-				gitURL = "ssh://" + h.shims.Replace(gitURL, ":", "/", 1)
-			}
-			h.composedBlueprint.Repository.Url = gitURL
+			h.composedBlueprint.Repository.Url = runtimegit.NormalizeRemoteURL(gitURL)
 		}
 	}
-
 	if h.composedBlueprint.Repository.Url != "" {
 		if h.composedBlueprint.Repository.Ref == (blueprintv1alpha1.Reference{}) {
 			h.composedBlueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
