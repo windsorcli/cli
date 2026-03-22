@@ -9,6 +9,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
+	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
 
@@ -702,13 +703,7 @@ func (h *BaseBlueprintHandler) setRepositoryDefaults() {
 
 	if h.composedBlueprint.Repository.Url == "" && h.runtime.Shell != nil {
 		if gitURL, err := h.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil && gitURL != "" {
-			gitURL = h.shims.TrimSpace(gitURL)
-			if h.shims.HasPrefix(gitURL, "git@") && h.shims.Contains(gitURL, ":") {
-				gitURL = "ssh://" + h.shims.Replace(gitURL, ":", "/", 1)
-			} else if !hasExplicitURLScheme(gitURL) {
-				gitURL = "https://" + gitURL
-			}
-			h.composedBlueprint.Repository.Url = gitURL
+			h.composedBlueprint.Repository.Url = runtimegit.NormalizeRemoteURL(gitURL)
 		}
 	}
 	if h.composedBlueprint.Repository.Url != "" {
@@ -832,36 +827,6 @@ func (h *BaseBlueprintHandler) resolveComponentFullPath(component *blueprintv1al
 	} else {
 		component.FullPath = filepath.Join(h.runtime.ProjectRoot, "terraform", componentID)
 	}
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-// hasExplicitURLScheme returns true when the value starts with a valid URI scheme followed by ://.
-func hasExplicitURLScheme(value string) bool {
-	schemeEnd := strings.Index(value, "://")
-	if schemeEnd <= 0 {
-		return false
-	}
-
-	scheme := value[:schemeEnd]
-	if !isASCIILetter(scheme[0]) {
-		return false
-	}
-	for i := 1; i < len(scheme); i++ {
-		ch := scheme[i]
-		if !isASCIILetter(ch) && (ch < '0' || ch > '9') && ch != '+' && ch != '-' && ch != '.' {
-			return false
-		}
-	}
-
-	return true
-}
-
-// isASCIILetter reports whether a byte is an ASCII letter.
-func isASCIILetter(ch byte) bool {
-	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
 }
 
 // =============================================================================

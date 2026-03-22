@@ -5168,6 +5168,80 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("PreservesGitSchemeForSourceURL", func(t *testing.T) {
+		manager := setup(t)
+		var appliedRepo *sourcev1.GitRepository
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "gitrepositories" {
+				var repo sourcev1.GitRepository
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+					appliedRepo = &repo
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "test-source", Url: "git://github.com/example/repo.git", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if appliedRepo == nil {
+			t.Fatal("Expected GitRepository to be applied")
+		}
+		if appliedRepo.Spec.URL != "git://github.com/example/repo.git" {
+			t.Errorf("Expected git:// URL to be preserved, got %s", appliedRepo.Spec.URL)
+		}
+	})
+
+	t.Run("PrefixesHTTPSForInvalidSourceURLScheme", func(t *testing.T) {
+		manager := setup(t)
+		var appliedRepo *sourcev1.GitRepository
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "gitrepositories" {
+				var repo sourcev1.GitRepository
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+					appliedRepo = &repo
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "test-source", Url: "1invalid://github.com/example/repo.git", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+			},
+		}
+
+		err := manager.ApplyBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if appliedRepo == nil {
+			t.Fatal("Expected GitRepository to be applied")
+		}
+		if appliedRepo.Spec.URL != "https://1invalid://github.com/example/repo.git" {
+			t.Errorf("Expected invalid scheme to be https-prefixed, got %s", appliedRepo.Spec.URL)
+		}
+	})
+
 	t.Run("SuccessSkipsLocalTemplateSource", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()

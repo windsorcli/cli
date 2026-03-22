@@ -21,6 +21,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1342,12 +1343,7 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 
 // applyBlueprintGitRepository converts and applies a blueprint Source as a GitRepository.
 func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1alpha1.Source, namespace string) error {
-	sourceUrl := source.Url
-	if strings.HasPrefix(sourceUrl, "git@") && strings.Contains(sourceUrl, ":") {
-		sourceUrl = "ssh://" + strings.Replace(sourceUrl, ":", "/", 1)
-	} else if !strings.HasPrefix(sourceUrl, "http://") && !strings.HasPrefix(sourceUrl, "https://") && !strings.HasPrefix(sourceUrl, "ssh://") {
-		sourceUrl = "https://" + sourceUrl
-	}
+	sourceUrl := runtimegit.NormalizeRemoteURL(source.Url)
 
 	gitRepo := &sourcev1.GitRepository{
 		TypeMeta: metav1.TypeMeta{

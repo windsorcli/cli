@@ -1362,8 +1362,8 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 		handler.shims = &Shims{
 			TrimSpace: func(s string) string { return s },
-			HasPrefix: strings.HasPrefix,
-			Contains:  strings.Contains,
+			HasPrefix: func(s, prefix string) bool { return false },
+			Contains:  func(s, substr string) bool { return false },
 			Replace:   func(s, old, new string, n int) string { return s },
 		}
 		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{}
