@@ -63,7 +63,7 @@ var envCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize components: %w", err)
 		}
 
-		if rt.ConfigHandler.GetBool("terraform.enabled", false) {
+		if rt.ConfigHandler.GetBool("terraform.enabled", true) {
 			if rt.TerraformProvider.IsInTerraformProject() {
 				comp := composer.NewComposer(rt)
 				if err := comp.BlueprintHandler.LoadBlueprint(); err != nil {

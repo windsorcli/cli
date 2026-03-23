@@ -399,7 +399,7 @@ func (i *Provisioner) ensureTerraformStack() error {
 	if i.TerraformStack != nil {
 		return nil
 	}
-	if i.configHandler.GetBool("terraform.enabled", false) {
+	if i.configHandler.GetBool("terraform.enabled", true) {
 		i.TerraformStack = terraforminfra.NewStack(i.runtime)
 	}
 	return nil

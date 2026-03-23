@@ -166,7 +166,7 @@ func (r *Composer) Generate(overwrite ...bool) error {
 		return fmt.Errorf("failed to generate .gitignore: %w", err)
 	}
 
-	if r.configHandler.GetBool("terraform.enabled", false) {
+	if r.configHandler.GetBool("terraform.enabled", true) {
 		if err := r.TerraformResolver.GenerateTfvars(shouldOverwrite); err != nil {
 			return fmt.Errorf("failed to generate terraform files: %w", err)
 		}
