@@ -15,10 +15,6 @@ properties:
   workstation:
     type: object
     properties:
-      enabled:
-        type: boolean
-        default: false
-        description: Enable workstation stack (DNS, registries, git livereload)
       arch:
         type: string
         enum:

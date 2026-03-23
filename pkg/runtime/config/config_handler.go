@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
 	v1alpha2config "github.com/windsorcli/cli/api/v1alpha2/config"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -307,13 +309,11 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 	return nil
 }
 
-// SaveConfig writes the current configuration state to disk.
-// This function separates the configuration fields of the active context into two distinct files
-// within the context directory under the project root. Static fields that match the v1alpha1.Context
-// schema are written to a windsor.yaml file, and dynamic fields that do not match the static schema are
-// written to a values.yaml file. If overwrite is specified, existing windsor.yaml and values.yaml will
-// be overwritten; otherwise, they are only created if missing. Returns an error if writing fails, or
-// if required shims or shell are not initialized.
+// SaveConfig writes the current configuration state to a single values.yaml file within the
+// context directory under the project root. The root windsor.yaml is created if missing.
+// Context-level windsor.yaml is no longer generated; all context configuration goes to values.yaml.
+// If overwrite is specified, an existing values.yaml will be overwritten; otherwise, it is only
+// created if missing. Returns an error if writing fails or required dependencies are uninitialized.
 func (c *configHandler) SaveConfig(overwrite ...bool) error {
 	if c.shell == nil {
 		return fmt.Errorf("shell not initialized")
@@ -329,8 +329,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	contextName := c.GetContext()
-	contextDir := filepath.Join(projectRoot, "contexts", contextName)
+	contextDir := filepath.Join(projectRoot, "contexts", c.GetContext())
 
 	if err := c.shims.MkdirAll(contextDir, 0755); err != nil {
 		return fmt.Errorf("error creating context directory: %w", err)
@@ -350,64 +349,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 	}
 
-	persistedData := c.filterWorkstationKeys(c.data)
-	staticFields, dynamicFields := c.separateStaticAndDynamicFields(persistedData)
-
-	if len(staticFields) > 0 {
-		contextConfigPath := filepath.Join(contextDir, "windsor.yaml")
-		contextExists := false
-		if _, err := c.shims.Stat(contextConfigPath); err == nil {
-			contextExists = true
-		}
-
-		if !contextExists || shouldOverwrite {
-			var contextStruct *v1alpha1.Context
-			if !contextExists && c.defaultConfig != nil {
-				defaultCopy := c.defaultConfig.DeepCopy()
-				if len(staticFields) > 0 {
-					overlayStruct := c.mapToContext(staticFields)
-					if overlayStruct != nil {
-						defaultCopy.Merge(overlayStruct)
-					}
-				}
-				contextStruct = defaultCopy
-			} else {
-				mergedStaticFields := staticFields
-				if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
-					defaults, err := c.schemaValidator.GetSchemaDefaults()
-					if err == nil && defaults != nil {
-						defaultsStatic, _ := c.separateStaticAndDynamicFields(defaults)
-						mergedStaticFields = c.deepMerge(defaultsStatic, staticFields)
-					}
-				}
-				contextStruct = c.mapToContext(mergedStaticFields)
-			}
-			if contextStruct == nil {
-				contextStruct = &v1alpha1.Context{}
-			}
-			if contextStruct.Docker != nil && contextStruct.Docker.Enabled != nil && !*contextStruct.Docker.Enabled {
-				contextStruct.Docker.Enabled = nil
-			}
-			data, err := c.shims.YamlMarshal(contextStruct)
-			if err != nil {
-				return fmt.Errorf("error marshalling context config: %w", err)
-			}
-
-			if err := c.shims.WriteFile(contextConfigPath, data, 0644); err != nil {
-				return fmt.Errorf("error writing context config: %w", err)
-			}
-		}
-	}
-
-	if len(dynamicFields) > 0 {
-		if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
-			if result, err := c.schemaValidator.Validate(dynamicFields); err != nil {
-				return fmt.Errorf("error validating values before save: %w", err)
-			} else if !result.Valid {
-				return fmt.Errorf("context value validation failed: %v", result.Errors)
-			}
-		}
-
+	if len(c.data) > 0 {
 		valuesPath := filepath.Join(contextDir, "values.yaml")
 		valuesExists := false
 		if _, err := c.shims.Stat(valuesPath); err == nil {
@@ -415,13 +357,28 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		}
 
 		if !valuesExists || shouldOverwrite {
-			data, err := c.shims.YamlMarshal(dynamicFields)
+			filtered := c.filterWorkstationKeys(c.data)
+			data, err := c.shims.YamlMarshal(filtered)
 			if err != nil {
 				return fmt.Errorf("error marshalling values.yaml: %w", err)
 			}
 
 			if err := c.shims.WriteFile(valuesPath, data, 0644); err != nil {
 				return fmt.Errorf("error writing values.yaml: %w", err)
+			}
+		} else if valuesExists {
+			fileData, err := c.shims.ReadFile(valuesPath)
+			if err == nil {
+				var existing map[string]any
+				if err := c.shims.YamlUnmarshal(fileData, &existing); err == nil {
+					cleaned := c.filterWorkstationKeys(existing)
+					if len(cleaned) != len(existing) {
+						data, err := c.shims.YamlMarshal(cleaned)
+						if err == nil {
+							_ = c.shims.WriteFile(valuesPath, data, 0644)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -491,7 +448,6 @@ func (c *configHandler) DeleteWorkstationState() error {
 			return fmt.Errorf("error removing workstation state: %w", err)
 		}
 	}
-
 	return nil
 }
 
@@ -639,6 +595,39 @@ func getValueByPathFromMap(data map[string]any, pathKeys []string) any {
 	}
 
 	return current
+}
+
+// hasValueAtPath returns true when the full key path exists in the provided map.
+func hasValueAtPath(data map[string]any, pathKeys []string) bool {
+	if len(pathKeys) == 0 {
+		return false
+	}
+	current := any(data)
+	for _, key := range pathKeys {
+		next, ok := current.(map[string]any)
+		if !ok {
+			return false
+		}
+		val, exists := next[key]
+		if !exists {
+			return false
+		}
+		current = val
+	}
+	return true
+}
+
+// getExplicitNodeCountFromData returns node map length only when nodes were explicitly provided in loaded config data.
+func getExplicitNodeCountFromData(data map[string]any, pathKeys []string) (int, bool) {
+	if !hasValueAtPath(data, pathKeys) {
+		return 0, false
+	}
+	nodesAny := getValueByPathFromMap(data, pathKeys)
+	nodes, ok := nodesAny.(map[string]any)
+	if !ok {
+		return 0, true
+	}
+	return len(nodes), true
 }
 
 // GetString retrieves a string value for the specified key from the configuration, with an optional default value.
@@ -1020,10 +1009,23 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	}
 	result = c.deepMerge(result, c.data)
 
+	wsMap, _ := result["workstation"].(map[string]any)
+	if wsMap == nil {
+		wsMap = make(map[string]any)
+		result["workstation"] = wsMap
+	}
+	if _, exists := wsMap["arch"]; !exists {
+		arch := runtime.GOARCH
+		if arch == "arm" {
+			arch = "arm64"
+		}
+		wsMap["arch"] = arch
+	}
+
 	clusterVal, ok := result["cluster"].(map[string]any)
 	if !ok {
 		if _, exists := result["cluster"]; !exists || result["cluster"] == nil {
-			result["cluster"] = map[string]any{
+			clusterVal = map[string]any{
 				"controlplanes": map[string]any{
 					"nodes": make(map[string]any),
 				},
@@ -1031,6 +1033,8 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 					"nodes": make(map[string]any),
 				},
 			}
+			result["cluster"] = clusterVal
+			c.applyClusterResourceDefaults(clusterVal)
 			return result, nil
 		}
 		return result, nil
@@ -1056,7 +1060,106 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 		}
 	}
 
+	c.applyClusterResourceDefaults(clusterVal)
+
 	return result, nil
+}
+
+// applyClusterResourceDefaults injects topology and resource defaults into cluster values when absent.
+func (c *configHandler) applyClusterResourceDefaults(clusterVal map[string]any) {
+	controlplanesVal, ok := clusterVal["controlplanes"].(map[string]any)
+	if !ok || controlplanesVal == nil {
+		controlplanesVal = make(map[string]any)
+		clusterVal["controlplanes"] = controlplanesVal
+	}
+	workersVal, ok := clusterVal["workers"].(map[string]any)
+	if !ok || workersVal == nil {
+		workersVal = make(map[string]any)
+		clusterVal["workers"] = workersVal
+	}
+
+	hasExplicitControlplaneCount := hasValueAtPath(c.data, []string{"cluster", "controlplanes", "count"})
+	controlplaneCount, hasControlplaneCount := getMapInt(controlplanesVal, "count")
+	if !hasExplicitControlplaneCount || !hasControlplaneCount {
+		if derivedCount, ok := getExplicitNodeCountFromData(c.data, []string{"cluster", "controlplanes", "nodes"}); ok {
+			controlplaneCount = derivedCount
+		} else {
+			controlplaneCount = 1
+		}
+		controlplanesVal["count"] = controlplaneCount
+	}
+	hasExplicitWorkersCount := hasValueAtPath(c.data, []string{"cluster", "workers", "count"})
+	workersCount, hasWorkersCount := getMapInt(workersVal, "count")
+	if !hasExplicitWorkersCount || !hasWorkersCount {
+		if derivedCount, ok := getExplicitNodeCountFromData(c.data, []string{"cluster", "workers", "nodes"}); ok {
+			workersCount = derivedCount
+		} else {
+			workersCount = 0
+		}
+		workersVal["count"] = workersCount
+	}
+
+	schedulable, hasSchedulable := controlplanesVal["schedulable"].(bool)
+	hasExplicitSchedulable := hasValueAtPath(c.data, []string{"cluster", "controlplanes", "schedulable"})
+	if !hasSchedulable || !hasExplicitSchedulable {
+		schedulable = workersCount == 0 && controlplaneCount == 1
+		controlplanesVal["schedulable"] = schedulable
+	}
+
+	defaultControlplaneCPU := constants.DefaultControlPlaneCPUDedicated
+	defaultControlplaneMemory := constants.DefaultControlPlaneMemoryDedicated
+	if schedulable {
+		defaultControlplaneCPU = constants.DefaultControlPlaneCPUSchedulable
+		defaultControlplaneMemory = constants.DefaultControlPlaneMemorySchedulable
+	}
+	if _, exists := controlplanesVal["cpu"]; !exists {
+		controlplanesVal["cpu"] = defaultControlplaneCPU
+	}
+	if _, exists := controlplanesVal["memory"]; !exists {
+		controlplanesVal["memory"] = defaultControlplaneMemory
+	}
+	if _, exists := workersVal["cpu"]; !exists {
+		workersVal["cpu"] = constants.DefaultWorkerCPU
+	}
+	if _, exists := workersVal["memory"]; !exists {
+		workersVal["memory"] = constants.DefaultWorkerMemory
+	}
+}
+
+// getMapInt returns an int value from a map key with permissive numeric conversion.
+func getMapInt(values map[string]any, key string) (int, bool) {
+	value, exists := values[key]
+	if !exists || value == nil {
+		return 0, false
+	}
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case int64:
+		maxInt := int64(^uint(0) >> 1)
+		minInt := -maxInt - 1
+		if v > maxInt || v < minInt {
+			return 0, false
+		}
+		return int(v), true
+	case uint64:
+		if v > uint64(^uint(0)>>1) {
+			return 0, false
+		}
+		return int(v), true
+	case uint:
+		if v > uint(^uint(0)>>1) {
+			return 0, false
+		}
+		return int(v), true
+	case float64:
+		return int(v), true
+	case string:
+		if parsed, err := strconv.Atoi(v); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
 }
 
 // ValidateContextValues runs schema validation on the current context's dynamic fields.

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -161,6 +162,50 @@ cluster:
 		driver := handler.GetString("cluster.driver")
 		if driver != "talos" {
 			t.Errorf("Expected cluster.driver='talos', got '%s'", driver)
+		}
+	})
+
+	t.Run("LoadsContextScopedWorkstationStateOnly", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		windsorCtxA := filepath.Join(tmpDir, ".windsor", "contexts", "ctx-a")
+		windsorCtxB := filepath.Join(tmpDir, ".windsor", "contexts", "ctx-b")
+		os.MkdirAll(windsorCtxA, 0755)
+		os.MkdirAll(windsorCtxB, 0755)
+		os.WriteFile(filepath.Join(windsorCtxA, "workstation.yaml"), []byte("workstation:\n  runtime: colima\n"), 0644)
+		os.WriteFile(filepath.Join(windsorCtxB, "workstation.yaml"), []byte("workstation:\n  runtime: docker-desktop\n"), 0644)
+
+		handlerA := NewConfigHandler(mocks.Shell)
+		if err := handlerA.LoadConfigForContext("ctx-a"); err != nil {
+			t.Fatalf("Expected no error loading ctx-a, got %v", err)
+		}
+		if runtime := handlerA.GetString("workstation.runtime"); runtime != "colima" {
+			t.Errorf("Expected workstation.runtime='colima' for ctx-a, got '%s'", runtime)
+		}
+
+		handlerB := NewConfigHandler(mocks.Shell)
+		if err := handlerB.LoadConfigForContext("ctx-b"); err != nil {
+			t.Fatalf("Expected no error loading ctx-b, got %v", err)
+		}
+		if runtime := handlerB.GetString("workstation.runtime"); runtime != "docker-desktop" {
+			t.Errorf("Expected workstation.runtime='docker-desktop' for ctx-b, got '%s'", runtime)
+		}
+	})
+
+	t.Run("DoesNotLoadLegacyGlobalWorkstationState", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		os.MkdirAll(filepath.Join(tmpDir, ".windsor"), 0755)
+		os.WriteFile(filepath.Join(tmpDir, ".windsor", "workstation.yaml"), []byte("workstation:\n  runtime: colima\n"), 0644)
+
+		handler := NewConfigHandler(mocks.Shell)
+		if err := handler.LoadConfigForContext("ctx-a"); err != nil {
+			t.Fatalf("Expected no error loading ctx-a, got %v", err)
+		}
+		if runtime := handler.GetString("workstation.runtime"); runtime != "" {
+			t.Errorf("Expected legacy global workstation state to be ignored, got workstation.runtime='%s'", runtime)
 		}
 	})
 
@@ -2158,7 +2203,7 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("SeparatesStaticAndDynamicFields", func(t *testing.T) {
+	t.Run("WritesAllFieldsToValuesYaml", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
@@ -2176,20 +2221,8 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		}
 
 		windsorPath := filepath.Join(tmpDir, "contexts", "test-context", "windsor.yaml")
-		windsorContent, err := os.ReadFile(windsorPath)
-		if err != nil {
-			t.Fatalf("Failed to read windsor.yaml: %v", err)
-		}
-
-		windsorStr := string(windsorContent)
-		if !contains(windsorStr, "provider:") {
-			t.Error("windsor.yaml should contain provider (static field)")
-		}
-		if !contains(windsorStr, "cluster:") {
-			t.Error("windsor.yaml should contain cluster (static field)")
-		}
-		if contains(windsorStr, "custom_dynamic_field") {
-			t.Error("windsor.yaml should not contain dynamic fields")
+		if _, err := os.Stat(windsorPath); !os.IsNotExist(err) {
+			t.Error("Expected context windsor.yaml to not be created")
 		}
 
 		valuesPath := filepath.Join(tmpDir, "contexts", "test-context", "values.yaml")
@@ -2199,15 +2232,18 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		}
 
 		valuesStr := string(valuesContent)
-		if !contains(valuesStr, "custom_dynamic_field") {
-			t.Error("values.yaml should contain custom_dynamic_field (dynamic field)")
+		if !contains(valuesStr, "provider: generic") {
+			t.Error("values.yaml should contain provider")
 		}
-		if contains(valuesStr, "provider:") {
-			t.Error("values.yaml should not contain provider (static field)")
+		if !contains(valuesStr, "cluster:") {
+			t.Error("values.yaml should contain cluster")
+		}
+		if !contains(valuesStr, "custom_dynamic_field: dynamic_value") {
+			t.Error("values.yaml should contain custom_dynamic_field")
 		}
 	})
 
-	t.Run("ExcludesFieldsWithYamlDashTag", func(t *testing.T) {
+	t.Run("PersistsAllDataToValuesYaml", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
@@ -2224,18 +2260,15 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		windsorPath := filepath.Join(tmpDir, "contexts", "test-context", "windsor.yaml")
-		windsorContent, err := os.ReadFile(windsorPath)
+		valuesPath := filepath.Join(tmpDir, "contexts", "test-context", "values.yaml")
+		valuesContent, err := os.ReadFile(valuesPath)
 		if err != nil {
-			t.Fatalf("Failed to read windsor.yaml: %v", err)
+			t.Fatalf("Failed to read values.yaml: %v", err)
 		}
 
-		windsorStr := string(windsorContent)
-		if contains(windsorStr, "nodes:") {
-			t.Errorf("windsor.yaml should not contain nodes (yaml:\"-\" tag), got:\n%s", windsorStr)
-		}
-		if !contains(windsorStr, "count:") {
-			t.Errorf("windsor.yaml should contain count field, got:\n%s", windsorStr)
+		valuesStr := string(valuesContent)
+		if !contains(valuesStr, "count:") {
+			t.Errorf("values.yaml should contain count field, got:\n%s", valuesStr)
 		}
 	})
 
@@ -2277,7 +2310,7 @@ properties:
 		}
 	})
 
-	t.Run("SavesOnlyUserSetDynamicValues", func(t *testing.T) {
+	t.Run("SavesOnlyExplicitlySetValues", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
@@ -2305,8 +2338,7 @@ properties:
 	})
 
 	t.Run("SaveAndReloadPreservesData", func(t *testing.T) {
-		// Given a config handler with data
-		handler, tmpDir := setupPrivateTestHandler(t)
+		handler, _ := setupPrivateTestHandler(t)
 		handler.SetContext("save-test")
 
 		handler.Set("provider", "docker")
@@ -2314,7 +2346,6 @@ properties:
 		handler.Set("cluster.workers.count", 2)
 		handler.Set("custom_dynamic", "dynamic_value")
 
-		// When saving and reloading config
 		err := handler.SaveConfig()
 		if err != nil {
 			t.Fatalf("SaveConfig failed: %v", err)
@@ -2329,7 +2360,6 @@ properties:
 			t.Fatalf("LoadConfig failed: %v", err)
 		}
 
-		// Then data should be preserved
 		provider := newHandler.GetString("provider")
 		if provider != "docker" {
 			t.Errorf("Expected provider to be preserved, got '%s'", provider)
@@ -2343,19 +2373,6 @@ properties:
 		customDynamic := newHandler.GetString("custom_dynamic")
 		if customDynamic != "dynamic_value" {
 			t.Errorf("Expected custom_dynamic to be preserved, got '%s'", customDynamic)
-		}
-
-		// And files should be properly separated
-		windsorPath := filepath.Join(tmpDir, "contexts", "save-test", "windsor.yaml")
-		windsorContent, _ := os.ReadFile(windsorPath)
-		if contains(string(windsorContent), "custom_dynamic") {
-			t.Error("windsor.yaml should not contain dynamic fields")
-		}
-
-		valuesPath := filepath.Join(tmpDir, "contexts", "save-test", "values.yaml")
-		valuesContent, _ := os.ReadFile(valuesPath)
-		if contains(string(valuesContent), "provider") {
-			t.Error("values.yaml should not contain static fields")
 		}
 	})
 
@@ -2373,26 +2390,18 @@ properties:
 	})
 
 	t.Run("SkipsCreatingFilesWhenNoData", func(t *testing.T) {
-		// Given a handler with no data to save
 		handler, tmpDir := setupPrivateTestHandler(t)
 		handler.SetContext("empty-test")
 
-		// When saving config with no data
 		err := handler.SaveConfig()
 
-		// Then it should succeed without creating files
 		if err != nil {
 			t.Fatalf("Expected no error for empty data, got %v", err)
 		}
 
-		windsorPath := filepath.Join(tmpDir, "contexts", "empty-test", "windsor.yaml")
-		if _, err := os.Stat(windsorPath); !os.IsNotExist(err) {
-			t.Error("Expected windsor.yaml not to be created when no static fields")
-		}
-
 		valuesPath := filepath.Join(tmpDir, "contexts", "empty-test", "values.yaml")
 		if _, err := os.Stat(valuesPath); !os.IsNotExist(err) {
-			t.Error("Expected values.yaml not to be created when no dynamic fields")
+			t.Error("Expected values.yaml not to be created when no data")
 		}
 	})
 
@@ -2454,28 +2463,25 @@ properties:
 		}
 	})
 
-	t.Run("OverwritesExistingContextConfig", func(t *testing.T) {
-		// Given an existing context config file
+	t.Run("OverwritesExistingValuesYamlWithOverwriteFlag", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		handler.SetContext("test-context")
 
 		contextDir := filepath.Join(tmpDir, "contexts", "test-context")
 		os.MkdirAll(contextDir, 0755)
-		windsorPath := filepath.Join(contextDir, "windsor.yaml")
-		os.WriteFile(windsorPath, []byte("provider: old\n"), 0644)
+		valuesPath := filepath.Join(contextDir, "values.yaml")
+		os.WriteFile(valuesPath, []byte("provider: old\n"), 0644)
 
-		// When saving with overwrite=true
 		handler.Set("provider", "new")
 		err := handler.SaveConfig(true)
 
-		// Then it should overwrite the existing config
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		content, _ := os.ReadFile(windsorPath)
+		content, _ := os.ReadFile(valuesPath)
 		if !contains(string(content), "new") {
-			t.Error("Expected config to be overwritten with new value")
+			t.Error("Expected values.yaml to be overwritten with new value")
 		}
 	})
 
@@ -2569,6 +2575,52 @@ properties:
 		}
 		if !contains(err.Error(), "error writing values.yaml") {
 			t.Errorf("Expected 'error writing values.yaml' in error, got: %v", err)
+		}
+	})
+}
+
+func TestConfigHandler_WorkstationStatePersistence(t *testing.T) {
+	t.Run("SavesWorkstationStatePerContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell)
+		if err := handler.SetContext("ctx-a"); err != nil {
+			t.Fatalf("Expected no error setting context, got %v", err)
+		}
+		if err := handler.Set("workstation.runtime", "colima"); err != nil {
+			t.Fatalf("Expected no error setting workstation.runtime, got %v", err)
+		}
+
+		if err := handler.SaveWorkstationState(); err != nil {
+			t.Fatalf("Expected no error saving workstation state, got %v", err)
+		}
+
+		contextPath := filepath.Join(tmpDir, ".windsor", "contexts", "ctx-a", "workstation.yaml")
+		if _, err := os.Stat(contextPath); err != nil {
+			t.Fatalf("Expected context-scoped workstation state file, got stat error: %v", err)
+		}
+	})
+
+	t.Run("DeletesContextScopedWorkstationState", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell)
+		if err := handler.SetContext("ctx-a"); err != nil {
+			t.Fatalf("Expected no error setting context, got %v", err)
+		}
+
+		contextPath := filepath.Join(tmpDir, ".windsor", "contexts", "ctx-a", "workstation.yaml")
+		os.MkdirAll(filepath.Dir(contextPath), 0755)
+		os.WriteFile(contextPath, []byte("workstation:\n  runtime: colima\n"), 0644)
+
+		if err := handler.DeleteWorkstationState(); err != nil {
+			t.Fatalf("Expected no error deleting workstation state, got %v", err)
+		}
+
+		if _, err := os.Stat(contextPath); !os.IsNotExist(err) {
+			t.Errorf("Expected context-scoped workstation state to be removed, stat err=%v", err)
 		}
 	})
 }
@@ -2798,6 +2850,127 @@ properties:
 					t.Error("Expected nodes to be accessible in GetContextValues")
 				}
 			}
+		}
+	})
+
+	t.Run("AppliesClusterResourceDefaultsWithoutSchemaOrUserValues", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		cluster, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected cluster map in context values")
+		}
+
+		controlplanes, ok := cluster["controlplanes"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected cluster.controlplanes map in context values")
+		}
+		if count, ok := controlplanes["count"].(int); !ok || count != 1 {
+			t.Errorf("Expected cluster.controlplanes.count=1, got %v", controlplanes["count"])
+		}
+		if schedulable, ok := controlplanes["schedulable"].(bool); !ok || !schedulable {
+			t.Errorf("Expected cluster.controlplanes.schedulable=true, got %v", controlplanes["schedulable"])
+		}
+		if cpu, ok := controlplanes["cpu"].(int); !ok || cpu != constants.DefaultControlPlaneCPUSchedulable {
+			t.Errorf("Expected cluster.controlplanes.cpu=%d, got %v", constants.DefaultControlPlaneCPUSchedulable, controlplanes["cpu"])
+		}
+		if memory, ok := controlplanes["memory"].(int); !ok || memory != constants.DefaultControlPlaneMemorySchedulable {
+			t.Errorf("Expected cluster.controlplanes.memory=%d, got %v", constants.DefaultControlPlaneMemorySchedulable, controlplanes["memory"])
+		}
+
+		workers, ok := cluster["workers"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected cluster.workers map in context values")
+		}
+		if count, ok := workers["count"].(int); !ok || count != 0 {
+			t.Errorf("Expected cluster.workers.count=0, got %v", workers["count"])
+		}
+		if cpu, ok := workers["cpu"].(int); !ok || cpu != constants.DefaultWorkerCPU {
+			t.Errorf("Expected cluster.workers.cpu=%d, got %v", constants.DefaultWorkerCPU, workers["cpu"])
+		}
+		if memory, ok := workers["memory"].(int); !ok || memory != constants.DefaultWorkerMemory {
+			t.Errorf("Expected cluster.workers.memory=%d, got %v", constants.DefaultWorkerMemory, workers["memory"])
+		}
+	})
+
+	t.Run("UsesDedicatedControlplaneDefaultsWhenNotSchedulable", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("cluster.controlplanes.schedulable", false); err != nil {
+			t.Fatalf("Expected no error setting schedulable, got %v", err)
+		}
+		if err := handler.Set("cluster.workers.count", 0); err != nil {
+			t.Fatalf("Expected no error setting workers.count, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		cluster, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected cluster map in context values")
+		}
+		controlplanes, ok := cluster["controlplanes"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected cluster.controlplanes map in context values")
+		}
+		if cpu, ok := controlplanes["cpu"].(int); !ok || cpu != constants.DefaultControlPlaneCPUDedicated {
+			t.Errorf("Expected cluster.controlplanes.cpu=%d, got %v", constants.DefaultControlPlaneCPUDedicated, controlplanes["cpu"])
+		}
+		if memory, ok := controlplanes["memory"].(int); !ok || memory != constants.DefaultControlPlaneMemoryDedicated {
+			t.Errorf("Expected cluster.controlplanes.memory=%d, got %v", constants.DefaultControlPlaneMemoryDedicated, controlplanes["memory"])
+		}
+	})
+
+	t.Run("UsesDedicatedControlplaneDefaultsForOneControlplaneOneWorker", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		handler := NewConfigHandler(mocks.Shell)
+
+		if err := handler.Set("cluster.workers.count", 1); err != nil {
+			t.Fatalf("Expected no error setting workers.count, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		cluster, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected cluster map in context values")
+		}
+		controlplanes, ok := cluster["controlplanes"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected cluster.controlplanes map in context values")
+		}
+		if schedulable, ok := controlplanes["schedulable"].(bool); !ok || schedulable {
+			t.Errorf("Expected cluster.controlplanes.schedulable=false, got %v", controlplanes["schedulable"])
+		}
+		if cpu, ok := controlplanes["cpu"].(int); !ok || cpu != constants.DefaultControlPlaneCPUDedicated {
+			t.Errorf("Expected cluster.controlplanes.cpu=%d, got %v", constants.DefaultControlPlaneCPUDedicated, controlplanes["cpu"])
+		}
+		if memory, ok := controlplanes["memory"].(int); !ok || memory != constants.DefaultControlPlaneMemoryDedicated {
+			t.Errorf("Expected cluster.controlplanes.memory=%d, got %v", constants.DefaultControlPlaneMemoryDedicated, controlplanes["memory"])
+		}
+
+		workers, ok := cluster["workers"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected cluster.workers map in context values")
+		}
+		if cpu, ok := workers["cpu"].(int); !ok || cpu != constants.DefaultWorkerCPU {
+			t.Errorf("Expected cluster.workers.cpu=%d, got %v", constants.DefaultWorkerCPU, workers["cpu"])
+		}
+		if memory, ok := workers["memory"].(int); !ok || memory != constants.DefaultWorkerMemory {
+			t.Errorf("Expected cluster.workers.memory=%d, got %v", constants.DefaultWorkerMemory, workers["memory"])
 		}
 	})
 }
