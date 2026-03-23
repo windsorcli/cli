@@ -366,7 +366,7 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 			if err := c.shims.WriteFile(valuesPath, data, 0644); err != nil {
 				return fmt.Errorf("error writing values.yaml: %w", err)
 			}
-		} else if valuesExists {
+		} else {
 			fileData, err := c.shims.ReadFile(valuesPath)
 			if err == nil {
 				var existing map[string]any
