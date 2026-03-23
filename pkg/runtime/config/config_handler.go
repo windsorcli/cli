@@ -375,7 +375,9 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 					if len(cleaned) != len(existing) {
 						data, err := c.shims.YamlMarshal(cleaned)
 						if err == nil {
-							_ = c.shims.WriteFile(valuesPath, data, 0644)
+							if err := c.shims.WriteFile(valuesPath, data, 0644); err != nil {
+								return fmt.Errorf("error writing cleaned values.yaml: %w", err)
+							}
 						}
 					}
 				}
