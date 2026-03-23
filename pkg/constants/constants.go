@@ -44,19 +44,19 @@ const DefaultGitLiveReloadWebhookPath = "/hook/5dc88e45e809fb0872b749c0969067e2c
 // renovate: datasource=github-releases depName=siderolabs/talos
 const DefaultTalosImage = "ghcr.io/siderolabs/talos:v1.12.6"
 
+const DefaultTalosAPIPort = 50000
+
 const DefaultControlPlaneCPUSchedulable = 8
 
 const DefaultControlPlaneMemorySchedulable = 12
 
 const DefaultControlPlaneCPUDedicated = 4
 
-const DefaultControlPlaneMemoryDedicated = 6
+const DefaultControlPlaneMemoryDedicated = 4
 
 const DefaultWorkerCPU = 4
 
-const DefaultWorkerMemory = 6
-
-const DefaultTalosAPIPort = 50000
+const DefaultWorkerMemory = 8
 
 const DefaultFluxSystemNamespace = "system-gitops"
 

@@ -1402,8 +1402,8 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				Metadata: blueprintv1alpha1.Metadata{Name: "conditional-config"},
 				When:     "provider == 'docker'",
 				Config: []blueprintv1alpha1.ConfigBlock{
-					{Name: "talos_common", When: "provider == 'docker' && (workstation.enabled ?? false)", Body: map[string]any{"value": map[string]any{"patches": []any{"docker-patch.yaml"}}}},
-					{Name: "talos_common", When: "!(provider == 'docker' && (workstation.enabled ?? false))", Body: map[string]any{"value": map[string]any{"patches": []any{"non-docker-patch.yaml"}}}},
+					{Name: "talos_common", When: "provider == 'docker'", Body: map[string]any{"value": map[string]any{"patches": []any{"docker-patch.yaml"}}}},
+					{Name: "talos_common", When: "!(provider == 'docker')", Body: map[string]any{"value": map[string]any{"patches": []any{"non-docker-patch.yaml"}}}},
 				},
 				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
 					{

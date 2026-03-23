@@ -1,160 +1,16 @@
-// This file defines default configurations for various components of the Windsor CLI application.
-// It includes configurations for AWS, Docker, Terraform, Cluster, DNS, and VM settings.
-// The configurations are structured using the v1alpha1.Context type, which aggregates settings
-// from different modules like AWS, Docker, and others. The file also defines common configurations
-// that can be reused across different contexts, such as commonDockerConfig, commonGitConfig, etc.
-// These common configurations are used to create specific default configurations like
-// DefaultConfig_Localhost and DefaultConfig_Full.
+// This file defines default configurations that supplement schema and facet defaults.
+// Only values NOT already provided by schema.yaml defaults or facet config blocks belong here.
 
 package config
 
 import (
 	"github.com/windsorcli/cli/api/v1alpha1"
-	"github.com/windsorcli/cli/api/v1alpha1/cluster"
-	"github.com/windsorcli/cli/api/v1alpha1/dns"
-	"github.com/windsorcli/cli/api/v1alpha1/docker"
-	"github.com/windsorcli/cli/api/v1alpha1/git"
-	"github.com/windsorcli/cli/api/v1alpha1/network"
-	"github.com/windsorcli/cli/api/v1alpha1/terraform"
-	"github.com/windsorcli/cli/pkg/constants"
 )
 
-// commonDockerConfig defaults to Enabled: false. docker.enabled is deprecated;
-// internal workstation (compose) is still used when provider=docker or when explicitly enabled.
-var commonDockerConfig = docker.DockerConfig{
-	Enabled: ptrBool(false),
-	Registries: map[string]docker.RegistryConfig{
-		"registry.test": {},
-		"registry-1.docker.io": {
-			Remote: "https://registry-1.docker.io",
-			Local:  "https://docker.io",
-		},
-		"registry.k8s.io": {
-			Remote: "https://registry.k8s.io",
-		},
-		"gcr.io": {
-			Remote: "https://gcr.io",
-		},
-		"ghcr.io": {
-			Remote: "https://ghcr.io",
-		},
-		"quay.io": {
-			Remote: "https://quay.io",
-		},
-	},
-}
-
-var commonGitConfig = git.GitConfig{
-	Livereload: &git.GitLivereloadConfig{
-		Enabled:      ptrBool(true),
-		RsyncInclude: ptrString(constants.DefaultGitLiveReloadRsyncInclude),
-		RsyncProtect: ptrString(constants.DefaultGitLiveReloadRsyncProtect),
-		Username:     ptrString(constants.DefaultGitLiveReloadUsername),
-		Password:     ptrString(constants.DefaultGitLiveReloadPassword),
-		Image:        ptrString(constants.DefaultGitLiveReloadImage),
-		VerifySsl:    ptrBool(false),
-	},
-}
-
-var commonTerraformConfig = terraform.TerraformConfig{
-	Enabled: ptrBool(true),
-	Backend: &terraform.BackendConfig{
-		Type: "local",
-	},
-}
-
-// commonClusterConfig_Minimal is a minimal cluster configuration with only enabled set to true.
-// Used for platform-specific configurations where the driver will be set by ApplyPlatformDefaults.
-var commonClusterConfig_Minimal = cluster.ClusterConfig{
-	Enabled: ptrBool(true),
-}
-
-// commonClusterConfig_NoHostPorts is the base cluster configuration without hostports,
-// used for VM drivers that use native networking (colima, docker)
-var commonClusterConfig_NoHostPorts = cluster.ClusterConfig{
-	Enabled: ptrBool(true),
-	Driver:  ptrString("talos"),
-	ControlPlanes: cluster.NodeGroupConfig{
-		Count:       ptrInt(1),
-		CPU:         ptrInt(6),
-		Memory:      ptrInt(8),
-		Schedulable: ptrBool(true),
-		Nodes:       make(map[string]cluster.NodeConfig),
-		HostPorts:   []string{},
-		Volumes:     []string{"${project_root}/.volumes:/var/mnt/local"},
-	},
-	Workers: cluster.NodeGroupConfig{
-		Count: ptrInt(0),
-	},
-}
-
-// commonClusterConfig_WithHostPorts is the base cluster configuration with hostports,
-// used for VM drivers that need port forwarding (docker-desktop)
-var commonClusterConfig_WithHostPorts = cluster.ClusterConfig{
-	Enabled: ptrBool(true),
-	Driver:  ptrString("talos"),
-	ControlPlanes: cluster.NodeGroupConfig{
-		Count:       ptrInt(1),
-		CPU:         ptrInt(6),
-		Memory:      ptrInt(8),
-		Schedulable: ptrBool(true),
-		Nodes:       make(map[string]cluster.NodeConfig),
-		HostPorts:   []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"},
-		Volumes:     []string{"${project_root}/.volumes:/var/mnt/local"},
-	},
-	Workers: cluster.NodeGroupConfig{
-		Count: ptrInt(0),
-	},
-}
-
-// DefaultConfig returns the default configuration for non-dev contexts.
-// Uses minimal config since non-dev contexts default to platform "none".
-// Includes cluster.enabled=true for platform-specific contexts (aws, azure).
+// DefaultConfig is the base configuration for non-dev contexts (platform "none").
 var DefaultConfig = v1alpha1.Context{
-	Platform:  ptrString("none"),
-	Terraform: commonTerraformConfig.Copy(),
-	Cluster:   commonClusterConfig_Minimal.Copy(),
+	Platform: ptrString("none"),
 }
 
-var DefaultConfig_Localhost = v1alpha1.Context{
-	Environment: map[string]string{},
-	Docker:      commonDockerConfig.Copy(),
-	Git:         commonGitConfig.Copy(),
-	Terraform:   commonTerraformConfig.Copy(),
-	Cluster:     commonClusterConfig_WithHostPorts.Copy(),
-	Network: &network.NetworkConfig{
-		CIDRBlock: ptrString(constants.DefaultNetworkCIDR),
-	},
-	DNS: &dns.DNSConfig{
-		Enabled: ptrBool(true),
-		Domain:  ptrString("test"),
-		Forward: []string{
-			"10.5.0.1:8053",
-		},
-	},
-}
-
-var DefaultConfig_Full = v1alpha1.Context{
-	Environment: map[string]string{},
-	Docker:      commonDockerConfig.Copy(),
-	Git:         commonGitConfig.Copy(),
-	Terraform:   commonTerraformConfig.Copy(),
-	Cluster:     commonClusterConfig_NoHostPorts.Copy(),
-	Network: &network.NetworkConfig{
-		CIDRBlock: ptrString(constants.DefaultNetworkCIDR),
-		LoadBalancerIPs: &struct {
-			Start *string `yaml:"start,omitempty"`
-			End   *string `yaml:"end,omitempty"`
-		}{
-			Start: ptrString("10.5.1.1"),
-			End:   ptrString("10.5.1.10"),
-		},
-	},
-	DNS: &dns.DNSConfig{
-		Enabled: ptrBool(true),
-		Domain:  ptrString("test"),
-		Forward: []string{
-			"10.5.1.1",
-		},
-	},
-}
+// DefaultConfig_Dev provides defaults for all dev contexts (docker-desktop, colima, incus).
+var DefaultConfig_Dev = v1alpha1.Context{}

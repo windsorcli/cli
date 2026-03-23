@@ -4,133 +4,31 @@ import (
 	"testing"
 )
 
-func TestDefaultConfigurations_HostPorts(t *testing.T) {
-	t.Run("DefaultConfig_Localhost_ControlPlanes_HasHostPorts", func(t *testing.T) {
-		// Given the localhost default configuration
-		config := DefaultConfig_Localhost
-
-		// Then cluster configuration should be present
-		if config.Cluster == nil {
-			t.Fatal("Expected cluster configuration to be present")
-		}
-
-		// And control planes should have expected host ports for local development
-		expectedHostPorts := []string{"8080:30080/tcp", "8443:30443/tcp", "9292:30292/tcp", "8053:30053/udp"}
-		actualHostPorts := config.Cluster.ControlPlanes.HostPorts
-
-		if len(actualHostPorts) != len(expectedHostPorts) {
-			t.Errorf("Expected %d hostports, got %d", len(expectedHostPorts), len(actualHostPorts))
-		}
-
-		for i, expected := range expectedHostPorts {
-			if i >= len(actualHostPorts) || actualHostPorts[i] != expected {
-				t.Errorf("Expected hostport %s at index %d, got %s", expected, i,
-					func() string {
-						if i < len(actualHostPorts) {
-							return actualHostPorts[i]
-						}
-						return "missing"
-					}())
-			}
+func TestDefaultConfigurations(t *testing.T) {
+	t.Run("DefaultConfig_HasPlatformNone", func(t *testing.T) {
+		if DefaultConfig.Platform == nil || *DefaultConfig.Platform != "none" {
+			t.Error("Expected DefaultConfig platform to be 'none'")
 		}
 	})
 
-	t.Run("DefaultConfig_Full_HasNoHostPorts", func(t *testing.T) {
-		// Given the full default configuration
-		config := DefaultConfig_Full
-
-		// Then cluster configuration should be present
-		if config.Cluster == nil {
-			t.Fatal("Expected cluster configuration to be present")
+	t.Run("DefaultConfig_DevIsEmpty", func(t *testing.T) {
+		if DefaultConfig_Dev.Network != nil {
+			t.Error("network config should not be set (schema default)")
 		}
-
-		// And control planes should have no host ports for production use
-		actualControlPlaneHostPorts := config.Cluster.ControlPlanes.HostPorts
-
-		if len(actualControlPlaneHostPorts) != 0 {
-			t.Errorf("Expected no hostports for DefaultConfig_Full controlplanes, got %d: %v", len(actualControlPlaneHostPorts), actualControlPlaneHostPorts)
+		if DefaultConfig_Dev.Terraform != nil {
+			t.Error("terraform config should not be set (schema default)")
 		}
-	})
-
-	t.Run("DefaultConfig_Localhost_HasZeroWorkers", func(t *testing.T) {
-		// Given the localhost default configuration
-		config := DefaultConfig_Localhost
-
-		// Then cluster configuration should be present
-		if config.Cluster == nil {
-			t.Fatal("Expected cluster configuration to be present")
+		if DefaultConfig_Dev.Cluster != nil {
+			t.Error("cluster config should not be set (schema/facet default)")
 		}
-
-		// And workers count should be explicitly set to zero
-		if config.Cluster.Workers.Count == nil {
-			t.Fatal("Expected workers.count to be explicitly set")
+		if DefaultConfig_Dev.Docker != nil {
+			t.Error("docker config should not be set (facet default)")
 		}
-		if *config.Cluster.Workers.Count != 0 {
-			t.Errorf("Expected workers.count to be 0, got: %d", *config.Cluster.Workers.Count)
+		if DefaultConfig_Dev.Git != nil {
+			t.Error("git config should not be set (facet default)")
 		}
-	})
-
-	t.Run("DefaultConfig_Full_HasZeroWorkers", func(t *testing.T) {
-		// Given the full default configuration
-		config := DefaultConfig_Full
-
-		// Then cluster configuration should be present
-		if config.Cluster == nil {
-			t.Fatal("Expected cluster configuration to be present")
-		}
-
-		// And workers count should be explicitly set to zero
-		if config.Cluster.Workers.Count == nil {
-			t.Fatal("Expected workers.count to be explicitly set")
-		}
-		if *config.Cluster.Workers.Count != 0 {
-			t.Errorf("Expected workers.count to be 0, got: %d", *config.Cluster.Workers.Count)
-		}
-	})
-
-	t.Run("DefaultConfig_ControlPlanes_HaveVolumes", func(t *testing.T) {
-		// Given both default configurations
-		configLocalhost := DefaultConfig_Localhost
-		configFull := DefaultConfig_Full
-
-		// Then cluster configurations should be present
-		if configLocalhost.Cluster == nil || configFull.Cluster == nil {
-			t.Fatal("Expected cluster configuration to be present")
-		}
-
-		// And control planes should have the project volumes mount
-		expectedVolume := "${project_root}/.volumes:/var/mnt/local"
-
-		if len(configLocalhost.Cluster.ControlPlanes.Volumes) == 0 {
-			t.Error("Expected DefaultConfig_Localhost controlplanes to have volumes")
-		} else if configLocalhost.Cluster.ControlPlanes.Volumes[0] != expectedVolume {
-			t.Errorf("Expected volume %s, got %s", expectedVolume, configLocalhost.Cluster.ControlPlanes.Volumes[0])
-		}
-
-		if len(configFull.Cluster.ControlPlanes.Volumes) == 0 {
-			t.Error("Expected DefaultConfig_Full controlplanes to have volumes")
-		} else if configFull.Cluster.ControlPlanes.Volumes[0] != expectedVolume {
-			t.Errorf("Expected volume %s, got %s", expectedVolume, configFull.Cluster.ControlPlanes.Volumes[0])
-		}
-	})
-
-	t.Run("DefaultConfig_ControlPlanes_AreSchedulable", func(t *testing.T) {
-		// Given both default configurations
-		configLocalhost := DefaultConfig_Localhost
-		configFull := DefaultConfig_Full
-
-		// Then cluster configurations should be present
-		if configLocalhost.Cluster == nil || configFull.Cluster == nil {
-			t.Fatal("Expected cluster configuration to be present")
-		}
-
-		// And control planes should be schedulable for workloads
-		if configLocalhost.Cluster.ControlPlanes.Schedulable == nil || !*configLocalhost.Cluster.ControlPlanes.Schedulable {
-			t.Error("Expected DefaultConfig_Localhost controlplanes to be schedulable")
-		}
-
-		if configFull.Cluster.ControlPlanes.Schedulable == nil || !*configFull.Cluster.ControlPlanes.Schedulable {
-			t.Error("Expected DefaultConfig_Full controlplanes to be schedulable")
+		if DefaultConfig_Dev.DNS != nil {
+			t.Error("dns config should not be set (schema/facet default)")
 		}
 	})
 }

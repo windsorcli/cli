@@ -593,7 +593,6 @@ func (s *DefaultShell) RegisterSecret(value string) {
 // The optional quiet parameter controls whether shell commands are printed during reset.
 func (s *DefaultShell) Reset(quiet ...bool) {
 	isQuiet := len(quiet) > 0 && quiet[0]
-
 	var managedEnvs []string
 	if envStr := s.shims.Getenv("WINDSOR_MANAGED_ENV"); envStr != "" {
 		for env := range strings.SplitSeq(envStr, ",") {

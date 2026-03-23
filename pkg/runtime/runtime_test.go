@@ -1024,10 +1024,6 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Error("Expected SetDefault to be called")
 		}
 
-		if setCalls["dev"] != true {
-			t.Error("Expected dev to be set to true")
-		}
-
 		if setCalls["platform"] != "docker" {
 			t.Error("Expected platform to be set to docker")
 		}
@@ -1093,43 +1089,6 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			}
 		}()
 		_ = rt.ApplyConfigDefaults()
-	})
-
-	t.Run("ErrorWhenSetDevFails", func(t *testing.T) {
-		// Given a runtime with a config handler that fails to set dev
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "local"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.IsLoadedFunc = func() bool {
-			return false
-		}
-		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
-			return true
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "dev" {
-				return fmt.Errorf("set dev failed")
-			}
-			return nil
-		}
-
-		// When ApplyConfigDefaults is called
-		err := rt.ApplyConfigDefaults()
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when Set dev fails")
-		}
-
-		if !strings.Contains(err.Error(), "failed to set dev mode") {
-			t.Errorf("Expected error about set dev mode, got: %v", err)
-		}
 	})
 
 	t.Run("SetsDefaultsForNonDevMode", func(t *testing.T) {
@@ -1208,15 +1167,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Errorf("Expected no error, got: %v", err)
 		}
 
-		workstationRuntimeSet := false
-		for key := range setCalls {
-			if key == "workstation.runtime" {
-				workstationRuntimeSet = true
-				break
-			}
-		}
-
-		if !workstationRuntimeSet {
+		if setCalls["workstation.runtime"] == nil {
 			t.Error("Expected workstation.runtime to be set")
 		}
 	})
@@ -1384,7 +1335,6 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Errorf("Expected error about set workstation.runtime, got: %v", err)
 		}
 	})
-
 	t.Run("ErrorWhenSetPlatformFails", func(t *testing.T) {
 		// Given a runtime with a config handler that fails to set platform
 		mocks := setupRuntimeMocks(t)
@@ -1426,8 +1376,7 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("UsesFullConfigWhenColimaInFlagOverrides", func(t *testing.T) {
-		// Given a runtime in dev mode with colima in flag overrides
+	t.Run("UsesDevConfigInDevMode", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 		rt.ContextName = "local"
@@ -1443,9 +1392,12 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			return ""
 		}
 
-		var setDefaultConfig v1alpha1.Context
+		var setDefaultCalled bool
 		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
-			setDefaultConfig = cfg
+			setDefaultCalled = true
+			if cfg.Platform != nil {
+				t.Error("Expected DefaultConfig_Dev with no platform set")
+			}
 			return nil
 		}
 
@@ -1457,111 +1409,13 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			"workstation.runtime": "colima",
 		}
 
-		// When ApplyConfigDefaults is called with flag overrides
 		err := rt.ApplyConfigDefaults(flagOverrides)
 
-		// Then full config should be set (not localhost config)
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
-
-		if setDefaultConfig.Network == nil || setDefaultConfig.Network.LoadBalancerIPs == nil {
-			t.Error("Expected DefaultConfig_Full with LoadBalancerIPs to be set")
-		}
-
-		if setDefaultConfig.Cluster != nil && len(setDefaultConfig.Cluster.Workers.HostPorts) > 0 {
-			t.Error("Expected DefaultConfig_Full without hostports to be set")
-		}
-	})
-
-	t.Run("UsesLocalhostConfigWhenDockerDesktopInFlagOverrides", func(t *testing.T) {
-		// Given a runtime in dev mode with docker-desktop in flag overrides
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "local"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.IsLoadedFunc = func() bool {
-			return false
-		}
-		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
-			return true
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
-
-		var setDefaultConfig v1alpha1.Context
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
-			setDefaultConfig = cfg
-			return nil
-		}
-
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			return nil
-		}
-
-		flagOverrides := map[string]any{
-			"workstation.runtime": "docker-desktop",
-		}
-
-		// When ApplyConfigDefaults is called with flag overrides
-		err := rt.ApplyConfigDefaults(flagOverrides)
-
-		// Then localhost config should be set (with hostports)
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if setDefaultConfig.Cluster == nil || len(setDefaultConfig.Cluster.ControlPlanes.HostPorts) == 0 {
-			t.Error("Expected DefaultConfig_Localhost with hostports to be set")
-		}
-	})
-
-	t.Run("IgnoresFlagOverridesWhenWorkstationRuntimeAlreadySet", func(t *testing.T) {
-		// Given a runtime in dev mode with workstation.runtime already set in config
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "local"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.IsLoadedFunc = func() bool {
-			return false
-		}
-		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
-			return true
-		}
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "workstation.runtime" {
-				return "colima"
-			}
-			return ""
-		}
-
-		var setDefaultConfig v1alpha1.Context
-		mockConfigHandler.SetDefaultFunc = func(cfg v1alpha1.Context) error {
-			setDefaultConfig = cfg
-			return nil
-		}
-
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			return nil
-		}
-
-		flagOverrides := map[string]any{
-			"workstation.runtime": "docker-desktop",
-		}
-
-		// When ApplyConfigDefaults is called with flag overrides
-		err := rt.ApplyConfigDefaults(flagOverrides)
-
-		// Then config should use colima from config (not docker-desktop from overrides)
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if setDefaultConfig.Cluster != nil && len(setDefaultConfig.Cluster.Workers.HostPorts) > 0 {
-			t.Error("Expected DefaultConfig_Full without hostports to be set (colima), not localhost config")
+		if !setDefaultCalled {
+			t.Error("Expected SetDefault to be called with DefaultConfig_Dev")
 		}
 	})
 
@@ -1603,14 +1457,11 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 		if setDefaultConfig.Platform == nil || *setDefaultConfig.Platform != "none" {
 			t.Error("Expected DefaultConfig to be set with platform 'none'")
 		}
-		if setDefaultConfig.Cluster == nil || setDefaultConfig.Cluster.Enabled == nil || !*setDefaultConfig.Cluster.Enabled {
-			t.Error("Expected DefaultConfig to have cluster.enabled=true")
-		}
 		if setDefaultConfig.DNS != nil {
 			t.Error("Expected DefaultConfig to have no DNS config")
 		}
-		if setDefaultConfig.Terraform == nil || setDefaultConfig.Terraform.Enabled == nil || !*setDefaultConfig.Terraform.Enabled {
-			t.Error("Expected DefaultConfig to have terraform enabled")
+		if setDefaultConfig.Terraform != nil {
+			t.Error("Expected DefaultConfig to have no terraform config (inline default at call site)")
 		}
 	})
 
@@ -1725,10 +1576,6 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 		if setCalls["aws.enabled"] != true {
 			t.Error("Expected aws.enabled to be set to true")
 		}
-
-		if setCalls["cluster.driver"] != "eks" {
-			t.Error("Expected cluster.driver to be set to eks")
-		}
 	})
 
 	t.Run("SetsAzureDefaults", func(t *testing.T) {
@@ -1754,10 +1601,6 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 
 		if setCalls["azure.enabled"] != true {
 			t.Error("Expected azure.enabled to be set to true")
-		}
-
-		if setCalls["cluster.driver"] != "aks" {
-			t.Error("Expected cluster.driver to be set to aks")
 		}
 	})
 
@@ -1785,10 +1628,6 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 		if setCalls["gcp.enabled"] != true {
 			t.Error("Expected gcp.enabled to be set to true")
 		}
-
-		if setCalls["cluster.driver"] != "gke" {
-			t.Error("Expected cluster.driver to be set to gke")
-		}
 	})
 
 	t.Run("SetsDockerDefaults", func(t *testing.T) {
@@ -1811,10 +1650,6 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
-
-		if setCalls["cluster.driver"] != "talos" {
-			t.Error("Expected cluster.driver to be set to talos")
-		}
 	})
 
 	t.Run("SetsMetalDefaults", func(t *testing.T) {
@@ -1836,10 +1671,6 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 		// Then metal defaults should be set
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if setCalls["cluster.driver"] != "talos" {
-			t.Error("Expected cluster.driver to be set to talos")
 		}
 	})
 
@@ -1919,10 +1750,6 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
-
-		if setCalls["cluster.driver"] != "talos" {
-			t.Error("Expected cluster.driver to be set to talos for dev mode")
-		}
 	})
 
 	t.Run("GetsProviderFromConfig", func(t *testing.T) {
@@ -1959,107 +1786,6 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorWhenSetClusterDriverFails", func(t *testing.T) {
-		// Given a runtime with a config handler that fails to set cluster driver
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "prod"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			return ""
-		}
-		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
-			return false
-		}
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "cluster.driver" {
-				return fmt.Errorf("set cluster.driver failed")
-			}
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called
-		err := rt.ApplyPlatformDefaults("docker")
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when Set cluster.driver fails")
-		}
-
-		if !strings.Contains(err.Error(), "failed to set cluster.driver") {
-			t.Errorf("Expected error about set cluster.driver, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenSetAzureDriverFails", func(t *testing.T) {
-		// Given a runtime with a config handler that fails to set Azure driver
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "prod"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "cluster.driver" {
-				return fmt.Errorf("set cluster.driver failed")
-			}
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called with "azure"
-		err := rt.ApplyPlatformDefaults("azure")
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when Set cluster.driver fails for azure")
-		}
-
-		if !strings.Contains(err.Error(), "failed to set cluster.driver") {
-			t.Errorf("Expected error about set cluster.driver, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenSetDevModeClusterDriverFails", func(t *testing.T) {
-		// Given a runtime in dev mode with a config handler that fails to set cluster driver
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "local"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
-				return ""
-			}
-			if key == "cluster.driver" {
-				return ""
-			}
-			return ""
-		}
-		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
-			return true
-		}
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "cluster.driver" {
-				return fmt.Errorf("set cluster.driver failed")
-			}
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called
-		err := rt.ApplyPlatformDefaults("")
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when Set cluster.driver fails for dev mode")
-		}
-
-		if !strings.Contains(err.Error(), "failed to set cluster.driver") {
-			t.Errorf("Expected error about set cluster.driver, got: %v", err)
-		}
-	})
 }
 
 func TestRuntime_SaveConfig(t *testing.T) {

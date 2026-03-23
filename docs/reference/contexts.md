@@ -36,21 +36,15 @@ contexts/
 
 ### windsor.yaml
 
-The `windsor.yaml` file (or `windsor.yml`) contains static configuration that matches the `v1alpha1.Context` schema. This includes settings like cluster configuration, Docker registries, network settings, and other structured configuration options.
+The root `windsor.yaml` file declares the project version.
 
-Located at:
-- `contexts/<context-name>/windsor.yaml` (context-specific)
-- `windsor.yaml` (project root, with context-specific sections)
+Located at: `windsor.yaml` (project root)
 
 See [Configuration Reference](configuration.md) for details.
 
 ### values.yaml
 
-The `values.yaml` file is used for dynamic configuration values that don't match the static schema. This is particularly useful for:
-
-- Custom configuration values used by Facets in blueprints
-- Values that will be evaluated by expressions in Facets
-- Configuration that varies significantly between contexts
+The `values.yaml` file is the primary context-level configuration file. When `windsor init` runs, context-specific defaults are written here. Values in this file override schema defaults and are available to facets for expression evaluation.
 
 Located at: `contexts/<context-name>/values.yaml`
 
@@ -63,13 +57,13 @@ The `values.yaml` file is:
 Example `values.yaml`:
 
 ```yaml
-observability:
+cluster:
+  controlplanes:
+    cpu: 6
+    memory: 8
+dns:
   enabled: true
-  backend: quickwit
-  backend_url: https://quickwit.example.com
-custom_settings:
-  feature_flag: true
-  api_endpoint: https://api.example.com
+  domain: test
 ```
 
 ### blueprint.yaml
@@ -116,8 +110,8 @@ windsor init <context-name>
 
 This creates:
 - A new folder at `contexts/<context-name>/`
-- A basic `blueprint.yaml` file
-- Adds a new entry to your project's `windsor.yaml` file at `contexts.<context-name>`
+- A `values.yaml` with context defaults (overrides that differ from schema/facet defaults)
+- Adds a new entry to your project's root `windsor.yaml` at `contexts.<context-name>`
 
 **Note:** Contexts named `local` or that begin with `local-` assume that you will be running a local cloud virtualization, setting defaults accordingly.
 

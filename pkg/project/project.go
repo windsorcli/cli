@@ -28,7 +28,7 @@ type Project struct {
 
 // NewProject creates and initializes a new Project instance with all required managers.
 // It sets up the execution context, creates provisioner and composer, and creates the
-// workstation when in dev mode or when workstation.enabled is true (config is loaded if needed for the latter).
+// workstation when in dev mode or when is true (config is loaded if needed for the latter).
 // Panics if required dependencies are nil. After creation, call Configure() to apply flag overrides.
 // Optional overrides can be provided via opts to inject mocks for testing.
 // If opts contains a Project with Runtime set, that runtime will be reused.

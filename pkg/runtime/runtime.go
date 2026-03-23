@@ -226,7 +226,6 @@ func (rt *Runtime) HandleSessionReset() error {
 	if !hasSessionToken {
 		shouldReset = true
 	}
-
 	if shouldReset {
 		rt.Shell.Reset()
 		if err := os.Setenv("NO_CACHE", "true"); err != nil {
@@ -388,7 +387,7 @@ func (rt *Runtime) GenerateBuildID() (string, error) {
 // InitializeComponents initializes all environment-related components required after setup.
 // Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.
 func (rt *Runtime) InitializeComponents() error {
-	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
+	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {
 		if rt.TerraformProvider == nil {
 			rt.initializeToolsManager()
 			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
@@ -439,7 +438,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 				return fmt.Errorf("failed to set workstation.runtime: %w", err)
 			}
 		}
-
 		vmRuntime := ""
 		if len(flagOverrides) > 0 && flagOverrides[0] != nil {
 			if r, ok := flagOverrides[0]["vm.runtime"].(string); ok && r != "" {
@@ -484,12 +482,8 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 			if err := rt.ConfigHandler.SetDefault(defaultConfig); err != nil {
 				return fmt.Errorf("failed to set default config: %w", err)
 			}
-		} else if workstationRuntime == "docker-desktop" {
-			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_Localhost); err != nil {
-				return fmt.Errorf("failed to set default config: %w", err)
-			}
 		} else if isDevMode {
-			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_Full); err != nil {
+			if err := rt.ConfigHandler.SetDefault(config.DefaultConfig_Dev); err != nil {
 				return fmt.Errorf("failed to set default config: %w", err)
 			}
 		} else {
@@ -720,24 +714,9 @@ func (rt *Runtime) applyPlatformDefaults(platformOverride string, onlyIfMissing 
 		}
 		return nil
 	}
-	setString := func(key, value string) error {
-		if err := rt.ConfigHandler.Set(key, value); err != nil {
-			return fmt.Errorf("failed to set %s: %w", key, err)
-		}
-		return nil
-	}
 	if onlyIfMissing {
 		setBool = func(key string, value bool) error {
 			if rt.ConfigHandler.Get(key) != nil {
-				return nil
-			}
-			if err := rt.ConfigHandler.Set(key, value); err != nil {
-				return fmt.Errorf("failed to set %s: %w", key, err)
-			}
-			return nil
-		}
-		setString = func(key, value string) error {
-			if rt.ConfigHandler.GetString(key) != "" {
 				return nil
 			}
 			if err := rt.ConfigHandler.Set(key, value); err != nil {
@@ -753,40 +732,13 @@ func (rt *Runtime) applyPlatformDefaults(platformOverride string, onlyIfMissing 
 			if err := setBool("aws.enabled", true); err != nil {
 				return err
 			}
-			if err := setString("cluster.driver", "eks"); err != nil {
-				return err
-			}
 		case "azure":
 			if err := setBool("azure.enabled", true); err != nil {
-				return err
-			}
-			if err := setString("cluster.driver", "aks"); err != nil {
 				return err
 			}
 		case "gcp":
 			if err := setBool("gcp.enabled", true); err != nil {
 				return err
-			}
-			if err := setString("cluster.driver", "gke"); err != nil {
-				return err
-			}
-		case "docker":
-			if err := setString("cluster.driver", "talos"); err != nil {
-				return err
-			}
-		case "metal":
-			if err := setString("cluster.driver", "talos"); err != nil {
-				return err
-			}
-		case "incus":
-			if err := setString("cluster.driver", "talos"); err != nil {
-				return err
-			}
-		}
-	} else if rt.ConfigHandler.IsDevMode(rt.ContextName) {
-		if rt.ConfigHandler.GetString("cluster.driver") == "" {
-			if err := rt.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
-				return fmt.Errorf("failed to set cluster.driver: %w", err)
 			}
 		}
 	}
@@ -818,7 +770,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 			rt.ConfigHandler.GetString("cluster.driver", "") == "omni") {
 		rt.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", false) {
+	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {
 		rt.initializeToolsManager()
 		if rt.TerraformProvider == nil {
 			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
