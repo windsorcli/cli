@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -55,6 +57,24 @@ contexts:
 		}
 		if contextMap["provider"] != "docker" {
 			t.Errorf("Expected provider=docker, got %v", contextMap["provider"])
+		}
+	})
+
+	t.Run("ReturnsErrorWhenV1Alpha2SchemaLoadingFails", func(t *testing.T) {
+		source := newTypedSource(NewShims(), NewSchemaValidator(shell.NewMockShell()))
+		projectRoot := t.TempDir()
+		rootConfig := `version: v1alpha2
+contexts:
+  local:
+    provider: docker
+`
+		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte(rootConfig), 0644); err != nil {
+			t.Fatalf("Expected no error writing root config, got %v", err)
+		}
+
+		_, _, err := source.LoadRoot(projectRoot, "local", func([]byte) error { return os.ErrInvalid })
+		if err == nil {
+			t.Fatal("Expected error when v1alpha2 schema loading fails")
 		}
 	})
 }

@@ -225,3 +225,41 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 }
+
+func TestGetMapInt(t *testing.T) {
+	t.Run("ConvertsInt64AndUint64WithinBounds", func(t *testing.T) {
+		data := map[string]any{
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"count_int64": int64(7),
+					"count_uint64": uint64(8),
+				},
+			},
+		}
+
+		if got, ok := getMapInt(data, "cluster.workers.count_int64"); !ok || got != 7 {
+			t.Errorf("Expected int64 conversion to 7, got (%d, %v)", got, ok)
+		}
+		if got, ok := getMapInt(data, "cluster.workers.count_uint64"); !ok || got != 8 {
+			t.Errorf("Expected uint64 conversion to 8, got (%d, %v)", got, ok)
+		}
+	})
+
+	t.Run("ReturnsFalseForUint64OverflowAndInvalidString", func(t *testing.T) {
+		data := map[string]any{
+			"cluster": map[string]any{
+				"workers": map[string]any{
+					"overflow": uint64(^uint(0)>>1) + 1,
+					"bad":      "not-an-int",
+				},
+			},
+		}
+
+		if _, ok := getMapInt(data, "cluster.workers.overflow"); ok {
+			t.Error("Expected overflow uint64 conversion to fail")
+		}
+		if _, ok := getMapInt(data, "cluster.workers.bad"); ok {
+			t.Error("Expected invalid string conversion to fail")
+		}
+	})
+}

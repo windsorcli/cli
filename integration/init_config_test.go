@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -171,5 +172,85 @@ func TestInitConfig_PreservesUserValuesAcrossInit(t *testing.T) {
 	values := readYAMLFile(t, filepath.Join(contextDir, "values.yaml"))
 	if customKey, ok := getPathValue(values, "custom_key"); !ok || customKey != "keep-me" {
 		t.Errorf("expected custom_key=keep-me to be preserved across init, got %v", customKey)
+	}
+}
+
+func TestInitConfig_SetContextThenInitUsesSelectedContext(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "prod", "--platform", "aws"}, env)
+	if err != nil {
+		t.Fatalf("init prod --platform aws: %v\nstderr: %s", err, stderr)
+	}
+	_, stderr, err = helpers.RunCLI(dir, []string{"set-context", "prod"}, env)
+	if err != nil {
+		t.Fatalf("set-context prod: %v\nstderr: %s", err, stderr)
+	}
+	_, stderr, err = helpers.RunCLI(dir, []string{"init"}, env)
+	if err != nil {
+		t.Fatalf("init without context should use selected context: %v\nstderr: %s", err, stderr)
+	}
+
+	contextPath := filepath.Join(dir, ".windsor", "context")
+	contextValue, err := os.ReadFile(contextPath)
+	if err != nil {
+		t.Fatalf("expected context file at %s, got %v", contextPath, err)
+	}
+	if strings.TrimSpace(string(contextValue)) != "prod" {
+		t.Errorf("expected selected context to remain prod, got %q", strings.TrimSpace(string(contextValue)))
+	}
+}
+
+func TestInitConfig_DevContextOwnershipStableAcrossReinit(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local-dev", "--platform", "docker", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Fatalf("first init local-dev: %v\nstderr: %s", err, stderr)
+	}
+	_, stderr, err = helpers.RunCLI(dir, []string{"init", "local-dev", "--platform", "docker", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Fatalf("second init local-dev: %v\nstderr: %s", err, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "local-dev", "values.yaml")
+	values := readYAMLFile(t, valuesPath)
+	if enabled, ok := getPathValue(values, "dns", "enabled"); !ok || enabled != false {
+		t.Errorf("expected dns.enabled=false in values.yaml, got %v", enabled)
+	}
+	if platform, ok := getPathValue(values, "platform"); ok {
+		t.Errorf("expected platform omitted from values.yaml in dev context, got %v", platform)
+	}
+
+	workstationPath := filepath.Join(dir, ".windsor", "contexts", "local-dev", "workstation.yaml")
+	workstation := readYAMLFile(t, workstationPath)
+	if platform, ok := getPathValue(workstation, "platform"); !ok || platform != "docker" {
+		t.Errorf("expected platform=docker in workstation.yaml, got %v", platform)
+	}
+}
+
+func TestInitConfig_InvalidValuesDoNotBlockShowCommand(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "default"}, env)
+	if err != nil {
+		t.Fatalf("init default: %v\nstderr: %s", err, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "default", "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("invalid_key: true\n"), 0644); err != nil {
+		t.Fatalf("expected to write invalid values.yaml, got %v", err)
+	}
+
+	envWithContext := append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, envWithContext)
+	if err != nil {
+		t.Fatalf("show blueprint should still succeed with schema-invalid values: %v\nstderr: %s", err, stderr)
+	}
+	if len(stdout) == 0 {
+		t.Fatal("expected blueprint output to be non-empty")
 	}
 }
