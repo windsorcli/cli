@@ -1017,11 +1017,11 @@ func TestColimaVirt_getDefaultValues(t *testing.T) {
 	})
 
 	t.Run("ClusterEnabledUsesCalculatedResources", func(t *testing.T) {
-		// Given a colima virt instance with cluster enabled
+		// Given a colima virt instance with cluster driver configured
 		colimaVirt, mocks := setup(t)
 
 		// And cluster is configured with specific resources
-		_ = mocks.ConfigHandler.Set("cluster.enabled", true)
+		_ = mocks.ConfigHandler.Set("cluster.driver", "talos")
 		_ = mocks.ConfigHandler.Set("cluster.controlplanes.count", 1)
 		_ = mocks.ConfigHandler.Set("cluster.controlplanes.cpu", 4)
 		_ = mocks.ConfigHandler.Set("cluster.controlplanes.memory", 4)

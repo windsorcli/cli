@@ -88,8 +88,8 @@ func TestPersistencePolicy_Partition(t *testing.T) {
 
 		partition := policy.Partition(data, persistencePolicyInput{})
 
-		if partition.Values["provider"] != "docker" {
-			t.Errorf("Expected provider in values partition, got %v", partition.Values["provider"])
+		if _, ok := partition.Values["provider"]; ok {
+			t.Errorf("Did not expect provider in values partition")
 		}
 		if _, ok := partition.Workstation["provider"]; ok {
 			t.Errorf("Did not expect provider in workstation partition")

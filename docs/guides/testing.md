@@ -212,7 +212,7 @@ The outer key is the terraform component ID (name or path), and the inner map co
 cases:
   - name: network-outputs-used-by-cluster
     values:
-      cluster.enabled: true
+      cluster.driver: talos
     terraformOutputs:
       network:
         vpc_id: "vpc-123456"
@@ -345,7 +345,7 @@ cases:
 cases:
   - name: cluster-uses-network-outputs
     values:
-      cluster.enabled: true
+      cluster.driver: talos
       network.enabled: true
     terraformOutputs:
       network:
@@ -367,7 +367,7 @@ cases:
 cases:
   - name: high-availability-when-multiple-subnets
     values:
-      cluster.enabled: true
+      cluster.driver: talos
     terraformOutputs:
       network:
         subnet_ids:
@@ -485,7 +485,7 @@ cases:
   - name: aws-vpc
     values:
       provider: aws
-      cluster.enabled: true
+      cluster.driver: talos
       cluster.driver: talos
       cluster.workers.count: 3
       # ... many unrelated values

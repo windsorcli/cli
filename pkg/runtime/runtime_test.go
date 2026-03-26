@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	awsv1alpha1 "github.com/windsorcli/cli/api/v1alpha1/aws"
+	azurev1alpha1 "github.com/windsorcli/cli/api/v1alpha1/azure"
+	gcpv1alpha1 "github.com/windsorcli/cli/api/v1alpha1/gcp"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
@@ -36,7 +39,7 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 
 	configHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 		switch key {
-		case "docker.enabled", "cluster.enabled", "terraform.enabled":
+		case "docker.enabled", "terraform.enabled":
 			return true
 		case "aws.enabled", "azure.enabled", "gcp.enabled":
 			return false
@@ -1551,243 +1554,6 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 	})
 }
 
-func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
-	t.Run("SetsAWSDefaults", func(t *testing.T) {
-		// Given a runtime with AWS provider
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "prod"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		setCalls := make(map[string]interface{})
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			setCalls[key] = value
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called with "aws"
-		err := rt.ApplyPlatformDefaults("aws")
-
-		// Then AWS defaults should be set
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if setCalls["aws.enabled"] != true {
-			t.Error("Expected aws.enabled to be set to true")
-		}
-	})
-
-	t.Run("SetsAzureDefaults", func(t *testing.T) {
-		// Given a runtime with Azure provider
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "prod"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		setCalls := make(map[string]interface{})
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			setCalls[key] = value
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called with "azure"
-		err := rt.ApplyPlatformDefaults("azure")
-
-		// Then Azure defaults should be set
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if setCalls["azure.enabled"] != true {
-			t.Error("Expected azure.enabled to be set to true")
-		}
-	})
-
-	t.Run("SetsGCPDefaults", func(t *testing.T) {
-		// Given a runtime with GCP provider
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "prod"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		setCalls := make(map[string]interface{})
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			setCalls[key] = value
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called with "gcp"
-		err := rt.ApplyPlatformDefaults("gcp")
-
-		// Then GCP defaults should be set
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if setCalls["gcp.enabled"] != true {
-			t.Error("Expected gcp.enabled to be set to true")
-		}
-	})
-
-	t.Run("SetsDockerDefaults", func(t *testing.T) {
-		// Given a runtime with docker provider
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "local"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		setCalls := make(map[string]interface{})
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			setCalls[key] = value
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called with "docker"
-		err := rt.ApplyPlatformDefaults("docker")
-
-		// Then docker defaults should be set
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("SetsMetalDefaults", func(t *testing.T) {
-		// Given a runtime with metal provider
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "local"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		setCalls := make(map[string]interface{})
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			setCalls[key] = value
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called with "metal"
-		err := rt.ApplyPlatformDefaults("metal")
-
-		// Then metal defaults should be set
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("PanicsWhenConfigHandlerNotAvailable", func(t *testing.T) {
-		// Given a runtime with nil config handler
-		rt := &Runtime{}
-
-		// When ApplyPlatformDefaults is called
-		// Then it should panic
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic when ConfigHandler is nil")
-			}
-		}()
-		_ = rt.ApplyPlatformDefaults("aws")
-	})
-
-	t.Run("ErrorWhenSetFails", func(t *testing.T) {
-		// Given a runtime with a config handler that fails to set
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "prod"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			if key == "aws.enabled" {
-				return fmt.Errorf("set aws.enabled failed")
-			}
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called
-		err := rt.ApplyPlatformDefaults("aws")
-
-		// Then an error should be returned
-
-		if err == nil {
-			t.Error("Expected error when Set fails")
-		}
-
-		if !strings.Contains(err.Error(), "failed to set aws.enabled") {
-			t.Errorf("Expected error about set aws.enabled, got: %v", err)
-		}
-	})
-
-	t.Run("SetsDefaultsForDevModeWithNoProvider", func(t *testing.T) {
-		// Given a runtime in dev mode with no provider
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "local"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
-				return ""
-			}
-			if key == "cluster.driver" {
-				return ""
-			}
-			return ""
-		}
-		mockConfigHandler.IsDevModeFunc = func(contextName string) bool {
-			return true
-		}
-
-		setCalls := make(map[string]interface{})
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			setCalls[key] = value
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called with empty provider
-		err := rt.ApplyPlatformDefaults("")
-
-		// Then dev mode defaults should be set
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-	})
-
-	t.Run("GetsProviderFromConfig", func(t *testing.T) {
-		// Given a runtime with provider in config
-		mocks := setupRuntimeMocks(t)
-		rt := mocks.Runtime
-		rt.ContextName = "prod"
-
-		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
-				return "aws"
-			}
-			return ""
-		}
-
-		setCalls := make(map[string]interface{})
-		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
-			setCalls[key] = value
-			return nil
-		}
-
-		// When ApplyPlatformDefaults is called with empty provider
-		err := rt.ApplyPlatformDefaults("")
-
-		// Then provider defaults should be set from config
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if setCalls["aws.enabled"] != true {
-			t.Error("Expected aws.enabled to be set to true")
-		}
-	})
-
-}
-
 func TestRuntime_SaveConfig(t *testing.T) {
 	t.Run("MigratesProviderToPlatformAndClearsProvider", func(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
@@ -2626,6 +2392,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 			}
 			return false
 		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				AWS: &awsv1alpha1.AWSConfig{},
+			}
+		}
 
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
@@ -2649,6 +2420,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 			}
 			return false
 		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Azure: &azurev1alpha1.AzureConfig{},
+			}
+		}
 
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
@@ -2671,6 +2447,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 				return true
 			}
 			return false
+		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				GCP: &gcpv1alpha1.GCPConfig{},
+			}
 		}
 
 		// When initializeEnvPrinters is called
@@ -2740,17 +2521,17 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesKubeEnvWhenEnabled", func(t *testing.T) {
-		// Given a runtime with cluster enabled
+	t.Run("InitializesKubeEnvWhenCloudDriverSet", func(t *testing.T) {
+		// Given a runtime with cluster driver set
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "cluster.enabled" {
-				return true
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
 			}
-			return false
+			return ""
 		}
 
 		// When initializeEnvPrinters is called
@@ -2786,15 +2567,15 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesTalosEnvWhenDriverIsOmni", func(t *testing.T) {
-		// Given a runtime with Omni cluster driver
+	t.Run("SkipsTalosEnvWhenDriverIsNotTalos", func(t *testing.T) {
+		// Given a runtime with non-talos cluster driver
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "cluster.driver" {
-				return "omni"
+				return "eks"
 			}
 			return ""
 		}
@@ -2802,10 +2583,27 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
 
-		// Then Talos env printer should be initialized
+		// Then Talos env printer should not be initialized
+		if rt.EnvPrinters.TalosEnv != nil {
+			t.Error("Expected TalosEnv to be nil for non-talos cluster driver")
+		}
+	})
 
-		if rt.EnvPrinters.TalosEnv == nil {
-			t.Error("Expected TalosEnv to be initialized")
+	t.Run("InitializesKubeEnvWhenDriverSet", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "gke"
+			}
+			return ""
+		}
+
+		rt.initializeEnvPrinters()
+
+		if rt.EnvPrinters.KubeEnv == nil {
+			t.Error("Expected KubeEnv to be initialized when cluster.driver is set")
 		}
 	})
 

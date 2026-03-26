@@ -663,7 +663,7 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		handler.SetContext("test-context")
 		handler.Set("provider", "generic")
-		handler.Set("cluster.enabled", true)
+		handler.Set("cluster.driver", "talos")
 		handler.Set("custom_dynamic_field", "dynamic_value")
 
 		if err := handler.SaveConfig(); err != nil {
@@ -680,7 +680,7 @@ func TestConfigHandler_SaveConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected values.yaml to exist, got %v", err)
 		}
-		if !contains(string(valuesContent), "provider: generic") || !contains(string(valuesContent), "custom_dynamic_field: dynamic_value") {
+		if contains(string(valuesContent), "provider:") || !contains(string(valuesContent), "custom_dynamic_field: dynamic_value") {
 			t.Errorf("Expected explicit values in values.yaml, got:\n%s", string(valuesContent))
 		}
 	})
@@ -742,7 +742,7 @@ properties:
 	t.Run("SaveAndReloadPreservesExplicitData", func(t *testing.T) {
 		handler, _ := setupPrivateTestHandler(t)
 		handler.SetContext("save-test")
-		handler.Set("provider", "docker")
+		handler.Set("cluster.driver", "talos")
 		handler.Set("cluster.workers.count", 2)
 		handler.Set("custom_dynamic", "dynamic_value")
 
@@ -756,8 +756,8 @@ properties:
 		if err := newHandler.LoadConfig(); err != nil {
 			t.Fatalf("Expected no error loading saved config, got %v", err)
 		}
-		if newHandler.GetString("provider") != "docker" {
-			t.Errorf("Expected provider to round-trip, got %v", newHandler.GetString("provider"))
+		if newHandler.GetString("cluster.driver") != "talos" {
+			t.Errorf("Expected cluster.driver to round-trip, got %v", newHandler.GetString("cluster.driver"))
 		}
 		if newHandler.GetInt("cluster.workers.count") != 2 {
 			t.Errorf("Expected cluster.workers.count=2, got %v", newHandler.GetInt("cluster.workers.count"))
@@ -873,8 +873,8 @@ func TestConfigHandler_WorkstationStatePersistence(t *testing.T) {
 			t.Fatalf("Expected values.yaml to exist, got %v", err)
 		}
 		valuesData := string(valuesContent)
-		if !contains(valuesData, "provider: docker") {
-			t.Errorf("Expected provider in values.yaml, got:\n%s", valuesData)
+		if contains(valuesData, "provider:") {
+			t.Errorf("Expected provider excluded from values.yaml, got:\n%s", valuesData)
 		}
 		if contains(valuesData, "platform:") {
 			t.Errorf("Expected platform excluded from values.yaml for dev context, got:\n%s", valuesData)

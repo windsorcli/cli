@@ -159,9 +159,9 @@ properties:
   cluster:
     type: object
     properties:
-      enabled:
-        type: boolean
-        default: true
+      driver:
+        type: string
+        default: talos
   network:
     type: object
     properties:
@@ -219,8 +219,8 @@ additionalProperties: false
 			t.Fatal("Expected cluster to be a map")
 		}
 
-		if cluster["enabled"] != true {
-			t.Errorf("Expected cluster.enabled default true, got %v", cluster["enabled"])
+		if cluster["driver"] != "talos" {
+			t.Errorf("Expected cluster.driver default talos, got %v", cluster["driver"])
 		}
 	})
 

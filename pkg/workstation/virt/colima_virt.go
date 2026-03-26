@@ -294,7 +294,14 @@ func (v *ColimaVirt) getDefaultValues(context string) (int, int, int, string, st
 	hostname := fmt.Sprintf("windsor-%s", context)
 	arch := v.getArch()
 
-	clusterEnabled := v.configHandler.GetBool("cluster.enabled", false)
+	clusterEnabled := v.configHandler.GetString("cluster.driver", "") != ""
+	if values, err := v.configHandler.GetContextValues(); err == nil && values != nil {
+		if clusterMap, ok := values["cluster"].(map[string]any); ok {
+			if driver, ok := clusterMap["driver"].(string); ok {
+				clusterEnabled = driver != ""
+			}
+		}
+	}
 
 	if clusterEnabled {
 		cpu, memory := v.calculateVMResources()

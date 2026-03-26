@@ -522,15 +522,6 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if err := rt.ApplyConfigDefaults(preLoadOverrides); err != nil {
 		return fmt.Errorf("failed to apply config defaults: %w", err)
 	}
-	preLoadPlatform := ""
-	if hasExplicitPlatform {
-		preLoadPlatform = explicitPlatform
-	} else {
-		preLoadPlatform = inferredPlatform
-	}
-	if err := rt.ApplyPlatformDefaults(preLoadPlatform); err != nil {
-		return err
-	}
 	if err := rt.ConfigHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -548,12 +539,6 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if hasExplicitPlatform && explicitPlatform != "" {
 		if err := rt.ConfigHandler.Set("platform", explicitPlatform); err != nil {
 			return fmt.Errorf("failed to set platform: %w", err)
-		}
-	}
-	finalPlatform := rt.canonicalPlatform()
-	if finalPlatform != "" {
-		if err := rt.applyPlatformDefaults(finalPlatform, true); err != nil {
-			return err
 		}
 	}
 	rt.migrateLoadedConfig()
@@ -578,13 +563,6 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		}
 	}
 	return nil
-}
-
-// ApplyPlatformDefaults applies platform profile values to configuration.
-// This force-mode variant writes profile values unconditionally and is used in the
-// pre-load phase where profile defaults intentionally seed config before file merge.
-func (rt *Runtime) ApplyPlatformDefaults(platformOverride string) error {
-	return rt.applyPlatformDefaults(platformOverride, false)
 }
 
 // SaveConfig migrates provider→platform and clears the deprecated provider key before persistence.
@@ -697,77 +675,45 @@ func (rt *Runtime) inferDevPlatformOverride(flagOverrides map[string]any) string
 	return "docker"
 }
 
-// applyPlatformDefaults applies platform profile values using either force or fill-missing mode.
-// In fill-missing mode, cluster.driver is set only when empty and cloud enabled flags are set
-// only when the corresponding key is unset.
-func (rt *Runtime) applyPlatformDefaults(platformOverride string, onlyIfMissing bool) error {
-	platform := platformOverride
-	if platform == "" {
-		platform = rt.ConfigHandler.GetString("platform")
-	}
-	if platform == "" {
-		platform = rt.ConfigHandler.GetString("provider")
-	}
-	setBool := func(key string, value bool) error {
-		if err := rt.ConfigHandler.Set(key, value); err != nil {
-			return fmt.Errorf("failed to set %s: %w", key, err)
-		}
-		return nil
-	}
-	if onlyIfMissing {
-		setBool = func(key string, value bool) error {
-			if rt.ConfigHandler.Get(key) != nil {
-				return nil
-			}
-			if err := rt.ConfigHandler.Set(key, value); err != nil {
-				return fmt.Errorf("failed to set %s: %w", key, err)
-			}
-			return nil
-		}
-	}
-
-	if platform != "" {
-		switch platform {
-		case "aws":
-			if err := setBool("aws.enabled", true); err != nil {
-				return err
-			}
-		case "azure":
-			if err := setBool("azure.enabled", true); err != nil {
-				return err
-			}
-		case "gcp":
-			if err := setBool("gcp.enabled", true); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
 // initializeEnvPrinters initializes environment printers based on configuration settings.
 // It creates and registers the appropriate environment printers with the dependency injector
 // based on the current configuration state.
 func (rt *Runtime) initializeEnvPrinters() {
-	if rt.EnvPrinters.AwsEnv == nil && rt.ConfigHandler.GetBool("aws.enabled", false) {
+	contextValues := map[string]any{}
+	if values, err := rt.ConfigHandler.GetContextValues(); err == nil && values != nil {
+		contextValues = values
+	}
+
+	clusterDriver := getNestedString(contextValues, "cluster", "driver")
+	if clusterDriver == "" {
+		clusterDriver = rt.ConfigHandler.GetString("cluster.driver", "")
+	}
+	awsEnabled := rt.ConfigHandler.GetBool("aws.enabled", false)
+	azureEnabled := rt.ConfigHandler.GetBool("azure.enabled", false)
+	gcpEnabled := rt.ConfigHandler.GetBool("gcp.enabled", false)
+	clusterEnabled := clusterDriver != ""
+	needsDocker := rt.needsDockerEnv()
+	configData := rt.ConfigHandler.GetConfig()
+	hasAWSConfig := configData != nil && configData.AWS != nil
+	hasAzureConfig := configData != nil && configData.Azure != nil
+	hasGCPConfig := configData != nil && configData.GCP != nil
+
+	if rt.EnvPrinters.AwsEnv == nil && awsEnabled && hasAWSConfig {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.AzureEnv == nil && rt.ConfigHandler.GetBool("azure.enabled", false) {
+	if rt.EnvPrinters.AzureEnv == nil && azureEnabled && hasAzureConfig {
 		rt.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.GcpEnv == nil && rt.ConfigHandler.GetBool("gcp.enabled", false) {
+	if rt.EnvPrinters.GcpEnv == nil && gcpEnabled && hasGCPConfig {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.DockerEnv == nil && rt.needsDockerEnv() {
+	if rt.EnvPrinters.DockerEnv == nil && needsDocker {
 		rt.EnvPrinters.DockerEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.KubeEnv == nil && rt.ConfigHandler.GetBool("cluster.enabled", false) {
+	if rt.EnvPrinters.KubeEnv == nil && clusterEnabled {
 		rt.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.TalosEnv == nil &&
-		(rt.ConfigHandler.GetString("cluster.driver", "") == "talos" ||
-			rt.ConfigHandler.GetString("cluster.driver", "") == "omni") {
+	if rt.EnvPrinters.TalosEnv == nil && clusterDriver == "talos" {
 		rt.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {
@@ -827,6 +773,23 @@ func (rt *Runtime) initializeToolsManager() {
 			rt.ToolsManager = tools.NewToolsManager(rt.ConfigHandler, rt.Shell)
 		}
 	}
+}
+
+func getNestedString(values map[string]any, path ...string) string {
+	current := any(values)
+	for _, key := range path {
+		next, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		val, exists := next[key]
+		if !exists {
+			return ""
+		}
+		current = val
+	}
+	str, _ := current.(string)
+	return str
 }
 
 // initializeSecretsProviders initializes secrets providers based on current configuration settings.

@@ -3323,7 +3323,7 @@ func TestTerraformComponent_Enabled(t *testing.T) {
 
 	t.Run("SupportsExpression", func(t *testing.T) {
 		yamlData := []byte(`path: test/path
-enabled: "${cluster.enabled ?? true}"`)
+enabled: "${cluster.driver != ''}"`)
 
 		var component TerraformComponent
 		err := yaml.Unmarshal(yamlData, &component)
@@ -3337,8 +3337,8 @@ enabled: "${cluster.enabled ?? true}"`)
 		if !component.Enabled.IsExpr {
 			t.Error("Expected IsExpr to be true")
 		}
-		if component.Enabled.Expr != "${cluster.enabled ?? true}" {
-			t.Errorf("Expected Expr to be '${cluster.enabled ?? true}', got %q", component.Enabled.Expr)
+		if component.Enabled.Expr != "${cluster.driver != ''}" {
+			t.Errorf("Expected Expr to be '${cluster.driver != ''}', got %q", component.Enabled.Expr)
 		}
 		if component.Enabled.Value != nil {
 			t.Error("Expected Value to be nil for expression")
