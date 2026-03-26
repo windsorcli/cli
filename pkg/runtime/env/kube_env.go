@@ -69,8 +69,11 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 	kubeConfigPath := filepath.Join(configRoot, ".kube", "config")
 	envVars["KUBECONFIG"] = kubeConfigPath
+	e.SetManagedEnv("KUBECONFIG")
 	envVars["KUBE_CONFIG_PATH"] = kubeConfigPath
+	e.SetManagedEnv("KUBE_CONFIG_PATH")
 	envVars["K8S_AUTH_KUBECONFIG"] = kubeConfigPath
+	e.SetManagedEnv("K8S_AUTH_KUBECONFIG")
 
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 	if projectRoot == "" {
@@ -102,6 +105,7 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 			if len(parts) == 2 {
 				existingEnvVars[parts[0]] = parts[1]
 				envVars[parts[0]] = parts[1]
+				e.SetManagedEnv(parts[0])
 			}
 		}
 	}
@@ -145,6 +149,7 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 								return nil, fmt.Errorf("error converting volume path to absolute: %w", err)
 							}
 							envVars[envVarName] = absPath
+							e.SetManagedEnv(envVarName)
 						}
 						break
 					}
