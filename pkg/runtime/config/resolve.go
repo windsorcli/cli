@@ -67,13 +67,10 @@ func (c *configHandler) applyPlatformDerivedDefaults(values map[string]any) {
 		c.setDerivedValueIfMissing(values, "cluster.driver", "talos")
 	case "aws":
 		c.setDerivedValueIfMissing(values, "cluster.driver", "eks")
-		c.setDerivedValueIfMissing(values, "aws.enabled", true)
 	case "azure":
 		c.setDerivedValueIfMissing(values, "cluster.driver", "aks")
-		c.setDerivedValueIfMissing(values, "azure.enabled", true)
 	case "gcp":
 		c.setDerivedValueIfMissing(values, "cluster.driver", "gke")
-		c.setDerivedValueIfMissing(values, "gcp.enabled", true)
 	}
 }
 

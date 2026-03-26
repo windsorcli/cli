@@ -245,7 +245,7 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 
-	t.Run("DerivesCloudFlagsFromPlatform", func(t *testing.T) {
+	t.Run("DerivesCloudDriverFromPlatform", func(t *testing.T) {
 		handler, _ := setupPrivateTestHandler(t)
 		if err := handler.Set("platform", "azure"); err != nil {
 			t.Fatalf("Expected no error setting platform, got %v", err)
@@ -259,13 +259,6 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		clusterValues := values["cluster"].(map[string]any)
 		if clusterValues["driver"] != "aks" {
 			t.Errorf("Expected cluster.driver=aks, got %v", clusterValues["driver"])
-		}
-		azureValues, ok := values["azure"].(map[string]any)
-		if !ok {
-			t.Fatalf("Expected azure map, got %T", values["azure"])
-		}
-		if azureValues["enabled"] != true {
-			t.Errorf("Expected azure.enabled=true, got %v", azureValues["enabled"])
 		}
 	})
 
@@ -289,10 +282,6 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		clusterValues := values["cluster"].(map[string]any)
 		if clusterValues["driver"] != "talos" {
 			t.Errorf("Expected explicit cluster.driver to remain talos, got %v", clusterValues["driver"])
-		}
-		awsValues := values["aws"].(map[string]any)
-		if awsValues["enabled"] != false {
-			t.Errorf("Expected explicit aws.enabled=false to be preserved, got %v", awsValues["enabled"])
 		}
 	})
 }

@@ -691,31 +691,20 @@ func (rt *Runtime) initializeEnvPrinters() {
 	awsEnabled := rt.ConfigHandler.GetBool("aws.enabled", false)
 	azureEnabled := rt.ConfigHandler.GetBool("azure.enabled", false)
 	gcpEnabled := rt.ConfigHandler.GetBool("gcp.enabled", false)
-	if values, ok := contextValues["aws"].(map[string]any); ok {
-		if enabled, ok := values["enabled"].(bool); ok {
-			awsEnabled = enabled
-		}
-	}
-	if values, ok := contextValues["azure"].(map[string]any); ok {
-		if enabled, ok := values["enabled"].(bool); ok {
-			azureEnabled = enabled
-		}
-	}
-	if values, ok := contextValues["gcp"].(map[string]any); ok {
-		if enabled, ok := values["enabled"].(bool); ok {
-			gcpEnabled = enabled
-		}
-	}
 	clusterEnabled := clusterDriver != ""
 	needsDocker := rt.needsDockerEnv()
+	configData := rt.ConfigHandler.GetConfig()
+	hasAWSConfig := configData != nil && configData.AWS != nil
+	hasAzureConfig := configData != nil && configData.Azure != nil
+	hasGCPConfig := configData != nil && configData.GCP != nil
 
-	if rt.EnvPrinters.AwsEnv == nil && awsEnabled {
+	if rt.EnvPrinters.AwsEnv == nil && awsEnabled && hasAWSConfig {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.AzureEnv == nil && azureEnabled {
+	if rt.EnvPrinters.AzureEnv == nil && azureEnabled && hasAzureConfig {
 		rt.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.GcpEnv == nil && gcpEnabled {
+	if rt.EnvPrinters.GcpEnv == nil && gcpEnabled && hasGCPConfig {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.DockerEnv == nil && needsDocker {

@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	awsv1alpha1 "github.com/windsorcli/cli/api/v1alpha1/aws"
+	azurev1alpha1 "github.com/windsorcli/cli/api/v1alpha1/azure"
+	gcpv1alpha1 "github.com/windsorcli/cli/api/v1alpha1/gcp"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
@@ -2389,6 +2392,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 			}
 			return false
 		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				AWS: &awsv1alpha1.AWSConfig{},
+			}
+		}
 
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
@@ -2412,6 +2420,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 			}
 			return false
 		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Azure: &azurev1alpha1.AzureConfig{},
+			}
+		}
 
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
@@ -2434,6 +2447,11 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 				return true
 			}
 			return false
+		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				GCP: &gcpv1alpha1.GCPConfig{},
+			}
 		}
 
 		// When initializeEnvPrinters is called
