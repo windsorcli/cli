@@ -120,7 +120,15 @@ func (t *BaseToolsManager) Check() error {
 		}
 	}
 
-	if t.configHandler.GetBool("azure.enabled") {
+	azureEnabled := t.configHandler.GetBool("azure.enabled")
+	if values, err := t.configHandler.GetContextValues(); err == nil && values != nil {
+		if azureMap, ok := values["azure"].(map[string]any); ok {
+			if enabled, ok := azureMap["enabled"].(bool); ok {
+				azureEnabled = enabled
+			}
+		}
+	}
+	if azureEnabled {
 		if err := t.checkKubelogin(); err != nil {
 			spin.Stop()
 			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)

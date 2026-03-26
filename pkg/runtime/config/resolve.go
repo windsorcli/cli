@@ -37,6 +37,7 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	}
 
 	result = c.deepMerge(result, c.data)
+	c.applyPlatformDerivedDefaults(result)
 	c.applyWorkstationDefaults(result)
 	c.ensureClusterStructure(result)
 	c.applyClusterTopologyDefaults(result)
@@ -48,6 +49,42 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// applyPlatformDerivedDefaults injects derived platform defaults into effective values without mutating stored config.
+func (c *configHandler) applyPlatformDerivedDefaults(values map[string]any) {
+	platform := ""
+	if p, ok := getValueByPathFromMap(values, parsePath("platform")).(string); ok {
+		platform = p
+	}
+	if platform == "" {
+		if p, ok := getValueByPathFromMap(values, parsePath("provider")).(string); ok {
+			platform = p
+		}
+	}
+
+	switch platform {
+	case "docker", "incus", "metal", "omni":
+		c.setDerivedValueIfMissing(values, "cluster.driver", "talos")
+	case "aws":
+		c.setDerivedValueIfMissing(values, "cluster.driver", "eks")
+		c.setDerivedValueIfMissing(values, "aws.enabled", true)
+	case "azure":
+		c.setDerivedValueIfMissing(values, "cluster.driver", "aks")
+		c.setDerivedValueIfMissing(values, "azure.enabled", true)
+	case "gcp":
+		c.setDerivedValueIfMissing(values, "cluster.driver", "gke")
+		c.setDerivedValueIfMissing(values, "gcp.enabled", true)
+	}
+}
+
+// setDerivedValueIfMissing writes a derived value only when the path is not already present.
+func (c *configHandler) setDerivedValueIfMissing(values map[string]any, path string, value any) {
+	pathKeys := parsePath(path)
+	if hasValueAtPath(values, pathKeys) {
+		return
+	}
+	setValueInMap(values, pathKeys, value)
+}
 
 // applyWorkstationDefaults materializes workstation defaults required by runtime consumers.
 func (c *configHandler) applyWorkstationDefaults(values map[string]any) {

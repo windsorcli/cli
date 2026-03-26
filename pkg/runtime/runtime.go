@@ -522,15 +522,6 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if err := rt.ApplyConfigDefaults(preLoadOverrides); err != nil {
 		return fmt.Errorf("failed to apply config defaults: %w", err)
 	}
-	preLoadPlatform := ""
-	if hasExplicitPlatform {
-		preLoadPlatform = explicitPlatform
-	} else {
-		preLoadPlatform = inferredPlatform
-	}
-	if err := rt.ApplyPlatformDefaults(preLoadPlatform); err != nil {
-		return err
-	}
 	if err := rt.ConfigHandler.LoadConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -548,12 +539,6 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	if hasExplicitPlatform && explicitPlatform != "" {
 		if err := rt.ConfigHandler.Set("platform", explicitPlatform); err != nil {
 			return fmt.Errorf("failed to set platform: %w", err)
-		}
-	}
-	finalPlatform := rt.canonicalPlatform()
-	if finalPlatform != "" {
-		if err := config.ApplyPlatformDefaults(rt.ConfigHandler, finalPlatform, true); err != nil {
-			return err
 		}
 	}
 	rt.migrateLoadedConfig()
@@ -578,13 +563,6 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 		}
 	}
 	return nil
-}
-
-// ApplyPlatformDefaults applies platform profile values to configuration.
-// This force-mode variant writes profile values unconditionally and is used in the
-// pre-load phase where profile defaults intentionally seed config before file merge.
-func (rt *Runtime) ApplyPlatformDefaults(platformOverride string) error {
-	return config.ApplyPlatformDefaults(rt.ConfigHandler, platformOverride, false)
 }
 
 // SaveConfig migrates provider→platform and clears the deprecated provider key before persistence.
@@ -701,17 +679,43 @@ func (rt *Runtime) inferDevPlatformOverride(flagOverrides map[string]any) string
 // It creates and registers the appropriate environment printers with the dependency injector
 // based on the current configuration state.
 func (rt *Runtime) initializeEnvPrinters() {
-	clusterDriver := rt.ConfigHandler.GetString("cluster.driver", "")
+	contextValues := map[string]any{}
+	if values, err := rt.ConfigHandler.GetContextValues(); err == nil && values != nil {
+		contextValues = values
+	}
+
+	clusterDriver := getNestedString(contextValues, "cluster", "driver")
+	if clusterDriver == "" {
+		clusterDriver = rt.ConfigHandler.GetString("cluster.driver", "")
+	}
+	awsEnabled := rt.ConfigHandler.GetBool("aws.enabled", false)
+	azureEnabled := rt.ConfigHandler.GetBool("azure.enabled", false)
+	gcpEnabled := rt.ConfigHandler.GetBool("gcp.enabled", false)
+	if values, ok := contextValues["aws"].(map[string]any); ok {
+		if enabled, ok := values["enabled"].(bool); ok {
+			awsEnabled = enabled
+		}
+	}
+	if values, ok := contextValues["azure"].(map[string]any); ok {
+		if enabled, ok := values["enabled"].(bool); ok {
+			azureEnabled = enabled
+		}
+	}
+	if values, ok := contextValues["gcp"].(map[string]any); ok {
+		if enabled, ok := values["enabled"].(bool); ok {
+			gcpEnabled = enabled
+		}
+	}
 	clusterEnabled := clusterDriver != ""
 	needsDocker := rt.needsDockerEnv()
 
-	if rt.EnvPrinters.AwsEnv == nil && rt.ConfigHandler.GetBool("aws.enabled", false) {
+	if rt.EnvPrinters.AwsEnv == nil && awsEnabled {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.AzureEnv == nil && rt.ConfigHandler.GetBool("azure.enabled", false) {
+	if rt.EnvPrinters.AzureEnv == nil && azureEnabled {
 		rt.EnvPrinters.AzureEnv = env.NewAzureEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.GcpEnv == nil && rt.ConfigHandler.GetBool("gcp.enabled", false) {
+	if rt.EnvPrinters.GcpEnv == nil && gcpEnabled {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.DockerEnv == nil && needsDocker {
@@ -780,6 +784,23 @@ func (rt *Runtime) initializeToolsManager() {
 			rt.ToolsManager = tools.NewToolsManager(rt.ConfigHandler, rt.Shell)
 		}
 	}
+}
+
+func getNestedString(values map[string]any, path ...string) string {
+	current := any(values)
+	for _, key := range path {
+		next, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		val, exists := next[key]
+		if !exists {
+			return ""
+		}
+		current = val
+	}
+	str, _ := current.(string)
+	return str
 }
 
 // initializeSecretsProviders initializes secrets providers based on current configuration settings.

@@ -224,6 +224,77 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 			t.Errorf("Expected workers.memory=8888, got %v", workersValues["memory"])
 		}
 	})
+
+	t.Run("DerivesTalosDriverFromOmniPlatform", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.Set("platform", "omni"); err != nil {
+			t.Fatalf("Expected no error setting platform, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		clusterValues, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster map, got %T", values["cluster"])
+		}
+		if clusterValues["driver"] != "talos" {
+			t.Errorf("Expected cluster.driver=talos, got %v", clusterValues["driver"])
+		}
+	})
+
+	t.Run("DerivesCloudFlagsFromPlatform", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.Set("platform", "azure"); err != nil {
+			t.Fatalf("Expected no error setting platform, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		clusterValues := values["cluster"].(map[string]any)
+		if clusterValues["driver"] != "aks" {
+			t.Errorf("Expected cluster.driver=aks, got %v", clusterValues["driver"])
+		}
+		azureValues, ok := values["azure"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected azure map, got %T", values["azure"])
+		}
+		if azureValues["enabled"] != true {
+			t.Errorf("Expected azure.enabled=true, got %v", azureValues["enabled"])
+		}
+	})
+
+	t.Run("DoesNotOverrideExplicitDerivedTargets", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.Set("platform", "aws"); err != nil {
+			t.Fatalf("Expected no error setting platform, got %v", err)
+		}
+		if err := handler.Set("cluster.driver", "talos"); err != nil {
+			t.Fatalf("Expected no error setting cluster.driver, got %v", err)
+		}
+		if err := handler.Set("aws.enabled", false); err != nil {
+			t.Fatalf("Expected no error setting aws.enabled, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		clusterValues := values["cluster"].(map[string]any)
+		if clusterValues["driver"] != "talos" {
+			t.Errorf("Expected explicit cluster.driver to remain talos, got %v", clusterValues["driver"])
+		}
+		awsValues := values["aws"].(map[string]any)
+		if awsValues["enabled"] != false {
+			t.Errorf("Expected explicit aws.enabled=false to be preserved, got %v", awsValues["enabled"])
+		}
+	})
 }
 
 func TestGetMapInt(t *testing.T) {

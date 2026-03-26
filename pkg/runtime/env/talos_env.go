@@ -50,11 +50,21 @@ func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
 	clusterDriver := e.configHandler.GetString("cluster.driver", "")
+	platform := e.configHandler.GetString("platform", "")
+	if values, valuesErr := e.configHandler.GetContextValues(); valuesErr == nil && values != nil {
+		if clusterMap, ok := values["cluster"].(map[string]any); ok {
+			if driver, ok := clusterMap["driver"].(string); ok {
+				clusterDriver = driver
+			}
+		}
+		if platformValue, ok := values["platform"].(string); ok && platformValue != "" {
+			platform = platformValue
+		}
+	}
 	if clusterDriver == "talos" {
 		talosConfigPath := filepath.Join(configRoot, ".talos", "config")
 		envVars["TALOSCONFIG"] = talosConfigPath
 	}
-	platform := e.configHandler.GetString("platform", "")
 	if platform == "omni" {
 		omniConfigPath := filepath.Join(configRoot, ".omni", "config")
 		envVars["OMNICONFIG"] = omniConfigPath
