@@ -552,7 +552,7 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 	}
 	finalPlatform := rt.canonicalPlatform()
 	if finalPlatform != "" {
-		if err := rt.applyPlatformDefaults(finalPlatform, true); err != nil {
+		if err := config.ApplyPlatformDefaults(rt.ConfigHandler, finalPlatform, true); err != nil {
 			return err
 		}
 	}
@@ -584,7 +584,7 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 // This force-mode variant writes profile values unconditionally and is used in the
 // pre-load phase where profile defaults intentionally seed config before file merge.
 func (rt *Runtime) ApplyPlatformDefaults(platformOverride string) error {
-	return rt.applyPlatformDefaults(platformOverride, false)
+	return config.ApplyPlatformDefaults(rt.ConfigHandler, platformOverride, false)
 }
 
 // SaveConfig migrates provider→platform and clears the deprecated provider key before persistence.
@@ -697,59 +697,14 @@ func (rt *Runtime) inferDevPlatformOverride(flagOverrides map[string]any) string
 	return "docker"
 }
 
-// applyPlatformDefaults applies platform profile values using either force or fill-missing mode.
-// In fill-missing mode, cluster.driver is set only when empty and cloud enabled flags are set
-// only when the corresponding key is unset.
-func (rt *Runtime) applyPlatformDefaults(platformOverride string, onlyIfMissing bool) error {
-	platform := platformOverride
-	if platform == "" {
-		platform = rt.ConfigHandler.GetString("platform")
-	}
-	if platform == "" {
-		platform = rt.ConfigHandler.GetString("provider")
-	}
-	setBool := func(key string, value bool) error {
-		if err := rt.ConfigHandler.Set(key, value); err != nil {
-			return fmt.Errorf("failed to set %s: %w", key, err)
-		}
-		return nil
-	}
-	if onlyIfMissing {
-		setBool = func(key string, value bool) error {
-			if rt.ConfigHandler.Get(key) != nil {
-				return nil
-			}
-			if err := rt.ConfigHandler.Set(key, value); err != nil {
-				return fmt.Errorf("failed to set %s: %w", key, err)
-			}
-			return nil
-		}
-	}
-
-	if platform != "" {
-		switch platform {
-		case "aws":
-			if err := setBool("aws.enabled", true); err != nil {
-				return err
-			}
-		case "azure":
-			if err := setBool("azure.enabled", true); err != nil {
-				return err
-			}
-		case "gcp":
-			if err := setBool("gcp.enabled", true); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
 // initializeEnvPrinters initializes environment printers based on configuration settings.
 // It creates and registers the appropriate environment printers with the dependency injector
 // based on the current configuration state.
 func (rt *Runtime) initializeEnvPrinters() {
+	clusterDriver := rt.ConfigHandler.GetString("cluster.driver", "")
+	clusterEnabled := clusterDriver != ""
+	needsDocker := rt.needsDockerEnv()
+
 	if rt.EnvPrinters.AwsEnv == nil && rt.ConfigHandler.GetBool("aws.enabled", false) {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
@@ -759,15 +714,13 @@ func (rt *Runtime) initializeEnvPrinters() {
 	if rt.EnvPrinters.GcpEnv == nil && rt.ConfigHandler.GetBool("gcp.enabled", false) {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.DockerEnv == nil && rt.needsDockerEnv() {
+	if rt.EnvPrinters.DockerEnv == nil && needsDocker {
 		rt.EnvPrinters.DockerEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.KubeEnv == nil && rt.ConfigHandler.GetBool("cluster.enabled", false) {
+	if rt.EnvPrinters.KubeEnv == nil && clusterEnabled {
 		rt.EnvPrinters.KubeEnv = env.NewKubeEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
-	if rt.EnvPrinters.TalosEnv == nil &&
-		(rt.ConfigHandler.GetString("cluster.driver", "") == "talos" ||
-			rt.ConfigHandler.GetString("cluster.driver", "") == "omni") {
+	if rt.EnvPrinters.TalosEnv == nil && clusterDriver == "talos" {
 		rt.EnvPrinters.TalosEnv = env.NewTalosEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.TerraformEnv == nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {

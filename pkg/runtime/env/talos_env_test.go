@@ -15,14 +15,17 @@ import (
 
 // TestTalosEnv_GetEnvVars tests the GetEnvVars method of the TalosEnvPrinter
 func TestTalosEnv_GetEnvVars(t *testing.T) {
-	setup := func(t *testing.T, provider string) (*TalosEnvPrinter, *EnvTestMocks) {
+	setup := func(t *testing.T, clusterDriver string, platform string) (*TalosEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 
 		// Create a mock config handler
 		mockConfigHandler := config.NewMockConfigHandler()
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
-				return provider
+			if key == "cluster.driver" {
+				return clusterDriver
+			}
+			if key == "platform" {
+				return platform
 			}
 			return ""
 		}
@@ -46,9 +49,9 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 		return printer, mocks
 	}
 
-	t.Run("DockerProvider", func(t *testing.T) {
-		// Given a new TalosOmniEnvPrinter with docker provider
-		printer, mocks := setup(t, "docker")
+	t.Run("TalosDriverSetsTalosConfig", func(t *testing.T) {
+		// Given a TalosEnvPrinter with talos cluster driver
+		printer, mocks := setup(t, "talos", "docker")
 
 		// Get the project root path
 		projectRoot, err := mocks.Shell.GetProjectRoot()
@@ -77,26 +80,25 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedTalosPath)
 		}
 
-		// And OMNICONFIG should not be set for docker provider
+		// And OMNICONFIG should not be set for non-omni platform
 		if _, exists := envVars["OMNICONFIG"]; exists {
-			t.Error("OMNICONFIG should not be set for docker provider")
+			t.Error("OMNICONFIG should not be set for non-omni platform")
 		}
 	})
 
-	t.Run("OmniProvider", func(t *testing.T) {
-		// Given a new TalosOmniEnvPrinter with omni provider
-		printer, mocks := setup(t, "omni")
+	t.Run("OmniPlatformSetsOmniConfigWithTalosDriver", func(t *testing.T) {
+		// Given a TalosEnvPrinter with omni platform and talos cluster driver
+		printer, mocks := setup(t, "talos", "omni")
 
 		// Get the project root path
 		projectRoot, err := mocks.Shell.GetProjectRoot()
 		if err != nil {
 			t.Fatalf("Failed to get project root: %v", err)
 		}
-		expectedTalosPath := filepath.Join(projectRoot, "contexts", "mock-context", ".talos", "config")
 		expectedOmniPath := filepath.Join(projectRoot, "contexts", "mock-context", ".omni", "config")
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == expectedTalosPath || name == expectedOmniPath {
+			if name == expectedOmniPath {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -110,27 +112,21 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And TALOSCONFIG should be set correctly
+		// And TALOSCONFIG should be set for talos cluster driver
+		expectedTalosPath := filepath.Join(projectRoot, "contexts", "mock-context", ".talos", "config")
 		if envVars["TALOSCONFIG"] != expectedTalosPath {
 			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedTalosPath)
 		}
 
-		// And OMNICONFIG should be set correctly for omni provider
+		// And OMNICONFIG should be set correctly for omni platform
 		if envVars["OMNICONFIG"] != expectedOmniPath {
 			t.Errorf("OMNICONFIG = %v, want %v", envVars["OMNICONFIG"], expectedOmniPath)
 		}
 	})
 
-	t.Run("NoConfigFiles", func(t *testing.T) {
-		// Given a new TalosOmniEnvPrinter without existing config files
-		printer, mocks := setup(t, "docker")
-
-		// Get the project root path
-		projectRoot, err := mocks.Shell.GetProjectRoot()
-		if err != nil {
-			t.Fatalf("Failed to get project root: %v", err)
-		}
-		expectedPath := filepath.Join(projectRoot, "contexts", "mock-context", ".talos", "config")
+	t.Run("NoTalosConfigWhenDriverMissing", func(t *testing.T) {
+		// Given a TalosEnvPrinter without talos driver
+		printer, mocks := setup(t, "", "docker")
 
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
@@ -144,15 +140,15 @@ func TestTalosEnv_GetEnvVars(t *testing.T) {
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And TALOSCONFIG should still be set to default path
-		if envVars["TALOSCONFIG"] != expectedPath {
-			t.Errorf("TALOSCONFIG = %v, want %v", envVars["TALOSCONFIG"], expectedPath)
+		// And TALOSCONFIG should not be set when driver is missing
+		if _, exists := envVars["TALOSCONFIG"]; exists {
+			t.Error("TALOSCONFIG should not be set when cluster.driver is missing")
 		}
 	})
 
 	t.Run("GetProjectRootError", func(t *testing.T) {
 		// Given a new TalosOmniEnvPrinter with failing config root lookup
-		printer, _ := setup(t, "generic")
+		printer, _ := setup(t, "talos", "docker")
 
 		// Override the GetConfigRoot to return an error
 		printer.configHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {

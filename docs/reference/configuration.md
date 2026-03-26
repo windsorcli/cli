@@ -26,7 +26,7 @@ The context sections configure details related to each context. These configurat
 
 Windsor applies default values for various configuration options when they are not explicitly specified:
 
-- **Cluster**: `cluster.enabled` defaults to `true` for all contexts. This ensures that cluster resources are available by default.
+- **Cluster**: `cluster.driver` is derived from platform defaults (for example, local and omni platforms use `talos`).
 - **Terraform**: `terraform.enabled` defaults to `true` with a `local` backend.
 - **Docker**: `docker.enabled` defaults to `false` and is **deprecated**; internal workstation is determined by provider and `workstation.runtime`. Registry configuration is still used.
 - **Provider**: Defaults to `"none"` for non-dev contexts, `"docker"` for dev contexts (or `"incus"` when using colima-incus vm-driver).

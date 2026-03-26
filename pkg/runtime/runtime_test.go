@@ -36,7 +36,7 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 
 	configHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 		switch key {
-		case "docker.enabled", "cluster.enabled", "terraform.enabled":
+		case "docker.enabled", "terraform.enabled":
 			return true
 		case "aws.enabled", "azure.enabled", "gcp.enabled":
 			return false
@@ -1784,6 +1784,35 @@ func TestRuntime_ApplyPlatformDefaults(t *testing.T) {
 		if setCalls["aws.enabled"] != true {
 			t.Error("Expected aws.enabled to be set to true")
 		}
+		if setCalls["cluster.driver"] != "eks" {
+			t.Error("Expected cluster.driver to be set to eks")
+		}
+	})
+
+	t.Run("SetsTalosClusterDriverFromOmniPlatform", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "platform" {
+				return "omni"
+			}
+			return ""
+		}
+
+		setCalls := make(map[string]interface{})
+		mockConfigHandler.SetFunc = func(key string, value interface{}) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		err := rt.ApplyPlatformDefaults("")
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if setCalls["cluster.driver"] != "talos" {
+			t.Error("Expected cluster.driver to be set to talos")
+		}
 	})
 
 }
@@ -2740,17 +2769,17 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesKubeEnvWhenEnabled", func(t *testing.T) {
-		// Given a runtime with cluster enabled
+	t.Run("InitializesKubeEnvWhenCloudDriverSet", func(t *testing.T) {
+		// Given a runtime with cluster driver set
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "cluster.enabled" {
-				return true
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
 			}
-			return false
+			return ""
 		}
 
 		// When initializeEnvPrinters is called
@@ -2786,15 +2815,15 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesTalosEnvWhenDriverIsOmni", func(t *testing.T) {
-		// Given a runtime with Omni cluster driver
+	t.Run("SkipsTalosEnvWhenDriverIsNotTalos", func(t *testing.T) {
+		// Given a runtime with non-talos cluster driver
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "cluster.driver" {
-				return "omni"
+				return "eks"
 			}
 			return ""
 		}
@@ -2802,10 +2831,27 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
 
-		// Then Talos env printer should be initialized
+		// Then Talos env printer should not be initialized
+		if rt.EnvPrinters.TalosEnv != nil {
+			t.Error("Expected TalosEnv to be nil for non-talos cluster driver")
+		}
+	})
 
-		if rt.EnvPrinters.TalosEnv == nil {
-			t.Error("Expected TalosEnv to be initialized")
+	t.Run("InitializesKubeEnvWhenDriverSet", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "gke"
+			}
+			return ""
+		}
+
+		rt.initializeEnvPrinters()
+
+		if rt.EnvPrinters.KubeEnv == nil {
+			t.Error("Expected KubeEnv to be initialized when cluster.driver is set")
 		}
 	})
 

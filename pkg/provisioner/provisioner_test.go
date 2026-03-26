@@ -191,7 +191,7 @@ func TestNewProvisioner(t *testing.T) {
 		}
 	})
 
-	t.Run("CreatesClusterClientForOmni", func(t *testing.T) {
+	t.Run("KeepsClusterClientNilForOmniDriver", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -205,7 +205,7 @@ func TestNewProvisioner(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		if provisioner.ClusterClient != nil {
-			t.Error("Expected cluster client to be nil (lazy loaded)")
+			t.Error("Expected cluster client to be nil (omni driver is unsupported)")
 		}
 	})
 
@@ -223,7 +223,7 @@ func TestNewProvisioner(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		if provisioner.ClusterClient != nil {
-			t.Error("Expected cluster client to be nil for non-talos/omni driver")
+			t.Error("Expected cluster client to be nil for non-talos driver")
 		}
 	})
 

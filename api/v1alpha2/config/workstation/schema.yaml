@@ -133,9 +133,6 @@ properties:
     type: object
     description: Cluster configuration
     properties:
-      enabled:
-        type: boolean
-        description: Enable or disable cluster
       driver:
         type: string
         description: Cluster driver

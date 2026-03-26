@@ -261,7 +261,7 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 	if hasNodeCheck {
 		if i.ClusterClient == nil {
 			clusterDriver := i.configHandler.GetString("cluster.driver", "")
-			if clusterDriver == "talos" || clusterDriver == "omni" {
+			if clusterDriver == "talos" {
 				i.ClusterClient = cluster.NewTalosClusterClient()
 			}
 		}

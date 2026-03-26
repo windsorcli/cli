@@ -73,8 +73,8 @@ func TestValuesSource_Save(t *testing.T) {
 			t.Fatalf("Expected values.yaml to be written, got %v", err)
 		}
 		valuesStr := string(content)
-		if !contains(valuesStr, "provider: docker") {
-			t.Errorf("Expected provider in values.yaml, got %s", valuesStr)
+		if contains(valuesStr, "provider:") {
+			t.Errorf("Expected provider to be excluded from values.yaml, got %s", valuesStr)
 		}
 		if contains(valuesStr, "platform:") {
 			t.Errorf("Expected platform to be excluded from values.yaml in dev input, got %s", valuesStr)
@@ -97,7 +97,7 @@ func TestValuesSource_Save(t *testing.T) {
 			t.Fatalf("Expected no error writing initial values file, got %v", err)
 		}
 
-		if err := source.Save(projectRoot, contextName, map[string]any{"provider": "docker"}, false, persistencePolicyInput{IsDevMode: true}); err != nil {
+		if err := source.Save(projectRoot, contextName, map[string]any{"cluster": map[string]any{"driver": "talos"}}, false, persistencePolicyInput{IsDevMode: true}); err != nil {
 			t.Fatalf("Expected no error cleaning existing values file, got %v", err)
 		}
 
@@ -113,8 +113,8 @@ func TestValuesSource_Save(t *testing.T) {
 		if contains(valuesStr, "workstation:") {
 			t.Errorf("Expected workstation to be removed during cleaning, got %s", valuesStr)
 		}
-		if !contains(valuesStr, "provider: docker") {
-			t.Errorf("Expected provider to remain, got %s", valuesStr)
+		if contains(valuesStr, "provider:") {
+			t.Errorf("Expected provider to be removed during cleaning, got %s", valuesStr)
 		}
 	})
 }

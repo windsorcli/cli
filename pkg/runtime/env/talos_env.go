@@ -40,19 +40,22 @@ func NewTalosEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *
 // Public Methods
 // =============================================================================
 
-// GetEnvVars returns a map of environment variables for the Talos environment.
-// It sets the TALOSCONFIG variable and, if the cluster driver is "omni", also sets OMNICONFIG.
-// Returns an error if the configuration root cannot be determined.
+// GetEnvVars returns a map of environment variables for the Talos and Omni environments.
+// It sets TALOSCONFIG only when cluster.driver is "talos" and sets OMNICONFIG only when
+// platform is "omni". Returns an error if the configuration root cannot be determined.
 func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
-	talosConfigPath := filepath.Join(configRoot, ".talos", "config")
-	envVars["TALOSCONFIG"] = talosConfigPath
-	provider := e.configHandler.GetString("provider", "")
-	if provider == "omni" {
+	clusterDriver := e.configHandler.GetString("cluster.driver", "")
+	if clusterDriver == "talos" {
+		talosConfigPath := filepath.Join(configRoot, ".talos", "config")
+		envVars["TALOSCONFIG"] = talosConfigPath
+	}
+	platform := e.configHandler.GetString("platform", "")
+	if platform == "omni" {
 		omniConfigPath := filepath.Join(configRoot, ".omni", "config")
 		envVars["OMNICONFIG"] = omniConfigPath
 	}

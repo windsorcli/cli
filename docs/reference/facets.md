@@ -108,7 +108,7 @@ Expressions support:
 - **Equality/inequality**: `==`, `!=`
 - **Logical operators**: `&&`, `||`
 - **Parentheses for grouping**: `(expression)`
-- **Nested object access**: `provider`, `cluster.enabled`, `workstation.runtime`, `cluster.workers.count`
+- **Nested object access**: `provider`, `cluster.driver`, `workstation.runtime`, `cluster.workers.count`
 - **String literals**: Use single quotes: `'aws'`, `'talos'`, `'local'`
 - **Boolean values**: `true`, `false`
 - **Numeric values**: `1`, `2.5`
@@ -122,13 +122,13 @@ Expressions support:
 when: provider == 'aws'
 
 # Multiple conditions
-when: provider == 'aws' && cluster.enabled == true
+when: provider == 'aws' && cluster.driver == 'eks'
 
 # Nested property access
-when: cluster.enabled == true && cluster.driver == 'talos'
+when: cluster.driver == 'talos'
 
 # Complex logical expressions
-when: (provider == 'aws' || provider == 'azure') && cluster.enabled == true
+when: cluster.driver == 'eks' || cluster.driver == 'aks'
 
 # Null coalescing
 when: observability.enabled ?? false
