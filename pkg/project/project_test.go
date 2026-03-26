@@ -563,7 +563,7 @@ func TestProject_Configure(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorOnApplyPlatformDefaultsFailure", func(t *testing.T) {
+	t.Run("NoErrorWhenLegacyPlatformDefaultSetterWouldFail", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.SetFunc = func(key string, value any) error {
@@ -577,9 +577,8 @@ func TestProject_Configure(t *testing.T) {
 
 		err := proj.Configure(map[string]any{"platform": "aws"})
 
-		if err == nil {
-			t.Error("Expected error for ApplyPlatformDefaults failure")
-			return
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
 		}
 	})
 
