@@ -64,10 +64,12 @@ func (e *TalosEnvPrinter) GetEnvVars() (map[string]string, error) {
 	if clusterDriver == "talos" {
 		talosConfigPath := filepath.Join(configRoot, ".talos", "config")
 		envVars["TALOSCONFIG"] = talosConfigPath
+		e.SetManagedEnv("TALOSCONFIG")
 	}
 	if platform == "omni" {
 		omniConfigPath := filepath.Join(configRoot, ".omni", "config")
 		envVars["OMNICONFIG"] = omniConfigPath
+		e.SetManagedEnv("OMNICONFIG")
 	}
 	return envVars, nil
 }
