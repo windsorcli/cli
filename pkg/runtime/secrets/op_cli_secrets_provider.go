@@ -81,7 +81,7 @@ func (s *OnePasswordCLISecretsProvider) ParseSecrets(input string) (string, erro
 		}
 		value, err := s.GetSecret(fmt.Sprintf("%s.%s", secret, field))
 		if err != nil {
-			return "<ERROR: secret not found>", true
+			return fmt.Sprintf("<ERROR: failed to resolve: %s.%s: %s>", secret, field, err), true
 		}
 		return value, true
 	})
