@@ -531,6 +531,9 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 				if err != nil {
 					return fmt.Errorf("config block %q: %w", name, err)
 				}
+				if normalized, ok := normalizeDeferredValue(evaluated).(map[string]any); ok {
+					evaluated = normalized
+				}
 				if previousEvaluatedOnly != nil && reflect.DeepEqual(evaluated, previousEvaluatedOnly) && !containsExpressionInValue(evaluated) {
 					for k, orig := range derivedKeys {
 						evaluated[k] = orig
@@ -563,7 +566,7 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 					if reflect.DeepEqual(resolved, v) {
 						continue
 					}
-					current[k] = resolved
+					current[k] = normalizeDeferredValue(resolved)
 					scopeWithBlock[name] = current
 					resolvedAny = true
 				}
@@ -592,9 +595,17 @@ func (p *BaseBlueprintProcessor) evaluateConfigBlockValue(v any, path string, sc
 		if !evaluator.ContainsExpression(x) {
 			return x, nil
 		}
-		return p.evaluator.Evaluate(x, path, scope, false)
+		evaluated, err := p.evaluator.Evaluate(x, path, scope, false)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeDeferredValue(evaluated), nil
 	case map[string]any:
-		return p.evaluator.EvaluateMap(x, path, scope, false)
+		evaluated, err := p.evaluator.EvaluateMap(x, path, scope, false)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeDeferredValue(evaluated), nil
 	case []any:
 		out := make([]any, 0, len(x))
 		for i, item := range x {
