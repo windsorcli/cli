@@ -3125,4 +3125,49 @@ terraform:
 			t.Fatalf("Expected runtime deferred TF_VAR_talos_version to be exported, got %q", envVars["TF_VAR_talos_version"])
 		}
 	})
+
+	t.Run("DoesNotSerializeDeferredValueWrapperIntoTFVar", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		component := blueprintv1alpha1.TerraformComponent{
+			Path: "cluster",
+			Inputs: map[string]any{
+				"network_cidr": evaluator.DeferredValue{
+					Expression: "${terraform_output(\"workstation\", \"network_cidr\")}",
+				},
+				"network_name": &evaluator.DeferredValue{
+					Expression: "${terraform_output(\"workstation\", \"network_name\")}",
+				},
+			},
+		}
+		component.FullPath = "/test/project/terraform/cluster"
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			out := make(map[string]any, len(values))
+			for key, value := range values {
+				out[key] = value
+			}
+			return out, nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		for key, value := range envVars {
+			if strings.HasPrefix(key, "TF_VAR_") && strings.HasPrefix(value, "{\"Expression\":") {
+				t.Fatalf("Expected TF_VAR to never serialize DeferredValue wrapper, got %s=%s", key, value)
+			}
+		}
+
+		if got := envVars["TF_VAR_network_cidr"]; got != "${terraform_output(\"workstation\", \"network_cidr\")}" {
+			t.Fatalf("Expected TF_VAR_network_cidr to contain raw expression string, got %q", got)
+		}
+		if got := envVars["TF_VAR_network_name"]; got != "${terraform_output(\"workstation\", \"network_name\")}" {
+			t.Fatalf("Expected TF_VAR_network_name to contain raw expression string, got %q", got)
+		}
+	})
 }
