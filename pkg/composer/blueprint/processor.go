@@ -50,6 +50,7 @@ type BaseBlueprintProcessor struct {
 	runtime        *runtime.Runtime
 	evaluator      evaluator.ExpressionEvaluator
 	traceCollector TraceCollector
+	deferredPaths  map[string]bool
 }
 
 // =============================================================================
@@ -72,6 +73,7 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 	return &BaseBlueprintProcessor{
 		runtime:   rt,
 		evaluator: rt.Evaluator,
+		deferredPaths: make(map[string]bool),
 	}
 }
 
@@ -86,6 +88,18 @@ func (p *BaseBlueprintProcessor) SetTraceCollector(tc TraceCollector) {
 	p.traceCollector = tc
 }
 
+// GetDeferredPaths returns a copy of deferred composed paths discovered during the last ProcessFacets call.
+func (p *BaseBlueprintProcessor) GetDeferredPaths() map[string]bool {
+	if len(p.deferredPaths) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(p.deferredPaths))
+	for k, v := range p.deferredPaths {
+		out[k] = v
+	}
+	return out
+}
+
 // ProcessFacets iterates facets, evaluating each facet's 'when' against config data. Facets with
 // true (or unset) conditions contribute their terraform components, kustomizations, and config blocks to target.
 // Components in facets may have 'when' for granular control. Facets are sorted by ordinal (asc),
@@ -97,6 +111,7 @@ func (p *BaseBlueprintProcessor) SetTraceCollector(tc TraceCollector) {
 // Returns: evaluated config scope and block order for the loader. Runtime ConfigHandler context values are
 // merged over facet-derived scope so 'when' or component expressions use the actual config.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
+	p.deferredPaths = make(map[string]bool)
 	if target == nil {
 		return nil, nil, fmt.Errorf("target blueprint cannot be nil")
 	}
@@ -217,6 +232,17 @@ func (p *BaseBlueprintProcessor) recordConfigTrace(configPath string, record Con
 	if p.traceCollector != nil {
 		p.traceCollector.RecordConfigBlock(configPath, record)
 	}
+}
+
+// markDeferredPath records a composed path as deferred for consumer commands like show/explain.
+func (p *BaseBlueprintProcessor) markDeferredPath(composedPath string) {
+	if composedPath == "" {
+		return
+	}
+	if p.deferredPaths == nil {
+		p.deferredPaths = make(map[string]bool)
+	}
+	p.deferredPaths[composedPath] = true
 }
 
 // scopeForConfigBlock builds the evaluation scope for evaluating a single config block so that
@@ -620,8 +646,22 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			}
 			normalized := make(map[string]any, len(evaluated))
 			origins := make(map[string]string, len(evaluated))
+			componentID := processed.GetID()
 			for k, v := range evaluated {
 				origins[k] = facet.Path
+				composedPath := "terraform." + componentID + ".inputs." + k
+				if originalVal, exists := processed.Inputs[k]; exists {
+					if s, ok := originalVal.(string); ok && evaluator.ContainsExpression(s) {
+						probe, probeErr := p.evaluator.Evaluate(s, facet.Path, facetScope, false)
+						if probeErr == nil && evaluator.IsDeferredValue(probe) {
+							p.markDeferredPath(composedPath)
+							if expr, ok := evaluator.DeferredExpression(probe); ok {
+								v = expr
+							}
+						}
+					}
+				}
+				v = normalizeDeferredValue(v)
 				if m := blueprintv1alpha1.ToMapStringAny(v); m != nil {
 					normalized[k] = m
 				} else if s := blueprintv1alpha1.ToSliceAny(v); s != nil {
@@ -724,11 +764,31 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		processed := k
 		processed.When = componentWhen
 		if processed.Substitutions != nil {
-			evaluated, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path, facetScope)
+			evaluated, deferredKeys, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
 			}
 			processed.Substitutions = evaluated
+			for key, isDeferred := range deferredKeys {
+				if isDeferred {
+					p.markDeferredPath("kustomize." + processed.Name + ".substitutions." + key)
+				}
+			}
+		}
+		if evaluator.ContainsExpression(processed.Path) {
+			evaluatedPath, err := p.evaluator.Evaluate(processed.Path, facet.Path, facetScope, false)
+			if err != nil {
+				return fmt.Errorf("error evaluating path for kustomization '%s': %w", processed.Name, err)
+			}
+			if containsDeferredInValue(evaluatedPath) {
+				p.markDeferredPath("kustomize." + processed.Name + ".path")
+			}
+			evaluatedPath = normalizeDeferredValue(evaluatedPath)
+			if pathStr, ok := evaluatedPath.(string); ok {
+				processed.Path = pathStr
+			} else if evaluatedPath != nil {
+				processed.Path = fmt.Sprintf("%v", evaluatedPath)
+			}
 		}
 		if len(processed.DependsOn) > 0 {
 			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
@@ -1316,12 +1376,23 @@ func (p *BaseBlueprintProcessor) evaluateCondition(expr string, path string, sco
 // is included with an empty string value. If the result contains unresolved deferred expressions, the
 // original expression is preserved for later evaluation. Returns the evaluated substitutions map or an
 // error if evaluation fails for any substitution.
-func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, facetPath string, scope map[string]any) (map[string]string, error) {
+func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, facetPath string, scope map[string]any) (map[string]string, map[string]bool, error) {
 	result := make(map[string]string)
+	deferredKeys := make(map[string]bool)
 	for key, value := range subs {
 		evaluated, err := p.evaluator.Evaluate(value, facetPath, scope, false)
 		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+			return nil, nil, fmt.Errorf("failed to evaluate '%s': %w", key, err)
+		}
+		if evaluator.IsDeferredValue(evaluated) {
+			if deferredExpr, ok := evaluator.DeferredExpression(evaluated); ok {
+				result[key] = deferredExpr
+				deferredKeys[key] = true
+				continue
+			}
+			result[key] = value
+			deferredKeys[key] = true
+			continue
 		}
 		if evaluator.ContainsExpression(evaluated) {
 			result[key] = value
@@ -1335,7 +1406,7 @@ func (p *BaseBlueprintProcessor) evaluateSubstitutions(subs map[string]string, f
 			result[key] = fmt.Sprintf("%v", evaluated)
 		}
 	}
-	return result, nil
+	return result, deferredKeys, nil
 }
 
 // evaluateStringSlice evaluates a slice of strings, allowing expressions in each string.
@@ -1550,6 +1621,10 @@ func asMapStringAny(v any) (map[string]any, bool) {
 
 func containsExpressionInValue(v any) bool {
 	switch x := v.(type) {
+	case evaluator.DeferredValue:
+		return true
+	case *evaluator.DeferredValue:
+		return x != nil
 	case string:
 		return evaluator.ContainsExpression(x)
 	case map[string]any:
@@ -1568,6 +1643,59 @@ func containsExpressionInValue(v any) bool {
 		return false
 	default:
 		return false
+	}
+}
+
+// containsDeferredInValue reports whether v contains one or more evaluator.DeferredValue nodes.
+func containsDeferredInValue(v any) bool {
+	switch x := v.(type) {
+	case evaluator.DeferredValue:
+		return true
+	case *evaluator.DeferredValue:
+		return x != nil
+	case map[string]any:
+		for _, val := range x {
+			if containsDeferredInValue(val) {
+				return true
+			}
+		}
+		return false
+	case []any:
+		for _, val := range x {
+			if containsDeferredInValue(val) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// normalizeDeferredValue recursively replaces DeferredValue nodes with their expression text.
+func normalizeDeferredValue(v any) any {
+	switch x := v.(type) {
+	case evaluator.DeferredValue:
+		return x.Expression
+	case *evaluator.DeferredValue:
+		if x == nil {
+			return nil
+		}
+		return x.Expression
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			out[k] = normalizeDeferredValue(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, val := range x {
+			out[i] = normalizeDeferredValue(val)
+		}
+		return out
+	default:
+		return v
 	}
 }
 

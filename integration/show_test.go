@@ -34,3 +34,35 @@ func TestShowBlueprint_DefaultFixture(t *testing.T) {
 		t.Error("expected metadata in blueprint")
 	}
 }
+
+func TestShowBlueprint_DefaultRendersDeferredPlaceholder(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-composition")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "<deferred>") {
+		t.Fatalf("expected output to include <deferred>, got:\n%s", stdout)
+	}
+	if strings.Contains(string(stdout), "${terraform_output(") {
+		t.Fatalf("expected output to hide deferred expression text, got:\n%s", stdout)
+	}
+}
+
+func TestShowBlueprint_RawPreservesDeferredExpressions(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-composition")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint", "--raw"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint --raw: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), `terraform_output("compute", "controlplanes")`) {
+		t.Fatalf("expected raw output to include deferred expression text, got:\n%s", stdout)
+	}
+	if strings.Contains(string(stdout), "<deferred>") {
+		t.Fatalf("expected raw output to not include <deferred>, got:\n%s", stdout)
+	}
+}

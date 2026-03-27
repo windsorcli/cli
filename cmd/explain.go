@@ -56,14 +56,18 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	printTrace(trace)
+	deferredPaths := map[string]bool(nil)
+	if bh, ok := proj.Composer.BlueprintHandler.(*blueprint.BaseBlueprintHandler); ok {
+		deferredPaths = bh.GetDeferredPaths()
+	}
+	printTrace(trace, deferredPaths)
 	if validationErr != nil {
 		fmt.Fprintf(os.Stderr, "\033[33mWarning: %v\033[0m\n", validationErr)
 	}
 	return nil
 }
 
-func printTrace(t *blueprint.ExplainTrace) {
+func printTrace(t *blueprint.ExplainTrace, deferredPaths map[string]bool) {
 	isList := strings.HasSuffix(t.Path, ".components")
 	if isList {
 		fmt.Printf("%s\n", t.Path)
@@ -79,10 +83,14 @@ func printTrace(t *blueprint.ExplainTrace) {
 		return
 	}
 	value := t.Value
+	isDeferred := deferredPaths != nil && deferredPaths[t.Path]
+	if !isDeferred {
+		isDeferred = strings.Contains(value, "${")
+	}
 	switch {
 	case value == "":
 		fmt.Printf("%s (empty)\n", t.Path)
-	case strings.Contains(value, "${"):
+	case isDeferred:
 		fmt.Printf("%s (deferred)\n", t.Path)
 	case len(value) > 60:
 		fmt.Printf("%s\n", t.Path)

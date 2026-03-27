@@ -2902,7 +2902,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
-		result, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
+		result, _, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2936,7 +2936,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
-		result, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
+		result, _, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -2969,7 +2969,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
-		result, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
+		result, _, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -3006,7 +3006,7 @@ func TestBaseBlueprintProcessor_evaluateSubstitutions(t *testing.T) {
 			runtime:   mocks.Runtime,
 			evaluator: mocks.Evaluator,
 		}
-		result, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
+		result, _, err := baseProcessor.evaluateSubstitutions(subs, "", nil)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)

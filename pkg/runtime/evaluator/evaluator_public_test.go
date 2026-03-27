@@ -1627,9 +1627,15 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		expected := input
-		if result != expected {
-			t.Errorf("Expected result to be preserved as original %q, got %q", expected, result)
+		if !IsDeferredValue(result) {
+			t.Fatalf("Expected deferred value, got %T", result)
+		}
+		expr, ok := DeferredExpression(result)
+		if !ok {
+			t.Fatalf("Expected deferred expression to be available")
+		}
+		if expr != input {
+			t.Errorf("Expected deferred expression %q, got %q", input, expr)
 		}
 	})
 
@@ -1664,11 +1670,19 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		if _, exists := result["deferred"]; !exists {
+		deferredValue, exists := result["deferred"]
+		if !exists {
 			t.Error("Expected deferred value to be preserved in result")
 		}
-		if result["deferred"] != values["deferred"] {
-			t.Errorf("Expected deferred to be preserved as original value, got %v", result["deferred"])
+		if !IsDeferredValue(deferredValue) {
+			t.Fatalf("Expected deferred map value to be DeferredValue, got %T", deferredValue)
+		}
+		expr, ok := DeferredExpression(deferredValue)
+		if !ok {
+			t.Fatal("Expected deferred expression from map value")
+		}
+		if expr != values["deferred"] {
+			t.Errorf("Expected deferred expression %q, got %q", values["deferred"], expr)
 		}
 
 		if result["normal"] != "value" {
