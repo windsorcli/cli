@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -50,6 +51,7 @@ type BaseBlueprintProcessor struct {
 	runtime        *runtime.Runtime
 	evaluator      evaluator.ExpressionEvaluator
 	traceCollector TraceCollector
+	mu             sync.Mutex
 	deferredPaths  map[string]bool
 }
 
@@ -90,6 +92,8 @@ func (p *BaseBlueprintProcessor) SetTraceCollector(tc TraceCollector) {
 
 // GetDeferredPaths returns a copy of deferred composed paths discovered during the last ProcessFacets call.
 func (p *BaseBlueprintProcessor) GetDeferredPaths() map[string]bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if len(p.deferredPaths) == 0 {
 		return nil
 	}
@@ -111,6 +115,8 @@ func (p *BaseBlueprintProcessor) GetDeferredPaths() map[string]bool {
 // Returns: evaluated config scope and block order for the loader. Runtime ConfigHandler context values are
 // merged over facet-derived scope so 'when' or component expressions use the actual config.
 func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.deferredPaths = make(map[string]bool)
 	if target == nil {
 		return nil, nil, fmt.Errorf("target blueprint cannot be nil")

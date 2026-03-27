@@ -42,6 +42,7 @@ type BaseBlueprintHandler struct {
 	sourceBlueprintLoaders map[string]BlueprintLoader
 	userBlueprintLoader    BlueprintLoader
 	composedBlueprint      *blueprintv1alpha1.Blueprint
+	deferredPathsMu        sync.Mutex
 	deferredPaths          map[string]bool
 	traceCollector         TraceCollector
 	initBlueprintURLs      []string
@@ -110,7 +111,9 @@ func (h *BaseBlueprintHandler) SetTraceCollector(tc TraceCollector) {
 // to sources during initialization. These URLs are loaded first so their metadata names can be used.
 func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	h.initBlueprintURLs = blueprintURL
+	h.deferredPathsMu.Lock()
 	h.deferredPaths = make(map[string]bool)
+	h.deferredPathsMu.Unlock()
 
 	if err := h.loadInitBlueprints(); err != nil {
 		return fmt.Errorf("failed to load init blueprints: %w", err)
@@ -198,6 +201,8 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 
 // GetDeferredPaths returns composed paths whose values were deferred during expression evaluation.
 func (h *BaseBlueprintHandler) GetDeferredPaths() map[string]bool {
+	h.deferredPathsMu.Lock()
+	defer h.deferredPathsMu.Unlock()
 	if len(h.deferredPaths) == 0 {
 		return nil
 	}
@@ -669,9 +674,11 @@ func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) (map[string
 		return nil, nil, err
 	}
 	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		h.deferredPathsMu.Lock()
 		for path := range concrete.GetDeferredPaths() {
 			h.deferredPaths[path] = true
 		}
+		h.deferredPathsMu.Unlock()
 	}
 	return scope, order, nil
 }
