@@ -12,6 +12,7 @@ type MockBlueprintHandler struct {
 	GetLocalTemplateDataFunc   func() (map[string][]byte, error)
 	GenerateFunc               func() *blueprintv1alpha1.Blueprint
 	ExplainFunc                func(string) (*ExplainTrace, error)
+	GetDeferredPathsFunc       func() map[string]bool
 }
 
 // =============================================================================
@@ -73,6 +74,14 @@ func (m *MockBlueprintHandler) Explain(path string) (*ExplainTrace, error) {
 		return m.ExplainFunc(path)
 	}
 	return nil, nil
+}
+
+// GetDeferredPaths calls the mock GetDeferredPathsFunc if set, otherwise returns nil.
+func (m *MockBlueprintHandler) GetDeferredPaths() map[string]bool {
+	if m.GetDeferredPathsFunc != nil {
+		return m.GetDeferredPathsFunc()
+	}
+	return nil
 }
 
 // =============================================================================

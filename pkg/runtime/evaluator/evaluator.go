@@ -78,6 +78,38 @@ func (e *DeferredError) Error() string {
 	return fmt.Sprintf("deferred expression: %s", e.Expression)
 }
 
+// DeferredValue represents a value that could not be fully resolved because one or more
+// deferred helpers (for example terraform_output) were unavailable at evaluation time.
+// Expression stores the raw expression text preserved for later resolution.
+type DeferredValue struct {
+	Expression string
+}
+
+// IsDeferredValue reports whether value is a DeferredValue (value or pointer form).
+func IsDeferredValue(value any) bool {
+	switch value.(type) {
+	case DeferredValue, *DeferredValue:
+		return true
+	default:
+		return false
+	}
+}
+
+// DeferredExpression returns the preserved raw expression string when value is DeferredValue.
+func DeferredExpression(value any) (string, bool) {
+	switch v := value.(type) {
+	case DeferredValue:
+		return v.Expression, true
+	case *DeferredValue:
+		if v == nil {
+			return "", false
+		}
+		return v.Expression, true
+	default:
+		return "", false
+	}
+}
+
 // =============================================================================
 // Interfaces
 // =============================================================================
@@ -198,6 +230,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 		return s, nil
 	}
 	result := s
+	deferredEncountered := false
 	searchStart := 0
 	for iter := 0; iter < 20; iter++ {
 		idx := strings.Index(result[searchStart:], "${")
@@ -218,6 +251,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 			if !evaluateDeferred {
 				var deferredErr *DeferredError
 				if errors.As(err, &deferredErr) {
+					deferredEncountered = true
 					searchStart = end + 1
 					continue
 				}
@@ -252,6 +286,9 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 		}
 		result = before + replacement + after
 		searchStart = 0
+	}
+	if !evaluateDeferred && deferredEncountered {
+		return DeferredValue{Expression: result}, nil
 	}
 	return result, nil
 }
@@ -1489,6 +1526,13 @@ func isStructuredValue(value any) bool {
 // Used to identify values containing unresolved expressions that should be skipped when evaluateDeferred is false.
 func ContainsExpression(value any) bool {
 	switch v := value.(type) {
+	case DeferredValue:
+		return ContainsExpression(v.Expression)
+	case *DeferredValue:
+		if v == nil {
+			return false
+		}
+		return ContainsExpression(v.Expression)
 	case string:
 		if !strings.Contains(v, "${") {
 			return false

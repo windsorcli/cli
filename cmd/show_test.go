@@ -81,11 +81,20 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 			{
 				Name: "test-component",
 				Path: "test/path",
+				Inputs: map[string]any{
+					"deferred": "${terraform_output(\"cluster\", \"endpoint\")}",
+					"literal":  "value",
+				},
 			},
 		},
 		Kustomizations: []blueprintv1alpha1.Kustomization{
 			{
 				Name: "test-kustomization",
+				Path: "${terraform_output(\"cluster\", \"path\")}",
+				Substitutions: map[string]string{
+					"DEFERRED_ENDPOINT": "${terraform_output(\"cluster\", \"endpoint\")}",
+					"LITERAL":           "value",
+				},
 			},
 		},
 	}
@@ -94,6 +103,13 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 	mockBlueprintHandler.LoadBlueprintFunc = func(...string) error { return nil }
 	mockBlueprintHandler.WriteFunc = func(overwrite ...bool) error { return nil }
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+	mockBlueprintHandler.GetDeferredPathsFunc = func() map[string]bool {
+		return map[string]bool{
+			"terraform.test-component.inputs.deferred":       true,
+			"kustomize.test-kustomization.path":              true,
+			"kustomize.test-kustomization.substitutions.DEFERRED_ENDPOINT": true,
+		}
+	}
 
 	rt := runtime.NewRuntime(&runtime.Runtime{
 		Shell:         baseMocks.Shell,
@@ -121,6 +137,8 @@ func setupShowTest(t *testing.T, opts ...*SetupOptions) *ShowMocks {
 
 func TestShowBlueprintCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
+		showBlueprintJSON = false
+		showBlueprintRaw = false
 		cmd := &cobra.Command{
 			Use:          "blueprint",
 			Short:        "Display the fully rendered blueprint",
@@ -217,6 +235,12 @@ func TestShowBlueprintCmd(t *testing.T) {
 		if bp.Metadata.Name != "test-blueprint" {
 			t.Errorf("Expected blueprint name 'test-blueprint', got %q", bp.Metadata.Name)
 		}
+		if got := bp.TerraformComponents[0].Inputs["deferred"]; got != "<deferred>" {
+			t.Errorf("Expected deferred input to be <deferred>, got %v", got)
+		}
+		if got := bp.TerraformComponents[0].Inputs["literal"]; got != "value" {
+			t.Errorf("Expected literal input to remain value, got %v", got)
+		}
 
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
@@ -257,11 +281,58 @@ func TestShowBlueprintCmd(t *testing.T) {
 		if bp.Metadata.Name != "test-blueprint" {
 			t.Errorf("Expected blueprint name 'test-blueprint', got %q", bp.Metadata.Name)
 		}
+		if got := bp.TerraformComponents[0].Inputs["deferred"]; got != "<deferred>" {
+			t.Errorf("Expected deferred input to be <deferred>, got %v", got)
+		}
+		if got := bp.TerraformComponents[0].Inputs["literal"]; got != "value" {
+			t.Errorf("Expected literal input to remain value, got %v", got)
+		}
 
 		if !strings.Contains(output, "\"Kind\"") {
 			t.Error("Expected JSON output to contain JSON structure")
 		}
 
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SuccessWithRawYAMLOutput", func(t *testing.T) {
+		mocks := setupShowTest(t)
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:  mocks.Runtime,
+			Composer: comp,
+		})
+
+		stdout, stderr, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--raw"})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected non-empty stdout output")
+		}
+
+		var bp blueprintv1alpha1.Blueprint
+		if err := yaml.Unmarshal([]byte(output), &bp); err != nil {
+			t.Errorf("Expected valid YAML output, got error: %v", err)
+		}
+		if got := bp.TerraformComponents[0].Inputs["deferred"]; got != "${terraform_output(\"cluster\", \"endpoint\")}" {
+			t.Errorf("Expected deferred input to remain expression in raw mode, got %v", got)
+		}
+		if strings.Contains(output, "<deferred>") {
+			t.Error("Expected raw mode output to not contain <deferred>")
+		}
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
 		}
@@ -347,6 +418,13 @@ func TestShowBlueprintCmd(t *testing.T) {
 		if jsonFlag.Usage == "" {
 			t.Error("Expected non-empty flag usage")
 		}
+		rawFlag := cmd.Flags().Lookup("raw")
+		if rawFlag == nil {
+			t.Error("Expected --raw flag to be defined")
+		}
+		if rawFlag.Usage == "" {
+			t.Error("Expected non-empty raw flag usage")
+		}
 	})
 
 	t.Run("ShowCommandInitialization", func(t *testing.T) {
@@ -366,6 +444,8 @@ func TestShowBlueprintCmd(t *testing.T) {
 
 func TestShowKustomizationCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
+		showKustomizationJSON = false
+		showKustomizationRaw = false
 		cmd := &cobra.Command{
 			Use:          "kustomization",
 			Short:        "Display the Flux Kustomization resource for a component",
@@ -470,6 +550,9 @@ func TestShowKustomizationCmd(t *testing.T) {
 		if kustomization.APIVersion != "kustomize.toolkit.fluxcd.io/v1" {
 			t.Errorf("Expected APIVersion 'kustomize.toolkit.fluxcd.io/v1', got %q", kustomization.APIVersion)
 		}
+		if got := kustomization.Spec.Path; got != "<deferred>" {
+			t.Errorf("Expected deferred kustomization path to be <deferred>, got %q", got)
+		}
 
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
@@ -514,7 +597,51 @@ func TestShowKustomizationCmd(t *testing.T) {
 		if !strings.Contains(output, "\"kind\"") {
 			t.Error("Expected JSON output to contain JSON structure")
 		}
+		if got := kustomization.Spec.Path; got != "<deferred>" {
+			t.Errorf("Expected deferred kustomization path to be <deferred>, got %q", got)
+		}
 
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SuccessWithRawYAMLOutput", func(t *testing.T) {
+		mocks := setupShowTest(t)
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:  mocks.Runtime,
+			Composer: comp,
+		})
+
+		stdout, stderr, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"test-kustomization", "--raw"})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected non-empty stdout output")
+		}
+
+		var kustomization kustomizev1.Kustomization
+		if err := yaml.Unmarshal([]byte(output), &kustomization); err != nil {
+			t.Errorf("Expected valid YAML output, got error: %v", err)
+		}
+		if got := kustomization.Spec.Path; got != "kustomize/${terraform_output(\"cluster\", \"path\")}" {
+			t.Errorf("Expected deferred path to remain expression in raw mode, got %q", got)
+		}
+		if strings.Contains(output, "<deferred>") {
+			t.Error("Expected raw mode output to not contain <deferred>")
+		}
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
 		}
@@ -625,6 +752,13 @@ func TestShowKustomizationCmd(t *testing.T) {
 		}
 		if jsonFlag.Usage == "" {
 			t.Error("Expected non-empty flag usage")
+		}
+		rawFlag := cmd.Flags().Lookup("raw")
+		if rawFlag == nil {
+			t.Error("Expected --raw flag to be defined")
+		}
+		if rawFlag.Usage == "" {
+			t.Error("Expected non-empty raw flag usage")
 		}
 	})
 }

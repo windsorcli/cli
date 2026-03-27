@@ -9,12 +9,15 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	blueprintcomposer "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/project"
 )
 
 var showBlueprintJSON bool
+var showBlueprintRaw bool
 var showKustomizationJSON bool
+var showKustomizationRaw bool
 
 var showCmd = &cobra.Command{
 	Use:   "show",
@@ -25,10 +28,10 @@ var showCmd = &cobra.Command{
 var showBlueprintCmd = &cobra.Command{
 	Use:          "blueprint",
 	Short:        "Display the fully rendered blueprint",
-	Long:         "Display the fully rendered blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML, use --json for JSON.",
+	Long:         "Display the fully rendered blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML, use --json for JSON. Unresolved deferred values are shown as <deferred> by default; use --raw to show expression text.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		blueprint, validationErr := getBlueprint(cmd)
+		blueprint, deferredPaths, validationErr := getBlueprint(cmd)
 		if blueprint == nil {
 			if validationErr != nil {
 				return validationErr
@@ -36,7 +39,8 @@ var showBlueprintCmd = &cobra.Command{
 			return fmt.Errorf("failed to generate blueprint")
 		}
 
-		if err := outputResource(blueprint, showBlueprintJSON, "blueprint"); err != nil {
+		resource := blueprintcomposer.RenderDeferredPlaceholders(blueprint, showBlueprintRaw, deferredPaths)
+		if err := outputResource(resource, showBlueprintJSON, "blueprint"); err != nil {
 			return err
 		}
 
@@ -51,13 +55,13 @@ var showBlueprintCmd = &cobra.Command{
 var showKustomizationCmd = &cobra.Command{
 	Use:          "kustomization <component-name>",
 	Short:        "Display the Flux Kustomization resource for a component",
-	Long:         "Display the Flux Kustomization resource for the specified component to stdout. Defaults to YAML, use --json for JSON.",
+	Long:         "Display the Flux Kustomization resource for the specified component to stdout. Defaults to YAML, use --json for JSON. Unresolved deferred values are shown as <deferred> by default; use --raw to show expression text.",
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		componentName := args[0]
 
-		blueprint, validationErr := getBlueprint(cmd)
+		blueprint, deferredPaths, validationErr := getBlueprint(cmd)
 		if blueprint == nil {
 			if validationErr != nil {
 				return validationErr
@@ -71,8 +75,9 @@ var showKustomizationCmd = &cobra.Command{
 		}
 
 		fluxKustomization := buildFluxKustomization(blueprint, kustomization)
+		resource := blueprintcomposer.RenderDeferredPlaceholders(fluxKustomization, showKustomizationRaw, deferredPaths)
 
-		if err := outputResource(fluxKustomization, showKustomizationJSON, "kustomization"); err != nil {
+		if err := outputResource(resource, showKustomizationJSON, "kustomization"); err != nil {
 			return err
 		}
 
@@ -86,7 +91,9 @@ var showKustomizationCmd = &cobra.Command{
 
 func init() {
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintJSON, "json", false, "Output as JSON instead of YAML")
+	showBlueprintCmd.Flags().BoolVar(&showBlueprintRaw, "raw", false, "Output unresolved deferred values as expression text instead of <deferred>")
 	showKustomizationCmd.Flags().BoolVar(&showKustomizationJSON, "json", false, "Output as JSON instead of YAML")
+	showKustomizationCmd.Flags().BoolVar(&showKustomizationRaw, "raw", false, "Output unresolved deferred values as expression text instead of <deferred>")
 	showCmd.AddCommand(showBlueprintCmd)
 	showCmd.AddCommand(showKustomizationCmd)
 	rootCmd.AddCommand(showCmd)
@@ -98,9 +105,10 @@ func init() {
 
 // getBlueprint configures the project and composes the blueprint without running full initialization.
 // It loads blueprint sources and composes them; it does not write blueprint files, process terraform
-// modules, or generate tfvars. Returns the composed blueprint and any composition errors. Composition
-// errors are non-fatal and allow the blueprint to be returned for inspection when possible.
-func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error) {
+// modules, or generate tfvars. Returns the composed blueprint, deferred composed paths, and any
+// composition errors. Composition errors are non-fatal and allow the blueprint to be returned for
+// inspection when possible.
+func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, map[string]bool, error) {
 	var opts []*project.Project
 	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
 		opts = []*project.Project{overridesVal.(*project.Project)}
@@ -111,11 +119,11 @@ func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error) {
 	proj.Runtime.Shell.SetVerbosity(verbose)
 
 	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-		return nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		return nil, nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 	}
 
 	if err := proj.Configure(nil); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var validationErr error
@@ -126,12 +134,12 @@ func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error) {
 	blueprint := proj.Composer.BlueprintHandler.Generate()
 	if blueprint == nil {
 		if validationErr != nil {
-			return nil, validationErr
+			return nil, nil, validationErr
 		}
-		return nil, fmt.Errorf("failed to generate blueprint")
+		return nil, nil, fmt.Errorf("failed to generate blueprint")
 	}
-
-	return blueprint, validationErr
+	deferredPaths := proj.Composer.BlueprintHandler.GetDeferredPaths()
+	return blueprint, deferredPaths, validationErr
 }
 
 // outputResource serializes the provided resource to YAML or JSON and writes it to stdout.

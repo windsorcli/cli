@@ -201,7 +201,11 @@ func (c *BaseBlueprintComposer) applyUserBlueprint(result *blueprintv1alpha1.Blu
 				if err != nil {
 					return fmt.Errorf("evaluate user blueprint terraform inputs: %w", err)
 				}
-				userCopy.TerraformComponents[i].Inputs = evaluated
+				if normalized, ok := normalizeDeferredValue(evaluated).(map[string]any); ok {
+					userCopy.TerraformComponents[i].Inputs = normalized
+				} else {
+					userCopy.TerraformComponents[i].Inputs = evaluated
+				}
 			}
 		}
 	}

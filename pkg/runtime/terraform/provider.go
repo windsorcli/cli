@@ -448,6 +448,9 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 		if component != nil && component.Inputs != nil && len(component.Inputs) > 0 {
 			for key, value := range component.Inputs {
 				envKey := fmt.Sprintf("TF_VAR_%s", key)
+				if deferredExpr, ok := evaluator.DeferredExpression(value); ok {
+					value = deferredExpr
+				}
 				if evaluator.ContainsExpression(value) {
 					p.mu.RLock()
 					evalScope := p.configScope
