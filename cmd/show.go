@@ -31,7 +31,7 @@ var showBlueprintCmd = &cobra.Command{
 	Long:         "Display the fully rendered blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML, use --json for JSON. Unresolved deferred values are shown as <deferred> by default; use --raw to show expression text.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		blueprint, validationErr, deferredPaths := getBlueprint(cmd)
+		blueprint, deferredPaths, validationErr := getBlueprint(cmd)
 		if blueprint == nil {
 			if validationErr != nil {
 				return validationErr
@@ -61,7 +61,7 @@ var showKustomizationCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		componentName := args[0]
 
-		blueprint, validationErr, deferredPaths := getBlueprint(cmd)
+		blueprint, deferredPaths, validationErr := getBlueprint(cmd)
 		if blueprint == nil {
 			if validationErr != nil {
 				return validationErr
@@ -105,9 +105,10 @@ func init() {
 
 // getBlueprint configures the project and composes the blueprint without running full initialization.
 // It loads blueprint sources and composes them; it does not write blueprint files, process terraform
-// modules, or generate tfvars. Returns the composed blueprint and any composition errors. Composition
-// errors are non-fatal and allow the blueprint to be returned for inspection when possible.
-func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error, map[string]bool) {
+// modules, or generate tfvars. Returns the composed blueprint, deferred composed paths, and any
+// composition errors. Composition errors are non-fatal and allow the blueprint to be returned for
+// inspection when possible.
+func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, map[string]bool, error) {
 	var opts []*project.Project
 	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
 		opts = []*project.Project{overridesVal.(*project.Project)}
@@ -118,11 +119,11 @@ func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error, map[
 	proj.Runtime.Shell.SetVerbosity(verbose)
 
 	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-		return nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve"), nil
+		return nil, nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 	}
 
 	if err := proj.Configure(nil); err != nil {
-		return nil, err, nil
+		return nil, nil, err
 	}
 
 	var validationErr error
@@ -133,12 +134,12 @@ func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, error, map[
 	blueprint := proj.Composer.BlueprintHandler.Generate()
 	if blueprint == nil {
 		if validationErr != nil {
-			return nil, validationErr, nil
+			return nil, nil, validationErr
 		}
-		return nil, fmt.Errorf("failed to generate blueprint"), nil
+		return nil, nil, fmt.Errorf("failed to generate blueprint")
 	}
 	deferredPaths := proj.Composer.BlueprintHandler.GetDeferredPaths()
-	return blueprint, validationErr, deferredPaths
+	return blueprint, deferredPaths, validationErr
 }
 
 // outputResource serializes the provided resource to YAML or JSON and writes it to stdout.
