@@ -1242,6 +1242,117 @@ func TestHandler_getConfigValues(t *testing.T) {
 			t.Errorf("Expected key='value', got '%v'", values["key"])
 		}
 	})
+
+	t.Run("MergesRepositoryScopeWithoutSecret", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"key": "value"}, nil
+		}
+		secret := "flux-system"
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getSourceNameFunc: func() string { return "user" },
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Repository: blueprintv1alpha1.Repository{
+						Url:        "https://github.com/acme/repo.git",
+						SecretName: &secret,
+					},
+				}
+			},
+		}
+
+		values := handler.getConfigValues()
+
+		if values == nil {
+			t.Fatal("Expected non-nil values")
+		}
+		repository, ok := values["repository"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected repository map in config values")
+		}
+		if repository["url"] != "https://github.com/acme/repo.git" {
+			t.Errorf("Expected repository.url to be merged, got %v", repository["url"])
+		}
+		if _, hasSecret := repository["secretName"]; hasSecret {
+			t.Error("Expected repository.secretName to be excluded from scope")
+		}
+		ref, ok := repository["ref"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected repository.ref map in config values")
+		}
+		if ref["branch"] != "main" {
+			t.Errorf("Expected repository.ref.branch to default to main, got %v", ref["branch"])
+		}
+	})
+}
+
+func TestHandler_getRepositoryScopeValues(t *testing.T) {
+	t.Run("ReturnsNilWhenRepositoryIsEmpty", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.runtime.ConfigHandler = nil
+		handler.runtime.Shell = nil
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getSourceNameFunc: func() string { return "user" },
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{}
+			},
+		}
+
+		values := handler.getRepositoryScopeValues()
+		if values != nil {
+			t.Errorf("Expected nil repository scope, got %v", values)
+		}
+	})
+
+	t.Run("ReturnsRepositoryWithoutSecretName", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		secret := "flux-system"
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.userBlueprintLoader = &mockLoaderImpl{
+			getSourceNameFunc: func() string { return "user" },
+			getBlueprintFunc: func() *blueprintv1alpha1.Blueprint {
+				return &blueprintv1alpha1.Blueprint{
+					Repository: blueprintv1alpha1.Repository{
+						Url: "https://github.com/acme/repo.git",
+						Ref: blueprintv1alpha1.Reference{
+							Branch: "develop",
+							Tag:    "v1.2.3",
+							Commit: "abc123",
+						},
+						SecretName: &secret,
+					},
+				}
+			},
+		}
+
+		values := handler.getRepositoryScopeValues()
+
+		repository, ok := values["repository"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected repository map")
+		}
+		if repository["url"] != "https://github.com/acme/repo.git" {
+			t.Errorf("Expected repository.url to be set, got %v", repository["url"])
+		}
+		if _, hasSecret := repository["secretName"]; hasSecret {
+			t.Error("Expected repository.secretName to be excluded")
+		}
+		ref, ok := repository["ref"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected repository.ref map")
+		}
+		if ref["branch"] != "develop" {
+			t.Errorf("Expected branch develop, got %v", ref["branch"])
+		}
+		if ref["tag"] != "v1.2.3" {
+			t.Errorf("Expected tag v1.2.3, got %v", ref["tag"])
+		}
+		if ref["commit"] != "abc123" {
+			t.Errorf("Expected commit abc123, got %v", ref["commit"])
+		}
+	})
 }
 
 // =============================================================================

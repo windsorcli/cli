@@ -53,6 +53,7 @@ type BaseBlueprintProcessor struct {
 	traceCollector TraceCollector
 	mu             sync.Mutex
 	deferredPaths  map[string]bool
+	extraScope     map[string]any
 }
 
 // =============================================================================
@@ -73,8 +74,8 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 	}
 
 	return &BaseBlueprintProcessor{
-		runtime:   rt,
-		evaluator: rt.Evaluator,
+		runtime:       rt,
+		evaluator:     rt.Evaluator,
 		deferredPaths: make(map[string]bool),
 	}
 }
@@ -88,6 +89,20 @@ func NewBlueprintProcessor(rt *runtime.Runtime) *BaseBlueprintProcessor {
 // Set to nil to disable trace collection.
 func (p *BaseBlueprintProcessor) SetTraceCollector(tc TraceCollector) {
 	p.traceCollector = tc
+}
+
+// SetExtraScope sets additional scope values that are merged over context values during facet processing.
+func (p *BaseBlueprintProcessor) SetExtraScope(scope map[string]any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if scope == nil {
+		p.extraScope = nil
+		return
+	}
+	p.extraScope = make(map[string]any, len(scope))
+	for k, v := range scope {
+		p.extraScope[k] = v
+	}
 }
 
 // GetDeferredPaths returns a copy of deferred composed paths discovered during the last ProcessFacets call.
@@ -131,6 +146,9 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if vals, err := p.runtime.ConfigHandler.GetContextValues(); err == nil {
 			contextScope = vals
 		}
+	}
+	if p.extraScope != nil {
+		contextScope = MergeScopeMaps(contextScope, p.extraScope)
 	}
 
 	sortedFacets := make([]blueprintv1alpha1.Facet, len(facets))

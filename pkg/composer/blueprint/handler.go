@@ -9,8 +9,8 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
-	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 	"github.com/windsorcli/cli/pkg/runtime"
+	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
 )
 
 // BlueprintHandler manages the lifecycle of infrastructure blueprints.
@@ -513,6 +513,11 @@ func (h *BaseBlueprintHandler) loadNestedSources() error {
 // against the merged scope if possible. If a Terraform provider is configured, the composed components
 // are registered with the provider. Any errors during facet processing or composition are returned.
 func (h *BaseBlueprintHandler) processAndCompose() error {
+	repositoryScope := h.getRepositoryScopeValues()
+	if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
+		bp.SetExtraScope(repositoryScope)
+	}
+
 	if h.traceCollector != nil {
 		if bp, ok := h.processor.(*BaseBlueprintProcessor); ok {
 			bp.SetTraceCollector(h.traceCollector)
@@ -695,7 +700,85 @@ func (h *BaseBlueprintHandler) getConfigValues() map[string]any {
 	if err != nil {
 		return nil
 	}
+	if repositoryScope := h.getRepositoryScopeValues(); repositoryScope != nil {
+		values = MergeScopeMaps(values, repositoryScope)
+	}
 	return values
+}
+
+// getRepositoryScopeValues returns repository values for expression/config scopes, excluding secrets.
+func (h *BaseBlueprintHandler) getRepositoryScopeValues() map[string]any {
+	repo := h.getEffectiveRepository()
+	if repo.Url == "" {
+		return nil
+	}
+
+	repositoryValue := map[string]any{
+		"url": repo.Url,
+	}
+	refValue := make(map[string]any)
+	if repo.Ref.Branch != "" {
+		refValue["branch"] = repo.Ref.Branch
+	}
+	if repo.Ref.Tag != "" {
+		refValue["tag"] = repo.Ref.Tag
+	}
+	if repo.Ref.SemVer != "" {
+		refValue["semver"] = repo.Ref.SemVer
+	}
+	if repo.Ref.Name != "" {
+		refValue["name"] = repo.Ref.Name
+	}
+	if repo.Ref.Commit != "" {
+		refValue["commit"] = repo.Ref.Commit
+	}
+	if len(refValue) > 0 {
+		repositoryValue["ref"] = refValue
+	}
+
+	return map[string]any{
+		"repository": repositoryValue,
+	}
+}
+
+// getEffectiveRepository resolves repository values from blueprint/runtime defaults for scope injection.
+func (h *BaseBlueprintHandler) getEffectiveRepository() blueprintv1alpha1.Repository {
+	var repo blueprintv1alpha1.Repository
+	if h.composedBlueprint != nil && h.composedBlueprint.Repository.Url != "" {
+		repo = h.composedBlueprint.Repository
+	} else if h.userBlueprintLoader != nil && h.userBlueprintLoader.GetBlueprint() != nil {
+		repo = h.userBlueprintLoader.GetBlueprint().Repository
+	}
+	return h.resolveRepositoryDefaults(repo, false)
+}
+
+// resolveRepositoryDefaults applies URL/ref/secret defaults to repository metadata.
+// When includeSecret is false, SecretName is always removed from the returned value.
+func (h *BaseBlueprintHandler) resolveRepositoryDefaults(repo blueprintv1alpha1.Repository, includeSecret bool) blueprintv1alpha1.Repository {
+	devMode := h.runtime != nil && h.runtime.ConfigHandler != nil && h.runtime.ConfigHandler.GetBool("dev")
+	if repo.Url == "" && devMode && h.runtime != nil && h.runtime.ConfigHandler != nil {
+		domain := h.runtime.ConfigHandler.GetString("dns.domain", "test")
+		folder := h.shims.FilepathBase(h.runtime.ProjectRoot)
+		if domain != "" && folder != "" && folder != "." {
+			repo.Url = fmt.Sprintf("http://git.%s/git/%s", domain, folder)
+		}
+	}
+	if repo.Url == "" && h.runtime != nil && h.runtime.Shell != nil {
+		if gitURL, err := h.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil && gitURL != "" {
+			repo.Url = runtimegit.NormalizeRemoteURL(gitURL)
+		}
+	}
+	if repo.Url != "" && repo.Ref == (blueprintv1alpha1.Reference{}) {
+		repo.Ref = blueprintv1alpha1.Reference{Branch: "main"}
+	}
+	if repo.Url != "" && includeSecret && devMode && repo.SecretName == nil {
+		secretName := "flux-system"
+		repo.SecretName = &secretName
+	}
+	if !includeSecret {
+		repo.SecretName = nil
+	}
+	return repo
 }
 
 // setRepositoryDefaults sets default repository values on the composed blueprint when
@@ -706,42 +789,7 @@ func (h *BaseBlueprintHandler) setRepositoryDefaults() {
 	if h.composedBlueprint == nil || h.runtime == nil {
 		return
 	}
-	if h.composedBlueprint.Repository.Url != "" {
-		devMode := h.runtime.ConfigHandler != nil && h.runtime.ConfigHandler.GetBool("dev")
-		if h.composedBlueprint.Repository.Ref == (blueprintv1alpha1.Reference{}) {
-			h.composedBlueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
-		}
-		if devMode && h.composedBlueprint.Repository.SecretName == nil {
-			secretName := "flux-system"
-			h.composedBlueprint.Repository.SecretName = &secretName
-		}
-		return
-	}
-
-	devMode := h.runtime.ConfigHandler != nil && h.runtime.ConfigHandler.GetBool("dev")
-
-	if devMode {
-		domain := h.runtime.ConfigHandler.GetString("dns.domain", "test")
-		folder := h.shims.FilepathBase(h.runtime.ProjectRoot)
-		if domain != "" && folder != "" && folder != "." {
-			h.composedBlueprint.Repository.Url = fmt.Sprintf("http://git.%s/git/%s", domain, folder)
-		}
-	}
-
-	if h.composedBlueprint.Repository.Url == "" && h.runtime.Shell != nil {
-		if gitURL, err := h.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil && gitURL != "" {
-			h.composedBlueprint.Repository.Url = runtimegit.NormalizeRemoteURL(gitURL)
-		}
-	}
-	if h.composedBlueprint.Repository.Url != "" {
-		if h.composedBlueprint.Repository.Ref == (blueprintv1alpha1.Reference{}) {
-			h.composedBlueprint.Repository.Ref = blueprintv1alpha1.Reference{Branch: "main"}
-		}
-		if devMode && h.composedBlueprint.Repository.SecretName == nil {
-			secretName := "flux-system"
-			h.composedBlueprint.Repository.SecretName = &secretName
-		}
-	}
+	h.composedBlueprint.Repository = h.resolveRepositoryDefaults(h.composedBlueprint.Repository, true)
 }
 
 // clearLocalTemplateSource clears Source on terraform components and kustomizations when Source
