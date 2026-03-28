@@ -5,7 +5,10 @@
 
 package git
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // =============================================================================
 // Public Methods
@@ -24,6 +27,60 @@ func NormalizeRemoteURL(value string) string {
 		return normalized
 	}
 	return "https://" + normalized
+}
+
+// NormalizeRepositoryURL normalizes a git remote URL for blueprint repository metadata.
+// It returns host/path form (for example github.com/org/repo) when host and path can
+// be derived from the input. It strips protocol, user info, leading/trailing slashes,
+// and a trailing .git suffix from the path. If host/path cannot be derived, it falls
+// back to NormalizeRemoteURL.
+func NormalizeRepositoryURL(value string) string {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(normalized, "git@") && strings.Contains(normalized, ":") {
+		parts := strings.SplitN(strings.TrimPrefix(normalized, "git@"), ":", 2)
+		if len(parts) == 2 {
+			host := strings.TrimSpace(parts[0])
+			repoPath := normalizeRepositoryPath(parts[1])
+			if host != "" && repoPath != "" {
+				return host + "/" + repoPath
+			}
+		}
+		return NormalizeRemoteURL(normalized)
+	}
+
+	if strings.Contains(normalized, "://") {
+		if parsed, err := url.Parse(normalized); err == nil {
+			host := strings.TrimSpace(parsed.Host)
+			repoPath := normalizeRepositoryPath(parsed.Path)
+			if host != "" && repoPath != "" {
+				return host + "/" + repoPath
+			}
+		}
+		parts := strings.SplitN(normalized, "://", 2)
+		if len(parts) == 2 {
+			tail := strings.TrimSpace(parts[1])
+			hostPathParts := strings.SplitN(tail, "/", 2)
+			if len(hostPathParts) == 2 {
+				host := strings.TrimSpace(hostPathParts[0])
+				repoPath := normalizeRepositoryPath(hostPathParts[1])
+				if host != "" && repoPath != "" {
+					return host + "/" + repoPath
+				}
+			}
+		}
+		return NormalizeRemoteURL(normalized)
+	}
+
+	repoPath := normalizeRepositoryPath(normalized)
+	if repoPath == "" {
+		return ""
+	}
+
+	return repoPath
 }
 
 // =============================================================================
@@ -54,4 +111,11 @@ func hasExplicitURLScheme(value string) bool {
 // isASCIILetter reports whether a byte is an ASCII letter.
 func isASCIILetter(ch byte) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+}
+
+// normalizeRepositoryPath trims separators and strips a trailing .git suffix.
+func normalizeRepositoryPath(value string) string {
+	trimmed := strings.Trim(strings.TrimSpace(value), "/")
+	trimmed = strings.TrimSuffix(trimmed, ".git")
+	return strings.Trim(trimmed, "/")
 }
