@@ -257,6 +257,38 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 	})
 
+	t.Run("IncludesFacetWhenConditionUsesExtraScope", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+		processor.SetExtraScope(map[string]any{"enabled": true})
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "extra-scope"},
+				When:     "enabled == true",
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "extra"}},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(target.TerraformComponents))
+		}
+		if target.TerraformComponents[0].Path != "extra" {
+			t.Errorf("Expected path='extra', got %s", target.TerraformComponents[0].Path)
+		}
+	})
+
 	t.Run("ExcludesFacetWhenConditionFalse", func(t *testing.T) {
 		// Given a facet with false condition
 		mocks := setupProcessorMocks(t)
