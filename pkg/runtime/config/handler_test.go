@@ -1481,6 +1481,39 @@ func TestConfigHandler_GetContext(t *testing.T) {
 		}
 	})
 
+	t.Run("PrefersContextFileOverEnvironmentContext", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		os.Setenv("WINDSOR_CONTEXT", "env-context")
+
+		handler := NewConfigHandler(mocks.Shell)
+
+		contextFilePath := filepath.Join(tmpDir, ".windsor", "context")
+		os.MkdirAll(filepath.Dir(contextFilePath), 0755)
+		os.WriteFile(contextFilePath, []byte("file-context"), 0644)
+
+		context := handler.GetContext()
+
+		if context != "file-context" {
+			t.Errorf("Expected 'file-context', got '%s'", context)
+		}
+	})
+
+	t.Run("UsesEnvironmentContextWhenContextFileDoesNotExist", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+
+		os.Setenv("WINDSOR_CONTEXT", "env-context")
+
+		handler := NewConfigHandler(mocks.Shell)
+
+		context := handler.GetContext()
+
+		if context != "env-context" {
+			t.Errorf("Expected 'env-context', got '%s'", context)
+		}
+	})
+
 	t.Run("ReadsContextFromFile", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()

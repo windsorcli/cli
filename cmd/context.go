@@ -19,8 +19,7 @@ var contextGetCmd = &cobra.Command{
 	Long:         "Retrieve and display the current context from the configuration",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rootCmd.SetArgs(append([]string{"get", "context"}, args...))
-		return rootCmd.Execute()
+		return getContextCmd.RunE(cmd, args)
 	},
 }
 
@@ -32,8 +31,7 @@ var contextSetCmd = &cobra.Command{
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rootCmd.SetArgs(append([]string{"set", "context"}, args...))
-		return rootCmd.Execute()
+		return setContextCmd.RunE(cmd, args)
 	},
 }
 
@@ -44,8 +42,7 @@ var getContextAliasCmd = &cobra.Command{
 	Long:         "Alias for 'get context'",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rootCmd.SetArgs(append([]string{"get", "context"}, args...))
-		return rootCmd.Execute()
+		return getContextCmd.RunE(cmd, args)
 	},
 }
 
@@ -57,8 +54,7 @@ var setContextAliasCmd = &cobra.Command{
 	Long:         "Alias for 'set context'",
 	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rootCmd.SetArgs(append([]string{"set", "context"}, args...))
-		return rootCmd.Execute()
+		return setContextCmd.RunE(cmd, args)
 	},
 }
 

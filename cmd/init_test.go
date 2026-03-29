@@ -1404,6 +1404,31 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("UsesConfigHandlerContextWhenNoContextNameProvided", func(t *testing.T) {
+		mocks := setupInitTest(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetContextFunc = func() string { return "chatbot" }
+		var loadBlueprintArgs []string
+		mocks.BlueprintHandler.LoadBlueprintFunc = func(urls ...string) error {
+			loadBlueprintArgs = append([]string{}, urls...)
+			return nil
+		}
+
+		cmd := createTestInitCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		execErr := cmd.Execute()
+
+		if execErr != nil {
+			t.Errorf("Expected success, got error: %v", execErr)
+		}
+		if len(loadBlueprintArgs) != 0 {
+			t.Errorf("Expected no default blueprint for persisted non-local context, got: %v", loadBlueprintArgs)
+		}
+	})
+
 	t.Run("HandlesSetContextError", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)

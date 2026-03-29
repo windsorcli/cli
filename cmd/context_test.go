@@ -134,6 +134,35 @@ func TestContextCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("SetContextMissingContextPrintsSingleError", func(t *testing.T) {
+		_, stderr := setup(t)
+		mocks := setupMocks(t)
+		tmpDir := mocks.TmpDir
+
+		contextsDir := filepath.Join(tmpDir, "contexts")
+		if err := os.MkdirAll(contextsDir, 0755); err != nil {
+			t.Fatalf("Failed to create contexts directory: %v", err)
+		}
+
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"context", "set", "missing-context"})
+
+		err := Execute()
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		expected := "Error: context \"missing-context\" not found. Run 'windsor init missing-context' to create it"
+		if occurrences := strings.Count(stderr.String(), expected); occurrences != 1 {
+			t.Errorf("Expected one error occurrence, got %d. stderr: %q", occurrences, stderr.String())
+		}
+	})
+
 	t.Run("GetContextAlias", func(t *testing.T) {
 		// Given proper output capture in a directory without config
 		stdout, _ := setup(t)
