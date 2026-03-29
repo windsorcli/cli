@@ -765,7 +765,7 @@ func (h *BaseBlueprintHandler) resolveRepositoryDefaults(repo blueprintv1alpha1.
 	}
 	if repo.Url == "" && h.runtime != nil && h.runtime.Shell != nil {
 		if gitURL, err := h.runtime.Shell.ExecSilent("git", "config", "--get", "remote.origin.url"); err == nil && gitURL != "" {
-			repo.Url = runtimegit.NormalizeRemoteURL(gitURL)
+			repo.Url = runtimegit.NormalizeRepositoryURL(gitURL)
 		}
 	}
 	if repo.Url != "" && repo.Ref == (blueprintv1alpha1.Reference{}) {

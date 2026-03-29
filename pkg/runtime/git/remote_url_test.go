@@ -45,3 +45,54 @@ func TestNormalizeRemoteURL(t *testing.T) {
 		}
 	})
 }
+
+func TestNormalizeRepositoryURL(t *testing.T) {
+	t.Run("NormalizesHTTPSRemoteToHostPath", func(t *testing.T) {
+		normalized := NormalizeRepositoryURL("https://github.com/owner/repo.git")
+		if normalized != "github.com/owner/repo" {
+			t.Errorf("Expected github.com/owner/repo, got %s", normalized)
+		}
+	})
+
+	t.Run("NormalizesScpStyleSSHRemoteToHostPath", func(t *testing.T) {
+		normalized := NormalizeRepositoryURL("git@github.com:owner/repo.git")
+		if normalized != "github.com/owner/repo" {
+			t.Errorf("Expected github.com/owner/repo, got %s", normalized)
+		}
+	})
+
+	t.Run("NormalizesGitSchemeRemoteToHostPath", func(t *testing.T) {
+		normalized := NormalizeRepositoryURL("git://github.com/owner/repo.git")
+		if normalized != "github.com/owner/repo" {
+			t.Errorf("Expected github.com/owner/repo, got %s", normalized)
+		}
+	})
+
+	t.Run("NormalizesExtendedSchemeRemoteToHostPath", func(t *testing.T) {
+		normalized := NormalizeRepositoryURL("git+ssh://github.com/owner/repo.git")
+		if normalized != "github.com/owner/repo" {
+			t.Errorf("Expected github.com/owner/repo, got %s", normalized)
+		}
+	})
+
+	t.Run("NormalizesInvalidSchemePrefixUsingParsedHostPath", func(t *testing.T) {
+		normalized := NormalizeRepositoryURL("1invalid://github.com/owner/repo.git")
+		if normalized != "github.com/owner/repo" {
+			t.Errorf("Expected github.com/owner/repo, got %s", normalized)
+		}
+	})
+
+	t.Run("FallsBackForFileSchemeRemote", func(t *testing.T) {
+		normalized := NormalizeRepositoryURL("file:///tmp/repo")
+		if normalized != "file:///tmp/repo" {
+			t.Errorf("Expected file:///tmp/repo, got %s", normalized)
+		}
+	})
+
+	t.Run("PreservesBareHostPathRemoteWithoutProtocol", func(t *testing.T) {
+		normalized := NormalizeRepositoryURL("github.com/owner/repo.git")
+		if normalized != "github.com/owner/repo" {
+			t.Errorf("Expected github.com/owner/repo, got %s", normalized)
+		}
+	})
+}

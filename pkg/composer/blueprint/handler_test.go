@@ -1474,9 +1474,9 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		// When setting repository defaults
 		handler.setRepositoryDefaults()
 
-		// Then repository should be set with git remote URL
-		if handler.composedBlueprint.Repository.Url != "https://github.com/test/repo.git" {
-			t.Errorf("Expected URL 'https://github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		// Then repository should be set with normalized host/path URL
+		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
 		}
 	})
 
@@ -1501,9 +1501,9 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 		// When setting repository defaults
 		handler.setRepositoryDefaults()
 
-		// Then repository should be normalized to SSH URL
-		if handler.composedBlueprint.Repository.Url != "ssh://git@github.com/test/repo.git" {
-			t.Errorf("Expected URL 'ssh://git@github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		// Then repository should be normalized to host/path URL
+		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
 		}
 	})
 
@@ -1526,8 +1526,8 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 
 		handler.setRepositoryDefaults()
 
-		if handler.composedBlueprint.Repository.Url != "git://github.com/test/repo.git" {
-			t.Errorf("Expected URL 'git://github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
 		}
 	})
 
@@ -1574,8 +1574,8 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 
 		handler.setRepositoryDefaults()
 
-		if handler.composedBlueprint.Repository.Url != "https://1invalid://github.com/test/repo.git" {
-			t.Errorf("Expected URL 'https://1invalid://github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
 		}
 	})
 
@@ -1598,8 +1598,8 @@ func TestHandler_setRepositoryDefaults(t *testing.T) {
 
 		handler.setRepositoryDefaults()
 
-		if handler.composedBlueprint.Repository.Url != "git+ssh://github.com/test/repo.git" {
-			t.Errorf("Expected URL 'git+ssh://github.com/test/repo.git', got '%s'", handler.composedBlueprint.Repository.Url)
+		if handler.composedBlueprint.Repository.Url != "github.com/test/repo" {
+			t.Errorf("Expected URL 'github.com/test/repo', got '%s'", handler.composedBlueprint.Repository.Url)
 		}
 	})
 
