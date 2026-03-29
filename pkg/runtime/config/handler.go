@@ -365,25 +365,32 @@ func (c *configHandler) GetConfig() *v1alpha1.Context {
 func (c *configHandler) GetContext() string {
 	contextName := "local"
 
+	if c.shell != nil {
+		projectRoot, err := c.shell.GetProjectRoot()
+		if err != nil {
+			envContext := c.shims.Getenv("WINDSOR_CONTEXT")
+			if envContext != "" {
+				return envContext
+			}
+			return contextName
+		}
+
+		contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
+		data, err := c.shims.ReadFile(contextFilePath)
+		if err == nil {
+			fileContext := strings.TrimSpace(string(data))
+			if fileContext != "" {
+				return fileContext
+			}
+		}
+	}
+
 	envContext := c.shims.Getenv("WINDSOR_CONTEXT")
 	if envContext != "" {
 		return envContext
-	} else if c.shell != nil {
-		projectRoot, err := c.shell.GetProjectRoot()
-		if err != nil {
-			return contextName
-		} else {
-			contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
-			data, err := c.shims.ReadFile(contextFilePath)
-			if err != nil {
-				return contextName
-			} else {
-				return strings.TrimSpace(string(data))
-			}
-		}
-	} else {
-		return contextName
 	}
+
+	return contextName
 }
 
 // IsDevMode checks if the given context name represents a dev/local environment.

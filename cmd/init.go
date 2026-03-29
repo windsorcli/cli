@@ -69,7 +69,7 @@ var initCmd = &cobra.Command{
 
 		if !changingContext {
 			currentContext := rt.ConfigHandler.GetContext()
-			if currentContext != "" && currentContext != "local" {
+			if currentContext != "" {
 				contextName = currentContext
 			}
 		}
