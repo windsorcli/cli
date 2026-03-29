@@ -34,7 +34,17 @@ var envCmd = &cobra.Command{
 		}
 
 		rt := runtime.NewRuntime(rtOpts...)
-
+		if hook {
+			stderrNullFile, stderrNullErr := os.OpenFile(os.DevNull, os.O_WRONLY, 0644)
+			if stderrNullErr == nil {
+				originalStderr := os.Stderr
+				os.Stderr = stderrNullFile
+				defer func() {
+					os.Stderr = originalStderr
+					_ = stderrNullFile.Close()
+				}()
+			}
+		}
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			if hook {
 				return nil
