@@ -71,6 +71,7 @@ func (s *typedSource) LoadRoot(
 				return nil, false, fmt.Errorf("error loading API schemas: %w", err)
 			}
 		}
+		return s.loadV1Alpha2Root(rootConfigMap), true, nil
 	}
 
 	var rootConfig v1alpha1.Config
@@ -144,4 +145,20 @@ func (s *typedSource) EnsureRoot(projectRoot string) error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// loadV1Alpha2Root resolves root-level v1alpha2 configuration without context overlays.
+func (s *typedSource) loadV1Alpha2Root(rootConfigMap map[string]any) map[string]any {
+	out := make(map[string]any)
+	for key, value := range rootConfigMap {
+		if key == "version" || key == "contexts" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }

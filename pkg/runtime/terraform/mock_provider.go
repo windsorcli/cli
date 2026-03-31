@@ -18,6 +18,7 @@ type MockTerraformProvider struct {
 	CacheOutputsFunc            func(componentID string) error
 	GetTFDataDirFunc            func(componentID string) (string, error)
 	GetEnvVarsFunc              func(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
+	SetSecretCacheEnabledFunc   func(enabled bool)
 	FormatArgsForEnvFunc        func(args []string) string
 	ClearCacheFunc              func()
 }
@@ -114,6 +115,13 @@ func (m *MockTerraformProvider) GetEnvVars(componentID string, interactive bool)
 		return m.GetEnvVarsFunc(componentID, interactive)
 	}
 	return make(map[string]string), &TerraformArgs{}, nil
+}
+
+// SetSecretCacheEnabled implements TerraformProvider.
+func (m *MockTerraformProvider) SetSecretCacheEnabled(enabled bool) {
+	if m.SetSecretCacheEnabledFunc != nil {
+		m.SetSecretCacheEnabledFunc(enabled)
+	}
 }
 
 // FormatArgsForEnv implements TerraformProvider.

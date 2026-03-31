@@ -77,6 +77,104 @@ contexts:
 			t.Fatal("Expected error when v1alpha2 schema loading fails")
 		}
 	})
+
+	t.Run("LoadsV1Alpha2RootLevelValuesWithoutContextsBlock", func(t *testing.T) {
+		source := newTypedSource(NewShims(), nil)
+		projectRoot := t.TempDir()
+		rootConfig := `version: v1alpha2
+secrets:
+  sops:
+    enabled: true
+  onepassword:
+    vaults:
+      shared:
+        url: my.1password.com
+        name: Shared
+`
+		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte(rootConfig), 0644); err != nil {
+			t.Fatalf("Expected no error writing root config, got %v", err)
+		}
+
+		contextMap, found, err := source.LoadRoot(projectRoot, "local", func([]byte) error { return nil })
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !found {
+			t.Fatal("Expected root config to be found")
+		}
+		secrets, ok := contextMap["secrets"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected secrets map, got %T", contextMap["secrets"])
+		}
+		sops, ok := secrets["sops"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected sops map, got %T", secrets["sops"])
+		}
+		if enabled, _ := sops["enabled"].(bool); !enabled {
+			t.Errorf("Expected secrets.sops.enabled=true, got %v", sops["enabled"])
+		}
+	})
+
+	t.Run("IgnoresV1Alpha2ContextsBlock", func(t *testing.T) {
+		source := newTypedSource(NewShims(), nil)
+		projectRoot := t.TempDir()
+		rootConfig := `version: v1alpha2
+secrets:
+  sops:
+    enabled: true
+  onepassword:
+    vaults:
+      shared:
+        url: my.1password.com
+        name: Shared
+contexts:
+  local:
+    secrets:
+      onepassword:
+        vaults:
+          shared:
+            name: SharedOverride
+          local:
+            url: local.1password.com
+            name: Local
+`
+		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte(rootConfig), 0644); err != nil {
+			t.Fatalf("Expected no error writing root config, got %v", err)
+		}
+
+		contextMap, found, err := source.LoadRoot(projectRoot, "local", func([]byte) error { return nil })
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !found {
+			t.Fatal("Expected root config to be found")
+		}
+		secrets, ok := contextMap["secrets"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected secrets map, got %T", contextMap["secrets"])
+		}
+		onepassword, ok := secrets["onepassword"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected onepassword map, got %T", secrets["onepassword"])
+		}
+		vaults, ok := onepassword["vaults"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected vaults map, got %T", onepassword["vaults"])
+		}
+		shared, ok := vaults["shared"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected shared vault map, got %T", vaults["shared"])
+		}
+		if shared["name"] != "Shared" {
+			t.Errorf("Expected root shared name, got %v", shared["name"])
+		}
+		if shared["url"] != "my.1password.com" {
+			t.Errorf("Expected root shared url retained, got %v", shared["url"])
+		}
+		if _, ok := vaults["local"]; ok {
+			t.Error("Expected contexts block to be ignored in v1alpha2 root load")
+		}
+	})
 }
 
 func TestTypedSource_LoadContext(t *testing.T) {

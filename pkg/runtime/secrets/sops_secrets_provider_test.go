@@ -338,7 +338,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 		provider.unlocked = true // Simulate that secrets have been unlocked
 
 		// Test with standard notation
-		input1 := "This is a secret: ${{ sops.test_key }}"
+		input1 := "This is a secret: ${sops.test_key}"
 		expectedOutput1 := "This is a secret: test_value"
 
 		output1, err := provider.ParseSecrets(input1)
@@ -352,7 +352,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 		}
 
 		// Test with spaces in the notation
-		input2 := "This is a secret: ${{  sops.test_key  }}"
+		input2 := "This is a secret: ${ sops.test_key }"
 		expectedOutput2 := "This is a secret: test_value"
 
 		output2, err := provider.ParseSecrets(input2)
@@ -363,6 +363,16 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 
 		if output2 != expectedOutput2 {
 			t.Errorf("ParseSecrets returned '%s', expected '%s'", output2, expectedOutput2)
+		}
+
+		input3 := "This is a secret: ${secret.sops.test_key}"
+		expectedOutput3 := "This is a secret: test_value"
+		output3, err := provider.ParseSecrets(input3)
+		if err != nil {
+			t.Fatalf("ParseSecrets failed with error: %v", err)
+		}
+		if output3 != expectedOutput3 {
+			t.Errorf("ParseSecrets returned '%s', expected '%s'", output3, expectedOutput3)
 		}
 	})
 
@@ -401,7 +411,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 		provider.secrets["key2"] = "value2"
 		provider.unlocked = true
 
-		input := "First: ${{ sops.key1 }}, Second: ${{ sops.key2 }}"
+		input := "First: ${sops.key1}, Second: ${sops.key2}"
 		expectedOutput := "First: value1, Second: value2"
 
 		output, err := provider.ParseSecrets(input)
@@ -418,7 +428,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 		provider, _ := setup(t)
 		provider.unlocked = true
 
-		input := "This is invalid: ${{ sops. }}"
+		input := "This is invalid: ${sops.}"
 		expectedOutput := "This is invalid: <ERROR: invalid secret format>"
 
 		output, err := provider.ParseSecrets(input)
@@ -435,7 +445,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 		provider, _ := setup(t)
 		provider.unlocked = true
 
-		input := "This is invalid: ${{ sops.key..path }}"
+		input := "This is invalid: ${sops.key..path}"
 		expectedOutput := "This is invalid: <ERROR: invalid key path: key..path>"
 
 		output, err := provider.ParseSecrets(input)
@@ -452,7 +462,7 @@ func TestSopsSecretsProvider_ParseSecrets(t *testing.T) {
 		provider, _ := setup(t)
 		provider.unlocked = true
 
-		input := "Missing secret: ${{ sops.missing_key }}"
+		input := "Missing secret: ${sops.missing_key}"
 		expectedOutput := "Missing secret: <ERROR: secret not found: missing_key>"
 
 		output, err := provider.ParseSecrets(input)

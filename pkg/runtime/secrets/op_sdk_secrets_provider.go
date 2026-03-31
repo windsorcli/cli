@@ -67,6 +67,10 @@ func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 	if !s.unlocked {
 		return "********", nil
 	}
+	if value, ok := s.secrets[key]; ok {
+		s.shell.RegisterSecret(value)
+		return value, nil
+	}
 
 	token := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
 	if token == "" {
@@ -109,14 +113,15 @@ func (s *OnePasswordSDKSecretsProvider) GetSecret(key string) (string, error) {
 		return "", fmt.Errorf("failed to resolve secret: %w", err)
 	}
 
+	s.secrets[key] = value
 	s.shell.RegisterSecret(value)
 	return value, nil
 }
 
-// ParseSecrets identifies and replaces ${{ op.<id>.<secret>.<field> }} patterns in the input
+// ParseSecrets identifies and replaces ${ op.<id>.<secret>.<field> } patterns in the input
 // with corresponding secret values from 1Password, ensuring the id matches the vault ID.
 func (s *OnePasswordSDKSecretsProvider) ParseSecrets(input string) (string, error) {
-	pattern := `(?i)\${{\s*op(?:\.|\[)?\s*([^}]+)\s*}}`
+	pattern := `(?i)\${\s*(?:secret\.)?op(?:\.|\[)?\s*([^}]+)\s*}`
 	result := parseSecrets(input, pattern, func(keys []string) bool {
 		return len(keys) == 3
 	}, func(keys []string) (string, bool) {

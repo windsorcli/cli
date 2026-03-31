@@ -175,7 +175,7 @@ func TestParseSecrets(t *testing.T) {
 		provider.shims = mockShims
 
 		// When ParseSecrets is called with standard notation
-		input := "This is a secret: ${{ op.test-id.test-secret.password }}"
+		input := "This is a secret: ${op.test-id.test-secret.password}"
 		expectedOutput := "This is a secret: mocked output"
 		output, err := provider.ParseSecrets(input)
 
@@ -185,6 +185,34 @@ func TestParseSecrets(t *testing.T) {
 		}
 
 		// And the output should be correctly replaced
+		if output != expectedOutput {
+			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
+		}
+	})
+
+	t.Run("SupportsSecretNamespaceSyntax", func(t *testing.T) {
+		mocks := setupSecretsMocks(t)
+		vault := secretsConfigType.OnePasswordVault{
+			Name: "test-vault",
+			URL:  "test-url",
+			ID:   "test-id",
+		}
+		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
+		provider.unlocked = true
+		mockShims := NewShims()
+		mockShims.Command = func(name string, args ...string) *exec.Cmd {
+			return &exec.Cmd{}
+		}
+		mockShims.CmdOutput = func(cmd *exec.Cmd) ([]byte, error) {
+			return []byte("mocked output"), nil
+		}
+		provider.shims = mockShims
+		input := "This is a secret: ${secret.op.test-id.test-secret.password}"
+		expectedOutput := "This is a secret: mocked output"
+		output, err := provider.ParseSecrets(input)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 		if output != expectedOutput {
 			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
 		}
@@ -234,7 +262,7 @@ func TestParseSecrets(t *testing.T) {
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 
 		// When ParseSecrets is called with invalid format (missing field)
-		input := "This is a secret: ${{ op.test-id.test-secret }}"
+		input := "This is a secret: ${op.test-id.test-secret}"
 		expectedOutput := "This is a secret: <ERROR: invalid key path: test-id.test-secret>"
 		output, err := provider.ParseSecrets(input)
 
@@ -264,8 +292,8 @@ func TestParseSecrets(t *testing.T) {
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 
 		// When ParseSecrets is called with malformed JSON (missing closing brace)
-		input := "This is a secret: ${{ op.test-id.test-secret.password"
-		expectedOutput := "This is a secret: ${{ op.test-id.test-secret.password"
+		input := "This is a secret: ${op.test-id.test-secret.password"
+		expectedOutput := "This is a secret: ${op.test-id.test-secret.password"
 		output, err := provider.ParseSecrets(input)
 
 		// Then no error should be returned
@@ -294,8 +322,8 @@ func TestParseSecrets(t *testing.T) {
 		provider := NewOnePasswordCLISecretsProvider(vault, mocks.Shell)
 
 		// When ParseSecrets is called with wrong vault ID
-		input := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
-		expectedOutput := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
+		input := "This is a secret: ${op.wrong-id.test-secret.password}"
+		expectedOutput := "This is a secret: ${op.wrong-id.test-secret.password}"
 		output, err := provider.ParseSecrets(input)
 
 		// Then no error should be returned
@@ -335,7 +363,7 @@ func TestParseSecrets(t *testing.T) {
 		provider.shims = mockShims
 
 		// When ParseSecrets is called with a secret that doesn't exist
-		input := "This is a secret: ${{ op.test-id.nonexistent-secret.password }}"
+		input := "This is a secret: ${op.test-id.nonexistent-secret.password}"
 		expectedOutput := "This is a secret: mocked output"
 		output, err := provider.ParseSecrets(input)
 

@@ -102,10 +102,7 @@ func (h *BaseModuleResolver) GenerateTfvars(overwrite bool) error {
 			if err != nil {
 				return fmt.Errorf("failed to evaluate inputs for component %s: %w", component.GetID(), err)
 			}
-			if evaluator.ContainsExpression(evaluated) {
-				continue
-			}
-			if s, ok := evaluated.(string); ok && strings.Contains(s, "${") {
+			if !shouldWriteTfvarsValue(evaluated) {
 				continue
 			}
 			nonDeferredValues[key] = evaluated
@@ -308,7 +305,6 @@ func (h *BaseModuleResolver) generateTfvarsFile(tfvarsFilePath, modulePath strin
 	if err != nil {
 		return fmt.Errorf("failed to parse variables from module: %w", err)
 	}
-
 	mergedFile := hclwrite.NewEmptyFile()
 	body := mergedFile.Body()
 
@@ -400,6 +396,20 @@ func (h *BaseModuleResolver) removeTfvarsFiles(dir string) error {
 // Helper Functions
 // =============================================================================
 
+// shouldWriteTfvarsValue reports whether an evaluated terraform input is safe to persist in tfvars.
+func shouldWriteTfvarsValue(value any) bool {
+	if evaluator.ContainsSecretValue(value) {
+		return false
+	}
+	if evaluator.ContainsExpression(value) {
+		return false
+	}
+	if s, ok := value.(string); ok && strings.Contains(s, "${") {
+		return false
+	}
+	return true
+}
+
 // addTfvarsHeader adds a Windsor CLI management header to the tfvars file body.
 // It includes a module source comment if provided, ensuring users are aware of CLI management and module provenance.
 func addTfvarsHeader(body *hclwrite.Body, source string) {
@@ -445,7 +455,7 @@ func writeComponentValues(body *hclwrite.Body, values map[string]any, protectedV
 		}
 
 		if exists {
-			writeVariable(body, info.Name, val, []VariableInfo{})
+			writeVariable(body, info.Name, val, sortedVariables)
 			continue
 		}
 

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
@@ -22,18 +21,13 @@ var envCmd = &cobra.Command{
 			verboseVal = v
 		}
 
-		if !hook && os.Getenv("NO_CACHE") == "" {
-			if err := os.Setenv("NO_CACHE", "true"); err != nil {
-				return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
-			}
-		}
-
 		var rtOpts []*runtime.Runtime
 		if overridesVal := cmd.Root().Context().Value(runtimeOverridesKey); overridesVal != nil {
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
 		rt := runtime.NewRuntime(rtOpts...)
+		rt.SetSecretCacheEnabled(hook)
 
 		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
 			if hook {
@@ -83,6 +77,9 @@ var envCmd = &cobra.Command{
 		}
 
 		outputFunc := func(output string) {
+			if !decrypt && rt.Shell != nil {
+				output = rt.Shell.Scrub(output)
+			}
 			if output != "" {
 				fmt.Fprint(cmd.OutOrStdout(), output)
 			}

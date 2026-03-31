@@ -632,6 +632,19 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 
 		rt.SecretsProviders.Sops = mockSopsProvider
 		rt.SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
+		if mockConfig, ok := rt.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfig.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+				if key == "environment" {
+					return map[string]string{
+						"TEST_SECRET": "${op.demo.foo.bar}",
+					}
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return map[string]string{}
+			}
+		}
 
 		// When LoadEnvironment is called with secrets enabled
 		err := rt.LoadEnvironment(true)
@@ -653,6 +666,19 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 		}
 
 		rt.SecretsProviders.Sops = mockProvider
+		if mockConfig, ok := rt.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfig.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+				if key == "environment" {
+					return map[string]string{
+						"TEST_SECRET": "${op.demo.foo.bar}",
+					}
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return map[string]string{}
+			}
+		}
 
 		// When LoadEnvironment is called with secrets enabled
 		err := rt.LoadEnvironment(true)
@@ -664,6 +690,61 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "secrets load failed") {
 			t.Errorf("Expected secrets load error, got: %v", err)
+		}
+	})
+
+	t.Run("LoadsSecretsInDecryptModeWithoutSecretExpressionHeuristics", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		loadCalls := 0
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockProvider.LoadSecretsFunc = func() error {
+			loadCalls++
+			return nil
+		}
+		rt.SecretsProviders.Sops = mockProvider
+		if mockConfig, ok := rt.ConfigHandler.(*config.MockConfigHandler); ok {
+			mockConfig.GetStringMapFunc = func(key string, defaultValue ...map[string]string) map[string]string {
+				if key == "environment" {
+					return map[string]string{
+						"PROJECT_ROOT": "${project_root}",
+					}
+				}
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return map[string]string{}
+			}
+		}
+
+		err := rt.LoadEnvironment(true)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if loadCalls != 1 {
+			t.Fatalf("Expected LoadSecrets to be called once in decrypt mode, got %d", loadCalls)
+		}
+	})
+
+	t.Run("SkipsSecretsLoadWhenDecryptDisabled", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		loadCalls := 0
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockProvider.LoadSecretsFunc = func() error {
+			loadCalls++
+			return nil
+		}
+		rt.SecretsProviders.Sops = mockProvider
+
+		err := rt.LoadEnvironment(false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if loadCalls != 0 {
+			t.Fatalf("Expected LoadSecrets to be skipped when decrypt is false, got %d", loadCalls)
 		}
 	})
 }
@@ -2106,6 +2187,48 @@ func TestRuntime_loadSecrets(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("Expected no error with mixed providers, got: %v", err)
+		}
+	})
+}
+
+func TestRuntime_resolveSecretReference(t *testing.T) {
+	t.Run("LoadsProvidersOnceAndResolvesReferences", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		loadCalls := 0
+		parseCalls := 0
+		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockProvider.LoadSecretsFunc = func() error {
+			loadCalls++
+			return nil
+		}
+		mockProvider.ParseSecretsFunc = func(input string) (string, error) {
+			parseCalls++
+			if input == "${op.demo.foo.bar}" {
+				return "resolved-secret", nil
+			}
+			return input, nil
+		}
+		rt.SecretsProviders.Sops = mockProvider
+		rt.SecretsProviders.Onepassword = nil
+
+		first, err := rt.resolveSecretReference("op.demo.foo.bar")
+		if err != nil {
+			t.Fatalf("Expected no error on first resolve, got: %v", err)
+		}
+		second, err := rt.resolveSecretReference("op.demo.foo.bar")
+		if err != nil {
+			t.Fatalf("Expected no error on second resolve, got: %v", err)
+		}
+		if first != "resolved-secret" || second != "resolved-secret" {
+			t.Fatalf("Expected resolved-secret results, got %q and %q", first, second)
+		}
+		if loadCalls != 1 {
+			t.Fatalf("Expected provider LoadSecrets to be called once, got %d", loadCalls)
+		}
+		if parseCalls != 2 {
+			t.Fatalf("Expected ParseSecrets to be called per resolution, got %d", parseCalls)
 		}
 	})
 }

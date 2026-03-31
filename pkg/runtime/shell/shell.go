@@ -42,10 +42,25 @@ type HookContext struct {
 	SelfPath string
 }
 
+// DefaultShell is the default implementation of the Shell interface
+type DefaultShell struct {
+	Shell
+	projectRoot  string
+	verbose      bool
+	sessionToken string
+	shims        *Shims
+	secrets      []string
+}
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
 // Shell is the interface that defines shell operations.
 type Shell interface {
 	SetVerbosity(verbose bool)
 	IsVerbose() bool
+	Scrub(input string) string
 	RenderEnvVars(envVars map[string]string, export bool) string
 	RenderAliases(aliases map[string]string) string
 	GetProjectRoot() (string, error)
@@ -67,16 +82,6 @@ type Shell interface {
 	RegisterSecret(value string)
 }
 
-// DefaultShell is the default implementation of the Shell interface
-type DefaultShell struct {
-	Shell
-	projectRoot  string
-	verbose      bool
-	sessionToken string
-	shims        *Shims
-	secrets      []string
-}
-
 // =============================================================================
 // Constructor
 // =============================================================================
@@ -88,6 +93,10 @@ func NewDefaultShell() *DefaultShell {
 		verbose: false,
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // SetVerbosity sets the verbosity flag
 func (s *DefaultShell) SetVerbosity(verbose bool) {
@@ -676,6 +685,21 @@ func (s *DefaultShell) RenderEnvVars(envVars map[string]string, export bool) str
 	}
 }
 
+// Scrub applies the registered secret scrubber to a string.
+func (s *DefaultShell) Scrub(input string) string {
+	return s.scrubString(input)
+}
+
+// PrintEnvVars is a platform-specific method that will be implemented by Unix/Windows-specific files
+// The export parameter controls whether to use OS-specific export commands or plain KEY=value format
+func (s *DefaultShell) PrintEnvVars(envVars map[string]string, export bool) {
+	if export {
+		fmt.Print(s.renderEnvVarsWithExport(envVars))
+	} else {
+		fmt.Print(s.renderEnvVarsPlain(envVars))
+	}
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -705,16 +729,6 @@ func (s *DefaultShell) scrubString(input string) string {
 	}
 
 	return result
-}
-
-// PrintEnvVars is a platform-specific method that will be implemented by Unix/Windows-specific files
-// The export parameter controls whether to use OS-specific export commands or plain KEY=value format
-func (s *DefaultShell) PrintEnvVars(envVars map[string]string, export bool) {
-	if export {
-		fmt.Print(s.renderEnvVarsWithExport(envVars))
-	} else {
-		fmt.Print(s.renderEnvVarsPlain(envVars))
-	}
 }
 
 // renderEnvVarsPlain returns environment variables in plain KEY=value format as a string, sorted by key.

@@ -221,7 +221,7 @@ You can specify environment variables in your `windsor.yaml` configuration under
 
 ```yaml
 environment:
-  API_KEY: {% raw %}${{ op.my.api-key }}{% endraw %}
+  API_KEY: {% raw %}${op.my.api-key}{% endraw %}
   DEBUG: "true"
   CUSTOM_VAR: "some-value"
 ```

@@ -20,12 +20,12 @@ import (
 // Constants
 // =============================================================================
 
-// Define regex pattern for ${{ sops.<key> }} references as a constant
+// Define regex pattern for ${ sops.<key> } references as a constant
 // Allow for any amount of spaces between the brackets and the "sops.<key>"
 // We ignore the gosec G101 error here because this pattern is used for identifying secret placeholders,
 // not for storing actual secret values. The pattern itself does not contain any hardcoded credentials.
 // #nosec G101
-const sopsPattern = `(?i)\${{\s*sops\.\s*([^}\s]*?)\s*}}`
+const sopsPattern = `(?i)\${\s*(?:secret\.)?sops\.\s*([^}\s]*?)\s*}`
 
 // #nosec G101
 // This directive suppresses the gosec G101 warning, which is about hardcoded credentials.
@@ -202,7 +202,7 @@ func (s *SopsSecretsProvider) GetSecret(key string) (string, error) {
 	return "", fmt.Errorf("secret not found: %s", key)
 }
 
-// ParseSecrets parses a string and replaces ${{ sops.<key> }} references with their values
+// ParseSecrets parses a string and replaces ${ sops.<key> } references with their values
 func (s *SopsSecretsProvider) ParseSecrets(input string) (string, error) {
 	result := parseSecrets(input, sopsPattern, func(keys []string) bool {
 		for _, key := range keys {

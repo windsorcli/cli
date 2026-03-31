@@ -643,6 +643,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 				if err != nil {
 					return fmt.Errorf("evaluate terraform inputs for component %q: %w", comp.GetID(), err)
 				}
+				result = normalizeDeferredValue(result)
 				evaluated[key] = result
 			}
 			h.composedBlueprint.TerraformComponents[i].Inputs = evaluated

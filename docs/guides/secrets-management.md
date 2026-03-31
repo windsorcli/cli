@@ -16,11 +16,19 @@ version: v1alpha1
 contexts:
   local:
     environment:
-      CRITERION_PASSWORD: {% raw %}${{ op.personal["The Criterion Channel"]["password"] }}{% endraw %}
+      CRITERION_PASSWORD: {% raw %}${op.personal["The Criterion Channel"]["password"]}{% endraw %}
 ...
 ```
 
 Where `op` represents the `onepassword` secrets provider, and `personal` is a reference to the 1Password vault where you have stored your secrets.
+
+Windsor also supports a namespaced reference form, `secret.<provider>...`, for all secrets references. The following are equivalent:
+
+```yaml
+environment:
+  STRIPE_API_KEY: {% raw %}${op.development.stripe.api_key}{% endraw %}
+  STRIPE_API_KEY_ALT: {% raw %}${secret.op.development.stripe.api_key}{% endraw %}
+```
 
 ## Supported Providers
 
@@ -34,8 +42,15 @@ version: v1alpha1
 contexts:
   local:
     environment:
-      CRITERION_PASSWORD: {% raw %}${{ sops.streaming.criterion.password }}{% endraw %}
+      CRITERION_PASSWORD: {% raw %}${sops.streaming.criterion.password}{% endraw %}
 ...
+```
+
+The namespaced syntax is also supported for SOPS:
+
+```yaml
+environment:
+  CRITERION_PASSWORD: {% raw %}${secret.sops.streaming.criterion.password}{% endraw %}
 ```
 
 ### 1Password CLI
@@ -66,11 +81,31 @@ version: v1alpha1
 contexts:
   local:
     environment:
-      LOCALSTACK_API_KEY: {% raw %}${{ op.personal.localstack.api_key }}{% endraw %}
-      STRIPE_API_KEY: {% raw %}${{ op.development.stripe.api_key }}{% endraw %}
+      LOCALSTACK_API_KEY: {% raw %}${op.personal.localstack.api_key}{% endraw %}
+      STRIPE_API_KEY: {% raw %}${op.development.stripe.api_key}{% endraw %}
 ```
 
 When you have configured 1Password in your environment, you will likely be prompted to authenticate with 1Password. This creates a session, and you will not be prompted again until that session has been expired, lasting typically 30 minutes.
+
+## Terraform Sensitive Inputs
+
+When a Terraform input value is derived from a Windsor secret reference, Windsor does not write that value to generated `terraform.tfvars`. Instead, Windsor provides the value through `TF_VAR_<name>` environment variables during Terraform execution.
+
+Secret-qualified inputs can be declared directly in Terraform component inputs:
+
+```yaml
+terraform:
+  - name: cluster
+    path: cluster
+    inputs:
+      db_password: {% raw %}${secret.op.platform.database.password}{% endraw %}
+```
+
+Secret-qualified inputs are resolved before export as `TF_VAR_*`.
+
+## Kustomize Substitutions
+
+In this phase, Kustomize substitutions remain ConfigMap-backed. Do not pass secret values through `kustomize.substitutions`, because those values are materialized in ConfigMaps.
 
 ## Caching
 Secrets from remote providers are cached in-memory in your environment to improve performance and reduce unnecessary service calls or re-authentication. If a secret has already been defined in your environment, it will not be retrieved again. If you would like to trigger a refresh of your secrets, you may either:

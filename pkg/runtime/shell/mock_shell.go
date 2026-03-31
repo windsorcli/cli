@@ -16,6 +16,7 @@ import (
 
 type MockShell struct {
 	DefaultShell
+	ScrubFunc                      func(input string) string
 	RenderEnvVarsFunc              func(envVars map[string]string, export bool) string
 	RenderAliasesFunc              func(aliases map[string]string) string
 	GetProjectRootFunc             func() (string, error)
@@ -37,6 +38,14 @@ type MockShell struct {
 	CheckResetFlagsFunc            func() (bool, error)
 	ResetFunc                      func(...bool)
 	RegisterSecretFunc             func(value string)
+}
+
+// Scrub calls the custom ScrubFunc if provided.
+func (s *MockShell) Scrub(input string) string {
+	if s.ScrubFunc != nil {
+		return s.ScrubFunc(input)
+	}
+	return input
 }
 
 // =============================================================================

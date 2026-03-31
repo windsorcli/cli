@@ -455,16 +455,16 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 	}
 
 	return &TerraformComponent{
-		Name:         t.Name,
-		Source:       t.Source,
-		Path:         t.Path,
-		FullPath:     t.FullPath,
-		DependsOn:    dependsOnCopy,
-		Inputs:       inputsCopy,
-		Destroy:      destroyCopy,
-		Parallelism:  parallelismCopy,
-		Enabled:      enabledCopy,
-		InputOrigins: maps.Clone(t.InputOrigins),
+		Name:            t.Name,
+		Source:          t.Source,
+		Path:            t.Path,
+		FullPath:        t.FullPath,
+		DependsOn:       dependsOnCopy,
+		Inputs:          inputsCopy,
+		Destroy:         destroyCopy,
+		Parallelism:     parallelismCopy,
+		Enabled:         enabledCopy,
+		InputOrigins:    maps.Clone(t.InputOrigins),
 	}
 }
 
@@ -779,7 +779,6 @@ func (b *Blueprint) RemoveTerraformComponent(removal TerraformComponent) error {
 					delete(existing.Inputs, key)
 				}
 			}
-
 			if len(removal.DependsOn) > 0 {
 				existing.DependsOn = slices.DeleteFunc(existing.DependsOn, func(dep string) bool {
 					return slices.Contains(removal.DependsOn, dep)
@@ -861,23 +860,23 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 	}
 
 	return &Kustomization{
-		Name:                k.Name,
-		Path:                k.Path,
-		Source:              k.Source,
-		DependsOn:           slices.Clone(k.DependsOn),
-		Interval:            k.Interval,
-		RetryInterval:       k.RetryInterval,
-		Timeout:             k.Timeout,
-		Patches:             slices.Clone(k.Patches),
-		Wait:                k.Wait,
-		Force:               k.Force,
-		Prune:               k.Prune,
-		Components:          slices.Clone(k.Components),
-		Cleanup:             slices.Clone(k.Cleanup),
-		Destroy:             destroyCopy,
-		DestroyOnly:         k.DestroyOnly,
-		Enabled:             enabledCopy,
-		Substitutions:       maps.Clone(k.Substitutions),
+		Name:          k.Name,
+		Path:          k.Path,
+		Source:        k.Source,
+		DependsOn:     slices.Clone(k.DependsOn),
+		Interval:      k.Interval,
+		RetryInterval: k.RetryInterval,
+		Timeout:       k.Timeout,
+		Patches:       slices.Clone(k.Patches),
+		Wait:          k.Wait,
+		Force:         k.Force,
+		Prune:         k.Prune,
+		Components:    slices.Clone(k.Components),
+		Cleanup:       slices.Clone(k.Cleanup),
+		Destroy:       destroyCopy,
+		DestroyOnly:   k.DestroyOnly,
+		Enabled:       enabledCopy,
+		Substitutions: maps.Clone(k.Substitutions),
 	}
 }
 

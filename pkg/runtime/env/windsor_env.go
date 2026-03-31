@@ -44,26 +44,35 @@ var WindsorPrefixedVars = []string{
 type WindsorEnvPrinter struct {
 	BaseEnvPrinter
 	secretsProviders []secrets.SecretsProvider
-	allEnvPrinters   []EnvPrinter
+	secretCache      bool
+}
+
+// WindsorEnvOptions defines optional constructor settings for WindsorEnvPrinter.
+type WindsorEnvOptions struct {
+	SecretCacheEnabled bool
 }
 
 // =============================================================================
 // Constructor
 // =============================================================================
 
-// NewWindsorEnvPrinter creates a new WindsorEnvPrinter instance
-func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, secretsProviders []secrets.SecretsProvider, allEnvPrinters []EnvPrinter) *WindsorEnvPrinter {
+// NewWindsorEnvPrinter creates a new WindsorEnvPrinter instance.
+func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, secretsProviders []secrets.SecretsProvider, opts ...*WindsorEnvOptions) *WindsorEnvPrinter {
 	if shell == nil {
 		panic("shell is required")
 	}
 	if configHandler == nil {
 		panic("config handler is required")
 	}
+	options := &WindsorEnvOptions{}
+	if len(opts) > 0 && opts[0] != nil {
+		options = opts[0]
+	}
 
 	return &WindsorEnvPrinter{
 		BaseEnvPrinter:   *NewBaseEnvPrinter(shell, configHandler),
 		secretsProviders: secretsProviders,
-		allEnvPrinters:   allEnvPrinters,
+		secretCache:      options.SecretCacheEnabled,
 	}
 }
 
@@ -102,8 +111,6 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 
-	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
-
 	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
 
 	for k, v := range originalEnvVars {
@@ -111,12 +118,15 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 			e.SetManagedEnv(k)
 		}
 
-		if re.MatchString(v) {
+		if containsSecretExpression(v) {
+			existingValueHasError := false
+			useCache := e.shouldUseCache()
 			if existingValue, exists := e.shims.LookupEnv(k); exists {
+				existingValueHasError = strings.Contains(existingValue, "<ERROR")
 				if managedEnvExists {
 					e.SetManagedEnv(k)
 				}
-				if e.shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
+				if useCache && !existingValueHasError {
 					continue
 				}
 			}
@@ -127,21 +137,10 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	// Collect managed envs and aliases from all env printers
-	var allManagedEnv []string
-	var allManagedAlias []string
-
-	// Add our own managed envs and aliases
+	allManagedEnv := make([]string, 0)
+	allManagedAlias := make([]string, 0)
 	allManagedEnv = append(allManagedEnv, e.GetManagedEnv()...)
 	allManagedAlias = append(allManagedAlias, e.GetManagedAlias()...)
-
-	// Collect from other env printers
-	for _, printer := range e.allEnvPrinters {
-		if printer != nil && printer != e {
-			allManagedEnv = append(allManagedEnv, printer.GetManagedEnv()...)
-			allManagedAlias = append(allManagedAlias, printer.GetManagedAlias()...)
-		}
-	}
 
 	// Add Windsor prefixed vars to managed env (excluding BUILD_ID if not available)
 	windsorVars := make([]string, 0, len(WindsorPrefixedVars))
@@ -178,18 +177,33 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 		}
 	}
 
+	if strings.Contains(strValue, "${{") {
+		strValue = normalizeLegacySecretExpressions(strValue)
+		for _, secretsProvider := range e.secretsProviders {
+			parsedValue, err := secretsProvider.ParseSecrets(strValue)
+			if err == nil {
+				strValue = parsedValue
+			}
+		}
+	}
+
 	// #nosec G101 # This is just a regular expression not a secret
-	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
-	unparsedSecrets := re.FindAllStringSubmatch(strValue, -1)
-	if len(unparsedSecrets) > 0 {
+	re := regexp.MustCompile(`\${\s*(.*?)\s*}`)
+	matches := re.FindAllStringSubmatch(strValue, -1)
+	secretNames := make([]string, 0)
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		secretName := strings.TrimSpace(match[1])
+		if !isSecretExpressionToken(secretName) {
+			continue
+		}
+		secretNames = append(secretNames, secretName)
+	}
+	if len(secretNames) > 0 {
 		if len(e.secretsProviders) == 0 {
 			return "<ERROR: No secrets providers configured>"
-		}
-		var secretNames []string
-		for _, match := range unparsedSecrets {
-			if len(match) > 1 {
-				secretNames = append(secretNames, match[1])
-			}
 		}
 		secrets := strings.Join(secretNames, ", ")
 		return fmt.Sprintf("<ERROR: failed to parse: %s>", secrets)
@@ -198,11 +212,55 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 	return strValue
 }
 
+// normalizeLegacySecretExpressions converts legacy ${{ ... }} placeholders to ${ ... } format.
+func normalizeLegacySecretExpressions(input string) string {
+	re := regexp.MustCompile(`\$\{\{\s*(.*?)\s*\}\}`)
+	return re.ReplaceAllStringFunc(input, func(match string) string {
+		submatches := re.FindStringSubmatch(match)
+		if len(submatches) < 2 {
+			return match
+		}
+		return "${" + strings.TrimSpace(submatches[1]) + "}"
+	})
+}
+
+// containsSecretExpression reports whether input contains at least one secret expression placeholder.
+func containsSecretExpression(input string) bool {
+	re := regexp.MustCompile(`\${{?\s*(.*?)\s*}}?`)
+	matches := re.FindAllStringSubmatch(input, -1)
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		if isSecretExpressionToken(strings.TrimSpace(match[1])) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSecretExpressionToken reports whether a placeholder token is a secret reference.
+func isSecretExpressionToken(token string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(token))
+	if strings.HasPrefix(normalized, "secret.") ||
+		strings.HasPrefix(normalized, "secrets.") ||
+		strings.HasPrefix(normalized, "op.") ||
+		strings.HasPrefix(normalized, "op[") ||
+		strings.HasPrefix(normalized, "sops.") {
+		return true
+	}
+	if strings.Contains(normalized, " ") || strings.Contains(normalized, "(") || strings.Contains(normalized, ")") {
+		return false
+	}
+	return strings.Contains(normalized, "secret")
+}
+
 // shouldUseCache determines if the cache should be used based on NO_CACHE environment variable.
 // Cache is enabled by default and can be disabled by setting NO_CACHE=1 or NO_CACHE=true.
 func (e *WindsorEnvPrinter) shouldUseCache() bool {
 	noCache, _ := e.shims.LookupEnv("NO_CACHE")
-	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+	noCacheDisabled := noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+	return noCacheDisabled && e.secretCache
 }
 
 // getBuildID retrieves the current build ID from the .windsor/.build-id file.

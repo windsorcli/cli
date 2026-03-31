@@ -57,11 +57,8 @@ type expressionEvaluator struct {
 	Shims         *Shims
 	templateData  map[string][]byte
 	helpers       []func(allowDeferred bool) expr.Option
+	normalizers   []func(expression string) string
 }
-
-// =============================================================================
-// Errors
-// =============================================================================
 
 // DeferredError signals that an expression is deferred and should be preserved for later evaluation.
 // This is not an error condition but a signal that the expression cannot be evaluated at this time.
@@ -85,29 +82,9 @@ type DeferredValue struct {
 	Expression string
 }
 
-// IsDeferredValue reports whether value is a DeferredValue (value or pointer form).
-func IsDeferredValue(value any) bool {
-	switch value.(type) {
-	case DeferredValue, *DeferredValue:
-		return true
-	default:
-		return false
-	}
-}
-
-// DeferredExpression returns the preserved raw expression string when value is DeferredValue.
-func DeferredExpression(value any) (string, bool) {
-	switch v := value.(type) {
-	case DeferredValue:
-		return v.Expression, true
-	case *DeferredValue:
-		if v == nil {
-			return "", false
-		}
-		return v.Expression, true
-	default:
-		return "", false
-	}
+// SecretValue represents a value resolved from a secret reference helper.
+type SecretValue struct {
+	Value any
 }
 
 // =============================================================================
@@ -181,6 +158,14 @@ func (e *expressionEvaluator) Register(name string, helper func(params []any, de
 	})
 }
 
+// RegisterExpressionNormalizer registers a transformation function applied before expression compilation.
+func (e *expressionEvaluator) RegisterExpressionNormalizer(normalizer func(expression string) string) {
+	if normalizer == nil {
+		return
+	}
+	e.normalizers = append(e.normalizers, normalizer)
+}
+
 // Evaluate resolves Windsor expressions in the provided string s, supporting both complete and interpolated
 // (${...}) expressions, arithmetic operations, and complex object types. The evaluation will process dynamic
 // file and jsonnet loading as needed, and can defer unresolved expressions when evaluateDeferred is false.
@@ -231,6 +216,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 	}
 	result := s
 	deferredEncountered := false
+	secretEncountered := false
 	searchStart := 0
 	for iter := 0; iter < 20; iter++ {
 		idx := strings.Index(result[searchStart:], "${")
@@ -260,27 +246,41 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 		}
 		before := result[:start]
 		after := result[end+1:]
+		unwrappedValue := value
+		if isSecretValue(value) {
+			secretEncountered = true
+			unwrappedValue = UnwrapSecretValue(value)
+		}
 		singleExpr := strings.TrimSpace(before) == "" && strings.TrimSpace(after) == ""
 		if singleExpr {
-			if str, ok := value.(string); ok && ContainsExpression(str) {
+			if str, ok := unwrappedValue.(string); ok && ContainsExpression(str) {
 				if str == result {
-					return value, nil
+					if secretEncountered {
+						return SecretValue{Value: str}, nil
+					}
+					return str, nil
 				}
 				result = str
 				searchStart = 0
 				continue
 			}
-			return value, nil
+			if secretEncountered {
+				return SecretValue{Value: unwrappedValue}, nil
+			}
+			return unwrappedValue, nil
 		}
 		var replacement string
-		if value != nil {
+		if unwrappedValue != nil {
 			var err error
-			replacement, err = valueToInterpolationString(value, e.Shims.YamlMarshal)
+			replacement, err = valueToInterpolationString(unwrappedValue, e.Shims.YamlMarshal)
 			if err != nil {
 				return "", fmt.Errorf("failed to marshal expression result to YAML: %w", err)
 			}
-			if !evaluateDeferred && ContainsExpression(replacement) && isStructuredValue(value) {
-				return value, nil
+			if !evaluateDeferred && ContainsExpression(replacement) && isStructuredValue(unwrappedValue) {
+				if secretEncountered {
+					return SecretValue{Value: unwrappedValue}, nil
+				}
+				return unwrappedValue, nil
 			}
 			replacement = indentForEmbeddedYAML(before, replacement, 2)
 		}
@@ -290,6 +290,9 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 	if !evaluateDeferred && deferredEncountered {
 		return DeferredValue{Expression: result}, nil
 	}
+	if secretEncountered {
+		return SecretValue{Value: result}, nil
+	}
 	return result, nil
 }
 
@@ -298,6 +301,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 // is that scope (with runtime keys injected so helpers like file() and jsonnet() have context and paths).
 // The expression should not include ${} bookends. Returns the evaluation result or an error.
 func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+	expression = e.normalizeExpression(expression)
 	var merged map[string]any
 	if scope != nil {
 		merged = make(map[string]any)
@@ -323,6 +327,14 @@ func (e *expressionEvaluator) evaluateExpression(expression string, facetPath st
 		return nil, fmt.Errorf("failed to evaluate expression '%s': %w", expression, err)
 	}
 	return result, nil
+}
+
+func (e *expressionEvaluator) normalizeExpression(expression string) string {
+	normalized := expression
+	for _, normalizer := range e.normalizers {
+		normalized = normalizer(normalized)
+	}
+	return normalized
 }
 
 // getConfig retrieves the current configuration context as a map of string keys to values.
@@ -608,9 +620,19 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 			}
 			return nil, err
 		}
-		return normalizeYamlResult(evaluated), nil
+		secretValue := false
+		if isSecretValue(evaluated) {
+			secretValue = true
+			evaluated = UnwrapSecretValue(evaluated)
+		}
+		normalized := normalizeYamlResult(evaluated)
+		if secretValue {
+			return SecretValue{Value: normalized}, nil
+		}
+		return normalized, nil
 	case map[string]any:
 		result := make(map[string]any)
+		containsSecret := false
 		for k, val := range v {
 			evaluated, err := e.evaluateValue(val, facetPath, evaluateDeferred, scope)
 			if err != nil {
@@ -629,11 +651,19 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 					continue
 				}
 			}
+			if isSecretValue(evaluated) {
+				containsSecret = true
+				evaluated = UnwrapSecretValue(evaluated)
+			}
 			result[k] = evaluated
+		}
+		if containsSecret {
+			return SecretValue{Value: result}, nil
 		}
 		return result, nil
 	case []any:
 		result := make([]any, 0, len(v))
+		containsSecret := false
 		for _, item := range v {
 			evaluated, err := e.evaluateValue(item, facetPath, evaluateDeferred, scope)
 			if err != nil {
@@ -652,7 +682,14 @@ func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluat
 					continue
 				}
 			}
+			if isSecretValue(evaluated) {
+				containsSecret = true
+				evaluated = UnwrapSecretValue(evaluated)
+			}
 			result = append(result, evaluated)
+		}
+		if containsSecret {
+			return SecretValue{Value: result}, nil
 		}
 		return result, nil
 	default:
@@ -1518,45 +1555,4 @@ func isStructuredValue(value any) bool {
 		return true
 	}
 	return false
-}
-
-// ContainsExpression determines whether the provided value is a string that contains an unresolved expression.
-// An expression is identified by the pattern "${...}" anywhere in the string. This function returns true if
-// the value is a string containing at least one properly closed "${...}" expression pattern, and false otherwise.
-// Used to identify values containing unresolved expressions that should be skipped when evaluateDeferred is false.
-func ContainsExpression(value any) bool {
-	switch v := value.(type) {
-	case DeferredValue:
-		return ContainsExpression(v.Expression)
-	case *DeferredValue:
-		if v == nil {
-			return false
-		}
-		return ContainsExpression(v.Expression)
-	case string:
-		if !strings.Contains(v, "${") {
-			return false
-		}
-		start := strings.Index(v, "${")
-		if start == -1 {
-			return false
-		}
-		return findExpressionEnd(v, start) != -1
-	case map[string]any:
-		for _, val := range v {
-			if ContainsExpression(val) {
-				return true
-			}
-		}
-		return false
-	case []any:
-		for _, item := range v {
-			if ContainsExpression(item) {
-				return true
-			}
-		}
-		return false
-	default:
-		return false
-	}
 }

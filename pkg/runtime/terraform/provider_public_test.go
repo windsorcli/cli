@@ -2751,6 +2751,268 @@ terraform:
 		}
 	})
 
+	t.Run("EmitsTFVarForSecretQualifiedInputsWithoutExpressions", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path: "cluster",
+				Inputs: map[string]any{
+					"db_password": evaluator.SecretValue{Value: "super-secret"},
+					"plain_value": "plain",
+				},
+			},
+		})
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_db_password"]; got != "super-secret" {
+			t.Errorf("Expected TF_VAR_db_password to be exported for secret input, got %q", got)
+		}
+		if _, exists := envVars["TF_VAR_plain_value"]; exists {
+			t.Error("Expected TF_VAR_plain_value to remain skipped for non-secret non-expression input")
+		}
+	})
+
+	t.Run("EmitsTFVarForSensitiveLiteralInputs", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		moduleDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte(`variable "db_password" {
+  type      = string
+  sensitive = true
+}
+variable "plain_value" {
+  type = string
+}`), 0644); err != nil {
+			t.Fatalf("Expected no error writing variables.tf, got: %v", err)
+		}
+		mocks.Provider.Shims.Stat = os.Stat
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path:     "cluster",
+				FullPath: moduleDir,
+				Inputs: map[string]any{
+					"db_password": "literal-sensitive-value",
+					"plain_value": "plain",
+				},
+			},
+		})
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_db_password"]; got != "literal-sensitive-value" {
+			t.Errorf("Expected TF_VAR_db_password for sensitive literal input, got %q", got)
+		}
+		if _, exists := envVars["TF_VAR_plain_value"]; exists {
+			t.Error("Expected TF_VAR_plain_value to remain skipped for non-sensitive non-expression input")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenSensitiveInputDiscoveryFailsToParseModule", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		moduleDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte(`variable "db_password" {
+  type      = string
+  sensitive = 
+}`), 0644); err != nil {
+			t.Fatalf("Expected no error writing variables.tf, got: %v", err)
+		}
+		mocks.Provider.Shims.Stat = os.Stat
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path:     "cluster",
+				FullPath: moduleDir,
+				Inputs: map[string]any{
+					"db_password": "literal-sensitive-value",
+				},
+			},
+		})
+
+		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err == nil {
+			t.Fatal("Expected error when sensitive input discovery cannot parse terraform file")
+		}
+		if !strings.Contains(err.Error(), "error discovering sensitive terraform inputs") {
+			t.Fatalf("Expected sensitive discovery error, got: %v", err)
+		}
+	})
+
+	t.Run("CachesSensitiveInputDiscoveryWhenModuleIsUnchanged", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		moduleDir := t.TempDir()
+		variablesPath := filepath.Join(moduleDir, "variables.tf")
+		if err := os.WriteFile(variablesPath, []byte(`variable "db_password" {
+  type      = string
+  sensitive = true
+}`), 0644); err != nil {
+			t.Fatalf("Expected no error writing variables.tf, got: %v", err)
+		}
+		mocks.Provider.Shims.Stat = os.Stat
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path:     "cluster",
+				FullPath: moduleDir,
+				Inputs: map[string]any{
+					"db_password": "literal-sensitive-value",
+				},
+			},
+		})
+
+		originalReadFile := mocks.Provider.Shims.ReadFile
+		readCount := 0
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if filepath.Clean(path) == filepath.Clean(variablesPath) {
+				readCount++
+			}
+			return originalReadFile(path)
+		}
+
+		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error on first call, got: %v", err)
+		}
+		_, _, err = mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error on second call, got: %v", err)
+		}
+		if readCount != 1 {
+			t.Fatalf("Expected sensitive discovery to read variables file once, got %d", readCount)
+		}
+	})
+
+	t.Run("ReusesExistingTFVarWhenCacheEnabled", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		mocks.Provider.SetSecretCacheEnabled(true)
+		mocks.Provider.Shims.Getenv = func(key string) string {
+			switch key {
+			case "NO_CACHE":
+				return ""
+			case "TF_VAR_db_password":
+				return "cached-secret"
+			default:
+				return ""
+			}
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path: "cluster",
+				Inputs: map[string]any{
+					"db_password": evaluator.SecretValue{Value: "fresh-secret"},
+				},
+			},
+		})
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_db_password"]; got != "cached-secret" {
+			t.Errorf("Expected cached TF_VAR_db_password to be reused, got %q", got)
+		}
+	})
+
+	t.Run("DoesNotReuseExistingTFVarWhenNotHookMode", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		mocks.Provider.SetSecretCacheEnabled(false)
+		mocks.Provider.Shims.Getenv = func(key string) string {
+			switch key {
+			case "NO_CACHE":
+				return ""
+			case "TF_VAR_db_password":
+				return "cached-secret"
+			default:
+				return ""
+			}
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path: "cluster",
+				Inputs: map[string]any{
+					"db_password": evaluator.SecretValue{Value: "fresh-secret"},
+				},
+			},
+		})
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_db_password"]; got != "fresh-secret" {
+			t.Errorf("Expected TF_VAR_db_password to be recomputed outside hook mode, got %q", got)
+		}
+	})
+
+	t.Run("DoesNotReuseExistingTFVarForNonSecretExpressionInputs", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		mocks.Provider.Shims.Getenv = func(key string) string {
+			switch key {
+			case "NO_CACHE":
+				return ""
+			case "TF_VAR_vpc_id":
+				return "cached-vpc-id"
+			default:
+				return ""
+			}
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path: "cluster",
+				Inputs: map[string]any{
+					"vpc_id": "${terraform_output('network', 'vpc_id')}",
+				},
+			},
+		})
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			if !evaluateDeferred {
+				return map[string]any{"vpc_id": "${terraform_output('network', 'vpc_id')}"}, nil
+			}
+			return map[string]any{"vpc_id": "fresh-vpc-id"}, nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_vpc_id"]; got != "fresh-vpc-id" {
+			t.Errorf("Expected TF_VAR_vpc_id to be recomputed for non-secret expression input, got %q", got)
+		}
+	})
+
+	t.Run("DoesNotReuseExistingTFVarWhenNoCacheEnabled", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		mocks.Provider.Shims.Getenv = func(key string) string {
+			switch key {
+			case "NO_CACHE":
+				return "true"
+			case "TF_VAR_db_password":
+				return "cached-secret"
+			default:
+				return ""
+			}
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path: "cluster",
+				Inputs: map[string]any{
+					"db_password": evaluator.SecretValue{Value: "fresh-secret"},
+				},
+			},
+		})
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_db_password"]; got != "fresh-secret" {
+			t.Errorf("Expected TF_VAR_db_password to be recomputed when NO_CACHE=true, got %q", got)
+		}
+	})
+
 	t.Run("IncludesBaseContextAndProjectRootVars", func(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
 		mocks.ConfigHandler.GetContextFunc = func() string {

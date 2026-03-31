@@ -57,7 +57,7 @@ contexts:
 	// Create and register mock secrets provider
 	mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 	mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
-		if strings.Contains(input, "${{secret_name}}") {
+		if strings.Contains(input, "${secret_name}") {
 			return "parsed_secret_value", nil
 		}
 		return input, nil
@@ -86,7 +86,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -127,6 +127,43 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessWithDoubleBrackets", func(t *testing.T) {
+		printer, mocks := setup(t)
+
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == "value with ${{secrets.mySecret}}" {
+				return "value with resolved-secret", nil
+			}
+			return input, nil
+		}
+		printer.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		result := printer.parseAndCheckSecrets("value with ${{secrets.mySecret}}")
+
+		if result != "value with resolved-secret" {
+			t.Errorf("Expected 'value with resolved-secret', got %q", result)
+		}
+	})
+
+	t.Run("LegacyDoubleBracketsWithModernProviderSyntax", func(t *testing.T) {
+		printer, mocks := setup(t)
+		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
+			if input == "value with ${secrets.mySecret}" {
+				return "value with resolved-secret", nil
+			}
+			return input, nil
+		}
+		printer.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
+
+		result := printer.parseAndCheckSecrets("value with ${{secrets.mySecret}}")
+
+		if result != "value with resolved-secret" {
+			t.Errorf("Expected 'value with resolved-secret', got %q", result)
+		}
+	})
+
 	t.Run("ContextIDNotSet", func(t *testing.T) {
 		// Given a WindsorEnvPrinter with no context ID
 		mockConfigHandler := config.NewMockConfigHandler()
@@ -140,7 +177,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 		mocks := setupWindsorEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: mockConfigHandler,
 		})
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 
 		// When GetEnvVars is called
@@ -182,6 +219,7 @@ func TestWindsorEnv_GetEnvVars(t *testing.T) {
 	t.Run("SecretVarWithCacheEnabled", func(t *testing.T) {
 		// Given a WindsorEnvPrinter with cache enabled
 		printer, mocks := setup(t)
+		printer.secretCache = true
 
 		t.Setenv("NO_CACHE", "0")
 		t.Setenv("SECRET_VAR", "cached_value")
@@ -201,7 +239,7 @@ version: v1alpha1
 contexts:
   mock-context:
     environment:
-      SECRET_VAR: "${{secret_name}}"
+      SECRET_VAR: "${secret_name}"
 `); err != nil {
 			t.Fatalf("LoadConfigString returned error: %v", err)
 		}
@@ -236,7 +274,7 @@ version: v1alpha1
 contexts:
   mock-context:
     environment:
-      SECRET_VAR: "${{secret_name}}"
+      SECRET_VAR: "${secret_name}"
 `); err != nil {
 			t.Fatalf("LoadConfigString returned error: %v", err)
 		}
@@ -253,9 +291,31 @@ contexts:
 		}
 	})
 
+	t.Run("PreservesNonSecretExpressions", func(t *testing.T) {
+		printer, mocks := setup(t)
+		if err := mocks.ConfigHandler.LoadConfigString(`
+version: v1alpha1
+contexts:
+  mock-context:
+    environment:
+      PROJECT_ROOT_REF: "${project_root}"
+`); err != nil {
+			t.Fatalf("LoadConfigString returned error: %v", err)
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+		if envVars["PROJECT_ROOT_REF"] != "${project_root}" {
+			t.Errorf("Expected PROJECT_ROOT_REF to remain unchanged, got %q", envVars["PROJECT_ROOT_REF"])
+		}
+	})
+
 	t.Run("SecretVarWithErrorInExistingValue", func(t *testing.T) {
 		// Given a WindsorEnvPrinter with error in existing value
 		printer, mocks := setup(t)
+		printer.secretCache = true
 
 		t.Setenv("NO_CACHE", "0")
 		t.Setenv("SECRET_VAR", "<e>secret error</e>")
@@ -265,7 +325,7 @@ version: v1alpha1
 contexts:
   mock-context:
     environment:
-      SECRET_VAR: "${{secret_name}}"
+      SECRET_VAR: "${secret_name}"
 `); err != nil {
 			t.Fatalf("LoadConfigString returned error: %v", err)
 		}
@@ -285,6 +345,7 @@ contexts:
 	t.Run("SecretVarWithManagedEnvExists", func(t *testing.T) {
 		// Given a WindsorEnvPrinter with managed env exists
 		printer, mocks := setup(t)
+		printer.secretCache = true
 
 		t.Setenv("NO_CACHE", "0")
 		t.Setenv("SECRET_VAR", "cached_value")
@@ -295,7 +356,7 @@ version: v1alpha1
 contexts:
   mock-context:
     environment:
-      SECRET_VAR: "${{secret_name}}"
+      SECRET_VAR: "${secret_name}"
 `); err != nil {
 			t.Fatalf("LoadConfigString returned error: %v", err)
 		}
@@ -384,7 +445,7 @@ contexts:
 			t.Fatalf("Failed to load config: %v", err)
 		}
 		mocks.ConfigHandler.SetContext("mock-context")
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 
 		projectRoot, err := mocks.Shell.GetProjectRoot()
@@ -755,7 +816,7 @@ func TestWindsorEnv_PostEnvHook(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a WindsorEnvPrinter
 		mocks := setupWindsorEnvMocks(t)
-		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		windsorEnvPrinter := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 
 		// When PostEnvHook is called
 		err := windsorEnvPrinter.PostEnvHook()
@@ -772,7 +833,7 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -794,7 +855,7 @@ func TestWindsorEnv_Initialize(t *testing.T) {
 	t.Run("ResolveAllError", func(t *testing.T) {
 		// Given a WindsorEnvPrinter
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 
 		// Then printer should be created
 		if printer == nil {
@@ -808,7 +869,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -819,7 +880,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 
 		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 		mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
-			if input == "value with ${{ secrets.mySecret }}" {
+			if input == "value with ${secrets.mySecret}" {
 				return "value with resolved-secret", nil
 			}
 			return input, nil
@@ -827,7 +888,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		printer.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
 		// When parseAndCheckSecrets is called
-		result := printer.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+		result := printer.parseAndCheckSecrets("value with ${secrets.mySecret}")
 
 		// Then the secret should be resolved
 		if result != "value with resolved-secret" {
@@ -846,7 +907,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		printer.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
 		// When parseAndCheckSecrets is called
-		result := printer.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+		result := printer.parseAndCheckSecrets("value with ${secrets.mySecret}")
 
 		// Then an error message should be returned
 		if !strings.Contains(result, "<ERROR: failed to parse") {
@@ -864,9 +925,20 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		printer.secretsProviders = []secrets.SecretsProvider{}
 
 		// When parseAndCheckSecrets is called
-		result := printer.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+		result := printer.parseAndCheckSecrets("value with ${secrets.mySecret}")
 
 		// Then an error message should be returned
+		if result != "<ERROR: No secrets providers configured>" {
+			t.Errorf("Expected '<ERROR: No secrets providers configured>', got %q", result)
+		}
+	})
+
+	t.Run("NoSecretsProvidersWithDoubleBrackets", func(t *testing.T) {
+		printer, _ := setup(t)
+		printer.secretsProviders = []secrets.SecretsProvider{}
+
+		result := printer.parseAndCheckSecrets("value with ${{secrets.mySecret}}")
+
 		if result != "<ERROR: No secrets providers configured>" {
 			t.Errorf("Expected '<ERROR: No secrets providers configured>', got %q", result)
 		}
@@ -883,7 +955,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		printer.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
 		// When parseAndCheckSecrets is called
-		result := printer.parseAndCheckSecrets("value with ${{ secrets.mySecret }}")
+		result := printer.parseAndCheckSecrets("value with ${secrets.mySecret}")
 
 		// Then an error message should be returned
 		if !strings.Contains(result, "<ERROR: failed to parse") {
@@ -905,7 +977,7 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 		printer.secretsProviders = []secrets.SecretsProvider{mockSecretsProvider}
 
 		// When parseAndCheckSecrets is called with multiple secrets
-		result := printer.parseAndCheckSecrets("value with ${{ secrets.secretA }} and ${{ secrets.secretB }}")
+		result := printer.parseAndCheckSecrets("value with ${secrets.secretA} and ${secrets.secretB}")
 
 		// Then an error message should be returned
 		if !strings.Contains(result, "<ERROR: failed to parse") {
@@ -915,13 +987,24 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 			t.Errorf("Expected error message to contain 'secrets.secretA, secrets.secretB', got %q", result)
 		}
 	})
+
+	t.Run("IgnoresNonSecretExpressions", func(t *testing.T) {
+		printer, _ := setup(t)
+		printer.secretsProviders = []secrets.SecretsProvider{}
+
+		result := printer.parseAndCheckSecrets("value with ${project_root}")
+
+		if result != "value with ${project_root}" {
+			t.Errorf("Expected non-secret expression to remain unchanged, got %q", result)
+		}
+	})
 }
 
 func TestWindsorEnv_shouldUseCache(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -929,6 +1012,7 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 	t.Run("EmptyNoCache", func(t *testing.T) {
 		// Given NO_CACHE environment variable is not set
 		printer, mocks := setup(t)
+		printer.secretCache = true
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
 				return "", false
@@ -948,6 +1032,7 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 	t.Run("NoCacheZero", func(t *testing.T) {
 		// Given NO_CACHE environment variable is set to "0"
 		printer, mocks := setup(t)
+		printer.secretCache = true
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
 				return "0", true
@@ -967,6 +1052,7 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 	t.Run("NoCacheFalse", func(t *testing.T) {
 		// Given NO_CACHE environment variable is set to "false"
 		printer, mocks := setup(t)
+		printer.secretCache = true
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
 				return "false", true
@@ -986,6 +1072,7 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 	t.Run("NoCacheOne", func(t *testing.T) {
 		// Given NO_CACHE environment variable is set to "1"
 		printer, mocks := setup(t)
+		printer.secretCache = true
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "NO_CACHE" {
 				return "1", true
@@ -1001,6 +1088,22 @@ func TestWindsorEnv_shouldUseCache(t *testing.T) {
 			t.Error("Expected shouldUseCache to return false for NO_CACHE=1")
 		}
 	})
+
+	t.Run("DisabledWhenSecretCacheNotEnabled", func(t *testing.T) {
+		printer, mocks := setup(t)
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "NO_CACHE" {
+				return "", false
+			}
+			return "", false
+		}
+
+		shouldCache := printer.shouldUseCache()
+
+		if shouldCache {
+			t.Error("Expected shouldUseCache to return false when secret cache is disabled")
+		}
+	})
 }
 
 // TestWindsorEnv_getBuildID tests the getBuildID method of the WindsorEnvPrinter
@@ -1008,7 +1111,7 @@ func TestWindsorEnv_getBuildID(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -1090,7 +1193,7 @@ func TestWindsorEnv_writeBuildIDToFile(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -1141,7 +1244,7 @@ func TestWindsorEnv_generateBuildID(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}
@@ -1203,7 +1306,7 @@ func TestWindsorEnv_incrementBuildID(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
 		mocks := setupWindsorEnvMocks(t)
-		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{}, []EnvPrinter{})
+		printer := NewWindsorEnvPrinter(mocks.Shell, mocks.ConfigHandler, []secrets.SecretsProvider{})
 		printer.shims = mocks.Shims
 		return printer, mocks
 	}

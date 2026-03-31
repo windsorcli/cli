@@ -27,15 +27,17 @@ import (
 
 // terraformProvider provides all terraform-specific operations with session caching.
 type terraformProvider struct {
-	configHandler config.ConfigHandler
-	shell         shell.Shell
-	toolsManager  tools.ToolsManager
-	evaluator     evaluator.ExpressionEvaluator
-	Shims         *Shims // Exported for testing
-	cache         map[string]map[string]any
-	components    []blueprintv1alpha1.TerraformComponent
-	configScope   map[string]any
-	mu            sync.RWMutex
+	configHandler  config.ConfigHandler
+	shell          shell.Shell
+	toolsManager   tools.ToolsManager
+	evaluator      evaluator.ExpressionEvaluator
+	Shims          *Shims // Exported for testing
+	cache          map[string]map[string]any
+	sensitiveInput providerSensitiveInputDiscovery
+	components     []blueprintv1alpha1.TerraformComponent
+	configScope    map[string]any
+	secretCache    bool
+	mu             sync.RWMutex
 }
 
 // terraformContext provides a scoped environment for Terraform operations with automatic cleanup.
@@ -80,6 +82,7 @@ type TerraformProvider interface {
 	CacheOutputs(componentID string) error
 	GetTFDataDir(componentID string) (string, error)
 	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
+	SetSecretCacheEnabled(enabled bool)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
 }
@@ -117,6 +120,7 @@ func NewTerraformProvider(
 		Shims:         NewShims(),
 		cache:         make(map[string]map[string]any),
 	}
+	provider.sensitiveInput = newProviderSensitiveInputDiscovery(provider.Shims)
 
 	provider.registerTerraformOutputHelper(evaluator)
 
@@ -442,16 +446,54 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 	if err != nil {
 		return nil, nil, err
 	}
+	p.mu.RLock()
+	secretCacheEnabled := p.secretCache
+	p.mu.RUnlock()
 
 	if componentID != "" && p.evaluator != nil {
 		component := p.GetTerraformComponent(componentID)
 		if component != nil && component.Inputs != nil && len(component.Inputs) > 0 {
+			sensitiveInputs, err := p.sensitiveInput.GetSensitiveTerraformInputs(modulePath)
+			if err != nil {
+				return nil, nil, fmt.Errorf("error discovering sensitive terraform inputs for component %s: %w", componentID, err)
+			}
 			for key, value := range component.Inputs {
+				containsSecretValue := evaluator.ContainsSecretValue(value)
+				containsExpression := evaluator.ContainsExpression(value)
+				isSensitiveInput := sensitiveInputs[key]
+				if !isSensitiveInput && !containsSecretValue && !containsExpression {
+					continue
+				}
 				envKey := fmt.Sprintf("TF_VAR_%s", key)
+				existingValue := p.Shims.Getenv(envKey)
+				existingFound := existingValue != ""
+				useCache := shouldUseTerraformEnvCache(p.Shims.Getenv("NO_CACHE"), secretCacheEnabled)
 				if deferredExpr, ok := evaluator.DeferredExpression(value); ok {
 					value = deferredExpr
+					containsExpression = evaluator.ContainsExpression(value)
 				}
-				if evaluator.ContainsExpression(value) {
+				if evaluator.ContainsSecretValue(value) {
+					if useCache && existingFound && !strings.Contains(existingValue, "<ERROR") {
+						p.shell.RegisterSecret(existingValue)
+						envVars[envKey] = existingValue
+						continue
+					}
+					evaluatedValue, shouldSet, err := p.evaluateInputValueForEnv(key, value)
+					if err != nil {
+						return nil, nil, fmt.Errorf("error evaluating secret input '%s' for component %s: %w", key, componentID, err)
+					}
+					if !shouldSet {
+						continue
+					}
+					envValue, err := p.formatTerraformEnvValue(evaluatedValue)
+					if err != nil {
+						return nil, nil, fmt.Errorf("error formatting secret input '%s' for component %s: %w", key, componentID, err)
+					}
+					p.shell.RegisterSecret(envValue)
+					envVars[envKey] = envValue
+					continue
+				}
+				if containsExpression {
 					p.mu.RLock()
 					evalScope := p.configScope
 					p.mu.RUnlock()
@@ -463,27 +505,58 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					if !exists {
 						continue
 					}
+					if evaluator.ContainsSecretValue(nonDeferredValue) {
+						if useCache && existingFound && !strings.Contains(existingValue, "<ERROR") {
+							p.shell.RegisterSecret(existingValue)
+							envVars[envKey] = existingValue
+							continue
+						}
+						evaluatedValue, shouldSet, err := p.evaluateInputValueForEnv(key, value)
+						if err != nil {
+							return nil, nil, fmt.Errorf("error evaluating secret input '%s' for component %s: %w", key, componentID, err)
+						}
+						if !shouldSet {
+							continue
+						}
+						envValue, err := p.formatTerraformEnvValue(evaluatedValue)
+						if err != nil {
+							return nil, nil, fmt.Errorf("error formatting secret input '%s' for component %s: %w", key, componentID, err)
+						}
+						p.shell.RegisterSecret(envValue)
+						envVars[envKey] = envValue
+						continue
+					}
 					if !evaluator.ContainsExpression(nonDeferredValue) {
 						continue
 					}
-					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, true)
+					evaluatedValue, shouldSet, err := p.evaluateInputValueForEnv(key, value)
 					if err != nil {
 						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
 					}
-					evaluatedValue, exists := evaluated[key]
-					if !exists {
+					if !shouldSet {
 						continue
 					}
-					var envValue string
-					if valueStr, ok := evaluatedValue.(string); ok {
-						envValue = valueStr
-					} else {
-						valueBytes, err := p.Shims.JsonMarshal(evaluatedValue)
-						if err != nil {
-							continue
-						}
-						envValue = string(valueBytes)
+					envValue, err := p.formatTerraformEnvValue(evaluatedValue)
+					if err != nil {
+						continue
 					}
+					if isSensitiveInput {
+						p.shell.RegisterSecret(envValue)
+					}
+					envVars[envKey] = envValue
+					continue
+				}
+				if isSensitiveInput {
+					if useCache && existingFound && !strings.Contains(existingValue, "<ERROR") {
+						p.shell.RegisterSecret(existingValue)
+						envVars[envKey] = existingValue
+						continue
+					}
+					envValue, err := p.formatTerraformEnvValue(value)
+					if err != nil {
+						return nil, nil, fmt.Errorf("error formatting sensitive input '%s' for component %s: %w", key, componentID, err)
+					}
+					p.shell.RegisterSecret(envValue)
 					envVars[envKey] = envValue
 				}
 			}
@@ -491,6 +564,13 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 	}
 
 	return envVars, terraformArgs, nil
+}
+
+// SetSecretCacheEnabled enables or disables TF_VAR secret cache reuse.
+func (p *terraformProvider) SetSecretCacheEnabled(enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.secretCache = enabled
 }
 
 // FormatArgsForEnv formats CLI arguments for use in environment variables.
@@ -602,6 +682,9 @@ func (p *terraformProvider) ClearCache() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cache = make(map[string]map[string]any)
+	if p.sensitiveInput != nil {
+		p.sensitiveInput.ClearCache()
+	}
 	p.components = nil
 	p.configScope = nil
 }
@@ -1033,9 +1116,56 @@ func (p *terraformProvider) processBackendConfig(backendConfig any, addArg func(
 	return nil
 }
 
+// evaluateInputValueForEnv evaluates an input value and unwraps secret-qualified values.
+func (p *terraformProvider) evaluateInputValueForEnv(key string, value any) (any, bool, error) {
+	if evaluator.ContainsSecretValue(value) && !evaluator.ContainsExpression(value) {
+		return evaluator.UnwrapSecretValue(value), true, nil
+	}
+	p.mu.RLock()
+	evalScope := p.configScope
+	p.mu.RUnlock()
+	if evaluator.ContainsExpression(value) {
+		evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, true)
+		if err != nil {
+			return nil, false, err
+		}
+		evaluatedValue, exists := evaluated[key]
+		if !exists {
+			return nil, false, nil
+		}
+		if evaluator.ContainsSecretValue(evaluatedValue) {
+			return evaluator.UnwrapSecretValue(evaluatedValue), true, nil
+		}
+		if evaluator.ContainsExpression(evaluatedValue) {
+			return evaluatedValue, true, nil
+		}
+		return evaluatedValue, true, nil
+	}
+	return nil, false, nil
+}
+
+// formatTerraformEnvValue renders a terraform input value as TF_VAR_* environment variable string.
+func (p *terraformProvider) formatTerraformEnvValue(value any) (string, error) {
+	value = evaluator.UnwrapSecretValue(value)
+	if valueStr, ok := value.(string); ok {
+		return valueStr, nil
+	}
+	valueBytes, err := p.Shims.JsonMarshal(value)
+	if err != nil {
+		return "", err
+	}
+	return string(valueBytes), nil
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// shouldUseTerraformEnvCache determines whether existing TF_VAR_* values may be reused.
+func shouldUseTerraformEnvCache(noCache string, cacheEnabled bool) bool {
+	noCacheDisabled := noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+	return noCacheDisabled && cacheEnabled
+}
 
 // processMap traverses the provided configMap, applying each key-value pair to the addArg function.
 // Nested maps are handled recursively, forming compound keys with dot notation.

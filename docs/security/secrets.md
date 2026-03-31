@@ -43,10 +43,15 @@ Any registered secret values appearing in command output are automatically repla
 - Debug or verbose output includes secret values
 - Command output is logged or captured
 
+Terraform inputs resolved from Windsor secret references are protected by routing through `TF_VAR_*` environment variables instead of generated `terraform.tfvars` assignments.
+
 ## Best Practices
 
 ### Limit Environment Injection
 Injecting secrets directly into your environment is generally discouraged outside of development environments. This practice can lead to unintentional exposure of sensitive information.
+
+### Avoid Secret Values in Kustomize Substitutions
+Kustomize substitutions are currently ConfigMap-backed. Treat all substitution values as non-secret data until Secret-backed substitution support is introduced.
 
 ### Regularly Rotate Secrets
 Regularly rotating your secrets is a critical practice for maintaining security. Using a service such as 1Password makes it simple to rotate secrets centrally.

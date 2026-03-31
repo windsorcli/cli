@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,28 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// RuntimeSecretsProviders contains runtime-level secret provider dependencies.
+type RuntimeSecretsProviders struct {
+	Sops        secretsRuntime.SecretsProvider
+	Onepassword []secretsRuntime.SecretsProvider
+}
+
+// RuntimeEnvPrinters contains runtime-level environment printer dependencies.
+type RuntimeEnvPrinters struct {
+	AwsEnv       env.EnvPrinter
+	AzureEnv     env.EnvPrinter
+	GcpEnv       env.EnvPrinter
+	DockerEnv    env.EnvPrinter
+	KubeEnv      env.EnvPrinter
+	TalosEnv     env.EnvPrinter
+	TerraformEnv env.EnvPrinter
+	WindsorEnv   env.EnvPrinter
+}
 
 // Runtime holds common execution values and core dependencies used across the Windsor CLI.
 // These fields are set during various initialization steps rather than computed on-demand.
@@ -48,22 +71,10 @@ type Runtime struct {
 	Evaluator     evaluator.ExpressionEvaluator
 
 	// SecretsProviders contains providers for Sops and 1Password secrets management
-	SecretsProviders struct {
-		Sops        secretsRuntime.SecretsProvider
-		Onepassword []secretsRuntime.SecretsProvider
-	}
+	SecretsProviders RuntimeSecretsProviders
 
 	// EnvPrinters contains environment printers for various providers and tools
-	EnvPrinters struct {
-		AwsEnv       env.EnvPrinter
-		AzureEnv     env.EnvPrinter
-		GcpEnv       env.EnvPrinter
-		DockerEnv    env.EnvPrinter
-		KubeEnv      env.EnvPrinter
-		TalosEnv     env.EnvPrinter
-		TerraformEnv env.EnvPrinter
-		WindsorEnv   env.EnvPrinter
-	}
+	EnvPrinters RuntimeEnvPrinters
 
 	// ToolsManager manages tool installation and configuration
 	ToolsManager tools.ToolsManager
@@ -76,6 +87,14 @@ type Runtime struct {
 
 	// aliases stores collected shell aliases
 	aliases map[string]string
+
+	// secretHelperRegistered tracks whether the secret helper has already been registered with the evaluator.
+	secretHelperRegistered bool
+	// secretsLoaded tracks whether configured secret providers have been loaded for this runtime lifecycle.
+	secretsLoaded bool
+
+	// secretCacheEnabled controls whether secret TF_VAR cache reuse is enabled for this runtime.
+	secretCacheEnabled bool
 }
 
 // =============================================================================
@@ -119,6 +138,7 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		if overrides.WindsorScratchPath != "" {
 			rt.WindsorScratchPath = overrides.WindsorScratchPath
 		}
+		rt.secretCacheEnabled = overrides.secretCacheEnabled
 		if overrides.ToolsManager != nil {
 			rt.ToolsManager = overrides.ToolsManager
 		}
@@ -202,6 +222,7 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 	if rt.Evaluator == nil {
 		rt.Evaluator = evaluator.NewExpressionEvaluator(rt.ConfigHandler, rt.ProjectRoot, rt.TemplateRoot)
 	}
+	rt.registerSecretHelper()
 	if rt.WindsorScratchPath == "" {
 		rt.WindsorScratchPath = filepath.Join(rt.ProjectRoot, ".windsor", "contexts", rt.ContextName)
 	}
@@ -228,6 +249,7 @@ func (rt *Runtime) HandleSessionReset() error {
 	}
 	if shouldReset {
 		rt.Shell.Reset()
+		rt.secretsLoaded = false
 		if err := os.Setenv("NO_CACHE", "true"); err != nil {
 			return fmt.Errorf("failed to set NO_CACHE: %w", err)
 		}
@@ -252,7 +274,7 @@ func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 		return fmt.Errorf("failed to initialize environment components: %w", err)
 	}
 
-	if decrypt {
+	if decrypt && len(rt.configuredSecretsProviders()) > 0 {
 		if err := rt.loadSecrets(); err != nil {
 			return fmt.Errorf("failed to load secrets: %w", err)
 		}
@@ -260,6 +282,8 @@ func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 
 	allEnvVars := make(map[string]string)
 	allAliases := make(map[string]string)
+	managedEnv := make([]string, 0)
+	managedAlias := make([]string, 0)
 
 	for _, printer := range rt.getAllEnvPrinters() {
 		if printer != nil {
@@ -274,8 +298,12 @@ func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 				return fmt.Errorf("error getting aliases: %w", err)
 			}
 			maps.Copy(allAliases, aliases)
+			managedEnv = appendUniqueStrings(managedEnv, printer.GetManagedEnv()...)
+			managedAlias = appendUniqueStrings(managedAlias, printer.GetManagedAlias()...)
 		}
 	}
+	allEnvVars["WINDSOR_MANAGED_ENV"] = strings.Join(managedEnv, ",")
+	allEnvVars["WINDSOR_MANAGED_ALIAS"] = strings.Join(managedAlias, ",")
 
 	rt.envVars = allEnvVars
 	rt.aliases = allAliases
@@ -314,6 +342,16 @@ func (rt *Runtime) GetAliases() map[string]string {
 	result := make(map[string]string)
 	maps.Copy(result, rt.aliases)
 	return result
+}
+
+// SetSecretCacheEnabled enables or disables runtime secret cache reuse behavior.
+func (rt *Runtime) SetSecretCacheEnabled(enabled bool) {
+	rt.secretCacheEnabled = enabled
+}
+
+// IsSecretCacheEnabled reports whether runtime secret cache reuse behavior is enabled.
+func (rt *Runtime) IsSecretCacheEnabled() bool {
+	return rt.secretCacheEnabled
 }
 
 // CheckTools performs tool version checking using the tools manager.
@@ -721,7 +759,10 @@ func (rt *Runtime) initializeEnvPrinters() {
 		if rt.TerraformProvider == nil {
 			rt.TerraformProvider = terraform.NewTerraformProvider(rt.ConfigHandler, rt.Shell, rt.ToolsManager, rt.Evaluator)
 		}
+		rt.TerraformProvider.SetSecretCacheEnabled(rt.secretCacheEnabled)
 		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager, rt.TerraformProvider)
+	} else if rt.TerraformProvider != nil {
+		rt.TerraformProvider.SetSecretCacheEnabled(rt.secretCacheEnabled)
 	}
 	if rt.EnvPrinters.WindsorEnv == nil {
 		secretsProviders := []secretsRuntime.SecretsProvider{}
@@ -731,8 +772,12 @@ func (rt *Runtime) initializeEnvPrinters() {
 		if rt.SecretsProviders.Onepassword != nil {
 			secretsProviders = append(secretsProviders, rt.SecretsProviders.Onepassword...)
 		}
-		allEnvPrinters := rt.getAllEnvPrinters()
-		rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(rt.Shell, rt.ConfigHandler, secretsProviders, allEnvPrinters)
+		rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(
+			rt.Shell,
+			rt.ConfigHandler,
+			secretsProviders,
+			&env.WindsorEnvOptions{SecretCacheEnabled: rt.secretCacheEnabled},
+		)
 	}
 }
 
@@ -806,7 +851,13 @@ func (rt *Runtime) initializeSecretsProviders() {
 		if vaultsValue != nil {
 			if vaultsMap, ok := vaultsValue.(map[string]any); ok {
 				rt.SecretsProviders.Onepassword = []secretsRuntime.SecretsProvider{}
-				for vaultID, vaultData := range vaultsMap {
+				vaultIDs := make([]string, 0, len(vaultsMap))
+				for vaultID := range vaultsMap {
+					vaultIDs = append(vaultIDs, vaultID)
+				}
+				sort.Strings(vaultIDs)
+				for _, vaultID := range vaultIDs {
+					vaultData := vaultsMap[vaultID]
 					if vaultMap, ok := vaultData.(map[string]any); ok {
 						vault := secretsConfigType.OnePasswordVault{
 							ID: vaultID,
@@ -833,6 +884,25 @@ func (rt *Runtime) initializeSecretsProviders() {
 			}
 		}
 	}
+	rt.registerSecretHelper()
+}
+
+// registerSecretHelper registers the secret() expression helper once for this runtime.
+func (rt *Runtime) registerSecretHelper() {
+	if rt.secretHelperRegistered || rt.Evaluator == nil {
+		return
+	}
+	secretsRuntime.RegisterSecretHelper(rt.Evaluator, rt.resolveSecretReference)
+	rt.secretHelperRegistered = true
+}
+
+// resolveSecretReference resolves a single secret reference using configured secret providers.
+func (rt *Runtime) resolveSecretReference(ref string) (string, error) {
+	rt.initializeSecretsProviders()
+	if err := rt.loadSecrets(); err != nil {
+		return "", err
+	}
+	return secretsRuntime.ResolveReference(ref, rt.configuredSecretsProviders())
 }
 
 // getAllEnvPrinters returns all environment printers in a consistent order.
@@ -856,23 +926,49 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 // If a provider fails to load (e.g., file not found), it continues with other providers.
 // Returns an error only if a provider encounters a non-recoverable error (e.g., decryption failure).
 func (rt *Runtime) loadSecrets() error {
-	providers := []secretsRuntime.SecretsProvider{}
-	if rt.SecretsProviders.Sops != nil {
-		providers = append(providers, rt.SecretsProviders.Sops)
+	if rt.secretsLoaded {
+		return nil
 	}
-	if rt.SecretsProviders.Onepassword != nil {
-		providers = append(providers, rt.SecretsProviders.Onepassword...)
-	}
-
-	for _, provider := range providers {
+	for _, provider := range rt.configuredSecretsProviders() {
 		if provider != nil {
 			if err := provider.LoadSecrets(); err != nil {
 				return fmt.Errorf("failed to load secrets: %w", err)
 			}
 		}
 	}
-
+	rt.secretsLoaded = true
 	return nil
+}
+
+// configuredSecretsProviders returns all active secret providers in deterministic order.
+func (rt *Runtime) configuredSecretsProviders() []secretsRuntime.SecretsProvider {
+	providers := make([]secretsRuntime.SecretsProvider, 0)
+	if rt.SecretsProviders.Sops != nil {
+		providers = append(providers, rt.SecretsProviders.Sops)
+	}
+	if len(rt.SecretsProviders.Onepassword) > 0 {
+		providers = append(providers, rt.SecretsProviders.Onepassword...)
+	}
+	return providers
+}
+
+// appendUniqueStrings appends non-empty values to base while preserving first-seen order and avoiding duplicates.
+func appendUniqueStrings(base []string, values ...string) []string {
+	seen := make(map[string]struct{}, len(base))
+	for _, value := range base {
+		seen[value] = struct{}{}
+	}
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		base = append(base, value)
+	}
+	return base
 }
 
 // writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.

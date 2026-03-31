@@ -685,17 +685,12 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			for k, v := range evaluated {
 				origins[k] = facet.Path
 				composedPath := "terraform." + componentID + ".inputs." + k
-				if originalVal, exists := processed.Inputs[k]; exists {
-					if s, ok := originalVal.(string); ok && evaluator.ContainsExpression(s) {
-						probe, probeErr := p.evaluator.Evaluate(s, facet.Path, facetScope, false)
-						if probeErr == nil && evaluator.IsDeferredValue(probe) {
-							p.markDeferredPath(composedPath)
-							if expr, ok := evaluator.DeferredExpression(probe); ok {
-								v = expr
-							}
-						}
-					}
+				originalVal, _ := processed.Inputs[k]
+				resolvedValue, deferred := p.resolveTerraformInputDeferredState(v, originalVal, facet.Path, facetScope)
+				if deferred {
+					p.markDeferredPath(composedPath)
 				}
+				v = resolvedValue
 				v = normalizeDeferredValue(v)
 				if m := blueprintv1alpha1.ToMapStringAny(v); m != nil {
 					normalized[k] = m
@@ -772,6 +767,25 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 		}
 	}
 	return nil
+}
+
+// resolveTerraformInputDeferredState determines whether a terraform input should be marked deferred for display.
+func (p *BaseBlueprintProcessor) resolveTerraformInputDeferredState(value any, originalValue any, facetPath string, facetScope map[string]any) (any, bool) {
+	if evaluator.ContainsSecretValue(value) {
+		return value, true
+	}
+	s, ok := originalValue.(string)
+	if !ok || !evaluator.ContainsExpression(s) {
+		return value, false
+	}
+	probe, err := p.evaluator.Evaluate(s, facetPath, facetScope, false)
+	if err != nil || !evaluator.IsDeferredValue(probe) {
+		return value, false
+	}
+	if expr, ok := evaluator.DeferredExpression(probe); ok {
+		return expr, true
+	}
+	return value, true
 }
 
 // collectKustomizations processes all kustomizations from a facet, evaluating their conditions,
@@ -1717,6 +1731,13 @@ func normalizeDeferredValue(v any) any {
 			return nil
 		}
 		return x.Expression
+	case evaluator.SecretValue:
+		return normalizeDeferredValue(evaluator.UnwrapSecretValue(x))
+	case *evaluator.SecretValue:
+		if x == nil {
+			return nil
+		}
+		return normalizeDeferredValue(evaluator.UnwrapSecretValue(x))
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, val := range x {

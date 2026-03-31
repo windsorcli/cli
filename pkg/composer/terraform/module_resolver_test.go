@@ -2384,6 +2384,100 @@ variable "cluster_name" { type = string }`
 		}
 	})
 
+	t.Run("FiltersSecretQualifiedValues", func(t *testing.T) {
+		resolver, mocks := setup(t)
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		os.MkdirAll(moduleDir, 0755)
+		os.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }`), 0644)
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:   "test-module",
+					Source: "git::https://github.com/test/module.git",
+					Inputs: map[string]any{
+						"cluster_name": "test-cluster",
+						"db_password":  evaluator.SecretValue{Value: "super-secret"},
+					},
+					FullPath: moduleDir,
+				},
+			}
+		}
+
+		resolver.shims.Stat = os.Stat
+		resolver.shims.ReadFile = os.ReadFile
+		resolver.shims.MkdirAll = os.MkdirAll
+		resolver.shims.WriteFile = os.WriteFile
+
+		err := resolver.GenerateTfvars(false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		tfvarsPath := filepath.Join(moduleDir, "terraform.tfvars")
+		content, err := os.ReadFile(tfvarsPath)
+		if err != nil {
+			t.Fatalf("Expected tfvars file to be created, got error: %v", err)
+		}
+		contentStr := string(content)
+		if !strings.Contains(contentStr, "cluster_name") {
+			t.Error("Expected tfvars to contain cluster_name")
+		}
+		if strings.Contains(contentStr, "db_password") {
+			t.Error("Expected tfvars to NOT contain secret-qualified db_password")
+		}
+	})
+
+	t.Run("DoesNotPersistSensitiveLiteralValues", func(t *testing.T) {
+		resolver, mocks := setup(t)
+		projectRoot, _ := mocks.Shell.GetProjectRootFunc()
+		moduleDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "test-module")
+		os.MkdirAll(moduleDir, 0755)
+		os.WriteFile(filepath.Join(moduleDir, "variables.tf"), []byte(`variable "cluster_name" { type = string }
+variable "db_password" {
+  type      = string
+  sensitive = true
+}`), 0644)
+
+		mocks.BlueprintHandler.GetTerraformComponentsFunc = func() []blueprintv1alpha1.TerraformComponent {
+			return []blueprintv1alpha1.TerraformComponent{
+				{
+					Path:   "test-module",
+					Source: "git::https://github.com/test/module.git",
+					Inputs: map[string]any{
+						"cluster_name": "test-cluster",
+						"db_password":  "literal-sensitive-value",
+					},
+					FullPath: moduleDir,
+				},
+			}
+		}
+
+		resolver.shims.Stat = os.Stat
+		resolver.shims.ReadFile = os.ReadFile
+		resolver.shims.MkdirAll = os.MkdirAll
+		resolver.shims.WriteFile = os.WriteFile
+
+		err := resolver.GenerateTfvars(false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		tfvarsPath := filepath.Join(moduleDir, "terraform.tfvars")
+		content, err := os.ReadFile(tfvarsPath)
+		if err != nil {
+			t.Fatalf("Expected tfvars file to be created, got error: %v", err)
+		}
+		contentStr := string(content)
+		if !strings.Contains(contentStr, "cluster_name") {
+			t.Error("Expected tfvars to contain cluster_name")
+		}
+		if strings.Contains(contentStr, "literal-sensitive-value") {
+			t.Error("Expected tfvars to NOT persist sensitive literal value")
+		}
+	})
+
 }
 
 func TestBaseModuleResolver_evaluateInputs(t *testing.T) {

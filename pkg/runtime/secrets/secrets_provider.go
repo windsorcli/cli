@@ -31,7 +31,7 @@ type SecretsProvider interface {
 	// GetSecret retrieves a secret value for the specified key
 	GetSecret(key string) (string, error)
 
-	// ParseSecrets parses a string and replaces ${{ secrets.<key> }} references with their values
+	// ParseSecrets parses a string and replaces ${ secrets.<key> } references with their values
 	ParseSecrets(input string) (string, error)
 }
 

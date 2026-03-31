@@ -1943,3 +1943,99 @@ func TestContainsExpression(t *testing.T) {
 		}
 	})
 }
+
+func TestSecretExpressions(t *testing.T) {
+	t.Run("AppliesRegisteredExpressionNormalizer", func(t *testing.T) {
+		eval, _, _, _ := setupEvaluatorTest(t)
+		normalizerAware, ok := eval.(interface {
+			RegisterExpressionNormalizer(func(string) string)
+		})
+		if !ok {
+			t.Fatal("Expected evaluator to support expression normalizer registration")
+		}
+		normalizerAware.RegisterExpressionNormalizer(func(expression string) string {
+			if strings.TrimSpace(expression) == "secret.op.platform.db.password" {
+				return `secret("secret.op.platform.db.password")`
+			}
+			return expression
+		})
+		eval.Register("secret", func(params []any, deferred bool) (any, error) {
+			if len(params) != 1 {
+				return nil, fmt.Errorf("expected one arg")
+			}
+			ref, _ := params[0].(string)
+			return SecretValue{Value: "resolved:" + ref}, nil
+		}, new(func(string) any))
+
+		result, err := eval.Evaluate("${secret.op.platform.db.password}", "", nil, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !isSecretValue(result) {
+			t.Fatalf("Expected SecretValue, got %T", result)
+		}
+		if got := UnwrapSecretValue(result); got != "resolved:secret.op.platform.db.password" {
+			t.Errorf("Expected resolved helper value, got %v", got)
+		}
+	})
+
+	t.Run("EvaluatesExplicitSecretHelperCall", func(t *testing.T) {
+		eval, _, _, _ := setupEvaluatorTest(t)
+		eval.Register("secret", func(params []any, deferred bool) (any, error) {
+			if len(params) != 1 {
+				return nil, fmt.Errorf("expected one arg")
+			}
+			ref, _ := params[0].(string)
+			return SecretValue{Value: "resolved:" + ref}, nil
+		}, new(func(string) any))
+
+		result, err := eval.Evaluate(`${secret("secret.op.platform.db.password")}`, "", nil, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !isSecretValue(result) {
+			t.Fatalf("Expected SecretValue, got %T", result)
+		}
+		if got := UnwrapSecretValue(result); got != "resolved:secret.op.platform.db.password" {
+			t.Errorf("Expected resolved helper value, got %v", got)
+		}
+	})
+
+	t.Run("PropagatesSecretQualificationAcrossInterpolatedString", func(t *testing.T) {
+		eval, _, _, _ := setupEvaluatorTest(t)
+		eval.Register("secret", func(params []any, deferred bool) (any, error) {
+			return SecretValue{Value: "s3cr3t"}, nil
+		}, new(func(string) any))
+
+		result, err := eval.Evaluate(`prefix-${secret("secret.op.platform.db.password")}-suffix`, "", nil, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !isSecretValue(result) {
+			t.Fatalf("Expected SecretValue, got %T", result)
+		}
+		if got := UnwrapSecretValue(result); got != "prefix-s3cr3t-suffix" {
+			t.Errorf("Expected interpolated secret result, got %v", got)
+		}
+	})
+
+	t.Run("ReadsPlainConfigPathForSecretObject", func(t *testing.T) {
+		eval, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"secret": map[string]any{
+					"value": "plain-config-value",
+				},
+			}, nil
+		}
+
+		result, err := eval.Evaluate("${secret.value}", "", nil, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result != "plain-config-value" {
+			t.Errorf("Expected plain config lookup for secret.value, got %v", result)
+		}
+	})
+}

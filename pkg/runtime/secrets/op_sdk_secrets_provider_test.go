@@ -385,10 +385,30 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 		}
 
 		// When parsing input containing a valid 1Password secret reference
-		input := "This is a secret: ${{ op.test-id.test-secret.password }}"
+		input := "This is a secret: ${op.test-id.test-secret.password}"
 		output, err := provider.ParseSecrets(input)
 
 		// Then the secret reference should be replaced with the actual secret value
+		expectedOutput := "This is a secret: secret-value"
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if output != expectedOutput {
+			t.Errorf("Expected output to be '%s', got '%s'", expectedOutput, output)
+		}
+	})
+
+	t.Run("SupportsSecretNamespaceSyntax", func(t *testing.T) {
+		_, provider := setup(t)
+		provider.unlocked = true
+		provider.shims.NewOnePasswordClient = func(ctx context.Context, opts ...onepassword.ClientOption) (*onepassword.Client, error) {
+			return &onepassword.Client{}, nil
+		}
+		provider.shims.ResolveSecret = func(client *onepassword.Client, ctx context.Context, secretRef string) (string, error) {
+			return "secret-value", nil
+		}
+		input := "This is a secret: ${secret.op.test-id.test-secret.password}"
+		output, err := provider.ParseSecrets(input)
 		expectedOutput := "This is a secret: secret-value"
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -420,7 +440,7 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 		_, provider := setup(t)
 
 		// When parsing input with an invalid secret reference format (missing field)
-		input := "This is a secret: ${{ op.test-id.test-secret }}"
+		input := "This is a secret: ${op.test-id.test-secret}"
 		output, err := provider.ParseSecrets(input)
 
 		// Then the invalid reference should be replaced with an error message
@@ -438,11 +458,11 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 		_, provider := setup(t)
 
 		// When parsing input with malformed JSON syntax (missing closing brace)
-		input := "This is a secret: ${{ op.test-id.test-secret.password"
+		input := "This is a secret: ${op.test-id.test-secret.password"
 		output, err := provider.ParseSecrets(input)
 
 		// Then the malformed reference should be left unchanged
-		expectedOutput := "This is a secret: ${{ op.test-id.test-secret.password"
+		expectedOutput := "This is a secret: ${op.test-id.test-secret.password"
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -456,11 +476,11 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 		_, provider := setup(t)
 
 		// When parsing input with a secret reference for a different vault ID
-		input := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
+		input := "This is a secret: ${op.wrong-id.test-secret.password}"
 		output, err := provider.ParseSecrets(input)
 
 		// Then the mismatched reference should be left unchanged
-		expectedOutput := "This is a secret: ${{ op.wrong-id.test-secret.password }}"
+		expectedOutput := "This is a secret: ${op.wrong-id.test-secret.password}"
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -481,7 +501,7 @@ func TestOnePasswordSDKSecretsProvider_ParseSecrets(t *testing.T) {
 		}
 
 		// When parsing input with a reference to a nonexistent secret
-		input := "This is a secret: ${{ op.test-id.nonexistent-secret.password }}"
+		input := "This is a secret: ${op.test-id.nonexistent-secret.password}"
 		output, err := provider.ParseSecrets(input)
 
 		// Then the reference should be replaced with an error message indicating the secret was not found

@@ -116,7 +116,7 @@ func TestEnvCmd_ErrorScenarios_RequireOverride(t *testing.T) {
 			return false, fmt.Errorf("reset check failed")
 		}
 		setupTestContext(t, mocks)
-		rootCmd.SetArgs([]string{"env"})
+		rootCmd.SetArgs([]string{"env", "--decrypt=false"})
 		rootCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime))
 		err := Execute()
 		if err == nil {
@@ -184,7 +184,7 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		rootCmd.SetContext(ctx)
 
 		// When executing the command with decrypt flag
-		rootCmd.SetArgs([]string{"env", "--decrypt"})
+		rootCmd.SetArgs([]string{"env", "--decrypt=true"})
 		err := Execute()
 
 		// Then no error should occur
@@ -548,14 +548,16 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("SetsNoCacheWhenNotHookAndNotSet", func(t *testing.T) {
+	t.Run("DoesNotSetNoCacheWhenNotHookAndNotSet", func(t *testing.T) {
 		// Given hook flag is not set and NO_CACHE is not set
 		setupOutputCapture(t)
 		mocks := setupMocks(t)
 		os.Unsetenv("NO_CACHE")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
 		setupTestContext(t, mocks)
 		t.Cleanup(func() {
 			os.Unsetenv("NO_CACHE")
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
 		})
 
 		// When executing the command
@@ -566,9 +568,9 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-		// And NO_CACHE should be set to true
-		if os.Getenv("NO_CACHE") != "true" {
-			t.Errorf("Expected NO_CACHE to be set to 'true' when hook is false and NO_CACHE is not set, got: %s", os.Getenv("NO_CACHE"))
+		// And NO_CACHE should remain unset
+		if os.Getenv("NO_CACHE") != "" {
+			t.Errorf("Expected NO_CACHE to remain unset when hook is false and NO_CACHE is not set, got: %s", os.Getenv("NO_CACHE"))
 		}
 	})
 
@@ -630,6 +632,63 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		// And stderr should be empty
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("ScrubsRenderedOutputWithoutDecrypt", func(t *testing.T) {
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			return "MOCK_RENDER=raw-secret\n"
+		}
+		mocks.Shell.ScrubFunc = func(input string) string {
+			return strings.ReplaceAll(input, "raw-secret", "********")
+		}
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
+				return map[string]string{"IRRELEVANT": "value"}, nil
+			}
+		}
+		setupTestContext(t, mocks)
+		_ = envCmd.Flags().Set("decrypt", "false")
+		_ = envCmd.Flags().Set("hook", "false")
+
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "MOCK_RENDER=********") {
+			t.Fatalf("Expected scrubbed output, got %q", stdout.String())
+		}
+	})
+
+	t.Run("SkipsScrubWhenDecryptEnabled", func(t *testing.T) {
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			return "MOCK_RENDER=raw-secret\n"
+		}
+		mocks.Shell.ScrubFunc = func(input string) string {
+			t.Fatal("Expected scrub to be skipped when --decrypt is passed")
+			return input
+		}
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
+				return map[string]string{"IRRELEVANT": "value"}, nil
+			}
+		}
+		setupTestContext(t, mocks)
+		_ = envCmd.Flags().Set("decrypt", "true")
+		_ = envCmd.Flags().Set("hook", "false")
+
+		rootCmd.SetArgs([]string{"env", "--decrypt"})
+		err := Execute()
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "MOCK_RENDER=raw-secret") {
+			t.Fatalf("Expected raw output with --decrypt, got %q", stdout.String())
 		}
 	})
 
