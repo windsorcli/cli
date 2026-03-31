@@ -77,7 +77,7 @@ var envCmd = &cobra.Command{
 		}
 
 		outputFunc := func(output string) {
-			if !decrypt && rt.Shell != nil {
+			if !decrypt && !hook && rt.Shell != nil {
 				output = rt.Shell.Scrub(output)
 			}
 			if output != "" {

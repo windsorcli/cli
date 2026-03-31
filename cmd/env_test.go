@@ -692,6 +692,35 @@ func TestEnvCmd_ErrorScenarios(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipsScrubInHookModeWhenDecryptDisabled", func(t *testing.T) {
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			return "export TF_VAR_db_password=raw-secret\n"
+		}
+		mocks.Shell.ScrubFunc = func(input string) string {
+			t.Fatal("Expected scrub to be skipped when --hook is passed")
+			return input
+		}
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
+				return map[string]string{"TF_VAR_db_password": "raw-secret"}, nil
+			}
+		}
+		setupTestContext(t, mocks)
+		_ = envCmd.Flags().Set("decrypt", "false")
+		_ = envCmd.Flags().Set("hook", "true")
+
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "export TF_VAR_db_password=raw-secret") {
+			t.Fatalf("Expected raw output in hook mode, got %q", stdout.String())
+		}
+	})
+
 	t.Run("OutputsAliasesInHookMode", func(t *testing.T) {
 		// Given mocks with aliases and hook mode
 		stdout, stderr := setupOutputCapture(t)
