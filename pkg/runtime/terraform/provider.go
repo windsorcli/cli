@@ -468,8 +468,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					continue
 				}
 				envKey := fmt.Sprintf("TF_VAR_%s", key)
-				existingValue := p.Shims.Getenv(envKey)
-				existingFound := existingValue != ""
+				existingValue, existingFound := p.lookupEnvVar(envKey)
 				useCache := shouldUseTerraformEnvCache(p.Shims.Getenv("NO_CACHE"), secretCacheEnabled)
 				if containsSecretValue {
 					err := p.resolveAndSetSecretEnvVar(componentID, key, envKey, value, envVars, useCache, existingValue, existingFound)
@@ -1169,6 +1168,17 @@ func (p *terraformProvider) formatTerraformEnvValue(value any) (string, error) {
 func shouldUseTerraformEnvCache(noCache string, cacheEnabled bool) bool {
 	noCacheDisabled := noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
 	return noCacheDisabled && cacheEnabled
+}
+
+// lookupEnvVar returns the environment variable value and whether it exists.
+func (p *terraformProvider) lookupEnvVar(key string) (string, bool) {
+	if p.Shims.LookupEnv != nil {
+		if value, found := p.Shims.LookupEnv(key); found {
+			return value, true
+		}
+	}
+	value := p.Shims.Getenv(key)
+	return value, value != ""
 }
 
 // processMap traverses the provided configMap, applying each key-value pair to the addArg function.

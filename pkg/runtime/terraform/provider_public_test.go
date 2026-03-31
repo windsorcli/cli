@@ -102,6 +102,9 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	concreteProvider.Shims.Getenv = func(key string) string {
 		return ""
 	}
+	concreteProvider.Shims.LookupEnv = func(key string) (string, bool) {
+		return "", false
+	}
 
 	concreteProvider.Shims.Setenv = func(key, value string) error {
 		return nil
@@ -2911,6 +2914,82 @@ variable "plain_value" {
 		}
 		if got := envVars["TF_VAR_db_password"]; got != "cached-secret" {
 			t.Errorf("Expected cached TF_VAR_db_password to be reused, got %q", got)
+		}
+	})
+
+	t.Run("ReusesExistingEmptyTFVarWhenCacheEnabledForSecretInput", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		mocks.Provider.SetSecretCacheEnabled(true)
+		mocks.Provider.Shims.Getenv = func(key string) string {
+			if key == "NO_CACHE" {
+				return ""
+			}
+			return ""
+		}
+		mocks.Provider.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "TF_VAR_db_password" {
+				return "", true
+			}
+			return "", false
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path: "cluster",
+				Inputs: map[string]any{
+					"db_password": evaluator.SecretValue{Value: "fresh-secret"},
+				},
+			},
+		})
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_db_password"]; got != "" {
+			t.Errorf("Expected empty cached TF_VAR_db_password to be reused, got %q", got)
+		}
+	})
+
+	t.Run("ReusesExistingEmptyTFVarWhenCacheEnabledForSensitiveInput", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		mocks.Provider.SetSecretCacheEnabled(true)
+		moduleDir := t.TempDir()
+		variablesPath := filepath.Join(moduleDir, "variables.tf")
+		if err := os.WriteFile(variablesPath, []byte(`variable "db_password" {
+  type      = string
+  sensitive = true
+}`), 0644); err != nil {
+			t.Fatalf("Expected no error writing variables.tf, got: %v", err)
+		}
+		mocks.Provider.Shims.Stat = os.Stat
+		mocks.Provider.Shims.Getenv = func(key string) string {
+			if key == "NO_CACHE" {
+				return ""
+			}
+			return ""
+		}
+		mocks.Provider.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "TF_VAR_db_password" {
+				return "", true
+			}
+			return "", false
+		}
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{
+			{
+				Path:     "cluster",
+				FullPath: moduleDir,
+				Inputs: map[string]any{
+					"db_password": "fresh-sensitive",
+				},
+			},
+		})
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_db_password"]; got != "" {
+			t.Errorf("Expected empty cached TF_VAR_db_password to be reused, got %q", got)
 		}
 	})
 

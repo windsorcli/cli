@@ -27,6 +27,7 @@ type Shims struct {
 	JsonUnmarshal  func([]byte, any) error
 	JsonMarshal    func(any) ([]byte, error)
 	Getenv         func(string) string
+	LookupEnv      func(string) (string, bool)
 	Setenv         func(string, string) error
 	Unsetenv       func(string) error
 	Stat           func(string) (os.FileInfo, error)
@@ -52,6 +53,7 @@ func NewShims() *Shims {
 		JsonUnmarshal:  json.Unmarshal,
 		JsonMarshal:    json.Marshal,
 		Getenv:         os.Getenv,
+		LookupEnv:      os.LookupEnv,
 		Setenv:         os.Setenv,
 		Unsetenv:       os.Unsetenv,
 		Stat:           os.Stat,
