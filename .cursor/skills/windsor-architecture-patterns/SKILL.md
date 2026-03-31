@@ -22,13 +22,12 @@ description: Enforce Windsor CLI architecture boundaries and dependency wiring p
 - `pkg/runtime/terraform/*`: terraform-specific parsing, env assembly, and provider policy decisions.
 - `pkg/composer/*`: blueprint load/process/compose/write pipeline and terraform module preparation.
 
-## Ownership rules
-- Runtime orchestrates. It should coordinate initialization order and lifecycle transitions.
-- Evaluator evaluates expressions and helper hooks. It must not hardcode provider-specific branches.
-- Secrets resolves secret references and provider-specific retrieval.
-- Terraform provider owns terraform metadata introspection and terraform env var decisions.
-- Composer blueprint handler owns blueprint pipelines and source/template composition.
-- CLI command layer owns UX/policy decisions for command behavior (for example hook/non-hook error behavior).
+## Boundary policy source of truth
+- Use `.cursor/skills/windsor-runtime-boundaries/SKILL.md` as the canonical ownership/constraint/checklist policy for runtime, evaluator, secrets, and terraform.
+- This skill defines cross-layer placement and dependency wiring decisions; do not restate or override runtime-boundary rules here.
+- Additional ownership guidance in this skill is limited to:
+  - `pkg/composer/*` composition pipeline ownership.
+  - `cmd/*` CLI UX/policy ownership.
 
 ## Proven patterns in this repo
 - Constructor injection with required dependency checks and panic-on-missing prerequisites.
@@ -54,12 +53,6 @@ description: Enforce Windsor CLI architecture boundaries and dependency wiring p
 3. Place new logic in the owning package; inject dependencies instead of reaching across layers.
 4. If adding a new sub-concern in a large package, isolate it in a boundary companion file.
 5. Add or update tests in the same ownership layer; include at least one boundary-focused case.
-
-## Implementation constraints
-- Do not add provider-specific syntax branching to evaluator core.
-- Do not mix parsing/introspection logic directly into orchestration methods when it can be isolated.
-- Do not introduce anonymous, hidden behavior toggles through ad-hoc type assertions.
-- Keep public APIs minimal and prefer explicit methods for mutation over exposed mutable fields.
 
 ## Change map requirement for cross-cutting work
 When work spans multiple subsystems, produce and follow this map before implementation:
