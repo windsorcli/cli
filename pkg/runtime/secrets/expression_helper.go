@@ -99,5 +99,37 @@ func IsSecretReferenceExpression(expression string) bool {
 	if strings.Contains(trimmed, "${") {
 		return false
 	}
-	return !strings.ContainsAny(trimmed, " \t\n\r()+-*/%<>=!&|?:,")
+	return !containsDisallowedSecretReferenceToken(trimmed)
+}
+
+// containsDisallowedSecretReferenceToken reports whether expression contains disallowed tokens outside quoted segments.
+func containsDisallowedSecretReferenceToken(expression string) bool {
+	inSingleQuote := false
+	inDoubleQuote := false
+	escaped := false
+	for _, r := range expression {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' && (inSingleQuote || inDoubleQuote) {
+			escaped = true
+			continue
+		}
+		if r == '\'' && !inDoubleQuote {
+			inSingleQuote = !inSingleQuote
+			continue
+		}
+		if r == '"' && !inSingleQuote {
+			inDoubleQuote = !inDoubleQuote
+			continue
+		}
+		if inSingleQuote || inDoubleQuote {
+			continue
+		}
+		if strings.ContainsRune(" \t\n\r()+-*/%<>=!&|?:,", r) {
+			return true
+		}
+	}
+	return false
 }

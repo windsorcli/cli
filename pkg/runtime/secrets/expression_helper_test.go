@@ -120,6 +120,29 @@ func TestRegisterSecretHelper(t *testing.T) {
 		}
 	})
 
+	t.Run("NormalizesBracketNotationWithSpacesOutsideEvaluator", func(t *testing.T) {
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		eval := evaluator.NewExpressionEvaluator(mockConfig, "", "")
+
+		RegisterSecretHelper(eval, func(ref string) (string, error) {
+			return "resolved:" + ref, nil
+		})
+
+		result, err := eval.Evaluate(`${op.personal["The Criterion Channel"]["password"]}`, "", nil, true)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !evaluator.ContainsSecretValue(result) {
+			t.Fatalf("expected secret-qualified value, got %T", result)
+		}
+		if got := evaluator.UnwrapSecretValue(result); got != `resolved:op.personal["The Criterion Channel"]["password"]` {
+			t.Fatalf("expected normalized bracket provider expression result, got %v", got)
+		}
+	})
+
 	t.Run("KeepsExplicitSecretHelperCallsWorking", func(t *testing.T) {
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetContextValuesFunc = func() (map[string]any, error) {
@@ -199,6 +222,7 @@ func TestIsSecretReferenceExpression(t *testing.T) {
 		candidates := []string{
 			"op.platform.db.password",
 			`op["personal"]["item"]["field"]`,
+			`op.personal["The Criterion Channel"]["password"]`,
 			"OP.platform.db.password",
 			"sops.platform.db.password",
 			"secret.op.platform.db.password",

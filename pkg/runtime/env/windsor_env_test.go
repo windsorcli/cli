@@ -1036,6 +1036,12 @@ func TestContainsSecretExpression(t *testing.T) {
 		}
 	})
 
+	t.Run("DetectsBracketNotationWithSpaces", func(t *testing.T) {
+		if !containsSecretExpression(`value=${op.personal["The Criterion Channel"]["password"]}`) {
+			t.Fatal("Expected bracket notation secret expression with spaces to be detected")
+		}
+	})
+
 	t.Run("IgnoresNonSecretExpression", func(t *testing.T) {
 		if containsSecretExpression("value=${project_root}") {
 			t.Fatal("Expected non-secret expression to be ignored")
