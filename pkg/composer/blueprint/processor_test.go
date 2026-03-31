@@ -4906,3 +4906,39 @@ func TestEvaluateCondition_EvaluatesAgainstScope(t *testing.T) {
 		}
 	})
 }
+
+func TestNormalizeDeferredValue(t *testing.T) {
+	t.Run("PreservesSecretWrapperForLiteralSecretValues", func(t *testing.T) {
+		normalized := normalizeDeferredValue(evaluator.SecretValue{Value: "my-password"})
+		if !evaluator.ContainsSecretValue(normalized) {
+			t.Fatal("Expected normalized value to remain secret-qualified")
+		}
+		secret, ok := normalized.(evaluator.SecretValue)
+		if !ok {
+			t.Fatalf("Expected evaluator.SecretValue, got %T", normalized)
+		}
+		if secret.Value != "my-password" {
+			t.Fatalf("Expected secret literal to be preserved, got %v", secret.Value)
+		}
+	})
+
+	t.Run("NormalizesDeferredValueInsideSecretWrapper", func(t *testing.T) {
+		normalized := normalizeDeferredValue(evaluator.SecretValue{
+			Value: evaluator.DeferredValue{Expression: "${secret.op.platform.db.password}"},
+		})
+		if !evaluator.ContainsSecretValue(normalized) {
+			t.Fatal("Expected normalized value to remain secret-qualified")
+		}
+		secret, ok := normalized.(evaluator.SecretValue)
+		if !ok {
+			t.Fatalf("Expected evaluator.SecretValue, got %T", normalized)
+		}
+		expr, ok := secret.Value.(string)
+		if !ok {
+			t.Fatalf("Expected normalized deferred expression string, got %T", secret.Value)
+		}
+		if expr != "${secret.op.platform.db.password}" {
+			t.Fatalf("Expected deferred expression to be preserved, got %q", expr)
+		}
+	})
+}

@@ -1732,12 +1732,13 @@ func normalizeDeferredValue(v any) any {
 		}
 		return x.Expression
 	case evaluator.SecretValue:
-		return normalizeDeferredValue(evaluator.UnwrapSecretValue(x))
+		return evaluator.SecretValue{Value: normalizeDeferredValue(evaluator.UnwrapSecretValue(x))}
 	case *evaluator.SecretValue:
 		if x == nil {
 			return nil
 		}
-		return normalizeDeferredValue(evaluator.UnwrapSecretValue(x))
+		normalized := normalizeDeferredValue(evaluator.UnwrapSecretValue(x))
+		return &evaluator.SecretValue{Value: normalized}
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, val := range x {
