@@ -609,6 +609,27 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 // being partially evaluated or skipped.
 func (e *expressionEvaluator) evaluateValue(value any, facetPath string, evaluateDeferred bool, scope map[string]any) (any, error) {
 	switch v := value.(type) {
+	case SecretValue:
+		evaluated, err := e.evaluateValue(v.Value, facetPath, evaluateDeferred, scope)
+		if err != nil {
+			return nil, err
+		}
+		if isSecretValue(evaluated) {
+			evaluated = UnwrapSecretValue(evaluated)
+		}
+		return SecretValue{Value: evaluated}, nil
+	case *SecretValue:
+		if v == nil {
+			return nil, nil
+		}
+		evaluated, err := e.evaluateValue(v.Value, facetPath, evaluateDeferred, scope)
+		if err != nil {
+			return nil, err
+		}
+		if isSecretValue(evaluated) {
+			evaluated = UnwrapSecretValue(evaluated)
+		}
+		return &SecretValue{Value: evaluated}, nil
 	case string:
 		evaluated, err := e.evaluate(v, facetPath, scope, evaluateDeferred)
 		if err != nil {

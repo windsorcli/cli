@@ -896,6 +896,33 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 	})
 
+	t.Run("EvaluatesExpressionInsideSecretValueWrapper", func(t *testing.T) {
+		evaluator, mockConfigHandler, _, _ := setupEvaluatorTest(t)
+		mockHandler := mockConfigHandler.(*config.MockConfigHandler)
+		mockHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"db_password": "resolved-secret",
+			}, nil
+		}
+
+		values := map[string]any{
+			"wrapped_secret": SecretValue{Value: "${db_password}"},
+		}
+
+		result, err := evaluator.EvaluateMap(values, "", nil, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		wrapped, ok := result["wrapped_secret"].(SecretValue)
+		if !ok {
+			t.Fatalf("Expected wrapped_secret to remain SecretValue, got %T", result["wrapped_secret"])
+		}
+		if value, ok := wrapped.Value.(string); !ok || value != "resolved-secret" {
+			t.Fatalf("Expected wrapped secret value to be resolved, got %v", wrapped.Value)
+		}
+	})
+
 	t.Run("SkipsUnresolvedExpressionsWhenEvaluateDeferredIsFalse", func(t *testing.T) {
 		mockEvaluator := NewMockExpressionEvaluator()
 		mockEvaluator.EvaluateMapFunc = func(values map[string]any, facetPath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
