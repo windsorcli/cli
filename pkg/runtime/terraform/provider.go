@@ -458,6 +458,9 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 				return nil, nil, fmt.Errorf("error discovering sensitive terraform inputs for component %s: %w", componentID, err)
 			}
 			for key, value := range component.Inputs {
+				if deferredExpr, ok := evaluator.DeferredExpression(value); ok {
+					value = deferredExpr
+				}
 				containsSecretValue := evaluator.ContainsSecretValue(value)
 				containsExpression := evaluator.ContainsExpression(value)
 				isSensitiveInput := sensitiveInputs[key]
@@ -468,11 +471,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 				existingValue := p.Shims.Getenv(envKey)
 				existingFound := existingValue != ""
 				useCache := shouldUseTerraformEnvCache(p.Shims.Getenv("NO_CACHE"), secretCacheEnabled)
-				if deferredExpr, ok := evaluator.DeferredExpression(value); ok {
-					value = deferredExpr
-					containsExpression = evaluator.ContainsExpression(value)
-				}
-				if evaluator.ContainsSecretValue(value) {
+				if containsSecretValue {
 					err := p.resolveAndSetSecretEnvVar(componentID, key, envKey, value, envVars, useCache, existingValue, existingFound)
 					if err != nil {
 						return nil, nil, err
@@ -530,6 +529,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					}
 					p.shell.RegisterSecret(envValue)
 					envVars[envKey] = envValue
+					continue
 				}
 			}
 		}
