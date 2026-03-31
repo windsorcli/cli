@@ -66,12 +66,16 @@ func (s *typedSource) LoadRoot(
 
 	configVersion, _ := rootConfigMap["version"].(string)
 	if configVersion != "" && configVersion != "v1alpha1" {
+		v1alpha2RootValues := s.loadV1Alpha2Root(rootConfigMap)
 		if s.schemaValidator != nil {
 			if err := v1alpha2config.LoadSchemas(loadSchemaFromBytes); err != nil {
 				return nil, false, fmt.Errorf("error loading API schemas: %w", err)
 			}
+			if err := s.validateV1Alpha2Root(v1alpha2RootValues); err != nil {
+				return nil, false, fmt.Errorf("error validating v1alpha2 root config: %w", err)
+			}
 		}
-		return s.loadV1Alpha2Root(rootConfigMap), true, nil
+		return v1alpha2RootValues, true, nil
 	}
 
 	var rootConfig v1alpha1.Config
@@ -161,4 +165,16 @@ func (s *typedSource) loadV1Alpha2Root(rootConfigMap map[string]any) map[string]
 		out[key] = value
 	}
 	return out
+}
+
+// validateV1Alpha2Root validates v1alpha2 root values against loaded schemas.
+func (s *typedSource) validateV1Alpha2Root(rootValues map[string]any) error {
+	result, err := s.schemaValidator.Validate(rootValues)
+	if err != nil {
+		return err
+	}
+	if !result.Valid {
+		return fmt.Errorf("schema validation failed: %v", result.Errors)
+	}
+	return nil
 }

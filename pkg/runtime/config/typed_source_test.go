@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -75,6 +76,27 @@ contexts:
 		_, _, err := source.LoadRoot(projectRoot, "local", func([]byte) error { return os.ErrInvalid })
 		if err == nil {
 			t.Fatal("Expected error when v1alpha2 schema loading fails")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenV1Alpha2SchemaValidationFails", func(t *testing.T) {
+		source := newTypedSource(NewShims(), NewSchemaValidator(shell.NewMockShell()))
+		projectRoot := t.TempDir()
+		rootConfig := `version: v1alpha2
+secrets:
+  sops:
+    enabled: "true"
+`
+		if err := os.WriteFile(filepath.Join(projectRoot, "windsor.yaml"), []byte(rootConfig), 0644); err != nil {
+			t.Fatalf("Expected no error writing root config, got %v", err)
+		}
+
+		_, _, err := source.LoadRoot(projectRoot, "local", source.schemaValidator.LoadSchemaFromBytes)
+		if err == nil {
+			t.Fatal("Expected validation error for malformed v1alpha2 config")
+		}
+		if !strings.Contains(err.Error(), "error validating v1alpha2 root config") {
+			t.Fatalf("Expected v1alpha2 validation error, got %v", err)
 		}
 	})
 
