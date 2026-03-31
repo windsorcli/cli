@@ -3467,6 +3467,52 @@ terraform:
 		}
 	})
 
+	t.Run("RegistersSecretForDeferredExpressionResolvedAsSecretValue", func(t *testing.T) {
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		component := blueprintv1alpha1.TerraformComponent{
+			Path: "cluster",
+			Inputs: map[string]any{
+				"db_password": `${terraform_output("comp", "key")} ${secret("secret.op.platform.db.password")}`,
+			},
+		}
+		component.FullPath = "/test/project/terraform/cluster"
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		registeredSecrets := make([]string, 0)
+		mocks.Shell.RegisterSecretFunc = func(value string) {
+			registeredSecrets = append(registeredSecrets, value)
+		}
+
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			if evaluateDeferred {
+				return map[string]any{
+					"db_password": evaluator.SecretValue{Value: "resolved-output s3cr3t"},
+				}, nil
+			}
+			return map[string]any{
+				"db_password": evaluator.DeferredValue{
+					Expression: `${terraform_output("comp", "key")} ${secret("secret.op.platform.db.password")}`,
+				},
+			}, nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if got := envVars["TF_VAR_db_password"]; got != "resolved-output s3cr3t" {
+			t.Fatalf("Expected TF_VAR_db_password to be exported, got %q", got)
+		}
+		if len(registeredSecrets) != 1 {
+			t.Fatalf("Expected one secret registration, got %d", len(registeredSecrets))
+		}
+		if registeredSecrets[0] != "resolved-output s3cr3t" {
+			t.Fatalf("Expected registered secret to match TF_VAR value, got %q", registeredSecrets[0])
+		}
+	})
+
 	t.Run("DoesNotSerializeDeferredValueWrapperIntoTFVar", func(t *testing.T) {
 		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
 		component := blueprintv1alpha1.TerraformComponent{

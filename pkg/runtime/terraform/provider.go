@@ -510,7 +510,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					if err != nil {
 						continue
 					}
-					if isSensitiveInput {
+					if isSensitiveInput || evaluator.ContainsSecretValue(evaluatedValue) {
 						p.shell.RegisterSecret(envValue)
 					}
 					envVars[envKey] = envValue
@@ -1087,10 +1087,10 @@ func (p *terraformProvider) processBackendConfig(backendConfig any, addArg func(
 	return nil
 }
 
-// evaluateInputValueForEnv evaluates an input value and unwraps secret-qualified values.
+// evaluateInputValueForEnv evaluates an input value and preserves secret-qualified wrappers.
 func (p *terraformProvider) evaluateInputValueForEnv(key string, value any) (any, bool, error) {
 	if evaluator.ContainsSecretValue(value) && !evaluator.ContainsExpression(value) {
-		return evaluator.UnwrapSecretValue(value), true, nil
+		return value, true, nil
 	}
 	p.mu.RLock()
 	evalScope := p.configScope
@@ -1103,9 +1103,6 @@ func (p *terraformProvider) evaluateInputValueForEnv(key string, value any) (any
 		evaluatedValue, exists := evaluated[key]
 		if !exists {
 			return nil, false, nil
-		}
-		if evaluator.ContainsSecretValue(evaluatedValue) {
-			return evaluator.UnwrapSecretValue(evaluatedValue), true, nil
 		}
 		return evaluatedValue, true, nil
 	}
