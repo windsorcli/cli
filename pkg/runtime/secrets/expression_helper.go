@@ -88,11 +88,12 @@ func normalizeSecretReferenceExpression(expression string) string {
 // IsSecretReferenceExpression reports whether expression is a plain secret reference token.
 func IsSecretReferenceExpression(expression string) bool {
 	trimmed := strings.TrimSpace(expression)
-	if !(strings.HasPrefix(trimmed, "secret.") ||
-		strings.HasPrefix(trimmed, "secrets.") ||
-		strings.HasPrefix(trimmed, "op.") ||
-		strings.HasPrefix(trimmed, "op[") ||
-		strings.HasPrefix(trimmed, "sops.")) {
+	normalized := strings.ToLower(trimmed)
+	if !(strings.HasPrefix(normalized, "secret.") ||
+		strings.HasPrefix(normalized, "secrets.") ||
+		strings.HasPrefix(normalized, "op.") ||
+		strings.HasPrefix(normalized, "op[") ||
+		strings.HasPrefix(normalized, "sops.")) {
 		return false
 	}
 	if strings.Contains(trimmed, "${") {

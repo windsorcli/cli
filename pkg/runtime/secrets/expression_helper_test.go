@@ -97,6 +97,29 @@ func TestRegisterSecretHelper(t *testing.T) {
 		}
 	})
 
+	t.Run("NormalizesUppercaseProviderPrefixOutsideEvaluator", func(t *testing.T) {
+		mockConfig := config.NewMockConfigHandler()
+		mockConfig.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		eval := evaluator.NewExpressionEvaluator(mockConfig, "", "")
+
+		RegisterSecretHelper(eval, func(ref string) (string, error) {
+			return "resolved:" + ref, nil
+		})
+
+		result, err := eval.Evaluate("${OP.platform.db.password}", "", nil, true)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !evaluator.ContainsSecretValue(result) {
+			t.Fatalf("expected secret-qualified value, got %T", result)
+		}
+		if got := evaluator.UnwrapSecretValue(result); got != "resolved:OP.platform.db.password" {
+			t.Fatalf("expected normalized uppercase provider expression result, got %v", got)
+		}
+	})
+
 	t.Run("KeepsExplicitSecretHelperCallsWorking", func(t *testing.T) {
 		mockConfig := config.NewMockConfigHandler()
 		mockConfig.GetContextValuesFunc = func() (map[string]any, error) {
@@ -175,6 +198,7 @@ func TestIsSecretReferenceExpression(t *testing.T) {
 	t.Run("MatchesPlainReferenceForms", func(t *testing.T) {
 		candidates := []string{
 			"op.platform.db.password",
+			"OP.platform.db.password",
 			"sops.platform.db.password",
 			"secret.op.platform.db.password",
 			"secrets.platform.db.password",
