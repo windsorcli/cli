@@ -1108,9 +1108,6 @@ func (p *terraformProvider) evaluateInputValueForEnv(key string, value any) (any
 		if evaluator.ContainsSecretValue(evaluatedValue) {
 			return evaluator.UnwrapSecretValue(evaluatedValue), true, nil
 		}
-		if evaluator.ContainsExpression(evaluatedValue) {
-			return evaluatedValue, true, nil
-		}
 		return evaluatedValue, true, nil
 	}
 	return nil, false, nil
