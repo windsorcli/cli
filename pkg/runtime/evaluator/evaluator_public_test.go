@@ -1639,6 +1639,55 @@ func TestExpressionEvaluator_EvaluateMap(t *testing.T) {
 		}
 	})
 
+	t.Run("PreservesSecretQualificationWhenDeferredAndSecretExpressionsMix", func(t *testing.T) {
+		// Given an evaluator with deferred terraform outputs and secret helper
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+		evaluator.Register("terraform_output", func(params []any, deferred bool) (any, error) {
+			if len(params) != 2 {
+				return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments")
+			}
+			if deferred {
+				return "resolved-output", nil
+			}
+			component, _ := params[0].(string)
+			key, _ := params[1].(string)
+			return nil, &DeferredError{
+				Expression: fmt.Sprintf(`terraform_output("%s", "%s")`, component, key),
+				Message:    fmt.Sprintf("terraform output '%s' for component %s is deferred", key, component),
+			}
+		}, new(func(string, string) any))
+		evaluator.Register("secret", func(params []any, deferred bool) (any, error) {
+			return SecretValue{Value: "s3cr3t"}, nil
+		}, new(func(string) any))
+
+		input := `${terraform_output("cluster", "endpoint")} ${secret("secret.op.platform.db.password")}`
+
+		// When evaluating before deferred values are available
+		deferredResult, err := evaluator.Evaluate(input, "", nil, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		expr, ok := DeferredExpression(deferredResult)
+		if !ok {
+			t.Fatalf("Expected deferred expression, got %T", deferredResult)
+		}
+		if expr != input {
+			t.Fatalf("Expected deferred expression to preserve original secret reference, got %q", expr)
+		}
+
+		// When evaluating after deferred values become available
+		resolved, err := evaluator.Evaluate(expr, "", nil, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !isSecretValue(resolved) {
+			t.Fatalf("Expected SecretValue after deferred resolution, got %T", resolved)
+		}
+		if got := UnwrapSecretValue(resolved); got != "resolved-output s3cr3t" {
+			t.Fatalf("Expected resolved output to stay secret-qualified, got %v", got)
+		}
+	})
+
 	t.Run("SkipsPartiallyInterpolatedStringsWithUnresolvedExpressions", func(t *testing.T) {
 		// Given an evaluator with terraform_output helper and mixed values
 		evaluator, _, _, _ := setupEvaluatorTest(t)

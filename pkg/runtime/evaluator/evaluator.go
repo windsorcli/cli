@@ -288,7 +288,7 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 		searchStart = 0
 	}
 	if !evaluateDeferred && deferredEncountered {
-		return DeferredValue{Expression: result}, nil
+		return DeferredValue{Expression: s}, nil
 	}
 	if secretEncountered {
 		return SecretValue{Value: result}, nil
