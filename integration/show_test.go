@@ -59,7 +59,7 @@ func TestShowBlueprint_RawPreservesDeferredExpressions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("show blueprint --raw: %v\nstderr: %s", err, stderr)
 	}
-	if !strings.Contains(string(stdout), `terraform_output("compute", "controlplanes")`) {
+	if !strings.Contains(string(stdout), "${cluster.endpoint ?? deferred_endpoint.endpoint}") {
 		t.Fatalf("expected raw output to include deferred expression text, got:\n%s", stdout)
 	}
 	if strings.Contains(string(stdout), "<deferred>") {
