@@ -19,7 +19,9 @@ integration_out.txt
 # vendor/
 
 # Cursor
-.cursor/
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
 
 # Go workspace file
 go.work
