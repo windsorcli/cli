@@ -36,6 +36,11 @@ var WindsorPrefixedVars = []string{
 	"WINDSOR_MANAGED_ALIAS",
 }
 
+var secretExpressionPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`\$\{\s*([^{}]+)\s*\}`),
+	regexp.MustCompile(`\$\{\{\s*([^{}]+)\s*\}\}`),
+}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -226,14 +231,15 @@ func normalizeLegacySecretExpressions(input string) string {
 
 // containsSecretExpression reports whether input contains at least one secret expression placeholder.
 func containsSecretExpression(input string) bool {
-	re := regexp.MustCompile(`\${{?\s*(.*?)\s*}}?`)
-	matches := re.FindAllStringSubmatch(input, -1)
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-		if isSecretExpressionToken(strings.TrimSpace(match[1])) {
-			return true
+	for _, pattern := range secretExpressionPatterns {
+		matches := pattern.FindAllStringSubmatch(input, -1)
+		for _, match := range matches {
+			if len(match) < 2 {
+				continue
+			}
+			if isSecretExpressionToken(strings.TrimSpace(match[1])) {
+				return true
+			}
 		}
 	}
 	return false

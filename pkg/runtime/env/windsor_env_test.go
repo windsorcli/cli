@@ -1011,6 +1011,44 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 	})
 }
 
+func TestContainsSecretExpression(t *testing.T) {
+	t.Run("DetectsModernSecretExpression", func(t *testing.T) {
+		if !containsSecretExpression("value=${sops.app.db_password}") {
+			t.Fatal("Expected modern secret expression to be detected")
+		}
+	})
+
+	t.Run("DetectsLegacySecretExpression", func(t *testing.T) {
+		if !containsSecretExpression("value=${{secrets.app.db_password}}") {
+			t.Fatal("Expected legacy secret expression to be detected")
+		}
+	})
+
+	t.Run("IgnoresNonSecretExpression", func(t *testing.T) {
+		if containsSecretExpression("value=${project_root}") {
+			t.Fatal("Expected non-secret expression to be ignored")
+		}
+	})
+
+	t.Run("IgnoresUnclosedExpression", func(t *testing.T) {
+		if containsSecretExpression("value=${sops.app.db_password") {
+			t.Fatal("Expected unclosed expression to be ignored")
+		}
+	})
+
+	t.Run("IgnoresPartiallyClosedLegacyExpression", func(t *testing.T) {
+		if containsSecretExpression("value=${{sops.app.db_password}") {
+			t.Fatal("Expected partially closed legacy expression to be ignored")
+		}
+	})
+
+	t.Run("DoesNotCrossExpressionBoundaries", func(t *testing.T) {
+		if !containsSecretExpression("${sops.app.db_password} and ${project_root}") {
+			t.Fatal("Expected secret expression to be detected without crossing boundaries")
+		}
+	})
+}
+
 func TestWindsorEnv_shouldUseCache(t *testing.T) {
 	setup := func(t *testing.T) (*WindsorEnvPrinter, *EnvTestMocks) {
 		t.Helper()
