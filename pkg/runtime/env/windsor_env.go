@@ -249,10 +249,7 @@ func isSecretExpressionToken(token string) bool {
 		strings.HasPrefix(normalized, "sops.") {
 		return true
 	}
-	if strings.Contains(normalized, " ") || strings.Contains(normalized, "(") || strings.Contains(normalized, ")") {
-		return false
-	}
-	return strings.Contains(normalized, "secret")
+	return false
 }
 
 // shouldUseCache determines if the cache should be used based on NO_CACHE environment variable.

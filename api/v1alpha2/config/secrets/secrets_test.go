@@ -113,4 +113,41 @@ func TestSecretsConfig_Copy(t *testing.T) {
 			t.Errorf("Copy is not nil, expected a nil copy")
 		}
 	})
+
+	t.Run("CopyWithNilOptionalFields", func(t *testing.T) {
+		original := &SecretsConfig{}
+
+		copy := original.DeepCopy()
+
+		if copy == nil {
+			t.Fatal("Copy should not be nil")
+		}
+		if copy.Sops != nil {
+			t.Errorf("Expected Sops to remain nil, got %v", copy.Sops)
+		}
+		if copy.OnePassword != nil {
+			t.Errorf("Expected OnePassword to remain nil, got %v", copy.OnePassword)
+		}
+	})
+
+	t.Run("CopyWithOnlySops", func(t *testing.T) {
+		enabled := true
+		original := &SecretsConfig{
+			Sops: &SopsConfig{
+				Enabled: &enabled,
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if copy == nil || copy.Sops == nil || copy.Sops.Enabled == nil {
+			t.Fatal("Expected Sops.Enabled copy to be set")
+		}
+		if copy.OnePassword != nil {
+			t.Errorf("Expected OnePassword to remain nil, got %v", copy.OnePassword)
+		}
+		if copy.Sops.Enabled == original.Sops.Enabled {
+			t.Error("Expected Sops.Enabled pointer to be deep-copied")
+		}
+	})
 }

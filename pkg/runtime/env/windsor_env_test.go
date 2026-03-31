@@ -57,7 +57,7 @@ contexts:
 	// Create and register mock secrets provider
 	mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
 	mockSecretsProvider.ParseSecretsFunc = func(input string) (string, error) {
-		if strings.Contains(input, "${secret_name}") {
+		if strings.Contains(input, "${secrets.secret_name}") {
 			return "parsed_secret_value", nil
 		}
 		return input, nil
@@ -239,7 +239,7 @@ version: v1alpha1
 contexts:
   mock-context:
     environment:
-      SECRET_VAR: "${secret_name}"
+      SECRET_VAR: "${secrets.secret_name}"
 `); err != nil {
 			t.Fatalf("LoadConfigString returned error: %v", err)
 		}
@@ -274,7 +274,7 @@ version: v1alpha1
 contexts:
   mock-context:
     environment:
-      SECRET_VAR: "${secret_name}"
+      SECRET_VAR: "${secrets.secret_name}"
 `); err != nil {
 			t.Fatalf("LoadConfigString returned error: %v", err)
 		}
@@ -325,7 +325,7 @@ version: v1alpha1
 contexts:
   mock-context:
     environment:
-      SECRET_VAR: "${secret_name}"
+      SECRET_VAR: "${secrets.secret_name}"
 `); err != nil {
 			t.Fatalf("LoadConfigString returned error: %v", err)
 		}
@@ -356,7 +356,7 @@ version: v1alpha1
 contexts:
   mock-context:
     environment:
-      SECRET_VAR: "${secret_name}"
+      SECRET_VAR: "${secrets.secret_name}"
 `); err != nil {
 			t.Fatalf("LoadConfigString returned error: %v", err)
 		}
@@ -996,6 +996,17 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 
 		if result != "value with ${project_root}" {
 			t.Errorf("Expected non-secret expression to remain unchanged, got %q", result)
+		}
+	})
+
+	t.Run("IgnoresExpressionsWithSecretSubstring", func(t *testing.T) {
+		printer, _ := setup(t)
+		printer.secretsProviders = []secrets.SecretsProvider{}
+
+		result := printer.parseAndCheckSecrets("value with ${my_secret_flag} and ${config_secret_key}")
+
+		if result != "value with ${my_secret_flag} and ${config_secret_key}" {
+			t.Errorf("Expected expressions containing secret substring to remain unchanged, got %q", result)
 		}
 	})
 }

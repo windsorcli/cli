@@ -41,9 +41,17 @@ func (c *SecretsConfig) DeepCopy() *SecretsConfig {
 	if c == nil {
 		return nil
 	}
+	var sopsCopy *SopsConfig
+	if c.Sops != nil {
+		sopsCopy = c.Sops.DeepCopy()
+	}
+	var onePasswordCopy *onepassword.OnePasswordConfig
+	if c.OnePassword != nil {
+		onePasswordCopy = c.OnePassword.DeepCopy()
+	}
 	return &SecretsConfig{
-		Sops:        c.Sops.DeepCopy(),
-		OnePassword: c.OnePassword.DeepCopy(),
+		Sops:        sopsCopy,
+		OnePassword: onePasswordCopy,
 	}
 }
 
