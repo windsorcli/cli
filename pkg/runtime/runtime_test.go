@@ -747,6 +747,58 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 			t.Fatalf("Expected LoadSecrets to be skipped when decrypt is false, got %d", loadCalls)
 		}
 	})
+
+	t.Run("PreservesManagedValuesReturnedInEnvPayload", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockEnvPrinter := env.NewMockEnvPrinter()
+		mockEnvPrinter.GetEnvVarsFunc = func() (map[string]string, error) {
+			return map[string]string{
+				"WINDSOR_CONTEXT":       "test-context",
+				"WINDSOR_PROJECT_ROOT":  "/test/project",
+				"WINDSOR_SESSION_TOKEN": "token",
+				"BUILD_ID":              "010101.001.1",
+				"WINDSOR_MANAGED_ENV":   "WINDSOR_CONTEXT,WINDSOR_PROJECT_ROOT,WINDSOR_SESSION_TOKEN,BUILD_ID",
+				"WINDSOR_MANAGED_ALIAS": "from-env-payload",
+			}, nil
+		}
+		mockEnvPrinter.GetAliasFunc = func() (map[string]string, error) {
+			return map[string]string{}, nil
+		}
+		mockEnvPrinter.GetManagedEnvFunc = func() []string {
+			return []string{"from-managed-env"}
+		}
+		mockEnvPrinter.GetManagedAliasFunc = func() []string {
+			return []string{"from-managed-alias"}
+		}
+		rt.EnvPrinters.WindsorEnv = mockEnvPrinter
+
+		err := rt.LoadEnvironment(false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		managedEnv := rt.envVars["WINDSOR_MANAGED_ENV"]
+		for _, required := range []string{
+			"WINDSOR_CONTEXT",
+			"WINDSOR_PROJECT_ROOT",
+			"WINDSOR_SESSION_TOKEN",
+			"BUILD_ID",
+			"from-managed-env",
+		} {
+			if !strings.Contains(managedEnv, required) {
+				t.Fatalf("Expected WINDSOR_MANAGED_ENV to include %q, got %q", required, managedEnv)
+			}
+		}
+
+		managedAlias := rt.envVars["WINDSOR_MANAGED_ALIAS"]
+		for _, required := range []string{"from-env-payload", "from-managed-alias"} {
+			if !strings.Contains(managedAlias, required) {
+				t.Fatalf("Expected WINDSOR_MANAGED_ALIAS to include %q, got %q", required, managedAlias)
+			}
+		}
+	})
 }
 
 func TestRuntime_GetEnvVars(t *testing.T) {

@@ -292,6 +292,8 @@ func (rt *Runtime) LoadEnvironment(decrypt bool) error {
 				return fmt.Errorf("error getting environment variables: %w", err)
 			}
 			maps.Copy(allEnvVars, envVars)
+			managedEnv = appendManagedValues(managedEnv, envVars["WINDSOR_MANAGED_ENV"])
+			managedAlias = appendManagedValues(managedAlias, envVars["WINDSOR_MANAGED_ALIAS"])
 
 			aliases, err := printer.GetAlias()
 			if err != nil {
@@ -969,6 +971,19 @@ func appendUniqueStrings(base []string, values ...string) []string {
 		base = append(base, value)
 	}
 	return base
+}
+
+// appendManagedValues appends comma-separated managed names while preserving first-seen order.
+func appendManagedValues(base []string, csvValues string) []string {
+	if strings.TrimSpace(csvValues) == "" {
+		return base
+	}
+	parts := strings.Split(csvValues, ",")
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		normalized = append(normalized, strings.TrimSpace(part))
+	}
+	return appendUniqueStrings(base, normalized...)
 }
 
 // writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.
