@@ -201,7 +201,7 @@ func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
 			continue
 		}
 		secretName := strings.TrimSpace(match[1])
-		if !isSecretExpressionToken(secretName) {
+		if !secrets.IsSecretReferenceExpression(strings.ToLower(secretName)) {
 			continue
 		}
 		secretNames = append(secretNames, secretName)
@@ -237,23 +237,10 @@ func containsSecretExpression(input string) bool {
 			if len(match) < 2 {
 				continue
 			}
-			if isSecretExpressionToken(strings.TrimSpace(match[1])) {
+			if secrets.IsSecretReferenceExpression(strings.ToLower(strings.TrimSpace(match[1]))) {
 				return true
 			}
 		}
-	}
-	return false
-}
-
-// isSecretExpressionToken reports whether a placeholder token is a secret reference.
-func isSecretExpressionToken(token string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(token))
-	if strings.HasPrefix(normalized, "secret.") ||
-		strings.HasPrefix(normalized, "secrets.") ||
-		strings.HasPrefix(normalized, "op.") ||
-		strings.HasPrefix(normalized, "op[") ||
-		strings.HasPrefix(normalized, "sops.") {
-		return true
 	}
 	return false
 }

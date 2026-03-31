@@ -170,3 +170,32 @@ func TestRegisterSecretHelper(t *testing.T) {
 		}
 	})
 }
+
+func TestIsSecretReferenceExpression(t *testing.T) {
+	t.Run("MatchesPlainReferenceForms", func(t *testing.T) {
+		candidates := []string{
+			"op.platform.db.password",
+			"sops.platform.db.password",
+			"secret.op.platform.db.password",
+			"secrets.platform.db.password",
+		}
+		for _, candidate := range candidates {
+			if !IsSecretReferenceExpression(candidate) {
+				t.Fatalf("expected candidate %q to be recognized as secret reference", candidate)
+			}
+		}
+	})
+
+	t.Run("RejectsOperatorExpressions", func(t *testing.T) {
+		candidates := []string{
+			"op.flags.enabled && true",
+			"sops.enabled ?? true",
+			"secret.op.flags.enabled ? 1 : 0",
+		}
+		for _, candidate := range candidates {
+			if IsSecretReferenceExpression(candidate) {
+				t.Fatalf("expected candidate %q to be rejected", candidate)
+			}
+		}
+	})
+}

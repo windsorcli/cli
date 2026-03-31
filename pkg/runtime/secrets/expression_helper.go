@@ -77,7 +77,7 @@ func evaluateSecretHelper(params []any, deferred bool, resolve func(string) (str
 
 func normalizeSecretReferenceExpression(expression string) string {
 	trimmed := strings.TrimSpace(expression)
-	if isSecretReferenceExpression(trimmed) {
+	if IsSecretReferenceExpression(trimmed) {
 		escaped := strings.ReplaceAll(trimmed, `\`, `\\`)
 		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 		return fmt.Sprintf(`secret("%s")`, escaped)
@@ -85,16 +85,18 @@ func normalizeSecretReferenceExpression(expression string) string {
 	return expression
 }
 
-func isSecretReferenceExpression(expression string) bool {
-	if !(strings.HasPrefix(expression, "secret.op.") ||
-		strings.HasPrefix(expression, "secret.sops.") ||
-		strings.HasPrefix(expression, "op.") ||
-		strings.HasPrefix(expression, "op[") ||
-		strings.HasPrefix(expression, "sops.")) {
+// IsSecretReferenceExpression reports whether expression is a plain secret reference token.
+func IsSecretReferenceExpression(expression string) bool {
+	trimmed := strings.TrimSpace(expression)
+	if !(strings.HasPrefix(trimmed, "secret.") ||
+		strings.HasPrefix(trimmed, "secrets.") ||
+		strings.HasPrefix(trimmed, "op.") ||
+		strings.HasPrefix(trimmed, "op[") ||
+		strings.HasPrefix(trimmed, "sops.")) {
 		return false
 	}
-	if strings.Contains(expression, "${") {
+	if strings.Contains(trimmed, "${") {
 		return false
 	}
-	return !strings.ContainsAny(expression, " \t\n\r()+-*/%<>=!&|?:,")
+	return !strings.ContainsAny(trimmed, " \t\n\r()+-*/%<>=!&|?:,")
 }

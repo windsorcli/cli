@@ -1009,6 +1009,18 @@ func TestWindsorEnv_ParseAndCheckSecrets(t *testing.T) {
 			t.Errorf("Expected expressions containing secret substring to remain unchanged, got %q", result)
 		}
 	})
+
+	t.Run("IgnoresOperatorExpressionsWithSecretPrefix", func(t *testing.T) {
+		printer, _ := setup(t)
+		printer.secretsProviders = []secrets.SecretsProvider{}
+
+		result := printer.parseAndCheckSecrets("value with ${sops.enabled ?? true} and ${op.flags.enabled && true}")
+
+		expected := "value with ${sops.enabled ?? true} and ${op.flags.enabled && true}"
+		if result != expected {
+			t.Errorf("Expected operator expressions to remain unchanged, got %q", result)
+		}
+	})
 }
 
 func TestContainsSecretExpression(t *testing.T) {
@@ -1027,6 +1039,18 @@ func TestContainsSecretExpression(t *testing.T) {
 	t.Run("IgnoresNonSecretExpression", func(t *testing.T) {
 		if containsSecretExpression("value=${project_root}") {
 			t.Fatal("Expected non-secret expression to be ignored")
+		}
+	})
+
+	t.Run("IgnoresSopsExpressionWithOperators", func(t *testing.T) {
+		if containsSecretExpression("value=${sops.enabled ?? true}") {
+			t.Fatal("Expected sops expression with operators to be ignored")
+		}
+	})
+
+	t.Run("IgnoresOpExpressionWithOperators", func(t *testing.T) {
+		if containsSecretExpression("value=${op.flags.enabled && true}") {
+			t.Fatal("Expected op expression with operators to be ignored")
 		}
 	})
 
