@@ -532,7 +532,7 @@ func formatHeredocContent(content string) string {
 }
 
 // writeVariable writes a single variable assignment to the tfvars file body.
-// Handles descriptions, sensitive flags, multi-line strings, and object/map formatting.
+// Handles sensitive flags, multi-line strings, and object/map formatting.
 // Ensures correct HCL syntax for all supported value types.
 func writeVariable(body *hclwrite.Body, name string, value any, variables []VariableInfo) {
 	var info *VariableInfo
@@ -541,13 +541,6 @@ func writeVariable(body *hclwrite.Body, name string, value any, variables []Vari
 			info = &v
 			break
 		}
-	}
-
-	if info != nil && info.Description != "" {
-		body.AppendUnstructuredTokens(hclwrite.Tokens{
-			{Type: hclsyntax.TokenComment, Bytes: []byte("# " + info.Description)},
-		})
-		body.AppendNewline()
 	}
 
 	if info != nil && info.Sensitive {

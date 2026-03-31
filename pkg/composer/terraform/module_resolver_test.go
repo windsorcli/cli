@@ -2851,21 +2851,21 @@ func Test_formatValue(t *testing.T) {
 }
 
 func Test_writeVariable(t *testing.T) {
-	t.Run("WritesVariableWithDescription", func(t *testing.T) {
-		// Given a body and variable info with description
+	t.Run("DoesNotWriteDescriptionComments", func(t *testing.T) {
+		// Given a new HCL file with a variable that has a description
 		file := hclwrite.NewEmptyFile()
 		body := file.Body()
 		variables := []VariableInfo{
 			{Name: "test", Description: "Test variable"},
 		}
 
-		// When writing variable
+		// When writing the variable to the file
 		writeVariable(body, "test", "value", variables)
 
-		// Then it should include description comment
+		// Then the output should not contain a description comment
 		content := string(file.Bytes())
-		if !strings.Contains(content, "# Test variable") {
-			t.Errorf("Expected description comment, got: %s", content)
+		if strings.Contains(content, "# Test variable") {
+			t.Errorf("Expected no description comment, got: %s", content)
 		}
 	})
 
@@ -2935,6 +2935,32 @@ func Test_writeVariable(t *testing.T) {
 		content := string(file.Bytes())
 		if !strings.Contains(content, "test") {
 			t.Errorf("Expected variable assignment, got: %s", content)
+		}
+	})
+}
+
+func Test_writeComponentValues(t *testing.T) {
+	t.Run("WritesDescriptionCommentOnceForExplicitValues", func(t *testing.T) {
+		file := hclwrite.NewEmptyFile()
+		body := file.Body()
+		values := map[string]any{
+			"cluster_name": "demo-cluster",
+		}
+		variables := []VariableInfo{
+			{
+				Name:        "cluster_name",
+				Description: "The cluster name",
+			},
+		}
+
+		writeComponentValues(body, values, map[string]bool{}, variables)
+
+		content := string(file.Bytes())
+		if strings.Count(content, "# The cluster name") != 1 {
+			t.Errorf("Expected exactly one description comment, got: %s", content)
+		}
+		if !strings.Contains(content, `cluster_name = "demo-cluster"`) {
+			t.Errorf("Expected rendered value assignment, got: %s", content)
 		}
 	})
 }
