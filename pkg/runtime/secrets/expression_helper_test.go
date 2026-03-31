@@ -198,6 +198,7 @@ func TestIsSecretReferenceExpression(t *testing.T) {
 	t.Run("MatchesPlainReferenceForms", func(t *testing.T) {
 		candidates := []string{
 			"op.platform.db.password",
+			`op["personal"]["item"]["field"]`,
 			"OP.platform.db.password",
 			"sops.platform.db.password",
 			"secret.op.platform.db.password",
