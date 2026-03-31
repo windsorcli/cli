@@ -473,24 +473,10 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					containsExpression = evaluator.ContainsExpression(value)
 				}
 				if evaluator.ContainsSecretValue(value) {
-					if useCache && existingFound && !strings.Contains(existingValue, "<ERROR") {
-						p.shell.RegisterSecret(existingValue)
-						envVars[envKey] = existingValue
-						continue
-					}
-					evaluatedValue, shouldSet, err := p.evaluateInputValueForEnv(key, value)
+					err := p.resolveAndSetSecretEnvVar(componentID, key, envKey, value, envVars, useCache, existingValue, existingFound)
 					if err != nil {
-						return nil, nil, fmt.Errorf("error evaluating secret input '%s' for component %s: %w", key, componentID, err)
+						return nil, nil, err
 					}
-					if !shouldSet {
-						continue
-					}
-					envValue, err := p.formatTerraformEnvValue(evaluatedValue)
-					if err != nil {
-						return nil, nil, fmt.Errorf("error formatting secret input '%s' for component %s: %w", key, componentID, err)
-					}
-					p.shell.RegisterSecret(envValue)
-					envVars[envKey] = envValue
 					continue
 				}
 				if containsExpression {
@@ -506,24 +492,10 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 						continue
 					}
 					if evaluator.ContainsSecretValue(nonDeferredValue) {
-						if useCache && existingFound && !strings.Contains(existingValue, "<ERROR") {
-							p.shell.RegisterSecret(existingValue)
-							envVars[envKey] = existingValue
-							continue
-						}
-						evaluatedValue, shouldSet, err := p.evaluateInputValueForEnv(key, value)
+						err := p.resolveAndSetSecretEnvVar(componentID, key, envKey, value, envVars, useCache, existingValue, existingFound)
 						if err != nil {
-							return nil, nil, fmt.Errorf("error evaluating secret input '%s' for component %s: %w", key, componentID, err)
+							return nil, nil, err
 						}
-						if !shouldSet {
-							continue
-						}
-						envValue, err := p.formatTerraformEnvValue(evaluatedValue)
-						if err != nil {
-							return nil, nil, fmt.Errorf("error formatting secret input '%s' for component %s: %w", key, componentID, err)
-						}
-						p.shell.RegisterSecret(envValue)
-						envVars[envKey] = envValue
 						continue
 					}
 					if !evaluator.ContainsExpression(nonDeferredValue) {
@@ -1142,6 +1114,41 @@ func (p *terraformProvider) evaluateInputValueForEnv(key string, value any) (any
 		return evaluatedValue, true, nil
 	}
 	return nil, false, nil
+}
+
+// resolveAndSetSecretEnvVar resolves a secret terraform input and sets its TF_VAR value.
+func (p *terraformProvider) resolveAndSetSecretEnvVar(
+	componentID string,
+	key string,
+	envKey string,
+	value any,
+	envVars map[string]string,
+	useCache bool,
+	existingValue string,
+	existingFound bool,
+) error {
+	if useCache && existingFound && !strings.Contains(existingValue, "<ERROR") {
+		p.shell.RegisterSecret(existingValue)
+		envVars[envKey] = existingValue
+		return nil
+	}
+
+	evaluatedValue, shouldSet, err := p.evaluateInputValueForEnv(key, value)
+	if err != nil {
+		return fmt.Errorf("error evaluating secret input '%s' for component %s: %w", key, componentID, err)
+	}
+	if !shouldSet {
+		return nil
+	}
+
+	envValue, err := p.formatTerraformEnvValue(evaluatedValue)
+	if err != nil {
+		return fmt.Errorf("error formatting secret input '%s' for component %s: %w", key, componentID, err)
+	}
+
+	p.shell.RegisterSecret(envValue)
+	envVars[envKey] = envValue
+	return nil
 }
 
 // formatTerraformEnvValue renders a terraform input value as TF_VAR_* environment variable string.
