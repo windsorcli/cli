@@ -272,6 +272,46 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("ExcludesTFVarsFromApplyEnv", func(t *testing.T) {
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var planEnv map[string]string
+		var applyEnv map[string]string
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			if command != "terraform" || len(args) < 2 {
+				return "", nil
+			}
+			switch args[1] {
+			case "plan":
+				if planEnv == nil {
+					planEnv = env
+				}
+			case "apply":
+				if applyEnv == nil {
+					applyEnv = env
+				}
+			}
+			return "", nil
+		}
+
+		if err := stack.Up(blueprint); err != nil {
+			t.Fatalf("Expected Up to return nil, got %v", err)
+		}
+		if planEnv == nil {
+			t.Fatal("Expected terraform plan to run with env")
+		}
+		if applyEnv == nil {
+			t.Fatal("Expected terraform apply to run with env")
+		}
+		if planEnv["TF_VAR_context_path"] == "" {
+			t.Fatal("Expected TF_VAR_context_path in plan env")
+		}
+		if _, ok := applyEnv["TF_VAR_context_path"]; ok {
+			t.Fatalf("Expected TF_VAR_context_path to be omitted from apply env, got %q", applyEnv["TF_VAR_context_path"])
+		}
+	})
+
 	t.Run("InvokesOnApplyHooksAfterEachComponentWithComponentID", func(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
