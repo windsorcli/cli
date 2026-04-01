@@ -111,7 +111,7 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 		normalizedValue := secrets.NormalizeLegacyBraces(v)
 
-		if strings.Contains(normalizedValue, "${") {
+		if evaluator.ContainsExpression(normalizedValue) {
 			if existingValue, exists := e.shims.LookupEnv(k); exists {
 				if managedEnvExists {
 					e.SetManagedEnv(k)

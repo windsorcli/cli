@@ -241,7 +241,6 @@ func (rt *Runtime) HandleSessionReset() error {
 // secrets if requested, and aggregates all environment variables and aliases into the Runtime
 // instance. Returns an error if any step fails.
 func (rt *Runtime) LoadEnvironment(decrypt bool) error {
-	rt.initializeSecretsProviders()
 	rt.initializeEnvPrinters()
 	rt.initializeToolsManager()
 
