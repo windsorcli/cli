@@ -17,6 +17,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
+	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -465,6 +466,16 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					}
 					if !evaluator.ContainsExpression(nonDeferredValue) {
 						continue
+					}
+					if shouldUseTFVarCache(nonDeferredValue) {
+						noCache := os.Getenv("NO_CACHE")
+						useCache := noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+						if useCache {
+							if cachedValue, exists := os.LookupEnv(envKey); exists && cachedValue != "" && !strings.Contains(cachedValue, "<ERROR") {
+								envVars[envKey] = cachedValue
+								continue
+							}
+						}
 					}
 					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, true)
 					if err != nil {
@@ -1084,4 +1095,26 @@ func sanitizeForK8s(input string) string {
 		sanitized = sanitized[:63]
 	}
 	return sanitized
+}
+
+// shouldUseTFVarCache reports whether TF_VAR cache reuse should be applied for this deferred expression.
+func shouldUseTFVarCache(value any) bool {
+	expression, ok := deferredExpressionString(value)
+	if !ok {
+		return false
+	}
+
+	trimmed := strings.TrimSpace(expression)
+	if body, wrapped := evaluator.ExpressionBody(trimmed); wrapped {
+		trimmed = body
+	}
+	return secretsRuntime.IsCacheable(trimmed)
+}
+
+// deferredExpressionString returns the deferred expression string when available.
+func deferredExpressionString(value any) (string, bool) {
+	if s, ok := value.(string); ok {
+		return s, true
+	}
+	return evaluator.DeferredExpression(value)
 }

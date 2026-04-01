@@ -30,7 +30,7 @@ import (
 type Mocks struct {
 	ConfigHandler    config.ConfigHandler
 	Shell            *shell.MockShell
-	SecretsProvider  *secrets.MockSecretsProvider
+	SecretsProvider  *secrets.MockProvider
 	EnvPrinter       *envvars.MockEnvPrinter
 	ToolsManager     *tools.MockToolsManager
 	Runtime          *runtime.Runtime
@@ -160,10 +160,7 @@ func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	}
 
 	// Create mock secrets provider
-	mockSecretsProvider := secrets.NewMockSecretsProvider(mockShell)
-	mockSecretsProvider.LoadSecretsFunc = func() error {
-		return nil
-	}
+	mockSecretsProvider := secrets.NewMockProvider()
 
 	// Create mock env printer
 	mockEnvPrinter := envvars.NewMockEnvPrinter()

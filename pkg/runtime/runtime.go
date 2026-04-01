@@ -47,11 +47,8 @@ type Runtime struct {
 	Shell         shell.Shell
 	Evaluator     evaluator.ExpressionEvaluator
 
-	// SecretsProviders contains providers for Sops and 1Password secrets management
-	SecretsProviders struct {
-		Sops        secretsRuntime.SecretsProvider
-		Onepassword []secretsRuntime.SecretsProvider
-	}
+	// Resolver dispatches secret references across configured providers
+	Resolver *secretsRuntime.Resolver
 
 	// EnvPrinters contains environment printers for various providers and tools
 	EnvPrinters struct {
@@ -76,6 +73,9 @@ type Runtime struct {
 
 	// aliases stores collected shell aliases
 	aliases map[string]string
+
+	// secretHelperRegistered tracks whether the evaluator secret helper was registered.
+	secretHelperRegistered bool
 }
 
 // =============================================================================
@@ -122,11 +122,8 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		if overrides.ToolsManager != nil {
 			rt.ToolsManager = overrides.ToolsManager
 		}
-		if overrides.SecretsProviders.Sops != nil {
-			rt.SecretsProviders.Sops = overrides.SecretsProviders.Sops
-		}
-		if overrides.SecretsProviders.Onepassword != nil {
-			rt.SecretsProviders.Onepassword = overrides.SecretsProviders.Onepassword
+		if overrides.Resolver != nil {
+			rt.Resolver = overrides.Resolver
 		}
 		if overrides.EnvPrinters.AwsEnv != nil {
 			rt.EnvPrinters.AwsEnv = overrides.EnvPrinters.AwsEnv
@@ -387,6 +384,8 @@ func (rt *Runtime) GenerateBuildID() (string, error) {
 // InitializeComponents initializes all environment-related components required after setup.
 // Initializes TerraformProvider if terraform is enabled. Returns an error if initialization fails.
 func (rt *Runtime) InitializeComponents() error {
+	rt.initializeSecretsProviders()
+
 	if rt.ConfigHandler != nil && rt.ConfigHandler.GetBool("terraform.enabled", true) {
 		if rt.TerraformProvider == nil {
 			rt.initializeToolsManager()
@@ -724,15 +723,8 @@ func (rt *Runtime) initializeEnvPrinters() {
 		rt.EnvPrinters.TerraformEnv = env.NewTerraformEnvPrinter(rt.Shell, rt.ConfigHandler, rt.ToolsManager, rt.TerraformProvider)
 	}
 	if rt.EnvPrinters.WindsorEnv == nil {
-		secretsProviders := []secretsRuntime.SecretsProvider{}
-		if rt.SecretsProviders.Sops != nil {
-			secretsProviders = append(secretsProviders, rt.SecretsProviders.Sops)
-		}
-		if rt.SecretsProviders.Onepassword != nil {
-			secretsProviders = append(secretsProviders, rt.SecretsProviders.Onepassword...)
-		}
 		allEnvPrinters := rt.getAllEnvPrinters()
-		rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(rt.Shell, rt.ConfigHandler, secretsProviders, allEnvPrinters)
+		rt.EnvPrinters.WindsorEnv = env.NewWindsorEnvPrinter(rt.Shell, rt.ConfigHandler, rt.Evaluator, allEnvPrinters)
 	}
 }
 
@@ -793,46 +785,61 @@ func getNestedString(values map[string]any, path ...string) string {
 }
 
 // initializeSecretsProviders initializes secrets providers based on current configuration settings.
-// The method sets up the SOPS provider if enabled with the context's config root path, and sets up
-// 1Password providers for each configured vault. Providers are only initialized if not already present.
+// Creates a Resolver with SOPS and 1Password providers, and registers the secret() helper on the evaluator.
 func (rt *Runtime) initializeSecretsProviders() {
-	if rt.SecretsProviders.Sops == nil && rt.ConfigHandler.GetBool("secrets.sops.enabled", false) {
-		configPath := rt.ConfigRoot
-		rt.SecretsProviders.Sops = secretsRuntime.NewSopsSecretsProvider(configPath, rt.Shell)
+	if rt.Resolver != nil {
+		rt.registerSecretHelper()
+		return
 	}
 
-	if rt.SecretsProviders.Onepassword == nil {
-		vaultsValue := rt.ConfigHandler.Get("secrets.onepassword.vaults")
-		if vaultsValue != nil {
-			if vaultsMap, ok := vaultsValue.(map[string]any); ok {
-				rt.SecretsProviders.Onepassword = []secretsRuntime.SecretsProvider{}
-				for vaultID, vaultData := range vaultsMap {
-					if vaultMap, ok := vaultData.(map[string]any); ok {
-						vault := secretsConfigType.OnePasswordVault{
-							ID: vaultID,
-						}
-						if url, ok := vaultMap["url"].(string); ok {
-							vault.URL = url
-						}
-						if name, ok := vaultMap["name"].(string); ok {
-							vault.Name = name
-						}
-						if id, ok := vaultMap["id"].(string); ok && id != "" {
-							vault.ID = id
-						}
+	var providers []secretsRuntime.Provider
 
-						var provider secretsRuntime.SecretsProvider
-						if os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != "" {
-							provider = secretsRuntime.NewOnePasswordSDKSecretsProvider(vault, rt.Shell)
-						} else {
-							provider = secretsRuntime.NewOnePasswordCLISecretsProvider(vault, rt.Shell)
-						}
-						rt.SecretsProviders.Onepassword = append(rt.SecretsProviders.Onepassword, provider)
+	if rt.ConfigHandler.GetBool("secrets.sops.enabled", false) {
+		providers = append(providers, secretsRuntime.NewSopsProvider(rt.ConfigRoot))
+	}
+
+	vaultsValue := rt.ConfigHandler.Get("secrets.onepassword.vaults")
+	if vaultsValue != nil {
+		if vaultsMap, ok := vaultsValue.(map[string]any); ok {
+			for vaultID, vaultData := range vaultsMap {
+				if vaultMap, ok := vaultData.(map[string]any); ok {
+					vault := secretsConfigType.OnePasswordVault{
+						ID: vaultID,
 					}
+					if url, ok := vaultMap["url"].(string); ok {
+						vault.URL = url
+					}
+					if name, ok := vaultMap["name"].(string); ok {
+						vault.Name = name
+					}
+					if id, ok := vaultMap["id"].(string); ok && id != "" {
+						vault.ID = id
+					}
+
+					var provider secretsRuntime.Provider
+					if os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") != "" {
+						provider = secretsRuntime.NewOnePasswordSDKProvider(vault)
+					} else {
+						provider = secretsRuntime.NewOnePasswordCLIProvider(vault)
+					}
+					providers = append(providers, provider)
 				}
 			}
 		}
 	}
+
+	rt.Resolver = secretsRuntime.NewResolver(providers, rt.Shell)
+	rt.registerSecretHelper()
+}
+
+// registerSecretHelper registers the secret() helper on the evaluator once.
+func (rt *Runtime) registerSecretHelper() {
+	if rt.secretHelperRegistered || rt.Evaluator == nil || rt.Resolver == nil {
+		return
+	}
+
+	rt.Evaluator.Register("secret", rt.Resolver.EvaluateHelper, new(func(string, string, string) any))
+	rt.secretHelperRegistered = true
 }
 
 // getAllEnvPrinters returns all environment printers in a consistent order.
@@ -851,28 +858,12 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 	}
 }
 
-// loadSecrets loads secrets from configured secrets providers.
-// It attempts to load secrets from both SOPS and 1Password providers if they are available.
-// If a provider fails to load (e.g., file not found), it continues with other providers.
-// Returns an error only if a provider encounters a non-recoverable error (e.g., decryption failure).
+// loadSecrets loads secrets from configured secrets providers via the Resolver.
 func (rt *Runtime) loadSecrets() error {
-	providers := []secretsRuntime.SecretsProvider{}
-	if rt.SecretsProviders.Sops != nil {
-		providers = append(providers, rt.SecretsProviders.Sops)
+	if rt.Resolver == nil {
+		return nil
 	}
-	if rt.SecretsProviders.Onepassword != nil {
-		providers = append(providers, rt.SecretsProviders.Onepassword...)
-	}
-
-	for _, provider := range providers {
-		if provider != nil {
-			if err := provider.LoadSecrets(); err != nil {
-				return fmt.Errorf("failed to load secrets: %w", err)
-			}
-		}
-	}
-
-	return nil
+	return rt.Resolver.LoadAll()
 }
 
 // writeBuildIDToFile writes the provided build ID string to the .windsor/.build-id file in the project root.

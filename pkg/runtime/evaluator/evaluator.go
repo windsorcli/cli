@@ -19,6 +19,7 @@ import (
 	"github.com/expr-lang/expr/ast"
 	"github.com/google/go-jsonnet"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 )
 
 // optionalChainPatcher wraps member access chains in ChainNode and sets the Optional flag.
@@ -65,18 +66,7 @@ type expressionEvaluator struct {
 
 // DeferredError signals that an expression is deferred and should be preserved for later evaluation.
 // This is not an error condition but a signal that the expression cannot be evaluated at this time.
-type DeferredError struct {
-	Expression string
-	Message    string
-}
-
-// Error implements the error interface for DeferredError.
-func (e *DeferredError) Error() string {
-	if e.Message != "" {
-		return e.Message
-	}
-	return fmt.Sprintf("deferred expression: %s", e.Expression)
-}
+type DeferredError = secretsRuntime.DeferredError
 
 // DeferredValue represents a value that could not be fully resolved because one or more
 // deferred helpers (for example terraform_output) were unavailable at evaluation time.
@@ -108,6 +98,16 @@ func DeferredExpression(value any) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// ExpressionBody returns the inner expression for ${ ... } inputs.
+// When value is not wrapped as a full expression, returns the original trimmed string and false.
+func ExpressionBody(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") {
+		return strings.TrimSpace(trimmed[2 : len(trimmed)-1]), true
+	}
+	return trimmed, false
 }
 
 // =============================================================================
@@ -298,6 +298,10 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 // is that scope (with runtime keys injected so helpers like file() and jsonnet() have context and paths).
 // The expression should not include ${} bookends. Returns the evaluation result or an error.
 func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+	if rewritten, ok := secretsRuntime.NormalizeExpression(expression); ok {
+		expression = rewritten
+	}
+
 	var merged map[string]any
 	if scope != nil {
 		merged = make(map[string]any)
@@ -313,9 +317,6 @@ func (e *expressionEvaluator) evaluateExpression(expression string, facetPath st
 	}
 	result, err := expr.Run(program, merged)
 	if err != nil {
-		if deferredErr, ok := err.(*DeferredError); ok {
-			return nil, deferredErr
-		}
 		var deferredErr *DeferredError
 		if errors.As(err, &deferredErr) {
 			return nil, deferredErr
