@@ -1201,10 +1201,10 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 			}
 		}
 		ipInt += hostnumUint32
-		ip[0] = byte(ipInt >> 24)
-		ip[1] = byte(ipInt >> 16)
-		ip[2] = byte(ipInt >> 8)
-		ip[3] = byte(ipInt)
+		ip[0] = byte(ipInt >> 24) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		ip[1] = byte(ipInt >> 16) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		ip[2] = byte(ipInt >> 8)  // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		ip[3] = byte(ipInt)       // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
 	} else {
 		if hostnum < 0 {
 			return "", fmt.Errorf("host number %d is out of range for IPv6 address", hostnum)
@@ -1262,7 +1262,7 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 		if offset > math.MaxUint32 {
 			return "", fmt.Errorf("offset %d is out of range for IPv4 address", offset)
 		}
-		offsetUint32 := uint32(offset)
+		offsetUint32 := uint32(offset) // #nosec G115 -- bounds-checked above (offset <= math.MaxUint32)
 		ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
 		if ipInt > math.MaxUint32-offsetUint32 {
 			return "", fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
@@ -1274,10 +1274,10 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 			}
 		}
 		ipInt += offsetUint32
-		subnetIP[0] = byte(ipInt >> 24)
-		subnetIP[1] = byte(ipInt >> 16)
-		subnetIP[2] = byte(ipInt >> 8)
-		subnetIP[3] = byte(ipInt)
+		subnetIP[0] = byte(ipInt >> 24) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		subnetIP[1] = byte(ipInt >> 16) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		subnetIP[2] = byte(ipInt >> 8)  // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		subnetIP[3] = byte(ipInt)       // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
 	} else {
 		if offset < 0 {
 			return "", fmt.Errorf("offset %d is out of range for IPv6 address", offset)
@@ -1336,16 +1336,16 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 			if offset < 0 || offset > math.MaxUint32 {
 				return nil, fmt.Errorf("offset %d is out of range for IPv4 address", offset)
 			}
-			offsetUint32 := uint32(offset)
+			offsetUint32 := uint32(offset) // #nosec G115 -- bounds-checked above (offset <= math.MaxUint32)
 			ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
 			if ipInt > math.MaxUint32-offsetUint32 {
 				return nil, fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
 			}
 			ipInt += offsetUint32
-			subnetIP[0] = byte(ipInt >> 24)
-			subnetIP[1] = byte(ipInt >> 16)
-			subnetIP[2] = byte(ipInt >> 8)
-			subnetIP[3] = byte(ipInt)
+			subnetIP[0] = byte(ipInt >> 24) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+			subnetIP[1] = byte(ipInt >> 16) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+			subnetIP[2] = byte(ipInt >> 8)  // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+			subnetIP[3] = byte(ipInt)       // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
 		} else {
 			if offset < 0 {
 				return nil, fmt.Errorf("offset %d is out of range for IPv6 address", offset)

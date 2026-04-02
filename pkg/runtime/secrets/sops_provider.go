@@ -16,8 +16,8 @@ import (
 const (
 	secretsFileNameYaml    = "secrets.yaml"
 	secretsFileNameYml     = "secrets.yml"
-	secretsFileNameEncYaml = "secrets.enc.yaml"
-	secretsFileNameEncYml  = "secrets.enc.yml"
+	secretsFileNameEncYaml = "secrets.enc.yaml" // #nosec G101 -- file name constant, not a credential
+	secretsFileNameEncYml  = "secrets.enc.yml"  // #nosec G101 -- file name constant, not a credential
 )
 
 // =============================================================================
