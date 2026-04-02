@@ -18,7 +18,21 @@ func setupSecretsTestMocks(t *testing.T) *shell.MockShell {
 }
 
 // =============================================================================
-// DeferredError
+// Test Constructor
+// =============================================================================
+
+func TestNewResolver(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		sh := setupSecretsTestMocks(t)
+		r := NewResolver([]Provider{}, sh)
+		if r == nil {
+			t.Fatal("expected resolver, got nil")
+		}
+	})
+}
+
+// =============================================================================
+// Test Public Methods
 // =============================================================================
 
 func TestDeferredError(t *testing.T) {
@@ -34,20 +48,6 @@ func TestDeferredError(t *testing.T) {
 		want := "deferred expression: secret(\"v\",\"i\",\"f\")"
 		if err.Error() != want {
 			t.Errorf("expected %q, got %q", want, err.Error())
-		}
-	})
-}
-
-// =============================================================================
-// Resolver
-// =============================================================================
-
-func TestNewResolver(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		sh := setupSecretsTestMocks(t)
-		r := NewResolver([]Provider{}, sh)
-		if r == nil {
-			t.Fatal("expected resolver, got nil")
 		}
 	})
 }
@@ -222,20 +222,6 @@ func TestResolver_LoadAll(t *testing.T) {
 	})
 }
 
-// helper to check error type without importing errors
-func isType(err error, target any) bool {
-	if de, ok := target.(**DeferredError); ok {
-		_, matched := err.(*DeferredError)
-		*de, _ = err.(*DeferredError)
-		return matched
-	}
-	return false
-}
-
-// =============================================================================
-// NormalizeExpression
-// =============================================================================
-
 func TestNormalizeExpression(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -281,10 +267,6 @@ func TestNormalizeExpression(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// NormalizeLegacyBraces
-// =============================================================================
-
 func TestNormalizeLegacyBraces(t *testing.T) {
 	tests := []struct {
 		input string
@@ -307,41 +289,6 @@ func TestNormalizeLegacyBraces(t *testing.T) {
 		})
 	}
 }
-
-// =============================================================================
-// IsSecretExpression
-// =============================================================================
-
-func TestIsSecretExpression(t *testing.T) {
-	trueInputs := []string{
-		"secret.op.vault.item.field",
-		"secrets.sops.key",
-		`secret("v", "i", "f")`,
-		"  secret.op.vault.item.field  ",
-	}
-	falseInputs := []string{
-		"",
-		"op.vault.item.field",
-		"sops.key",
-		"SOME_ENV_VAR",
-		"plain string",
-	}
-
-	for _, input := range trueInputs {
-		if !IsSecretExpression(input) {
-			t.Errorf("IsSecretExpression(%q) = false, want true", input)
-		}
-	}
-	for _, input := range falseInputs {
-		if IsSecretExpression(input) {
-			t.Errorf("IsSecretExpression(%q) = true, want false", input)
-		}
-	}
-}
-
-// =============================================================================
-// IsCacheable
-// =============================================================================
 
 func TestIsCacheable(t *testing.T) {
 	cacheableInputs := []string{
@@ -368,8 +315,35 @@ func TestIsCacheable(t *testing.T) {
 }
 
 // =============================================================================
-// parseKeys
+// Test Private Methods
 // =============================================================================
+
+func TestIsSecretExpression(t *testing.T) {
+	trueInputs := []string{
+		"secret.op.vault.item.field",
+		"secrets.sops.key",
+		`secret("v", "i", "f")`,
+		"  secret.op.vault.item.field  ",
+	}
+	falseInputs := []string{
+		"",
+		"op.vault.item.field",
+		"sops.key",
+		"SOME_ENV_VAR",
+		"plain string",
+	}
+
+	for _, input := range trueInputs {
+		if !isSecretExpression(input) {
+			t.Errorf("isSecretExpression(%q) = false, want true", input)
+		}
+	}
+	for _, input := range falseInputs {
+		if isSecretExpression(input) {
+			t.Errorf("isSecretExpression(%q) = true, want false", input)
+		}
+	}
+}
 
 func TestParseKeys(t *testing.T) {
 	f := func(input string, expected []string) {
@@ -421,8 +395,18 @@ func TestParseKeys(t *testing.T) {
 }
 
 // =============================================================================
-// MockProvider
+// Test Helpers
 // =============================================================================
+
+// isType checks error type without importing errors.
+func isType(err error, target any) bool {
+	if de, ok := target.(**DeferredError); ok {
+		_, matched := err.(*DeferredError)
+		*de, _ = err.(*DeferredError)
+		return matched
+	}
+	return false
+}
 
 func TestMockProvider(t *testing.T) {
 	t.Run("LoadSecretsDefaultsToNil", func(t *testing.T) {

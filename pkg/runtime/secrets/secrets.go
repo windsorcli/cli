@@ -186,8 +186,8 @@ func NormalizeLegacyBraces(value string) string {
 	return legacyBracePattern.ReplaceAllString(value, `${ $1 }`)
 }
 
-// IsSecretExpression reports whether an expression body is a secret reference.
-func IsSecretExpression(expr string) bool {
+// isSecretExpression reports whether an expression body is a secret reference.
+func isSecretExpression(expr string) bool {
 	trimmed := strings.TrimSpace(expr)
 	if trimmed == "" {
 		return false
