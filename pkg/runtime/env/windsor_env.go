@@ -11,12 +11,12 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -43,8 +43,8 @@ var WindsorPrefixedVars = []string{
 // WindsorEnvPrinter is a struct that implements Windsor environment configuration
 type WindsorEnvPrinter struct {
 	BaseEnvPrinter
-	secretsProviders []secrets.SecretsProvider
-	allEnvPrinters   []EnvPrinter
+	evaluator      evaluator.ExpressionEvaluator
+	allEnvPrinters []EnvPrinter
 }
 
 // =============================================================================
@@ -52,7 +52,7 @@ type WindsorEnvPrinter struct {
 // =============================================================================
 
 // NewWindsorEnvPrinter creates a new WindsorEnvPrinter instance
-func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, secretsProviders []secrets.SecretsProvider, allEnvPrinters []EnvPrinter) *WindsorEnvPrinter {
+func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler, eval evaluator.ExpressionEvaluator, allEnvPrinters []EnvPrinter) *WindsorEnvPrinter {
 	if shell == nil {
 		panic("shell is required")
 	}
@@ -61,9 +61,9 @@ func NewWindsorEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler,
 	}
 
 	return &WindsorEnvPrinter{
-		BaseEnvPrinter:   *NewBaseEnvPrinter(shell, configHandler),
-		secretsProviders: secretsProviders,
-		allEnvPrinters:   allEnvPrinters,
+		BaseEnvPrinter: *NewBaseEnvPrinter(shell, configHandler),
+		evaluator:      eval,
+		allEnvPrinters: allEnvPrinters,
 	}
 }
 
@@ -102,8 +102,6 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	originalEnvVars := e.configHandler.GetStringMap("environment")
 
-	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
-
 	_, managedEnvExists := e.shims.LookupEnv("WINDSOR_MANAGED_ENV")
 
 	for k, v := range originalEnvVars {
@@ -111,7 +109,9 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 			e.SetManagedEnv(k)
 		}
 
-		if re.MatchString(v) {
+		normalizedValue := secrets.NormalizeLegacyBraces(v)
+
+		if evaluator.ContainsExpression(normalizedValue) {
 			if existingValue, exists := e.shims.LookupEnv(k); exists {
 				if managedEnvExists {
 					e.SetManagedEnv(k)
@@ -120,10 +120,9 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 					continue
 				}
 			}
-			parsedValue := e.parseAndCheckSecrets(v)
-			envVars[k] = parsedValue
+			envVars[k] = e.evaluateEnvValue(normalizedValue)
 		} else {
-			envVars[k] = v
+			envVars[k] = normalizedValue
 		}
 	}
 
@@ -168,34 +167,20 @@ func (e *WindsorEnvPrinter) GetEnvVars() (map[string]string, error) {
 // Private Methods
 // =============================================================================
 
-// parseAndCheckSecrets parses and replaces secret placeholders in the string value using the secrets provider.
-// It checks for unparsed secrets and returns an error string if any are found.
-func (e *WindsorEnvPrinter) parseAndCheckSecrets(strValue string) string {
-	for _, secretsProvider := range e.secretsProviders {
-		parsedValue, err := secretsProvider.ParseSecrets(strValue)
-		if err == nil {
-			strValue = parsedValue
-		}
+// evaluateEnvValue evaluates an environment value through the expression evaluator.
+// Deferred evaluation is enabled (evaluateDeferred=true) so secrets resolve immediately.
+func (e *WindsorEnvPrinter) evaluateEnvValue(value string) string {
+	if e.evaluator == nil {
+		return value
 	}
-
-	// #nosec G101 # This is just a regular expression not a secret
-	re := regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
-	unparsedSecrets := re.FindAllStringSubmatch(strValue, -1)
-	if len(unparsedSecrets) > 0 {
-		if len(e.secretsProviders) == 0 {
-			return "<ERROR: No secrets providers configured>"
-		}
-		var secretNames []string
-		for _, match := range unparsedSecrets {
-			if len(match) > 1 {
-				secretNames = append(secretNames, match[1])
-			}
-		}
-		secrets := strings.Join(secretNames, ", ")
-		return fmt.Sprintf("<ERROR: failed to parse: %s>", secrets)
+	result, err := e.evaluator.Evaluate(value, "", nil, true)
+	if err != nil {
+		return fmt.Sprintf("<ERROR: %s>", err)
 	}
-
-	return strValue
+	if result == nil {
+		return ""
+	}
+	return fmt.Sprint(result)
 }
 
 // shouldUseCache determines if the cache should be used based on NO_CACHE environment variable.

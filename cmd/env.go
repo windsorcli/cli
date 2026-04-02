@@ -27,7 +27,6 @@ var envCmd = &cobra.Command{
 				return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
 			}
 		}
-
 		var rtOpts []*runtime.Runtime
 		if overridesVal := cmd.Root().Context().Value(runtimeOverridesKey); overridesVal != nil {
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
