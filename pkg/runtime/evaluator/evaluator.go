@@ -101,9 +101,13 @@ func DeferredExpression(value any) (string, bool) {
 }
 
 // ExpressionBody returns the inner expression for ${ ... } inputs.
+// Double-brace ${{ ... }} inputs are not matched; callers should normalize those first.
 // When value is not wrapped as a full expression, returns the original trimmed string and false.
 func ExpressionBody(value string) (string, bool) {
 	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "${{") {
+		return trimmed, false
+	}
 	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") {
 		return strings.TrimSpace(trimmed[2 : len(trimmed)-1]), true
 	}

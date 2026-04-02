@@ -1943,3 +1943,44 @@ func TestContainsExpression(t *testing.T) {
 		}
 	})
 }
+
+func TestExpressionBody(t *testing.T) {
+	t.Run("ReturnsTrueForSingleBraceExpression", func(t *testing.T) {
+		// Given a single-brace expression
+		// When calling ExpressionBody
+		// Then it should return the inner body and true
+		body, ok := ExpressionBody("${ foo.bar }")
+		if !ok {
+			t.Error("Expected ok=true for single-brace expression")
+		}
+		if body != "foo.bar" {
+			t.Errorf("Expected body %q, got %q", "foo.bar", body)
+		}
+	})
+
+	t.Run("ReturnsFalseForDoubleBraceExpression", func(t *testing.T) {
+		// Given a double-brace expression that has not been normalized
+		// When calling ExpressionBody
+		// Then it should return false without extracting a malformed body
+		body, ok := ExpressionBody("${{ foo.bar }}")
+		if ok {
+			t.Error("Expected ok=false for double-brace expression")
+		}
+		if body != "${{ foo.bar }}" {
+			t.Errorf("Expected original value returned, got %q", body)
+		}
+	})
+
+	t.Run("ReturnsFalseForPlainString", func(t *testing.T) {
+		// Given a plain string
+		// When calling ExpressionBody
+		// Then it should return the trimmed string and false
+		body, ok := ExpressionBody("plain")
+		if ok {
+			t.Error("Expected ok=false for plain string")
+		}
+		if body != "plain" {
+			t.Errorf("Expected %q, got %q", "plain", body)
+		}
+	})
+}
