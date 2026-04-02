@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/project"
 )
 
 var (
@@ -21,24 +20,8 @@ var downCmd = &cobra.Command{
 	Long:         "Tear down the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var opts []*project.Project
-		if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
-			opts = []*project.Project{overridesVal.(*project.Project)}
-		}
-
-		proj := project.NewProject("", opts...)
-
-		proj.Runtime.Shell.SetVerbosity(verbose)
-
-		if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
-		}
-
-		if err := proj.Configure(nil); err != nil {
-			return err
-		}
-
-		if err := proj.Initialize(false); err != nil {
+		proj, err := prepareProject(cmd)
+		if err != nil {
 			return err
 		}
 
