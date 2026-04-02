@@ -23,6 +23,9 @@ integration_out.txt
 !.cursor/skills/
 !.cursor/skills/**
 
+# Claude
+.claude/settings*
+
 # Go workspace file
 go.work
 
