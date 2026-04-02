@@ -178,7 +178,7 @@ func (i *Provisioner) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID s
 		return err
 	}
 	if i.TerraformStack == nil {
-		return nil
+		return fmt.Errorf("terraform is disabled")
 	}
 	if err := i.TerraformStack.Plan(blueprint, componentID); err != nil {
 		return fmt.Errorf("failed to run terraform plan for %s: %w", componentID, err)

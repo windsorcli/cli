@@ -586,7 +586,7 @@ func TestProvisioner_Plan(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessSkipsTerraformWhenDisabled", func(t *testing.T) {
+	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -602,8 +602,11 @@ func TestProvisioner_Plan(t *testing.T) {
 
 		err := provisioner.Plan(createTestBlueprint(), "remote/path")
 
-		if err != nil {
-			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
+		if err == nil {
+			t.Error("Expected error when terraform is disabled")
+		}
+		if !strings.Contains(err.Error(), "terraform is disabled") {
+			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
 		}
 		if provisioner.TerraformStack != nil {
 			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
