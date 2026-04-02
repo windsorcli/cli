@@ -16,6 +16,10 @@ var version = "dev"
 
 var legacyBracePattern = regexp.MustCompile(`\${{\s*(.*?)\s*}}`)
 
+// exactSecretCallPattern matches exactly secret("vault", "item", "field") with no surrounding operators.
+// Each argument may contain any characters except unescaped double-quotes.
+var exactSecretCallPattern = regexp.MustCompile(`^secret\(\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*\)$`)
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -232,15 +236,10 @@ func parseHelperParams(params []any) (string, string, string, error) {
 	return vault, item, field, nil
 }
 
-// isExactSecretHelperCall reports whether expr is a standalone secret(...) call.
+// isExactSecretHelperCall reports whether expr is a standalone secret(...) call
+// with exactly three double-quoted string arguments and no surrounding operators.
 func isExactSecretHelperCall(expr string) bool {
-	if !strings.HasPrefix(expr, "secret(") || !strings.HasSuffix(expr, ")") {
-		return false
-	}
-	if strings.ContainsAny(expr, "+-*/?:") {
-		return false
-	}
-	return strings.Count(expr, "(") == 1 && strings.Count(expr, ")") == 1
+	return exactSecretCallPattern.MatchString(expr)
 }
 
 // parseSecretNotationParts extracts tokens from secret.* and secrets.* notation.

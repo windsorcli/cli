@@ -293,6 +293,8 @@ func TestNormalizeLegacyBraces(t *testing.T) {
 func TestIsCacheable(t *testing.T) {
 	cacheableInputs := []string{
 		`secret("vault", "item", "field")`,
+		`secret("vault", "path/to/item", "field")`,
+		`secret("vault", "item", "field:subfield")`,
 		"secret.op.vault.item.field",
 		"secrets.sops.key.path",
 	}
