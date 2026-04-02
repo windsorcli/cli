@@ -215,10 +215,12 @@ func (m *MockConfigHandler) IsDevMode(contextName string) bool {
 	return contextName == "local" || strings.HasPrefix(contextName, "local-")
 }
 
-// WithContext sets an in-memory context override on the mock and returns the mock
+// WithContext returns a new MockConfigHandler with the given context override applied.
+// The original mock is not modified, consistent with the immutable semantics of WithContext.
 func (m *MockConfigHandler) WithContext(name string) ConfigHandler {
-	m.contextOverride = name
-	return m
+	cp := *m
+	cp.contextOverride = name
+	return &cp
 }
 
 // SetContext calls the mock SetContextFunc if set, otherwise returns nil

@@ -395,12 +395,17 @@ func (c *configHandler) GetContext() string {
 	return "local"
 }
 
-// WithContext returns the handler with an in-memory context override that takes highest priority
-// in GetContext, bypassing the .windsor/context file and the WINDSOR_CONTEXT env var.
+// WithContext returns a new ConfigHandler that is a shallow copy of the receiver with an
+// in-memory context override applied. The override takes highest priority in GetContext,
+// bypassing the .windsor/context file and the WINDSOR_CONTEXT env var. The original handler
+// is not modified. Maps (data, providers) are copied shallowly to prevent aliasing.
 // Use this for ephemeral overrides (e.g. windsor test) that must not touch the filesystem.
 func (c *configHandler) WithContext(name string) ConfigHandler {
-	c.context = name
-	return c
+	cp := *c
+	cp.context = name
+	cp.data = maps.Clone(c.data)
+	cp.providers = maps.Clone(c.providers)
+	return &cp
 }
 
 // IsDevMode checks if the given context name represents a dev/local environment.
