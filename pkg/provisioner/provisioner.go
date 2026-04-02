@@ -167,6 +167,25 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	return nil
 }
 
+// Apply runs terraform init, plan, and apply for a single component identified by componentID.
+// Returns an error if terraform is disabled, the stack cannot be initialized, the component is
+// not found, or any terraform operation fails.
+func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	if err := i.TerraformStack.Apply(blueprint, componentID); err != nil {
+		return fmt.Errorf("failed to run terraform apply for %s: %w", componentID, err)
+	}
+	return nil
+}
+
 // Plan runs terraform init and plan for a single component identified by componentID.
 // It does not apply any changes. Returns an error if the terraform stack cannot be initialized,
 // the component is not found, or any terraform operation fails.
