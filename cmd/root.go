@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/project"
 )
 
 // verbose is a flag for verbose output
@@ -53,6 +55,29 @@ func commandPreflight(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// prepareProject creates and initializes a project for the given command. It reads any test
+// overrides from the command context, sets shell verbosity, checks for a trusted directory,
+// configures the project, and runs initialization. Commands that need additional steps between
+// Configure and Initialize (e.g. ValidateContextValues) should not use this helper.
+func prepareProject(cmd *cobra.Command) (*project.Project, error) {
+	var opts []*project.Project
+	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
+		opts = []*project.Project{overridesVal.(*project.Project)}
+	}
+	proj := project.NewProject("", opts...)
+	proj.Runtime.Shell.SetVerbosity(verbose)
+	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
+		return nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+	}
+	if err := proj.Configure(nil); err != nil {
+		return nil, err
+	}
+	if err := proj.Initialize(false); err != nil {
+		return nil, err
+	}
+	return proj, nil
 }
 
 // setupGlobalContext injects global flags and context values into the command's context.

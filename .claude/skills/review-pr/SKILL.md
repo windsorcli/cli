@@ -80,7 +80,18 @@ Focus on these Windsor packages if touched: `pkg/runtime/secrets/`, `pkg/runtime
 
 ---
 
-### Pass 5 — Architecture boundaries
+### Pass 5 — Code duplication
+
+Look for logic duplicated across changed functions (or between changed functions and their neighbours):
+- Are there two or more functions that share a block of identical or near-identical setup/teardown (validation, directory save/restore, env setup, defer cleanup)?
+- Could the shared logic be extracted into a private helper without changing observable behaviour?
+- Does the duplication mean a future bug fix would need to be applied in multiple places independently?
+
+Only report concrete cases where the same logic appears verbatim (or near-verbatim) across multiple functions. Do not flag intentional variation or parameterised differences.
+
+---
+
+### Pass 6 — Architecture boundaries
 
 Check the diff against Windsor's layer rules:
 - `cmd/*` must only parse flags and call runtime/composer methods. It must not contain business logic.
@@ -120,7 +131,8 @@ After all five passes complete, aggregate findings into a single report. Use thi
 - Pass 2 Errors: 1 issue (see High)
 - Pass 3 Concurrency: clean
 - Pass 4 Security: clean
-- Pass 5 Architecture: clean
+- Pass 5 Duplication: clean
+- Pass 6 Architecture: clean
 ```
 
 **Severity guide:**
