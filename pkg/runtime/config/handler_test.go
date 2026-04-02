@@ -1550,6 +1550,28 @@ func TestConfigHandler_GetContext(t *testing.T) {
 	})
 }
 
+func TestConfigHandler_WithContext(t *testing.T) {
+	t.Run("OverridesFileAndEnvVar", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		os.Setenv("WINDSOR_CONTEXT", "env-context")
+		defer os.Setenv("WINDSOR_CONTEXT", "test-context")
+
+		contextFilePath := filepath.Join(tmpDir, ".windsor", "context")
+		os.MkdirAll(filepath.Dir(contextFilePath), 0755)
+		os.WriteFile(contextFilePath, []byte("file-context"), 0644)
+
+		handler := NewConfigHandler(mocks.Shell).WithContext("override-context")
+
+		context := handler.GetContext()
+
+		if context != "override-context" {
+			t.Errorf("Expected 'override-context', got '%s'", context)
+		}
+	})
+}
+
 func TestConfigHandler_SetContext(t *testing.T) {
 	t.Run("WritesContextToFile", func(t *testing.T) {
 		mocks := setupConfigMocks(t)

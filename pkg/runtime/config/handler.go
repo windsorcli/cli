@@ -39,6 +39,7 @@ type ConfigHandler interface {
 	SetDefault(context v1alpha1.Context) error
 	GetConfig() *v1alpha1.Context
 	GetContext() string
+	WithContext(name string) ConfigHandler
 	IsDevMode(contextName string) bool
 	SetContext(context string) error
 	GetConfigRoot() (string, error)
@@ -361,36 +362,45 @@ func (c *configHandler) GetConfig() *v1alpha1.Context {
 	return &context
 }
 
-// GetContext retrieves the current context from the environment, file, or defaults to "local"
+// GetContext retrieves the current context, checking (in priority order):
+// 1. The in-memory context override set by SetContextName (used by windsor test for isolation)
+// 2. The .windsor/context file (written by windsor set context / windsor init)
+// 3. The WINDSOR_CONTEXT environment variable
+// 4. The default value "local"
+// File takes precedence over env var so that commands run immediately after
+// "windsor set context" use the new context before the shell hook has a chance to update
+// the WINDSOR_CONTEXT variable in the user's shell.
 func (c *configHandler) GetContext() string {
-	contextName := "local"
+	if c.context != "" {
+		return c.context
+	}
 
 	if c.shell != nil {
 		projectRoot, err := c.shell.GetProjectRoot()
-		if err != nil {
-			envContext := c.shims.Getenv("WINDSOR_CONTEXT")
-			if envContext != "" {
-				return envContext
-			}
-			return contextName
-		}
-
-		contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
-		data, err := c.shims.ReadFile(contextFilePath)
 		if err == nil {
-			fileContext := strings.TrimSpace(string(data))
-			if fileContext != "" {
-				return fileContext
+			contextFilePath := filepath.Join(projectRoot, windsorDirName, contextFileName)
+			data, err := c.shims.ReadFile(contextFilePath)
+			if err == nil {
+				if fileContext := strings.TrimSpace(string(data)); fileContext != "" {
+					return fileContext
+				}
 			}
 		}
 	}
 
-	envContext := c.shims.Getenv("WINDSOR_CONTEXT")
-	if envContext != "" {
+	if envContext := c.shims.Getenv("WINDSOR_CONTEXT"); envContext != "" {
 		return envContext
 	}
 
-	return contextName
+	return "local"
+}
+
+// WithContext returns the handler with an in-memory context override that takes highest priority
+// in GetContext, bypassing the .windsor/context file and the WINDSOR_CONTEXT env var.
+// Use this for ephemeral overrides (e.g. windsor test) that must not touch the filesystem.
+func (c *configHandler) WithContext(name string) ConfigHandler {
+	c.context = name
+	return c
 }
 
 // IsDevMode checks if the given context name represents a dev/local environment.

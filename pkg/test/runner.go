@@ -152,32 +152,21 @@ func (r *TestRunner) discoverTestCases(filter string) ([]testCaseWithFile, error
 	return out, nil
 }
 
-// withTestContextEnv sets WINDSOR_CONTEXT to "test" and captures the project's .windsor/context
-// file when the path is under project root. Returns a restore function that reverts the env var
-// and writes back (or removes) the context file; call it in defer so test runs do not mutate context.
+// withTestContextEnv sets WINDSOR_CONTEXT to "test" for the duration of a test run.
+// Test isolation is provided by createGenerator, which constructs each fresh ConfigHandler
+// with .WithContext("test") — the in-memory override takes highest priority in GetContext,
+// above both the .windsor/context file and the WINDSOR_CONTEXT env var.
+// The env var set here is a belt-and-suspenders signal for any code that reads it directly
+// via os.Getenv rather than through the ConfigHandler.
+// Returns a restore function that reverts the env var; call it via defer in Run().
 func (r *TestRunner) withTestContextEnv() (restore func()) {
 	originalContext := os.Getenv("WINDSOR_CONTEXT")
 	_ = os.Setenv("WINDSOR_CONTEXT", "test")
-	cleanedRoot := filepath.Clean(r.projectRoot)
-	contextFile := filepath.Join(cleanedRoot, ".windsor", "context")
-	rel, relErr := filepath.Rel(cleanedRoot, filepath.Clean(contextFile))
-	pathSafe := relErr == nil && !strings.HasPrefix(rel, "..")
-	var originalContextFile []byte
-	if pathSafe {
-		originalContextFile, _ = os.ReadFile(contextFile) // #nosec G304 - path constrained to project root via filepath.Rel
-	}
 	return func() {
 		if originalContext != "" {
 			_ = os.Setenv("WINDSOR_CONTEXT", originalContext)
 		} else {
 			_ = os.Unsetenv("WINDSOR_CONTEXT")
-		}
-		if pathSafe {
-			if originalContextFile != nil {
-				_ = os.WriteFile(contextFile, originalContextFile, 0600)
-			} else {
-				_ = os.Remove(contextFile)
-			}
 		}
 	}
 }
@@ -191,10 +180,7 @@ func (r *TestRunner) withTestContextEnv() (restore func()) {
 // actual Terraform state. Returns a function that takes test values and returns a composed blueprint or an error.
 func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any) func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
 	return func(values map[string]any) (*blueprintv1alpha1.Blueprint, error) {
-		freshConfigHandler := config.NewConfigHandler(r.baseShell)
-		if err := freshConfigHandler.SetContext("test"); err != nil {
-			return nil, fmt.Errorf("failed to set test context: %w", err)
-		}
+		freshConfigHandler := config.NewConfigHandler(r.baseShell).WithContext("test")
 
 		rt := runtime.NewRuntime(&runtime.Runtime{
 			Shell:         r.baseShell,
