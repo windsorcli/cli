@@ -28,6 +28,7 @@ import (
 type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	Down(blueprint *blueprintv1alpha1.Blueprint) error
+	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 }
 
 // =============================================================================
@@ -238,6 +239,82 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🗑️  Destroying terraform for %s", component.Path), terraformCommand, destroyEnv, destroyArgs...); err != nil {
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
+	}
+
+	return nil
+}
+
+// Plan runs terraform init and plan for a single component identified by componentID.
+// It resolves the component from the blueprint, sets up the environment, and executes
+// init then plan without applying any changes. Returns an error if the component is not
+// found, the directory does not exist, or any terraform operation fails.
+func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if componentID == "" {
+		return fmt.Errorf("component ID not provided")
+	}
+
+	currentDir, err := s.shims.Getwd()
+	if err != nil {
+		return fmt.Errorf("error getting current directory: %v", err)
+	}
+	defer func() {
+		_ = s.shims.Chdir(currentDir)
+	}()
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("error getting project root: project root is empty")
+	}
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+
+	var component *blueprintv1alpha1.TerraformComponent
+	for i, c := range components {
+		if c.GetID() == componentID {
+			component = &components[i]
+			break
+		}
+	}
+	if component == nil {
+		return fmt.Errorf("terraform component %q not found", componentID)
+	}
+
+	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+		return fmt.Errorf("directory %s does not exist", component.FullPath)
+	}
+
+	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	if err != nil {
+		return err
+	}
+
+	backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+	if _, err := s.shims.Stat(backendOverridePath); err == nil {
+		defer func() {
+			_ = s.shims.Remove(backendOverridePath)
+		}()
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
+	initArgs = append(initArgs, terraformArgs.InitArgs...)
+	initEnv := selectTerraformCommandEnv(terraformVars, false)
+	_, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🌎 Initializing Terraform in %s", component.Path), terraformCommand, initEnv, initArgs...)
+	if err != nil {
+		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
+	}
+
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+	planArgs = append(planArgs, terraformArgs.PlanArgs...)
+	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planOutput, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path), terraformCommand, planEnv, planArgs...)
+	if err != nil {
+		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+	}
+	if planOutput != "" {
+		fmt.Fprint(os.Stdout, planOutput)
 	}
 
 	return nil

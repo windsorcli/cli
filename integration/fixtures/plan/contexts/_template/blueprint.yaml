@@ -1,0 +1,7 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: plan
+  description: Plan integration fixture with a minimal local terraform component
+terraform:
+  - path: "null"

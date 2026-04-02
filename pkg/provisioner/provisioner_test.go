@@ -557,6 +557,101 @@ func TestProvisioner_Down(t *testing.T) {
 
 }
 
+func TestProvisioner_Plan(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Plan(createTestBlueprint(), "remote/path")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.Plan(nil, "remote/path")
+
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.Plan(createTestBlueprint(), "remote/path")
+
+		if err == nil {
+			t.Error("Expected error when terraform is disabled")
+		}
+		if !strings.Contains(err.Error(), "terraform is disabled") {
+			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
+		}
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
+		}
+	})
+
+	t.Run("InitializesTerraformStackLazily", func(t *testing.T) {
+		// Given a provisioner with no pre-injected TerraformStack and terraform enabled
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		if provisioner.TerraformStack != nil {
+			t.Error("Expected TerraformStack to be nil before Plan() is called")
+		}
+
+		// When Plan() is called (it will fail because the directory doesn't exist, but
+		// the stack should still be lazily initialized before the plan runs)
+		_ = provisioner.Plan(createTestBlueprint(), "remote/path")
+
+		// Then TerraformStack should be initialized regardless of the plan outcome
+		if provisioner.TerraformStack == nil {
+			t.Error("Expected TerraformStack to be initialized after Plan() when terraform is enabled")
+		}
+	})
+
+	t.Run("ErrorTerraformStackPlan", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			return fmt.Errorf("terraform stack plan failed")
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Plan(createTestBlueprint(), "remote/path")
+
+		if err == nil {
+			t.Error("Expected error for terraform stack plan failure")
+		}
+		if !strings.Contains(err.Error(), "failed to run terraform plan for") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}
+
 func TestProvisioner_Install(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)

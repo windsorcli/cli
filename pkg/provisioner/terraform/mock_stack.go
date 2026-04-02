@@ -17,6 +17,7 @@ import (
 type MockStack struct {
 	UpFunc   func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	DownFunc func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 }
 
 // =============================================================================
@@ -44,6 +45,14 @@ func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(i
 func (m *MockStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if m.DownFunc != nil {
 		return m.DownFunc(blueprint)
+	}
+	return nil
+}
+
+// Plan is a mock implementation of the Plan method.
+func (m *MockStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.PlanFunc != nil {
+		return m.PlanFunc(blueprint, componentID)
 	}
 	return nil
 }

@@ -2,9 +2,6 @@
 name: review-pr
 description: Pre-commit bug review. Analyzes the staged diff across multiple parallel passes to find logic bugs, silent failures, security issues, and architecture violations before committing. Run this as the final step before git commit.
 disable-model-invocation: true
-context: fork
-agent: general-purpose
-allowed-tools: Bash(git *), Bash(go build *), Bash(go vet *), Bash(task scan *), Read, Grep, Glob
 ---
 
 # Windsor Pre-Commit Review
@@ -51,6 +48,7 @@ Go errors must not be silently dropped. For every changed function:
 - Are there `if err != nil { return }` paths that skip cleanup (defer, unlock, close)?
 - Does a fallback or default value hide a real error that should propagate?
 - Are goroutines started without a way to observe their errors?
+- For every early `return nil` guarded by a nil-check or feature flag, ask: does the caller have any way to know that nothing happened? If the guard short-circuits the function's only meaningful work, `return nil` is indistinguishable from success — which may be wrong.
 
 ---
 

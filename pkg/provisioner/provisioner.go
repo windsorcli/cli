@@ -167,6 +167,25 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	return nil
 }
 
+// Plan runs terraform init and plan for a single component identified by componentID.
+// It does not apply any changes. Returns an error if the terraform stack cannot be initialized,
+// the component is not found, or any terraform operation fails.
+func (i *Provisioner) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	if err := i.TerraformStack.Plan(blueprint, componentID); err != nil {
+		return fmt.Errorf("failed to run terraform plan for %s: %w", componentID, err)
+	}
+	return nil
+}
+
 // Install orchestrates the high-level kustomization installation process from the blueprint.
 // It initializes the kubernetes manager and applies all blueprint resources in order: creates namespace,
 // applies source repositories, and applies all kustomizations. The blueprint must be provided as a parameter.
