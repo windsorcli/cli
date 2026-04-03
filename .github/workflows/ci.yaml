@@ -58,8 +58,15 @@ jobs:
 
       - name: Install Docker CLI (Windows)
         if: matrix.os == 'windows-latest'
-        run: choco install docker-cli -y
         shell: pwsh
+        run: |
+          $maxAttempts = 3
+          for ($i = 1; $i -le $maxAttempts; $i++) {
+            choco install docker-cli -y
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($i -lt $maxAttempts) { Start-Sleep -Seconds 15 }
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Cache Go Modules (Linux/macOS)
         if: ${{ matrix.os != 'windows-latest' }}
