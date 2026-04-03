@@ -58,8 +58,15 @@ jobs:
 
       - name: Install Docker CLI (Windows)
         if: matrix.os == 'windows-latest'
-        run: choco install docker-cli -y
         shell: pwsh
+        run: |
+          $version = "27.4.1"
+          $url = "https://download.docker.com/win/static/stable/x86_64/docker-$version.zip"
+          Invoke-WebRequest -Uri $url -OutFile docker.zip
+          Expand-Archive docker.zip -DestinationPath "$env:TEMP\docker"
+          echo "$env:TEMP\docker\docker" >> $env:GITHUB_PATH
+          $env:PATH = "$env:TEMP\docker\docker;$env:PATH"
+          docker --version
 
       - name: Cache Go Modules (Linux/macOS)
         if: ${{ matrix.os != 'windows-latest' }}

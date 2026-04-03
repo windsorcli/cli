@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -215,6 +216,49 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 		// And stderr should be empty
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SuppressesProcessStderrWithHook", func(t *testing.T) {
+		_, cmdStderr := setupOutputCapture(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			_, _ = fmt.Fprint(os.Stderr, "Warning: values.yaml validation failed (config still loaded): [test-warning]\n")
+			return nil
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		originalStderr := os.Stderr
+		readPipe, writePipe, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Expected stderr pipe creation to succeed, got error: %v", pipeErr)
+		}
+		os.Stderr = writePipe
+		t.Cleanup(func() {
+			os.Stderr = originalStderr
+			_ = readPipe.Close()
+			_ = writePipe.Close()
+		})
+
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if closeErr := writePipe.Close(); closeErr != nil {
+			t.Fatalf("Expected stderr writer close to succeed, got error: %v", closeErr)
+		}
+		stderrBytes, readErr := io.ReadAll(readPipe)
+		if readErr != nil {
+			t.Fatalf("Expected stderr read to succeed, got error: %v", readErr)
+		}
+		if len(stderrBytes) != 0 {
+			t.Errorf("Expected process stderr to be suppressed in hook mode, got: %q", string(stderrBytes))
+		}
+		if cmdStderr.String() != "" {
+			t.Errorf("Expected cobra stderr to remain empty, got: %q", cmdStderr.String())
 		}
 	})
 
