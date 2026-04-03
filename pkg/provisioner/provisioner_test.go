@@ -10,6 +10,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
+	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
@@ -58,6 +59,7 @@ type ProvisionerTestMocks struct {
 	ConfigHandler     config.ConfigHandler
 	Shell             *shell.MockShell
 	TerraformStack    terraforminfra.Stack
+	FluxStack         *fluxinfra.MockStack
 	KubernetesManager *kubernetes.MockKubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
 	ClusterClient     *cluster.MockClusterClient
@@ -119,10 +121,13 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
 	terraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
+	fluxStack := fluxinfra.NewMockStack()
+
 	mocks := &ProvisionerTestMocks{
 		ConfigHandler:     configHandler,
 		Shell:             mockShell,
 		TerraformStack:    terraformStack,
+		FluxStack:         fluxStack,
 		KubernetesManager: kubernetesManager,
 		KubernetesClient:  kubernetesClient,
 		ClusterClient:     clusterClient,
@@ -1770,6 +1775,73 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 
 		if !foundReadyMessage {
 			t.Error("Expected output message about kubeconfig default and all nodes Ready")
+		}
+	})
+}
+
+// =============================================================================
+// Test PlanKustomization
+// =============================================================================
+
+func TestProvisioner_PlanKustomization(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a provisioner with a mock flux stack
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		// When PlanKustomization is called with a valid blueprint
+		err := provisioner.PlanKustomization(createTestBlueprint(), "test-kustomization")
+
+		// Then no error is returned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner with a mock flux stack
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		// When PlanKustomization is called with a nil blueprint
+		err := provisioner.PlanKustomization(nil, "test-kustomization")
+
+		// Then an error is returned
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("ErrorFluxStackFails", func(t *testing.T) {
+		// Given a provisioner whose flux stack returns an error
+		mocks := setupProvisionerMocks(t)
+		mocks.FluxStack.PlanFunc = func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+			return fmt.Errorf("flux diff failed")
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		// When PlanKustomization is called
+		err := provisioner.PlanKustomization(createTestBlueprint(), "test-kustomization")
+
+		// Then the error from the flux stack is returned
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "flux diff failed") {
+			t.Errorf("expected flux error in message, got %v", err)
 		}
 	})
 }

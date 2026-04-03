@@ -14,6 +14,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
+	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -109,6 +110,20 @@ func newPlanProject(mocks *PlanMocks) *project.Project {
 	comp.BlueprintHandler = mocks.BlueprintHandler
 	mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
 		TerraformStack: mocks.TerraformStack,
+	})
+	return project.NewProject("", &project.Project{
+		Runtime:     mocks.Runtime,
+		Composer:    comp,
+		Provisioner: mockProvisioner,
+	})
+}
+
+// newKustomizePlanProject wires a FluxStack mock into a project for kustomize plan tests.
+func newKustomizePlanProject(mocks *PlanMocks, fluxStack *fluxinfra.MockStack) *project.Project {
+	comp := composer.NewComposer(mocks.Runtime)
+	comp.BlueprintHandler = mocks.BlueprintHandler
+	mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+		FluxStack: fluxStack,
 	})
 	return project.NewProject("", &project.Project{
 		Runtime:     mocks.Runtime,
@@ -246,6 +261,176 @@ func TestPlanTerraformCmd(t *testing.T) {
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+		}
+	})
+}
+
+func TestPlanKustomizeCmd(t *testing.T) {
+	createTestCmd := func(use string) *cobra.Command {
+		src := planKustomizeCmd
+		cmd := &cobra.Command{
+			Use:     use,
+			Aliases: src.Aliases,
+			RunE:    src.RunE,
+		}
+		src.Flags().VisitAll(func(flag *pflag.Flag) { cmd.Flags().AddFlag(flag) })
+		cmd.Args = src.Args
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		return cmd
+	}
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured plan kustomize command
+		mocks := setupPlanTest(t)
+		fluxStack := fluxinfra.NewMockStack()
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When executing with a component ID
+		cmd := createTestCmd("kustomize")
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Success_AllAlias", func(t *testing.T) {
+		// Given a plan kustomize command with "all" as the component ID
+		mocks := setupPlanTest(t)
+		fluxStack := fluxinfra.NewMockStack()
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When executing with "all"
+		cmd := createTestCmd("kustomize")
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"all"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("Success_K8sAlias", func(t *testing.T) {
+		// Given the command is invoked via the k8s alias
+		mocks := setupPlanTest(t)
+		fluxStack := fluxinfra.NewMockStack()
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When executing as "k8s"
+		cmd := createTestCmd("k8s")
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorMissingArgument", func(t *testing.T) {
+		// Given a plan kustomize command with no arguments
+		mocks := setupPlanTest(t)
+		fluxStack := fluxinfra.NewMockStack()
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When executing without a component ID
+		cmd := createTestCmd("kustomize")
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("expected error for missing argument, got nil")
+		}
+	})
+
+	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
+		// Given an untrusted working directory
+		mocks := setupPlanTest(t)
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("not in trusted directory")
+		}
+		fluxStack := fluxinfra.NewMockStack()
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When executing the command
+		cmd := createTestCmd("kustomize")
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then a trusted directory error is returned
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "not in a trusted directory") {
+			t.Errorf("expected trusted directory error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorPlanFails", func(t *testing.T) {
+		// Given a flux stack that returns an error
+		mocks := setupPlanTest(t)
+		fluxStack := fluxinfra.NewMockStack()
+		fluxStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			return fmt.Errorf("flux diff failed")
+		}
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When executing the command
+		cmd := createTestCmd("kustomize")
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the error is propagated
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error planning kustomize") {
+			t.Errorf("expected planning error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorLoadingConfig", func(t *testing.T) {
+		// Given a config handler that fails to load
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("config load failed")
+		}
+		opts := &SetupOptions{ConfigHandler: mockConfigHandler}
+		mocks := setupPlanTest(t, opts)
+		mocks.Runtime.ConfigHandler = mockConfigHandler
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+
+		// When executing the command
+		cmd := createTestCmd("kustomize")
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("expected error, got nil")
 		}
 	})
 }

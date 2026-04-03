@@ -48,6 +48,7 @@ type KubernetesManager interface {
 	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
 	CheckGitRepositoryStatus() error
 	GetKustomizationStatus(names []string) (map[string]bool, error)
+	KustomizationExists(name, namespace string) (bool, error)
 	WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
@@ -604,6 +605,24 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 	}
 
 	return status, nil
+}
+
+// KustomizationExists returns true if a Kustomization resource with the given name exists in the given namespace.
+// Returns false (not an error) when the resource is simply absent; propagates other API errors.
+func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (bool, error) {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+	_, err := k.client.GetResource(gvr, namespace, name)
+	if err != nil {
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // WaitForKubernetesHealthy waits for the Kubernetes API to become healthy within the context deadline.
