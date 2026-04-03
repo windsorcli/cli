@@ -707,14 +707,22 @@ func (h *BaseBlueprintHandler) getConfigValues() map[string]any {
 }
 
 // getRepositoryScopeValues returns repository values for expression/config scopes, excluding secrets.
+// The "name" field is the blueprint metadata name, which is also the name Windsor uses when creating
+// the Flux GitRepository resource for this blueprint's repository.
 func (h *BaseBlueprintHandler) getRepositoryScopeValues() map[string]any {
 	repo := h.getEffectiveRepository()
 	if repo.Url == "" {
 		return nil
 	}
 
+	var blueprintName string
+	if h.composedBlueprint != nil {
+		blueprintName = h.composedBlueprint.Metadata.Name
+	}
+
 	repositoryValue := map[string]any{
-		"url": repo.Url,
+		"name": blueprintName,
+		"url":  repo.Url,
 	}
 	refValue := make(map[string]any)
 	if repo.Ref.Branch != "" {
