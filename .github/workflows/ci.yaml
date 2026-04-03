@@ -60,13 +60,13 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $maxAttempts = 3
-          for ($i = 1; $i -le $maxAttempts; $i++) {
-            choco install docker-cli -y
-            if ($LASTEXITCODE -eq 0) { break }
-            if ($i -lt $maxAttempts) { Start-Sleep -Seconds 15 }
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = "27.4.1"
+          $url = "https://download.docker.com/win/static/stable/x86_64/docker-$version.zip"
+          Invoke-WebRequest -Uri $url -OutFile docker.zip
+          Expand-Archive docker.zip -DestinationPath "$env:TEMP\docker"
+          $env:PATH = "$env:TEMP\docker\docker;$env:PATH"
+          [Environment]::SetEnvironmentVariable("PATH", "$env:TEMP\docker\docker;$([Environment]::GetEnvironmentVariable('PATH', 'Machine'))", "Machine")
+          docker --version
 
       - name: Cache Go Modules (Linux/macOS)
         if: ${{ matrix.os != 'windows-latest' }}
