@@ -52,7 +52,7 @@ var planKustomizeCmd = &cobra.Command{
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 		if err := proj.Provisioner.PlanKustomization(blueprint, componentID); err != nil {
-			return fmt.Errorf("error planning kustomize for %s: %w", componentID, err)
+			return err
 		}
 
 		return nil

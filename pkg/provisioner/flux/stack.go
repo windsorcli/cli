@@ -7,8 +7,10 @@
 package flux
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -271,7 +273,8 @@ func (s *FluxStack) runFluxDiff(label string, args ...string) error {
 	fmt.Fprintf(os.Stderr, "%s\n", label)
 	stdout, stderr, err := s.shims.ExecCommand("flux", args...)
 	if err != nil {
-		if strings.Contains(err.Error(), "exit status 1") {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			if stdout != "" {
 				fmt.Print(stdout)
 			}
