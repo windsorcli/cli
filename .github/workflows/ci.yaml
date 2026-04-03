@@ -64,8 +64,8 @@ jobs:
           $url = "https://download.docker.com/win/static/stable/x86_64/docker-$version.zip"
           Invoke-WebRequest -Uri $url -OutFile docker.zip
           Expand-Archive docker.zip -DestinationPath "$env:TEMP\docker"
+          echo "$env:TEMP\docker\docker;$env:PATH" >> $env:GITHUB_PATH
           $env:PATH = "$env:TEMP\docker\docker;$env:PATH"
-          [Environment]::SetEnvironmentVariable("PATH", "$env:TEMP\docker\docker;$([Environment]::GetEnvironmentVariable('PATH', 'Machine'))", "Machine")
           docker --version
 
       - name: Cache Go Modules (Linux/macOS)
