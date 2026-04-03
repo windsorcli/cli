@@ -19,7 +19,12 @@ integration_out.txt
 # vendor/
 
 # Cursor
-.cursor/
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
+
+# Claude
+.claude/settings*
 
 # Go workspace file
 go.work

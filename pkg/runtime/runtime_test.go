@@ -382,8 +382,9 @@ func TestRuntime_NewRuntime(t *testing.T) {
 		}
 
 		mockToolsManager := &MockToolsManager{}
-		mockSopsProvider := secrets.NewMockSecretsProvider(mockShell)
-		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mockShell)
+		mockSopsProvider := secrets.NewMockProvider()
+		mockOnepasswordProvider := secrets.NewMockProvider()
+		mockResolver := secrets.NewResolver([]secrets.Provider{mockSopsProvider, mockOnepasswordProvider}, mockShell)
 		mockAwsEnv := env.NewMockEnvPrinter()
 		mockAzureEnv := env.NewMockEnvPrinter()
 		mockDockerEnv := env.NewMockEnvPrinter()
@@ -401,10 +402,9 @@ func TestRuntime_NewRuntime(t *testing.T) {
 				ConfigRoot:    "/custom/config",
 				TemplateRoot:  "/custom/template",
 				ToolsManager:  mockToolsManager,
+				Resolver:      mockResolver,
 			},
 		}
-		rtOpts[0].SecretsProviders.Sops = mockSopsProvider
-		rtOpts[0].SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
 		rtOpts[0].EnvPrinters.AwsEnv = mockAwsEnv
 		rtOpts[0].EnvPrinters.AzureEnv = mockAzureEnv
 		rtOpts[0].EnvPrinters.DockerEnv = mockDockerEnv
@@ -438,12 +438,8 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			t.Error("Expected ToolsManager to be set")
 		}
 
-		if rt.SecretsProviders.Sops != mockSopsProvider {
-			t.Error("Expected Sops provider to be set")
-		}
-
-		if len(rt.SecretsProviders.Onepassword) != 1 || rt.SecretsProviders.Onepassword[0] != mockOnepasswordProvider {
-			t.Error("Expected Onepassword provider to be set")
+		if rt.Resolver != mockResolver {
+			t.Error("Expected Resolver to be set")
 		}
 
 		if rt.EnvPrinters.AwsEnv != mockAwsEnv {
@@ -627,11 +623,9 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-
-		rt.SecretsProviders.Sops = mockSopsProvider
-		rt.SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
+		mockSopsProvider := secrets.NewMockProvider()
+		mockOnepasswordProvider := secrets.NewMockProvider()
+		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockSopsProvider, mockOnepasswordProvider}, mocks.Shell)
 
 		// When LoadEnvironment is called with secrets enabled
 		err := rt.LoadEnvironment(true)
@@ -647,12 +641,11 @@ func TestRuntime_LoadEnvironment(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockProvider := secrets.NewMockProvider()
 		mockProvider.LoadSecretsFunc = func() error {
 			return errors.New("secrets load failed")
 		}
-
-		rt.SecretsProviders.Sops = mockProvider
+		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockProvider}, mocks.Shell)
 
 		// When LoadEnvironment is called with secrets enabled
 		err := rt.LoadEnvironment(true)
@@ -2034,11 +2027,9 @@ func TestRuntime_loadSecrets(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-
-		rt.SecretsProviders.Sops = mockSopsProvider
-		rt.SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
+		mockSopsProvider := secrets.NewMockProvider()
+		mockOnepasswordProvider := secrets.NewMockProvider()
+		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockSopsProvider, mockOnepasswordProvider}, mocks.Shell)
 
 		// When loadSecrets is called
 		err := rt.loadSecrets()
@@ -2054,12 +2045,11 @@ func TestRuntime_loadSecrets(t *testing.T) {
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
+		mockProvider := secrets.NewMockProvider()
 		mockProvider.LoadSecretsFunc = func() error {
 			return errors.New("secrets load failed")
 		}
-
-		rt.SecretsProviders.Sops = mockProvider
+		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockProvider}, mocks.Shell)
 
 		// When loadSecrets is called
 		err := rt.loadSecrets()
@@ -2074,38 +2064,36 @@ func TestRuntime_loadSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("HandlesNilProviders", func(t *testing.T) {
-		// Given a runtime with nil secrets providers
+	t.Run("HandlesNilResolver", func(t *testing.T) {
+		// Given a runtime with nil Resolver
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		rt.SecretsProviders.Sops = nil
-		rt.SecretsProviders.Onepassword = nil
+		rt.Resolver = nil
 
 		// When loadSecrets is called
 		err := rt.loadSecrets()
 
 		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("Expected no error with nil providers, got: %v", err)
+			t.Fatalf("Expected no error with nil Resolver, got: %v", err)
 		}
 	})
 
-	t.Run("HandlesMixedProviders", func(t *testing.T) {
-		// Given a runtime with mixed secrets providers
+	t.Run("HandlesSingleProvider", func(t *testing.T) {
+		// Given a runtime with a single provider
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		mockProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		rt.SecretsProviders.Sops = mockProvider
-		rt.SecretsProviders.Onepassword = nil
+		mockProvider := secrets.NewMockProvider()
+		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockProvider}, mocks.Shell)
 
 		// When loadSecrets is called
 		err := rt.loadSecrets()
 
 		// Then no error should be returned
 		if err != nil {
-			t.Fatalf("Expected no error with mixed providers, got: %v", err)
+			t.Fatalf("Expected no error with single provider, got: %v", err)
 		}
 	})
 }
@@ -2127,10 +2115,9 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then SOPS provider should be initialized
-
-		if rt.SecretsProviders.Sops == nil {
-			t.Error("Expected SOPS provider to be initialized")
+		// Then Resolver should be initialized
+		if rt.Resolver == nil {
+			t.Error("Expected Resolver to be initialized")
 		}
 	})
 
@@ -2155,13 +2142,9 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then 1Password provider should be initialized for each vault
-
-		if len(rt.SecretsProviders.Onepassword) == 0 {
-			t.Error("Expected 1Password provider to be initialized")
-		}
-		if len(rt.SecretsProviders.Onepassword) != 1 {
-			t.Errorf("Expected 1 provider, got %d", len(rt.SecretsProviders.Onepassword))
+		// Then Resolver should be initialized
+		if rt.Resolver == nil {
+			t.Error("Expected Resolver to be initialized")
 		}
 	})
 
@@ -2178,24 +2161,20 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then providers should not be initialized
-
-		if rt.SecretsProviders.Sops != nil {
-			t.Error("Expected SOPS provider to be nil when disabled")
-		}
-
-		if len(rt.SecretsProviders.Onepassword) > 0 {
-			t.Error("Expected 1Password provider to be nil when disabled")
+		// Then Resolver should still be created (with empty providers)
+		if rt.Resolver == nil {
+			t.Error("Expected Resolver to be initialized even with no providers")
 		}
 	})
 
-	t.Run("DoesNotOverrideExistingProviders", func(t *testing.T) {
-		// Given a runtime with an existing secrets provider
+	t.Run("DoesNotOverrideExistingResolver", func(t *testing.T) {
+		// Given a runtime with an existing Resolver
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		existingProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		rt.SecretsProviders.Sops = existingProvider
+		existingProvider := secrets.NewMockProvider()
+		existingResolver := secrets.NewResolver([]secrets.Provider{existingProvider}, mocks.Shell)
+		rt.Resolver = existingResolver
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -2208,9 +2187,9 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then existing provider should be preserved
-		if rt.SecretsProviders.Sops != existingProvider {
-			t.Error("Expected existing provider to be preserved")
+		// Then existing Resolver should be preserved
+		if rt.Resolver != existingResolver {
+			t.Error("Expected existing Resolver to be preserved")
 		}
 	})
 
@@ -2239,12 +2218,9 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then multiple providers should be initialized
-		if len(rt.SecretsProviders.Onepassword) == 0 {
-			t.Error("Expected 1Password providers to be initialized")
-		}
-		if len(rt.SecretsProviders.Onepassword) != 2 {
-			t.Errorf("Expected 2 providers, got %d", len(rt.SecretsProviders.Onepassword))
+		// Then Resolver should be initialized
+		if rt.Resolver == nil {
+			t.Error("Expected Resolver to be initialized")
 		}
 	})
 
@@ -2264,9 +2240,9 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then no providers should be initialized
-		if len(rt.SecretsProviders.Onepassword) > 0 {
-			t.Error("Expected no providers to be initialized for empty vaults map")
+		// Then Resolver should still be created (with empty providers)
+		if rt.Resolver == nil {
+			t.Error("Expected Resolver to be initialized even with empty vaults map")
 		}
 	})
 
@@ -2288,9 +2264,9 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then no providers should be initialized for invalid data
-		if len(rt.SecretsProviders.Onepassword) > 0 {
-			t.Error("Expected no providers to be initialized for invalid vault data")
+		// Then Resolver should still be created (invalid vault data is skipped)
+		if rt.Resolver == nil {
+			t.Error("Expected Resolver to be initialized even with invalid vault data")
 		}
 	})
 
@@ -2316,12 +2292,9 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 		// When initializeSecretsProviders is called
 		rt.initializeSecretsProviders()
 
-		// Then provider should be initialized with explicit ID
-		if len(rt.SecretsProviders.Onepassword) == 0 {
-			t.Error("Expected 1Password provider to be initialized")
-		}
-		if len(rt.SecretsProviders.Onepassword) != 1 {
-			t.Errorf("Expected 1 provider, got %d", len(rt.SecretsProviders.Onepassword))
+		// Then Resolver should be initialized
+		if rt.Resolver == nil {
+			t.Error("Expected Resolver to be initialized")
 		}
 	})
 
@@ -2351,9 +2324,9 @@ func TestRuntime_initializeSecretsProviders(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And providers should be initialized
-		if len(rt.SecretsProviders.Onepassword) == 0 {
-			t.Error("Expected 1Password providers to be initialized")
+		// And Resolver should be initialized
+		if rt.Resolver == nil {
+			t.Error("Expected Resolver to be initialized")
 		}
 
 		// And WindsorEnv should be initialized with providers
@@ -2705,23 +2678,22 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesWindsorEnvWithSecretsProviders", func(t *testing.T) {
-		// Given a runtime with secrets providers
+	t.Run("InitializesWindsorEnvWithResolver", func(t *testing.T) {
+		// Given a runtime with a Resolver
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
-		mockSopsProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		mockOnepasswordProvider := secrets.NewMockSecretsProvider(mocks.Shell)
-		rt.SecretsProviders.Sops = mockSopsProvider
-		rt.SecretsProviders.Onepassword = []secrets.SecretsProvider{mockOnepasswordProvider}
+		mockSopsProvider := secrets.NewMockProvider()
+		mockOnepasswordProvider := secrets.NewMockProvider()
+		rt.Resolver = secrets.NewResolver([]secrets.Provider{mockSopsProvider, mockOnepasswordProvider}, mocks.Shell)
 
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
 
-		// Then Windsor env printer should be initialized with secrets providers
+		// Then Windsor env printer should be initialized with Resolver
 
 		if rt.EnvPrinters.WindsorEnv == nil {
-			t.Error("Expected WindsorEnv to be initialized with secrets providers")
+			t.Error("Expected WindsorEnv to be initialized with Resolver")
 		}
 	})
 }

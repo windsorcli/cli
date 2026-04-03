@@ -1001,3 +1001,459 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 		}
 	})
 }
+
+func TestStack_Plan(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When planning the local component by ID
+		err := stack.Plan(blueprint, "local/path")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected Plan to return nil, got %v", err)
+		}
+	})
+
+	t.Run("NilBlueprint", func(t *testing.T) {
+		// Given a stack with a nil blueprint
+		stack, _ := setup(t)
+
+		// When planning with nil blueprint
+		err := stack.Plan(nil, "local/path")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected blueprint not provided error, got: %v", err)
+		}
+	})
+
+	t.Run("EmptyComponentID", func(t *testing.T) {
+		// Given a stack with an empty component ID
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When planning with an empty component ID
+		err := stack.Plan(blueprint, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "component ID not provided") {
+			t.Errorf("Expected component ID error, got: %v", err)
+		}
+	})
+
+	t.Run("ComponentNotFound", func(t *testing.T) {
+		// Given a stack and a blueprint with known components
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When planning a component that does not exist in the blueprint
+		err := stack.Plan(blueprint, "does/not/exist")
+
+		// Then an error should occur naming the missing component
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), `"does/not/exist" not found`) {
+			t.Errorf("Expected not found error, got: %v", err)
+		}
+	})
+
+	t.Run("EmptyProjectRoot", func(t *testing.T) {
+		// Given a stack with an empty project root
+		stack, mocks := setup(t)
+		mocks.Runtime.ProjectRoot = ""
+		blueprint := createTestBlueprint()
+
+		// When planning
+		err := stack.Plan(blueprint, "local/path")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "project root is empty") {
+			t.Errorf("Expected project root error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
+		// Given a stack whose Getwd returns an error
+		stack, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "", fmt.Errorf("mock error getting current directory")
+		}
+		blueprint := createTestBlueprint()
+
+		// When planning
+		err := stack.Plan(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error getting current directory") {
+			t.Fatalf("Expected error to contain %q, got %q", "error getting current directory", err.Error())
+		}
+	})
+
+	t.Run("ErrorDirectoryDoesNotExist", func(t *testing.T) {
+		// Given a stack whose Stat reports the component directory is missing
+		stack, mocks := setup(t)
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		blueprint := createTestBlueprint()
+
+		// When planning
+		err := stack.Plan(blueprint, "local/path")
+
+		// Then an error should occur mentioning directory
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "directory") {
+			t.Fatalf("Expected error to contain %q, got %q", "directory", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
+		// Given a stack whose shell fails on terraform init
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("mock error running terraform init")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When planning
+		err := stack.Plan(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error running terraform init for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running terraform init for", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
+		// Given a stack whose shell fails on terraform plan
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
+				return "", fmt.Errorf("mock error running terraform plan")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When planning
+		err := stack.Plan(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error running terraform plan for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running terraform plan for", err.Error())
+		}
+	})
+
+	t.Run("SuccessWithNamedComponent", func(t *testing.T) {
+		// Given a stack and a blueprint with a named component
+		stack, _ := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		namedDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "cluster")
+		if err := os.MkdirAll(namedDir, 0755); err != nil {
+			t.Fatalf("Failed to create named component directory: %v", err)
+		}
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "terraform/cluster"},
+			},
+		}
+
+		// When planning by name
+		err := stack.Plan(blueprint, "cluster")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected Plan to return nil, got %v", err)
+		}
+	})
+
+	t.Run("IgnoresErrorRemovingBackendOverride", func(t *testing.T) {
+		// Given a stack with a backend_override.tf that fails to remove
+		stack, mocks := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		localDir := filepath.Join(projectRoot, "terraform", "local", "path")
+		backendOverridePath := filepath.Join(localDir, "backend_override.tf")
+		if err := os.MkdirAll(localDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(backendOverridePath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create backend override file: %v", err)
+		}
+		mocks.Shims.Remove = func(path string) error {
+			return fmt.Errorf("remove error")
+		}
+		blueprint := createTestBlueprint()
+
+		// When planning
+		err := stack.Plan(blueprint, "local/path")
+
+		// Then it should succeed — cleanup errors are ignored
+		if err != nil {
+			t.Errorf("Expected no error (cleanup is best-effort), got: %v", err)
+		}
+	})
+}
+
+func TestStack_Apply(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When applying the local component by ID
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected Apply to return nil, got %v", err)
+		}
+	})
+
+	t.Run("NilBlueprint", func(t *testing.T) {
+		// Given a stack with a nil blueprint
+		stack, _ := setup(t)
+
+		// When applying with nil blueprint
+		err := stack.Apply(nil, "local/path")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected blueprint not provided error, got: %v", err)
+		}
+	})
+
+	t.Run("EmptyComponentID", func(t *testing.T) {
+		// Given a stack with an empty component ID
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When applying with an empty component ID
+		err := stack.Apply(blueprint, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "component ID not provided") {
+			t.Errorf("Expected component ID error, got: %v", err)
+		}
+	})
+
+	t.Run("ComponentNotFound", func(t *testing.T) {
+		// Given a stack and a blueprint with known components
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When applying a component that does not exist in the blueprint
+		err := stack.Apply(blueprint, "does/not/exist")
+
+		// Then an error should occur naming the missing component
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), `"does/not/exist" not found`) {
+			t.Errorf("Expected not found error, got: %v", err)
+		}
+	})
+
+	t.Run("EmptyProjectRoot", func(t *testing.T) {
+		// Given a stack with an empty project root
+		stack, mocks := setup(t)
+		mocks.Runtime.ProjectRoot = ""
+		blueprint := createTestBlueprint()
+
+		// When applying
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "project root is empty") {
+			t.Errorf("Expected project root error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
+		// Given a stack whose Getwd returns an error
+		stack, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "", fmt.Errorf("mock error getting current directory")
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error getting current directory") {
+			t.Fatalf("Expected error to contain %q, got %q", "error getting current directory", err.Error())
+		}
+	})
+
+	t.Run("ErrorDirectoryDoesNotExist", func(t *testing.T) {
+		// Given a stack whose Stat reports the component directory is missing
+		stack, mocks := setup(t)
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then an error should occur mentioning directory
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "directory") {
+			t.Fatalf("Expected error to contain %q, got %q", "directory", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
+		// Given a stack whose shell fails on terraform init
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("mock error running terraform init")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error running terraform init for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running terraform init for", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
+		// Given a stack whose shell fails on terraform plan
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
+				return "", fmt.Errorf("mock error running terraform plan")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error running terraform plan for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running terraform plan for", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformApply", func(t *testing.T) {
+		// Given a stack whose shell fails on terraform apply
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "apply" {
+				return "", fmt.Errorf("mock error running terraform apply")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error running terraform apply for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running terraform apply for", err.Error())
+		}
+	})
+
+	t.Run("SuccessWithNamedComponent", func(t *testing.T) {
+		// Given a stack and a blueprint with a named component
+		stack, _ := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		namedDir := filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "cluster")
+		if err := os.MkdirAll(namedDir, 0755); err != nil {
+			t.Fatalf("Failed to create named component directory: %v", err)
+		}
+		blueprint := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Path: "terraform/cluster"},
+			},
+		}
+
+		// When applying by name
+		err := stack.Apply(blueprint, "cluster")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected Apply to return nil, got %v", err)
+		}
+	})
+
+	t.Run("IgnoresErrorRemovingBackendOverride", func(t *testing.T) {
+		// Given a stack with a backend_override.tf that fails to remove
+		stack, mocks := setup(t)
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		localDir := filepath.Join(projectRoot, "terraform", "local", "path")
+		backendOverridePath := filepath.Join(localDir, "backend_override.tf")
+		if err := os.MkdirAll(localDir, 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(backendOverridePath, []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create backend override file: %v", err)
+		}
+		mocks.Shims.Remove = func(path string) error {
+			return fmt.Errorf("remove error")
+		}
+		blueprint := createTestBlueprint()
+
+		// When applying
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then it should succeed — cleanup errors are ignored
+		if err != nil {
+			t.Errorf("Expected no error (cleanup is best-effort), got: %v", err)
+		}
+	})
+}

@@ -19,6 +19,7 @@ import (
 	"github.com/expr-lang/expr/ast"
 	"github.com/google/go-jsonnet"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 )
 
 // optionalChainPatcher wraps member access chains in ChainNode and sets the Optional flag.
@@ -65,18 +66,7 @@ type expressionEvaluator struct {
 
 // DeferredError signals that an expression is deferred and should be preserved for later evaluation.
 // This is not an error condition but a signal that the expression cannot be evaluated at this time.
-type DeferredError struct {
-	Expression string
-	Message    string
-}
-
-// Error implements the error interface for DeferredError.
-func (e *DeferredError) Error() string {
-	if e.Message != "" {
-		return e.Message
-	}
-	return fmt.Sprintf("deferred expression: %s", e.Expression)
-}
+type DeferredError = secretsRuntime.DeferredError
 
 // DeferredValue represents a value that could not be fully resolved because one or more
 // deferred helpers (for example terraform_output) were unavailable at evaluation time.
@@ -108,6 +98,20 @@ func DeferredExpression(value any) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// ExpressionBody returns the inner expression for ${ ... } inputs.
+// Double-brace ${{ ... }} inputs are not matched; callers should normalize those first.
+// When value is not wrapped as a full expression, returns the original trimmed string and false.
+func ExpressionBody(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "${{") {
+		return trimmed, false
+	}
+	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") {
+		return strings.TrimSpace(trimmed[2 : len(trimmed)-1]), true
+	}
+	return trimmed, false
 }
 
 // =============================================================================
@@ -298,6 +302,10 @@ func (e *expressionEvaluator) evaluate(s string, facetPath string, scope map[str
 // is that scope (with runtime keys injected so helpers like file() and jsonnet() have context and paths).
 // The expression should not include ${} bookends. Returns the evaluation result or an error.
 func (e *expressionEvaluator) evaluateExpression(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+	if rewritten, ok := secretsRuntime.NormalizeExpression(expression); ok {
+		expression = rewritten
+	}
+
 	var merged map[string]any
 	if scope != nil {
 		merged = make(map[string]any)
@@ -313,9 +321,6 @@ func (e *expressionEvaluator) evaluateExpression(expression string, facetPath st
 	}
 	result, err := expr.Run(program, merged)
 	if err != nil {
-		if deferredErr, ok := err.(*DeferredError); ok {
-			return nil, deferredErr
-		}
 		var deferredErr *DeferredError
 		if errors.As(err, &deferredErr) {
 			return nil, deferredErr
@@ -1196,10 +1201,10 @@ func (e *expressionEvaluator) evaluateCidrHostFunction(prefix string, hostnum in
 			}
 		}
 		ipInt += hostnumUint32
-		ip[0] = byte(ipInt >> 24)
-		ip[1] = byte(ipInt >> 16) // #nosec G115 - intentional truncation to extract IPv4 octet
-		ip[2] = byte(ipInt >> 8)  // #nosec G115 - intentional truncation to extract IPv4 octet
-		ip[3] = byte(ipInt)       // #nosec G115 - intentional truncation to extract IPv4 octet
+		ip[0] = byte(ipInt >> 24) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		ip[1] = byte(ipInt >> 16) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		ip[2] = byte(ipInt >> 8)  // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		ip[3] = byte(ipInt)       // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
 	} else {
 		if hostnum < 0 {
 			return "", fmt.Errorf("host number %d is out of range for IPv6 address", hostnum)
@@ -1257,7 +1262,7 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 		if offset > math.MaxUint32 {
 			return "", fmt.Errorf("offset %d is out of range for IPv4 address", offset)
 		}
-		offsetUint32 := uint32(offset) // #nosec G115 - safe: offset is validated <= math.MaxUint32 above
+		offsetUint32 := uint32(offset) // #nosec G115 -- bounds-checked above (offset <= math.MaxUint32)
 		ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
 		if ipInt > math.MaxUint32-offsetUint32 {
 			return "", fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
@@ -1269,10 +1274,10 @@ func (e *expressionEvaluator) evaluateCidrSubnetFunction(prefix string, newbits 
 			}
 		}
 		ipInt += offsetUint32
-		subnetIP[0] = byte(ipInt >> 24)
-		subnetIP[1] = byte(ipInt >> 16) // #nosec G115 - intentional truncation to extract IPv4 octet
-		subnetIP[2] = byte(ipInt >> 8)  // #nosec G115 - intentional truncation to extract IPv4 octet
-		subnetIP[3] = byte(ipInt)       // #nosec G115 - intentional truncation to extract IPv4 octet
+		subnetIP[0] = byte(ipInt >> 24) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		subnetIP[1] = byte(ipInt >> 16) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		subnetIP[2] = byte(ipInt >> 8)  // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+		subnetIP[3] = byte(ipInt)       // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
 	} else {
 		if offset < 0 {
 			return "", fmt.Errorf("offset %d is out of range for IPv6 address", offset)
@@ -1331,16 +1336,16 @@ func (e *expressionEvaluator) evaluateCidrSubnetsFunction(prefix string, newbits
 			if offset < 0 || offset > math.MaxUint32 {
 				return nil, fmt.Errorf("offset %d is out of range for IPv4 address", offset)
 			}
-			offsetUint32 := uint32(offset) // #nosec G115 - safe: offset is validated <= math.MaxUint32 above
+			offsetUint32 := uint32(offset) // #nosec G115 -- bounds-checked above (offset <= math.MaxUint32)
 			ipInt := uint32(subnetIP[0])<<24 | uint32(subnetIP[1])<<16 | uint32(subnetIP[2])<<8 | uint32(subnetIP[3])
 			if ipInt > math.MaxUint32-offsetUint32 {
 				return nil, fmt.Errorf("offset %d causes overflow for CIDR %s", offset, prefix)
 			}
 			ipInt += offsetUint32
-			subnetIP[0] = byte(ipInt >> 24)
-			subnetIP[1] = byte(ipInt >> 16) // #nosec G115 - intentional truncation to extract IPv4 octet
-			subnetIP[2] = byte(ipInt >> 8)  // #nosec G115 - intentional truncation to extract IPv4 octet
-			subnetIP[3] = byte(ipInt)       // #nosec G115 - intentional truncation to extract IPv4 octet
+			subnetIP[0] = byte(ipInt >> 24) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+			subnetIP[1] = byte(ipInt >> 16) // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+			subnetIP[2] = byte(ipInt >> 8)  // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
+			subnetIP[3] = byte(ipInt)       // #nosec G115 -- uint32->byte bit extraction is safe (shift guarantees range)
 		} else {
 			if offset < 0 {
 				return nil, fmt.Errorf("offset %d is out of range for IPv6 address", offset)

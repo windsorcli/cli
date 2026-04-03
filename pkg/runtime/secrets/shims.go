@@ -40,7 +40,7 @@ func NewShims() *Shims {
 		Stat:          os.Stat,
 		YAMLUnmarshal: yaml.Unmarshal,
 		DecryptFile: func(filePath string, format string) ([]byte, error) {
-			cmd := exec.Command("sops", "--decrypt", "--input-type", format, filePath) // #nosec G204 - sops is a trusted tool invoked with validated arguments
+			cmd := exec.Command("sops", "--decrypt", "--input-type", format, filePath) // #nosec G204 -- sops is a known, trusted CLI tool
 			output, err := cmd.Output()
 			if err != nil {
 				if exitError, ok := err.(*exec.ExitError); ok {

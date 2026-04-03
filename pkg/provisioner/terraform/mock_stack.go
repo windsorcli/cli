@@ -7,7 +7,7 @@ import (
 // The MockStack is a test implementation of the Stack interface.
 // It provides function fields that can be set to customize behavior in tests,
 // The MockStack acts as a controllable test double for the Stack interface,
-// enabling precise control over Up and Down behaviors in unit tests.
+// enabling precise control over Up, Down, Plan, and Apply behaviors in unit tests.
 
 // =============================================================================
 // Types
@@ -15,8 +15,10 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	UpFunc   func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	DownFunc func(blueprint *blueprintv1alpha1.Blueprint) error
+	UpFunc    func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	DownFunc  func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanFunc  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	ApplyFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 }
 
 // =============================================================================
@@ -44,6 +46,22 @@ func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(i
 func (m *MockStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if m.DownFunc != nil {
 		return m.DownFunc(blueprint)
+	}
+	return nil
+}
+
+// Plan is a mock implementation of the Plan method.
+func (m *MockStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.PlanFunc != nil {
+		return m.PlanFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// Apply is a mock implementation of the Apply method.
+func (m *MockStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.ApplyFunc != nil {
+		return m.ApplyFunc(blueprint, componentID)
 	}
 	return nil
 }

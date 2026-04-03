@@ -9,6 +9,7 @@ import (
 
 // MockConfigHandler is a mock implementation of the ConfigHandler interface
 type MockConfigHandler struct {
+	contextOverride string
 	LoadConfigFunc             func() error
 	LoadConfigForContextFunc   func(contextName string) error
 	LoadConfigStringFunc       func(content string) error
@@ -195,8 +196,11 @@ func (m *MockConfigHandler) GetConfig() *v1alpha1.Context {
 	return &v1alpha1.Context{}
 }
 
-// GetContext calls the mock GetContextFunc if set, otherwise returns a reasonable default string
+// GetContext calls the mock GetContextFunc if set; WithContext override takes priority over both
 func (m *MockConfigHandler) GetContext() string {
+	if m.contextOverride != "" {
+		return m.contextOverride
+	}
 	if m.GetContextFunc != nil {
 		return m.GetContextFunc()
 	}
@@ -209,6 +213,14 @@ func (m *MockConfigHandler) IsDevMode(contextName string) bool {
 		return m.IsDevModeFunc(contextName)
 	}
 	return contextName == "local" || strings.HasPrefix(contextName, "local-")
+}
+
+// WithContext returns a new MockConfigHandler with the given context override applied.
+// The original mock is not modified, consistent with the immutable semantics of WithContext.
+func (m *MockConfigHandler) WithContext(name string) ConfigHandler {
+	cp := *m
+	cp.contextOverride = name
+	return &cp
 }
 
 // SetContext calls the mock SetContextFunc if set, otherwise returns nil
