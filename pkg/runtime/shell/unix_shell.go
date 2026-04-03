@@ -71,7 +71,7 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 		command = "sudo"
 	}
 
-	if s.verbose || !s.shims.IsTerminal(int(os.Stdin.Fd())) {
+	if s.verbose || !s.shims.IsTerminal(int(os.Stdin.Fd())) { // #nosec G115 - file descriptor values are small non-negative integers
 		if s.verbose && message != "" {
 			fmt.Fprintln(os.Stderr, message)
 		}

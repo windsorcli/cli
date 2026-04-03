@@ -35,7 +35,7 @@ var envCmd = &cobra.Command{
 
 		rt := runtime.NewRuntime(rtOpts...)
 		if hook {
-			stderrNullFile, stderrNullErr := os.OpenFile(os.DevNull, os.O_WRONLY, 0600) // #nosec G304 - os.DevNull is a constant safe path
+			stderrNullFile, stderrNullErr := os.OpenFile(os.DevNull, os.O_WRONLY, 0600)
 			if stderrNullErr == nil {
 				originalStderr := os.Stderr
 				os.Stderr = stderrNullFile
