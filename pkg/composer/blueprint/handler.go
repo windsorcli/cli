@@ -716,8 +716,8 @@ func (h *BaseBlueprintHandler) getRepositoryScopeValues() map[string]any {
 	}
 
 	var blueprintName string
-	if h.composedBlueprint != nil {
-		blueprintName = h.composedBlueprint.Metadata.Name
+	if h.runtime != nil {
+		blueprintName = h.runtime.ContextName
 	}
 
 	repositoryValue := map[string]any{
