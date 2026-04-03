@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/cluster"
+	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	k8sclient "github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
@@ -43,6 +44,7 @@ type Provisioner struct {
 	runtime       *runtime.Runtime
 
 	TerraformStack    terraforminfra.Stack
+	FluxStack         fluxinfra.Stack
 	onTerraformApply  []func(id string) error
 	KubernetesManager kubernetes.KubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
@@ -90,6 +92,9 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		overrides := opts[0]
 		if overrides.TerraformStack != nil {
 			provisioner.TerraformStack = overrides.TerraformStack
+		}
+		if overrides.FluxStack != nil {
+			provisioner.FluxStack = overrides.FluxStack
 		}
 		if overrides.KubernetesManager != nil {
 			provisioner.KubernetesManager = overrides.KubernetesManager
@@ -205,6 +210,21 @@ func (i *Provisioner) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID s
 	return nil
 }
 
+// PlanKustomization runs flux diff for a single kustomization or all kustomizations when componentID is "all".
+// Returns an error if the flux CLI is not found, the component is not in the blueprint, or the diff fails.
+func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return err
+	}
+	if err := i.FluxStack.Plan(blueprint, componentID); err != nil {
+		return fmt.Errorf("error planning kustomize for %s: %w", componentID, err)
+	}
+	return nil
+}
+
 // Install orchestrates the high-level kustomization installation process from the blueprint.
 // It initializes the kubernetes manager and applies all blueprint resources in order: creates namespace,
 // applies source repositories, and applies all kustomizations. The blueprint must be provided as a parameter.
@@ -223,7 +243,7 @@ func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 	spin.Suffix = " " + message
 	spin.Start()
 
-	if err := i.KubernetesManager.ApplyBlueprint(blueprint, constants.DefaultFluxSystemNamespace); err != nil {
+	if err := i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace()); err != nil {
 		spin.Stop()
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 		return fmt.Errorf("failed to apply blueprint: %w", err)
@@ -274,7 +294,7 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 	spin.Start()
 
 	spin.Stop()
-	if err := i.KubernetesManager.DeleteBlueprint(blueprint, constants.DefaultFluxSystemNamespace); err != nil {
+	if err := i.KubernetesManager.DeleteBlueprint(blueprint, i.fluxNamespace()); err != nil {
 		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 		return fmt.Errorf("failed to delete blueprint: %w", err)
 	}
@@ -448,4 +468,18 @@ func (i *Provisioner) ensureTerraformStack() error {
 		i.TerraformStack = terraforminfra.NewStack(i.runtime)
 	}
 	return nil
+}
+
+// ensureFluxStack initializes the FluxStack if it is not already initialized.
+func (i *Provisioner) ensureFluxStack() error {
+	if i.FluxStack != nil {
+		return nil
+	}
+	i.FluxStack = fluxinfra.NewStack(i.runtime, i.KubernetesManager)
+	return nil
+}
+
+// fluxNamespace returns the configured Flux system namespace, defaulting to DefaultFluxSystemNamespace.
+func (i *Provisioner) fluxNamespace() string {
+	return i.configHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
 }
