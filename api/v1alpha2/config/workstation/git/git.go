@@ -12,7 +12,7 @@ type GitLivereloadConfig struct {
 	Exclude    *string `yaml:"exclude,omitempty"`
 	Protect    *string `yaml:"protect,omitempty"`
 	Username   *string `yaml:"username,omitempty"`
-	Password   *string `yaml:"password,omitempty"`
+	Password   *string `yaml:"password,omitempty"` // #nosec G117 - legitimate credential field for git configuration
 	WebhookUrl *string `yaml:"webhook_url,omitempty"`
 	VerifySsl  *bool   `yaml:"verify_ssl,omitempty"`
 	Image      *string `yaml:"image,omitempty"`
