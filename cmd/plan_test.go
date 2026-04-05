@@ -728,3 +728,50 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+func TestBlueprintHasTerraformComponent(t *testing.T) {
+	falseVal := false
+
+	t.Run("ReturnsFalseForNilBlueprint", func(t *testing.T) {
+		if blueprintHasTerraformComponent(nil, "foo") {
+			t.Error("expected false for nil blueprint")
+		}
+	})
+
+	t.Run("ReturnsTrueForEnabledComponent", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster"},
+			},
+		}
+		if !blueprintHasTerraformComponent(bp, "cluster") {
+			t.Error("expected true for enabled component")
+		}
+	})
+
+	t.Run("ReturnsFalseForDisabledComponent", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster", Enabled: &blueprintv1alpha1.BoolExpression{Value: &falseVal}},
+			},
+		}
+		if blueprintHasTerraformComponent(bp, "cluster") {
+			t.Error("expected false for explicitly disabled component")
+		}
+	})
+
+	t.Run("ReturnsFalseForMissingComponent", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "cluster"},
+			},
+		}
+		if blueprintHasTerraformComponent(bp, "nonexistent") {
+			t.Error("expected false for missing component")
+		}
+	})
+}

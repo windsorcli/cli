@@ -299,13 +299,18 @@ func printPlanSummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformCompone
 	return enc.Encode(out)
 }
 
-// blueprintHasTerraformComponent reports whether the blueprint contains a Terraform component with the given ID.
+// blueprintHasTerraformComponent reports whether the blueprint contains an enabled Terraform component with the given ID.
+// Components with Enabled explicitly set to false are excluded, matching the filtering applied by TerraformStack.
 func blueprintHasTerraformComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) bool {
 	if blueprint == nil {
 		return false
 	}
 	for i := range blueprint.TerraformComponents {
-		if blueprint.TerraformComponents[i].GetID() == componentID {
+		c := blueprint.TerraformComponents[i]
+		if c.Enabled != nil && !c.Enabled.IsEnabled() {
+			continue
+		}
+		if c.GetID() == componentID {
 			return true
 		}
 	}
