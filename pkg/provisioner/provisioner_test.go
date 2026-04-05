@@ -1838,6 +1838,109 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 	})
 }
 
+func TestProvisioner_PlanTerraformSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanTerraformSummary(nil)
+
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+		if summary != nil {
+			t.Errorf("expected nil summary, got %v", summary)
+		}
+	})
+
+	t.Run("ReturnsTerraformResultsOnly", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
+			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Add: 3}}
+		}
+		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
+			t.Fatal("FluxStack.PlanSummary should not be called by PlanTerraformSummary")
+			return nil, nil
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanTerraformSummary(createTestBlueprint())
+
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(summary.Terraform) != 1 || summary.Terraform[0].ComponentID != "cluster" {
+			t.Errorf("expected terraform result for cluster, got %v", summary.Terraform)
+		}
+		if summary.Kustomize != nil {
+			t.Errorf("expected nil kustomize slice, got %v", summary.Kustomize)
+		}
+	})
+}
+
+func TestProvisioner_PlanKustomizeSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanKustomizeSummary(nil)
+
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+		if summary != nil {
+			t.Errorf("expected nil summary, got %v", summary)
+		}
+	})
+
+	t.Run("ReturnsKustomizeResultsOnly", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
+			t.Fatal("TerraformStack.PlanSummary should not be called by PlanKustomizeSummary")
+			return nil
+		}
+		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
+			return []fluxinfra.KustomizePlan{{Name: "flux-system", Added: 10, IsNew: true}}, []string{"hint1"}
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanKustomizeSummary(createTestBlueprint())
+
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(summary.Kustomize) != 1 || summary.Kustomize[0].Name != "flux-system" {
+			t.Errorf("expected kustomize result for flux-system, got %v", summary.Kustomize)
+		}
+		if summary.Terraform != nil {
+			t.Errorf("expected nil terraform slice, got %v", summary.Terraform)
+		}
+		if len(summary.Hints) != 1 || summary.Hints[0] != "hint1" {
+			t.Errorf("expected hints, got %v", summary.Hints)
+		}
+	})
+}
+
 func TestProvisioner_PlanAll(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		// Given a properly configured provisioner

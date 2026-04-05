@@ -99,7 +99,7 @@ var planTerraformCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			summary, err := proj.Provisioner.PlanAll(blueprint)
+			summary, err := proj.Provisioner.PlanTerraformSummary(blueprint)
 			if err != nil {
 				return fmt.Errorf("error running plan: %w", err)
 			}
@@ -113,7 +113,7 @@ var planTerraformCmd = &cobra.Command{
 		componentID := args[0]
 
 		if planJSON {
-			summary, err := proj.Provisioner.PlanAll(blueprint)
+			summary, err := proj.Provisioner.PlanTerraformSummary(blueprint)
 			if err != nil {
 				return fmt.Errorf("error running plan: %w", err)
 			}
@@ -149,7 +149,7 @@ var planKustomizeCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			summary, err := proj.Provisioner.PlanAll(blueprint)
+			summary, err := proj.Provisioner.PlanKustomizeSummary(blueprint)
 			if err != nil {
 				return fmt.Errorf("error running plan: %w", err)
 			}
@@ -163,7 +163,7 @@ var planKustomizeCmd = &cobra.Command{
 		componentID := args[0]
 
 		if planJSON {
-			summary, err := proj.Provisioner.PlanAll(blueprint)
+			summary, err := proj.Provisioner.PlanKustomizeSummary(blueprint)
 			if err != nil {
 				return fmt.Errorf("error running plan: %w", err)
 			}

@@ -221,12 +221,10 @@ type PlanSummary struct {
 	Hints     []string
 }
 
-// PlanAll runs a best-effort summary plan across every Terraform component and
-// Flux kustomization in the blueprint. It initialises both stacks as needed and
-// collects per-component results without aborting on individual failures, so
-// callers always receive as complete a picture as possible. Returns an error only
-// when blueprint is nil or stack initialisation itself fails.
-func (i *Provisioner) PlanAll(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
+// PlanTerraformSummary runs a best-effort summary plan across every Terraform
+// component in the blueprint without touching the Flux/Kustomize layer.
+// Returns an error only when blueprint is nil or stack initialisation fails.
+func (i *Provisioner) PlanTerraformSummary(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
 	}
@@ -240,12 +238,52 @@ func (i *Provisioner) PlanAll(blueprint *blueprintv1alpha1.Blueprint) (*PlanSumm
 		summary.Terraform = i.TerraformStack.PlanSummary(blueprint)
 	}
 
+	return summary, nil
+}
+
+// PlanKustomizeSummary runs a best-effort summary plan across every Flux
+// kustomization in the blueprint without touching the Terraform layer.
+// Returns an error only when blueprint is nil or stack initialisation fails.
+func (i *Provisioner) PlanKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	summary := &PlanSummary{}
+
 	if err := i.ensureFluxStack(); err != nil {
 		return nil, err
 	}
 	summary.Kustomize, summary.Hints = i.FluxStack.PlanSummary(blueprint)
 
 	return summary, nil
+}
+
+// PlanAll runs a best-effort summary plan across every Terraform component and
+// Flux kustomization in the blueprint. It initialises both stacks as needed and
+// collects per-component results without aborting on individual failures, so
+// callers always receive as complete a picture as possible. Returns an error only
+// when blueprint is nil or stack initialisation itself fails.
+func (i *Provisioner) PlanAll(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	tfSummary, err := i.PlanTerraformSummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+
+	k8sSummary, err := i.PlanKustomizeSummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PlanSummary{
+		Terraform: tfSummary.Terraform,
+		Kustomize: k8sSummary.Kustomize,
+		Hints:     k8sSummary.Hints,
+	}, nil
 }
 
 // PlanKustomization runs flux diff for a single kustomization or all kustomizations when componentID is "all".
