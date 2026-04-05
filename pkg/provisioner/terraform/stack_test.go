@@ -233,10 +233,6 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 // Test Public Methods
 // =============================================================================
 
-// =============================================================================
-// Test Public Methods
-// =============================================================================
-
 func TestStack_NewStack(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()
@@ -1457,3 +1453,196 @@ func TestStack_Apply(t *testing.T) {
 		}
 	})
 }
+
+func TestStack_PlanSummary(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsNilForNilBlueprint", func(t *testing.T) {
+		// Given a stack with a valid runtime
+		stack, _ := setup(t)
+
+		// When PlanSummary is called with nil blueprint
+		result := stack.PlanSummary(nil)
+
+		// Then nil is returned
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("ParsesAddChangeDestroyFromPlanOutput", func(t *testing.T) {
+		// Given a shell that returns a terraform plan line with counts
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				return "Plan: 5 to add, 3 to change, 1 to destroy.\n", nil
+			}
+			return "", nil
+		}
+
+		// When PlanSummary is called
+		results := stack.PlanSummary(createTestBlueprint())
+
+		// Then two entries are returned with parsed counts for the plan-output component
+		if len(results) != 2 {
+			t.Fatalf("expected 2 results, got %d", len(results))
+		}
+		r := results[0]
+		if r.Err != nil {
+			t.Fatalf("expected no error, got %v", r.Err)
+		}
+		if r.Add != 5 || r.Change != 3 || r.Destroy != 1 {
+			t.Errorf("expected +5 ~3 -1, got +%d ~%d -%d", r.Add, r.Change, r.Destroy)
+		}
+		if r.NoChanges {
+			t.Errorf("expected NoChanges=false")
+		}
+	})
+
+	t.Run("SetsNoChangesWhenTerraformReportsNoDiff", func(t *testing.T) {
+		// Given a shell that returns a "No changes." line
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				return "No changes. Infrastructure is up-to-date.\n", nil
+			}
+			return "", nil
+		}
+
+		// When PlanSummary is called
+		results := stack.PlanSummary(createTestBlueprint())
+
+		// Then the first result has NoChanges=true and zero counts
+		if len(results) == 0 {
+			t.Fatal("expected at least one result")
+		}
+		r := results[0]
+		if r.Err != nil {
+			t.Fatalf("expected no error, got %v", r.Err)
+		}
+		if !r.NoChanges {
+			t.Errorf("expected NoChanges=true")
+		}
+		if r.Add != 0 || r.Change != 0 || r.Destroy != 0 {
+			t.Errorf("expected zero counts, got +%d ~%d -%d", r.Add, r.Change, r.Destroy)
+		}
+	})
+
+	t.Run("RecordsErrorWhenDirectoryMissing", func(t *testing.T) {
+		// Given a stat shim that reports the component directory does not exist
+		stack, mocks := setup(t)
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When PlanSummary is called
+		results := stack.PlanSummary(createTestBlueprint())
+
+		// Then each result carries an error
+		if len(results) == 0 {
+			t.Fatal("expected results even on error")
+		}
+		for _, r := range results {
+			if r.Err == nil {
+				t.Errorf("expected error for component %q, got nil", r.ComponentID)
+			}
+		}
+	})
+
+	t.Run("RecordsErrorWhenTerraformInitFails", func(t *testing.T) {
+		// Given a shell that returns an error on terraform init
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("init failed")
+			}
+			return "", nil
+		}
+
+		// When PlanSummary is called
+		results := stack.PlanSummary(createTestBlueprint())
+
+		// Then an error is recorded for the failing component
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		if results[0].Err == nil {
+			t.Errorf("expected init error on first component, got nil")
+		}
+	})
+
+	t.Run("RecordsErrorWhenTerraformPlanFails", func(t *testing.T) {
+		// Given a shell that returns an error on terraform plan
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				return "", fmt.Errorf("plan failed")
+			}
+			return "", nil
+		}
+
+		// When PlanSummary is called
+		results := stack.PlanSummary(createTestBlueprint())
+
+		// Then errors are recorded and the summary still contains entries for all components
+		if len(results) != 2 {
+			t.Fatalf("expected 2 results, got %d", len(results))
+		}
+		for _, r := range results {
+			if r.Err == nil {
+				t.Errorf("expected plan error for %q, got nil", r.ComponentID)
+			}
+		}
+	})
+}
+
+func TestParseTerraformPlanCounts(t *testing.T) {
+	t.Run("ParsesAllThreeCounts", func(t *testing.T) {
+		// Given standard terraform plan output
+		output := "Plan: 5 to add, 3 to change, 1 to destroy.\n"
+
+		// When parsed
+		add, change, destroy, noChanges := parseTerraformPlanCounts(output)
+
+		// Then counts are set correctly
+		if add != 5 || change != 3 || destroy != 1 {
+			t.Errorf("expected +5 ~3 -1, got +%d ~%d -%d", add, change, destroy)
+		}
+		if noChanges {
+			t.Error("expected noChanges=false")
+		}
+	})
+
+	t.Run("SetsNoChangesForNoChangesLine", func(t *testing.T) {
+		// Given "No changes." output
+		output := "No changes. Infrastructure is up-to-date.\n"
+
+		// When parsed
+		_, _, _, noChanges := parseTerraformPlanCounts(output)
+
+		// Then noChanges is true
+		if !noChanges {
+			t.Error("expected noChanges=true")
+		}
+	})
+
+	t.Run("LeavesCountsAtZeroForUnrecognisedOutput", func(t *testing.T) {
+		// Given unrecognised output
+		output := "Something unexpected happened.\n"
+
+		// When parsed
+		add, change, destroy, noChanges := parseTerraformPlanCounts(output)
+
+		// Then all values are zero/false
+		if add != 0 || change != 0 || destroy != 0 || noChanges {
+			t.Errorf("expected all zero/false, got add=%d change=%d destroy=%d noChanges=%v", add, change, destroy, noChanges)
+		}
+	})
+}
+

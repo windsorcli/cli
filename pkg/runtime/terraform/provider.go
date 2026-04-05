@@ -485,6 +485,12 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					if !exists {
 						continue
 					}
+					// When a deferred terraform_output resolves to nil the dependency
+					// has not been applied yet. Skip the variable so Terraform uses its
+					// declared default rather than receiving the string "null".
+					if evaluatedValue == nil {
+						continue
+					}
 					var envValue string
 					if valueStr, ok := evaluatedValue.(string); ok {
 						envValue = valueStr

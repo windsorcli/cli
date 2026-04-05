@@ -35,6 +35,22 @@ const (
 // Stack defines the interface for Flux kustomization operations.
 type Stack interface {
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string)
+}
+
+// KustomizePlan holds the plan result for a single Flux kustomization.
+// For kustomizations that already exist in the cluster, Added and Removed count
+// diff lines from "flux diff". For new kustomizations (no cluster or not yet
+// deployed), Added counts rendered resources from "kustomize build" and IsNew
+// is true. Degraded is true when the required CLI tool was absent and no counts
+// could be produced. Err is non-nil when the component could not be planned.
+type KustomizePlan struct {
+	Name     string
+	Added    int
+	Removed  int
+	IsNew    bool
+	Degraded bool
+	Err      error
 }
 
 // =============================================================================
@@ -124,16 +140,100 @@ func (s *FluxStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID str
 	return s.planOne(blueprint, k, namespace)
 }
 
+// PlanSummary runs a best-effort plan for every non-destroyOnly kustomization in
+// the blueprint, returning per-component counts without printing raw output.
+// The second return value carries upgrade hints to display to the user when a
+// required CLI tool is absent. Missing tools degrade gracefully: each component
+// row is marked Degraded=true rather than returning an error entry. Cluster
+// connectivity failures are also handled gracefully: when KustomizationExists
+// returns an error the kustomization is treated as new and planned via kustomize
+// build instead.
+func (s *FluxStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string) {
+	if blueprint == nil {
+		return nil, nil
+	}
+
+	var hints []string
+
+	fluxMissing := false
+	if _, err := s.shims.LookPath("flux"); err != nil {
+		hints = append(hints, "flux CLI not found — install to see kustomize diffs for existing clusters\nhttps://fluxcd.io/flux/installation/")
+		fluxMissing = true
+	} else if err := s.checkFluxVersion(); err != nil {
+		hints = append(hints, err.Error())
+		fluxMissing = true
+	}
+
+	kustomizeMissing := false
+	if _, err := s.shims.LookPath("kustomize"); err != nil {
+		hints = append(hints, "kustomize CLI not found — install to see resource counts for new kustomizations\nhttps://kubectl.docs.kubernetes.io/installation/kustomize/")
+		kustomizeMissing = true
+	}
+
+	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+
+	var results []KustomizePlan
+	for _, k := range blueprint.Kustomizations {
+		if k.DestroyOnly != nil && *k.DestroyOnly {
+			continue
+		}
+
+		result := KustomizePlan{Name: k.Name}
+
+		exists, err := s.kubernetesManager.KustomizationExists(k.Name, namespace)
+		if err != nil {
+			// Cluster not reachable — treat as new.
+			exists = false
+		}
+
+		sourceRoot := s.resolveSourceRoot(blueprint, k)
+		fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources)
+		localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
+
+		if exists {
+			if fluxMissing {
+				result.Degraded = true
+			} else {
+				stdout, diffErr := s.captureFluxDiff("diff", "kustomization", k.Name, "--namespace", namespace, "--path", localPath)
+				if diffErr != nil {
+					result.Err = diffErr
+				} else {
+					result.Added, result.Removed = countDiffLines(stdout)
+				}
+			}
+		} else {
+			result.IsNew = true
+			if kustomizeMissing {
+				result.Degraded = true
+			} else {
+				stdout, buildErr := s.captureKustomizeBuild(k, fluxK.Spec.Components, localPath, sourceRoot)
+				if buildErr != nil {
+					result.Err = buildErr
+				} else {
+					result.Added = countKustomizeResources(stdout)
+				}
+			}
+		}
+
+		results = append(results, result)
+	}
+
+	return results, hints
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
 
 // planOne runs flux diff for a single kustomization. It checks whether the kustomization
 // already exists in the cluster and dispatches to the appropriate diff strategy.
+// If the cluster is not reachable, the kustomization is treated as new and planned
+// via kustomize build instead of flux diff.
 func (s *FluxStack) planOne(blueprint *blueprintv1alpha1.Blueprint, k blueprintv1alpha1.Kustomization, namespace string) error {
 	exists, err := s.kubernetesManager.KustomizationExists(k.Name, namespace)
 	if err != nil {
-		return fmt.Errorf("failed to check if kustomization %q exists: %w", k.Name, err)
+		// Cluster not reachable — treat as new.
+		exists = false
 	}
 
 	sourceRoot := s.resolveSourceRoot(blueprint, k)
@@ -199,14 +299,26 @@ func (s *FluxStack) runFromScratch(k blueprintv1alpha1.Kustomization, components
 	}
 	defer s.shims.RemoveAll(planDir)
 
+	if err := s.writeSyntheticKustomization(k.Name, planDir, localPath, baseIsComponent, components); err != nil {
+		return err
+	}
+
+	return s.runKustomizeBuild(label, planDir)
+}
+
+// writeSyntheticKustomization writes a synthetic kustomization.yaml into planDir that mirrors
+// what flux would generate at reconcile time. If the base path is a Component it is listed
+// under components:; otherwise it is listed under resources: followed by any extra components.
+// The planDir must already exist. Returns an error if any relative-path computation or the
+// file write fails.
+func (s *FluxStack) writeSyntheticKustomization(name, planDir, localPath string, baseIsComponent bool, components []string) error {
 	relBase, err := filepath.Rel(planDir, localPath)
 	if err != nil {
-		return fmt.Errorf("failed to compute relative path for kustomization %q: %w", k.Name, err)
+		return fmt.Errorf("failed to compute relative path for kustomization %q: %w", name, err)
 	}
 
 	var sb strings.Builder
 	sb.WriteString("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n")
-
 	if baseIsComponent {
 		sb.WriteString("components:\n")
 		sb.WriteString(fmt.Sprintf("- %s\n", relBase))
@@ -215,8 +327,6 @@ func (s *FluxStack) runFromScratch(k blueprintv1alpha1.Kustomization, components
 		sb.WriteString(fmt.Sprintf("- %s\n", relBase))
 		sb.WriteString("components:\n")
 	}
-
-	// spec.components are relative to spec.path (localPath).
 	for _, comp := range components {
 		relComp, err := filepath.Rel(planDir, filepath.Join(localPath, comp))
 		if err != nil {
@@ -226,10 +336,9 @@ func (s *FluxStack) runFromScratch(k blueprintv1alpha1.Kustomization, components
 	}
 
 	if err := s.shims.WriteFile(filepath.Join(planDir, "kustomization.yaml"), []byte(sb.String()), 0600); err != nil {
-		return fmt.Errorf("failed to write plan kustomization for %q: %w", k.Name, err)
+		return fmt.Errorf("failed to write plan kustomization for %q: %w", name, err)
 	}
-
-	return s.runKustomizeBuild(label, planDir)
+	return nil
 }
 
 // isKustomizeComponent returns true if the kustomization.yaml in path declares kind: Component.
@@ -320,6 +429,88 @@ func (s *FluxStack) checkFluxVersion() error {
 		return fmt.Errorf("flux CLI v%d.%d or later is required (found v%s)\nUpgrade: https://fluxcd.io/flux/installation/", minFluxMajor, minFluxMinor, ver)
 	}
 	return fmt.Errorf("could not determine flux CLI version from output: %q", out)
+}
+
+// captureFluxDiff runs "flux <args>" and returns stdout without printing.
+// Exit code 1 (changes detected) is treated as success, matching runFluxDiff semantics.
+// Any other non-zero exit code is returned as an error.
+func (s *FluxStack) captureFluxDiff(args ...string) (string, error) {
+	stdout, stderr, err := s.shims.ExecCommand("flux", args...)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return stdout, nil
+		}
+		if stderr != "" {
+			return "", fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr))
+		}
+		return "", err
+	}
+	return stdout, nil
+}
+
+// captureKustomizeBuild renders the kustomize manifests for a kustomization that does
+// not yet exist in the cluster and returns the raw YAML string without printing.
+// It follows the same synthetic-kustomization-file logic as runFromScratch.
+func (s *FluxStack) captureKustomizeBuild(k blueprintv1alpha1.Kustomization, components []string, localPath, sourceRoot string) (string, error) {
+	baseIsComponent := s.isKustomizeComponent(localPath)
+
+	if !baseIsComponent && len(components) == 0 {
+		stdout, stderr, err := s.shims.ExecCommand("kustomize", "build", localPath)
+		if err != nil {
+			if stderr != "" {
+				return "", fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr))
+			}
+			return "", err
+		}
+		return stdout, nil
+	}
+
+	planDir := filepath.Join(sourceRoot, ".windsor", "plan", k.Name)
+	if err := s.shims.MkdirAll(planDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create plan dir for kustomization %q: %w", k.Name, err)
+	}
+	defer s.shims.RemoveAll(planDir)
+
+	if err := s.writeSyntheticKustomization(k.Name, planDir, localPath, baseIsComponent, components); err != nil {
+		return "", err
+	}
+
+	stdout, stderr, err := s.shims.ExecCommand("kustomize", "build", planDir)
+	if err != nil {
+		if stderr != "" {
+			return "", fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr))
+		}
+		return "", err
+	}
+	return stdout, nil
+}
+
+// countDiffLines counts added and removed lines in a unified diff.
+// Lines starting with "+" (but not "+++") are additions; lines starting with
+// "-" (but not "---") are removals.
+func countDiffLines(diff string) (added, removed int) {
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			added++
+		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+			removed++
+		}
+	}
+	return
+}
+
+// countKustomizeResources counts rendered Kubernetes resources in kustomize build output
+// by counting top-level "kind:" lines (no leading whitespace). Only column-0 occurrences
+// are counted to avoid matching "kind:" inside indented ConfigMap data or nested objects.
+func countKustomizeResources(yaml string) int {
+	count := 0
+	for _, line := range strings.Split(yaml, "\n") {
+		if strings.HasPrefix(line, "kind:") {
+			count++
+		}
+	}
+	return count
 }
 
 // findKustomization returns the Kustomization with the given name from the blueprint.

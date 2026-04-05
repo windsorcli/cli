@@ -120,6 +120,35 @@ func TestPlanKustomize_SucceedsWithEmptyKustomizations(t *testing.T) {
 	}
 }
 
+func TestPlan_FailsWhenNotInTrustedDirectory(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	_, stderr, err := helpers.RunCLI(dir, []string{"plan"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if !strings.Contains(string(stderr), "trusted") {
+		t.Errorf("expected stderr to mention 'trusted', got: %s", stderr)
+	}
+}
+
+func TestPlan_SucceedsWithEmptyBlueprint(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan"}, env)
+	if err != nil {
+		t.Fatalf("plan: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "Windsor Plan Summary") {
+		t.Errorf("expected plan summary header in stdout, got: %s", stdout)
+	}
+}
+
 func TestPlanKustomize_FailsWhenKustomizationNotInBlueprint(t *testing.T) {
 	t.Parallel()
 	skipIfFluxNotInstalled(t)

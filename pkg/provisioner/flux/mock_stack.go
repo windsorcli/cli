@@ -15,7 +15,8 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	PlanFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanFunc        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string)
 }
 
 // =============================================================================
@@ -37,6 +38,14 @@ func (m *MockStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID str
 		return m.PlanFunc(blueprint, componentID)
 	}
 	return nil
+}
+
+// PlanSummary is a mock implementation of the PlanSummary method.
+func (m *MockStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string) {
+	if m.PlanSummaryFunc != nil {
+		return m.PlanSummaryFunc(blueprint)
+	}
+	return nil, nil
 }
 
 // =============================================================================

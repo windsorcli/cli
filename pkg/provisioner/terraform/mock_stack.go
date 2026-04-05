@@ -15,10 +15,11 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	UpFunc    func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	DownFunc  func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanFunc  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	ApplyFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	UpFunc          func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	DownFunc        func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanFunc        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	ApplyFunc       func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 }
 
 // =============================================================================
@@ -62,6 +63,14 @@ func (m *MockStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID str
 func (m *MockStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if m.ApplyFunc != nil {
 		return m.ApplyFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// PlanSummary is a mock implementation of the PlanSummary method.
+func (m *MockStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan {
+	if m.PlanSummaryFunc != nil {
+		return m.PlanSummaryFunc(blueprint)
 	}
 	return nil
 }

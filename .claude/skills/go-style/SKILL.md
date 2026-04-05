@@ -62,9 +62,19 @@ Every implementation file begins with a 4-line class header:
 
 Every function and method has a header comment. No explanatory comments inside function bodies — context belongs in the header.
 
+## Section header naming rule
+
+Section headers must use the **generic category names** listed above — never the name of a specific method, type, or feature. For example:
+
+- ✅ `// Test Public Methods`
+- ❌ `// Test FluxStack Plan`
+- ❌ `// Test PlanSummary`
+
+All tests for public methods belong under a single `// Test Public Methods` header, regardless of how many distinct methods are covered. Do not create one header per method.
+
 ## Editing checklist
 
-- Section headers are valid and in required order.
+- Section headers are valid, in required order, and use generic category names only.
 - All functions have header comments.
 - No inline comments inside function bodies.
 - Naming is consistent with existing package terminology.

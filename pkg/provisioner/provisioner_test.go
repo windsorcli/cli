@@ -1057,10 +1057,6 @@ func TestProvisioner_Close(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test CheckNodeHealth
-// =============================================================================
-
 func TestProvisioner_CheckNodeHealth(t *testing.T) {
 	t.Run("SuccessWithNodeCheckOnly", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
@@ -1779,10 +1775,6 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Test PlanKustomization
-// =============================================================================
-
 func TestProvisioner_PlanKustomization(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		// Given a provisioner with a mock flux stack
@@ -1842,6 +1834,97 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "flux diff failed") {
 			t.Errorf("expected flux error in message, got %v", err)
+		}
+	})
+}
+
+func TestProvisioner_PlanAll(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		// Given a properly configured provisioner
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		// When PlanAll is called with nil blueprint
+		summary, err := p.PlanAll(nil)
+
+		// Then an error is returned and summary is nil
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+		if summary != nil {
+			t.Errorf("expected nil summary, got %v", summary)
+		}
+	})
+
+	t.Run("ReturnsTerraformAndKustomizeResults", func(t *testing.T) {
+		// Given stacks that return non-empty summaries
+		mocks := setupProvisionerMocks(t)
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
+			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Add: 3}}
+		}
+		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
+			return []fluxinfra.KustomizePlan{{Name: "flux-system", Added: 10, IsNew: true}}, nil
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		// When PlanAll is called
+		summary, err := p.PlanAll(createTestBlueprint())
+
+		// Then both layers are present in the summary
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(summary.Terraform) != 1 || summary.Terraform[0].ComponentID != "cluster" {
+			t.Errorf("expected terraform result for cluster, got %v", summary.Terraform)
+		}
+		if len(summary.Kustomize) != 1 || summary.Kustomize[0].Name != "flux-system" {
+			t.Errorf("expected kustomize result for flux-system, got %v", summary.Kustomize)
+		}
+	})
+
+	t.Run("OmitsTerraformWhenDisabled", func(t *testing.T) {
+		// Given terraform.enabled=false in config
+		mocks := setupProvisionerMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mocks.FluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
+			return []fluxinfra.KustomizePlan{{Name: "flux-system"}}, nil
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		// When PlanAll is called
+		summary, err := p.PlanAll(createTestBlueprint())
+
+		// Then Terraform slice is nil and Kustomize is populated
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if summary.Terraform != nil {
+			t.Errorf("expected nil terraform slice when disabled, got %v", summary.Terraform)
+		}
+		if len(summary.Kustomize) == 0 {
+			t.Errorf("expected kustomize results, got none")
 		}
 	})
 }
