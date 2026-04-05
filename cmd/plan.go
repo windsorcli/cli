@@ -209,7 +209,7 @@ var planKustomizeCmd = &cobra.Command{
 func init() {
 	planCmd.PersistentFlags().BoolVar(&planNoColor, "no-color", false, "Disable color output")
 	planCmd.PersistentFlags().BoolVar(&planSummary, "summary", false, "Show a compact summary table instead of streaming output")
-	planCmd.PersistentFlags().BoolVar(&planJSON, "json", false, "Output plan summary as JSON (implies --summary)")
+	planCmd.PersistentFlags().BoolVar(&planJSON, "json", false, "Output as JSON; on subcommands streams full plan JSON, on root 'plan' outputs summary as JSON")
 	planCmd.AddCommand(planTerraformCmd)
 	planCmd.AddCommand(planKustomizeCmd)
 	rootCmd.AddCommand(planCmd)
