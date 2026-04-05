@@ -39,12 +39,12 @@ func TestPlanTerraform_FailsWhenNotInTrustedDirectory(t *testing.T) {
 	}
 }
 
-func TestPlanTerraform_FailsWithNoArgument(t *testing.T) {
+func TestPlanTerraform_ShowsSummaryWithNoArgument(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "default")
 	_, _, err := helpers.RunCLI(dir, []string{"plan", "terraform"}, env)
-	if err == nil {
-		t.Fatal("expected failure but command succeeded")
+	if err != nil {
+		t.Fatalf("expected success with no argument but got error: %v", err)
 	}
 }
 
@@ -87,21 +87,21 @@ func TestPlanKustomize_FailsWhenNotInTrustedDirectory(t *testing.T) {
 	}
 }
 
-func TestPlanKustomize_FailsWithNoArgument(t *testing.T) {
+func TestPlanKustomize_ShowsSummaryWithNoArgument(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "plan")
 	_, _, err := helpers.RunCLI(dir, []string{"plan", "kustomize"}, env)
-	if err == nil {
-		t.Fatal("expected failure but command succeeded")
+	if err != nil {
+		t.Fatalf("expected success with no argument but got error: %v", err)
 	}
 }
 
-func TestPlanKustomize_K8sAliasFailsWithNoArgument(t *testing.T) {
+func TestPlanKustomize_K8sAliasShowsSummaryWithNoArgument(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "plan")
 	_, _, err := helpers.RunCLI(dir, []string{"plan", "k8s"}, env)
-	if err == nil {
-		t.Fatal("expected failure for missing argument on k8s alias, got nil")
+	if err != nil {
+		t.Fatalf("expected success with no argument (k8s alias) but got error: %v", err)
 	}
 }
 

@@ -106,7 +106,7 @@ var planTerraformCmd = &cobra.Command{
 			if planJSON {
 				return printPlanSummaryJSON(os.Stdout, summary.Terraform, nil)
 			}
-			printPlanSummary(os.Stdout, summary.Terraform, nil, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
+			printPlanSummary(os.Stdout, summary.Terraform, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
 			return nil
 		}
 
