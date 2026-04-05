@@ -204,8 +204,10 @@ func (c *TalosClusterClient) ensureClient() error {
 // the Talos ServiceList API to retrieve all services running on that node. For each
 // service, it checks both the running state and health status to determine if the
 // service is fully operational. Services listed in skipServices are excluded from
-// health checks. Returns the overall node health status, lists of healthy and
-// unhealthy service names, and any error encountered during the API call.
+// health checks. Extension services that don't implement the Talos health probe report
+// Unknown=true and are treated as healthy when running, matching Talos behavior for
+// services like ext-iscsid. Returns the overall node health status, lists of healthy
+// and unhealthy service names, and any error encountered during the API call.
 func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddress string, skipServices []string) (bool, []string, []string, error) {
 	nodeCtx := c.shims.TalosWithNodes(ctx, nodeAddress)
 
@@ -235,9 +237,10 @@ func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddre
 			health := service.GetHealth()
 
 			isRunning := state == "Running"
-			isHealthy := health != nil && health.GetHealthy()
+			healthUnknown := health == nil || health.GetUnknown()
+			isHealthy := isRunning && (health != nil && health.GetHealthy() || healthUnknown)
 
-			if isRunning && isHealthy {
+			if isHealthy {
 				healthyServices = append(healthyServices, serviceName)
 			} else {
 				unhealthyServices = append(unhealthyServices, serviceName)
