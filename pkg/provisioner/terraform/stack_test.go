@@ -865,51 +865,6 @@ func TestNewShims(t *testing.T) {
 	})
 }
 
-func TestTerraformStack_PlanAll(t *testing.T) {
-	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
-		t.Helper()
-		mocks := setupWindsorStackMocks(t)
-		stack := NewStack(mocks.Runtime).(*TerraformStack)
-		stack.shims = mocks.Shims
-		return stack, mocks
-	}
-
-	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
-		stack, _ := setup(t)
-
-		err := stack.PlanAll(nil)
-
-		if err == nil {
-			t.Error("expected error for nil blueprint, got nil")
-		}
-	})
-
-	t.Run("StreamsOutputForEachComponent", func(t *testing.T) {
-		stack, mocks := setup(t)
-		var plannedComponents []string
-		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
-			if len(args) > 1 && args[1] == "plan" {
-				plannedComponents = append(plannedComponents, message)
-			}
-			return "", nil
-		}
-		bp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Name: "alpha", Path: "local/alpha"},
-				{Name: "beta", Path: "local/beta"},
-			},
-		}
-
-		err := stack.PlanAll(bp)
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(plannedComponents) != 2 {
-			t.Errorf("expected 2 plan calls, got %d", len(plannedComponents))
-		}
-	})
-}
 
 func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
@@ -1324,6 +1279,59 @@ func TestStack_Plan(t *testing.T) {
 		// Then it should succeed — cleanup errors are ignored
 		if err != nil {
 			t.Errorf("Expected no error (cleanup is best-effort), got: %v", err)
+		}
+	})
+
+}
+
+func TestStack_PlanAll(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		// Given a stack with a nil blueprint
+		stack, _ := setup(t)
+
+		// When planning all with nil blueprint
+		err := stack.PlanAll(nil)
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("StreamsEveryComponent", func(t *testing.T) {
+		// Given a stack with multiple components in the blueprint
+		stack, mocks := setup(t)
+		var plannedComponents []string
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				plannedComponents = append(plannedComponents, message)
+			}
+			return "", nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "alpha", Path: "local/alpha"},
+				{Name: "beta", Path: "local/beta"},
+			},
+		}
+
+		// When planning all
+		err := stack.PlanAll(bp)
+
+		// Then both components are planned
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(plannedComponents) != 2 {
+			t.Errorf("expected 2 plan calls, got %d", len(plannedComponents))
 		}
 	})
 }

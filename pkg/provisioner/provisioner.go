@@ -374,7 +374,34 @@ func (i *Provisioner) PlanAll(blueprint *blueprintv1alpha1.Blueprint) (*PlanSumm
 	}, nil
 }
 
-// PlanKustomization runs flux diff for a single kustomization or all kustomizations when componentID is "all".
+// PlanKustomizeAll runs flux diff for every non-destroyOnly kustomization in the blueprint.
+// Returns an error if the flux CLI is not found or any diff fails.
+func (i *Provisioner) PlanKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return err
+	}
+	if err := i.FluxStack.PlanAll(blueprint); err != nil {
+		return fmt.Errorf("error planning kustomize: %w", err)
+	}
+	return nil
+}
+
+// PlanKustomizeAllJSON runs kustomize build for every non-destroyOnly kustomization and
+// writes JSON to stdout. Returns an error if the kustomize CLI is not found or any build fails.
+func (i *Provisioner) PlanKustomizeAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return err
+	}
+	return i.FluxStack.PlanAllJSON(blueprint)
+}
+
+// PlanKustomization runs flux diff for a single kustomization identified by componentID.
 // Returns an error if the flux CLI is not found, the component is not in the blueprint, or the diff fails.
 func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {

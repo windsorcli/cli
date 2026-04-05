@@ -155,64 +155,6 @@ func TestFluxStack_Plan(t *testing.T) {
 		}
 	})
 
-	t.Run("Success_All", func(t *testing.T) {
-		// Given a blueprint with multiple kustomizations
-		m := setupFluxMocks(t)
-		var calledNames []string
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
-			for i, a := range args {
-				if a == "kustomization" && i+1 < len(args) {
-					calledNames = append(calledNames, args[i+1])
-				}
-			}
-			return "", "", nil
-		}
-		s := newTestFluxStack(m)
-
-		// When Plan is called with "all"
-		err := s.Plan(testBlueprint(), "all")
-
-		// Then no error is returned and each non-destroy-only kustomization is planned
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if len(calledNames) != 2 {
-			t.Errorf("expected 2 kustomizations planned, got %d: %v", len(calledNames), calledNames)
-		}
-		for _, name := range calledNames {
-			if name == "cleanup-only" {
-				t.Errorf("expected cleanup-only (destroyOnly) to be skipped, but it was planned")
-			}
-		}
-	})
-
-	t.Run("Success_All_SkipsDestroyOnly", func(t *testing.T) {
-		// Given a blueprint where all kustomizations are destroy-only
-		m := setupFluxMocks(t)
-		destroyOnly := true
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cleanup", DestroyOnly: &destroyOnly}},
-		}
-		var callCount int
-		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
-			callCount++
-			return "", "", nil
-		}
-		s := newTestFluxStack(m)
-
-		// When Plan is called with "all"
-		err := s.Plan(bp, "all")
-
-		// Then no error is returned and no flux calls are made
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if callCount != 0 {
-			t.Errorf("expected no flux calls for destroy-only kustomizations, got %d", callCount)
-		}
-	})
-
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		// Given a valid stack
 		m := setupFluxMocks(t)
@@ -503,6 +445,80 @@ func TestFluxStack_Plan(t *testing.T) {
 		expectedCacheDir := filepath.Join(m.runtime.ProjectRoot, ".windsor", "cache", "oci", "registry.local_5000_windsor_core_latest")
 		if !strings.HasPrefix(capturedBuildPath, expectedCacheDir) {
 			t.Errorf("expected build path inside OCI cache %q, got %q", expectedCacheDir, capturedBuildPath)
+		}
+	})
+}
+
+func TestFluxStack_PlanAll(t *testing.T) {
+	t.Run("PlansEveryNonDestroyOnlyKustomization", func(t *testing.T) {
+		// Given a blueprint with multiple kustomizations
+		m := setupFluxMocks(t)
+		var calledNames []string
+		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+			for i, a := range args {
+				if a == "kustomization" && i+1 < len(args) {
+					calledNames = append(calledNames, args[i+1])
+				}
+			}
+			return "", "", nil
+		}
+		s := newTestFluxStack(m)
+
+		// When PlanAll is called
+		err := s.PlanAll(testBlueprint())
+
+		// Then no error is returned and each non-destroy-only kustomization is planned
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(calledNames) != 2 {
+			t.Errorf("expected 2 kustomizations planned, got %d: %v", len(calledNames), calledNames)
+		}
+		for _, name := range calledNames {
+			if name == "cleanup-only" {
+				t.Errorf("expected cleanup-only (destroyOnly) to be skipped, but it was planned")
+			}
+		}
+	})
+
+	t.Run("SkipsDestroyOnlyKustomizations", func(t *testing.T) {
+		// Given a blueprint where all kustomizations are destroy-only
+		m := setupFluxMocks(t)
+		destroyOnly := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cleanup", DestroyOnly: &destroyOnly}},
+		}
+		var callCount int
+		m.shims.ExecCommand = func(command string, args ...string) (string, string, error) {
+			callCount++
+			return "", "", nil
+		}
+		s := newTestFluxStack(m)
+
+		// When PlanAll is called
+		err := s.PlanAll(bp)
+
+		// Then no error is returned and no flux calls are made
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if callCount != 0 {
+			t.Errorf("expected no flux calls for destroy-only kustomizations, got %d", callCount)
+		}
+	})
+
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		// Given a valid stack
+		m := setupFluxMocks(t)
+		s := newTestFluxStack(m)
+
+		// When PlanAll is called with a nil blueprint
+		err := s.PlanAll(nil)
+
+		// Then an error is returned
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
 		}
 	})
 }

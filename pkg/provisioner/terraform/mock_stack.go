@@ -19,8 +19,8 @@ type MockStack struct {
 	DownFunc                 func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllFunc              func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanAllJSONFunc          func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSONFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllJSONFunc          func(blueprint *blueprintv1alpha1.Blueprint) error
 	ApplyFunc                func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanSummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan

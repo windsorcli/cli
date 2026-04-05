@@ -165,7 +165,7 @@ var planKustomizeCmd = &cobra.Command{
 
 		if len(args) == 0 {
 			if planJSON && !planSummary {
-				return proj.Provisioner.PlanKustomizeJSON(blueprint, "all")
+				return proj.Provisioner.PlanKustomizeAllJSON(blueprint)
 			}
 			if planSummary {
 				summary, err := proj.Provisioner.PlanKustomizeSummary(blueprint)
@@ -178,7 +178,7 @@ var planKustomizeCmd = &cobra.Command{
 				printPlanSummary(os.Stdout, nil, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
 				return nil
 			}
-			return proj.Provisioner.PlanKustomization(blueprint, "all")
+			return proj.Provisioner.PlanKustomizeAll(blueprint)
 		}
 
 		componentID := args[0]

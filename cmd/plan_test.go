@@ -381,9 +381,9 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		// Given a plan kustomize command with no arguments
 		mocks := setupPlanTest(t)
 		fluxStack := fluxinfra.NewMockStack()
-		planCalledWith := ""
-		fluxStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, id string) error {
-			planCalledWith = id
+		planAllCalled := false
+		fluxStack.PlanAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			planAllCalled = true
 			return nil
 		}
 		proj := newKustomizePlanProject(mocks, fluxStack)
@@ -394,12 +394,12 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then Plan("all") is called (streaming), not PlanSummary
+		// Then PlanAll is called (streaming), not PlanSummary
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
-		if planCalledWith != "all" {
-			t.Errorf("expected Plan to be called with 'all', got %q", planCalledWith)
+		if !planAllCalled {
+			t.Error("expected PlanAll to be called for no-arg non-summary path")
 		}
 	})
 

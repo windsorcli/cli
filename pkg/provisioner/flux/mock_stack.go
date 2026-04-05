@@ -16,7 +16,9 @@ import (
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
 	PlanFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllFunc              func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSONFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllJSONFunc          func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanSummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string)
 	PlanComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan
 }
@@ -38,6 +40,22 @@ func NewMockStack() *MockStack {
 func (m *MockStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if m.PlanFunc != nil {
 		return m.PlanFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// PlanAll is a mock implementation of the PlanAll method.
+func (m *MockStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if m.PlanAllFunc != nil {
+		return m.PlanAllFunc(blueprint)
+	}
+	return nil
+}
+
+// PlanAllJSON is a mock implementation of the PlanAllJSON method.
+func (m *MockStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	if m.PlanAllJSONFunc != nil {
+		return m.PlanAllJSONFunc(blueprint)
 	}
 	return nil
 }
