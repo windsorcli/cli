@@ -238,7 +238,7 @@ func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddre
 
 			isRunning := state == "Running"
 			healthUnknown := health != nil && health.GetUnknown()
-			isHealthy := isRunning && (health != nil && health.GetHealthy() || healthUnknown)
+			isHealthy := isRunning && ((health != nil && health.GetHealthy()) || healthUnknown)
 
 			if isHealthy {
 				healthyServices = append(healthyServices, serviceName)
