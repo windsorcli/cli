@@ -219,7 +219,8 @@ func printPlanSummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPl
 		for _, p := range tfPlans {
 			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, p.ComponentID, formatTerraformPlan(p, noColor))
 			if p.Err != nil {
-				for _, line := range strings.Split(strings.TrimSpace(p.Err.Error()), "\n") {
+				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
+				for _, line := range lines[1:] {
 					fmt.Fprintf(w, "  %s  %s\n", strings.Repeat(" ", nameWidth), line)
 				}
 			}
@@ -231,7 +232,8 @@ func printPlanSummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPl
 		for _, p := range k8sPlans {
 			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, p.Name, formatKustomizePlan(p, noColor))
 			if p.Err != nil {
-				for _, line := range strings.Split(strings.TrimSpace(p.Err.Error()), "\n") {
+				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
+				for _, line := range lines[1:] {
 					fmt.Fprintf(w, "  %s  %s\n", strings.Repeat(" ", nameWidth), line)
 				}
 			}

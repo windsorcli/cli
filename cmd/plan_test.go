@@ -546,6 +546,31 @@ func TestPrintPlanSummary(t *testing.T) {
 			t.Errorf("expected error text, got: %s", buf.String())
 		}
 	})
+
+	t.Run("DoesNotDuplicateFirstErrorLine", func(t *testing.T) {
+		// Given a component with a multi-line error
+		tfPlans := []terraforminfra.TerraformComponentPlan{
+			{ComponentID: "broken", Err: fmt.Errorf("first line\nsecond line\nthird line")},
+		}
+		var buf strings.Builder
+
+		// When printPlanSummary is called
+		printPlanSummary(&buf, tfPlans, nil, nil, true)
+
+		output := buf.String()
+
+		// Then the first line appears exactly once (in the summary row)
+		if count := strings.Count(output, "first line"); count != 1 {
+			t.Errorf("expected 'first line' to appear exactly once, got %d occurrences in:\n%s", count, output)
+		}
+		// And subsequent lines appear in the detail section
+		if !strings.Contains(output, "second line") {
+			t.Errorf("expected 'second line' in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "third line") {
+			t.Errorf("expected 'third line' in output, got:\n%s", output)
+		}
+	})
 }
 
 func TestPlanKustomizeCmd(t *testing.T) {
