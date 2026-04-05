@@ -401,6 +401,87 @@ func TestYamlStringHelper(t *testing.T) {
 	})
 }
 
+func TestJsonStringHelper(t *testing.T) {
+	t.Run("JsonStringWithOneArgMarshalsToJSONString", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"obj": map[string]any{"a": 1, "b": "two"}}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		result, err := evaluator.Evaluate(`${jsonString(obj)}`, "", nil, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		str, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string result, got %T", result)
+		}
+		if !strings.Contains(str, `"a":1`) && !strings.Contains(str, `"a": 1`) {
+			t.Errorf("Expected JSON string with a and b, got %q", str)
+		}
+	})
+
+	t.Run("JsonStringWithInvalidArgumentCount", func(t *testing.T) {
+		evaluator, _, _, _ := setupEvaluatorTest(t)
+
+		_, err := evaluator.Evaluate(`${jsonString()}`, "", nil, false)
+		if err == nil {
+			t.Fatal("Expected error for zero arguments")
+		}
+		_, err = evaluator.Evaluate(`${jsonString("a", "b")}`, "", nil, false)
+		if err == nil {
+			t.Fatal("Expected error for two arguments")
+		}
+	})
+
+	t.Run("JsonStringWithListProducesJSONArray", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"paths": []any{"/var/mnt/longhorn", "/var/mnt/data"}}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		result, err := evaluator.Evaluate(`${jsonString(paths)}`, "", nil, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		str, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string result, got %T", result)
+		}
+		if str != `["/var/mnt/longhorn","/var/mnt/data"]` {
+			t.Errorf("Expected JSON array string, got %q", str)
+		}
+	})
+}
+
+func TestJsonStringWithMapExpr(t *testing.T) {
+	t.Run("JsonStringWithMapLiteralInMapExpr", func(t *testing.T) {
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"paths": []any{"/var/mnt/longhorn", "/var/mnt/data"}}, nil
+		}
+		evaluator := NewExpressionEvaluator(mockConfigHandler, "/project", "/template")
+
+		result, err := evaluator.Evaluate(`${jsonString(map(paths, fromPairs([["path", #], ["allowScheduling", true]])))}`, "", nil, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		str, ok := result.(string)
+		if !ok {
+			t.Fatalf("Expected string result, got %T", result)
+		}
+		t.Logf("Result: %s", str)
+		if !strings.Contains(str, "/var/mnt/longhorn") {
+			t.Errorf("Expected JSON with disk path, got %q", str)
+		}
+	})
+}
+
 func TestStringHelper(t *testing.T) {
 	t.Run("StringWithMapReturnsYAMLString", func(t *testing.T) {
 		mockConfigHandler := config.NewMockConfigHandler()

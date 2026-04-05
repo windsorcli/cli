@@ -471,6 +471,20 @@ func (e *expressionEvaluator) buildExprEnvironment(config map[string]any, facetP
 			new(func(string, any) string),
 		),
 		expr.Function(
+			"jsonString",
+			func(params ...any) (any, error) {
+				if len(params) != 1 {
+					return nil, fmt.Errorf("jsonString() requires exactly 1 argument, got %d", len(params))
+				}
+				jsonBytes, err := e.Shims.JsonMarshal(normalizeYamlResult(params[0]))
+				if err != nil {
+					return nil, fmt.Errorf("jsonString() failed to marshal: %w", err)
+				}
+				return string(jsonBytes), nil
+			},
+			new(func(any) string),
+		),
+		expr.Function(
 			"split",
 			func(params ...any) (any, error) {
 				if len(params) != 2 {
