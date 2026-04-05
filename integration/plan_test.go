@@ -114,9 +114,9 @@ func TestPlanKustomize_SucceedsWithEmptyKustomizations(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
-	_, stderr, err = helpers.RunCLI(dir, []string{"plan", "kustomize", "all"}, env)
+	_, stderr, err = helpers.RunCLI(dir, []string{"plan", "kustomize"}, env)
 	if err != nil {
-		t.Fatalf("plan kustomize all: %v\nstderr: %s", err, stderr)
+		t.Fatalf("plan kustomize: %v\nstderr: %s", err, stderr)
 	}
 }
 
