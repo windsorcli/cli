@@ -14,6 +14,7 @@ import (
 )
 
 var planNoColor bool
+var planSummary bool
 var planJSON bool
 
 var planCmd = &cobra.Command{
@@ -50,24 +51,28 @@ var planCmd = &cobra.Command{
 			return fmt.Errorf("component %q not found in blueprint", componentID)
 		}
 
-		if planJSON {
-			summary, err := proj.Provisioner.PlanAll(blueprint)
-			if err != nil {
-				return fmt.Errorf("error running plan: %w", err)
-			}
-			var tfFiltered []terraforminfra.TerraformComponentPlan
-			for _, p := range summary.Terraform {
-				if p.ComponentID == componentID {
-					tfFiltered = append(tfFiltered, p)
+		if planSummary || planJSON {
+			var tfResults []terraforminfra.TerraformComponentPlan
+			var k8sResults []fluxinfra.KustomizePlan
+			if inTerraform {
+				result, err := proj.Provisioner.PlanTerraformComponentSummary(blueprint, componentID)
+				if err != nil {
+					return fmt.Errorf("error running plan: %w", err)
 				}
+				tfResults = []terraforminfra.TerraformComponentPlan{result}
 			}
-			var k8sFiltered []fluxinfra.KustomizePlan
-			for _, p := range summary.Kustomize {
-				if p.Name == componentID {
-					k8sFiltered = append(k8sFiltered, p)
+			if inKustomize {
+				result, err := proj.Provisioner.PlanKustomizeComponentSummary(blueprint, componentID)
+				if err != nil {
+					return fmt.Errorf("error running plan: %w", err)
 				}
+				k8sResults = []fluxinfra.KustomizePlan{result}
 			}
-			return printPlanSummaryJSON(os.Stdout, tfFiltered, k8sFiltered)
+			if planJSON {
+				return printPlanSummaryJSON(os.Stdout, tfResults, k8sResults)
+			}
+			printPlanSummary(os.Stdout, tfResults, k8sResults, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+			return nil
 		}
 
 		if inTerraform {
@@ -87,7 +92,7 @@ var planCmd = &cobra.Command{
 var planTerraformCmd = &cobra.Command{
 	Use:          "terraform [project]",
 	Short:        "Plan Terraform changes",
-	Long:         "Plan Terraform changes for a specific project layer, or all projects when no argument is given.",
+	Long:         "Stream terraform init and plan for a specific component, or all components when no argument is given. Use --summary for a compact table or --json for machine-readable counts.",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -99,31 +104,41 @@ var planTerraformCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			summary, err := proj.Provisioner.PlanTerraformSummary(blueprint)
-			if err != nil {
-				return fmt.Errorf("error running plan: %w", err)
+			if planJSON && !planSummary {
+				return proj.Provisioner.PlanTerraformAllJSON(blueprint)
 			}
-			if planJSON {
-				return printPlanSummaryJSON(os.Stdout, summary.Terraform, nil)
+			if planSummary {
+				summary, err := proj.Provisioner.PlanTerraformSummary(blueprint)
+				if err != nil {
+					return fmt.Errorf("error running plan: %w", err)
+				}
+				if planJSON {
+					return printPlanSummaryJSON(os.Stdout, summary.Terraform, nil)
+				}
+				printPlanSummary(os.Stdout, summary.Terraform, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+				return nil
 			}
-			printPlanSummary(os.Stdout, summary.Terraform, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
-			return nil
+			return proj.Provisioner.PlanTerraformAll(blueprint)
 		}
 
 		componentID := args[0]
 
-		if planJSON {
-			summary, err := proj.Provisioner.PlanTerraformSummary(blueprint)
+		if planJSON && !planSummary {
+			if err := proj.Provisioner.PlanTerraformJSON(blueprint, componentID); err != nil {
+				return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
+			}
+			return nil
+		}
+		if planSummary {
+			result, err := proj.Provisioner.PlanTerraformComponentSummary(blueprint, componentID)
 			if err != nil {
 				return fmt.Errorf("error running plan: %w", err)
 			}
-			var filtered []terraforminfra.TerraformComponentPlan
-			for _, p := range summary.Terraform {
-				if p.ComponentID == componentID {
-					filtered = append(filtered, p)
-				}
+			if planJSON {
+				return printPlanSummaryJSON(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil)
 			}
-			return printPlanSummaryJSON(os.Stdout, filtered, nil)
+			printPlanSummary(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+			return nil
 		}
 
 		if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
@@ -137,7 +152,7 @@ var planKustomizeCmd = &cobra.Command{
 	Use:          "kustomize [component]",
 	Aliases:      []string{"k8s"},
 	Short:        "Plan Flux kustomization changes",
-	Long:         "Show a diff of pending Flux kustomization changes without applying them. Omit the component argument to plan all kustomizations in the blueprint.",
+	Long:         "Stream flux diff for a specific kustomization, or all kustomizations when no argument is given. Use --summary for a compact table or --json for machine-readable counts.",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -149,31 +164,38 @@ var planKustomizeCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			summary, err := proj.Provisioner.PlanKustomizeSummary(blueprint)
-			if err != nil {
-				return fmt.Errorf("error running plan: %w", err)
+			if planJSON && !planSummary {
+				return proj.Provisioner.PlanKustomizeJSON(blueprint, "all")
 			}
-			if planJSON {
-				return printPlanSummaryJSON(os.Stdout, nil, summary.Kustomize)
+			if planSummary {
+				summary, err := proj.Provisioner.PlanKustomizeSummary(blueprint)
+				if err != nil {
+					return fmt.Errorf("error running plan: %w", err)
+				}
+				if planJSON {
+					return printPlanSummaryJSON(os.Stdout, nil, summary.Kustomize)
+				}
+				printPlanSummary(os.Stdout, nil, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
+				return nil
 			}
-			printPlanSummary(os.Stdout, nil, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
-			return nil
+			return proj.Provisioner.PlanKustomization(blueprint, "all")
 		}
 
 		componentID := args[0]
 
-		if planJSON {
-			summary, err := proj.Provisioner.PlanKustomizeSummary(blueprint)
+		if planJSON && !planSummary {
+			return proj.Provisioner.PlanKustomizeJSON(blueprint, componentID)
+		}
+		if planSummary {
+			result, err := proj.Provisioner.PlanKustomizeComponentSummary(blueprint, componentID)
 			if err != nil {
 				return fmt.Errorf("error running plan: %w", err)
 			}
-			var filtered []fluxinfra.KustomizePlan
-			for _, p := range summary.Kustomize {
-				if p.Name == componentID {
-					filtered = append(filtered, p)
-				}
+			if planJSON {
+				return printPlanSummaryJSON(os.Stdout, nil, []fluxinfra.KustomizePlan{result})
 			}
-			return printPlanSummaryJSON(os.Stdout, nil, filtered)
+			printPlanSummary(os.Stdout, nil, []fluxinfra.KustomizePlan{result}, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+			return nil
 		}
 
 		if err := proj.Provisioner.PlanKustomization(blueprint, componentID); err != nil {
@@ -186,7 +208,8 @@ var planKustomizeCmd = &cobra.Command{
 // init registers plan subcommands and persistent flags on the plan command group.
 func init() {
 	planCmd.PersistentFlags().BoolVar(&planNoColor, "no-color", false, "Disable color output")
-	planCmd.PersistentFlags().BoolVar(&planJSON, "json", false, "Output plan as JSON")
+	planCmd.PersistentFlags().BoolVar(&planSummary, "summary", false, "Show a compact summary table instead of streaming output")
+	planCmd.PersistentFlags().BoolVar(&planJSON, "json", false, "Output plan summary as JSON (implies --summary)")
 	planCmd.AddCommand(planTerraformCmd)
 	planCmd.AddCommand(planKustomizeCmd)
 	rootCmd.AddCommand(planCmd)

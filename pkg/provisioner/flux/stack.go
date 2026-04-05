@@ -7,6 +7,7 @@
 package flux
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime"
+	sigsyaml "sigs.k8s.io/yaml"
 )
 
 // minFluxMajor and minFluxMinor define the minimum supported flux CLI version (v2.3.0).
@@ -35,7 +37,9 @@ const (
 // Stack defines the interface for Flux kustomization operations.
 type Stack interface {
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string)
+	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan
 }
 
 // KustomizePlan holds the plan result for a single Flux kustomization.
@@ -219,6 +223,136 @@ func (s *FluxStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]Kusto
 	}
 
 	return results, hints
+}
+
+// PlanComponentSummary plans a single kustomization by name and returns its structured
+// result. It reuses PlanSummary's tool-detection and diff/build logic for exactly one
+// kustomization, so callers are not charged the cost of planning every other kustomization
+// in the blueprint. If the kustomization is not found, a result with a non-nil Err is returned.
+func (s *FluxStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan {
+	result := KustomizePlan{Name: name}
+
+	if blueprint == nil {
+		result.Err = fmt.Errorf("blueprint not provided")
+		return result
+	}
+
+	k, ok := findKustomization(blueprint, name)
+	if !ok {
+		result.Err = fmt.Errorf("kustomization %q not found in blueprint", name)
+		return result
+	}
+
+	fluxMissing := false
+	if _, err := s.shims.LookPath("flux"); err != nil {
+		fluxMissing = true
+	} else if err := s.checkFluxVersion(); err != nil {
+		fluxMissing = true
+	}
+
+	kustomizeMissing := false
+	if _, err := s.shims.LookPath("kustomize"); err != nil {
+		kustomizeMissing = true
+	}
+
+	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+
+	exists, err := s.kubernetesManager.KustomizationExists(k.Name, namespace)
+	if err != nil {
+		exists = false
+	}
+
+	sourceRoot := s.resolveSourceRoot(blueprint, k)
+	fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources)
+	localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
+
+	if exists {
+		if fluxMissing {
+			result.Degraded = true
+		} else {
+			stdout, diffErr := s.captureFluxDiff("diff", "kustomization", k.Name, "--namespace", namespace, "--path", localPath)
+			if diffErr != nil {
+				result.Err = diffErr
+			} else {
+				result.Added, result.Removed = countDiffLines(stdout)
+			}
+		}
+	} else {
+		result.IsNew = true
+		if kustomizeMissing {
+			result.Degraded = true
+		} else {
+			stdout, buildErr := s.captureKustomizeBuild(k, fluxK.Spec.Components, localPath, sourceRoot)
+			if buildErr != nil {
+				result.Err = buildErr
+			} else {
+				result.Added = countKustomizeResources(stdout)
+			}
+		}
+	}
+
+	return result
+}
+
+// PlanJSON runs kustomize build for the named kustomization (or all when componentID is "all"),
+// converts the rendered YAML manifests to JSON, and writes a JSON array of
+// {"kustomization": name, "resources": [...]} objects to stdout.
+// Unlike Plan, this always uses kustomize build regardless of cluster state, producing
+// the full desired state as JSON for machine consumption. Requires the kustomize CLI.
+func (s *FluxStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	if _, err := s.shims.LookPath("kustomize"); err != nil {
+		return fmt.Errorf("kustomize CLI is required for 'plan kustomize --json'\nInstall: https://kubectl.docs.kubernetes.io/installation/kustomize/")
+	}
+
+	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+
+	var targets []blueprintv1alpha1.Kustomization
+	if componentID == "all" {
+		for _, k := range blueprint.Kustomizations {
+			if k.DestroyOnly != nil && *k.DestroyOnly {
+				continue
+			}
+			targets = append(targets, k)
+		}
+	} else {
+		k, found := findKustomization(blueprint, componentID)
+		if !found {
+			return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+		}
+		targets = []blueprintv1alpha1.Kustomization{k}
+	}
+
+	type entry struct {
+		Kustomization string            `json:"kustomization"`
+		Resources     []json.RawMessage `json:"resources"`
+	}
+
+	var results []entry
+	for _, k := range targets {
+		fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources)
+		sourceRoot := s.resolveSourceRoot(blueprint, k)
+		localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
+
+		yamlStr, err := s.captureKustomizeBuild(k, fluxK.Spec.Components, localPath, sourceRoot)
+		if err != nil {
+			return fmt.Errorf("error building kustomization %q: %w", k.Name, err)
+		}
+
+		resources, err := yamlDocumentsToJSON(yamlStr)
+		if err != nil {
+			return fmt.Errorf("error converting kustomization %q output to JSON: %w", k.Name, err)
+		}
+
+		results = append(results, entry{Kustomization: k.Name, Resources: resources})
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(results)
 }
 
 // =============================================================================
@@ -511,6 +645,25 @@ func countKustomizeResources(yaml string) int {
 		}
 	}
 	return count
+}
+
+// yamlDocumentsToJSON splits a multi-document YAML string on "---" separators,
+// converts each non-empty document to JSON using sigs.k8s.io/yaml, and returns
+// the results as a slice of raw JSON messages. Documents that fail to convert are skipped.
+func yamlDocumentsToJSON(yamlStr string) ([]json.RawMessage, error) {
+	var resources []json.RawMessage
+	for _, doc := range strings.Split(yamlStr, "\n---") {
+		doc = strings.TrimSpace(doc)
+		if doc == "" {
+			continue
+		}
+		jsonBytes, err := sigsyaml.YAMLToJSON([]byte(doc))
+		if err != nil || string(jsonBytes) == "null" {
+			continue
+		}
+		resources = append(resources, json.RawMessage(jsonBytes))
+	}
+	return resources, nil
 }
 
 // findKustomization returns the Kustomization with the given name from the blueprint.

@@ -865,6 +865,118 @@ func TestNewShims(t *testing.T) {
 	})
 }
 
+func TestTerraformStack_PlanAll(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+
+		err := stack.PlanAll(nil)
+
+		if err == nil {
+			t.Error("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("StreamsOutputForEachComponent", func(t *testing.T) {
+		stack, mocks := setup(t)
+		var plannedComponents []string
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				plannedComponents = append(plannedComponents, message)
+			}
+			return "", nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "alpha", Path: "local/alpha"},
+				{Name: "beta", Path: "local/beta"},
+			},
+		}
+
+		err := stack.PlanAll(bp)
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(plannedComponents) != 2 {
+			t.Errorf("expected 2 plan calls, got %d", len(plannedComponents))
+		}
+	})
+}
+
+func TestTerraformStack_PlanComponentSummary(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		// Given a stack with a valid runtime
+		stack, _ := setup(t)
+
+		// When PlanComponentSummary is called with nil blueprint
+		result := stack.PlanComponentSummary(nil, "cluster")
+
+		// Then an error is set on the result
+		if result.Err == nil {
+			t.Error("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("ReturnsErrorForMissingComponent", func(t *testing.T) {
+		// Given a stack with a valid blueprint
+		stack, _ := setup(t)
+
+		// When PlanComponentSummary is called with an unknown componentID
+		result := stack.PlanComponentSummary(createTestBlueprint(), "nonexistent")
+
+		// Then an error is set on the result indicating not found
+		if result.Err == nil {
+			t.Error("expected not-found error, got nil")
+		}
+		if !strings.Contains(result.Err.Error(), "not found") {
+			t.Errorf("expected 'not found' in error, got: %v", result.Err)
+		}
+	})
+
+	t.Run("ParsesPlanCountsForNamedComponent", func(t *testing.T) {
+		// Given a shell that returns a plan output with counts
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				return "Plan: 2 to add, 1 to change, 0 to destroy.\n", nil
+			}
+			return "", nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "mycomp", Path: "local/path"},
+			},
+		}
+
+		// When PlanComponentSummary is called for the named component
+		result := stack.PlanComponentSummary(bp, "mycomp")
+
+		// Then counts are parsed from plan output
+		if result.Err != nil {
+			t.Fatalf("unexpected error: %v", result.Err)
+		}
+		if result.Add != 2 || result.Change != 1 || result.Destroy != 0 {
+			t.Errorf("expected add=2 change=1 destroy=0, got add=%d change=%d destroy=%d", result.Add, result.Change, result.Destroy)
+		}
+	})
+}
+
 // =============================================================================
 // Test Private Methods
 // =============================================================================

@@ -149,6 +149,74 @@ func TestPlan_SucceedsWithEmptyBlueprint(t *testing.T) {
 	}
 }
 
+func TestPlanTerraform_SummaryFlagShowsSummaryTable(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "terraform", "--summary"}, env)
+	if err != nil {
+		t.Fatalf("plan terraform --summary: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "Windsor Plan Summary") {
+		t.Errorf("expected 'Windsor Plan Summary' in stdout, got: %s", stdout)
+	}
+}
+
+func TestPlanTerraform_JSONFlagOutputsJSON(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "terraform", "--json"}, env)
+	if err != nil {
+		t.Fatalf("plan terraform --json: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), `"terraform"`) {
+		t.Errorf("expected JSON with 'terraform' key in stdout, got: %s", stdout)
+	}
+}
+
+func TestPlanTerraform_SummaryFlagWithComponent(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "terraform", "null", "--summary"}, env)
+	if err != nil {
+		t.Fatalf("plan terraform null --summary: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "Windsor Plan Summary") {
+		t.Errorf("expected 'Windsor Plan Summary' in stdout, got: %s", stdout)
+	}
+}
+
+func TestPlanKustomize_SummaryFlagShowsSummaryTable(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "kustomize", "--summary"}, env)
+	if err != nil {
+		t.Fatalf("plan kustomize --summary: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stdout), "Windsor Plan Summary") {
+		t.Errorf("expected 'Windsor Plan Summary' in stdout, got: %s", stdout)
+	}
+}
+
 func TestPlanKustomize_FailsWhenKustomizationNotInBlueprint(t *testing.T) {
 	t.Parallel()
 	skipIfFluxNotInstalled(t)

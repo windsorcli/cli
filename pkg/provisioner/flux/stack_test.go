@@ -507,6 +507,59 @@ func TestFluxStack_Plan(t *testing.T) {
 	})
 }
 
+func TestFluxStack_PlanComponentSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		// Given a stack with a valid runtime
+		m := setupFluxMocks(t)
+		s := newTestFluxStack(m)
+
+		// When PlanComponentSummary is called with nil blueprint
+		result := s.PlanComponentSummary(nil, "my-app")
+
+		// Then an error is set on the result
+		if result.Err == nil {
+			t.Error("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("ReturnsErrorForMissingKustomization", func(t *testing.T) {
+		// Given a blueprint that does not contain the requested kustomization
+		m := setupFluxMocks(t)
+		s := newTestFluxStack(m)
+
+		// When PlanComponentSummary is called for a non-existent name
+		result := s.PlanComponentSummary(testBlueprint(), "nonexistent")
+
+		// Then an error is set indicating not found
+		if result.Err == nil {
+			t.Error("expected not-found error, got nil")
+		}
+		if !strings.Contains(result.Err.Error(), "not found") {
+			t.Errorf("expected 'not found' in error, got: %v", result.Err)
+		}
+	})
+
+	t.Run("MarksNewKustomizationAsNew", func(t *testing.T) {
+		// Given a kustomization that does not exist in the cluster (cluster unreachable)
+		m := setupFluxMocks(t)
+		m.kubernetesManager.KustomizationExistsFunc = func(name, namespace string) (bool, error) {
+			return false, fmt.Errorf("cluster not reachable")
+		}
+		s := newTestFluxStack(m)
+
+		// When PlanComponentSummary is called
+		result := s.PlanComponentSummary(testBlueprint(), "my-app")
+
+		// Then IsNew is set
+		if !result.IsNew {
+			t.Error("expected IsNew=true for unreachable cluster, got false")
+		}
+		if result.Name != "my-app" {
+			t.Errorf("expected Name=my-app, got %q", result.Name)
+		}
+	})
+}
+
 func TestFluxStack_PlanSummary(t *testing.T) {
 	t.Run("ReturnsNilForNilBlueprint", func(t *testing.T) {
 		// Given a stack with a valid runtime

@@ -1838,6 +1838,136 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 	})
 }
 
+func TestProvisioner_PlanTerraformAll(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		err := p.PlanTerraformAll(nil)
+
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("DelegatestoStackPlanAll", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		called := false
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			called = true
+			return nil
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		err := p.PlanTerraformAll(createTestBlueprint())
+
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if !called {
+			t.Error("expected TerraformStack.PlanAll to be called")
+		}
+	})
+}
+
+func TestProvisioner_PlanTerraformComponentSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		_, err := p.PlanTerraformComponentSummary(nil, "cluster")
+
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("PlansOnlyRequestedComponent", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		called := []string{}
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) terraforminfra.TerraformComponentPlan {
+			called = append(called, componentID)
+			return terraforminfra.TerraformComponentPlan{ComponentID: componentID, Add: 2}
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		result, err := p.PlanTerraformComponentSummary(createTestBlueprint(), "cluster")
+
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if result.ComponentID != "cluster" || result.Add != 2 {
+			t.Errorf("unexpected result: %+v", result)
+		}
+		if len(called) != 1 || called[0] != "cluster" {
+			t.Errorf("expected exactly one call for cluster, got %v", called)
+		}
+	})
+}
+
+func TestProvisioner_PlanKustomizeComponentSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		_, err := p.PlanKustomizeComponentSummary(nil, "flux-system")
+
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("PlansOnlyRequestedKustomization", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		called := []string{}
+		mocks.FluxStack.PlanComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, name string) fluxinfra.KustomizePlan {
+			called = append(called, name)
+			return fluxinfra.KustomizePlan{Name: name, Added: 5, IsNew: true}
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		result, err := p.PlanKustomizeComponentSummary(createTestBlueprint(), "flux-system")
+
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if result.Name != "flux-system" || result.Added != 5 {
+			t.Errorf("unexpected result: %+v", result)
+		}
+		if len(called) != 1 || called[0] != "flux-system" {
+			t.Errorf("expected exactly one call for flux-system, got %v", called)
+		}
+	})
+}
+
 func TestProvisioner_PlanTerraformSummary(t *testing.T) {
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)

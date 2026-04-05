@@ -29,8 +29,12 @@ type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	Down(blueprint *blueprintv1alpha1.Blueprint) error
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
 
 // TerraformComponentPlan holds the plan result for a single Terraform component.
@@ -259,6 +263,176 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	return nil
 }
 
+// PlanAll runs terraform init and plan for every enabled component in the blueprint,
+// streaming output directly to stdout. It stops on the first error rather than
+// continuing, so the user sees the failure in context. Returns an error if blueprint
+// is nil or any component's init or plan step fails.
+func (s *TerraformStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("error getting project root: project root is empty")
+	}
+
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+
+	for i := range components {
+		component := &components[i]
+
+		currentDir, err := s.shims.Getwd()
+		if err != nil {
+			return fmt.Errorf("error getting current directory: %w", err)
+		}
+
+		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+			return fmt.Errorf("directory %s does not exist", component.FullPath)
+		}
+
+		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+		if err != nil {
+			return err
+		}
+
+		cleanup := func() {
+			_ = s.shims.Chdir(currentDir)
+			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+			if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+				_ = s.shims.Remove(backendOverridePath)
+			}
+		}
+
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+			cleanup()
+			return err
+		}
+
+		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+		planArgs = append(planArgs, terraformArgs.PlanArgs...)
+		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
+			fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path),
+			terraformCommand, planEnv, planArgs...,
+		)
+		cleanup()
+		if err != nil {
+			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		}
+		if planOutput != "" {
+			fmt.Fprint(os.Stdout, planOutput)
+		}
+	}
+
+	return nil
+}
+
+// PlanAllJSON runs terraform init and plan -json for every enabled component in the blueprint,
+// streaming the machine-readable JSON lines output directly to stdout. It stops on the first
+// error rather than continuing. Returns an error if blueprint is nil or any component fails.
+func (s *TerraformStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("error getting project root: project root is empty")
+	}
+
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+
+	for i := range components {
+		component := &components[i]
+
+		currentDir, err := s.shims.Getwd()
+		if err != nil {
+			return fmt.Errorf("error getting current directory: %w", err)
+		}
+
+		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+			return fmt.Errorf("directory %s does not exist", component.FullPath)
+		}
+
+		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+		if err != nil {
+			return err
+		}
+
+		cleanup := func() {
+			_ = s.shims.Chdir(currentDir)
+			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+			if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+				_ = s.shims.Remove(backendOverridePath)
+			}
+		}
+
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+			cleanup()
+			return err
+		}
+
+		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
+		planArgs = append(planArgs, terraformArgs.PlanArgs...)
+		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
+			fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path),
+			terraformCommand, planEnv, planArgs...,
+		)
+		cleanup()
+		if err != nil {
+			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		}
+		if planOutput != "" {
+			fmt.Fprint(os.Stdout, planOutput)
+		}
+	}
+
+	return nil
+}
+
+// PlanJSON runs terraform init and plan -json for a single component identified by componentID,
+// streaming the machine-readable JSON lines output directly to stdout. Returns an error if
+// the component is not found, the directory does not exist, or any terraform operation fails.
+func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if componentID == "" {
+		return fmt.Errorf("component ID not provided")
+	}
+
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+		return err
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
+	planArgs = append(planArgs, terraformArgs.PlanArgs...)
+	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
+		fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path),
+		terraformCommand, planEnv, planArgs...,
+	)
+	if err != nil {
+		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+	}
+	if planOutput != "" {
+		fmt.Fprint(os.Stdout, planOutput)
+	}
+
+	return nil
+}
+
 // Plan runs terraform init and plan for a single component identified by componentID.
 // It resolves the component from the blueprint, sets up the environment, and executes
 // init then plan without applying any changes. Returns an error if the component is not
@@ -373,6 +547,85 @@ func (s *TerraformStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []T
 	}
 
 	return results
+}
+
+// PlanComponentSummary runs terraform init and plan for a single component and returns its
+// structured plan result. It resolves only the requested component from the blueprint,
+// so no other components are initialised or planned. If the component is not found, a
+// result with a non-nil Err is returned rather than an error, consistent with PlanSummary.
+func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
+	result := TerraformComponentPlan{ComponentID: componentID}
+
+	if blueprint == nil {
+		result.Err = fmt.Errorf("blueprint not provided")
+		return result
+	}
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		result.Err = fmt.Errorf("error getting project root: project root is empty")
+		return result
+	}
+
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+	var component *blueprintv1alpha1.TerraformComponent
+	for i := range components {
+		if components[i].GetID() == componentID {
+			component = &components[i]
+			break
+		}
+	}
+	if component == nil {
+		result.Err = fmt.Errorf("terraform component %q not found in blueprint", componentID)
+		return result
+	}
+
+	currentDir, err := s.shims.Getwd()
+	if err != nil {
+		result.Err = fmt.Errorf("error getting current directory: %w", err)
+		return result
+	}
+
+	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+		result.Err = fmt.Errorf("directory %s does not exist", component.FullPath)
+		return result
+	}
+
+	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+
+	cleanup := func() {
+		_ = s.shims.Chdir(currentDir)
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+			_ = s.shims.Remove(backendOverridePath)
+		}
+	}
+	defer cleanup()
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+		result.Err = err
+		return result
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-no-color"}
+	planArgs = append(planArgs, terraformArgs.PlanArgs...)
+	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
+		fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path),
+		terraformCommand, planEnv, planArgs...,
+	)
+	if err != nil {
+		result.Err = fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		return result
+	}
+
+	result.Add, result.Change, result.Destroy, result.NoChanges = parseTerraformPlanCounts(planOutput)
+	return result
 }
 
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.

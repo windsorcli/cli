@@ -174,11 +174,13 @@ func TestPlanTerraformCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessNoArgPlansSummary", func(t *testing.T) {
+	t.Run("SuccessNoArgStreamsAllComponents", func(t *testing.T) {
 		// Given a plan terraform command with no arguments
 		mocks := setupPlanTest(t)
-		mocks.TerraformStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Add: 2}}
+		planAllCalled := false
+		mocks.TerraformStack.PlanAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			planAllCalled = true
+			return nil
 		}
 		proj := newPlanProject(mocks)
 
@@ -188,35 +190,39 @@ func TestPlanTerraformCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error occurs and summary is printed
+		// Then PlanAll is called (streaming), not PlanSummary
 		if err != nil {
-			t.Errorf("expected no error when no arg given, got %v", err)
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !planAllCalled {
+			t.Error("expected PlanAll to be called for no-arg non-JSON path")
 		}
 	})
 
-	t.Run("SuccessJSONWithSpecificComponent", func(t *testing.T) {
-		// Given a plan terraform command with --json and a specific component
+	t.Run("SuccessSummaryFlag", func(t *testing.T) {
+		// Given a plan terraform command with --summary
 		mocks := setupPlanTest(t)
+		summaryCalled := false
 		mocks.TerraformStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			return []terraforminfra.TerraformComponentPlan{
-				{ComponentID: "cluster", Add: 3},
-				{ComponentID: "networking", NoChanges: true},
-			}
+			summaryCalled = true
+			return nil
 		}
 		proj := newPlanProject(mocks)
 
-		// When executing with --json and a specific component
+		// When executing with --summary
 		cmd := createTestPlanTerraformCmd()
-		planJSON = true
-		t.Cleanup(func() { planJSON = false })
+		planSummary = true
+		t.Cleanup(func() { planSummary = false })
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error occurs and only the named component appears in output
+		// Then PlanSummary is called, not PlanAll
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
+		}
+		if !summaryCalled {
+			t.Error("expected PlanSummary to be called with --summary flag")
 		}
 	})
 
@@ -294,285 +300,6 @@ func TestPlanTerraformCmd(t *testing.T) {
 	})
 }
 
-func TestPlanCmd(t *testing.T) {
-	createTestCmd := func() *cobra.Command {
-		cmd := &cobra.Command{
-			Use:          "plan",
-			RunE:         planCmd.RunE,
-			SilenceUsage: true,
-			SilenceErrors: true,
-		}
-		planCmd.Flags().VisitAll(func(flag *pflag.Flag) { cmd.Flags().AddFlag(flag) })
-		cmd.SetOut(io.Discard)
-		cmd.SetErr(io.Discard)
-		return cmd
-	}
-
-	suppressProcessStdout(t)
-	suppressProcessStderr(t)
-
-	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured project with terraform and flux stacks
-		mocks := setupPlanTest(t)
-		fluxStack := fluxinfra.NewMockStack()
-		comp := composer.NewComposer(mocks.Runtime)
-		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
-			TerraformStack: mocks.TerraformStack,
-			FluxStack:      fluxStack,
-		})
-		proj := project.NewProject("", &project.Project{
-			Runtime:     mocks.Runtime,
-			Composer:    comp,
-			Provisioner: mockProvisioner,
-		})
-
-		// When the plan command is executed without subcommand
-		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error is returned
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
-		// Given an untrusted working directory
-		mocks := setupPlanTest(t)
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("not in trusted directory")
-		}
-		fluxStack := fluxinfra.NewMockStack()
-		proj := newKustomizePlanProject(mocks, fluxStack)
-
-		// When the plan command is executed
-		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then a trusted directory error is returned
-		if err == nil {
-			t.Error("expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "not in a trusted directory") {
-			t.Errorf("expected trusted directory error, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorLoadingConfig", func(t *testing.T) {
-		// Given a config handler that fails to load
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.LoadConfigFunc = func() error {
-			return fmt.Errorf("config load failed")
-		}
-		opts := &SetupOptions{ConfigHandler: mockConfigHandler}
-		mocks := setupPlanTest(t, opts)
-		mocks.Runtime.ConfigHandler = mockConfigHandler
-		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
-
-		// When the plan command is executed
-		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error is returned
-		if err == nil {
-			t.Error("expected error, got nil")
-		}
-	})
-
-	t.Run("SuccessComponentInTerraformOnly", func(t *testing.T) {
-		// Given a blueprint with a terraform component named "compute"
-		mocks := setupPlanTest(t)
-		mocks.TerraformStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, id string) error { return nil }
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata:            blueprintv1alpha1.Metadata{Name: "test"},
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "compute"}},
-		}
-		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return bp }
-		fluxStack := fluxinfra.NewMockStack()
-		comp := composer.NewComposer(mocks.Runtime)
-		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
-			TerraformStack: mocks.TerraformStack,
-			FluxStack:      fluxStack,
-		})
-		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp, Provisioner: mockProvisioner})
-
-		// When the plan command is executed with a component name
-		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"compute"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error is returned
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SuccessComponentInKustomizeOnly", func(t *testing.T) {
-		// Given a blueprint with a kustomization named "csi"
-		mocks := setupPlanTest(t)
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "csi"}},
-		}
-		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return bp }
-		fluxStack := fluxinfra.NewMockStack()
-		fluxStack.PlanFunc = func(b *blueprintv1alpha1.Blueprint, id string) error { return nil }
-		comp := composer.NewComposer(mocks.Runtime)
-		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
-			TerraformStack: mocks.TerraformStack,
-			FluxStack:      fluxStack,
-		})
-		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp, Provisioner: mockProvisioner})
-
-		// When the plan command is executed with a kustomization name
-		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"csi"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error is returned
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-	})
-
-	t.Run("ErrorComponentNotFound", func(t *testing.T) {
-		// Given a blueprint with no component named "nonexistent"
-		mocks := setupPlanTest(t)
-		bp := &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "test"}}
-		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return bp }
-		fluxStack := fluxinfra.NewMockStack()
-		comp := composer.NewComposer(mocks.Runtime)
-		comp.BlueprintHandler = mocks.BlueprintHandler
-		mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
-			TerraformStack: mocks.TerraformStack,
-			FluxStack:      fluxStack,
-		})
-		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp, Provisioner: mockProvisioner})
-
-		// When the plan command is executed with an unknown component
-		cmd := createTestCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"nonexistent"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then an error mentioning the component name is returned
-		if err == nil {
-			t.Error("expected error for unknown component, got nil")
-		}
-		if !strings.Contains(err.Error(), "nonexistent") {
-			t.Errorf("expected component name in error, got: %v", err)
-		}
-	})
-}
-
-func TestPrintPlanSummary(t *testing.T) {
-	t.Run("PrintsTerraformAndKustomizeRows", func(t *testing.T) {
-		// Given terraform and kustomize results
-		tfPlans := []terraforminfra.TerraformComponentPlan{
-			{ComponentID: "cluster", Add: 5, Change: 1, Destroy: 0},
-			{ComponentID: "networking", NoChanges: true},
-		}
-		k8sPlans := []fluxinfra.KustomizePlan{
-			{Name: "flux-system", Added: 12, IsNew: true},
-			{Name: "monitoring", Added: 3, Removed: 1},
-		}
-		var buf strings.Builder
-
-		// When printPlanSummary is called
-		printPlanSummary(&buf, tfPlans, k8sPlans, nil, false)
-
-		output := buf.String()
-
-		// Then key content appears in output
-		if !strings.Contains(output, "Terraform") {
-			t.Errorf("expected Terraform section header, got: %s", output)
-		}
-		if !strings.Contains(output, "Kustomize") {
-			t.Errorf("expected Kustomize section header, got: %s", output)
-		}
-		if !strings.Contains(output, "cluster") {
-			t.Errorf("expected cluster row, got: %s", output)
-		}
-		if !strings.Contains(output, "flux-system") {
-			t.Errorf("expected flux-system row, got: %s", output)
-		}
-		if !strings.Contains(output, "(no changes)") {
-			t.Errorf("expected (no changes) for networking, got: %s", output)
-		}
-		if !strings.Contains(output, "(new)") {
-			t.Errorf("expected (new) label for flux-system, got: %s", output)
-		}
-	})
-
-	t.Run("PrintsNoBlueprintMessageForEmptySlices", func(t *testing.T) {
-		// Given empty slices
-		var buf strings.Builder
-
-		// When printPlanSummary is called with no components
-		printPlanSummary(&buf, nil, nil, nil, false)
-
-		// Then a helpful message is printed
-		if !strings.Contains(buf.String(), "no components") {
-			t.Errorf("expected 'no components' message, got: %s", buf.String())
-		}
-	})
-
-	t.Run("ShowsErrorRowForFailedComponents", func(t *testing.T) {
-		// Given a terraform component with an error
-		tfPlans := []terraforminfra.TerraformComponentPlan{
-			{ComponentID: "broken", Err: fmt.Errorf("backend unavailable")},
-		}
-		var buf strings.Builder
-
-		// When printPlanSummary is called
-		printPlanSummary(&buf, tfPlans, nil, nil, false)
-
-		// Then the error text appears in the output
-		if !strings.Contains(buf.String(), "backend unavailable") {
-			t.Errorf("expected error text, got: %s", buf.String())
-		}
-	})
-
-	t.Run("DoesNotDuplicateFirstErrorLine", func(t *testing.T) {
-		// Given a component with a multi-line error
-		tfPlans := []terraforminfra.TerraformComponentPlan{
-			{ComponentID: "broken", Err: fmt.Errorf("first line\nsecond line\nthird line")},
-		}
-		var buf strings.Builder
-
-		// When printPlanSummary is called
-		printPlanSummary(&buf, tfPlans, nil, nil, true)
-
-		output := buf.String()
-
-		// Then the first line appears exactly once (in the summary row)
-		if count := strings.Count(output, "first line"); count != 1 {
-			t.Errorf("expected 'first line' to appear exactly once, got %d occurrences in:\n%s", count, output)
-		}
-		// And subsequent lines appear in the detail section
-		if !strings.Contains(output, "second line") {
-			t.Errorf("expected 'second line' in output, got:\n%s", output)
-		}
-		if !strings.Contains(output, "third line") {
-			t.Errorf("expected 'third line' in output, got:\n%s", output)
-		}
-	})
-}
-
 func TestPlanKustomizeCmd(t *testing.T) {
 	createTestCmd := func(use string) *cobra.Command {
 		src := planKustomizeCmd
@@ -612,6 +339,25 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("Success_AllAlias", func(t *testing.T) {
+		// Given a plan kustomize command with "all" as the component ID
+		mocks := setupPlanTest(t)
+		fluxStack := fluxinfra.NewMockStack()
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When executing with "all"
+		cmd := createTestCmd("kustomize")
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"all"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
 	t.Run("Success_K8sAlias", func(t *testing.T) {
 		// Given the command is invoked via the k8s alias
 		mocks := setupPlanTest(t)
@@ -631,12 +377,14 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessNoArgPlansSummary", func(t *testing.T) {
+	t.Run("SuccessNoArgStreamsAllKustomizations", func(t *testing.T) {
 		// Given a plan kustomize command with no arguments
 		mocks := setupPlanTest(t)
 		fluxStack := fluxinfra.NewMockStack()
-		fluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
-			return []fluxinfra.KustomizePlan{{Name: "flux-system", IsNew: true, Added: 3}}, nil
+		planCalledWith := ""
+		fluxStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, id string) error {
+			planCalledWith = id
+			return nil
 		}
 		proj := newKustomizePlanProject(mocks, fluxStack)
 
@@ -646,36 +394,40 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error occurs and summary is printed
+		// Then Plan("all") is called (streaming), not PlanSummary
 		if err != nil {
-			t.Errorf("expected no error when no arg given, got %v", err)
+			t.Errorf("expected no error, got %v", err)
+		}
+		if planCalledWith != "all" {
+			t.Errorf("expected Plan to be called with 'all', got %q", planCalledWith)
 		}
 	})
 
-	t.Run("SuccessJSONWithSpecificComponent", func(t *testing.T) {
-		// Given a plan kustomize command with --json and a specific component
+	t.Run("SuccessSummaryFlag", func(t *testing.T) {
+		// Given a plan kustomize command with --summary
 		mocks := setupPlanTest(t)
 		fluxStack := fluxinfra.NewMockStack()
+		summaryCalled := false
 		fluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
-			return []fluxinfra.KustomizePlan{
-				{Name: "flux-system", IsNew: true, Added: 5},
-				{Name: "monitoring", Added: 2, Removed: 1},
-			}, nil
+			summaryCalled = true
+			return nil, nil
 		}
 		proj := newKustomizePlanProject(mocks, fluxStack)
 
-		// When executing with --json and a specific component
+		// When executing with --summary
 		cmd := createTestCmd("kustomize")
-		planJSON = true
-		t.Cleanup(func() { planJSON = false })
+		planSummary = true
+		t.Cleanup(func() { planSummary = false })
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"flux-system"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error occurs and only the named component appears in output
+		// Then PlanSummary is called, not Plan("all")
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
+		}
+		if !summaryCalled {
+			t.Error("expected PlanSummary to be called with --summary flag")
 		}
 	})
 
@@ -750,53 +502,6 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		// Then an error is returned
 		if err == nil {
 			t.Error("expected error, got nil")
-		}
-	})
-}
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-func TestBlueprintHasTerraformComponent(t *testing.T) {
-	falseVal := false
-
-	t.Run("ReturnsFalseForNilBlueprint", func(t *testing.T) {
-		if blueprintHasTerraformComponent(nil, "foo") {
-			t.Error("expected false for nil blueprint")
-		}
-	})
-
-	t.Run("ReturnsTrueForEnabledComponent", func(t *testing.T) {
-		bp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Name: "cluster"},
-			},
-		}
-		if !blueprintHasTerraformComponent(bp, "cluster") {
-			t.Error("expected true for enabled component")
-		}
-	})
-
-	t.Run("ReturnsFalseForDisabledComponent", func(t *testing.T) {
-		bp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Name: "cluster", Enabled: &blueprintv1alpha1.BoolExpression{Value: &falseVal}},
-			},
-		}
-		if blueprintHasTerraformComponent(bp, "cluster") {
-			t.Error("expected false for explicitly disabled component")
-		}
-	})
-
-	t.Run("ReturnsFalseForMissingComponent", func(t *testing.T) {
-		bp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Name: "cluster"},
-			},
-		}
-		if blueprintHasTerraformComponent(bp, "nonexistent") {
-			t.Error("expected false for missing component")
 		}
 	})
 }
