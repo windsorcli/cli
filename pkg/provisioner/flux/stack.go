@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -334,7 +335,7 @@ func (s *FluxStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
 		targets = append(targets, k)
 	}
 
-	return s.encodeKustomizationsJSON(blueprint, namespace, targets)
+	return s.encodeKustomizationsJSON(os.Stdout, blueprint, namespace, targets)
 }
 
 // PlanJSON runs kustomize build for a single kustomization identified by componentID,
@@ -358,7 +359,7 @@ func (s *FluxStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID
 
 	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
 
-	return s.encodeKustomizationsJSON(blueprint, namespace, []blueprintv1alpha1.Kustomization{k})
+	return s.encodeKustomizationsJSON(os.Stdout, blueprint, namespace, []blueprintv1alpha1.Kustomization{k})
 }
 
 // =============================================================================
@@ -655,8 +656,8 @@ func countKustomizeResources(yaml string) int {
 
 // encodeKustomizationsJSON builds each kustomization in targets via kustomize build,
 // converts the YAML output to JSON, and writes a JSON array of
-// {"kustomization": name, "resources": [...]} objects to stdout.
-func (s *FluxStack) encodeKustomizationsJSON(blueprint *blueprintv1alpha1.Blueprint, namespace string, targets []blueprintv1alpha1.Kustomization) error {
+// {"kustomization": name, "resources": [...]} objects to w.
+func (s *FluxStack) encodeKustomizationsJSON(w io.Writer, blueprint *blueprintv1alpha1.Blueprint, namespace string, targets []blueprintv1alpha1.Kustomization) error {
 	type entry struct {
 		Kustomization string            `json:"kustomization"`
 		Resources     []json.RawMessage `json:"resources"`
@@ -681,7 +682,7 @@ func (s *FluxStack) encodeKustomizationsJSON(blueprint *blueprintv1alpha1.Bluepr
 		results = append(results, entry{Kustomization: k.Name, Resources: resources})
 	}
 
-	enc := json.NewEncoder(os.Stdout)
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(results)
 }
