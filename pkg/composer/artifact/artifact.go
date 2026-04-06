@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/briandowns/spinner"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -23,6 +22,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The ArtifactBuilder creates tar.gz artifacts from prepared build directories.
@@ -376,39 +376,34 @@ func (a *ArtifactBuilder) Pull(ociRefs []string) (map[string]string, error) {
 	}
 
 	if len(artifactsToDownload) > 0 {
-		message := "📦 Loading OCI sources"
-		spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-		spin.Suffix = " " + message
-		spin.Start()
+		if err := tui.WithProgress("Loading OCI sources", func() error {
+			for _, ref := range artifactsToDownload {
+				registry, repository, tag, err := a.ParseOCIRef(ref)
+				if err != nil {
+					return fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
+				}
 
-		defer func() {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-		}()
+				cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
-		for _, ref := range artifactsToDownload {
-			registry, repository, tag, err := a.ParseOCIRef(ref)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse OCI reference %s: %w", ref, err)
+				artifactData, err := a.downloadOCIArtifact(registry, repository, tag)
+				if err != nil {
+					return fmt.Errorf("failed to download OCI artifact %s: %w", ref, err)
+				}
+
+				cacheDir, err := a.GetCacheDir(registry, repository, tag)
+				if err != nil {
+					return fmt.Errorf("failed to get cache directory: %w", err)
+				}
+
+				if err := a.extractArtifactToCache(artifactData, cacheDir); err != nil {
+					return fmt.Errorf("failed to extract artifact: %w", err)
+				}
+
+				ociArtifacts[cacheKey] = cacheDir
 			}
-
-			cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-
-			artifactData, err := a.downloadOCIArtifact(registry, repository, tag)
-			if err != nil {
-				return nil, fmt.Errorf("failed to download OCI artifact %s: %w", ref, err)
-			}
-
-			cacheDir, err := a.GetCacheDir(registry, repository, tag)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get cache directory: %w", err)
-			}
-
-			if err := a.extractArtifactToCache(artifactData, cacheDir); err != nil {
-				return nil, fmt.Errorf("failed to extract artifact: %w", err)
-			}
-
-			ociArtifacts[cacheKey] = cacheDir
+			return nil
+		}); err != nil {
+			return nil, err
 		}
 	}
 

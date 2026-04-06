@@ -57,9 +57,9 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 Network configuration may require sudo password\n")
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
 	output, err = n.shell.ExecSudo(
-		"🔐 Adding host route",
+		"Adding host route",
 		"route",
 		"-nv",
 		"add",
@@ -95,11 +95,11 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 DNS configuration may require sudo password\n")
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
 
 	if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
 		if _, err := n.shell.ExecSudo(
-			"🔐 Creating resolver directory",
+			"Creating resolver directory",
 			"mkdir",
 			"-p",
 			resolverDir,
@@ -114,7 +114,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	if _, err := n.shell.ExecSudo(
-		fmt.Sprintf("🔐 Configuring DNS resolver at %s", resolverFile),
+		fmt.Sprintf("Configuring DNS resolver at %s", resolverFile),
 		"mv",
 		tempResolverFile,
 		resolverFile,
@@ -122,7 +122,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("Error moving resolver file: %w", err)
 	}
 	if _, err := n.shell.ExecSudo(
-		"🔐 Setting resolver file readable for next-run check",
+		"Setting resolver file readable for next-run check",
 		"chmod",
 		"0644",
 		resolverFile,
@@ -131,7 +131,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	if _, err := n.shell.ExecSudo(
-		"🔐 Flushing DNS cache",
+		"Flushing DNS cache",
 		"dscacheutil",
 		"-flushcache",
 	); err != nil {
@@ -139,7 +139,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	if _, err := n.shell.ExecSudo(
-		"🔐 Restarting mDNSResponder",
+		"Restarting mDNSResponder",
 		"killall",
 		"-HUP",
 		"mDNSResponder",

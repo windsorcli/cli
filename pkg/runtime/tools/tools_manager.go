@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/briandowns/spinner"
 	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -71,64 +70,44 @@ func (t *BaseToolsManager) Install() error {
 
 // Check verifies required tools are installed.
 func (t *BaseToolsManager) Check() error {
-	message := "🛠️ Checking tool versions"
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-	defer spin.Stop()
-
 	rt := t.configHandler.GetString("workstation.runtime")
 	dockerEnabled := t.configHandler.GetBool("docker.enabled", false)
 	needsDocker := dockerEnabled || rt == "colima" || rt == "docker-desktop" || rt == "docker"
 	if needsDocker {
 		if err := t.checkDocker(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("docker check failed: %v", err)
 		}
 	}
 
 	if t.configHandler.GetBool("terraform.enabled") {
 		if err := t.checkTerraform(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("terraform check failed: %v", err)
 		}
 	}
 
 	if rt == "colima" {
 		if err := t.checkColima(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("colima check failed: %v", err)
 		}
 	}
 
 	if vaults := t.configHandler.Get("secrets.onepassword.vaults"); vaults != nil {
 		if err := t.checkOnePassword(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("1password check failed: %v", err)
 		}
 	}
 
 	if t.configHandler.GetBool("secrets.sops.enabled", false) {
 		if err := t.checkSops(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("sops check failed: %v", err)
 		}
 	}
 
 	if t.configHandler.GetBool("azure.enabled") {
 		if err := t.checkKubelogin(); err != nil {
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 			return fmt.Errorf("kubelogin check failed: %v", err)
 		}
 	}
-	spin.Stop()
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	return nil
 }
 

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/briandowns/spinner"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The Shell package is a unified interface for shell operations across different platforms.
@@ -297,9 +297,7 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
+	tui.Start(message)
 
 	go func() {
 		defer wg.Done()
@@ -342,7 +340,6 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 	}()
 
 	wg.Wait()
-	spin.Stop()
 
 	var firstErr error
 	for range [2]struct{}{} {
@@ -355,6 +352,7 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 	cmdErr := s.shims.CmdWait(cmd)
 
 	if firstErr != nil || cmdErr != nil {
+		tui.Fail()
 		fmt.Fprintf(os.Stderr, "\n[ExecProgress ERROR]\nCommand: %s %v\nStdout:\n%s\nStderr:\n%s\nError: %v\n", command, s.scrubString(fmt.Sprintf("%v", args)), s.scrubString(stdoutBuf.String()), s.scrubString(stderrBuf.String()), firstErr)
 		if cmdErr != nil {
 			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w", cmdErr)
@@ -362,7 +360,7 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 		return s.scrubString(stdoutBuf.String()), firstErr
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
+	tui.Done()
 	return s.scrubString(stdoutBuf.String()), nil
 }
 

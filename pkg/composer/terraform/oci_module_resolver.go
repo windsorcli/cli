@@ -2,12 +2,10 @@ package terraform
 
 import (
 	"fmt"
-	"os"
 	"strings"
-	"time"
 
-	"github.com/briandowns/spinner"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/tui"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -147,45 +145,39 @@ func (h *OCIModuleResolver) processComponent(component blueprintv1alpha1.Terrafo
 // to extract the module path from the cached artifact. Returns the full path to the extracted module
 // or an error if extraction fails.
 func (h *OCIModuleResolver) extractOCIModule(resolvedSource, componentPath string, ociArtifacts map[string]string) (string, error) {
-	message := fmt.Sprintf("📥 Loading component %s", componentPath)
+	var extractedPath string
+	if err := tui.WithProgress(fmt.Sprintf("Loading component %s", componentPath), func() error {
+		if !strings.HasPrefix(resolvedSource, "oci://") {
+			return fmt.Errorf("invalid resolved OCI source format: %s", resolvedSource)
+		}
 
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
+		pathSeparatorIdx := strings.Index(resolvedSource[6:], "//")
+		if pathSeparatorIdx == -1 {
+			return fmt.Errorf("invalid resolved OCI source format, missing path separator: %s", resolvedSource)
+		}
 
-	defer func() {
-		spin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
-	}()
+		baseURL := resolvedSource[:6+pathSeparatorIdx]      // oci://registry/repo:tag
+		modulePath := resolvedSource[6+pathSeparatorIdx+2:] // terraform/path/to/module
 
-	if !strings.HasPrefix(resolvedSource, "oci://") {
-		return "", fmt.Errorf("invalid resolved OCI source format: %s", resolvedSource)
+		registry, repository, tag, err := h.artifactBuilder.ParseOCIRef(baseURL)
+		if err != nil {
+			return fmt.Errorf("failed to parse OCI reference: %w", err)
+		}
+
+		cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
+		_, exists := ociArtifacts[cacheKey]
+		if !exists {
+			return fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
+		}
+
+		extractedPath, err = h.artifactBuilder.ExtractModulePath(registry, repository, tag, modulePath)
+		if err != nil {
+			return fmt.Errorf("failed to extract module path: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return "", err
 	}
-
-	pathSeparatorIdx := strings.Index(resolvedSource[6:], "//")
-	if pathSeparatorIdx == -1 {
-		return "", fmt.Errorf("invalid resolved OCI source format, missing path separator: %s", resolvedSource)
-	}
-
-	baseURL := resolvedSource[:6+pathSeparatorIdx]      // oci://registry/repo:tag
-	modulePath := resolvedSource[6+pathSeparatorIdx+2:] // terraform/path/to/module
-
-	registry, repository, tag, err := h.artifactBuilder.ParseOCIRef(baseURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse OCI reference: %w", err)
-	}
-
-	cacheKey := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
-	_, exists := ociArtifacts[cacheKey]
-	if !exists {
-		return "", fmt.Errorf("OCI artifact %s not found in cache", cacheKey)
-	}
-
-	extractedPath, err := h.artifactBuilder.ExtractModulePath(registry, repository, tag, modulePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract module path: %w", err)
-	}
-
 	return extractedPath, nil
 }
 
