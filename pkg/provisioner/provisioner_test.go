@@ -748,6 +748,224 @@ func TestProvisioner_Apply(t *testing.T) {
 	})
 }
 
+func TestProvisioner_ApplyKustomize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a provisioner with a kubernetes manager that applies successfully
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When ApplyKustomize is called with a valid kustomization name
+		err := provisioner.ApplyKustomize(createTestBlueprint(), "test-kustomization")
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner with no blueprint
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		// When ApplyKustomize is called with a nil blueprint
+		err := provisioner.ApplyKustomize(nil, "test-kustomization")
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
+		// Given a provisioner with no kubernetes manager
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		provisioner.KubernetesManager = nil
+
+		// When ApplyKustomize is called
+		err := provisioner.ApplyKustomize(createTestBlueprint(), "test-kustomization")
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error for nil kubernetes manager")
+		}
+		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorKustomizationNotFound", func(t *testing.T) {
+		// Given a provisioner and a blueprint that does not contain the requested kustomization
+		mocks := setupProvisionerMocks(t)
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When ApplyKustomize is called with a name not in the blueprint
+		err := provisioner.ApplyKustomize(createTestBlueprint(), "nonexistent")
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error for missing kustomization")
+		}
+		if !strings.Contains(err.Error(), "not found in blueprint") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorDestroyOnly", func(t *testing.T) {
+		// Given a blueprint whose kustomization is marked destroyOnly
+		mocks := setupProvisionerMocks(t)
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		destroyOnly := true
+		bp := createTestBlueprint()
+		bp.Kustomizations[0].DestroyOnly = &destroyOnly
+
+		// When ApplyKustomize is called with that kustomization name
+		err := provisioner.ApplyKustomize(bp, "test-kustomization")
+
+		// Then an error is returned indicating it cannot be applied
+		if err == nil {
+			t.Error("Expected error for destroyOnly kustomization")
+		}
+		if !strings.Contains(err.Error(), "destroy-only") {
+			t.Errorf("Expected destroy-only error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorApplyBlueprintFails", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager returns an error
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("apply blueprint failed")
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When ApplyKustomize is called
+		err := provisioner.ApplyKustomize(createTestBlueprint(), "test-kustomization")
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error for apply blueprint failure")
+		}
+		if !strings.Contains(err.Error(), "failed to apply kustomization") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("FiltersToSingleKustomization", func(t *testing.T) {
+		// Given a provisioner and a blueprint with multiple kustomizations
+		mocks := setupProvisionerMocks(t)
+		var appliedBlueprint *blueprintv1alpha1.Blueprint
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			appliedBlueprint = bp
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When ApplyKustomize is called with a specific kustomization name
+		err := provisioner.ApplyKustomize(createTestBlueprint(), "test-kustomization")
+
+		// Then only the named kustomization is passed to ApplyBlueprint
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if len(appliedBlueprint.Kustomizations) != 1 {
+			t.Errorf("Expected 1 kustomization in filtered blueprint, got %d", len(appliedBlueprint.Kustomizations))
+		}
+		if appliedBlueprint.Kustomizations[0].Name != "test-kustomization" {
+			t.Errorf("Expected kustomization name 'test-kustomization', got %q", appliedBlueprint.Kustomizations[0].Name)
+		}
+	})
+}
+
+func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		// Given a provisioner with a kubernetes manager that applies successfully
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When ApplyKustomizeAll is called
+		err := provisioner.ApplyKustomizeAll(createTestBlueprint())
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a provisioner with no blueprint
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		// When ApplyKustomizeAll is called with a nil blueprint
+		err := provisioner.ApplyKustomizeAll(nil)
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
+		// Given a provisioner with no kubernetes manager
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		provisioner.KubernetesManager = nil
+
+		// When ApplyKustomizeAll is called
+		err := provisioner.ApplyKustomizeAll(createTestBlueprint())
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error for nil kubernetes manager")
+		}
+		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorApplyBlueprintFails", func(t *testing.T) {
+		// Given a provisioner whose kubernetes manager returns an error
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("apply blueprint failed")
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When ApplyKustomizeAll is called
+		err := provisioner.ApplyKustomizeAll(createTestBlueprint())
+
+		// Then an error is returned
+		if err == nil {
+			t.Error("Expected error for apply blueprint failure")
+		}
+		if !strings.Contains(err.Error(), "failed to apply blueprint") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}
+
 func TestProvisioner_Install(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
