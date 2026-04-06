@@ -57,7 +57,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
+	fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
 	output, err = n.shell.ExecSudo(
 		"Adding host route",
 		"route",
@@ -95,7 +95,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
+	fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
 
 	if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
 		if _, err := n.shell.ExecSudo(
