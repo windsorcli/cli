@@ -345,7 +345,7 @@ func TestStack_Up(t *testing.T) {
 
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && strings.HasPrefix(args[0], "-chdir=") && len(args) > 1 && args[1] == "init" {
 				return "", fmt.Errorf("mock error running terraform init")
 			}
@@ -362,7 +362,7 @@ func TestStack_Up(t *testing.T) {
 
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && strings.HasPrefix(args[0], "-chdir=") && len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("mock error running terraform plan")
 			}
@@ -907,7 +907,7 @@ func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 	t.Run("ParsesPlanCountsForNamedComponent", func(t *testing.T) {
 		// Given a shell that returns a plan output with counts
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) > 1 && args[1] == "plan" {
 				return "Plan: 2 to add, 1 to change, 0 to destroy.\n", nil
 			}
@@ -1196,7 +1196,7 @@ func TestStack_Plan(t *testing.T) {
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
 		// Given a stack whose shell fails on terraform init
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "init" {
 				return "", fmt.Errorf("mock error running terraform init")
 			}
@@ -1216,7 +1216,7 @@ func TestStack_Plan(t *testing.T) {
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
 		// Given a stack whose shell fails on terraform plan
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("mock error running terraform plan")
 			}
@@ -1309,10 +1309,10 @@ func TestStack_PlanAll(t *testing.T) {
 	t.Run("StreamsEveryComponent", func(t *testing.T) {
 		// Given a stack with multiple components in the blueprint
 		stack, mocks := setup(t)
-		var plannedComponents []string
-		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
-			if len(args) > 1 && args[1] == "plan" {
-				plannedComponents = append(plannedComponents, message)
+		var planCalls int
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
+				planCalls++
 			}
 			return "", nil
 		}
@@ -1330,8 +1330,8 @@ func TestStack_PlanAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(plannedComponents) != 2 {
-			t.Errorf("expected 2 plan calls, got %d", len(plannedComponents))
+		if planCalls != 2 {
+			t.Errorf("expected 2 plan calls, got %d", planCalls)
 		}
 	})
 }
@@ -1467,7 +1467,7 @@ func TestStack_Apply(t *testing.T) {
 	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
 		// Given a stack whose shell fails on terraform init
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "init" {
 				return "", fmt.Errorf("mock error running terraform init")
 			}
@@ -1487,7 +1487,7 @@ func TestStack_Apply(t *testing.T) {
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
 		// Given a stack whose shell fails on terraform plan
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("mock error running terraform plan")
 			}
@@ -1599,7 +1599,7 @@ func TestStack_PlanSummary(t *testing.T) {
 	t.Run("ParsesAddChangeDestroyFromPlanOutput", func(t *testing.T) {
 		// Given a shell that returns a terraform plan line with counts
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) > 1 && args[1] == "plan" {
 				return "Plan: 5 to add, 3 to change, 1 to destroy.\n", nil
 			}
@@ -1628,7 +1628,7 @@ func TestStack_PlanSummary(t *testing.T) {
 	t.Run("SetsNoChangesWhenTerraformReportsNoDiff", func(t *testing.T) {
 		// Given a shell that returns a "No changes." line
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) > 1 && args[1] == "plan" {
 				return "No changes. Infrastructure is up-to-date.\n", nil
 			}
@@ -1678,7 +1678,7 @@ func TestStack_PlanSummary(t *testing.T) {
 	t.Run("RecordsErrorWhenTerraformInitFails", func(t *testing.T) {
 		// Given a shell that returns an error on terraform init
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) > 1 && args[1] == "init" {
 				return "", fmt.Errorf("init failed")
 			}
@@ -1700,7 +1700,7 @@ func TestStack_PlanSummary(t *testing.T) {
 	t.Run("RecordsErrorWhenTerraformPlanFails", func(t *testing.T) {
 		// Given a shell that returns an error on terraform plan
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("plan failed")
 			}

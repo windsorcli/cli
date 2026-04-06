@@ -147,7 +147,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 			initArgs = append(initArgs, terraformArgs.InitArgs...)
 			initEnv := selectTerraformCommandEnv(terraformVars, false)
-			if _, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Initializing Terraform in %s", component.Path), terraformCommand, initEnv, initArgs...); err != nil {
+			if _, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...); err != nil {
 				return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 			}
 
@@ -159,7 +159,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 			planArgs = append(planArgs, terraformArgs.PlanArgs...)
 			planEnv := selectTerraformCommandEnv(terraformVars, true)
-			if _, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Planning Terraform changes in %s", component.Path), terraformCommand, planEnv, planArgs...); err != nil {
+			if _, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
 				return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 			}
 
@@ -309,10 +309,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 			}
 			planArgs = append(planArgs, terraformArgs.PlanArgs...)
 			planEnv := selectTerraformCommandEnv(terraformVars, true)
-			planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
-				fmt.Sprintf("Planning Terraform changes in %s", component.Path),
-				terraformCommand, planEnv, planArgs...,
-			)
+			planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 			cleanup()
 			if err != nil {
 				return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
@@ -369,7 +366,7 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
-	planOutput, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Planning Terraform changes in %s", component.Path), terraformCommand, planEnv, planArgs...)
+	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
 		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 	}
@@ -405,10 +402,7 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
-	planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
-		fmt.Sprintf("Planning Terraform changes in %s", component.Path),
-		terraformCommand, planEnv, planArgs...,
-	)
+	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
 		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 	}
@@ -501,7 +495,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
-	_, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Planning Terraform changes in %s", component.Path), terraformCommand, planEnv, planArgs...)
+	_, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
 		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 	}
@@ -630,10 +624,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
-	planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
-		fmt.Sprintf("Planning Terraform changes in %s", component.Path),
-		terraformCommand, planEnv, planArgs...,
-	)
+	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
 		result.Err = fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		return result
@@ -714,7 +705,7 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 	initArgs = append(initArgs, terraformArgs.InitArgs...)
 	initEnv := selectTerraformCommandEnv(terraformVars, false)
-	_, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Initializing Terraform in %s", component.Path), terraformCommand, initEnv, initArgs...)
+	_, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...)
 	if err != nil {
 		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 	}
