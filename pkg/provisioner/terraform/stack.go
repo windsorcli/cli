@@ -438,66 +438,9 @@ func (s *TerraformStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []T
 
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 	results := make([]TerraformComponentPlan, 0, len(components))
-
 	for i := range components {
-		component := &components[i]
-		result := TerraformComponentPlan{ComponentID: component.GetID()}
-
-		currentDir, err := s.shims.Getwd()
-		if err != nil {
-			result.Err = fmt.Errorf("error getting current directory: %w", err)
-			results = append(results, result)
-			continue
-		}
-
-		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-			result.Err = fmt.Errorf("directory %s does not exist", component.FullPath)
-			results = append(results, result)
-			continue
-		}
-
-		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
-		if err != nil {
-			result.Err = err
-			results = append(results, result)
-			continue
-		}
-
-		cleanup := func() {
-			_ = s.shims.Chdir(currentDir)
-			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-			if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
-				_ = s.shims.Remove(backendOverridePath)
-			}
-		}
-
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
-			result.Err = err
-			cleanup()
-			results = append(results, result)
-			continue
-		}
-
-		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-		// -no-color keeps the output machine-parseable for parseTerraformPlanCounts.
-		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-no-color"}
-		planArgs = append(planArgs, terraformArgs.PlanArgs...)
-		planEnv := selectTerraformCommandEnv(terraformVars, true)
-		planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
-			fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path),
-			terraformCommand, planEnv, planArgs...,
-		)
-		cleanup()
-		if err != nil {
-			result.Err = fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
-			results = append(results, result)
-			continue
-		}
-
-		result.Add, result.Change, result.Destroy, result.NoChanges = parseTerraformPlanCounts(planOutput)
-		results = append(results, result)
+		results = append(results, s.planOneTerraformSummary(&components[i]))
 	}
-
 	return results
 }
 
@@ -532,52 +475,7 @@ func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Bluep
 		return result
 	}
 
-	currentDir, err := s.shims.Getwd()
-	if err != nil {
-		result.Err = fmt.Errorf("error getting current directory: %w", err)
-		return result
-	}
-
-	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-		result.Err = fmt.Errorf("directory %s does not exist", component.FullPath)
-		return result
-	}
-
-	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
-	if err != nil {
-		result.Err = err
-		return result
-	}
-
-	cleanup := func() {
-		_ = s.shims.Chdir(currentDir)
-		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
-			_ = s.shims.Remove(backendOverridePath)
-		}
-	}
-	defer cleanup()
-
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
-		result.Err = err
-		return result
-	}
-
-	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-no-color"}
-	planArgs = append(planArgs, terraformArgs.PlanArgs...)
-	planEnv := selectTerraformCommandEnv(terraformVars, true)
-	planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
-		fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path),
-		terraformCommand, planEnv, planArgs...,
-	)
-	if err != nil {
-		result.Err = fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
-		return result
-	}
-
-	result.Add, result.Change, result.Destroy, result.NoChanges = parseTerraformPlanCounts(planOutput)
-	return result
+	return s.planOneTerraformSummary(component)
 }
 
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.
@@ -710,6 +608,61 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 	}
 
 	blueprint.TerraformComponents = resolvedComponents
+}
+
+// planOneTerraformSummary runs terraform init and plan -no-color for a single component
+// and returns its structured result. It is shared by PlanSummary and PlanComponentSummary
+// to avoid duplicating the per-component setup, init, plan, and cleanup logic.
+func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
+	result := TerraformComponentPlan{ComponentID: component.GetID()}
+
+	currentDir, err := s.shims.Getwd()
+	if err != nil {
+		result.Err = fmt.Errorf("error getting current directory: %w", err)
+		return result
+	}
+
+	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+		result.Err = fmt.Errorf("directory %s does not exist", component.FullPath)
+		return result
+	}
+
+	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+
+	cleanup := func() {
+		_ = s.shims.Chdir(currentDir)
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+			_ = s.shims.Remove(backendOverridePath)
+		}
+	}
+	defer cleanup()
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+		result.Err = err
+		return result
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	// -no-color keeps the output machine-parseable for parseTerraformPlanCounts.
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-no-color"}
+	planArgs = append(planArgs, terraformArgs.PlanArgs...)
+	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planOutput, err := s.runtime.Shell.ExecProgressWithEnv(
+		fmt.Sprintf("🌎 Planning Terraform changes in %s", component.Path),
+		terraformCommand, planEnv, planArgs...,
+	)
+	if err != nil {
+		result.Err = fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		return result
+	}
+
+	result.Add, result.Change, result.Destroy, result.NoChanges = parseTerraformPlanCounts(planOutput)
+	return result
 }
 
 // prepareComponentOp validates inputs, resolves the named component from the blueprint, saves/restores

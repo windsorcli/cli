@@ -110,7 +110,6 @@ func NewStack(rt *runtime.Runtime, kubernetesManager kubernetes.KubernetesManage
 // =============================================================================
 
 // PlanAll runs flux diff for every non-destroyOnly kustomization in the blueprint.
-// PlanAll runs flux diff for every non-destroyOnly kustomization in the blueprint.
 // The flux CLI is only required when there are kustomizations to plan; blueprints
 // with no non-destroyOnly kustomizations succeed without it.
 func (s *FluxStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
@@ -210,54 +209,15 @@ func (s *FluxStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]Kusto
 		if k.DestroyOnly != nil && *k.DestroyOnly {
 			continue
 		}
-
-		result := KustomizePlan{Name: k.Name}
-
-		exists, err := s.kubernetesManager.KustomizationExists(k.Name, namespace)
-		if err != nil {
-			// Cluster not reachable — treat as new.
-			exists = false
-		}
-
-		sourceRoot := s.resolveSourceRoot(blueprint, k)
-		fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources)
-		localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
-
-		if exists {
-			if fluxMissing {
-				result.Degraded = true
-			} else {
-				stdout, diffErr := s.captureFluxDiff("diff", "kustomization", k.Name, "--namespace", namespace, "--path", localPath)
-				if diffErr != nil {
-					result.Err = diffErr
-				} else {
-					result.Added, result.Removed = countDiffLines(stdout)
-				}
-			}
-		} else {
-			result.IsNew = true
-			if kustomizeMissing {
-				result.Degraded = true
-			} else {
-				stdout, buildErr := s.captureKustomizeBuild(k, fluxK.Spec.Components, localPath, sourceRoot)
-				if buildErr != nil {
-					result.Err = buildErr
-				} else {
-					result.Added = countKustomizeResources(stdout)
-				}
-			}
-		}
-
-		results = append(results, result)
+		results = append(results, s.planOneKustomizeSummary(blueprint, k, namespace, fluxMissing, kustomizeMissing))
 	}
 
 	return results, hints
 }
 
 // PlanComponentSummary plans a single kustomization by name and returns its structured
-// result. It reuses PlanSummary's tool-detection and diff/build logic for exactly one
-// kustomization, so callers are not charged the cost of planning every other kustomization
-// in the blueprint. If the kustomization is not found, a result with a non-nil Err is returned.
+// result. Only the requested kustomization is planned. If the kustomization is not found,
+// a result with a non-nil Err is returned rather than an error, consistent with PlanSummary.
 func (s *FluxStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan {
 	result := KustomizePlan{Name: name}
 
@@ -286,41 +246,7 @@ func (s *FluxStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint,
 
 	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
 
-	exists, err := s.kubernetesManager.KustomizationExists(k.Name, namespace)
-	if err != nil {
-		exists = false
-	}
-
-	sourceRoot := s.resolveSourceRoot(blueprint, k)
-	fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources)
-	localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
-
-	if exists {
-		if fluxMissing {
-			result.Degraded = true
-		} else {
-			stdout, diffErr := s.captureFluxDiff("diff", "kustomization", k.Name, "--namespace", namespace, "--path", localPath)
-			if diffErr != nil {
-				result.Err = diffErr
-			} else {
-				result.Added, result.Removed = countDiffLines(stdout)
-			}
-		}
-	} else {
-		result.IsNew = true
-		if kustomizeMissing {
-			result.Degraded = true
-		} else {
-			stdout, buildErr := s.captureKustomizeBuild(k, fluxK.Spec.Components, localPath, sourceRoot)
-			if buildErr != nil {
-				result.Err = buildErr
-			} else {
-				result.Added = countKustomizeResources(stdout)
-			}
-		}
-	}
-
-	return result
+	return s.planOneKustomizeSummary(blueprint, k, namespace, fluxMissing, kustomizeMissing)
 }
 
 // PlanAllJSON runs kustomize build for every non-destroyOnly kustomization in the blueprint,
@@ -375,6 +301,50 @@ func (s *FluxStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// planOneKustomizeSummary computes the summary plan result for a single kustomization.
+// It is shared by PlanSummary (which iterates all kustomizations) and PlanComponentSummary
+// (which targets one). fluxMissing and kustomizeMissing are pre-computed tool-availability
+// flags so tool detection does not repeat per-component in the all-summary path.
+func (s *FluxStack) planOneKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint, k blueprintv1alpha1.Kustomization, namespace string, fluxMissing, kustomizeMissing bool) KustomizePlan {
+	result := KustomizePlan{Name: k.Name}
+
+	exists, err := s.kubernetesManager.KustomizationExists(k.Name, namespace)
+	if err != nil {
+		exists = false
+	}
+
+	sourceRoot := s.resolveSourceRoot(blueprint, k)
+	fluxK := k.ToFluxKustomization(namespace, blueprint.Metadata.Name, blueprint.Sources)
+	localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
+
+	if exists {
+		if fluxMissing {
+			result.Degraded = true
+		} else {
+			stdout, diffErr := s.captureFluxDiff("diff", "kustomization", k.Name, "--namespace", namespace, "--path", localPath)
+			if diffErr != nil {
+				result.Err = diffErr
+			} else {
+				result.Added, result.Removed = countDiffLines(stdout)
+			}
+		}
+	} else {
+		result.IsNew = true
+		if kustomizeMissing {
+			result.Degraded = true
+		} else {
+			stdout, buildErr := s.captureKustomizeBuild(k, fluxK.Spec.Components, localPath, sourceRoot)
+			if buildErr != nil {
+				result.Err = buildErr
+			} else {
+				result.Added = countKustomizeResources(stdout)
+			}
+		}
+	}
+
+	return result
+}
 
 // planOne runs flux diff for a single kustomization. It checks whether the kustomization
 // already exists in the cluster and dispatches to the appropriate diff strategy.
