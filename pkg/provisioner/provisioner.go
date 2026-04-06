@@ -415,6 +415,64 @@ func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, 
 	return nil
 }
 
+// ApplyKustomize applies a single kustomization identified by componentID to the cluster.
+// It finds the named kustomization in the blueprint, filters the blueprint to that one
+// kustomization (preserving sources and repository for correct source creation), then
+// delegates to the kubernetes manager. Returns an error if the blueprint is nil, the
+// kubernetes manager is not configured, the kustomization is not found, or the apply fails.
+func (i *Provisioner) ApplyKustomize(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	var found *blueprintv1alpha1.Kustomization
+	for _, k := range blueprint.Kustomizations {
+		if k.Name == componentID {
+			kCopy := k
+			found = &kCopy
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+	}
+
+	filtered := *blueprint
+	filtered.Kustomizations = []blueprintv1alpha1.Kustomization{*found}
+
+	if err := tui.WithProgress(fmt.Sprintf("Applying kustomization %s", componentID), func() error {
+		return i.KubernetesManager.ApplyBlueprint(&filtered, i.fluxNamespace())
+	}); err != nil {
+		return fmt.Errorf("failed to apply kustomization %s: %w", componentID, err)
+	}
+
+	return nil
+}
+
+// ApplyKustomizeAll applies all non-destroyOnly kustomizations in the blueprint to the cluster.
+// Delegates to the kubernetes manager's ApplyBlueprint, which creates the namespace, applies
+// sources, and applies each kustomization in order. Returns an error if the blueprint is nil,
+// the kubernetes manager is not configured, or the apply fails.
+func (i *Provisioner) ApplyKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	if err := tui.WithProgress("Applying all kustomizations", func() error {
+		return i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace())
+	}); err != nil {
+		return fmt.Errorf("failed to apply kustomizations: %w", err)
+	}
+
+	return nil
+}
+
 // Install orchestrates the high-level kustomization installation process from the blueprint.
 // It initializes the kubernetes manager and applies all blueprint resources in order: creates namespace,
 // applies source repositories, and applies all kustomizations. The blueprint must be provided as a parameter.
