@@ -222,9 +222,9 @@ func TestTermSpinner_Update(t *testing.T) {
 		// When Update is called
 		s.Update("new")
 
-		// Then the message field reflects the new value
-		if s.message != "new" {
-			t.Errorf("expected message %q, got %q", "new", s.message)
+		// Then the stored message is unchanged (Update only changes the suffix)
+		if s.message != "old" {
+			t.Errorf("expected message %q, got %q", "old", s.message)
 		}
 	})
 
@@ -237,9 +237,9 @@ func TestTermSpinner_Update(t *testing.T) {
 		// When Update is called
 		s.Update("new")
 
-		// Then the spin suffix and message are both updated
-		if s.message != "new" {
-			t.Errorf("expected message %q, got %q", "new", s.message)
+		// Then the spin suffix is updated but the stored message remains unchanged
+		if s.message != "old" {
+			t.Errorf("expected message %q, got %q", "old", s.message)
 		}
 		if s.spin.Suffix != " new" {
 			t.Errorf("expected spin suffix %q, got %q", " new", s.spin.Suffix)
@@ -251,10 +251,10 @@ func TestTermSpinner_Update(t *testing.T) {
 		s := &termSpinner{}
 
 		// When Update is called
-		// Then no panic occurs and the message is updated
+		// Then no panic occurs and the stored message remains unchanged
 		s.Update("msg")
-		if s.message != "msg" {
-			t.Errorf("expected message %q, got %q", "msg", s.message)
+		if s.message != "" {
+			t.Errorf("expected message %q, got %q", "", s.message)
 		}
 	})
 }

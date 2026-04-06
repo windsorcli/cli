@@ -12,7 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The ToolsManager is a core component that manages development tools and dependencies
@@ -69,49 +68,47 @@ func (t *BaseToolsManager) Install() error {
 	return nil
 }
 
-// Check verifies required tools are installed and displays a progress indicator during verification.
+// Check verifies required tools are installed.
 func (t *BaseToolsManager) Check() error {
-	return tui.WithProgress("Checking tool versions", func() error {
-		rt := t.configHandler.GetString("workstation.runtime")
-		dockerEnabled := t.configHandler.GetBool("docker.enabled", false)
-		needsDocker := dockerEnabled || rt == "colima" || rt == "docker-desktop" || rt == "docker"
-		if needsDocker {
-			if err := t.checkDocker(); err != nil {
-				return fmt.Errorf("docker check failed: %v", err)
-			}
+	rt := t.configHandler.GetString("workstation.runtime")
+	dockerEnabled := t.configHandler.GetBool("docker.enabled", false)
+	needsDocker := dockerEnabled || rt == "colima" || rt == "docker-desktop" || rt == "docker"
+	if needsDocker {
+		if err := t.checkDocker(); err != nil {
+			return fmt.Errorf("docker check failed: %v", err)
 		}
+	}
 
-		if t.configHandler.GetBool("terraform.enabled") {
-			if err := t.checkTerraform(); err != nil {
-				return fmt.Errorf("terraform check failed: %v", err)
-			}
+	if t.configHandler.GetBool("terraform.enabled") {
+		if err := t.checkTerraform(); err != nil {
+			return fmt.Errorf("terraform check failed: %v", err)
 		}
+	}
 
-		if rt == "colima" {
-			if err := t.checkColima(); err != nil {
-				return fmt.Errorf("colima check failed: %v", err)
-			}
+	if rt == "colima" {
+		if err := t.checkColima(); err != nil {
+			return fmt.Errorf("colima check failed: %v", err)
 		}
+	}
 
-		if vaults := t.configHandler.Get("secrets.onepassword.vaults"); vaults != nil {
-			if err := t.checkOnePassword(); err != nil {
-				return fmt.Errorf("1password check failed: %v", err)
-			}
+	if vaults := t.configHandler.Get("secrets.onepassword.vaults"); vaults != nil {
+		if err := t.checkOnePassword(); err != nil {
+			return fmt.Errorf("1password check failed: %v", err)
 		}
+	}
 
-		if t.configHandler.GetBool("secrets.sops.enabled", false) {
-			if err := t.checkSops(); err != nil {
-				return fmt.Errorf("sops check failed: %v", err)
-			}
+	if t.configHandler.GetBool("secrets.sops.enabled", false) {
+		if err := t.checkSops(); err != nil {
+			return fmt.Errorf("sops check failed: %v", err)
 		}
+	}
 
-		if t.configHandler.GetBool("azure.enabled") {
-			if err := t.checkKubelogin(); err != nil {
-				return fmt.Errorf("kubelogin check failed: %v", err)
-			}
+	if t.configHandler.GetBool("azure.enabled") {
+		if err := t.checkKubelogin(); err != nil {
+			return fmt.Errorf("kubelogin check failed: %v", err)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // =============================================================================

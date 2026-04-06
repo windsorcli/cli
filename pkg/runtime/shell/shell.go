@@ -51,6 +51,7 @@ type Shell interface {
 	GetProjectRoot() (string, error)
 	Exec(command string, args ...string) (string, error)
 	ExecSilent(command string, args ...string) (string, error)
+	ExecSilentWithEnv(command string, env map[string]string, args ...string) (string, error)
 	ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error)
 	ExecSudo(message string, command string, args ...string) (string, error)
 	ExecProgress(message string, command string, args ...string) (string, error)
@@ -187,6 +188,30 @@ func (s *DefaultShell) ExecSilent(command string, args ...string) (string, error
 		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
 	}
 
+	return s.scrubString(stdoutBuf.String()), nil
+}
+
+// ExecSilentWithEnv runs a command with merged environment variables, capturing output silently.
+// In verbose mode, output is streamed directly to stdout and stderr.
+func (s *DefaultShell) ExecSilentWithEnv(command string, env map[string]string, args ...string) (string, error) {
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd := s.shims.Command(command, args...)
+	if cmd == nil {
+		return "", fmt.Errorf("failed to create command")
+	}
+	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
+	if s.verbose {
+		scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
+		scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+		cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
+		cmd.Stderr = io.MultiWriter(scrubbingStderrWriter, &stderrBuf)
+	} else {
+		cmd.Stdout = &stdoutBuf
+		cmd.Stderr = &stderrBuf
+	}
+	if err := s.shims.CmdRun(cmd); err != nil {
+		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
+	}
 	return s.scrubString(stdoutBuf.String()), nil
 }
 

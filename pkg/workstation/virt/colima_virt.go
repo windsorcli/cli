@@ -18,6 +18,7 @@ import (
 	colimaConfig "github.com/abiosoft/colima/config"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // Test hook to force memory overflow
@@ -69,36 +70,29 @@ func (v *ColimaVirt) Up() error {
 		return nil
 	}
 
-	info, err = v.startColima()
-	if err != nil {
-		return fmt.Errorf("failed to start Colima VM: %w", err)
-	}
-
-	vmAddress := info.Address
-
-	if vmAddress != "" {
-		if err := v.configHandler.Set("workstation.address", vmAddress); err != nil {
-			return fmt.Errorf("failed to set VM address in config handler: %w", err)
+	return tui.WithProgress("Creating Colima VM", func() error {
+		info, err = v.startColima()
+		if err != nil {
+			return fmt.Errorf("failed to start Colima VM: %w", err)
 		}
-	}
-
-	return nil
+		if info.Address != "" {
+			if err := v.configHandler.Set("workstation.address", info.Address); err != nil {
+				return fmt.Errorf("failed to set VM address in config handler: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // Down stops and deletes the Colima VM, ensuring resources are reclaimed.
 // Attempts graceful shutdown, then deletes the VM. Returns an error if deletion fails.
 func (v *ColimaVirt) Down() error {
-	contextName := v.configHandler.GetContext()
-	profileName := fmt.Sprintf("windsor-%s", contextName)
-
-	_, _ = v.shell.ExecProgress("Stopping Colima VM", "colima", "stop", profileName)
-
-	err := v.executeColimaCommand("delete", "--data")
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return tui.WithProgress("Deleting Colima VM", func() error {
+		contextName := v.configHandler.GetContext()
+		profileName := fmt.Sprintf("windsor-%s", contextName)
+		_, _ = v.shell.ExecSilent("colima", "stop", profileName)
+		return v.executeColimaCommand("delete", "--data")
+	})
 }
 
 // WriteConfig writes the Colima configuration file with VM settings

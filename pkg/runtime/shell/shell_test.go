@@ -927,6 +927,179 @@ func TestShell_ExecSilent(t *testing.T) {
 	})
 }
 
+func TestShell_ExecSilentWithEnv(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a shell with mocked command execution
+		shell, _ := setup(t)
+
+		// When executing a command with env vars silently
+		out, err := shell.ExecSilentWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
+
+		// Then it should succeed and return output
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if out != "test\n" {
+			t.Errorf("Expected output 'test\n', got '%s'", out)
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a shell whose CmdRun returns an error
+		shell, mocks := setup(t)
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			return fmt.Errorf("command failed")
+		}
+
+		// When executing a command with env vars silently
+		out, err := shell.ExecSilentWithEnv("test", nil, "arg")
+
+		// Then an error is returned and output is empty
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "command failed") {
+			t.Errorf("Expected error to contain 'command failed', got %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty output, got '%s'", out)
+		}
+	})
+
+	t.Run("CommandNil", func(t *testing.T) {
+		// Given a shell whose Command shim returns nil
+		shell, mocks := setup(t)
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			return nil
+		}
+
+		// When executing a command with env vars silently
+		output, err := shell.ExecSilentWithEnv("test", nil, "arg")
+
+		// Then an error about command creation is returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create command") {
+			t.Errorf("Expected error about command creation, got: %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %q", output)
+		}
+	})
+
+	t.Run("MergesEnvVars", func(t *testing.T) {
+		// Given a shell with a custom env var
+		shell, mocks := setup(t)
+		var capturedEnv []string
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			capturedEnv = cmd.Env
+			return nil
+		}
+
+		// When executing with an extra env var
+		_, _ = shell.ExecSilentWithEnv("test", map[string]string{"CUSTOM_VAR": "custom_value"}, "arg")
+
+		// Then the env var is present in the command environment
+		found := false
+		for _, e := range capturedEnv {
+			if e == "CUSTOM_VAR=custom_value" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("Expected CUSTOM_VAR=custom_value to be in cmd.Env")
+		}
+	})
+
+	t.Run("VerboseMode", func(t *testing.T) {
+		// Given a shell with verbose mode enabled
+		shell, mocks := setup(t)
+		shell.SetVerbosity(true)
+
+		// Mock CmdRun to write output to cmd.Stdout
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				if _, err := cmd.Stdout.Write([]byte("test\n")); err != nil {
+					return fmt.Errorf("failed to write: %v", err)
+				}
+			}
+			return nil
+		}
+
+		// Capture os.Stdout to avoid test noise
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// When executing with env vars in verbose mode
+		out, err := shell.ExecSilentWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
+
+		w.Close()
+		os.Stdout = oldStdout
+		io.ReadAll(r)
+
+		// Then it succeeds and returns the captured output
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if out != "test\n" {
+			t.Errorf("Expected output 'test\n', got '%s'", out)
+		}
+	})
+
+	t.Run("VerboseModeScrubbingSecrets", func(t *testing.T) {
+		// Given a shell with verbose mode and a registered secret
+		shell, mocks := setup(t)
+		shell.SetVerbosity(true)
+		shell.RegisterSecret("s3cr3t")
+
+		// Mock CmdRun to write a line containing the secret
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				if _, err := cmd.Stdout.Write([]byte("output with s3cr3t inside\n")); err != nil {
+					return fmt.Errorf("failed to write: %v", err)
+				}
+			}
+			return nil
+		}
+
+		// Capture what gets written to os.Stdout
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// When executing in verbose mode
+		out, err := shell.ExecSilentWithEnv("test", nil, "arg")
+
+		w.Close()
+		os.Stdout = oldStdout
+		terminalOutput, _ := io.ReadAll(r)
+
+		// Then no error occurs
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		// And the secret is redacted in the return value
+		if strings.Contains(out, "s3cr3t") {
+			t.Errorf("Expected secret to be redacted in return value, got %q", out)
+		}
+		// And the secret is redacted in terminal output
+		if strings.Contains(string(terminalOutput), "s3cr3t") {
+			t.Errorf("Expected secret to be redacted in terminal output, got %q", string(terminalOutput))
+		}
+	})
+}
+
 func TestShell_GetSessionToken(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()

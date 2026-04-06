@@ -21,6 +21,7 @@ type MockShell struct {
 	GetProjectRootFunc             func() (string, error)
 	ExecFunc                       func(command string, args ...string) (string, error)
 	ExecSilentFunc                 func(command string, args ...string) (string, error)
+	ExecSilentWithEnvFunc          func(command string, env map[string]string, args ...string) (string, error)
 	ExecSilentWithTimeoutFunc      func(command string, args []string, timeout time.Duration) (string, error)
 	ExecProgressFunc               func(message string, command string, args ...string) (string, error)
 	ExecProgressWithEnvFunc        func(message string, command string, env map[string]string, args ...string) (string, error)
@@ -90,6 +91,14 @@ func (s *MockShell) ExecSilent(command string, args ...string) (string, error) {
 		return s.ExecSilentFunc(command, args...)
 	}
 	return "", nil
+}
+
+// ExecSilentWithEnv calls the custom ExecSilentWithEnvFunc if provided, otherwise delegates to ExecSilent.
+func (s *MockShell) ExecSilentWithEnv(command string, env map[string]string, args ...string) (string, error) {
+	if s.ExecSilentWithEnvFunc != nil {
+		return s.ExecSilentWithEnvFunc(command, env, args...)
+	}
+	return s.ExecSilent(command, args...)
 }
 
 // ExecSilentWithTimeout calls the custom ExecSilentWithTimeoutFunc if provided, otherwise delegates to ExecSilent.
