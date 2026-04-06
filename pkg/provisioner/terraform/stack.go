@@ -154,7 +154,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 			refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
 			refreshEnv := selectTerraformCommandEnv(terraformVars, true)
-			_, _ = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Refreshing Terraform state in %s", component.Path), terraformCommand, refreshEnv, refreshArgs...)
+			_, _ = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...)
 
 			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 			planArgs = append(planArgs, terraformArgs.PlanArgs...)
@@ -248,7 +248,7 @@ func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 			refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 			refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
 			refreshEnv := selectTerraformCommandEnv(terraformVars, true)
-			_, _ = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Refreshing Terraform state in %s", component.Path), terraformCommand, refreshEnv, refreshArgs...)
+			_, _ = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...)
 
 			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 			planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)

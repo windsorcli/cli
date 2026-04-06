@@ -90,7 +90,7 @@ func (v *ColimaVirt) Down() error {
 	return tui.WithProgress("Deleting Colima VM", func() error {
 		contextName := v.configHandler.GetContext()
 		profileName := fmt.Sprintf("windsor-%s", contextName)
-		_, _ = v.shell.ExecProgress("Stopping Colima VM", "colima", "stop", profileName)
+		_, _ = v.shell.ExecSilent("colima", "stop", profileName)
 		return v.executeColimaCommand("delete", "--data")
 	})
 }

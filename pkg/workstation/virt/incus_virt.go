@@ -141,7 +141,7 @@ func (v *IncusVirt) Down() error {
 	return tui.WithProgress("Deleting Incus VM", func() error {
 		contextName := v.configHandler.GetContext()
 		profileName := fmt.Sprintf("windsor-%s", contextName)
-		_, _ = v.shell.ExecProgress("Stopping Colima daemon", "colima", "daemon", "stop", profileName)
+		_, _ = v.shell.ExecSilent("colima", "daemon", "stop", profileName)
 		if err := v.ColimaVirt.Down(); err != nil {
 			_ = v.cleanupVMForIncus()
 			return err
