@@ -820,6 +820,28 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorDestroyOnly", func(t *testing.T) {
+		// Given a blueprint whose kustomization is marked destroyOnly
+		mocks := setupProvisionerMocks(t)
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		destroyOnly := true
+		bp := createTestBlueprint()
+		bp.Kustomizations[0].DestroyOnly = &destroyOnly
+
+		// When ApplyKustomize is called with that kustomization name
+		err := provisioner.ApplyKustomize(bp, "test-kustomization")
+
+		// Then an error is returned indicating it cannot be applied
+		if err == nil {
+			t.Error("Expected error for destroyOnly kustomization")
+		}
+		if !strings.Contains(err.Error(), "destroy-only") {
+			t.Errorf("Expected destroy-only error message, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorApplyBlueprintFails", func(t *testing.T) {
 		// Given a provisioner whose kubernetes manager returns an error
 		mocks := setupProvisionerMocks(t)

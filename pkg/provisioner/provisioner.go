@@ -419,7 +419,8 @@ func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, 
 // It finds the named kustomization in the blueprint, filters the blueprint to that one
 // kustomization (preserving sources and repository for correct source creation), then
 // delegates to the kubernetes manager. Returns an error if the blueprint is nil, the
-// kubernetes manager is not configured, the kustomization is not found, or the apply fails.
+// kubernetes manager is not configured, the kustomization is not found, the kustomization
+// is marked destroyOnly, or the apply fails.
 func (i *Provisioner) ApplyKustomize(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -438,6 +439,9 @@ func (i *Provisioner) ApplyKustomize(blueprint *blueprintv1alpha1.Blueprint, com
 	}
 	if found == nil {
 		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+	}
+	if found.DestroyOnly != nil && *found.DestroyOnly {
+		return fmt.Errorf("kustomization %q is destroy-only and cannot be applied", componentID)
 	}
 
 	filtered := *blueprint
