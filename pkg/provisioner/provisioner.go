@@ -470,7 +470,9 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	if err := i.KubernetesManager.DeleteBlueprint(blueprint, i.fluxNamespace()); err != nil {
+	if err := tui.WithProgress("Uninstalling blueprint resources", func() error {
+		return i.KubernetesManager.DeleteBlueprint(blueprint, i.fluxNamespace())
+	}); err != nil {
 		return fmt.Errorf("failed to delete blueprint: %w", err)
 	}
 
