@@ -110,11 +110,26 @@ func NewStack(rt *runtime.Runtime, kubernetesManager kubernetes.KubernetesManage
 // =============================================================================
 
 // PlanAll runs flux diff for every non-destroyOnly kustomization in the blueprint.
-// Requires the flux CLI to be installed. Returns an error if the flux CLI is not found
-// or any diff fails. Kustomizations not yet deployed are planned via kustomize build.
+// PlanAll runs flux diff for every non-destroyOnly kustomization in the blueprint.
+// The flux CLI is only required when there are kustomizations to plan; blueprints
+// with no non-destroyOnly kustomizations succeed without it.
 func (s *FluxStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
+	}
+
+	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+
+	var targets []blueprintv1alpha1.Kustomization
+	for _, k := range blueprint.Kustomizations {
+		if k.DestroyOnly != nil && *k.DestroyOnly {
+			continue
+		}
+		targets = append(targets, k)
+	}
+
+	if len(targets) == 0 {
+		return nil
 	}
 
 	if _, err := s.shims.LookPath("flux"); err != nil {
@@ -124,12 +139,7 @@ func (s *FluxStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
 		return err
 	}
 
-	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
-
-	for _, k := range blueprint.Kustomizations {
-		if k.DestroyOnly != nil && *k.DestroyOnly {
-			continue
-		}
+	for _, k := range targets {
 		if err := s.planOne(blueprint, k, namespace); err != nil {
 			return err
 		}
