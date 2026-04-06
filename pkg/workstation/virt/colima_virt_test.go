@@ -823,26 +823,26 @@ func TestColimaVirt_Down(t *testing.T) {
 		// Given a ColimaVirt with mock components
 		colimaVirt, mocks := setup(t)
 
-		// Save original function to restore it in our mock
-		originalExecProgress := mocks.Shell.ExecProgressFunc
-
-		// Override the ExecProgress function for selective operations
+		// Track stop via ExecSilent (Down now uses ExecSilent for stop)
 		stopCalled := false
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "colima" {
-				switch args[0] {
-				case "stop":
-					stopCalled = true
-					return "", nil
-				case "delete":
-					// Only return error for delete if stop was called first
-					if stopCalled {
-						return "", fmt.Errorf("mock delete colima error")
-					}
-					return "", fmt.Errorf("delete called before stop")
-				}
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "stop" {
+				stopCalled = true
+				return "", nil
 			}
-			// For any other command, use the original implementation
+			if originalExecSilent != nil {
+				return originalExecSilent(command, args...)
+			}
+			return "", nil
+		}
+
+		// Return error when deleting via ExecProgress
+		originalExecProgress := mocks.Shell.ExecProgressFunc
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "delete" {
+				return "", fmt.Errorf("mock delete colima error")
+			}
 			return originalExecProgress(message, command, args...)
 		}
 

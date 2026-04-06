@@ -410,16 +410,23 @@ func TestIncusVirt_Down(t *testing.T) {
 
 		daemonStopCalled := false
 		daemonStopProfile := ""
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		originalExecSilent := mocks.Shell.ExecSilentFunc
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
 			if command == "colima" && len(args) >= 3 && args[0] == "daemon" && args[1] == "stop" {
 				daemonStopCalled = true
 				daemonStopProfile = args[2]
 				return "", nil
 			}
-			if command == "incus" && len(args) >= 2 && args[0] == "delete" {
+			if command == "colima" && len(args) >= 1 && args[0] == "stop" {
 				return "", nil
 			}
-			if command == "colima" && len(args) >= 1 && args[0] == "stop" {
+			if originalExecSilent != nil {
+				return originalExecSilent(command, args...)
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "incus" && len(args) >= 2 && args[0] == "delete" {
 				return "", nil
 			}
 			if command == "colima" && len(args) >= 1 && args[0] == "delete" {
