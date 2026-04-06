@@ -3170,4 +3170,46 @@ terraform:
 			t.Fatalf("Expected TF_VAR_network_name to contain raw expression string, got %q", got)
 		}
 	})
+
+	t.Run("SkipsTFVarWhenDeferredOutputResolvesToNil", func(t *testing.T) {
+		// Given a component whose input depends on a terraform_output from an unapplied dependency.
+		// The evaluator returns nil for the deferred pass (no outputs yet), which must NOT result
+		// in TF_VAR_network_cidr being set to the string "null".
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		component := blueprintv1alpha1.TerraformComponent{
+			Path: "compute",
+			Inputs: map[string]any{
+				"network_cidr": "${terraform_output(\"workstation\", \"network_cidr\")}",
+			},
+		}
+		component.FullPath = "/test/project/terraform/compute"
+		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
+
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateMapFunc = func(values map[string]any, featurePath string, scope map[string]any, evaluateDeferred bool) (map[string]any, error) {
+			out := make(map[string]any, len(values))
+			for key, value := range values {
+				if evaluateDeferred {
+					// Dependency not applied yet — resolve to nil.
+					out[key] = nil
+				} else {
+					// First pass: preserve the expression so the caller sees it is deferred.
+					out[key] = value
+				}
+			}
+			return out, nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		// When GetEnvVars is called
+		envVars, _, err := mocks.Provider.GetEnvVars("compute", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then TF_VAR_network_cidr must not be set (not even to the string "null")
+		if val, exists := envVars["TF_VAR_network_cidr"]; exists {
+			t.Errorf("Expected TF_VAR_network_cidr to be absent when dependency is not applied, got %q", val)
+		}
+	})
 }

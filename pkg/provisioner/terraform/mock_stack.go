@@ -15,10 +15,15 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	UpFunc    func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	DownFunc  func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanFunc  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	ApplyFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	UpFunc                   func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	DownFunc                 func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllFunc              func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanJSONFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllJSONFunc          func(blueprint *blueprintv1alpha1.Blueprint) error
+	ApplyFunc                func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanSummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
 
 // =============================================================================
@@ -58,12 +63,52 @@ func (m *MockStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID str
 	return nil
 }
 
+// PlanAll is a mock implementation of the PlanAll method.
+func (m *MockStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if m.PlanAllFunc != nil {
+		return m.PlanAllFunc(blueprint)
+	}
+	return nil
+}
+
+// PlanAllJSON is a mock implementation of the PlanAllJSON method.
+func (m *MockStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	if m.PlanAllJSONFunc != nil {
+		return m.PlanAllJSONFunc(blueprint)
+	}
+	return nil
+}
+
+// PlanJSON is a mock implementation of the PlanJSON method.
+func (m *MockStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.PlanJSONFunc != nil {
+		return m.PlanJSONFunc(blueprint, componentID)
+	}
+	return nil
+}
+
 // Apply is a mock implementation of the Apply method.
 func (m *MockStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if m.ApplyFunc != nil {
 		return m.ApplyFunc(blueprint, componentID)
 	}
 	return nil
+}
+
+// PlanSummary is a mock implementation of the PlanSummary method.
+func (m *MockStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan {
+	if m.PlanSummaryFunc != nil {
+		return m.PlanSummaryFunc(blueprint)
+	}
+	return nil
+}
+
+// PlanComponentSummary is a mock implementation of the PlanComponentSummary method.
+func (m *MockStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
+	if m.PlanComponentSummaryFunc != nil {
+		return m.PlanComponentSummaryFunc(blueprint, componentID)
+	}
+	return TerraformComponentPlan{ComponentID: componentID}
 }
 
 // =============================================================================

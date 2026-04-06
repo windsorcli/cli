@@ -174,9 +174,14 @@ func TestPlanTerraformCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorMissingArgument", func(t *testing.T) {
+	t.Run("SuccessNoArgStreamsAllComponents", func(t *testing.T) {
 		// Given a plan terraform command with no arguments
 		mocks := setupPlanTest(t)
+		planAllCalled := false
+		mocks.TerraformStack.PlanAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			planAllCalled = true
+			return nil
+		}
 		proj := newPlanProject(mocks)
 
 		// When executing without a component ID
@@ -185,9 +190,39 @@ func TestPlanTerraformCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error for missing argument, got nil")
+		// Then PlanAll is called (streaming), not PlanSummary
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !planAllCalled {
+			t.Error("expected PlanAll to be called for no-arg non-JSON path")
+		}
+	})
+
+	t.Run("SuccessSummaryFlag", func(t *testing.T) {
+		// Given a plan terraform command with --summary
+		mocks := setupPlanTest(t)
+		summaryCalled := false
+		mocks.TerraformStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
+			summaryCalled = true
+			return nil
+		}
+		proj := newPlanProject(mocks)
+
+		// When executing with --summary
+		cmd := createTestPlanTerraformCmd()
+		planSummary = true
+		t.Cleanup(func() { planSummary = false })
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then PlanSummary is called, not PlanAll
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !summaryCalled {
+			t.Error("expected PlanSummary to be called with --summary flag")
 		}
 	})
 
@@ -342,10 +377,15 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorMissingArgument", func(t *testing.T) {
+	t.Run("SuccessNoArgStreamsAllKustomizations", func(t *testing.T) {
 		// Given a plan kustomize command with no arguments
 		mocks := setupPlanTest(t)
 		fluxStack := fluxinfra.NewMockStack()
+		planAllCalled := false
+		fluxStack.PlanAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			planAllCalled = true
+			return nil
+		}
 		proj := newKustomizePlanProject(mocks, fluxStack)
 
 		// When executing without a component ID
@@ -354,9 +394,40 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then an error is returned
-		if err == nil {
-			t.Error("expected error for missing argument, got nil")
+		// Then PlanAll is called (streaming), not PlanSummary
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !planAllCalled {
+			t.Error("expected PlanAll to be called for no-arg non-summary path")
+		}
+	})
+
+	t.Run("SuccessSummaryFlag", func(t *testing.T) {
+		// Given a plan kustomize command with --summary
+		mocks := setupPlanTest(t)
+		fluxStack := fluxinfra.NewMockStack()
+		summaryCalled := false
+		fluxStack.PlanSummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
+			summaryCalled = true
+			return nil, nil
+		}
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When executing with --summary
+		cmd := createTestCmd("kustomize")
+		planSummary = true
+		t.Cleanup(func() { planSummary = false })
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then PlanSummary is called, not Plan("all")
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !summaryCalled {
+			t.Error("expected PlanSummary to be called with --summary flag")
 		}
 	})
 

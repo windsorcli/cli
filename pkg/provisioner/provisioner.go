@@ -210,7 +210,198 @@ func (i *Provisioner) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID s
 	return nil
 }
 
-// PlanKustomization runs flux diff for a single kustomization or all kustomizations when componentID is "all".
+// PlanSummary holds aggregated plan results across all infrastructure layers.
+// Terraform contains one entry per enabled component; Kustomize contains one
+// entry per non-destroyOnly kustomization. Either slice may be nil when the
+// corresponding layer is absent from the blueprint or its tooling is unavailable.
+// Hints contains upgrade suggestions collected when required CLI tools are absent.
+type PlanSummary struct {
+	Terraform []terraforminfra.TerraformComponentPlan
+	Kustomize []fluxinfra.KustomizePlan
+	Hints     []string
+}
+
+// PlanTerraformAll runs terraform init and plan for every enabled component, streaming
+// output directly. Returns an error if blueprint is nil, the stack cannot be initialised,
+// or any component's plan fails.
+func (i *Provisioner) PlanTerraformAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.PlanAll(blueprint)
+}
+
+// PlanTerraformAllJSON runs terraform plan -json for every enabled component, streaming
+// machine-readable JSON lines output directly to stdout. Returns an error if blueprint
+// is nil, the stack cannot be initialised, or any component's plan fails.
+func (i *Provisioner) PlanTerraformAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.PlanAllJSON(blueprint)
+}
+
+// PlanTerraformJSON runs terraform plan -json for a single component, streaming
+// machine-readable JSON lines output directly to stdout. Returns an error if blueprint
+// is nil, the stack cannot be initialised, or the plan fails.
+func (i *Provisioner) PlanTerraformJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.PlanJSON(blueprint, componentID)
+}
+
+// PlanKustomizeJSON runs kustomize build for the named kustomization (or all when componentID
+// is "all") and writes the rendered manifests as JSON to stdout. Returns an error if blueprint
+// is nil, the stack cannot be initialised, or the build fails.
+func (i *Provisioner) PlanKustomizeJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return err
+	}
+	return i.FluxStack.PlanJSON(blueprint, componentID)
+}
+
+// PlanTerraformComponentSummary plans a single Terraform component and returns its
+// structured result. Returns an error only when blueprint is nil or stack initialisation fails.
+func (i *Provisioner) PlanTerraformComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) (terraforminfra.TerraformComponentPlan, error) {
+	if blueprint == nil {
+		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return terraforminfra.TerraformComponentPlan{}, err
+	}
+	if i.TerraformStack == nil {
+		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.PlanComponentSummary(blueprint, componentID), nil
+}
+
+// PlanKustomizeComponentSummary plans a single Flux kustomization and returns its
+// structured result. Returns an error only when blueprint is nil or stack initialisation fails.
+func (i *Provisioner) PlanKustomizeComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) (fluxinfra.KustomizePlan, error) {
+	if blueprint == nil {
+		return fluxinfra.KustomizePlan{}, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return fluxinfra.KustomizePlan{}, err
+	}
+	return i.FluxStack.PlanComponentSummary(blueprint, name), nil
+}
+
+// PlanTerraformSummary runs a best-effort summary plan across every Terraform
+// component in the blueprint without touching the Flux/Kustomize layer.
+// Returns an error only when blueprint is nil or stack initialisation fails.
+func (i *Provisioner) PlanTerraformSummary(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	summary := &PlanSummary{}
+
+	if err := i.ensureTerraformStack(); err != nil {
+		return nil, err
+	}
+	if i.TerraformStack != nil {
+		summary.Terraform = i.TerraformStack.PlanSummary(blueprint)
+	}
+
+	return summary, nil
+}
+
+// PlanKustomizeSummary runs a best-effort summary plan across every Flux
+// kustomization in the blueprint without touching the Terraform layer.
+// Returns an error only when blueprint is nil or stack initialisation fails.
+func (i *Provisioner) PlanKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	summary := &PlanSummary{}
+
+	if err := i.ensureFluxStack(); err != nil {
+		return nil, err
+	}
+	summary.Kustomize, summary.Hints = i.FluxStack.PlanSummary(blueprint)
+
+	return summary, nil
+}
+
+// PlanAll runs a best-effort summary plan across every Terraform component and
+// Flux kustomization in the blueprint. It initialises both stacks as needed and
+// collects per-component results without aborting on individual failures, so
+// callers always receive as complete a picture as possible. Returns an error only
+// when blueprint is nil or stack initialisation itself fails.
+func (i *Provisioner) PlanAll(blueprint *blueprintv1alpha1.Blueprint) (*PlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	tfSummary, err := i.PlanTerraformSummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+
+	k8sSummary, err := i.PlanKustomizeSummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PlanSummary{
+		Terraform: tfSummary.Terraform,
+		Kustomize: k8sSummary.Kustomize,
+		Hints:     k8sSummary.Hints,
+	}, nil
+}
+
+// PlanKustomizeAll runs flux diff for every non-destroyOnly kustomization in the blueprint.
+// Returns an error if the flux CLI is not found or any diff fails.
+func (i *Provisioner) PlanKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return err
+	}
+	if err := i.FluxStack.PlanAll(blueprint); err != nil {
+		return fmt.Errorf("error planning kustomize: %w", err)
+	}
+	return nil
+}
+
+// PlanKustomizeAllJSON runs kustomize build for every non-destroyOnly kustomization and
+// writes JSON to stdout. Returns an error if the kustomize CLI is not found or any build fails.
+func (i *Provisioner) PlanKustomizeAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return err
+	}
+	return i.FluxStack.PlanAllJSON(blueprint)
+}
+
+// PlanKustomization runs flux diff for a single kustomization identified by componentID.
 // Returns an error if the flux CLI is not found, the component is not in the blueprint, or the diff fails.
 func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
