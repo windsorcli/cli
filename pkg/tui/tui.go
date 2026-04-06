@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -46,6 +47,11 @@ type Spinner interface {
 // Replace this in tests or when switching to an alternative UI implementation.
 var Active Spinner = &termSpinner{}
 
+// activeDepth tracks nesting of WithProgress calls. When greater than zero,
+// package-level Start/Done/Fail are suppressed so only the outermost layer
+// produces a terminal output line.
+var activeDepth int32
+
 // Init configures Active for the current run mode.
 // In verbose mode, Active is set to a verboseSpinner that prints messages without animation.
 func Init(verbose bool) {
@@ -61,26 +67,47 @@ func Init(verbose bool) {
 // =============================================================================
 
 // Start begins a new progress spinner with the given message.
-func Start(message string) { Active.Start(message) }
+// When called inside a WithProgress block, it updates the running spinner suffix instead.
+func Start(message string) {
+	if atomic.LoadInt32(&activeDepth) > 0 {
+		Active.Update(message)
+		return
+	}
+	Active.Start(message)
+}
 
-// Update changes the message on the currently active spinner.
+// Update changes the suffix on the currently active spinner.
 func Update(message string) { Active.Update(message) }
 
 // Done stops the active spinner and prints a success line.
-func Done() { Active.Done() }
+// When called inside a WithProgress block, it is a no-op.
+func Done() {
+	if atomic.LoadInt32(&activeDepth) > 0 {
+		return
+	}
+	Active.Done()
+}
 
 // Fail stops the active spinner and prints a failure line.
-func Fail() { Active.Fail() }
+// When called inside a WithProgress block, it is a no-op.
+func Fail() {
+	if atomic.LoadInt32(&activeDepth) > 0 {
+		return
+	}
+	Active.Fail()
+}
 
 // WithProgress runs fn with a progress spinner showing message.
-// Calls Done on success or Fail on error, then returns the error.
-// The spinner is always stopped via defer to prevent goroutine leaks on panic.
+// Increments the nesting depth so that any Start/Done/Fail calls inside fn
+// are suppressed — only this layer's Done or Fail line is printed.
 func WithProgress(message string, fn func() error) error {
-	Start(message)
+	Active.Start(message)
+	atomic.AddInt32(&activeDepth, 1)
 	failed := true
 	defer func() {
+		atomic.AddInt32(&activeDepth, -1)
 		if failed {
-			Fail()
+			Active.Fail()
 		}
 	}()
 	err := fn()
@@ -88,7 +115,7 @@ func WithProgress(message string, fn func() error) error {
 		return err
 	}
 	failed = false
-	Done()
+	Active.Done()
 	return nil
 }
 
@@ -103,9 +130,8 @@ func (s *termSpinner) Start(message string) {
 	s.spin.Start()
 }
 
-// Update changes the spinner suffix to the given message.
+// Update changes the spinner suffix to the given message without altering the stored message.
 func (s *termSpinner) Update(message string) {
-	s.message = message
 	if s.spin != nil {
 		s.spin.Suffix = " " + message
 	}
