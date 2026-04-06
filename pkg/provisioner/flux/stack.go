@@ -654,12 +654,7 @@ func (s *FluxStack) encodeKustomizationsJSON(w io.Writer, blueprint *blueprintv1
 			return fmt.Errorf("error building kustomization %q: %w", k.Name, err)
 		}
 
-		resources, err := yamlDocumentsToJSON(yamlStr)
-		if err != nil {
-			return fmt.Errorf("error converting kustomization %q output to JSON: %w", k.Name, err)
-		}
-
-		results = append(results, entry{Kustomization: k.Name, Resources: resources})
+		results = append(results, entry{Kustomization: k.Name, Resources: yamlDocumentsToJSON(yamlStr)})
 	}
 
 	enc := json.NewEncoder(w)
@@ -670,7 +665,7 @@ func (s *FluxStack) encodeKustomizationsJSON(w io.Writer, blueprint *blueprintv1
 // yamlDocumentsToJSON splits a multi-document YAML string on "---" separators,
 // converts each non-empty document to JSON using sigs.k8s.io/yaml, and returns
 // the results as a slice of raw JSON messages. Documents that fail to convert are skipped.
-func yamlDocumentsToJSON(yamlStr string) ([]json.RawMessage, error) {
+func yamlDocumentsToJSON(yamlStr string) []json.RawMessage {
 	var resources []json.RawMessage
 	for _, doc := range strings.Split(yamlStr, "\n---") {
 		doc = strings.TrimSpace(doc)
@@ -683,7 +678,7 @@ func yamlDocumentsToJSON(yamlStr string) ([]json.RawMessage, error) {
 		}
 		resources = append(resources, json.RawMessage(jsonBytes))
 	}
-	return resources, nil
+	return resources
 }
 
 // findKustomization returns the Kustomization with the given name from the blueprint.
