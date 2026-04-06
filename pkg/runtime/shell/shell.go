@@ -201,8 +201,10 @@ func (s *DefaultShell) ExecSilentWithEnv(command string, env map[string]string, 
 	}
 	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
 	if s.verbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
+		scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+		cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
+		cmd.Stderr = io.MultiWriter(scrubbingStderrWriter, &stderrBuf)
 	} else {
 		cmd.Stdout = &stdoutBuf
 		cmd.Stderr = &stderrBuf
