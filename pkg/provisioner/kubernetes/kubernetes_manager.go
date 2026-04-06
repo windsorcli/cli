@@ -433,7 +433,11 @@ func (k *BaseKubernetesManager) suspendKustomizations(names []string, namespace 
 		}
 	}
 
-	tui.Done()
+	if len(errors) > 0 {
+		tui.Fail()
+	} else {
+		tui.Done()
+	}
 
 	return errors
 }
