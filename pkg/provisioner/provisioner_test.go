@@ -938,7 +938,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error for apply blueprint failure")
 		}
-		if !strings.Contains(err.Error(), "failed to apply kustomizations") {
+		if !strings.Contains(err.Error(), "failed to apply blueprint") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
