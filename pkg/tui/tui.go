@@ -74,12 +74,20 @@ func Fail() { Active.Fail() }
 
 // WithProgress runs fn with a progress spinner showing message.
 // Calls Done on success or Fail on error, then returns the error.
+// The spinner is always stopped via defer to prevent goroutine leaks on panic.
 func WithProgress(message string, fn func() error) error {
 	Start(message)
-	if err := fn(); err != nil {
-		Fail()
+	failed := true
+	defer func() {
+		if failed {
+			Fail()
+		}
+	}()
+	err := fn()
+	if err != nil {
 		return err
 	}
+	failed = false
 	Done()
 	return nil
 }
