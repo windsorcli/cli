@@ -87,21 +87,21 @@ func TestPlanKustomize_FailsWhenNotInTrustedDirectory(t *testing.T) {
 	}
 }
 
-func TestPlanKustomize_ShowsSummaryWithNoArgument(t *testing.T) {
+func TestPlanKustomize_SucceedsWithNoKustomizations(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "plan")
 	_, _, err := helpers.RunCLI(dir, []string{"plan", "kustomize"}, env)
 	if err != nil {
-		t.Fatalf("expected success with no argument but got error: %v", err)
+		t.Fatalf("expected success with no kustomizations but got error: %v", err)
 	}
 }
 
-func TestPlanKustomize_K8sAliasShowsSummaryWithNoArgument(t *testing.T) {
+func TestPlanKustomize_K8sAliasSucceedsWithNoKustomizations(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "plan")
 	_, _, err := helpers.RunCLI(dir, []string{"plan", "k8s"}, env)
 	if err != nil {
-		t.Fatalf("expected success with no argument (k8s alias) but got error: %v", err)
+		t.Fatalf("expected success with no kustomizations (k8s alias) but got error: %v", err)
 	}
 }
 
