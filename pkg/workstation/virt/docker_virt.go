@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // =============================================================================
@@ -67,9 +68,9 @@ func (v *DockerVirt) WriteConfig() error {
 // Down stops and removes only resources for the current project/context: containers and named volumes
 // with label com.docker.compose.project=workstation-windsor-<context>, and the network windsor-<context>.
 // Anonymous volumes are removed with containers via rm -v. No global Docker cleanup is performed.
-// Best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner with broom emoji.
+// Best-effort: errors are logged to stderr but do not cause Down to return an error. Shows a progress spinner.
 func (v *DockerVirt) Down() error {
-	return v.withProgress("🧹 Cleaning up residual Docker resources", func() error {
+	return tui.WithProgress("Cleaning up residual Docker resources", func() error {
 		contextName := v.configHandler.GetContext()
 		projectLabelValue := DockerComposeProjectPrefix + contextName
 		netName := WindsorNetworkPrefix + contextName

@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // verbose is a flag for verbose output
@@ -91,5 +92,6 @@ func setupGlobalContext(cmd *cobra.Command) error {
 		ctx = context.WithValue(ctx, "verbose", true)
 	}
 	cmd.SetContext(ctx)
+	tui.Init(verbose)
 	return nil
 }

@@ -48,9 +48,9 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 Network configuration may require sudo password\n")
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
 	output, err = n.shell.ExecSudo(
-		"🔐 Adding host route",
+		"Adding host route",
 		"ip",
 		"route",
 		"add",
@@ -93,10 +93,10 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 DNS configuration may require sudo password\n")
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
 
 	_, err = n.shell.ExecSudo(
-		"🔐 Creating DNS configuration directory",
+		"Creating DNS configuration directory",
 		"mkdir",
 		"-p",
 		dropInDir,
@@ -106,7 +106,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	_, err = n.shell.ExecSudo(
-		"🔐 Writing DNS configuration to "+dropInFile,
+		"Writing DNS configuration to "+dropInFile,
 		"bash",
 		"-c",
 		fmt.Sprintf("echo '%s' | sudo tee %s", expectedContent, dropInFile),
@@ -116,7 +116,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	_, err = n.shell.ExecSudo(
-		"🔐 Restarting systemd-resolved",
+		"Restarting systemd-resolved",
 		"systemctl",
 		"restart",
 		"systemd-resolved",

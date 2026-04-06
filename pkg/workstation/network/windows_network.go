@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
-	"github.com/briandowns/spinner"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The WindowsNetworkManager is a platform-specific network manager for Windows systems.
@@ -47,11 +46,9 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 Network configuration requires administrator privileges\n")
+	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration requires elevated privileges\n")
 
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " 🔐 Configuring host route"
-	spin.Start()
+	tui.Start("Configuring host route")
 
 	output, err = n.shell.ExecSilent(
 		"powershell",
@@ -59,13 +56,11 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),
 	)
 	if err != nil {
-		spin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring host route - Failed\033[0m\n")
+		tui.Fail()
 		return fmt.Errorf("failed to add route: %w, output: %s", err, output)
 	}
 
-	spin.Stop()
-	fmt.Fprintf(os.Stderr, "\033[32m✔ 🔐 Configuring host route - Done\033[0m\n")
+	tui.Done()
 	return nil
 }
 
@@ -107,12 +102,11 @@ if ($existingRule) {
 		checkScript,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", domain)
 		return fmt.Errorf("failed to check existing DNS rules for %s: %w", domain, err)
 	}
 
 	if strings.TrimSpace(output) == "False" || output == "" {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m 🔐 DNS configuration requires administrator privileges\n")
+		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS configuration requires elevated privileges\n")
 
 		addOrUpdateScript := fmt.Sprintf(`
 $namespace = '%s'
@@ -128,13 +122,12 @@ if ($?) {
 `, namespace, dnsIP, dnsIP, domain)
 
 		_, err = n.shell.ExecProgress(
-			fmt.Sprintf("🔐 Configuring DNS for '*.%s'", domain),
+			fmt.Sprintf("Configuring DNS for '*.%s'", domain),
 			"powershell",
 			"-Command",
 			addOrUpdateScript,
 		)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔐 Configuring DNS for '*.%s' - Failed\033[0m\n", domain)
 			return fmt.Errorf("failed to add or update DNS rule for %s: %w", domain, err)
 		}
 	}

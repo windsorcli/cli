@@ -3,10 +3,8 @@ package provisioner
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/briandowns/spinner"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -17,6 +15,7 @@ import (
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/tui"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -429,19 +428,11 @@ func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	message := "📐 Installing blueprint resources"
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-
-	if err := i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace()); err != nil {
-		spin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
+	if err := tui.WithProgress("Installing blueprint resources", func() error {
+		return i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace())
+	}); err != nil {
 		return fmt.Errorf("failed to apply blueprint: %w", err)
 	}
-
-	spin.Stop()
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
 	return nil
 }
@@ -459,7 +450,7 @@ func (i *Provisioner) Wait(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	if err := i.KubernetesManager.WaitForKustomizations("⏳ Waiting for kustomizations to be ready", blueprint); err != nil {
+	if err := i.KubernetesManager.WaitForKustomizations("Waiting for kustomizations to be ready", blueprint); err != nil {
 		return fmt.Errorf("failed waiting for kustomizations: %w", err)
 	}
 
@@ -479,18 +470,9 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	message := "🗑️  Uninstalling blueprint resources"
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-
-	spin.Stop()
 	if err := i.KubernetesManager.DeleteBlueprint(blueprint, i.fluxNamespace()); err != nil {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", message)
 		return fmt.Errorf("failed to delete blueprint: %w", err)
 	}
-
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 
 	return nil
 }

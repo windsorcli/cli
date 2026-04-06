@@ -139,7 +139,7 @@ func (v *IncusVirt) Down() error {
 	}
 	contextName := v.configHandler.GetContext()
 	profileName := fmt.Sprintf("windsor-%s", contextName)
-	_, _ = v.shell.ExecProgress("🦙 Stopping Colima daemon", "colima", "daemon", "stop", profileName)
+	_, _ = v.shell.ExecProgress("Stopping Colima daemon", "colima", "daemon", "stop", profileName)
 
 	err := v.ColimaVirt.Down()
 	if err != nil {
@@ -287,7 +287,7 @@ func (v *IncusVirt) ensureRemote(name, url string) error {
 		return nil
 	}
 
-	message := fmt.Sprintf("🔧 Configuring %s remote", name)
+	message := fmt.Sprintf("Configuring %s remote", name)
 	remoteArgs := []string{"remote", "add", name, url, "--protocol", "oci", "--public"}
 	remoteArgs = v.addQuietFlag(remoteArgs)
 	_, err = v.execInVMProgress(message, "incus", remoteArgs...)
@@ -530,7 +530,7 @@ func (v *IncusVirt) launchInstance(config *IncusInstanceConfig) error {
 	}
 
 	args := v.buildLaunchArgs(config)
-	message := fmt.Sprintf("📦 Creating Incus instance %s", config.Name)
+	message := fmt.Sprintf("Creating Incus instance %s", config.Name)
 	launchArgs := v.addQuietFlag(args)
 	_, err = v.execInVMProgress(message, "incus", launchArgs...)
 	if err != nil {
@@ -935,7 +935,7 @@ func (v *IncusVirt) deleteInstance(name string) error {
 
 	args := []string{"delete", name, "--force"}
 	args = v.addQuietFlag(args)
-	message := fmt.Sprintf("📦 Deleting Incus instance %s", name)
+	message := fmt.Sprintf("Deleting Incus instance %s", name)
 	_, err = v.execInVMProgress(message, "incus", args...)
 	if err != nil {
 		if isSSHError(err) {

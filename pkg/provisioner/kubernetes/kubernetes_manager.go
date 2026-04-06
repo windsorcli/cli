@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/briandowns/spinner"
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	meta "github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/tui"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
@@ -183,10 +183,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, blueprint 
 		kustomizationNames = append(kustomizationNames, kustomization.Name)
 	}
 
-	spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	spin.Suffix = " " + message
-	spin.Start()
-	defer spin.Stop()
+	tui.Start(message)
 
 	timeoutChan := time.After(timeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
@@ -195,8 +192,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, blueprint 
 	for {
 		select {
 		case <-timeoutChan:
-			spin.Stop()
-			fmt.Fprintf(os.Stderr, "✗%s - \033[31mFailed\033[0m\n", spin.Suffix)
+			tui.Fail()
 			return fmt.Errorf("timeout waiting for kustomizations")
 		case <-ticker.C:
 			allReady := true
@@ -243,8 +239,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, blueprint 
 				}
 			}
 			if allReady {
-				spin.Stop()
-				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m%s - Done\n", spin.Suffix)
+				tui.Done()
 				return nil
 			}
 		}
@@ -428,9 +423,7 @@ func (k *BaseKubernetesManager) getKustomizationsToDelete(blueprint *blueprintv1
 func (k *BaseKubernetesManager) suspendKustomizations(names []string, namespace string) []error {
 	var errors []error
 
-	suspendSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	suspendSpin.Suffix = " ⏸️  Suspending kustomizations"
-	suspendSpin.Start()
+	tui.Start("Suspending kustomizations")
 
 	for i := len(names) - 1; i >= 0; i-- {
 		if err := k.SuspendKustomization(names[i], namespace); err != nil {
@@ -440,11 +433,10 @@ func (k *BaseKubernetesManager) suspendKustomizations(names []string, namespace 
 		}
 	}
 
-	suspendSpin.Stop()
 	if len(errors) > 0 {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m ⏸️  Suspending kustomizations - \033[33m%d error(s)\033[0m\n", len(errors))
+		tui.Fail()
 	} else {
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m ⏸️  Suspending kustomizations - \033[32mDone\033[0m\n")
+		tui.Done()
 	}
 
 	return errors
@@ -934,12 +926,10 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 			}
 		}
 
-		cleanupSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-		cleanupSpin.Suffix = fmt.Sprintf(" 🧹 Applying cleanup kustomization for %s", kustomization.Name)
-		cleanupSpin.Start()
+		tui.Start(fmt.Sprintf("Applying cleanup kustomization for %s", kustomization.Name))
 
 		if err := k.ApplyKustomization(cleanupKustomization); err != nil {
-			cleanupSpin.Stop()
+			tui.Fail()
 			errors = append(errors, fmt.Errorf("failed to apply cleanup kustomization %s: %w", cleanupKustomizationName, err))
 		} else {
 			waitTimeout := time.After(k.kustomizationReconcileTimeout)
@@ -955,7 +945,6 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 				case <-ticker.C:
 					status, err := k.GetKustomizationStatus([]string{cleanupKustomizationName})
 					if err != nil {
-						cleanupSpin.Stop()
 						errors = append(errors, fmt.Errorf("cleanup kustomization %s failed: %w", cleanupKustomizationName, err))
 						cleanupStatusCheckFailed = true
 						break cleanupLoop
@@ -966,10 +955,9 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 				}
 			}
 			ticker.Stop()
-			cleanupSpin.Stop()
 
 			if !cleanupReady {
-				fmt.Fprintf(os.Stderr, "\033[31m✗ 🧹 Applying cleanup kustomization for %s - Failed\033[0m\n", kustomization.Name)
+				tui.Fail()
 				if !cleanupStatusCheckFailed {
 					errors = append(errors, fmt.Errorf("cleanup kustomization %s did not become ready within timeout - cleanup may not have completed", cleanupKustomizationName))
 				}
@@ -978,33 +966,27 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 				}
 				return errors
 			}
-			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🧹 Applying cleanup kustomization for %s - \033[32mDone\033[0m\n", kustomization.Name)
+			tui.Done()
 
-			cleanupDeleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-			cleanupDeleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting cleanup kustomization %s", cleanupKustomizationName)
-			cleanupDeleteSpin.Start()
+			tui.Start(fmt.Sprintf("Deleting cleanup kustomization %s", cleanupKustomizationName))
 
 			if err := k.DeleteKustomization(cleanupKustomizationName, namespace); err != nil {
-				cleanupDeleteSpin.Stop()
+				tui.Fail()
 				errors = append(errors, fmt.Errorf("failed to delete cleanup kustomization %s: %w", cleanupKustomizationName, err))
 			} else {
-				cleanupDeleteSpin.Stop()
-				fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting cleanup kustomization %s - \033[32mDone\033[0m\n", cleanupKustomizationName)
+				tui.Done()
 			}
 		}
 	}
 
-	deleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	deleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting kustomization %s", kustomization.Name)
-	deleteSpin.Start()
+	tui.Start(fmt.Sprintf("Deleting kustomization %s", kustomization.Name))
 
 	if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
-		deleteSpin.Stop()
+		tui.Fail()
 		errors = append(errors, fmt.Errorf("failed to delete kustomization %s: %w", kustomization.Name, err))
 		fmt.Fprintf(os.Stderr, "Warning: failed to delete kustomization %s: %v\n", kustomization.Name, err)
 	} else {
-		deleteSpin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
+		tui.Done()
 	}
 
 	return errors
@@ -1070,13 +1052,10 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 			}
 		}
 
-		applySpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-		applySpin.Suffix = fmt.Sprintf(" 🔧 Applying destroy-only kustomization %s", kustomization.Name)
-		applySpin.Start()
+		tui.Start(fmt.Sprintf("Applying destroy-only kustomization %s", kustomization.Name))
 
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
-			applySpin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[31m✗ 🔧 Applying destroy-only kustomization %s - Failed\033[0m\n", kustomization.Name)
+			tui.Fail()
 			errors = append(errors, fmt.Errorf("failed to apply destroy-only kustomization %s: %w", kustomization.Name, err))
 			for i := len(appliedKustomizations) - 1; i >= 0; i-- {
 				appliedKust := appliedKustomizations[i]
@@ -1086,8 +1065,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 			}
 			return errors
 		}
-		applySpin.Stop()
-		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔧 Applied destroy-only kustomization %s\n", kustomization.Name)
+		tui.Done()
 		appliedKustomizations = append(appliedKustomizations, kustomization)
 	}
 
@@ -1096,9 +1074,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 		kustomizationNames[i] = kust.Name
 	}
 
-	waitSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-	waitSpin.Suffix = fmt.Sprintf(" ⏳ Waiting for %d destroy-only kustomization(s) to become ready", len(kustomizations))
-	waitSpin.Start()
+	tui.Start(fmt.Sprintf("Waiting for %d destroy-only kustomization(s) to become ready", len(kustomizations)))
 
 	waitTimeout := time.After(k.kustomizationReconcileTimeout)
 	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
@@ -1127,10 +1103,9 @@ waitLoop:
 		}
 	}
 	ticker.Stop()
-	waitSpin.Stop()
 
 	if !allReady {
-		fmt.Fprintf(os.Stderr, "\033[31m✗ ⏳ Waiting for destroy-only kustomizations - Failed\033[0m\n")
+		tui.Fail()
 		if !statusCheckFailed {
 			errors = append(errors, fmt.Errorf("destroy-only kustomizations did not become ready within timeout - cleanup may not have completed"))
 		}
@@ -1142,20 +1117,17 @@ waitLoop:
 		}
 		return errors
 	}
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m ⏳ All destroy-only kustomizations ready\n")
+	tui.Done()
 
 	for i := len(kustomizations) - 1; i >= 0; i-- {
 		kustomization := kustomizations[i]
-		deleteSpin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"))
-		deleteSpin.Suffix = fmt.Sprintf(" 🗑️  Deleting destroy-only kustomization %s", kustomization.Name)
-		deleteSpin.Start()
+		tui.Start(fmt.Sprintf("Deleting destroy-only kustomization %s", kustomization.Name))
 
 		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
-			deleteSpin.Stop()
+			tui.Fail()
 			errors = append(errors, fmt.Errorf("failed to delete destroy-only kustomization %s: %w", kustomization.Name, err))
 		} else {
-			deleteSpin.Stop()
-			fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🗑️  Deleting destroy-only kustomization %s - \033[32mDone\033[0m\n", kustomization.Name)
+			tui.Done()
 		}
 	}
 
@@ -1223,7 +1195,7 @@ func (k *BaseKubernetesManager) deployCleanupSemaphore() error {
 		return fmt.Errorf("failed to create cleanup semaphore: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m 🔓 Cleanup authorization deployed\n")
+	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m Cleanup authorization deployed\n")
 	return nil
 }
 

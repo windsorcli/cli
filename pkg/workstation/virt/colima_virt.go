@@ -91,7 +91,7 @@ func (v *ColimaVirt) Down() error {
 	contextName := v.configHandler.GetContext()
 	profileName := fmt.Sprintf("windsor-%s", contextName)
 
-	_, _ = v.shell.ExecProgress("🦙 Stopping Colima VM", "colima", "stop", profileName)
+	_, _ = v.shell.ExecProgress("Stopping Colima VM", "colima", "stop", profileName)
 
 	err := v.executeColimaCommand("delete", "--data")
 	if err != nil {
@@ -434,13 +434,13 @@ func (v *ColimaVirt) executeColimaCommand(action string, additionalArgs ...strin
 	args = append(args, additionalArgs...)
 	if action == "delete" {
 		args = append(args, "--force")
-		output, err := v.shell.ExecProgress("🦙 Deleting Colima VM", command, args...)
+		output, err := v.shell.ExecProgress("Deleting Colima VM", command, args...)
 		if err != nil {
 			return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 		}
 		return nil
 	}
-	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s", command), command, args...)
+	output, err := v.shell.ExecProgress(fmt.Sprintf("Running %s", command), command, args...)
 	if err != nil {
 		return fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
@@ -457,7 +457,7 @@ func (v *ColimaVirt) startColima() (VMInfo, error) {
 	command := "colima"
 	args := []string{"start", fmt.Sprintf("windsor-%s", contextName)}
 
-	output, err := v.shell.ExecProgress(fmt.Sprintf("🦙 Running %s", command), command, args...)
+	output, err := v.shell.ExecProgress(fmt.Sprintf("Running %s", command), command, args...)
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("Error executing command %s %v: %w\n%s", command, args, err, output)
 	}
