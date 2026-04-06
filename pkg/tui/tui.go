@@ -67,10 +67,9 @@ func Init(verbose bool) {
 // =============================================================================
 
 // Start begins a new progress spinner with the given message.
-// When called inside a WithProgress block, it updates the running spinner suffix instead.
+// When called inside a WithProgress block, it is a no-op so the layer message is preserved.
 func Start(message string) {
 	if atomic.LoadInt32(&activeDepth) > 0 {
-		Active.Update(message)
 		return
 	}
 	Active.Start(message)
@@ -100,7 +99,11 @@ func Fail() {
 // WithProgress runs fn with a progress spinner showing message.
 // Increments the nesting depth so that any Start/Done/Fail calls inside fn
 // are suppressed — only this layer's Done or Fail line is printed.
+// When already inside a WithProgress block, fn is run directly without spinner management.
 func WithProgress(message string, fn func() error) error {
+	if atomic.LoadInt32(&activeDepth) > 0 {
+		return fn()
+	}
 	Active.Start(message)
 	atomic.AddInt32(&activeDepth, 1)
 	failed := true

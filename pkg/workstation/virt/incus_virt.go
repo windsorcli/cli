@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // =============================================================================
@@ -137,15 +138,16 @@ func (v *IncusVirt) Down() error {
 	if v.configHandler.GetString("platform") != "incus" {
 		return v.ColimaVirt.Down()
 	}
-	contextName := v.configHandler.GetContext()
-	profileName := fmt.Sprintf("windsor-%s", contextName)
-	_, _ = v.shell.ExecProgress("Stopping Colima daemon", "colima", "daemon", "stop", profileName)
-
-	err := v.ColimaVirt.Down()
-	if err != nil {
-		_ = v.cleanupVMForIncus()
-	}
-	return err
+	return tui.WithProgress("Deleting Incus VM", func() error {
+		contextName := v.configHandler.GetContext()
+		profileName := fmt.Sprintf("windsor-%s", contextName)
+		_, _ = v.shell.ExecProgress("Stopping Colima daemon", "colima", "daemon", "stop", profileName)
+		if err := v.ColimaVirt.Down(); err != nil {
+			_ = v.cleanupVMForIncus()
+			return err
+		}
+		return nil
+	})
 }
 
 // startIncusContainers creates Incus instances for all configured services.
