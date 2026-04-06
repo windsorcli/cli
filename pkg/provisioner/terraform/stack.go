@@ -282,26 +282,9 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 	for i := range components {
 		component := &components[i]
 
-		currentDir, err := s.shims.Getwd()
-		if err != nil {
-			return fmt.Errorf("error getting current directory: %w", err)
-		}
-
-		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-			return fmt.Errorf("directory %s does not exist", component.FullPath)
-		}
-
-		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+		terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 		if err != nil {
 			return err
-		}
-
-		cleanup := func() {
-			_ = s.shims.Chdir(currentDir)
-			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-			if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
-				_ = s.shims.Remove(backendOverridePath)
-			}
 		}
 
 		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
@@ -616,29 +599,10 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
 	result := TerraformComponentPlan{ComponentID: component.GetID()}
 
-	currentDir, err := s.shims.Getwd()
-	if err != nil {
-		result.Err = fmt.Errorf("error getting current directory: %w", err)
-		return result
-	}
-
-	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-		result.Err = fmt.Errorf("directory %s does not exist", component.FullPath)
-		return result
-	}
-
-	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 	if err != nil {
 		result.Err = err
 		return result
-	}
-
-	cleanup := func() {
-		_ = s.shims.Chdir(currentDir)
-		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
-			_ = s.shims.Remove(backendOverridePath)
-		}
 	}
 	defer cleanup()
 
@@ -665,6 +629,36 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	return result
 }
 
+// prepareComponentEnv saves the current directory, validates the component's directory exists,
+// sets up the terraform environment, and returns a cleanup func that restores the working directory
+// and removes any backend_override.tf. It is the shared setup used by planComponents,
+// planOneTerraformSummary, and prepareComponentOp.
+func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.TerraformComponent) (map[string]string, *envvars.TerraformArgs, func(), error) {
+	currentDir, err := s.shims.Getwd()
+	if err != nil {
+		return nil, nil, func() {}, fmt.Errorf("error getting current directory: %w", err)
+	}
+
+	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+		return nil, nil, func() {}, fmt.Errorf("directory %s does not exist", component.FullPath)
+	}
+
+	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+
+	cleanup := func() {
+		_ = s.shims.Chdir(currentDir)
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+			_ = s.shims.Remove(backendOverridePath)
+		}
+	}
+
+	return terraformVars, terraformArgs, cleanup, nil
+}
+
 // prepareComponentOp validates inputs, resolves the named component from the blueprint, saves/restores
 // the working directory, sets up the terraform environment, and registers backend override cleanup.
 // The returned cleanup func must be called via defer by the caller.
@@ -675,11 +669,6 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 	func(),
 	error,
 ) {
-	currentDir, err := s.shims.Getwd()
-	if err != nil {
-		return nil, nil, nil, func() {}, fmt.Errorf("error getting current directory: %v", err)
-	}
-
 	projectRoot := s.runtime.ProjectRoot
 	if projectRoot == "" {
 		return nil, nil, nil, func() {}, fmt.Errorf("error getting project root: project root is empty")
@@ -697,21 +686,9 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 		return nil, nil, nil, func() {}, fmt.Errorf("terraform component %q not found", componentID)
 	}
 
-	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-		return nil, nil, nil, func() {}, fmt.Errorf("directory %s does not exist", component.FullPath)
-	}
-
-	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 	if err != nil {
 		return nil, nil, nil, func() {}, err
-	}
-
-	cleanup := func() {
-		_ = s.shims.Chdir(currentDir)
-		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
-			_ = s.shims.Remove(backendOverridePath)
-		}
 	}
 
 	return component, terraformVars, terraformArgs, cleanup, nil
