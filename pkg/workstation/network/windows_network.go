@@ -46,7 +46,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration requires elevated privileges\n")
+	fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration requires elevated privileges\n")
 
 	tui.Start("Configuring host route")
 
@@ -106,7 +106,7 @@ if ($existingRule) {
 	}
 
 	if strings.TrimSpace(output) == "False" || output == "" {
-		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS configuration requires elevated privileges\n")
+		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration requires elevated privileges\n")
 
 		addOrUpdateScript := fmt.Sprintf(`
 $namespace = '%s'
