@@ -1,0 +1,100 @@
+package artifact
+
+// The MockArtifact is a mock implementation of the Artifact interface for testing.
+// It provides function fields that can be overridden to control behavior during tests.
+// It serves as a test double for the Artifact interface in unit tests.
+// It enables isolation and verification of component interactions with the artifact system.
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// MockArtifact is a mock implementation of the Artifact interface
+type MockArtifact struct {
+	BundleFunc            func() error
+	WriteFunc             func(outputPath string, tag string) (string, error)
+	PushFunc              func(registryBase string, repoName string, tag string) error
+	PullFunc              func(ociRefs []string) (map[string]string, error)
+	ExtractModulePathFunc func(registry, repository, tag, modulePath string) (string, error)
+	ParseOCIRefFunc       func(ociRef string) (registry, repository, tag string, err error)
+	GetCacheDirFunc       func(registry, repository, tag string) (string, error)
+}
+
+// =============================================================================
+// Constructor
+// =============================================================================
+
+// NewMockArtifact creates a new MockArtifact instance
+func NewMockArtifact() *MockArtifact {
+	return &MockArtifact{}
+}
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// Bundle calls the mock BundleFunc if set, otherwise returns nil
+func (m *MockArtifact) Bundle() error {
+	if m.BundleFunc != nil {
+		return m.BundleFunc()
+	}
+	return nil
+}
+
+// Write calls the mock WriteFunc if set, otherwise returns empty string and nil error
+func (m *MockArtifact) Write(outputPath string, tag string) (string, error) {
+	if m.WriteFunc != nil {
+		return m.WriteFunc(outputPath, tag)
+	}
+	return "", nil
+}
+
+// Push calls Bundle() first, then calls the mock PushFunc if set, otherwise returns nil
+func (m *MockArtifact) Push(registryBase string, repoName string, tag string) error {
+	if err := m.Bundle(); err != nil {
+		return err
+	}
+	if m.PushFunc != nil {
+		return m.PushFunc(registryBase, repoName, tag)
+	}
+	return nil
+}
+
+// Pull calls the mock PullFunc if set, otherwise returns empty map and nil error
+func (m *MockArtifact) Pull(ociRefs []string) (map[string]string, error) {
+	if m.PullFunc != nil {
+		return m.PullFunc(ociRefs)
+	}
+	return make(map[string]string), nil
+}
+
+// ExtractModulePath calls the mock ExtractModulePathFunc if set, otherwise returns empty string and nil error
+func (m *MockArtifact) ExtractModulePath(registry, repository, tag, modulePath string) (string, error) {
+	if m.ExtractModulePathFunc != nil {
+		return m.ExtractModulePathFunc(registry, repository, tag, modulePath)
+	}
+	return "", nil
+}
+
+// ParseOCIRef calls the mock ParseOCIRefFunc if set, otherwise returns empty strings and nil error
+func (m *MockArtifact) ParseOCIRef(ociRef string) (registry, repository, tag string, err error) {
+	if m.ParseOCIRefFunc != nil {
+		return m.ParseOCIRefFunc(ociRef)
+	}
+	return "", "", "", nil
+}
+
+// GetCacheDir calls the mock GetCacheDirFunc if set, otherwise returns empty string and nil error
+func (m *MockArtifact) GetCacheDir(registry, repository, tag string) (string, error) {
+	if m.GetCacheDirFunc != nil {
+		return m.GetCacheDirFunc(registry, repository, tag)
+	}
+	return "", nil
+}
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure MockArtifact implements Artifact interface
+var _ Artifact = (*MockArtifact)(nil)

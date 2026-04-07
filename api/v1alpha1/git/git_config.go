@@ -8,10 +8,11 @@ type GitConfig struct {
 // GitLivereloadConfig represents the Git livereload configuration
 type GitLivereloadConfig struct {
 	Enabled      *bool   `yaml:"enabled"`
+	RsyncInclude *string `yaml:"rsync_include,omitempty"`
 	RsyncExclude *string `yaml:"rsync_exclude,omitempty"`
 	RsyncProtect *string `yaml:"rsync_protect,omitempty"`
 	Username     *string `yaml:"username,omitempty"`
-	Password     *string `yaml:"password,omitempty"`
+	Password     *string `yaml:"password,omitempty"` // #nosec G117 - legitimate credential field for git configuration
 	WebhookUrl   *string `yaml:"webhook_url,omitempty"`
 	VerifySsl    *bool   `yaml:"verify_ssl,omitempty"`
 	Image        *string `yaml:"image,omitempty"`
@@ -25,6 +26,9 @@ func (base *GitConfig) Merge(overlay *GitConfig) {
 		}
 		if overlay.Livereload.Enabled != nil {
 			base.Livereload.Enabled = overlay.Livereload.Enabled
+		}
+		if overlay.Livereload.RsyncInclude != nil {
+			base.Livereload.RsyncInclude = overlay.Livereload.RsyncInclude
 		}
 		if overlay.Livereload.RsyncExclude != nil {
 			base.Livereload.RsyncExclude = overlay.Livereload.RsyncExclude
@@ -59,6 +63,7 @@ func (c *GitConfig) Copy() *GitConfig {
 	if c.Livereload != nil {
 		livereloadCopy = &GitLivereloadConfig{
 			Enabled:      c.Livereload.Enabled,
+			RsyncInclude: c.Livereload.RsyncInclude,
 			RsyncExclude: c.Livereload.RsyncExclude,
 			RsyncProtect: c.Livereload.RsyncProtect,
 			Username:     c.Livereload.Username,

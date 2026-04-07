@@ -1,0 +1,23 @@
+$schema: https://windsorcli.dev/schema/2026-02/schema
+type: object
+properties:
+  provider:
+    type: string
+    description: Cloud or platform provider (e.g. docker, aws).
+  vm:
+    type: object
+    properties:
+      driver:
+        type: string
+        description: VM driver (e.g. colima, docker-desktop).
+    additionalProperties: true
+  workstation:
+    type: object
+    properties:
+      runtime:
+        type: string
+        description: Host runtime for local clusters.
+    additionalProperties: true
+  substitutions:
+    type: object
+    additionalProperties: true

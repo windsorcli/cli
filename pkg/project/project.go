@@ -1,0 +1,242 @@
+package project
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/workstation"
+)
+
+// Project orchestrates the setup and initialization of a Windsor project.
+// It coordinates context, provisioner, composer, and workstation managers
+// to provide a unified interface for project initialization and management.
+type Project struct {
+	Runtime       *runtime.Runtime
+	configHandler config.ConfigHandler
+	contextName   string
+	projectRoot   string
+	Provisioner   *provisioner.Provisioner
+	Composer      *composer.Composer
+	Workstation   *workstation.Workstation
+}
+
+// NewProject creates and initializes a new Project instance with all required managers.
+// It sets up the execution context, creates provisioner and composer, and creates the
+// workstation when in dev mode or when is true (config is loaded if needed for the latter).
+// Panics if required dependencies are nil. After creation, call Configure() to apply flag overrides.
+// Optional overrides can be provided via opts to inject mocks for testing.
+// If opts contains a Project with Runtime set, that runtime will be reused.
+func NewProject(contextName string, opts ...*Project) *Project {
+	var rt *runtime.Runtime
+
+	var overrides *Project
+	if len(opts) > 0 && opts[0] != nil {
+		overrides = opts[0]
+		if overrides.Runtime != nil {
+			rt = overrides.Runtime
+		}
+	}
+
+	if rt == nil {
+		var rtOpts []*runtime.Runtime
+		if overrides != nil && overrides.Runtime != nil {
+			rtOpts = []*runtime.Runtime{overrides.Runtime}
+		}
+		rt = runtime.NewRuntime(rtOpts...)
+	}
+
+	if rt == nil {
+		panic("runtime is required")
+	}
+	if rt.ConfigHandler == nil {
+		panic("config handler is required on runtime")
+	}
+
+	if contextName == "" {
+		contextName = rt.ConfigHandler.GetContext()
+		if contextName == "" {
+			contextName = "local"
+		}
+	}
+
+	rt.ContextName = contextName
+	rt.ConfigRoot = filepath.Join(rt.ProjectRoot, "contexts", contextName)
+
+	var comp *composer.Composer
+	if overrides != nil && overrides.Composer != nil {
+		comp = overrides.Composer
+	} else {
+		comp = composer.NewComposer(rt)
+	}
+
+	var ws *workstation.Workstation
+	if overrides != nil && overrides.Workstation != nil {
+		ws = overrides.Workstation
+	} else if rt.ConfigHandler.IsDevMode(contextName) {
+		ws = workstation.NewWorkstation(rt)
+	} else {
+		if !rt.ConfigHandler.IsLoaded() {
+			_ = rt.ConfigHandler.LoadConfig()
+		}
+		if rt.ConfigHandler.GetString("workstation.runtime") != "" {
+			ws = workstation.NewWorkstation(rt)
+		}
+	}
+
+	var prov *provisioner.Provisioner
+	if overrides != nil && overrides.Provisioner != nil {
+		prov = overrides.Provisioner
+	} else {
+		prov = provisioner.NewProvisioner(rt, comp.BlueprintHandler)
+	}
+
+	return &Project{
+		Runtime:       rt,
+		configHandler: rt.ConfigHandler,
+		contextName:   rt.ContextName,
+		projectRoot:   rt.ProjectRoot,
+		Provisioner:   prov,
+		Composer:      comp,
+		Workstation:   ws,
+	}
+}
+
+// Configure resolves project configuration including defaults, file loading, migration, and override processing.
+// Loads project environment variables and returns an error if resolution or environment loading fails.
+func (p *Project) Configure(flagOverrides map[string]any) error {
+	if err := p.Runtime.ResolveConfig(flagOverrides); err != nil {
+		return err
+	}
+	if err := p.Runtime.LoadEnvironment(false); err != nil {
+		return fmt.Errorf("failed to load environment: %w", err)
+	}
+	return nil
+}
+
+// EnsureWorkstation creates Workstation if it is nil and workstation.runtime is set.
+// Call before using p.Workstation in code paths that need it (e.g. Initialize, Up, Down).
+func (p *Project) EnsureWorkstation() {
+	if p.Workstation == nil && p.configHandler.GetString("workstation.runtime") != "" {
+		p.Workstation = workstation.NewWorkstation(p.Runtime)
+	}
+}
+
+// ComposeBlueprint loads and composes the blueprint without writing files or generating infrastructure.
+// It generates context ID if needed and loads all blueprint sources. Use this when the goal is only
+// to obtain the composed blueprint (e.g. for windsor show blueprint). It does not run Composer.Generate()
+// and thus does not write blueprint files, process terraform modules, or generate tfvars.
+func (p *Project) ComposeBlueprint(blueprintURL ...string) error {
+	if err := p.configHandler.GenerateContextID(); err != nil {
+		return fmt.Errorf("failed to generate context ID: %w", err)
+	}
+	if err := p.Composer.BlueprintHandler.LoadBlueprint(blueprintURL...); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Initialize runs the complete initialization sequence for the project.
+// It prepares the workstation (creates services and assigns IPs), prepares context,
+// generates infrastructure, prepares tools, and bootstraps the environment.
+// The overwrite parameter controls whether infrastructure generation should overwrite
+// existing files. The optional blueprintURL parameter specifies the blueprint artifact
+// to load (OCI URL or local .tar.gz path). Returns an error if any step fails.
+func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
+	p.EnsureWorkstation()
+	if p.Workstation != nil {
+		if err := p.Workstation.Prepare(); err != nil {
+			return fmt.Errorf("failed to prepare workstation: %w", err)
+		}
+		if p.Workstation.ContainerRuntime != nil {
+			if err := p.Workstation.ContainerRuntime.WriteConfig(); err != nil {
+				return fmt.Errorf("failed to write container runtime config: %w", err)
+			}
+		}
+	}
+
+	if err := p.configHandler.GenerateContextID(); err != nil {
+		return fmt.Errorf("failed to generate context ID: %w", err)
+	}
+
+	if err := p.Composer.BlueprintHandler.LoadBlueprint(blueprintURL...); err != nil {
+		return fmt.Errorf("failed to load blueprint data: %w", err)
+	}
+
+	if err := p.Runtime.SaveConfig(overwrite); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	if err := p.Composer.Generate(overwrite); err != nil {
+		return fmt.Errorf("failed to generate infrastructure: %w", err)
+	}
+
+	if err := p.Runtime.PrepareTools(); err != nil {
+		return err
+	}
+
+	if err := p.Runtime.LoadEnvironment(true); err != nil {
+		return fmt.Errorf("failed to load environment: %w", err)
+	}
+
+	return nil
+}
+
+// Up generates the blueprint, starts the workstation if present (using PrepareForUp to defer host/guest setup
+// when a workstation Terraform component exists), runs the provisioner, and returns the blueprint for use by
+// Install/Wait. If network configuration may need privilege, ensures it up front (EnsureNetworkPrivilege) so
+// later configure can use cached credentials; if DNS address comes from Terraform, a prompt may occur later.
+// Returns an error if any step fails.
+func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
+	p.EnsureWorkstation()
+	blueprint := p.Composer.BlueprintHandler.Generate()
+	var onApply func(string) error
+	if p.Workstation != nil {
+		p.Workstation.PrepareForUp(blueprint)
+		if err := p.Workstation.Up(); err != nil {
+			return nil, fmt.Errorf("error starting workstation: %w", err)
+		}
+		if err := p.Workstation.EnsureNetworkPrivilege(); err != nil {
+			return nil, err
+		}
+		onApply = p.Workstation.MakeApplyHook()
+	}
+	if onApply != nil {
+		if err := p.Provisioner.Up(blueprint, onApply); err != nil {
+			return nil, fmt.Errorf("error starting infrastructure: %w", err)
+		}
+	} else if err := p.Provisioner.Up(blueprint); err != nil {
+		return nil, fmt.Errorf("error starting infrastructure: %w", err)
+	}
+	return blueprint, nil
+}
+
+// PerformCleanup removes context-specific artifacts: config state, .volumes,
+// .windsor/contexts/<context>, and .windsor/Corefile. Returns an error if any step fails.
+func (p *Project) PerformCleanup() error {
+	if err := p.configHandler.Clean(); err != nil {
+		return fmt.Errorf("error cleaning up context specific artifacts: %w", err)
+	}
+
+	volumesPath := filepath.Join(p.projectRoot, ".volumes")
+	if err := os.RemoveAll(volumesPath); err != nil {
+		return fmt.Errorf("error deleting .volumes folder: %w", err)
+	}
+
+	tfModulesPath := filepath.Join(p.projectRoot, ".windsor", "contexts", p.contextName)
+	if err := os.RemoveAll(tfModulesPath); err != nil {
+		return fmt.Errorf("error deleting .windsor/contexts/%s folder: %w", p.contextName, err)
+	}
+
+	corefilePath := filepath.Join(p.projectRoot, ".windsor", "Corefile")
+	if err := os.RemoveAll(corefilePath); err != nil {
+		return fmt.Errorf("error deleting .windsor/Corefile: %w", err)
+	}
+
+	return nil
+}

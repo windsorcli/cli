@@ -22,6 +22,17 @@ contexts: #...
 ## Context
 The context sections configure details related to each context. These configurations include cloud service providers, Kubernetes cluster drivers, and a variety of configurations involving the local cloud virtualization. Further details about these sub-configurations follow.
 
+### Default Values
+
+Windsor applies default values for various configuration options when they are not explicitly specified:
+
+- **Cluster**: `cluster.driver` is derived from platform defaults (for example, local and omni platforms use `talos`).
+- **Terraform**: `terraform.enabled` defaults to `true` with a `local` backend.
+- **Docker**: `docker.enabled` defaults to `false` and is **deprecated**; internal workstation is determined by provider and `workstation.runtime`. Registry configuration is still used.
+- **Provider**: Defaults to `"none"` for non-dev contexts, `"docker"` for dev contexts (or `"incus"` when using colima-incus vm-driver).
+
+These defaults ensure that basic functionality is available without requiring explicit configuration. You can override any default by explicitly setting the value in your `windsor.yaml` file.
+
 ### AWS
 Configuration details specific to the AWS cloud provider. Additionally, configures a Localstack service to simulate AWS resources locally.
 
@@ -82,8 +93,10 @@ cluster:
       - 9292:30292/tcp
       - 8053:30053/udp
     volumes:
-      - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
+      - ${project_root}/.volumes:/var/mnt/local
 ```
+
+Use `${project_root}` for volume sources; it is templated into Terraform and, when using the internal workstation (docker-compose), rewritten to `${WINDSOR_PROJECT_ROOT}` at compose generation time.
 
 | Field                        | Type       | Description                                                        |
 |------------------------------|------------|--------------------------------------------------------------------|
@@ -132,17 +145,16 @@ dns:
 | `records` | `[]string` | Additional DNS records to include in the Corefile.         |
 
 ### Docker
-Configures details related to using Docker locally.
+Configures details related to using Docker locally (registries, etc.). Internal workstation (compose) is controlled by provider and `workstation.runtime`.
 
 ```yaml
 docker:
-  enabled: true
   registries: #...
 ```
 
 | Field          | Type                       | Description                                                                 |
 |----------------|----------------------------|-----------------------------------------------------------------------------|
-| `enabled`      | `bool`                     | Indicates whether the Docker service is enabled.                            |
+| `enabled`      | `bool`                     | **Deprecated.** When true, uses internal workstation (docker-compose). Defaults to false; omit or set to false. Use provider and `workstation.runtime` instead. |
 | `registries`   | `map[string]RegistryConfig`| Configuration for Docker registries, mapping registry names to their config.|
 
 #### RegistryConfig
@@ -179,6 +191,7 @@ Configures details related to the local git livereload server
 git:
   livereload:
     enabled: true
+    rsync_include: ""
     rsync_exclude: .windsor,.terraform,data,.volumes,.venv
     rsync_protect: flux-system
     username: local
@@ -191,6 +204,7 @@ git:
 | Field          | Type     | Description                                                  |
 |----------------|----------|--------------------------------------------------------------|
 | `enabled`      | `bool`   | Indicates whether the livereload feature is enabled.         |
+| `rsync_include`| `string` | Comma-separated list of patterns to include in rsync. When set, only files matching these patterns will be synchronized. |
 | `rsync_exclude`| `string` | Comma-separated list of patterns to exclude from rsync.      |
 | `rsync_protect`| `string` | Specifies files or directories to protect during rsync.      |
 | `username`     | `string` | Username for authentication with the livereload server.      |
@@ -302,6 +316,7 @@ contexts:
     git:
       livereload:
         enabled: true
+        rsync_include: ""
         rsync_exclude: .windsor,.terraform,data,.volumes,.venv
         rsync_protect: flux-system
         username: local
@@ -331,7 +346,7 @@ contexts:
         - 9292:30292/tcp
         - 8053:30053/udp
         volumes:
-        - ${WINDSOR_PROJECT_ROOT}/.volumes:/var/local
+        - ${project_root}/.volumes:/var/mnt/local
     network:
       cidr_block: 10.5.0.0/16
     dns:

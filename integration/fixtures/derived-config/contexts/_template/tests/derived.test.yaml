@@ -1,0 +1,72 @@
+cases:
+- name: derived value includes later merge with empty mirrors
+  values:
+    provider: docker
+    vm:
+      driver: colima
+    cluster:
+      driver: talos
+  terraformOutputs:
+    workstation: {}
+  expect:
+    terraform:
+    - name: cluster
+      path: cluster/test
+      inputs:
+        runtime: colima
+        common_config_patches: |-
+          machine:
+            kubelet:
+              extraArgs:
+                rotate-server-certificates: "true"
+            registries:
+              config: {}
+              mirrors: {}
+
+- name: derived value includes mirrors from workstation output
+  values:
+    provider: docker
+    vm:
+      driver: colima
+    cluster:
+      driver: talos
+  terraformOutputs:
+    workstation:
+      registries:
+        gcr.io:
+          hostname: gcr.test
+          local: gcr.io
+  expect:
+    terraform:
+    - name: cluster
+      path: cluster/test
+      inputs:
+        common_config_patches: |-
+          machine:
+            kubelet:
+              extraArgs:
+                rotate-server-certificates: "true"
+            registries:
+              config: {}
+              mirrors:
+                gcr.io:
+                  hostname: gcr.test
+                  local: gcr.io
+
+- name: non derived same-block read resolves from context
+  values:
+    provider: docker
+    workstation:
+      runtime: docker-desktop
+    vm:
+      driver: colima
+    cluster:
+      driver: talos
+  terraformOutputs:
+    workstation: {}
+  expect:
+    terraform:
+    - name: cluster
+      path: cluster/test
+      inputs:
+        runtime: docker-desktop

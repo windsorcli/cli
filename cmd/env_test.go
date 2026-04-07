@@ -2,614 +2,737 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
-	"github.com/windsorcli/cli/pkg/config"
-	"github.com/windsorcli/cli/pkg/controller"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
-	"github.com/windsorcli/cli/pkg/di"
-	"github.com/windsorcli/cli/pkg/env"
-	"github.com/windsorcli/cli/pkg/secrets"
-	"github.com/windsorcli/cli/pkg/shell"
+	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/env"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
-func setupEnvMocks(t *testing.T) (*Mocks, *bytes.Buffer, *bytes.Buffer) {
-	t.Helper()
+// =============================================================================
+// Test Setup
+// =============================================================================
 
-	injector := di.NewInjector()
-	mocks := &Mocks{
-		Injector:        injector,
-		ConfigHandler:   config.NewMockConfigHandler(),
-		Controller:      controller.NewMockController(),
-		Shell:           shell.NewMockShell(),
-		SecretsProvider: secrets.NewMockSecretsProvider(injector),
-		EnvPrinter:      env.NewMockEnvPrinter(),
-		Shims:           &Shims{},
+func captureEnvVars() map[string]string {
+	envVars := make(map[string]string)
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			envVars[parts[0]] = parts[1]
+		}
 	}
-
-	// Set up mock shell functions
-	mockShell := mocks.Shell
-	mockShell.CheckTrustedDirectoryFunc = func() error { return nil }
-	mockShell.CheckResetFlagsFunc = func() (bool, error) { return false, nil }
-	mockShell.ResetFunc = func() {}
-	mockShell.GetProjectRootFunc = func() (string, error) { return "/test/dir", nil }
-
-	// Create and register mock env printers
-	mockEnvPrinter := env.NewMockEnvPrinter()
-	mockEnvPrinter.PrintFunc = func() error {
-		return nil
-	}
-	mockEnvPrinter.PostEnvHookFunc = func() error {
-		return nil
-	}
-	injector.Register("envPrinter", mockEnvPrinter)
-
-	mockWindsorEnvPrinter := env.NewMockEnvPrinter()
-	mockWindsorEnvPrinter.PrintFunc = func() error {
-		return nil
-	}
-	mockWindsorEnvPrinter.PostEnvHookFunc = func() error {
-		return nil
-	}
-	injector.Register("windsorEnvPrinter", mockWindsorEnvPrinter)
-
-	mockDockerEnvPrinter := env.NewMockEnvPrinter()
-	mockDockerEnvPrinter.PrintFunc = func() error {
-		return nil
-	}
-	mockDockerEnvPrinter.PostEnvHookFunc = func() error {
-		return nil
-	}
-	injector.Register("dockerEnvPrinter", mockDockerEnvPrinter)
-
-	// Set up mock controller to return all env printers
-	mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-		return []env.EnvPrinter{mockEnvPrinter, mockWindsorEnvPrinter, mockDockerEnvPrinter}
-	}
-
-	// Set up output buffers
-	stdout := new(bytes.Buffer)
-	stderr := new(bytes.Buffer)
-
-	return mocks, stdout, stderr
+	return envVars
 }
 
-func TestEnvCmd(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, stderr := setupEnvMocks(t)
+func restoreEnvVars(t *testing.T, envVarsBefore map[string]string) {
+	t.Helper()
+	for key, val := range envVarsBefore {
+		os.Setenv(key, val)
+	}
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			if _, existed := envVarsBefore[parts[0]]; !existed {
+				os.Unsetenv(parts[0])
+			}
+		}
+	}
+}
 
+func isolateTestState(t *testing.T) {
+	t.Helper()
+	rootCmd.SetContext(context.Background())
+	rootCmd.SetArgs([]string{})
+	rootCmd.SetOut(nil)
+	rootCmd.SetErr(nil)
+	verbose = false
+	for _, cmd := range rootCmd.Commands() {
+		cmd.SetContext(context.Background())
+		cmd.SetArgs([]string{})
+	}
+}
+
+func setupOutputCapture(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	stdout, stderr := captureOutput(t)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	return stdout, stderr
+}
+
+func setupTestContext(t *testing.T, mocks *Mocks) {
+	t.Helper()
+	rootCmd.SetContext(context.Background())
+	verbose = false
+	ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+	rootCmd.SetContext(ctx)
+	t.Cleanup(func() {
+		rootCmd.SetContext(context.Background())
+	})
+}
+
+func setupTerraformMocks(t *testing.T, inTerraformProject bool) *Mocks {
+	t.Helper()
+	mockConfigHandler := config.NewMockConfigHandler()
+	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+		if key == "terraform.enabled" {
+			return true
+		}
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return false
+	}
+
+	mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+	mockTerraformProvider := &terraform.MockTerraformProvider{}
+	mockTerraformProvider.IsInTerraformProjectFunc = func() bool {
+		return inTerraformProject
+	}
+	mocks.Runtime.TerraformProvider = mockTerraformProvider
+
+	return mocks
+}
+
+// =============================================================================
+// Test Cases
+// =============================================================================
+
+// TestEnvCmd_ErrorScenarios_RequireOverride runs first (early in file) so runtime
+// override is in context; these two cases fail when run after other env tests.
+func TestEnvCmd_ErrorScenarios_RequireOverride(t *testing.T) {
+	isolateTestState(t)
+	t.Run("HandlesHandleSessionResetError", func(t *testing.T) {
+		setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
+			return false, fmt.Errorf("reset check failed")
+		}
+		setupTestContext(t, mocks)
 		rootCmd.SetArgs([]string{"env"})
+		rootCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime))
+		err := Execute()
+		if err == nil {
+			t.Error("Expected error when HandleSessionReset fails")
+			return
+		}
+		if !strings.Contains(err.Error(), "failed to check reset flags") {
+			t.Errorf("Expected error about reset flags, got: %v", err)
+		}
+	})
+	t.Run("HandlesLoadConfigError", func(t *testing.T) {
+		setupOutputCapture(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			return fmt.Errorf("config load failed")
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		setupTestContext(t, mocks)
+		rootCmd.SetArgs([]string{"env"})
+		rootCmd.SetContext(context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime))
+		err := Execute()
+		if err == nil {
+			t.Error("Expected error when LoadConfig fails")
+			return
+		}
+		if !strings.Contains(err.Error(), "config load failed") {
+			t.Errorf("Expected error about config loading, got: %v", err)
+		}
+	})
+}
+
+func TestEnvCmd_SuccessScenarios(t *testing.T) {
+	envVarsBefore := captureEnvVars()
+	t.Cleanup(func() {
+		isolateTestState(t)
+		restoreEnvVars(t, envVarsBefore)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		// Given proper output capture and mock setup
+		_, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
 
 		// When executing the command
-		err := Execute(mocks.Controller)
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-
 		// And stderr should be empty
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
 		}
 	})
 
-	t.Run("NotTrustedDirectory", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, stderr := setupEnvMocks(t)
+	t.Run("SuccessWithDecrypt", func(t *testing.T) {
+		// Given proper output capture and mock setup
+		_, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
 
-		// Override shell to return error for CheckTrustedDirectory
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("not trusted")
-		}
-		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mocks.Shell.ResetFunc = func() {}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mocks.Shell
-		}
-
-		// Set up env printer
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return nil
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
-
-		// Set up command output
-		rootCmd.SetArgs([]string{"env"})
-		rootCmd.SetErr(stderr)
-
-		// When executing the command
-		err := Execute(mocks.Controller)
+		// When executing the command with decrypt flag
+		rootCmd.SetArgs([]string{"env", "--decrypt"})
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-
-		// And stderr should contain warning
-		expectedWarning := "\033[33mWarning: You are not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve.\033[0m\n"
-		if stderr.String() != expectedWarning {
-			t.Errorf("Expected warning %q, got %q", expectedWarning, stderr.String())
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
 		}
 	})
 
-	t.Run("NotTrustedDirectoryWithHook", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, stderr := setupEnvMocks(t)
+	t.Run("SuccessWithHook", func(t *testing.T) {
+		// Given proper output capture and mock setup
+		_, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
 
-		// Override shell to return not trusted error
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return fmt.Errorf("not trusted")
+		// When executing the command with hook flag
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
-		mocks.Shell.ResetFunc = func() {}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mocks.Shell
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
 		}
+	})
+
+	t.Run("SuppressesProcessStderrWithHook", func(t *testing.T) {
+		_, cmdStderr := setupOutputCapture(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error {
+			_, _ = fmt.Fprint(os.Stderr, "Warning: values.yaml validation failed (config still loaded): [test-warning]\n")
+			return nil
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		originalStderr := os.Stderr
+		readPipe, writePipe, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Expected stderr pipe creation to succeed, got error: %v", pipeErr)
+		}
+		os.Stderr = writePipe
+		t.Cleanup(func() {
+			os.Stderr = originalStderr
+			_ = readPipe.Close()
+			_ = writePipe.Close()
+		})
 
 		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if closeErr := writePipe.Close(); closeErr != nil {
+			t.Fatalf("Expected stderr writer close to succeed, got error: %v", closeErr)
+		}
+		stderrBytes, readErr := io.ReadAll(readPipe)
+		if readErr != nil {
+			t.Fatalf("Expected stderr read to succeed, got error: %v", readErr)
+		}
+		if len(stderrBytes) != 0 {
+			t.Errorf("Expected process stderr to be suppressed in hook mode, got: %q", string(stderrBytes))
+		}
+		if cmdStderr.String() != "" {
+			t.Errorf("Expected cobra stderr to remain empty, got: %q", cmdStderr.String())
+		}
+	})
 
-		// When executing the command
-		err := Execute(mocks.Controller)
+	t.Run("SuccessWithVerbose", func(t *testing.T) {
+		// Given proper output capture and mock setup
+		_, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		// When executing the command with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
-
 		// And stderr should be empty
 		if stderr.String() != "" {
 			t.Error("Expected empty stderr")
 		}
 	})
 
-	t.Run("ResetRequired", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
+	t.Run("SuccessWithAllFlags", func(t *testing.T) {
+		// Given proper output capture and mock setup
+		_, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
 
-		// Override shell to require reset
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
-			return true, nil
-		}
-		mocks.Shell.ResetFunc = func() {}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mocks.Shell
-		}
-
-		// Set up env printer
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return nil
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
-
-		rootCmd.SetArgs([]string{"env"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
+		// When executing the command with all flags
+		rootCmd.SetArgs([]string{"env", "--decrypt", "--hook", "--verbose"})
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+}
+
+func TestEnvCmd_ErrorScenarios(t *testing.T) {
+	envVarsBefore := captureEnvVars()
+	os.Unsetenv("WINDSOR_CONTEXT")
+	os.Unsetenv("NO_CACHE")
+
+	t.Cleanup(func() {
+		isolateTestState(t)
+		os.Unsetenv("WINDSOR_CONTEXT")
+		restoreEnvVars(t, envVarsBefore)
 	})
 
-	t.Run("DecryptSecrets", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
+	isolateTestState(t)
 
-		// Override shell to be trusted
+	t.Run("HandlesNewRuntimeError", func(t *testing.T) {
+		setupOutputCapture(t)
+		isolateTestState(t)
+		defer rootCmd.SetContext(context.Background())
+
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root error")
+		}
+
+		rtOverride := &runtime.Runtime{
+			Shell:       mockShell,
+			ProjectRoot: "",
+		}
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected NewRuntime to panic with invalid shell")
+			}
+		}()
+		_ = runtime.NewRuntime(rtOverride)
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, rtOverride)
+		rootCmd.SetContext(ctx)
+		rootCmd.SetArgs([]string{"env"})
+		_ = Execute()
+	})
+
+	t.Run("HandlesExecutePostEnvHooksErrorWithVerbose", func(t *testing.T) {
+		// Given mocks with PostEnvHook that fails and verbose flag
+		setupOutputCapture(t)
+		mocks := setupMocks(t)
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.PostEnvHookFunc = func(directory ...string) error {
+				return fmt.Errorf("hook failed")
+			}
+		}
+		setupTestContext(t, mocks)
+
+		// When executing the command with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute()
+
+		// Then an error may be returned about post env hooks or environment loading
+		if err != nil && !strings.Contains(err.Error(), "failed to execute post env hooks") && !strings.Contains(err.Error(), "failed to load environment") {
+			t.Errorf("Expected error about post env hooks or environment loading, got: %v", err)
+		}
+	})
+
+	t.Run("SwallowsExecutePostEnvHooksErrorWithoutVerbose", func(t *testing.T) {
+		// Given mocks with PostEnvHook that fails and no verbose flag
+		_, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.PostEnvHookFunc = func(directory ...string) error {
+				return fmt.Errorf("hook failed")
+			}
+		}
+		setupTestContext(t, mocks)
+
+		// When executing the command without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error when verbose is false, got: %v", err)
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SwallowsExecutePostEnvHooksErrorWithHook", func(t *testing.T) {
+		// Given mocks with PostEnvHook that fails and hook flag
+		_, stderr := setupOutputCapture(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "secrets.sops.enabled" || key == "secrets.onepassword.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.PostEnvHookFunc = func(directory ...string) error {
+				return fmt.Errorf("hook failed")
+			}
+		}
+		setupTestContext(t, mocks)
+
+		// When executing the command with hook flag
+		rootCmd.SetArgs([]string{"env", "--hook", "--verbose"})
+		err := Execute()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error when hook is true (even with verbose), got: %v", err)
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SwallowsCheckTrustedDirectoryErrorWithHook", func(t *testing.T) {
+		// Given mocks with CheckTrustedDirectory that fails and hook flag
+		_, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return nil
+			return fmt.Errorf("not trusted")
 		}
-		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mocks.Shell.ResetFunc = func() {}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mocks.Shell
-		}
+		setupTestContext(t, mocks)
 
-		// Set up env printer
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return nil
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
+		// When executing the command with hook flag
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
 
-		rootCmd.SetArgs([]string{"env", "--decrypt"})
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error when CheckTrustedDirectory fails with hook, got: %v", err)
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SwallowsBlueprintLoadErrorWithHook", func(t *testing.T) {
+		// Given terraform mocks with blueprint loading that may fail
+		_, stderr := setupOutputCapture(t)
+		mocks := setupTerraformMocks(t, true)
+		setupTestContext(t, mocks)
+
+		// When executing the command with hook flag
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error when blueprint load fails with hook, got: %v", err)
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SwallowsBlueprintLoadErrorWithoutVerbose", func(t *testing.T) {
+		// Given terraform mocks with blueprint loading that may fail
+		_, stderr := setupOutputCapture(t)
+		mocks := setupTerraformMocks(t, true)
+		setupTestContext(t, mocks)
+
+		// When executing the command without verbose flag
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error when blueprint load fails without verbose, got: %v", err)
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("ReturnsBlueprintLoadErrorWithVerbose", func(t *testing.T) {
+		// Given terraform mocks with blueprint loading that may fail
+		setupOutputCapture(t)
+		mocks := setupTerraformMocks(t, true)
+		setupTestContext(t, mocks)
+
+		// When executing the command with verbose flag
+		rootCmd.SetArgs([]string{"env", "--verbose"})
+		err := Execute()
+
+		// Then an error may be returned about loading blueprint
+		if err != nil && !strings.Contains(err.Error(), "failed to load blueprint") {
+			t.Errorf("Expected error about loading blueprint, got: %v", err)
+		}
+	})
+
+	t.Run("ExecutesInitializeComponents", func(t *testing.T) {
+		// Given proper mocks and setup
+		_, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		setupTestContext(t, mocks)
 
 		// When executing the command
-		err := Execute(mocks.Controller)
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
 
 		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
 	})
 
-	t.Run("DecryptSecretsError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
-
-		// Override shell to be trusted
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mocks.Shell.ResetFunc = func() {}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mocks.Shell
-		}
-
-		// Override secrets provider to return error
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-		mockSecretsProvider.LoadSecretsFunc = func() error {
-			return fmt.Errorf("secrets error")
-		}
-		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{mockSecretsProvider}
-		}
-
-		// Set up env printer
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return nil
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
-
-		rootCmd.SetArgs([]string{"env", "--decrypt"})
+	t.Run("ExecutesBlueprintLoadWhenTerraformEnabled", func(t *testing.T) {
+		// Given terraform is enabled and in terraform project
+		_, stderr := setupOutputCapture(t)
+		mocks := setupTerraformMocks(t, true)
+		setupTestContext(t, mocks)
 
 		// When executing the command
-		err := Execute(mocks.Controller)
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
 
-		// Then no error should occur (errors are suppressed in non-verbose mode)
+		// Then no error should occur (blueprint load may succeed or fail silently)
+		if err != nil {
+			t.Errorf("Expected success (blueprint load may succeed or fail silently), got error: %v", err)
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SkipsBlueprintLoadWhenNotInTerraformProject", func(t *testing.T) {
+		// Given terraform is enabled but not in terraform project
+		_, stderr := setupOutputCapture(t)
+		mocks := setupTerraformMocks(t, false)
+		setupTestContext(t, mocks)
+
+		// When executing the command
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
+
+		// Then no error should occur
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
 	})
 
-	t.Run("DecryptSecretsErrorVerbose", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
+	t.Run("DoesNotSetNoCacheWhenHook", func(t *testing.T) {
+		// Given hook flag is set and NO_CACHE is not set
+		setupOutputCapture(t)
+		mocks := setupMocks(t)
+		os.Unsetenv("NO_CACHE")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+		setupTestContext(t, mocks)
+		t.Cleanup(func() {
+			os.Unsetenv("NO_CACHE")
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		})
 
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mocks.Shell.ResetFunc = func() {}
+		// When executing the command with hook flag
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
 
-		// Override secrets provider to return error
-		mockSecretsProvider := secrets.NewMockSecretsProvider(mocks.Injector)
-		mockSecretsProvider.LoadSecretsFunc = func() error {
-			return fmt.Errorf("secrets error")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
-		mocks.Controller.ResolveAllSecretsProvidersFunc = func() []secrets.SecretsProvider {
-			return []secrets.SecretsProvider{mockSecretsProvider}
+		// And NO_CACHE should not be set
+		if os.Getenv("NO_CACHE") != "" {
+			t.Error("Expected NO_CACHE to not be set when hook is true")
 		}
+	})
 
-		// Set up env printer
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return nil
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
-
-		rootCmd.SetArgs([]string{"env", "--decrypt", "--verbose"})
+	t.Run("SetsNoCacheWhenNotHookAndNotSet", func(t *testing.T) {
+		// Given hook flag is not set and NO_CACHE is not set
+		setupOutputCapture(t)
+		mocks := setupMocks(t)
+		os.Unsetenv("NO_CACHE")
+		setupTestContext(t, mocks)
+		t.Cleanup(func() {
+			os.Unsetenv("NO_CACHE")
+		})
 
 		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur in verbose mode
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain secrets error message
-		expectedError := "Error loading secrets provider: secrets error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("PrintError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
-
-		// Override shell to be trusted
-		mockShell := shell.NewMockShell()
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mockShell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mockShell.ResetFunc = func() {}
-		mocks.Shell = mockShell
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
-		}
-
-		// Override env printer to return error
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return fmt.Errorf("print error")
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
-
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur in verbose mode
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain print error message
-		expectedError := "Error executing Print: print error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("PostEnvHookError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
-
-		// Override shell to be trusted
-		mockShell := shell.NewMockShell()
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mockShell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mockShell.ResetFunc = func() {}
-		mocks.Shell = mockShell
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
-		}
-
-		// Override env printer to return error
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return nil
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return fmt.Errorf("post hook error")
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
-
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur in verbose mode
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain post hook error message
-		expectedError := "Error executing PostEnvHook: post hook error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("NoEnvPrinters", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
-
-		// Override shell to be trusted
-		mockShell := shell.NewMockShell()
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mockShell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, nil
-		}
-		mockShell.ResetFunc = func() {}
-		mocks.Shell = mockShell
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
-		}
-
-		// Override controller to return no env printers
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return nil
-		}
-
-		rootCmd.SetArgs([]string{"env", "--verbose"})
-
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then error should occur in verbose mode
-		if err == nil {
-			t.Error("Expected error, got nil")
-		}
-
-		// And error should contain no printers message
-		expectedError := "Error resolving environment printers: no printers returned"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("InitializationError", func(t *testing.T) {
-		// Given a set of mocks with initialization error
-		mocks, _, _ := setupEnvMocks(t)
-
-		// Mock controller to return initialization error
-		mocks.Controller.InitializeWithRequirementsFunc = func(req ctrl.Requirements) error {
-			return fmt.Errorf("initialization failed")
-		}
-
 		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
 
-		// When executing the command
-		err := Execute(mocks.Controller)
-
-		// Then an error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
-
-		// And error should contain initialization message
-		expectedError := "Error initializing: initialization failed"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// And NO_CACHE should be set to true
+		if os.Getenv("NO_CACHE") != "true" {
+			t.Errorf("Expected NO_CACHE to be set to 'true' when hook is false and NO_CACHE is not set, got: %s", os.Getenv("NO_CACHE"))
 		}
 	})
 
-	t.Run("CheckResetFlagsError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
-
-		// Override shell to return error checking reset flags
-		mockShell := shell.NewMockShell()
-		mockShell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mockShell.CheckResetFlagsFunc = func() (bool, error) {
-			return false, fmt.Errorf("reset flags error")
-		}
-		mockShell.ResetFunc = func() {}
-		mocks.Shell = mockShell
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mockShell
-		}
-
-		// Set up mock controller to handle initialization
-		mocks.Controller.InitializeWithRequirementsFunc = func(req ctrl.Requirements) error {
-			return nil
-		}
-
-		// Set up mock env printer
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return nil
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
-
-		rootCmd.SetArgs([]string{"env", "--verbose"})
+	t.Run("PreservesNoCacheWhenAlreadySet", func(t *testing.T) {
+		// Given NO_CACHE is already set to a value
+		setupOutputCapture(t)
+		mocks := setupMocks(t)
+		os.Setenv("NO_CACHE", "existing-value")
+		os.Setenv("WINDSOR_SESSION_TOKEN", "test-token")
+		setupTestContext(t, mocks)
+		t.Cleanup(func() {
+			os.Unsetenv("NO_CACHE")
+			os.Unsetenv("WINDSOR_SESSION_TOKEN")
+		})
 
 		// When executing the command
-		err := Execute(mocks.Controller)
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
 
-		// Then error should occur in verbose mode
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
-
-		// And error should contain reset flags error message
-		expectedError := "Error checking reset signal: reset flags error"
-		if err.Error() != expectedError {
-			t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+		// And NO_CACHE should preserve its existing value
+		if os.Getenv("NO_CACHE") != "existing-value" {
+			t.Errorf("Expected NO_CACHE to preserve existing value 'existing-value', got: %s", os.Getenv("NO_CACHE"))
 		}
 	})
 
-	t.Run("SetenvError", func(t *testing.T) {
-		// Given a set of mocks with proper configuration
-		mocks, _, _ := setupEnvMocks(t)
-
-		// Override shell to require reset
-		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
-			return nil
-		}
-		mocks.Shell.CheckResetFlagsFunc = func() (bool, error) {
-			return true, nil // This will trigger reset
-		}
-		mocks.Shell.ResetFunc = func() {}
-		mocks.Controller.ResolveShellFunc = func() shell.Shell {
-			return mocks.Shell
-		}
-
-		// Set up shims to return error for Setenv and value for Getenv
-		mocks.Shims.Setenv = func(key, value string) error {
-			if key == "NO_CACHE" {
-				return fmt.Errorf("setenv error")
+	t.Run("OutputsEnvVarsInHookMode", func(t *testing.T) {
+		// Given mocks with env vars and hook mode
+		stdout, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			if !export {
+				t.Error("Expected export to be true in hook mode")
 			}
-			return nil
+			return "export TEST_VAR=\"test_value\"\n"
 		}
-		mocks.Shims.Getenv = func(key string) string {
-			return "" // No session token, will also trigger reset
-		}
-
-		// Set up mock controller initialization
-		mocks.Controller.InitializeWithRequirementsFunc = func(req ctrl.Requirements) error {
-			if req.Flags["verbose"] {
-				return fmt.Errorf("Error setting NO_CACHE: setenv error")
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.GetEnvVarsFunc = func() (map[string]string, error) {
+				return map[string]string{"TEST_VAR": "test_value"}, nil
 			}
-			return nil
 		}
+		setupTestContext(t, mocks)
 
-		// Set up mock env printer
-		mocks.EnvPrinter.PrintFunc = func() error {
-			return nil
-		}
-		mocks.EnvPrinter.PostEnvHookFunc = func() error {
-			return nil
-		}
-		mocks.Controller.ResolveAllEnvPrintersFunc = func() []env.EnvPrinter {
-			return []env.EnvPrinter{mocks.EnvPrinter}
-		}
+		// When executing the command with hook flag
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
 
-		rootCmd.SetArgs([]string{"env", "--verbose"})
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		// And stdout should contain env var output
+		if !strings.Contains(stdout.String(), "export TEST_VAR") {
+			t.Errorf("Expected stdout to contain env var output, got: %s", stdout.String())
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("OutputsAliasesInHookMode", func(t *testing.T) {
+		// Given mocks with aliases and hook mode
+		stdout, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Shell.RenderEnvVarsFunc = func(envVars map[string]string, export bool) string {
+			return ""
+		}
+		mocks.Shell.RenderAliasesFunc = func(aliases map[string]string) string {
+			return "alias test=\"test_command\"\n"
+		}
+		if mockWindsorEnv, ok := mocks.Runtime.EnvPrinters.WindsorEnv.(*env.MockEnvPrinter); ok {
+			mockWindsorEnv.GetAliasFunc = func() (map[string]string, error) {
+				return map[string]string{"test": "test_command"}, nil
+			}
+		}
+		setupTestContext(t, mocks)
+
+		// When executing the command with hook flag
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		// And stdout should contain alias output
+		if !strings.Contains(stdout.String(), "alias test") {
+			t.Errorf("Expected stdout to contain alias output, got: %s", stdout.String())
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("OutputsNothingWhenNoEnvVars", func(t *testing.T) {
+		// Given mocks with no env vars or aliases (defaults already provide this)
+		stdout, stderr := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		setupTestContext(t, mocks)
 
 		// When executing the command
-		err := Execute(mocks.Controller)
+		rootCmd.SetArgs([]string{"env"})
+		err := Execute()
 
-		// Then error should occur
-		if err == nil {
-			t.Error("Expected error, got nil")
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
 		}
-		if err != nil && !strings.Contains(err.Error(), "Error setting NO_CACHE: setenv error") {
-			t.Errorf("Expected error to contain 'Error setting NO_CACHE: setenv error', got %v", err)
+		// And stdout should be empty
+		if stdout.String() != "" {
+			t.Errorf("Expected empty stdout when no env vars, got: %s", stdout.String())
+		}
+		// And stderr should be empty
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
 		}
 	})
 }

@@ -2,84 +2,67 @@ package cmd
 
 import (
 	"fmt"
-	"maps"
+	"os"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
+// execCmd represents the exec command
 var execCmd = &cobra.Command{
-	Use:          "exec -- [command]",
-	Short:        "Execute a shell command with environment variables",
-	Long:         "Execute a shell command with environment variables set for the application.",
+	Use:          "exec [command] [args...]",
+	Short:        "Execute a command with environment variables",
+	Long:         "Execute a command with environment variables loaded from configuration and secrets",
+	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("no command provided")
 		}
 
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		verbose, _ := cmd.Flags().GetBool("verbose")
 
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Env:          true,
-			Secrets:      true,
-			VM:           true,
-			Containers:   true,
-			Network:      true,
-			Services:     true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": verbose,
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
-		// Load secrets
-		secretsProviders := controller.ResolveAllSecretsProviders()
-		if len(secretsProviders) > 0 {
-			for _, secretsProvider := range secretsProviders {
-				if err := secretsProvider.LoadSecrets(); err != nil {
-					return fmt.Errorf("Error loading secrets: %w", err)
-				}
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			if rt, ok := overridesVal.(*runtime.Runtime); ok {
+				rtOpts = []*runtime.Runtime{rt}
 			}
 		}
 
-		// Resolve all environment printers using the controller
-		envPrinters := controller.ResolveAllEnvPrinters()
+		rt := runtime.NewRuntime(rtOpts...)
 
-		// Collect environment variables from all printers
-		envVars := make(map[string]string)
-		for _, envPrinter := range envPrinters {
-			vars, err := envPrinter.GetEnvVars()
-			if err != nil {
-				return fmt.Errorf("Error getting environment variables: %w", err)
-			}
-			maps.Copy(envVars, vars)
-			if err := envPrinter.PostEnvHook(); err != nil {
-				return fmt.Errorf("Error executing PostEnvHook: %w", err)
+		rt.Shell.SetVerbosity(verbose)
+
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		}
+
+		if err := rt.HandleSessionReset(); err != nil {
+			return err
+		}
+
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			return err
+		}
+
+		if err := rt.LoadEnvironment(true); err != nil {
+			return fmt.Errorf("failed to load environment: %w", err)
+		}
+
+		for key, value := range rt.GetEnvVars() {
+			if err := os.Setenv(key, value); err != nil {
+				return fmt.Errorf("failed to set environment variable %s: %w", key, err)
 			}
 		}
 
-		// Set environment variables for the command
-		for k, v := range envVars {
-			if err := shims.Setenv(k, v); err != nil {
-				return fmt.Errorf("Error setting environment variable %q: %w", k, err)
-			}
+		command := args[0]
+		var commandArgs []string
+		if len(args) > 1 {
+			commandArgs = args[1:]
 		}
 
-		// Resolve the shell instance using the controller
-		shellInstance := controller.ResolveShell()
-		if shellInstance == nil {
-			return fmt.Errorf("No shell found")
-		}
-
-		// Execute the command using the resolved shell instance
-		_, err := shellInstance.Exec(args[0], args[1:]...)
-		if err != nil {
-			return fmt.Errorf("command execution failed: %w", err)
+		if _, err := rt.Shell.Exec(command, commandArgs...); err != nil {
+			return fmt.Errorf("failed to execute command: %w", err)
 		}
 
 		return nil

@@ -1,0 +1,5 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: facet-composition
+  description: Facet composition integration fixture

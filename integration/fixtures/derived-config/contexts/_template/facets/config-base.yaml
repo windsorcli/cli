@@ -1,0 +1,28 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: config-base
+  description: Base block with a derived field from same block.
+
+when: (cluster.driver ?? '') == 'talos'
+
+config:
+- name: workstation
+  value:
+    runtime: "${workstation.runtime ?? 'colima'}"
+
+- name: block_a
+  value:
+    common_patch:
+      machine:
+        kubelet:
+          extraArgs:
+            rotate-server-certificates: "true"
+    common_config_patches: "${string(block_a.common_patch)}"
+
+terraform:
+- name: cluster
+  path: cluster/test
+  inputs:
+    common_config_patches: "${block_a.common_config_patches}"
+    runtime: "${workstation.runtime}"

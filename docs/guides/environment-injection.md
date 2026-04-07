@@ -25,7 +25,7 @@ The following environment variables are set automatically, or can be configured 
 | MWAA_ENDPOINT    | system default                         | `contexts.<context-name>.aws.mwaa_endpoint`        |
 
 ### Docker
-The Windsor CLI provides several functionalities to manage Docker environments effectively. It automatically sets the `DOCKER_HOST` environment variable based on the `vm.driver` configuration, ensuring compatibility with both Colima and Docker Desktop setups. The CLI also ensures the Docker configuration directory exists and writes necessary configuration files. Additionally, it adds the `DOCKER_CONFIG` environment variable pointing to the Docker configuration directory and manages aliases for Docker commands, such as `docker-compose`, if specific plugins are detected.
+The Windsor CLI provides several functionalities to manage Docker environments effectively. It automatically sets the `DOCKER_HOST` environment variable based on the `workstation.runtime` configuration, ensuring compatibility with both Colima and Docker Desktop setups. The CLI also ensures the Docker configuration directory exists and writes necessary configuration files. Additionally, it adds the `DOCKER_CONFIG` environment variable pointing to the Docker configuration directory and manages aliases for Docker commands, such as `docker-compose`, if specific plugins are detected.
 
 Below is a table summarizing the driver configurations:
 

@@ -1,0 +1,21 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: option-merge
+  description: Merge into the same block after base definition.
+
+when: (cluster.driver ?? '') == 'talos'
+
+config:
+- name: mirror_cfg
+  value:
+    mirrors: "${terraform_output('workstation', 'registries') ?? {}}"
+    config: {}
+
+- name: block_a
+  value:
+    common_patch:
+      machine:
+        registries:
+          mirrors: "${mirror_cfg.mirrors}"
+          config: "${mirror_cfg.config}"

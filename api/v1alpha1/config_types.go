@@ -6,6 +6,7 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/cluster"
 	"github.com/windsorcli/cli/api/v1alpha1/dns"
 	"github.com/windsorcli/cli/api/v1alpha1/docker"
+	"github.com/windsorcli/cli/api/v1alpha1/gcp"
 	"github.com/windsorcli/cli/api/v1alpha1/git"
 	"github.com/windsorcli/cli/api/v1alpha1/network"
 	"github.com/windsorcli/cli/api/v1alpha1/secrets"
@@ -13,22 +14,29 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha1/vm"
 )
 
-// Config represents the entire configuration
-type Config struct {
-	Version      string              `yaml:"version"`
-	ToolsManager string              `yaml:"toolsManager,omitempty"`
-	Contexts     map[string]*Context `yaml:"contexts"`
+// RootTerraformConfig represents the root-level terraform configuration
+type RootTerraformConfig struct {
+	Driver string `yaml:"driver,omitempty"`
 }
 
-// Context represents the context configuration
+// Config represents the entire configuration
+type Config struct {
+	Version      string               `yaml:"version"`
+	ToolsManager string               `yaml:"toolsManager,omitempty"`
+	Terraform    *RootTerraformConfig `yaml:"terraform,omitempty"`
+	Contexts     map[string]*Context  `yaml:"contexts"`
+}
+
+// Context represents the context configuration.
 type Context struct {
 	ID          *string                    `yaml:"id,omitempty"`
-	ProjectName *string                    `yaml:"projectName,omitempty"`
-	Blueprint   *string                    `yaml:"blueprint,omitempty"`
+	Platform    *string                    `yaml:"platform,omitempty"`
+	Provider    *string                    `yaml:"provider,omitempty"`
 	Environment map[string]string          `yaml:"environment,omitempty"`
 	Secrets     *secrets.SecretsConfig     `yaml:"secrets,omitempty"`
 	AWS         *aws.AWSConfig             `yaml:"aws,omitempty"`
 	Azure       *azure.AzureConfig         `yaml:"azure,omitempty"`
+	GCP         *gcp.GCPConfig             `yaml:"gcp,omitempty"`
 	Docker      *docker.DockerConfig       `yaml:"docker,omitempty"`
 	Git         *git.GitConfig             `yaml:"git,omitempty"`
 	Terraform   *terraform.TerraformConfig `yaml:"terraform,omitempty"`
@@ -46,8 +54,11 @@ func (base *Context) Merge(overlay *Context) {
 	if overlay.ID != nil {
 		base.ID = overlay.ID
 	}
-	if overlay.ProjectName != nil {
-		base.ProjectName = overlay.ProjectName
+	if overlay.Platform != nil {
+		base.Platform = overlay.Platform
+	}
+	if overlay.Provider != nil {
+		base.Provider = overlay.Provider
 	}
 	if overlay.Environment != nil {
 		if base.Environment == nil {
@@ -74,6 +85,12 @@ func (base *Context) Merge(overlay *Context) {
 			base.Azure = &azure.AzureConfig{}
 		}
 		base.Azure.Merge(overlay.Azure)
+	}
+	if overlay.GCP != nil {
+		if base.GCP == nil {
+			base.GCP = &gcp.GCPConfig{}
+		}
+		base.GCP.Merge(overlay.GCP)
 	}
 	if overlay.Docker != nil {
 		if base.Docker == nil {
@@ -117,9 +134,6 @@ func (base *Context) Merge(overlay *Context) {
 		}
 		base.DNS.Merge(overlay.DNS)
 	}
-	if overlay.Blueprint != nil {
-		base.Blueprint = overlay.Blueprint
-	}
 }
 
 // DeepCopy creates a deep copy of the Context object
@@ -136,12 +150,13 @@ func (c *Context) DeepCopy() *Context {
 	}
 	return &Context{
 		ID:          c.ID,
-		ProjectName: c.ProjectName,
-		Blueprint:   c.Blueprint,
+		Platform:    c.Platform,
+		Provider:    c.Provider,
 		Environment: environmentCopy,
 		Secrets:     c.Secrets.Copy(),
 		AWS:         c.AWS.Copy(),
 		Azure:       c.Azure.Copy(),
+		GCP:         c.GCP.Copy(),
 		Docker:      c.Docker.Copy(),
 		Git:         c.Git.Copy(),
 		Terraform:   c.Terraform.Copy(),

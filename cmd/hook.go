@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 var hookCmd = &cobra.Command{
@@ -12,23 +12,22 @@ var hookCmd = &cobra.Command{
 	Short:        "Prints out shell hook information per platform (zsh,bash,fish,tcsh,powershell).",
 	Long:         "Prints out shell hook information for each platform (zsh,bash,fish,tcsh,powershell).",
 	SilenceUsage: true,
+	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) == 0 {
-			return fmt.Errorf("No shell name provided")
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			if rt, ok := overridesVal.(*runtime.Runtime); ok {
+				rtOpts = []*runtime.Runtime{rt}
+			}
 		}
 
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
+		rt := runtime.NewRuntime(rtOpts...)
 
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			CommandName: cmd.Name(),
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		if err := rt.Shell.InstallHook(args[0]); err != nil {
+			return fmt.Errorf("error installing hook: %w", err)
 		}
 
-		shell := controller.ResolveShell()
-
-		return shell.InstallHook(args[0])
+		return nil
 	},
 }
 

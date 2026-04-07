@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 var envCmd = &cobra.Command{
@@ -13,123 +15,101 @@ var envCmd = &cobra.Command{
 	Long:         "Output commands to set environment variables for the application.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			CommandName: cmd.Name(),
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
-		shell := controller.ResolveShell()
-
-		// Check trusted status
-		isTrusted := shell.CheckTrustedDirectory() == nil
-
-		// Check if --hook flag is set
 		hook, _ := cmd.Flags().GetBool("hook")
-
-		// Early exit if not in trusted directory, but reset first
-		if !isTrusted {
-			shell.Reset()
-			if !hook {
-				fmt.Fprintf(cmd.ErrOrStderr(), "\033[33mWarning: You are not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve.\033[0m\n")
-			}
-			return nil
-		}
-
-		// Check if WINDSOR_SESSION_TOKEN is set - indicates we've been in a Windsor session
-		hasSessionToken := shims.Getenv("WINDSOR_SESSION_TOKEN") != ""
-
-		// Check if a reset signal file exists for the current session
-		shouldReset, err := shell.CheckResetFlags()
-		if err != nil && verbose {
-			return fmt.Errorf("Error checking reset signal: %w", err)
-		}
-
-		// Set shouldReset to true if session token is not present
-		if !hasSessionToken {
-			shouldReset = true
-		}
-
-		// Reset only when shouldReset is true (not based on trusted status)
-		if shouldReset {
-			shell.Reset()
-
-			// Set NO_CACHE=true to force fresh environment variable resolution
-			if err := shims.Setenv("NO_CACHE", "true"); err != nil && verbose {
-				return fmt.Errorf("Error setting NO_CACHE: %w", err)
-			}
-		}
-
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			Trust:        true,
-			ConfigLoaded: !hook, // Don't check if config is loaded when executed by the hook
-			Env:          true,
-			Secrets:      true,
-			VM:           true,
-			Containers:   true,
-			Network:      true,
-			Services:     true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": verbose,
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
-		}
-
-		envPrinters := controller.ResolveAllEnvPrinters()
-		if len(envPrinters) == 0 {
-			if verbose {
-				return fmt.Errorf("Error resolving environment printers: no printers returned")
-			}
-			return nil
-		}
-
-		// Check if --decrypt flag is set
 		decrypt, _ := cmd.Flags().GetBool("decrypt")
+		verboseVal := false
+		if v, err := cmd.Root().PersistentFlags().GetBool("verbose"); err == nil {
+			verboseVal = v
+		}
 
-		if decrypt {
-			// Unlock the SecretProvider
-			secretsProviders := controller.ResolveAllSecretsProviders()
+		if !hook && os.Getenv("NO_CACHE") == "" {
+			if err := os.Setenv("NO_CACHE", "true"); err != nil {
+				return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
+			}
+		}
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Root().Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
+		}
 
-			// Check if there are any secrets providers available
-			if len(secretsProviders) == 0 {
-				if verbose {
-					fmt.Println("Warning: No secrets providers found. If you recently changed contexts, try running the command again.")
-				}
-			} else {
-				for _, secretsProvider := range secretsProviders {
-					if err := secretsProvider.LoadSecrets(); err != nil {
-						if verbose {
-							return fmt.Errorf("Error loading secrets provider: %w", err)
-						}
+		rt := runtime.NewRuntime(rtOpts...)
+		if hook {
+			stderrNullFile, stderrNullErr := os.OpenFile(os.DevNull, os.O_WRONLY, 0600)
+			if stderrNullErr == nil {
+				originalStderr := os.Stderr
+				os.Stderr = stderrNullFile
+				defer func() {
+					os.Stderr = originalStderr
+					_ = stderrNullFile.Close()
+				}()
+			}
+		}
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
+			if hook {
+				return nil
+			}
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		}
+
+		if err := rt.HandleSessionReset(); err != nil {
+			if hook {
+				return nil
+			}
+			return err
+		}
+
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			if hook {
+				return nil
+			}
+			return err
+		}
+
+		if err := rt.InitializeComponents(); err != nil {
+			if hook || !verboseVal {
+				return nil
+			}
+			return fmt.Errorf("failed to initialize components: %w", err)
+		}
+
+		if rt.ConfigHandler.GetBool("terraform.enabled", true) {
+			if rt.TerraformProvider.IsInTerraformProject() {
+				comp := composer.NewComposer(rt)
+				if err := comp.BlueprintHandler.LoadBlueprint(); err != nil {
+					if hook || !verboseVal {
 						return nil
 					}
+					return fmt.Errorf("failed to load blueprint: %w", err)
 				}
 			}
 		}
 
-		// Track first error from printers
-		var firstError error
-
-		// Iterate through all environment printers and run their Print and PostEnvHook functions
-		for _, envPrinter := range envPrinters {
-			if err := envPrinter.Print(); err != nil && firstError == nil {
-				firstError = fmt.Errorf("Error executing Print: %w", err)
+		if err := rt.LoadEnvironment(decrypt); err != nil {
+			if hook || !verboseVal {
+				return nil
 			}
+			return fmt.Errorf("failed to load environment: %w", err)
+		}
 
-			if err := envPrinter.PostEnvHook(); err != nil && firstError == nil {
-				firstError = fmt.Errorf("Error executing PostEnvHook: %w", err)
+		outputFunc := func(output string) {
+			if output != "" {
+				fmt.Fprint(cmd.OutOrStdout(), output)
 			}
 		}
 
-		if verbose {
-			return firstError
+		if hook {
+			if rt.Shell != nil && len(rt.GetEnvVars()) > 0 {
+				outputFunc(rt.Shell.RenderEnvVars(rt.GetEnvVars(), true))
+			}
+			if rt.Shell != nil && len(rt.GetAliases()) > 0 {
+				outputFunc(rt.Shell.RenderAliases(rt.GetAliases()))
+			}
+		} else {
+			if rt.Shell != nil && len(rt.GetEnvVars()) > 0 {
+				outputFunc(rt.Shell.RenderEnvVars(rt.GetEnvVars(), false))
+			}
 		}
+
 		return nil
 	},
 }

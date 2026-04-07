@@ -1,0 +1,4 @@
+cases:
+  - name: platform_from_provider
+    values:
+      provider: docker

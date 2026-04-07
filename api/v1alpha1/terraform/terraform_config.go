@@ -20,9 +20,9 @@ type S3Backend struct {
 	Bucket                         *string   `yaml:"bucket,omitempty"`
 	Key                            *string   `yaml:"key,omitempty"`
 	Region                         *string   `yaml:"region,omitempty"`
-	AccessKey                      *string   `yaml:"access_key,omitempty"`
+	AccessKey                      *string   `yaml:"access_key,omitempty"`    // #nosec G117 - legitimate credential field for terraform backend
 	SecretKey                      *string   `yaml:"secret_key,omitempty"`
-	SessionToken                   *string   `yaml:"session_token,omitempty"`
+	SessionToken                   *string   `yaml:"session_token,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
 	RoleArn                        *string   `yaml:"role_arn,omitempty"`
 	ExternalId                     *string   `yaml:"external_id,omitempty"`
 	Profile                        *string   `yaml:"profile,omitempty"`
@@ -64,10 +64,10 @@ type KubernetesBackend struct {
 	InClusterConfig       *bool              `yaml:"in_cluster_config,omitempty"`
 	Host                  *string            `yaml:"host,omitempty"`
 	Username              *string            `yaml:"username,omitempty"`
-	Password              *string            `yaml:"password,omitempty"`
+	Password              *string            `yaml:"password,omitempty"`          // #nosec G117 - legitimate credential field for terraform backend
 	Insecure              *bool              `yaml:"insecure,omitempty"`
 	ClientCertificate     *string            `yaml:"client_certificate,omitempty"`
-	ClientKey             *string            `yaml:"client_key,omitempty"`
+	ClientKey             *string            `yaml:"client_key,omitempty"`        // #nosec G117 - legitimate credential field for terraform backend
 	ClusterCACertificate  *string            `yaml:"cluster_ca_certificate,omitempty"`
 	ConfigPath            *string            `yaml:"config_path,omitempty"`
 	ConfigPaths           *[]string          `yaml:"config_paths,omitempty"`
@@ -106,7 +106,7 @@ type AzureRMBackend struct {
 	TenantID                       *string `yaml:"tenant_id,omitempty"`
 	SubscriptionID                 *string `yaml:"subscription_id,omitempty"`
 	ClientID                       *string `yaml:"client_id,omitempty"`
-	ClientSecret                   *string `yaml:"client_secret,omitempty"`
+	ClientSecret                   *string `yaml:"client_secret,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
 	ClientCertificate              *string `yaml:"client_certificate,omitempty"`
 	ClientCertPassword             *string `yaml:"client_certificate_password,omitempty"`
 	ClientCertPath                 *string `yaml:"client_certificate_path,omitempty"`
@@ -116,7 +116,7 @@ type AzureRMBackend struct {
 	ResourceGroupName              *string `yaml:"resource_group_name,omitempty"`
 	UseDNSZoneEndpoint             *bool   `yaml:"use_dns_zone_endpoint,omitempty"`
 	Snapshot                       *bool   `yaml:"snapshot,omitempty"`
-	AccessKey                      *string `yaml:"access_key,omitempty"`
+	AccessKey                      *string `yaml:"access_key,omitempty"` // #nosec G117 - legitimate credential field for terraform backend
 	SasToken                       *string `yaml:"sas_token,omitempty"`
 	AdoPipelineServiceConnectionId *string `yaml:"ado_pipeline_service_connection_id,omitempty"`
 	OidcRequestUrl                 *string `yaml:"oidc_request_url,omitempty"`

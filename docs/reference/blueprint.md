@@ -26,6 +26,9 @@ kustomize: #...
 | `sources`   | `[]Source`             | Lists external resources referenced by the blueprint.                       |
 | `terraform` | `[]TerraformComponent` | Includes Terraform modules within the blueprint.                            |
 | `kustomize` | `[]Kustomization`      | Contains Kustomization configurations in the blueprint.                     |
+| `configMaps`| `map[string]map[string]string` | Standalone ConfigMaps to be created, not tied to specific kustomizations. These ConfigMaps are referenced by all kustomizations in PostBuild substitution. |
+
+For information about Facets, see the [Facets Reference](facets.md). For schema validation, see the [Schema Reference](schema.md). For blueprint metadata, see the [Metadata Reference](metadata.md).
 
 ### Metadata
 Core information about the blueprint, including its identity and authors.
@@ -63,22 +66,41 @@ repository:
 | `secretName` | `string`    | The name of the k8s secret containing git credentials.|
 
 ### Source
-A dependency from which Terraform and Kustomize components may be sourced
+A dependency from which Terraform and Kustomize components may be sourced. Sources can be OCI blueprint artifacts or Git repositories containing Terraform modules.
 
 ```yaml
 sources:
   - name: core
-    url: github.com/windsorcli/core
+    url: oci://ghcr.io/windsorcli/core:v0.3.0
+    deploy: true  # Merge this source's components (default: true)
+  - name: reference
+    url: oci://ghcr.io/windsorcli/reference:v0.3.0
+    deploy: false  # Index-only: don't merge, but allow component reference
+  - name: modules
+    url: github.com/org/terraform-modules
     ref:
-      tag: v0.3.0
+      branch: main
+    # deploy flag only applies to OCI sources
 ```
 
 | Field        | Type       | Description                                      |
 |--------------|------------|--------------------------------------------------|
 | `name`       | `string`   | Identifies the source.                           |
-| `url`        | `string`   | The source location.                             |
-| `ref`        | `Reference`| Details the branch, tag, or commit to use.       |
+| `url`        | `string`   | The source location. Supports Git URLs and OCI URLs (oci://registry/repo:tag). |
+| `pathPrefix` | `string`   | Prefix to the source path. Defaults to `terraform` if not specified. |
+| `ref`        | `Reference`| Details the branch, tag, or commit to use. Not needed for OCI URLs with embedded tags. |
 | `secretName` | `string`   | The secret for source access.                    |
+| `deploy`     | `bool` or `string` | For OCI sources only: whether to merge this source's components into the final blueprint. Can be a boolean (`true`/`false`) or an expression (e.g., `${some.condition ?? true}`). Defaults to `true` if not specified. |
+
+**Source Types:**
+
+- **OCI Sources** (`oci://` URLs): Blueprint artifacts that can have their components merged. When `deploy: true` (or not specified), the source's components are merged directly into the final blueprint. When `deploy: false`, the source is "index-only" - its components aren't merged, but other components can reference it via `source: <name>`.
+- **Git Sources** (Git URLs): Terraform module repositories. These are not loaded as blueprints and their components cannot be merged. They remain in the Sources array for component reference only. The `deploy` flag does not apply to Git sources.
+
+**Notes:**
+- For OCI sources, the URL should include the tag/version directly (e.g., `oci://registry.example.com/repo:v1.0.0`). The `ref` field is optional for OCI sources when the tag is specified in the URL.
+- The `deploy` flag only applies to OCI sources. It defaults to `true` if not specified, meaning OCI sources have their components merged by default.
+- Sources with `deploy: false` are still available for component reference - components can use `source: <name>` to reference them, and the source URL will be resolved appropriately.
 
 ### Reference
 A reference to a specific git state or version
@@ -87,6 +109,7 @@ A reference to a specific git state or version
 reference:
   branch: main
   tag: v1.0.0
+  semver: ~1.0.0
   name: refs/heads/main
   commit: 1a2b3c4d5e6f7g8h9i0j
 ```
@@ -95,6 +118,7 @@ reference:
 |---------|--------|--------------------------------------------------|
 | `branch`| `string` | Branch to use.                                 |
 | `tag`   | `string` | Tag to use.                                    |
+| `semver`| `string` | Semantic version constraint to use (e.g., `~1.0.0`, `>=1.0.0`). |
 | `name`  | `string` | Name of the reference.                         |
 | `commit`| `string` | Commit hash to use.                            |
 
@@ -109,14 +133,21 @@ terraform:
   
   # A Terraform module defined within the current blueprint source
   - path: apps/my-infra
+    parallelism: 5
+  
+  # A Terraform module from a local archive source
+  - source: archive-source
+    path: cluster/talos
 ```
 
 | Field      | Type                             | Description                                      |
 |------------|----------------------------------|--------------------------------------------------|
-| `source`   | `string`                         | Source of the Terraform module. Must be included in the list of sources. |
-| `path`     | `string`                         | Path of the Terraform module relative to the `terraform/` folder.                    |
-| `values`   | `map[string]any`         | Configuration values for the module.             |
-| `variables`| `map[string]TerraformVariable`   | Input variables for the module.                  |
+| `source`   | `string`                         | Source of the Terraform module. Must be included in the list of sources. Supports Git repositories, OCI artifacts, and file:// archive URLs. |
+| `path`     | `string`                         | Path of the Terraform module relative to the `terraform/` folder (for Git/OCI sources) or within the archive (for file:// sources).                    |
+| `inputs`   | `map[string]any`                  | Configuration values for the module. These values can be expressions using `${}` syntax (e.g., `${cluster.name}`) or literals. Values with `${}` are evaluated as expressions, plain values are passed through as literals. These are used for generating tfvars files and are not written to the final context blueprint.yaml. |
+| `dependsOn`| `[]string`                       | Dependencies of this terraform component.        |
+| `destroy`  | `*bool`                          | Determines if the component should be destroyed during down operations. Defaults to true if not specified. |
+| `parallelism`| `int`                         | Limits the number of concurrent operations as Terraform walks the graph. Corresponds to the `-parallelism` flag. |
 
 ### Kustomization
 For more information on Flux Kustomizations, which are sets of resources and configurations applied to a Kubernetes cluster, visit [Flux Kustomizations Documentation](https://fluxcd.io/flux/components/kustomize/kustomizations/). Most parameters are not necessary to define.
@@ -147,22 +178,32 @@ kustomize:
 | `interval`    | `*metav1.Duration`  | Interval for applying the kustomization.         |
 | `retryInterval`| `*metav1.Duration` | Retry interval for a failed kustomization.       |
 | `timeout`     | `*metav1.Duration`  | Timeout for the kustomization to complete.       |
-| `patches`     | `[]kustomize.Patch` | Patches to apply to the kustomization.           |
+| `patches`     | `[]BlueprintPatch` | Patches to apply to the kustomization. Supports both blueprint format (path) and Flux format (patch + target). |
 | `wait`        | `*bool`             | Wait for the kustomization to be fully applied.  |
 | `force`       | `*bool`             | Force apply the kustomization.                   |
+| `prune`       | `*bool`             | Enable garbage collection of resources that are no longer present in the source. |
 | `components`  | `[]string`          | Components to include in the kustomization.      |
+| `cleanup`     | `[]string`          | Components to include in a cleanup kustomization that runs before this kustomization is deleted. The cleanup kustomization uses the path `<kustomization-path>/cleanup` with these as components. |
+| `destroy`     | `*bool`             | Determines if the kustomization should be destroyed during down operations. Defaults to true if not specified. |
+| `destroyOnly` | `*bool`             | Indicates that this kustomization should only run during destroy operations. When true, the kustomization is skipped during apply/up operations and only executed during destroy. Destroy-only kustomizations run before regular kustomizations during destroy, in normal dependency order. |
+| `substitutions` | `map[string]string` | Values for post-build variable replacement, collected and stored in ConfigMaps for use by Flux postBuild substitution. All values are converted to strings. These are used for generating ConfigMaps and are not written to the final context blueprint.yaml. |
+
+#### Patches
+
+Patches are provided via Facets, not directly in blueprint definitions. See the [Facets Reference](facets.md#kustomization-patches) for details on how to define patches in facets.
 
 ## Cluster Variables
 When running `windsor install`, Kubernetes resources are applied. These resources include a configmap that introduces [post-build variables](https://fluxcd.io/flux/components/kustomize/kustomizations/#post-build-variable-substitution) into the Kubernetes manifests. These variables are outlined as follows:
 
 | Key                     | Description                                                        |
 |-------------------------|--------------------------------------------------------------------|
+| `BUILD_ID`              | Build identifier for artifact tagging, generated by `windsor build-id`. Format: YYMMDD.RANDOM.# |
 | `CONTEXT`               | Specifies the context name, e.g., local.                           |
 | `DOMAIN`                | The domain used for subdomain registration, e.g., test.            |
 | `LOADBALANCER_IP_END`   | The final IP in the range for load balancer assignments.           |
 | `LOADBALANCER_IP_RANGE` | Complete range of load balancer IPs, e.g., 10.5.1.1-10.5.1.10.     |
 | `LOADBALANCER_IP_START` | The initial IP in the range for load balancer assignments.         |
-| `LOCAL_VOLUME_PATH`     | Directory path for local volume storage, e.g., /var/local.         |
+| `LOCAL_VOLUME_PATH`     | Directory path for local volume storage, e.g., /var/mnt/local.    |
 | `REGISTRY_URL`          | Base URL for the container image registry, e.g., registry.test.    |
 
 ## Example: Local Blueprint
@@ -184,6 +225,8 @@ sources:
   url: github.com/windsorcli/core
   ref:
     branch: main
+- name: oci-source
+  url: oci://ghcr.io/windsorcli/core:v0.3.0
 terraform:
 - path: cluster/talos
 - path: gitops/flux
@@ -261,12 +304,12 @@ kustomize:
 ```
 
 <div>
-  {{ footer('Terraform', '../../guides/terraform/index.html', 'Configuration', '../configuration/index.html') }}
+  {{ footer('Securing Secrets', '../../security/secrets/index.html', 'Configuration', '../configuration/index.html') }}
 </div>
 
 <script>
   document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../security/terraform/index.html'; 
+    window.location.href = '../../security/secrets/index.html'; 
   });
   document.getElementById('nextButton').addEventListener('click', function() {
     window.location.href = '../configuration/index.html'; 

@@ -3,15 +3,15 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
 )
 
 var (
-	cleanFlag   bool
-	skipK8sFlag bool
+	cleanFlag         bool
+	skipK8sFlag       bool
+	skipTerraformFlag bool
+	skipDockerFlag    bool
 )
 
 var downCmd = &cobra.Command{
@@ -20,97 +20,44 @@ var downCmd = &cobra.Command{
 	Long:         "Tear down the Windsor environment by executing necessary shell commands.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Trust:        true,
-			Env:          true,
-			VM:           true,
-			Containers:   true,
-			Network:      true,
-			Blueprint:    true,
-			Cluster:      true,
-			Stack:        true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": verbose,
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		proj, err := prepareProject(cmd)
+		if err != nil {
+			return err
 		}
 
-		// Set the environment variables internally in the process
-		if err := controller.SetEnvironmentVariables(); err != nil {
-			return fmt.Errorf("Error setting environment variables: %w", err)
-		}
-
-		// Resolve components
-		shell := controller.ResolveShell()
-		configHandler := controller.ResolveConfigHandler()
-
-		// Run blueprint cleanup before stack down
-		blueprintHandler := controller.ResolveBlueprintHandler()
-		if blueprintHandler == nil {
-			return fmt.Errorf("No blueprint handler found")
-		}
-		if err := blueprintHandler.LoadConfig(); err != nil {
-			return fmt.Errorf("Error loading blueprint config: %w", err)
-		}
 		if !skipK8sFlag {
-			if err := blueprintHandler.Down(); err != nil {
-				return fmt.Errorf("Error running blueprint down: %w", err)
+			blueprint := proj.Composer.BlueprintHandler.Generate()
+			if err := proj.Provisioner.Uninstall(blueprint); err != nil {
+				return fmt.Errorf("error running blueprint cleanup: %w", err)
 			}
 		} else {
 			fmt.Fprintln(os.Stderr, "Skipping Kubernetes cleanup (--skip-k8s set)")
 		}
 
-		// Tear down the stack components
-		stack := controller.ResolveStack()
-		if stack == nil {
-			return fmt.Errorf("No stack found")
-		}
-		if err := stack.Down(); err != nil {
-			return fmt.Errorf("Error running stack Down command: %w", err)
-		}
-
-		// Determine if the container runtime is enabled
-		containerRuntimeEnabled := configHandler.GetBool("docker.enabled")
-
-		// Tear down the container runtime if enabled in configuration
-		if containerRuntimeEnabled {
-			// Resolve container runtime
-			containerRuntime := controller.ResolveContainerRuntime()
-			if containerRuntime == nil {
-				return fmt.Errorf("No container runtime found")
+		if !skipTerraformFlag {
+			blueprint := proj.Composer.BlueprintHandler.Generate()
+			if err := proj.Provisioner.Down(blueprint); err != nil {
+				return fmt.Errorf("error tearing down infrastructure: %w", err)
 			}
-
-			// Tear down the container runtime
-			if err := containerRuntime.Down(); err != nil {
-				return fmt.Errorf("Error running container runtime Down command: %w", err)
-			}
+		} else {
+			fmt.Fprintln(os.Stderr, "Skipping Terraform cleanup (--skip-tf set)")
 		}
 
-		// Clean up context specific artifacts if --clean flag is set
+		if !skipDockerFlag {
+			if proj.Workstation != nil {
+				if err := proj.Workstation.Down(); err != nil {
+					return fmt.Errorf("error tearing down workstation: %w", err)
+				}
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "Skipping Docker container cleanup (--skip-docker set)")
+		}
+
 		if cleanFlag {
-			if err := configHandler.Clean(); err != nil {
-				return fmt.Errorf("Error cleaning up context specific artifacts: %w", err)
-			}
-
-			// Delete everything in the .volumes folder
-			projectRoot, err := shell.GetProjectRoot()
-			if err != nil {
-				return fmt.Errorf("Error retrieving project root: %w", err)
-			}
-			volumesPath := filepath.Join(projectRoot, ".volumes")
-			if err := shims.RemoveAll(volumesPath); err != nil {
-				return fmt.Errorf("Error deleting .volumes folder: %w", err)
+			if err := proj.PerformCleanup(); err != nil {
+				return fmt.Errorf("error performing cleanup: %w", err)
 			}
 		}
-
-		// Print success message
-		fmt.Fprintln(os.Stderr, "Windsor environment torn down successfully.")
 
 		return nil
 	},
@@ -119,5 +66,7 @@ var downCmd = &cobra.Command{
 func init() {
 	downCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Clean up context specific artifacts")
 	downCmd.Flags().BoolVar(&skipK8sFlag, "skip-k8s", false, "Skip Kubernetes cleanup (blueprint cleanup)")
+	downCmd.Flags().BoolVar(&skipTerraformFlag, "skip-tf", false, "Skip Terraform cleanup")
+	downCmd.Flags().BoolVar(&skipDockerFlag, "skip-docker", false, "Skip Docker container cleanup")
 	rootCmd.AddCommand(downCmd)
 }

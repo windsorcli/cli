@@ -3,15 +3,21 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/windsorcli/cli/pkg/config"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
+// =============================================================================
+// Init Command
+// =============================================================================
+
 var (
+	initReset          bool
 	initBackend        string
 	initAwsProfile     string
 	initAwsEndpointURL string
@@ -22,238 +28,179 @@ var (
 	initArch           string
 	initDocker         bool
 	initGitLivereload  bool
-	initBlueprint      string
-	initToolsManager   string
+	initProvider       string
 	initPlatform       string
+	initBlueprint      string
 	initEndpoint       string
 	initSetFlags       []string
-	reset              bool
 )
 
 var initCmd = &cobra.Command{
 	Use:          "init [context]",
-	Short:        "Initialize the application",
-	Long:         "Initialize the application by setting up necessary configurations and environment",
+	Short:        "Initialize the application environment",
+	Long:         "Initialize the application environment with the specified context configuration",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Create shims instance for this command
-		shims := NewShims()
-
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			CommandName: cmd.Name(),
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		// Add the current directory to the trusted file list
-		shell := controller.ResolveShell()
-		if err := shell.AddCurrentDirToTrustedFile(); err != nil {
-			return fmt.Errorf("Error adding current directory to trusted file: %w", err)
-		}
-
-		// Resolve the config handler and determine the context name
-		configHandler := controller.ResolveConfigHandler()
 		contextName := "local"
-		if len(args) == 1 {
+		changingContext := len(args) > 0
+		tempRt := runtime.NewRuntime(rtOpts...)
+		if _, err := tempRt.Shell.WriteResetToken(); err != nil {
+			return fmt.Errorf("failed to write reset token: %w", err)
+		}
+		if changingContext {
 			contextName = args[0]
-		} else if currentContext := configHandler.GetContext(); currentContext != "" {
-			contextName = currentContext
-		}
 
-		// Set the context value
-		if err := configHandler.SetContext(contextName); err != nil {
-			return fmt.Errorf("Error setting context value: %w", err)
-		}
-
-		// Write a reset token to reset the session
-		if _, err := shell.WriteResetToken(); err != nil {
-			return fmt.Errorf("Error writing reset token: %w", err)
-		}
-
-		// Determine the default vm driver to use if not set
-		vmDriverConfig := initVmDriver
-		if vmDriverConfig == "" {
-			vmDriverConfig = configHandler.GetString("vm.driver")
-			if vmDriverConfig == "" && (contextName == "local" || strings.HasPrefix(contextName, "local-")) {
-				switch shims.Goos() {
-				case "darwin", "windows":
-					vmDriverConfig = "docker-desktop"
-				default:
-					vmDriverConfig = "docker"
-				}
+			if err := tempRt.ConfigHandler.SetContext(contextName); err != nil {
+				return fmt.Errorf("failed to set context: %w", err)
 			}
 		}
 
-		// Set the default configuration if applicable
-		defaultConfig := &config.DefaultConfig
-		if vmDriverConfig == "docker-desktop" {
-			defaultConfig = &config.DefaultConfig_Localhost
-		} else if vmDriverConfig == "colima" || vmDriverConfig == "docker" {
-			defaultConfig = &config.DefaultConfig_Full
-		}
-		if err := configHandler.SetDefault(*defaultConfig); err != nil {
-			return fmt.Errorf("Error setting default config: %w", err)
+		rt := runtime.NewRuntime(rtOpts...)
+
+		if err := rt.Shell.AddCurrentDirToTrustedFile(); err != nil {
+			return fmt.Errorf("failed to add current directory to trusted file: %w", err)
 		}
 
-		// Create the flag to config path mapping and set the configurations
-		configurations := []struct {
-			flagName   string
-			configPath string
-			value      any
-		}{
-			{"aws-endpoint-url", "aws.aws_endpoint_url", initAwsEndpointURL},
-			{"aws-profile", "aws.aws_profile", initAwsProfile},
-			{"docker", "docker.enabled", initDocker},
-			{"backend", "terraform.backend", initBackend},
-			{"vm-cpu", "vm.cpu", initCpu},
-			{"vm-disk", "vm.disk", initDisk},
-			{"vm-memory", "vm.memory", initMemory},
-			{"vm-arch", "vm.arch", initArch},
-			{"tools-manager", "toolsManager", initToolsManager},
-			{"git-livereload", "git.livereload.enabled", initGitLivereload},
-			{"blueprint", "blueprint", initBlueprint},
-			{"endpoint", "cluster.endpoint", initEndpoint},
-			{"platform", "cluster.platform", initPlatform},
-		}
-
-		for _, config := range configurations {
-			if cmd.Flags().Changed(config.flagName) {
-				err := configHandler.SetContextValue(config.configPath, config.value)
-				if err != nil {
-					return fmt.Errorf("Error setting %s configuration: %w", config.flagName, err)
-				}
+		if !changingContext {
+			currentContext := rt.ConfigHandler.GetContext()
+			if currentContext != "" {
+				contextName = currentContext
 			}
 		}
 
-		// Process all set flags after other flags
+		if initProvider != "" {
+			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --provider flag is deprecated and will be removed in a future version. Please use --platform instead.\033[0m\n")
+			if initPlatform == "" {
+				initPlatform = initProvider
+			}
+		}
+
+		// Build flag overrides map
+		flagOverrides := make(map[string]any)
+		if initPlatform != "" {
+			flagOverrides["platform"] = initPlatform
+		}
+		if initBackend != "" {
+			flagOverrides["terraform.backend.type"] = initBackend
+		}
+		if initAwsProfile != "" {
+			flagOverrides["aws.profile"] = initAwsProfile
+		}
+		if initAwsEndpointURL != "" {
+			flagOverrides["aws.endpoint_url"] = initAwsEndpointURL
+		}
+		if initVmDriver != "" {
+			runtimeVal := initVmDriver
+			if initVmDriver == "colima-incus" {
+				runtimeVal = "colima"
+			}
+			flagOverrides["workstation.runtime"] = runtimeVal
+			if initPlatform == "" {
+				switch initVmDriver {
+				case "colima-incus":
+					flagOverrides["platform"] = "incus"
+				case "colima":
+					flagOverrides["platform"] = "docker"
+				case "docker-desktop", "docker":
+					flagOverrides["platform"] = "docker"
+				}
+			}
+		}
+		if initCpu > 0 {
+			flagOverrides["vm.cpu"] = initCpu
+		}
+		if initDisk > 0 {
+			flagOverrides["vm.disk"] = initDisk
+		}
+		if initMemory > 0 {
+			flagOverrides["vm.memory"] = initMemory
+		}
+		if initArch != "" {
+			flagOverrides["vm.arch"] = initArch
+		}
+		if initDocker {
+			flagOverrides["docker.enabled"] = true
+		}
+		if initGitLivereload {
+			flagOverrides["git.livereload.enabled"] = true
+		}
+
 		for _, setFlag := range initSetFlags {
 			parts := strings.SplitN(setFlag, "=", 2)
-			if len(parts) != 2 {
-				return fmt.Errorf("Invalid format for --set flag. Expected key=value")
-			}
-			key, value := parts[0], parts[1]
-			if err := configHandler.SetContextValue(key, value); err != nil {
-				return fmt.Errorf("Error setting config override %s: %w", key, err)
+			if len(parts) == 2 {
+				flagOverrides[parts[0]] = parts[1]
 			}
 		}
 
-		// Set platform-specific configurations
-		if initPlatform != "" {
-			switch initPlatform {
-			case "aws":
-				if err := configHandler.SetContextValue("aws.enabled", true); err != nil {
-					return fmt.Errorf("Error setting aws.enabled: %w", err)
-				}
-				if err := configHandler.SetContextValue("cluster.driver", "eks"); err != nil {
-					return fmt.Errorf("Error setting cluster.driver: %w", err)
-				}
-			case "azure":
-				if err := configHandler.SetContextValue("azure.enabled", true); err != nil {
-					return fmt.Errorf("Error setting azure.enabled: %w", err)
-				}
-				if err := configHandler.SetContextValue("cluster.driver", "aks"); err != nil {
-					return fmt.Errorf("Error setting cluster.driver: %w", err)
-				}
-			case "metal":
-				if err := configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
-					return fmt.Errorf("Error setting cluster.driver: %w", err)
-				}
-			case "local":
-				if err := configHandler.SetContextValue("cluster.driver", "talos"); err != nil {
-					return fmt.Errorf("Error setting cluster.driver: %w", err)
-				}
+		var projectOpts *project.Project
+		if composerOverrideVal := cmd.Context().Value(composerOverridesKey); composerOverrideVal != nil {
+			compOverride := composerOverrideVal.(*composer.Composer)
+			projectOpts = &project.Project{
+				Runtime:  rt,
+				Composer: compOverride,
 			}
-		}
-
-		// Set the vm driver only if it's configured and not overridden by --set flag
-		if vmDriverConfig != "" && configHandler.GetString("vm.driver") == "" {
-			if err := configHandler.SetContextValue("vm.driver", vmDriverConfig); err != nil {
-				return fmt.Errorf("Error setting vm driver: %w", err)
-			}
-		}
-
-		// Determine the cli configuration path
-		projectRoot, err := shell.GetProjectRoot()
-		if err != nil {
-			return fmt.Errorf("Error retrieving project root: %w", err)
-		}
-		yamlPath := filepath.Join(projectRoot, "windsor.yaml")
-		ymlPath := filepath.Join(projectRoot, "windsor.yml")
-
-		var cliConfigPath string
-		if _, err := shims.Stat(yamlPath); err == nil {
-			cliConfigPath = yamlPath
-		} else if _, err := shims.Stat(ymlPath); err == nil {
-			cliConfigPath = ymlPath
 		} else {
-			cliConfigPath = yamlPath
+			projectOpts = &project.Project{
+				Runtime: rt,
+			}
 		}
 
-		// Set the context ID
-		if err := configHandler.GenerateContextID(); err != nil {
-			return fmt.Errorf("failed to generate context ID: %w", err)
+		proj := project.NewProject(contextName, projectOpts)
+
+		if err := proj.Configure(flagOverrides); err != nil {
+			return err
 		}
 
-		// Save the cli configuration
-		if err := configHandler.SaveConfig(cliConfigPath, reset); err != nil {
-			return fmt.Errorf("Error saving config file: %w", err)
+		var blueprintURL []string
+		if initBlueprint != "" {
+			blueprintURL = []string{initBlueprint}
+		} else if initPlatform != "" {
+			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
+		} else if contextName == "local" {
+			if _, err := os.Stat(rt.TemplateRoot); os.IsNotExist(err) {
+				blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
+			} else if err != nil {
+				return fmt.Errorf("error checking template root: %w", err)
+			}
+		}
+		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
+			return err
 		}
 
-		// Initialize with requirements
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			Env:         true,
-			VM:          true,
-			Containers:  true,
-			Services:    true,
-			Network:     true,
-			Blueprint:   true,
-			Cluster:     true,
-			Generators:  true,
-			Stack:       true,
-			Reset:       reset,
-			CommandName: cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": verbose,
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		hasSetFlags := len(initSetFlags) > 0
+		if err := proj.Runtime.SaveConfig(hasSetFlags); err != nil {
+			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
-		// Set the environment variables internally in the process
-		if err := controller.SetEnvironmentVariables(); err != nil {
-			return fmt.Errorf("Error setting environment variables: %w", err)
-		}
-
-		// Write configurations to file
-		if err := controller.WriteConfigurationFiles(); err != nil {
-			return fmt.Errorf("Error writing configuration files: %w", err)
-		}
-
-		// Print the success message
 		fmt.Fprintln(os.Stderr, "Initialization successful")
+
 		return nil
 	},
 }
 
 func init() {
-	initCmd.Flags().StringVar(&initBackend, "backend", "", "Specify the terraform backend to use")
+	initCmd.Flags().BoolVar(&initReset, "reset", false, "Reset/overwrite existing files and clean .terraform directory")
+	initCmd.Flags().StringVar(&initBackend, "backend", "", "Specify the backend to use")
 	initCmd.Flags().StringVar(&initAwsProfile, "aws-profile", "", "Specify the AWS profile to use")
 	initCmd.Flags().StringVar(&initAwsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
-	initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "Specify the VM driver. Only Colima is supported for now.")
+	initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker).")
 	initCmd.Flags().IntVar(&initCpu, "vm-cpu", 0, "Specify the number of CPUs for Colima")
 	initCmd.Flags().IntVar(&initDisk, "vm-disk", 0, "Specify the disk size for Colima")
 	initCmd.Flags().IntVar(&initMemory, "vm-memory", 0, "Specify the memory size for Colima")
 	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable Git Livereload")
-	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [local|metal]")
+	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp]")
+	initCmd.Flags().StringVar(&initProvider, "provider", "", "Deprecated: use --platform instead")
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
-	initCmd.Flags().BoolVar(&reset, "reset", false, "Reset/overwrite existing files and clean .terraform directory")
+
 	rootCmd.AddCommand(initCmd)
 }

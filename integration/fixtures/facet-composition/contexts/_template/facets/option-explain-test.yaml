@@ -1,0 +1,34 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: option-explain-test
+  description: Facet that adds terraform and kustomize with concrete values for explain integration tests.
+
+when: true
+
+config:
+- name: net_config
+  value:
+    primary_cidr: "${network.cidr_block ?? '10.0.0.0/16'}"
+    lb_start: "${network.loadbalancer_ips.start ?? '10.0.1.10'}"
+
+terraform:
+
+- name: networking
+  path: stacks/networking
+  inputs:
+    domain_name: test.example.com
+    cidr_block: ${network.cidr_block ?? '10.0.0.0/16'}
+    net_config_ref: "${net_config}"
+
+kustomize:
+
+- name: monitoring
+  path: monitoring/base
+  components:
+  - prometheus
+  substitutions:
+    cluster_domain: test.example.com
+    log_level: info
+  timeout: 5m
+  interval: 5m

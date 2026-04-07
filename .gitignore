@@ -10,13 +10,21 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 coverage.html
+coverage_integration.html
+coverage_integration_out
 *.out
+integration_out.txt
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
 # Cursor
-.cursor/
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
+
+# Claude
+.claude/settings*
 
 # Go workspace file
 go.work
@@ -27,6 +35,10 @@ go.work
 # The build directory
 dist/
 
+# Integration test binary (built by TestMain)
+integration/windsor-integration-test-binary
+integration/windsor-integration-test-binary.exe
+
 python_old
 age.key
 age.public.key
@@ -35,7 +47,7 @@ age.public.key
 /contexts/
 /kustomize/
 /terraform/
-windsor.yaml
+/windsor.yaml
 
 # managed by windsor cli
 .windsor/
@@ -48,3 +60,4 @@ contexts/**/.talos/
 contexts/**/.aws/
 contexts/**/.omni/
 contexts/**/.azure/
+contexts/**/.gcp/
