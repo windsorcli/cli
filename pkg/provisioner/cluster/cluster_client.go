@@ -70,3 +70,9 @@ func (c *BaseClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddress
 func (c *BaseClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 	return fmt.Errorf("WaitForNodesReboot not implemented")
 }
+
+// UpgradeNodes is a stub that returns an error indicating the method is not implemented.
+// Provider-specific implementations should override this to perform node upgrades.
+func (c *BaseClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+	return fmt.Errorf("UpgradeNodes not implemented")
+}
