@@ -544,6 +544,40 @@ func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
 		}
 	})
 
+	t.Run("Phase2BoundedByOverallDeadline", func(t *testing.T) {
+		// Verifies that when ctx has no deadline, Phase 2 does not get a fresh
+		// healthCheckTimeout budget — it must share the overall deadline computed
+		// at the start of WaitForNodesReboot.
+		client := setup(t)
+		client.healthCheckTimeout = 150 * time.Millisecond
+		client.healthCheckPollInterval = 10 * time.Millisecond
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		// Phase 1: node goes offline immediately
+		client.shims.TalosVersion = func(ctx context.Context, c *talosclient.Client) (*machine.VersionResponse, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+
+		// Phase 2: node never becomes healthy, so WaitForNodesHealthy must time out
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return nil, fmt.Errorf("not yet healthy")
+		}
+
+		start := time.Now()
+		err := client.WaitForNodesReboot(context.Background(), []string{"10.0.0.1"}, "", nil, 0)
+		elapsed := time.Since(start)
+
+		if err == nil {
+			t.Error("Expected timeout error, got nil")
+		}
+		// Total elapsed must be less than 2x healthCheckTimeout.
+		// Without the fix Phase 2 would spin a fresh 150ms budget, giving ≥ 300ms.
+		if elapsed >= 2*client.healthCheckTimeout {
+			t.Errorf("Phase 2 was not bounded by overallDeadline: elapsed %v >= 2×healthCheckTimeout %v", elapsed, 2*client.healthCheckTimeout)
+		}
+	})
+
 	t.Run("TimeoutWaitingForOffline", func(t *testing.T) {
 		client := setup(t)
 		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")

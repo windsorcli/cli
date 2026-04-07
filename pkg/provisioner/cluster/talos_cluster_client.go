@@ -188,6 +188,9 @@ func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddress
 	overallDeadline, ok := ctx.Deadline()
 	if !ok {
 		overallDeadline = time.Now().Add(c.healthCheckTimeout)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, overallDeadline)
+		defer cancel()
 	}
 
 	// Phase 1: poll the version endpoint until all nodes stop responding.
