@@ -141,6 +141,10 @@ const DefaultNodeHealthCheckTimeout = 5 * time.Minute
 
 const DefaultNodeHealthCheckPollInterval = 10 * time.Second
 
+const DefaultNodeUpgradeTimeout = 10 * time.Minute
+
+const DefaultNodeOfflineTimeout = 3 * time.Minute
+
 const DefaultOCIBlueprintURL = "oci://ghcr.io/windsorcli/core:latest"
 
 // =============================================================================

@@ -281,12 +281,14 @@ func TestCheckNodeHealthCmd(t *testing.T) {
 		nodeHealthTimeout = 0
 		nodeHealthNodes = []string{}
 		nodeHealthVersion = ""
+		nodeHealthWaitForReboot = false
 
 		// Reset command flags
 		checkNodeHealthCmd.ResetFlags()
 		checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready (default 5m)")
 		checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Nodes to check (required)")
 		checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected version to check against (optional)")
+		checkNodeHealthCmd.Flags().BoolVar(&nodeHealthWaitForReboot, "wait-for-reboot", false, "Poll until the Talos API goes offline (reboot started), then wait for it to come back up")
 
 		return stdout, stderr
 	}
@@ -523,6 +525,36 @@ func TestCheckNodeHealthCmd_ErrorScenarios(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "error checking node health") && !strings.Contains(err.Error(), "cluster health check failed") {
 			t.Errorf("Expected error about node health check, got: %v", err)
+		}
+	})
+
+	t.Run("WaitForRebootFlagRoutesToRebootCheck", func(t *testing.T) {
+		setup(t)
+		mockConfigHandler := config.NewMockConfigHandler()
+		mockConfigHandler.LoadConfigFunc = func() error { return nil }
+		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
+		mockConfigHandler.IsLoadedFunc = func() bool { return true }
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "cluster.driver" {
+				return "talos"
+			}
+			return ""
+		}
+		mocks := setupMocks(t, &SetupOptions{ConfigHandler: mockConfigHandler})
+
+		ctx := stdcontext.WithValue(stdcontext.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		rootCmd.SetArgs([]string{"check", "node-health", "--nodes", "10.0.0.1", "--wait-for-reboot"})
+
+		err := Execute()
+
+		// TALOSCONFIG not set, so cluster client init fails — confirms the reboot code path was reached
+		if err == nil {
+			t.Error("Expected error (no TALOSCONFIG), got nil")
+		}
+		if !strings.Contains(err.Error(), "error checking node health") {
+			t.Errorf("Expected node health error, got: %v", err)
 		}
 	})
 }

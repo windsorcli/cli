@@ -7,6 +7,7 @@ package cluster
 
 import (
 	"context"
+	"time"
 )
 
 // =============================================================================
@@ -17,7 +18,7 @@ import (
 type MockClusterClient struct {
 	BaseClusterClient
 	WaitForNodesHealthyFunc func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
-	WaitForNodesRebootFunc  func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
+	WaitForNodesRebootFunc  func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
 	UpgradeNodesFunc        func(ctx context.Context, nodeAddresses []string, image string) error
 	CloseFunc               func()
 }
@@ -44,9 +45,9 @@ func (m *MockClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddress
 }
 
 // WaitForNodesReboot calls the mock WaitForNodesRebootFunc if set, otherwise returns nil
-func (m *MockClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
+func (m *MockClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 	if m.WaitForNodesRebootFunc != nil {
-		return m.WaitForNodesRebootFunc(ctx, nodeAddresses, expectedVersion, skipServices)
+		return m.WaitForNodesRebootFunc(ctx, nodeAddresses, expectedVersion, skipServices, offlineTimeout)
 	}
 	return nil
 }

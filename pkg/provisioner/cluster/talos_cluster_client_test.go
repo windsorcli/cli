@@ -485,6 +485,102 @@ func TestTalosClusterClient_WaitForNodesHealthy(t *testing.T) {
 	})
 }
 
+func TestTalosClusterClient_WaitForNodesReboot(t *testing.T) {
+	setup := func(t *testing.T) *TalosClusterClient {
+		t.Helper()
+		client := NewTalosClusterClient()
+		client.shims = setupDefaultShims()
+		client.shims.TalosClose = func(c *talosclient.Client) {}
+		client.healthCheckTimeout = 100 * time.Millisecond
+		client.healthCheckPollInterval = 10 * time.Millisecond
+		return client
+	}
+
+	t.Run("EnsureClientError", func(t *testing.T) {
+		client := setup(t)
+
+		ctx := context.Background()
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, "", nil, 0)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "TALOSCONFIG environment variable not set") {
+			t.Errorf("Expected TALOSCONFIG error, got %v", err)
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		// Phase 1 uses TalosVersion: online then offline
+		versionCallCount := 0
+		client.shims.TalosVersion = func(ctx context.Context, c *talosclient.Client) (*machine.VersionResponse, error) {
+			versionCallCount++
+			if versionCallCount == 1 {
+				return &machine.VersionResponse{
+					Messages: []*machine.Version{{Version: &machine.VersionInfo{Tag: "v1.0.0"}}},
+				}, nil // online
+			}
+			return nil, fmt.Errorf("connection refused") // offline
+		}
+
+		// Phase 2 uses TalosServiceList via WaitForNodesHealthy
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return &machine.ServiceListResponse{
+				Messages: []*machine.ServiceList{
+					{Services: []*machine.ServiceInfo{
+						{Id: "apid", State: "Running", Health: &machine.ServiceHealth{Healthy: true}},
+					}},
+				},
+			}, nil
+		}
+
+		ctx := context.Background()
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, "", nil, 0)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("TimeoutWaitingForOffline", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		// TalosVersion always succeeds — node never goes offline
+		client.healthCheckPollInterval = 10 * time.Millisecond
+
+		ctx := context.Background()
+		// offlineTimeout of 50ms caps phase 1
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, "", nil, 50*time.Millisecond)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for nodes to go offline") {
+			t.Errorf("Expected timeout error, got %v", err)
+		}
+	})
+
+	t.Run("ContextCancelledDuringOfflineWait", func(t *testing.T) {
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := client.WaitForNodesReboot(ctx, []string{"10.0.0.1"}, "", nil, 0)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for nodes to go offline") {
+			t.Errorf("Expected timeout error, got %v", err)
+		}
+	})
+}
+
 func TestTalosClusterClient_Close(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		client := NewTalosClusterClient()
@@ -816,7 +912,7 @@ func TestTalosClusterClient_getNodeHealthDetails(t *testing.T) {
 		ctx := context.Background()
 		nodeAddress := "10.0.0.1"
 
-		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress)
+		healthy, healthyServices, unhealthyServices, err := client.getNodeHealthDetails(ctx, nodeAddress, nil)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}

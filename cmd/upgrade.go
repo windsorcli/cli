@@ -1,15 +1,24 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
-	ctrl "github.com/windsorcli/cli/pkg/controller"
+	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 var (
 	upgradeNodes []string
 	upgradeImage string
+
+	upgradeNodeAddr    string
+	upgradeNodeImage   string
+	upgradeNodeTimeout time.Duration
 )
 
 var upgradeCmd = &cobra.Command{
@@ -25,49 +34,84 @@ var upgradeClusterCmd = &cobra.Command{
 	Long:         "Upgrade specified cluster nodes to a new version",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		controller := cmd.Context().Value(controllerKey).(ctrl.Controller)
-
-		if err := controller.InitializeWithRequirements(ctrl.Requirements{
-			ConfigLoaded: true,
-			Cluster:      true,
-			CommandName:  cmd.Name(),
-			Flags: map[string]bool{
-				"verbose": cmd.Flags().Changed("verbose"),
-			},
-		}); err != nil {
-			return fmt.Errorf("Error initializing: %w", err)
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
-		// Check if projectName is set in the configuration
-		configHandler := controller.ResolveConfigHandler()
-		if !configHandler.IsLoaded() {
+		rt := runtime.NewRuntime(rtOpts...)
+
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		}
+
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			return err
+		}
+
+		if !rt.ConfigHandler.IsLoaded() {
 			return fmt.Errorf("Nothing to upgrade. Have you run \033[1mwindsor init\033[0m?")
 		}
 
-		// Get the cluster client
-		clusterClient := controller.ResolveClusterClient()
-		if clusterClient == nil {
-			return fmt.Errorf("No cluster client found")
-		}
-		defer clusterClient.Close()
+		comp := composer.NewComposer(rt)
+		prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
 
-		// Require nodes to be specified
-		if len(upgradeNodes) == 0 {
-			return fmt.Errorf("No nodes specified. Use --nodes flag to specify nodes to upgrade")
-		}
-
-		// For Talos clusters, require --image flag
-		if upgradeImage == "" {
-			return fmt.Errorf("--image flag is required for cluster upgrades")
-		}
-
-		// Perform the upgrade
-		if err := clusterClient.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage); err != nil {
+		if err := prov.UpgradeNodes(cmd.Context(), upgradeNodes, upgradeImage); err != nil {
 			return fmt.Errorf("node upgrade failed: %w", err)
 		}
 
-		// Success message
 		fmt.Fprintf(cmd.OutOrStdout(), "Successfully initiated upgrade for %d nodes to image %s\n", len(upgradeNodes), upgradeImage)
+
+		return nil
+	},
+}
+
+var upgradeNodeCmd = &cobra.Command{
+	Use:          "node",
+	Short:        "Upgrade a single cluster node and wait for it to rejoin",
+	Long:         "Send an upgrade request to a single Talos node, wait for it to reboot, then verify it is healthy",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !cmd.Flags().Changed("timeout") {
+			upgradeNodeTimeout = constants.DefaultNodeUpgradeTimeout
+		}
+
+		var rtOpts []*runtime.Runtime
+		if overridesVal := cmd.Context().Value(runtimeOverridesKey); overridesVal != nil {
+			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
+		}
+
+		rt := runtime.NewRuntime(rtOpts...)
+
+		if err := rt.Shell.CheckTrustedDirectory(); err != nil {
+			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
+		}
+
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			return err
+		}
+
+		if !rt.ConfigHandler.IsLoaded() {
+			return fmt.Errorf("Nothing to upgrade. Have you run \033[1mwindsor init\033[0m?")
+		}
+
+		comp := composer.NewComposer(rt)
+		prov := provisioner.NewProvisioner(rt, comp.BlueprintHandler)
+
+		ctx := cmd.Context()
+		if upgradeNodeTimeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(cmd.Context(), upgradeNodeTimeout)
+			defer cancel()
+		}
+
+		outputFunc := func(output string) {
+			fmt.Fprintln(cmd.OutOrStdout(), output)
+		}
+
+		if err := prov.UpgradeNode(ctx, upgradeNodeAddr, upgradeNodeImage, constants.DefaultNodeOfflineTimeout, outputFunc); err != nil {
+			return fmt.Errorf("node upgrade failed: %w", err)
+		}
 
 		return nil
 	},
@@ -76,10 +120,16 @@ var upgradeClusterCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(upgradeCmd)
 	upgradeCmd.AddCommand(upgradeClusterCmd)
+	upgradeCmd.AddCommand(upgradeNodeCmd)
 
-	// Add flags for cluster upgrade
 	upgradeClusterCmd.Flags().StringSliceVar(&upgradeNodes, "nodes", []string{}, "Nodes to upgrade (required)")
 	upgradeClusterCmd.Flags().StringVar(&upgradeImage, "image", "", "Image to upgrade to (required for Talos)")
 	_ = upgradeClusterCmd.MarkFlagRequired("nodes")
 	_ = upgradeClusterCmd.MarkFlagRequired("image")
+
+	upgradeNodeCmd.Flags().StringVar(&upgradeNodeAddr, "node", "", "Node IP address to upgrade (required)")
+	upgradeNodeCmd.Flags().StringVar(&upgradeNodeImage, "image", "", "Talos image to upgrade to (required)")
+	upgradeNodeCmd.Flags().DurationVar(&upgradeNodeTimeout, "timeout", 0, "Overall timeout (default 10m)")
+	_ = upgradeNodeCmd.MarkFlagRequired("node")
+	_ = upgradeNodeCmd.MarkFlagRequired("image")
 }

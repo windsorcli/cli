@@ -175,24 +175,34 @@ func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []s
 }
 
 // WaitForNodesReboot waits for nodes to go offline (reboot started) then come back online healthy.
-// Phase 1 polls each node's Talos API until all nodes are unreachable, indicating the reboot
-// has begun. Phase 2 re-initializes the client connection and delegates to WaitForNodesHealthy
-// to wait for all nodes to return to a healthy state. Returns an error if either phase times out
-// or if the client cannot be initialized.
-func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
+// Phase 1 polls the Talos version endpoint per node until all nodes are unreachable, confirming
+// the reboot has begun. offlineTimeout caps phase 1; zero uses the context deadline. Phase 2
+// re-initializes the client and delegates to WaitForNodesHealthy to wait for all nodes to return
+// to a healthy state within the remaining context deadline. Returns an error if either phase
+// times out or if the client cannot be initialized.
+func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
 	if err := c.ensureClient(); err != nil {
 		return fmt.Errorf("failed to initialize Talos client: %w", err)
 	}
 
-	deadline, ok := ctx.Deadline()
+	overallDeadline, ok := ctx.Deadline()
 	if !ok {
-		deadline = time.Now().Add(c.healthCheckTimeout)
+		overallDeadline = time.Now().Add(c.healthCheckTimeout)
 	}
 
-	// Phase 1: poll until all nodes are offline
+	// Phase 1: poll the version endpoint until all nodes stop responding.
+	// Use offlineTimeout as a sub-deadline so we don't burn the full timeout waiting.
+	offlineDeadline := overallDeadline
+	if offlineTimeout > 0 {
+		candidate := time.Now().Add(offlineTimeout)
+		if candidate.Before(offlineDeadline) {
+			offlineDeadline = candidate
+		}
+	}
+
 	fmt.Printf("Waiting for nodes to go offline...\n")
 	offlineDetected := false
-	for !offlineDetected && time.Now().Before(deadline) {
+	for !offlineDetected && time.Now().Before(offlineDeadline) {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for nodes to go offline")
@@ -201,7 +211,7 @@ func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddress
 
 		allOffline := true
 		for _, nodeAddress := range nodeAddresses {
-			_, _, _, err := c.getNodeHealthDetails(ctx, nodeAddress, skipServices)
+			_, err := c.getNodeVersion(ctx, nodeAddress)
 			if err == nil {
 				fmt.Printf("Node %s: ONLINE (waiting for reboot)\n", nodeAddress)
 				allOffline = false
@@ -222,7 +232,7 @@ func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddress
 
 	fmt.Printf("All nodes offline, waiting for reboot to complete...\n")
 
-	// Phase 2: reset client and wait for nodes to come back healthy
+	// Phase 2: reset client and wait for nodes to come back healthy.
 	c.Close()
 	c.client = nil
 	return c.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, skipServices)

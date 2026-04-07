@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 )
 
 // =============================================================================
@@ -34,6 +35,38 @@ func TestMockClusterClient_WaitForNodesHealthy(t *testing.T) {
 
 		// When calling WaitForNodesHealthy
 		err := client.WaitForNodesHealthy(context.Background(), []string{"10.0.0.1"}, "v1.0.0", nil)
+
+		// Then it should return nil
+		if err != nil {
+			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+}
+
+func TestMockClusterClient_WaitForNodesReboot(t *testing.T) {
+	t.Run("FuncSet", func(t *testing.T) {
+		// Given a mock with configured function
+		client := NewMockClusterClient()
+		errVal := fmt.Errorf("reboot err")
+		client.WaitForNodesRebootFunc = func(ctx context.Context, addresses []string, version string, skipServices []string, offlineTimeout time.Duration) error {
+			return errVal
+		}
+
+		// When calling WaitForNodesReboot
+		err := client.WaitForNodesReboot(context.Background(), []string{"10.0.0.1"}, "v1.0.0", nil, 0)
+
+		// Then it should return the expected error
+		if err != errVal {
+			t.Errorf("Expected err, got %v", err)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		// Given a mock without configured function
+		client := NewMockClusterClient()
+
+		// When calling WaitForNodesReboot
+		err := client.WaitForNodesReboot(context.Background(), []string{"10.0.0.1"}, "v1.0.0", nil, 0)
 
 		// Then it should return nil
 		if err != nil {
