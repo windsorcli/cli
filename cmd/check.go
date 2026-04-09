@@ -12,12 +12,13 @@ import (
 )
 
 var (
-	nodeHealthTimeout      time.Duration
-	nodeHealthNodes        []string
-	nodeHealthVersion      string
-	k8sEndpoint            string
-	checkNodeReady         bool
-	nodeHealthSkipServices []string
+	nodeHealthTimeout       time.Duration
+	nodeHealthNodes         []string
+	nodeHealthVersion       string
+	k8sEndpoint             string
+	checkNodeReady          bool
+	nodeHealthSkipServices  []string
+	nodeHealthWaitForReboot bool
 )
 
 var checkCmd = &cobra.Command{
@@ -107,6 +108,7 @@ var checkNodeHealthCmd = &cobra.Command{
 			K8SEndpointProvided: k8sEndpoint != "" || checkNodeReady,
 			CheckNodeReady:      checkNodeReady,
 			SkipServices:        nodeHealthSkipServices,
+			WaitForReboot:       nodeHealthWaitForReboot,
 		}
 
 		if err := prov.CheckNodeHealth(cmd.Context(), options, outputFunc); err != nil {
@@ -129,4 +131,5 @@ func init() {
 	checkNodeHealthCmd.Flags().Lookup("k8s-endpoint").NoOptDefVal = "true"
 	checkNodeHealthCmd.Flags().BoolVar(&checkNodeReady, "ready", false, "Check Kubernetes node readiness status")
 	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthSkipServices, "skip-services", []string{}, "Service names to ignore during health checks (e.g., dashboard)")
+	checkNodeHealthCmd.Flags().BoolVar(&nodeHealthWaitForReboot, "wait-for-reboot", false, "Poll until the Talos API goes offline (reboot started), then wait for it to come back up")
 }

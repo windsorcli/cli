@@ -152,6 +152,95 @@ func (c *TalosClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddres
 	return fmt.Errorf("timeout waiting for nodes to be ready")
 }
 
+// UpgradeNodes upgrades the specified nodes to the specified image.
+// It iterates through each node address and initiates an upgrade using the Talos Upgrade API.
+// Returns an error if any node upgrade fails or if the Talos client cannot be initialized.
+func (c *TalosClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+	if err := c.ensureClient(); err != nil {
+		return fmt.Errorf("failed to initialize Talos client: %w", err)
+	}
+
+	for _, nodeAddress := range nodeAddresses {
+		fmt.Printf("upgrading node %s\n", nodeAddress)
+
+		nodeCtx := c.shims.TalosWithNodes(ctx, nodeAddress)
+		err := c.shims.TalosUpgrade(nodeCtx, c.client, image)
+
+		if err != nil {
+			return fmt.Errorf("failed to upgrade node %s: %w", nodeAddress, err)
+		}
+	}
+
+	return nil
+}
+
+// WaitForNodesReboot waits for nodes to go offline (reboot started) then come back online healthy.
+// Phase 1 polls the Talos version endpoint per node until all nodes are unreachable, confirming
+// the reboot has begun. offlineTimeout caps phase 1; zero uses the context deadline. Phase 2
+// re-initializes the client and delegates to WaitForNodesHealthy to wait for all nodes to return
+// to a healthy state within the remaining context deadline. Returns an error if either phase
+// times out or if the client cannot be initialized.
+func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+	if err := c.ensureClient(); err != nil {
+		return fmt.Errorf("failed to initialize Talos client: %w", err)
+	}
+
+	overallDeadline, ok := ctx.Deadline()
+	if !ok {
+		overallDeadline = time.Now().Add(c.healthCheckTimeout)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, overallDeadline)
+		defer cancel()
+	}
+
+	// Phase 1: poll the version endpoint until all nodes stop responding.
+	// Use offlineTimeout as a sub-deadline so we don't burn the full timeout waiting.
+	offlineDeadline := overallDeadline
+	if offlineTimeout > 0 {
+		candidate := time.Now().Add(offlineTimeout)
+		if candidate.Before(offlineDeadline) {
+			offlineDeadline = candidate
+		}
+	}
+
+	fmt.Printf("Waiting for nodes to go offline...\n")
+	offlineDetected := false
+	for !offlineDetected && time.Now().Before(offlineDeadline) {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for nodes to go offline")
+		default:
+		}
+
+		allOffline := true
+		for _, nodeAddress := range nodeAddresses {
+			_, err := c.getNodeVersion(ctx, nodeAddress)
+			if err == nil {
+				fmt.Printf("Node %s: ONLINE (waiting for reboot)\n", nodeAddress)
+				allOffline = false
+			} else {
+				fmt.Printf("Node %s: OFFLINE\n", nodeAddress)
+			}
+		}
+		if allOffline {
+			offlineDetected = true
+		} else {
+			time.Sleep(c.healthCheckPollInterval)
+		}
+	}
+
+	if !offlineDetected {
+		return fmt.Errorf("timeout waiting for nodes to go offline")
+	}
+
+	fmt.Printf("All nodes offline, waiting for reboot to complete...\n")
+
+	// Phase 2: reset client and wait for nodes to come back healthy.
+	c.Close()
+	c.client = nil
+	return c.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, skipServices)
+}
+
 // Close releases resources held by the TalosClusterClient.
 // It safely closes the underlying Talos gRPC client connection if one exists and sets
 // the client reference to nil to prevent further use. This method is safe to call
@@ -204,7 +293,9 @@ func (c *TalosClusterClient) ensureClient() error {
 // the Talos ServiceList API to retrieve all services running on that node. For each
 // service, it checks both the running state and health status to determine if the
 // service is fully operational. Services listed in skipServices are excluded from
-// health checks. Extension services that explicitly report Unknown=true (e.g. ext-iscsid)
+// health checks entirely. Only essential services (apid, machined, kubelet, etcd, trustd)
+// determine overall node health — non-essential services are reported but do not affect
+// the healthy result. Extension services that explicitly report Unknown=true (e.g. ext-iscsid)
 // are treated as healthy when running. A nil health field is distinct from Unknown=true
 // and is treated as unhealthy. Returns the overall node health status, lists of healthy
 // and unhealthy service names, and any error encountered during the API call.
@@ -219,6 +310,16 @@ func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddre
 	skipMap := make(map[string]bool)
 	for _, svc := range skipServices {
 		skipMap[svc] = true
+	}
+
+	// Essential services that must be healthy for the node to be considered healthy.
+	// Based on Talos machine status controller requirements.
+	essentialServices := map[string]bool{
+		"apid":     true,
+		"machined": true,
+		"kubelet":  true,
+		"etcd":     true,
+		"trustd":   true,
 	}
 
 	var healthyServices []string
@@ -244,7 +345,9 @@ func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddre
 				healthyServices = append(healthyServices, serviceName)
 			} else {
 				unhealthyServices = append(unhealthyServices, serviceName)
-				overallHealthy = false
+				if essentialServices[serviceName] {
+					overallHealthy = false
+				}
 			}
 		}
 	}

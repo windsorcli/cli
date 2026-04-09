@@ -20,6 +20,14 @@ type ClusterClient interface {
 	// skipServices is a list of service names to ignore during health checks
 	WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
 
+	// WaitForNodesReboot waits for nodes to go offline (reboot started) then come back healthy.
+	// Phase 1 polls the Talos version endpoint until all nodes are unreachable (offlineTimeout caps this phase).
+	// Phase 2 polls until all nodes are healthy again within the remaining context deadline.
+	WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
+
+	// UpgradeNodes upgrades the specified nodes to the specified image
+	UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error
+
 	// Close closes any open connections.
 	Close()
 }
@@ -56,4 +64,15 @@ func (c *BaseClusterClient) Close() {
 // WaitForNodesHealthy implements the default polling behavior for node health and version checks
 func (c *BaseClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 	return fmt.Errorf("WaitForNodesHealthy not implemented")
+}
+
+// WaitForNodesReboot implements the default reboot-wait behavior
+func (c *BaseClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+	return fmt.Errorf("WaitForNodesReboot not implemented")
+}
+
+// UpgradeNodes is a stub that returns an error indicating the method is not implemented.
+// Provider-specific implementations should override this to perform node upgrades.
+func (c *BaseClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+	return fmt.Errorf("UpgradeNodes not implemented")
 }

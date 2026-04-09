@@ -1991,6 +1991,71 @@ func TestProvisioner_CheckNodeHealth(t *testing.T) {
 			t.Error("Expected output message about kubeconfig default and all nodes Ready")
 		}
 	})
+
+	t.Run("SuccessWithWaitForReboot", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		rebootCalled := false
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+			rebootCalled = true
+			return nil
+		}
+		healthyCalled := false
+		mocks.ClusterClient.WaitForNodesHealthyFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
+			healthyCalled = true
+			return nil
+		}
+		opts := &Provisioner{
+			ClusterClient: mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		var outputMessages []string
+		outputFunc := func(msg string) {
+			outputMessages = append(outputMessages, msg)
+		}
+
+		options := NodeHealthCheckOptions{
+			Nodes:         []string{"10.0.0.1"},
+			WaitForReboot: true,
+		}
+
+		err := provisioner.CheckNodeHealth(context.Background(), options, outputFunc)
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !rebootCalled {
+			t.Error("Expected WaitForNodesReboot to be called")
+		}
+		if healthyCalled {
+			t.Error("Expected WaitForNodesHealthy NOT to be called")
+		}
+	})
+
+	t.Run("WaitForRebootError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+			return fmt.Errorf("reboot timed out")
+		}
+		opts := &Provisioner{
+			ClusterClient: mocks.ClusterClient,
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		options := NodeHealthCheckOptions{
+			Nodes:         []string{"10.0.0.1"},
+			WaitForReboot: true,
+		}
+
+		err := provisioner.CheckNodeHealth(context.Background(), options, nil)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "reboot timed out") {
+			t.Errorf("Expected reboot error, got: %v", err)
+		}
+	})
 }
 
 func TestProvisioner_PlanKustomization(t *testing.T) {
@@ -2376,6 +2441,127 @@ func TestProvisioner_PlanAll(t *testing.T) {
 		}
 		if len(summary.Kustomize) == 0 {
 			t.Errorf("expected kustomize results, got none")
+		}
+	})
+}
+
+func TestVersionFromImage(t *testing.T) {
+	cases := []struct {
+		image    string
+		expected string
+	}{
+		{"ghcr.io/siderolabs/talos:v1.9.0", "1.9.0"},
+		{"factory.talos.dev/installer/abc123:v1.9.0", "1.9.0"},
+		{"registry:5000/image:v1.9.0", "1.9.0"},
+		{"ghcr.io/siderolabs/talos:v1.9.0-beta.0", "1.9.0-beta.0"},
+		{"image@sha256:abc123", ""},
+		{"ghcr.io/siderolabs/talos", ""},
+		{"registry:5000/image", ""},
+	}
+	for _, c := range cases {
+		got := versionFromImage(c.image)
+		if got != c.expected {
+			t.Errorf("versionFromImage(%q) = %q, want %q", c.image, got, c.expected)
+		}
+	}
+}
+
+func TestProvisioner_UpgradeNode(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+
+		upgradeCalled := false
+		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string) error {
+			upgradeCalled = true
+			if len(nodeAddresses) != 1 || nodeAddresses[0] != "10.0.0.1" {
+				t.Errorf("Expected node 10.0.0.1, got %v", nodeAddresses)
+			}
+			return nil
+		}
+		rebootCalled := false
+		var capturedVersion string
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+			rebootCalled = true
+			capturedVersion = expectedVersion
+			return nil
+		}
+		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		var output []string
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "ghcr.io/siderolabs/installer:v1.7.0", 0, func(msg string) {
+			output = append(output, msg)
+		})
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !upgradeCalled {
+			t.Error("Expected UpgradeNodes to be called")
+		}
+		if !rebootCalled {
+			t.Error("Expected WaitForNodesReboot to be called")
+		}
+		if len(output) == 0 {
+			t.Error("Expected output messages, got none")
+		}
+		if capturedVersion != "1.7.0" {
+			t.Errorf("Expected version 1.7.0 passed to WaitForNodesReboot, got: %q", capturedVersion)
+		}
+	})
+
+	t.Run("UpgradeRequestFails", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.ClusterClient.UpgradeNodesFunc = func(ctx context.Context, nodeAddresses []string, image string) error {
+			return fmt.Errorf("upgrade request rejected")
+		}
+
+		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, nil)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "upgrade request rejected") {
+			t.Errorf("Expected upgrade request error, got: %v", err)
+		}
+	})
+
+	t.Run("RebootWaitFails", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.ClusterClient.WaitForNodesRebootFunc = func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+			return fmt.Errorf("timeout waiting for nodes to go offline")
+		}
+
+		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, nil)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "node reboot wait failed") {
+			t.Errorf("Expected reboot wait error, got: %v", err)
+		}
+	})
+
+	t.Run("NoClusterClient", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockCfg := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCfg.GetStringFunc = func(key string, defaultValue ...string) string { return "" }
+		mockCfg.GetContextValuesFunc = func() (map[string]any, error) { return nil, nil }
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{})
+
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, nil)
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "no cluster client found") {
+			t.Errorf("Expected no cluster client error, got: %v", err)
 		}
 	})
 }

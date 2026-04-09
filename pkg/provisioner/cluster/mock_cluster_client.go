@@ -7,6 +7,7 @@ package cluster
 
 import (
 	"context"
+	"time"
 )
 
 // =============================================================================
@@ -17,6 +18,8 @@ import (
 type MockClusterClient struct {
 	BaseClusterClient
 	WaitForNodesHealthyFunc func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
+	WaitForNodesRebootFunc  func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
+	UpgradeNodesFunc        func(ctx context.Context, nodeAddresses []string, image string) error
 	CloseFunc               func()
 }
 
@@ -37,6 +40,22 @@ func NewMockClusterClient() *MockClusterClient {
 func (m *MockClusterClient) WaitForNodesHealthy(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error {
 	if m.WaitForNodesHealthyFunc != nil {
 		return m.WaitForNodesHealthyFunc(ctx, nodeAddresses, expectedVersion, skipServices)
+	}
+	return nil
+}
+
+// WaitForNodesReboot calls the mock WaitForNodesRebootFunc if set, otherwise returns nil
+func (m *MockClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error {
+	if m.WaitForNodesRebootFunc != nil {
+		return m.WaitForNodesRebootFunc(ctx, nodeAddresses, expectedVersion, skipServices, offlineTimeout)
+	}
+	return nil
+}
+
+// UpgradeNodes calls the mock UpgradeNodesFunc if set, otherwise returns nil
+func (m *MockClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
+	if m.UpgradeNodesFunc != nil {
+		return m.UpgradeNodesFunc(ctx, nodeAddresses, image)
 	}
 	return nil
 }

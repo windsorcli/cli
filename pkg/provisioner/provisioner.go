@@ -3,6 +3,7 @@ package provisioner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -528,6 +529,52 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 	return nil
 }
 
+// UpgradeNode performs a complete per-node upgrade: sends the upgrade gRPC request (wait=false),
+// waits for the node to go offline via version polling (offlineTimeout caps this phase),
+// waits for the node to come back healthy, then performs a final service health check.
+// outputFunc receives status messages during the wait phases. Returns an error if any
+// step fails or times out.
+func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string, offlineTimeout time.Duration, outputFunc func(string)) error {
+	if err := i.ensureClusterClient(); err != nil {
+		return err
+	}
+	defer i.ClusterClient.Close()
+
+	nodes := []string{node}
+
+	if outputFunc != nil {
+		outputFunc(fmt.Sprintf("Sending upgrade request to node %s...", node))
+	}
+	if err := i.ClusterClient.UpgradeNodes(ctx, nodes, image); err != nil {
+		return fmt.Errorf("upgrade request failed: %w", err)
+	}
+
+	if outputFunc != nil {
+		outputFunc(fmt.Sprintf("Upgrade request sent to %s. Waiting for reboot...", node))
+	}
+	if err := i.ClusterClient.WaitForNodesReboot(ctx, nodes, versionFromImage(image), nil, offlineTimeout); err != nil {
+		return fmt.Errorf("node reboot wait failed: %w", err)
+	}
+
+	if outputFunc != nil {
+		outputFunc(fmt.Sprintf("Node %s upgraded successfully.", node))
+	}
+	return nil
+}
+
+// UpgradeNodes sends an upgrade request to specified cluster nodes.
+// It initializes the cluster client based on config, then calls UpgradeNodes on it.
+// The caller is responsible for subsequently monitoring reboot status. Returns an error
+// if the cluster client cannot be initialized or if any node upgrade request fails.
+func (i *Provisioner) UpgradeNodes(ctx context.Context, nodes []string, image string) error {
+	if err := i.ensureClusterClient(); err != nil {
+		return err
+	}
+	defer i.ClusterClient.Close()
+
+	return i.ClusterClient.UpgradeNodes(ctx, nodes, image)
+}
+
 // CheckNodeHealth performs health checks for cluster nodes and Kubernetes endpoints.
 // It supports checking node health via cluster client (for Talos/Omni clusters) and/or
 // Kubernetes API health checks. The method handles timeout configuration, version checking,
@@ -541,19 +588,7 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 	}
 
 	if hasNodeCheck {
-		if i.ClusterClient == nil {
-			clusterDriver := i.configHandler.GetString("cluster.driver", "")
-			if values, err := i.configHandler.GetContextValues(); err == nil && values != nil {
-				if clusterMap, ok := values["cluster"].(map[string]any); ok {
-					if driver, ok := clusterMap["driver"].(string); ok {
-						clusterDriver = driver
-					}
-				}
-			}
-			if clusterDriver == "talos" {
-				i.ClusterClient = cluster.NewTalosClusterClient()
-			}
-		}
+		_ = i.ensureClusterClient() // best-effort; nil client is tolerated when hasK8sCheck
 
 		if i.ClusterClient == nil {
 			if !hasK8sCheck {
@@ -574,7 +609,13 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 			}
 			defer cancel()
 
-			if err := i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version, options.SkipServices); err != nil {
+			var clusterErr error
+			if options.WaitForReboot {
+				clusterErr = i.ClusterClient.WaitForNodesReboot(checkCtx, options.Nodes, options.Version, options.SkipServices, options.OfflineTimeout)
+			} else {
+				clusterErr = i.ClusterClient.WaitForNodesHealthy(checkCtx, options.Nodes, options.Version, options.SkipServices)
+			}
+			if err := clusterErr; err != nil {
 				if hasK8sCheck {
 					if outputFunc != nil {
 						outputFunc(fmt.Sprintf("Warning: Cluster client failed (%v), continuing with Kubernetes checks\n", err))
@@ -667,6 +708,8 @@ type NodeHealthCheckOptions struct {
 	K8SEndpointProvided bool
 	CheckNodeReady      bool
 	SkipServices        []string
+	WaitForReboot       bool
+	OfflineTimeout      time.Duration
 }
 
 // Close releases resources held by provisioner components.
@@ -681,6 +724,49 @@ func (i *Provisioner) Close() {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// ensureClusterClient initializes ClusterClient from config if it is not already set.
+// It reads cluster.driver from the config handler and creates the appropriate client.
+// Returns an error if no supported driver is configured.
+func (i *Provisioner) ensureClusterClient() error {
+	if i.ClusterClient != nil {
+		return nil
+	}
+	clusterDriver := i.configHandler.GetString("cluster.driver", "")
+	if values, err := i.configHandler.GetContextValues(); err == nil && values != nil {
+		if clusterMap, ok := values["cluster"].(map[string]any); ok {
+			if driver, ok := clusterMap["driver"].(string); ok {
+				clusterDriver = driver
+			}
+		}
+	}
+	if clusterDriver == "talos" {
+		i.ClusterClient = cluster.NewTalosClusterClient()
+	}
+	if i.ClusterClient == nil {
+		return fmt.Errorf("no cluster client found; ensure cluster.driver is configured")
+	}
+	return nil
+}
+
+// versionFromImage extracts the Talos version from an image URI tag.
+// It returns the tag with the leading "v" stripped to match the format returned
+// by the Talos Version API. Returns an empty string if no tag is present or if
+// the reference uses a digest instead of a tag.
+func versionFromImage(image string) string {
+	if strings.Contains(image, "@") {
+		return ""
+	}
+	idx := strings.LastIndex(image, ":")
+	if idx < 0 {
+		return ""
+	}
+	tag := image[idx+1:]
+	if strings.Contains(tag, "/") {
+		return ""
+	}
+	return strings.TrimPrefix(tag, "v")
+}
 
 // ensureTerraformStack initializes the TerraformStack if terraform is enabled and the stack is not already initialized.
 // Returns an error if initialization fails, or nil if terraform is disabled or already initialized.
