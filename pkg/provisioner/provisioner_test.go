@@ -531,6 +531,32 @@ func TestProvisioner_Down(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessNoopWhenWorkstationDisabled", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		destroyed := ""
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			destroyed = componentID
+			return nil
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// Blueprint with "workstation" component that is explicitly disabled
+		bp := createWorkstationBlueprint()
+		disabled := false
+		bp.TerraformComponents[len(bp.TerraformComponents)-1].Enabled = &blueprintv1alpha1.BoolExpression{Value: &disabled}
+
+		err := provisioner.Down(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error for disabled workstation, got: %v", err)
+		}
+		if destroyed != "" {
+			t.Errorf("Expected Destroy not to be called for disabled workstation, got: %q", destroyed)
+		}
+	})
+
 	t.Run("ErrorWorkstationDestroyFails", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()

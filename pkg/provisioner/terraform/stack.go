@@ -539,9 +539,10 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 
+	refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
+	refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
 	_, _ = s.runtime.Shell.ExecSilentWithEnv(terraformCommand,
-		selectTerraformCommandEnv(terraformVars, true),
-		fmt.Sprintf("-chdir=%s", component.FullPath), "refresh")
+		selectTerraformCommandEnv(terraformVars, true), refreshArgs...)
 
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 	planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)

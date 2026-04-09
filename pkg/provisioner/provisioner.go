@@ -160,7 +160,7 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 
 	hasWorkstation := false
 	for _, c := range blueprint.TerraformComponents {
-		if c.GetID() == "workstation" {
+		if c.GetID() == "workstation" && c.Enabled.IsEnabled() {
 			hasWorkstation = true
 			break
 		}

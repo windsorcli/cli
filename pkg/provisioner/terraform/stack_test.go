@@ -1761,6 +1761,44 @@ func TestStack_Destroy(t *testing.T) {
 			t.Fatalf("Expected error to contain %q, got %q", "error running terraform destroy for", err.Error())
 		}
 	})
+
+	t.Run("PassesRefreshArgsToRefreshCommand", func(t *testing.T) {
+		// Given a stack whose provider returns RefreshArgs containing a var-file flag
+		stack, mocks := setup(t)
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, *terraformRuntime.TerraformArgs, error) {
+				return map[string]string{}, &terraformRuntime.TerraformArgs{
+					RefreshArgs: []string{"-var-file=secrets.tfvars"},
+				}, nil
+			},
+		}
+		var refreshArgs []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
+				refreshArgs = args
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then no error should occur and RefreshArgs should be forwarded
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		found := false
+		for _, arg := range refreshArgs {
+			if arg == "-var-file=secrets.tfvars" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected refresh command to include -var-file=secrets.tfvars, got args: %v", refreshArgs)
+		}
+	})
 }
 
 func TestStack_PlanSummary(t *testing.T) {
