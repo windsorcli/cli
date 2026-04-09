@@ -70,7 +70,7 @@ func TestDestroyTerraform_FailsForNonexistentComponent(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
-	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "terraform", "nonexistent"}, env)
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--force", "terraform", "nonexistent"}, env)
 	if err == nil {
 		t.Fatal("expected failure but command succeeded")
 	}
