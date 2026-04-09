@@ -287,6 +287,35 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("TerraformFiltersEmptyStringDependsOn", func(t *testing.T) {
+		// Given a base blueprint with a terraform component
+		base := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{Path: "network", Source: "core", DependsOn: []string{"backend"}},
+			},
+		}
+
+		// When merging with an overlay that has an empty-string dependsOn
+		overlay := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{Path: "network", Source: "core", DependsOn: []string{"", "security"}},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		// Then the empty string should not be added to dependsOn
+		comp := base.TerraformComponents[0]
+		for _, dep := range comp.DependsOn {
+			if dep == "" {
+				t.Errorf("Expected empty string to be filtered from dependsOn, got %v", comp.DependsOn)
+			}
+		}
+		if len(comp.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies, got %d: %v", len(comp.DependsOn), comp.DependsOn)
+		}
+	})
+
 	t.Run("MergesKustomizationsStrategically", func(t *testing.T) {
 		// Given a base blueprint with kustomizations
 		base := &Blueprint{
@@ -1095,6 +1124,35 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			if !contains(kustomization.DependsOn, expected) {
 				t.Errorf("Expected dependency '%s' to be present, got %v", expected, kustomization.DependsOn)
 			}
+		}
+	})
+
+	t.Run("KustomizationFiltersEmptyStringDependsOn", func(t *testing.T) {
+		// Given a base blueprint with a kustomization
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "test", DependsOn: []string{"dep1"}},
+			},
+		}
+
+		// When merging with an overlay that has an empty-string dependsOn
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "test", DependsOn: []string{"", "dep2"}},
+			},
+		}
+
+		base.StrategicMerge(overlay)
+
+		// Then the empty string should not be added to dependsOn
+		kustomization := base.Kustomizations[0]
+		for _, dep := range kustomization.DependsOn {
+			if dep == "" {
+				t.Errorf("Expected empty string to be filtered from dependsOn, got %v", kustomization.DependsOn)
+			}
+		}
+		if len(kustomization.DependsOn) != 2 {
+			t.Errorf("Expected 2 dependencies, got %d: %v", len(kustomization.DependsOn), kustomization.DependsOn)
 		}
 	})
 

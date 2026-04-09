@@ -713,7 +713,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			if err != nil {
 				return fmt.Errorf("error evaluating dependsOn for component '%s': %w", processed.GetID(), err)
 			}
-			processed.DependsOn = evaluated
+			processed.DependsOn = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
 		}
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
 			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
@@ -830,7 +830,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			if err != nil {
 				return fmt.Errorf("error evaluating dependsOn for kustomization '%s': %w", processed.Name, err)
 			}
-			processed.DependsOn = evaluated
+			processed.DependsOn = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
 		}
 		if len(processed.Components) > 0 {
 			evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path, facetScope)
