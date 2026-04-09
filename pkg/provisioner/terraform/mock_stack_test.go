@@ -51,19 +51,19 @@ func TestMockStack_Up(t *testing.T) {
 	})
 }
 
-func TestMockStack_Down(t *testing.T) {
+func TestMockStack_DestroyAll(t *testing.T) {
 	mockDownErr := fmt.Errorf("mock down error")
 
 	t.Run("WithFuncSet", func(t *testing.T) {
-		// Given a new MockStack with a custom DownFunc that returns an error
+		// Given a new MockStack with a custom DestroyAllFunc that returns an error
 		mock := NewMockStack()
-		mock.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+		mock.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
 			return mockDownErr
 		}
 
 		// When Down is called
 		blueprint := &blueprintv1alpha1.Blueprint{}
-		err := mock.Down(blueprint)
+		err := mock.DestroyAll(blueprint)
 
 		// Then the custom error should be returned
 		if err != mockDownErr {
@@ -72,12 +72,12 @@ func TestMockStack_Down(t *testing.T) {
 	})
 
 	t.Run("WithNoFuncSet", func(t *testing.T) {
-		// Given a new MockStack without a custom DownFunc
+		// Given a new MockStack without a custom DestroyAllFunc
 		mock := NewMockStack()
 
 		// When Down is called
 		blueprint := &blueprintv1alpha1.Blueprint{}
-		err := mock.Down(blueprint)
+		err := mock.DestroyAll(blueprint)
 
 		// Then no error should be returned
 		if err != nil {

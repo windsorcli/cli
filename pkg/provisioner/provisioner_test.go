@@ -119,7 +119,7 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 
 	terraformStack := terraforminfra.NewMockStack()
 	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
-	terraformStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 	fluxStack := fluxinfra.NewMockStack()
 
@@ -451,18 +451,45 @@ func TestProvisioner_OnTerraformApply(t *testing.T) {
 }
 
 func TestProvisioner_Down(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		opts := &Provisioner{
-			TerraformStack: mocks.TerraformStack,
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+	// createWorkstationBlueprint returns a blueprint with a "workstation" terraform component.
+	createWorkstationBlueprint := func() *blueprintv1alpha1.Blueprint {
+		bp := createTestBlueprint()
+		bp.TerraformComponents = append(bp.TerraformComponents, blueprintv1alpha1.TerraformComponent{
+			Path: "workstation",
+		})
+		return bp
+	}
 
-		blueprint := createTestBlueprint()
-		err := provisioner.Down(blueprint)
+	t.Run("SuccessNoopWhenNoWorkstationComponent", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		// Blueprint without a "workstation" component — Down should be a no-op
+		err := provisioner.Down(createTestBlueprint())
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessDestroysWorkstationComponent", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		destroyed := ""
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			destroyed = componentID
+			return nil
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Down(createWorkstationBlueprint())
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if destroyed != "workstation" {
+			t.Errorf("Expected workstation component to be destroyed, got: %q", destroyed)
 		}
 	})
 
@@ -475,13 +502,12 @@ func TestProvisioner_Down(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
 		}
-
 		if !strings.Contains(err.Error(), "blueprint not provided") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
 
-	t.Run("SuccessSkipsTerraformWhenDisabled", func(t *testing.T) {
+	t.Run("SuccessNoopWhenTerraformDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -495,24 +521,97 @@ func TestProvisioner_Down(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		blueprint := createTestBlueprint()
-		err := provisioner.Down(blueprint)
+		err := provisioner.Down(createWorkstationBlueprint())
 
 		if err != nil {
 			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
 		}
-
 		if provisioner.TerraformStack != nil {
 			t.Error("Expected TerraformStack to remain nil when terraform is disabled")
 		}
 	})
 
-	t.Run("SuccessInitializesTerraformStackLazily", func(t *testing.T) {
+	t.Run("SuccessNoopWhenWorkstationDisabled", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		destroyed := ""
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			destroyed = componentID
+			return nil
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// Blueprint with "workstation" component that is explicitly disabled
+		bp := createWorkstationBlueprint()
+		disabled := false
+		bp.TerraformComponents[len(bp.TerraformComponents)-1].Enabled = &blueprintv1alpha1.BoolExpression{Value: &disabled}
+
+		err := provisioner.Down(bp)
+
+		if err != nil {
+			t.Errorf("Expected no error for disabled workstation, got: %v", err)
+		}
+		if destroyed != "" {
+			t.Errorf("Expected Destroy not to be called for disabled workstation, got: %q", destroyed)
+		}
+	})
+
+	t.Run("ErrorWorkstationDestroyFails", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			return fmt.Errorf("workstation destroy failed")
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Down(createWorkstationBlueprint())
+
+		if err == nil {
+			t.Error("Expected error for workstation destroy failure")
+		}
+		if !strings.Contains(err.Error(), "failed to destroy workstation terraform component") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}
+
+func TestProvisioner_DestroyAllTerraform(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error { return nil }
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.DestroyAllTerraform(createTestBlueprint())
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.DestroyAllTerraform(nil)
+
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "terraform.enabled" {
-				return true
+				return false
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -521,45 +620,34 @@ func TestProvisioner_Down(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if provisioner.TerraformStack != nil {
-			t.Error("Expected TerraformStack to be nil before Down() is called")
+		err := provisioner.DestroyAllTerraform(createTestBlueprint())
+
+		if err == nil {
+			t.Error("Expected error when terraform is disabled")
 		}
-
-		blueprint := createTestBlueprint()
-		err := provisioner.Down(blueprint)
-
-		if err != nil {
-			t.Errorf("Expected no error, got: %v", err)
-		}
-
-		if provisioner.TerraformStack == nil {
-			t.Error("Expected TerraformStack to be initialized after Down() when terraform is enabled")
+		if !strings.Contains(err.Error(), "terraform is disabled") {
+			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
 		}
 	})
 
-	t.Run("ErrorTerraformStackDown", func(t *testing.T) {
+	t.Run("ErrorDestroyAllFails", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DownFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
-			return fmt.Errorf("terraform stack down failed")
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("terraform destroy all failed")
 		}
-		opts := &Provisioner{
-			TerraformStack: mockStack,
-		}
+		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		blueprint := createTestBlueprint()
-		err := provisioner.Down(blueprint)
+		err := provisioner.DestroyAllTerraform(createTestBlueprint())
 
 		if err == nil {
-			t.Error("Expected error for terraform stack down failure")
+			t.Error("Expected error for terraform destroy all failure")
 		}
-
-		if !strings.Contains(err.Error(), "failed to run terraform down") {
+		if !strings.Contains(err.Error(), "failed to run terraform destroy") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})
-
 }
 
 func TestProvisioner_Plan(t *testing.T) {
@@ -1238,6 +1326,240 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		}
 
 		if !strings.Contains(err.Error(), "failed to delete blueprint") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}
+
+func TestProvisioner_Destroy(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Destroy(createTestBlueprint(), "remote/path")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.Destroy(nil, "remote/path")
+
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWhenTerraformDisabled", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return false
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return false
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.Destroy(createTestBlueprint(), "remote/path")
+
+		if err == nil {
+			t.Error("Expected error when terraform is disabled")
+		}
+		if !strings.Contains(err.Error(), "terraform is disabled") {
+			t.Errorf("Expected 'terraform is disabled' error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorTerraformStackDestroy", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			return fmt.Errorf("terraform stack destroy failed")
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.Destroy(createTestBlueprint(), "remote/path")
+
+		if err == nil {
+			t.Error("Expected error for terraform stack destroy failure")
+		}
+		if !strings.Contains(err.Error(), "failed to run terraform destroy for") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}
+
+func TestProvisioner_DestroyKustomize(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error { return nil }
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.DestroyKustomize(createTestBlueprint(), "test-kustomization")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.DestroyKustomize(nil, "test-kustomization")
+
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilKubernetesManager", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		provisioner.KubernetesManager = nil
+
+		err := provisioner.DestroyKustomize(createTestBlueprint(), "test-kustomization")
+
+		if err == nil {
+			t.Error("Expected error for nil kubernetes manager")
+		}
+		if !strings.Contains(err.Error(), "kubernetes manager not configured") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNotFound", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.DestroyKustomize(createTestBlueprint(), "nonexistent")
+
+		if err == nil {
+			t.Error("Expected error for kustomization not found")
+		}
+		if !strings.Contains(err.Error(), "not found in blueprint") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorDeleteKustomization", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.DeleteKustomizationFunc = func(name, namespace string) error {
+			return fmt.Errorf("delete kustomization failed")
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.DestroyKustomize(createTestBlueprint(), "test-kustomization")
+
+		if err == nil {
+			t.Error("Expected error for delete kustomization failure")
+		}
+		if !strings.Contains(err.Error(), "failed to delete kustomization") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+}
+
+func TestProvisioner_DestroyAll(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error { return nil }
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.DestroyAll(createTestBlueprint())
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessNoKubernetesManager", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error { return nil }
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		provisioner.KubernetesManager = nil
+
+		err := provisioner.DestroyAll(createTestBlueprint())
+
+		if err != nil {
+			t.Errorf("Expected no error when kubernetes manager is nil, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		err := provisioner.DestroyAll(nil)
+
+		if err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorUninstall", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("delete blueprint failed")
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.DestroyAll(createTestBlueprint())
+
+		if err == nil {
+			t.Error("Expected error when uninstall fails")
+		}
+		if !strings.Contains(err.Error(), "failed to delete blueprint") {
+			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorDown", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("terraform down failed")
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.DestroyAll(createTestBlueprint())
+
+		if err == nil {
+			t.Error("Expected error when terraform down fails")
+		}
+		if !strings.Contains(err.Error(), "terraform down failed") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
 	})

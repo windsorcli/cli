@@ -150,14 +150,24 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 	return nil
 }
 
-// Down orchestrates the high-level infrastructure teardown process. It executes terraform destroy operations
-// for all components in the stack in reverse dependency order. Components with Destroy set to false are skipped.
-// This method coordinates terraform, kubernetes, and cluster operations to tear down the infrastructure.
-// Initializes components as needed. The blueprint parameter is required. If terraform is disabled (terraform.enabled is false),
-// terraform operations are skipped. Returns an error if any destroy operation fails.
+// Down destroys the "workstation" terraform component if it is present in the blueprint, then returns.
+// All other terraform components are left untouched; use Destroy / DestroyAll for those.
+// If terraform is disabled or the blueprint has no "workstation" component, Down is a no-op.
+// Returns an error if the blueprint is nil or the destroy operation fails.
 func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
+	}
+
+	hasWorkstation := false
+	for _, c := range blueprint.TerraformComponents {
+		if c.GetID() == "workstation" && c.Enabled.IsEnabled() {
+			hasWorkstation = true
+			break
+		}
+	}
+	if !hasWorkstation {
+		return nil
 	}
 
 	if err := i.ensureTerraformStack(); err != nil {
@@ -166,8 +176,27 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if i.TerraformStack == nil {
 		return nil
 	}
-	if err := i.TerraformStack.Down(blueprint); err != nil {
-		return fmt.Errorf("failed to run terraform down: %w", err)
+	if err := i.TerraformStack.Destroy(blueprint, "workstation"); err != nil {
+		return fmt.Errorf("failed to destroy workstation terraform component: %w", err)
+	}
+	return nil
+}
+
+// DestroyAllTerraform destroys all terraform components in the stack in reverse dependency order.
+// Components with Destroy set to false are skipped. If terraform is disabled, returns an error.
+// Returns an error if the blueprint is nil, the stack cannot be initialized, or any destroy fails.
+func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	if err := i.TerraformStack.DestroyAll(blueprint); err != nil {
+		return fmt.Errorf("failed to run terraform destroy: %w", err)
 	}
 	return nil
 }
@@ -188,6 +217,82 @@ func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID 
 	if err := i.TerraformStack.Apply(blueprint, componentID); err != nil {
 		return fmt.Errorf("failed to run terraform apply for %s: %w", componentID, err)
 	}
+	return nil
+}
+
+// Destroy runs terraform init and destroy for a single component identified by componentID.
+// Returns an error if the blueprint is nil, terraform is disabled, the stack cannot be initialized,
+// the component is not found, or any terraform operation fails.
+func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	if err := i.TerraformStack.Destroy(blueprint, componentID); err != nil {
+		return fmt.Errorf("failed to run terraform destroy for %s: %w", componentID, err)
+	}
+	return nil
+}
+
+// DestroyKustomize deletes a single kustomization by name from the cluster.
+// Returns an error if the blueprint is nil, the kubernetes manager is not configured,
+// the kustomization is not found in the blueprint, or the delete operation fails.
+func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	var found *blueprintv1alpha1.Kustomization
+	for _, k := range blueprint.Kustomizations {
+		if k.Name == componentID {
+			kCopy := k
+			found = &kCopy
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
+	}
+
+	if err := tui.WithProgress(fmt.Sprintf("Deleting kustomization %s", componentID), func() error {
+		return i.KubernetesManager.DeleteKustomization(componentID, i.fluxNamespace())
+	}); err != nil {
+		return fmt.Errorf("failed to delete kustomization %s: %w", componentID, err)
+	}
+
+	return nil
+}
+
+// DestroyAll destroys all infrastructure components: first uninstalls all kustomizations,
+// then destroys all terraform components. Returns an error if either step fails.
+func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	if i.KubernetesManager != nil {
+		if err := i.Uninstall(blueprint); err != nil {
+			return err
+		}
+	}
+
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack != nil {
+		if err := i.TerraformStack.DestroyAll(blueprint); err != nil {
+			return fmt.Errorf("failed to run terraform destroy: %w", err)
+		}
+	}
+
 	return nil
 }
 

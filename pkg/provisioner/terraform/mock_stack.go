@@ -7,7 +7,7 @@ import (
 // The MockStack is a test implementation of the Stack interface.
 // It provides function fields that can be set to customize behavior in tests,
 // The MockStack acts as a controllable test double for the Stack interface,
-// enabling precise control over Up, Down, Plan, and Apply behaviors in unit tests.
+// enabling precise control over Up, Down, Plan, Apply, and Destroy behaviors in unit tests.
 
 // =============================================================================
 // Types
@@ -16,12 +16,13 @@ import (
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
 	UpFunc                   func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	DownFunc                 func(blueprint *blueprintv1alpha1.Blueprint) error
+	DestroyAllFunc           func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllFunc              func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSONFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllJSONFunc          func(blueprint *blueprintv1alpha1.Blueprint) error
 	ApplyFunc                func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	DestroyFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanSummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
@@ -47,10 +48,10 @@ func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(i
 	return nil
 }
 
-// Down is a mock implementation of the Down method.
-func (m *MockStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
-	if m.DownFunc != nil {
-		return m.DownFunc(blueprint)
+// DestroyAll is a mock implementation of the DestroyAll method.
+func (m *MockStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	if m.DestroyAllFunc != nil {
+		return m.DestroyAllFunc(blueprint)
 	}
 	return nil
 }
@@ -91,6 +92,14 @@ func (m *MockStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID
 func (m *MockStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if m.ApplyFunc != nil {
 		return m.ApplyFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// Destroy is a mock implementation of the Destroy method.
+func (m *MockStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.DestroyFunc != nil {
+		return m.DestroyFunc(blueprint, componentID)
 	}
 	return nil
 }
