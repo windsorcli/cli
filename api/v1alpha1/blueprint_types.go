@@ -1080,7 +1080,7 @@ func (b *Blueprint) strategicMergeTerraformComponent(component TerraformComponen
 				}
 			}
 			for _, dep := range component.DependsOn {
-				if !slices.Contains(existing.DependsOn, dep) {
+				if dep != "" && !slices.Contains(existing.DependsOn, dep) {
 					existing.DependsOn = append(existing.DependsOn, dep)
 				}
 			}
@@ -1130,7 +1130,7 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			}
 			slices.Sort(existing.Components)
 			for _, dep := range kustomization.DependsOn {
-				if !slices.Contains(existing.DependsOn, dep) {
+				if dep != "" && !slices.Contains(existing.DependsOn, dep) {
 					existing.DependsOn = append(existing.DependsOn, dep)
 				}
 			}

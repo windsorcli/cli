@@ -3520,6 +3520,88 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 	})
 
+	t.Run("FiltersEmptyStringsFromTerraformDependsOnAfterEvaluation", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"optional_dep": "",
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-empty-dep"},
+				TerraformComponents: []blueprintv1alpha1.ConditionalTerraformComponent{
+					{
+						TerraformComponent: blueprintv1alpha1.TerraformComponent{
+							Path:      "cluster",
+							DependsOn: []string{"${optional_dep}", "network"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		deps := target.TerraformComponents[0].DependsOn
+		for _, dep := range deps {
+			if dep == "" {
+				t.Errorf("Expected empty string to be filtered from dependsOn, got %v", deps)
+			}
+		}
+		if len(deps) != 1 || deps[0] != "network" {
+			t.Errorf("Expected [network], got %v", deps)
+		}
+	})
+
+	t.Run("FiltersEmptyStringsFromKustomizationDependsOnAfterEvaluation", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"optional_dep": "",
+			}, nil
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "with-empty-dep"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{
+						Kustomization: blueprintv1alpha1.Kustomization{
+							Name:      "ingress",
+							DependsOn: []string{"${optional_dep}", "dns"},
+						},
+					},
+				},
+			},
+		}
+
+		target := &blueprintv1alpha1.Blueprint{}
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		deps := target.Kustomizations[0].DependsOn
+		for _, dep := range deps {
+			if dep == "" {
+				t.Errorf("Expected empty string to be filtered from dependsOn, got %v", deps)
+			}
+		}
+		if len(deps) != 1 || deps[0] != "dns" {
+			t.Errorf("Expected [dns], got %v", deps)
+		}
+	})
+
 	t.Run("HandlesEmptyDependsOn", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
