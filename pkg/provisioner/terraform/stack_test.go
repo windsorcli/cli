@@ -512,7 +512,7 @@ func TestStack_Up(t *testing.T) {
 
 }
 
-func TestStack_Down(t *testing.T) {
+func TestStack_DestroyAll(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()
 		mocks := setupWindsorStackMocks(t)
@@ -536,7 +536,7 @@ func TestStack_Down(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 
-		if err := stack.Down(blueprint); err != nil {
+		if err := stack.DestroyAll(blueprint); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 	})
@@ -548,7 +548,7 @@ func TestStack_Down(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
+		err := stack.DestroyAll(blueprint)
 		expectedError := "error getting current directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -562,7 +562,7 @@ func TestStack_Down(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
+		err := stack.DestroyAll(blueprint)
 		if err != nil {
 			t.Fatalf("Expected no error when directory doesn't exist, got %v", err)
 		}
@@ -578,7 +578,7 @@ func TestStack_Down(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
+		err := stack.DestroyAll(blueprint)
 		expectedError := "error running terraform plan destroy for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -624,7 +624,7 @@ func TestStack_Down(t *testing.T) {
 			return "", nil
 		}
 
-		if err := stack.Down(blueprint); err != nil {
+		if err := stack.DestroyAll(blueprint); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 
@@ -682,7 +682,7 @@ func TestStack_Down(t *testing.T) {
 			return "", nil
 		}
 
-		if err := stack.Down(blueprint); err != nil {
+		if err := stack.DestroyAll(blueprint); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 
@@ -716,7 +716,7 @@ func TestStack_Down(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
+		err := stack.DestroyAll(blueprint)
 		expectedError := "error running terraform destroy for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -725,7 +725,7 @@ func TestStack_Down(t *testing.T) {
 
 	t.Run("NilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
-		err := stack.Down(nil)
+		err := stack.DestroyAll(nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -738,7 +738,7 @@ func TestStack_Down(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Runtime.ProjectRoot = ""
 		blueprint := createTestBlueprint()
-		err := stack.Down(blueprint)
+		err := stack.DestroyAll(blueprint)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -764,7 +764,7 @@ func TestStack_Down(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When running Down
-		err := stack.Down(blueprint)
+		err := stack.DestroyAll(blueprint)
 
 		// Then it should succeed (cleanup errors are ignored)
 		if err != nil {
@@ -797,7 +797,7 @@ func TestStack_Down(t *testing.T) {
 			},
 		}
 
-		if err := stack.Down(blueprint); err != nil {
+		if err := stack.DestroyAll(blueprint); err != nil {
 			t.Errorf("Expected Down to succeed with named component, got %v", err)
 		}
 	})
@@ -834,7 +834,7 @@ func TestStack_Down(t *testing.T) {
 			},
 		}
 
-		if err := stack.Down(blueprint); err != nil {
+		if err := stack.DestroyAll(blueprint); err != nil {
 			t.Errorf("Expected Down to succeed with named component with source, got %v", err)
 		}
 	})
@@ -1570,6 +1570,195 @@ func TestStack_Apply(t *testing.T) {
 		// Then it should succeed — cleanup errors are ignored
 		if err != nil {
 			t.Errorf("Expected no error (cleanup is best-effort), got: %v", err)
+		}
+	})
+}
+
+func TestStack_Destroy(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When destroying the local component by ID
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected Destroy to return nil, got %v", err)
+		}
+	})
+
+	t.Run("NilBlueprint", func(t *testing.T) {
+		// Given a stack with a nil blueprint
+		stack, _ := setup(t)
+
+		// When destroying with nil blueprint
+		err := stack.Destroy(nil, "local/path")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint not provided") {
+			t.Errorf("Expected blueprint not provided error, got: %v", err)
+		}
+	})
+
+	t.Run("EmptyComponentID", func(t *testing.T) {
+		// Given a stack with an empty component ID
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When destroying with an empty component ID
+		err := stack.Destroy(blueprint, "")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "component ID not provided") {
+			t.Errorf("Expected component ID error, got: %v", err)
+		}
+	})
+
+	t.Run("ComponentNotFound", func(t *testing.T) {
+		// Given a stack and a blueprint with known components
+		stack, _ := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When destroying a component that does not exist in the blueprint
+		err := stack.Destroy(blueprint, "does/not/exist")
+
+		// Then an error should occur naming the missing component
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), `"does/not/exist" not found`) {
+			t.Errorf("Expected not found error, got: %v", err)
+		}
+	})
+
+	t.Run("EmptyProjectRoot", func(t *testing.T) {
+		// Given a stack with an empty project root
+		stack, mocks := setup(t)
+		mocks.Runtime.ProjectRoot = ""
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "project root is empty") {
+			t.Errorf("Expected project root error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorGettingCurrentDirectory", func(t *testing.T) {
+		// Given a stack whose Getwd returns an error
+		stack, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "", fmt.Errorf("mock error getting current directory")
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error getting current directory") {
+			t.Fatalf("Expected error to contain %q, got %q", "error getting current directory", err.Error())
+		}
+	})
+
+	t.Run("ErrorDirectoryDoesNotExist", func(t *testing.T) {
+		// Given a stack whose Stat reports the component directory is missing
+		stack, mocks := setup(t)
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then an error should occur mentioning directory
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "directory") {
+			t.Fatalf("Expected error to contain %q, got %q", "directory", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformInit", func(t *testing.T) {
+		// Given a stack whose shell fails on terraform init
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("mock error running terraform init")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error running terraform init for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running terraform init for", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformPlanDestroy", func(t *testing.T) {
+		// Given a stack whose shell fails on terraform plan -destroy
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
+				return "", fmt.Errorf("mock error running terraform plan destroy")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error running terraform plan destroy for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running terraform plan destroy for", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformDestroy", func(t *testing.T) {
+		// Given a stack whose shell fails on terraform destroy
+		stack, mocks := setup(t)
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				return "", fmt.Errorf("mock error running terraform destroy")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then an error should occur
+		if !strings.Contains(err.Error(), "error running terraform destroy for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running terraform destroy for", err.Error())
 		}
 	})
 }

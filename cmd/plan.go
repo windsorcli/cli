@@ -91,6 +91,7 @@ var planCmd = &cobra.Command{
 
 var planTerraformCmd = &cobra.Command{
 	Use:          "terraform [project]",
+	Aliases:      []string{"tf"},
 	Short:        "Plan Terraform changes",
 	Long:         "Stream terraform init and plan for a specific component, or all components when no argument is given. Use --summary for a compact table or --json for machine-readable counts.",
 	Args:         cobra.MaximumNArgs(1),

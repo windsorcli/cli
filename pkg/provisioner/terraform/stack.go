@@ -28,12 +28,13 @@ import (
 // Both the Stack struct and MockStack implement this interface.
 type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	Down(blueprint *blueprintv1alpha1.Blueprint) error
+	DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error
 	Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
@@ -187,12 +188,12 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 	return nil
 }
 
-// Down destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
-// For each component, Down generates Terraform arguments, sets required environment variables, unsets conflicting TF_CLI_ARGS_* variables,
+// DestroyAll destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
+// For each component, DestroyAll generates Terraform arguments, sets required environment variables, unsets conflicting TF_CLI_ARGS_* variables,
 // creates backend override files, runs Terraform refresh, plan (with destroy flag), and destroy commands. Backend override files are
 // cleaned up after all components complete. Components with Destroy set to false are skipped. Directory state is restored after execution.
 // Errors are returned on any operation failure. The blueprint parameter is required to resolve terraform components.
-func (s *TerraformStack) Down(blueprint *blueprintv1alpha1.Blueprint) error {
+func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -512,6 +513,50 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	}
 
 	_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
+
+	return nil
+}
+
+// Destroy runs terraform init, plan -destroy, and destroy for a single component identified by componentID.
+// Returns an error if the blueprint is nil, the component is not found, or any terraform operation fails.
+func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if componentID == "" {
+		return fmt.Errorf("component ID not provided")
+	}
+
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+		return err
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+
+	_, _ = s.runtime.Shell.ExecSilentWithEnv(terraformCommand,
+		selectTerraformCommandEnv(terraformVars, true),
+		fmt.Sprintf("-chdir=%s", component.FullPath), "refresh")
+
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+	planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
+	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand,
+		selectTerraformCommandEnv(terraformVars, true), planArgs...); err != nil {
+		return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
+	}
+
+	destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy"}
+	destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
+	if _, err := s.runtime.Shell.ExecProgressWithEnv(
+		fmt.Sprintf("Destroying terraform for %s", component.Path),
+		terraformCommand, selectTerraformCommandEnv(terraformVars, true), destroyArgs...); err != nil {
+		return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
+	}
 
 	return nil
 }

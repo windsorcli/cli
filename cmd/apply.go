@@ -14,6 +14,7 @@ var applyCmd = &cobra.Command{
 
 var applyTerraformCmd = &cobra.Command{
 	Use:          "terraform <project>",
+	Aliases:      []string{"tf"},
 	Short:        "Apply Terraform changes for a specific project",
 	Long:         "Apply Terraform changes for a specific project layer.",
 	Args:         cobra.ExactArgs(1),
