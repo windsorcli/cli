@@ -163,7 +163,12 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		time.Sleep(k.kustomizationWaitPollInterval)
 	}
 
-	return fmt.Errorf("timeout waiting for kustomization %s to be deleted", name)
+	// Kustomization is stuck in Terminating — strip finalizers to unblock deletion.
+	patch := []byte(`{"metadata":{"finalizers":[]}}`)
+	if _, err := k.client.PatchResource(gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{FieldManager: "windsor-cli"}); err != nil && !isNotFoundError(err) {
+		return fmt.Errorf("timeout waiting for kustomization %s to be deleted, and failed to remove finalizers: %w", name, err)
+	}
+	return nil
 }
 
 // WaitForKustomizations waits for kustomizations to be ready, calculating the timeout

@@ -276,6 +276,11 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{}, nil
 		}
+		patchCalled := false
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			patchCalled = true
+			return nil, nil
+		}
 		manager.client = kubernetesClient
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
