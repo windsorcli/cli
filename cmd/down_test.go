@@ -211,4 +211,29 @@ func TestDownCmd(t *testing.T) {
 			t.Errorf("Expected workstation VM error, got: %v", err)
 		}
 	})
+
+	t.Run("ErrorPerformingCleanup", func(t *testing.T) {
+		// Given a workstation where PerformCleanup fails
+		mocks := setupDownTest(t)
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.CleanFunc = func() error {
+			return fmt.Errorf("cleanup failed")
+		}
+		ws := workstation.NewWorkstation(mocks.Runtime.Runtime)
+		mocks.Project.Workstation = ws
+
+		// When executing the down command
+		cmd := createTestDownCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error performing cleanup") {
+			t.Errorf("Expected cleanup error, got: %v", err)
+		}
+	})
 }
