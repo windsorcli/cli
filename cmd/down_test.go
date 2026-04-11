@@ -207,8 +207,8 @@ func TestDownCmd(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "error tearing down workstation VM") {
-			t.Errorf("Expected workstation VM error, got: %v", err)
+		if !strings.Contains(err.Error(), "error tearing down workstation") {
+			t.Errorf("Expected workstation error, got: %v", err)
 		}
 	})
 

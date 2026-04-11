@@ -24,7 +24,7 @@ var downCmd = &cobra.Command{
 		}
 
 		if err := proj.Workstation.Down(); err != nil {
-			return fmt.Errorf("error tearing down workstation VM: %w", err)
+			return fmt.Errorf("error tearing down workstation: %w", err)
 		}
 
 		if err := proj.PerformCleanup(); err != nil {
