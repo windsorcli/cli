@@ -7,17 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	cleanFlag         bool
-	skipK8sFlag       bool
-	skipTerraformFlag bool
-	skipDockerFlag    bool
-)
-
 var downCmd = &cobra.Command{
 	Use:          "down",
-	Short:        "Tear down the Windsor environment",
-	Long:         "Tear down the Windsor environment by executing necessary shell commands.",
+	Short:        "Stop the local workstation environment",
+	Long:         "Stop the local workstation environment by tearing down the VM, stopping container runtimes, and cleaning up context artifacts.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		proj, err := prepareProject(cmd)
@@ -25,38 +18,17 @@ var downCmd = &cobra.Command{
 			return err
 		}
 
-		if !skipK8sFlag {
-			blueprint := proj.Composer.BlueprintHandler.Generate()
-			if err := proj.Provisioner.Uninstall(blueprint); err != nil {
-				return fmt.Errorf("error running blueprint cleanup: %w", err)
-			}
-		} else {
-			fmt.Fprintln(os.Stderr, "Skipping Kubernetes cleanup (--skip-k8s set)")
+		if proj.Workstation == nil {
+			fmt.Fprintln(os.Stderr, "windsor down is only applicable when a workstation is enabled; use windsor destroy to tear down live environments")
+			return nil
 		}
 
-		if !skipTerraformFlag {
-			blueprint := proj.Composer.BlueprintHandler.Generate()
-			if err := proj.Provisioner.Down(blueprint); err != nil {
-				return fmt.Errorf("error tearing down infrastructure: %w", err)
-			}
-		} else {
-			fmt.Fprintln(os.Stderr, "Skipping Terraform cleanup (--skip-tf set)")
+		if err := proj.Workstation.Down(); err != nil {
+			return fmt.Errorf("error tearing down workstation VM: %w", err)
 		}
 
-		if !skipDockerFlag {
-			if proj.Workstation != nil {
-				if err := proj.Workstation.Down(); err != nil {
-					return fmt.Errorf("error tearing down workstation: %w", err)
-				}
-			}
-		} else {
-			fmt.Fprintln(os.Stderr, "Skipping Docker container cleanup (--skip-docker set)")
-		}
-
-		if cleanFlag {
-			if err := proj.PerformCleanup(); err != nil {
-				return fmt.Errorf("error performing cleanup: %w", err)
-			}
+		if err := proj.PerformCleanup(); err != nil {
+			return fmt.Errorf("error performing cleanup: %w", err)
 		}
 
 		return nil
@@ -64,9 +36,5 @@ var downCmd = &cobra.Command{
 }
 
 func init() {
-	downCmd.Flags().BoolVar(&cleanFlag, "clean", false, "Clean up context specific artifacts")
-	downCmd.Flags().BoolVar(&skipK8sFlag, "skip-k8s", false, "Skip Kubernetes cleanup (blueprint cleanup)")
-	downCmd.Flags().BoolVar(&skipTerraformFlag, "skip-tf", false, "Skip Terraform cleanup")
-	downCmd.Flags().BoolVar(&skipDockerFlag, "skip-docker", false, "Skip Docker container cleanup")
 	rootCmd.AddCommand(downCmd)
 }

@@ -216,26 +216,26 @@ func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
 	return blueprint, nil
 }
 
-// PerformCleanup removes context-specific artifacts: config state, .volumes,
-// .windsor/contexts/<context>, and .windsor/Corefile. Returns an error if any step fails.
+// PerformCleanup removes context-specific artifacts: config state and
+// contents of .windsor/contexts/<context> (preserving workstation.yaml).
+// Returns an error if any step fails.
 func (p *Project) PerformCleanup() error {
 	if err := p.configHandler.Clean(); err != nil {
 		return fmt.Errorf("error cleaning up context specific artifacts: %w", err)
 	}
 
-	volumesPath := filepath.Join(p.projectRoot, ".volumes")
-	if err := os.RemoveAll(volumesPath); err != nil {
-		return fmt.Errorf("error deleting .volumes folder: %w", err)
+	contextDir := filepath.Join(p.projectRoot, ".windsor", "contexts", p.contextName)
+	entries, err := os.ReadDir(contextDir)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error reading .windsor/contexts/%s: %w", p.contextName, err)
 	}
-
-	tfModulesPath := filepath.Join(p.projectRoot, ".windsor", "contexts", p.contextName)
-	if err := os.RemoveAll(tfModulesPath); err != nil {
-		return fmt.Errorf("error deleting .windsor/contexts/%s folder: %w", p.contextName, err)
-	}
-
-	corefilePath := filepath.Join(p.projectRoot, ".windsor", "Corefile")
-	if err := os.RemoveAll(corefilePath); err != nil {
-		return fmt.Errorf("error deleting .windsor/Corefile: %w", err)
+	for _, entry := range entries {
+		if entry.Name() == "workstation.yaml" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(contextDir, entry.Name())); err != nil {
+			return fmt.Errorf("error deleting %s: %w", entry.Name(), err)
+		}
 	}
 
 	return nil

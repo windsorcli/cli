@@ -17,6 +17,8 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/workstation"
+	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
 // =============================================================================
@@ -77,7 +79,7 @@ func TestDownCmd(t *testing.T) {
 	createTestDownCmd := func() *cobra.Command {
 		cmd := &cobra.Command{
 			Use:   "down",
-			Short: "Tear down the Windsor environment",
+			Short: "Stop the local workstation environment",
 			RunE:  downCmd.RunE,
 		}
 
@@ -95,17 +97,18 @@ func TestDownCmd(t *testing.T) {
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
-	t.Run("Success", func(t *testing.T) {
-		// Given a properly configured down command
+	t.Run("NoOpWhenWorkstationDisabled", func(t *testing.T) {
+		// Given a down command with no workstation configured
 		mocks := setupDownTest(t)
 
-		// When executing the down command
+		var stderrBuf strings.Builder
 		cmd := createTestDownCmd()
+		cmd.SetErr(&stderrBuf)
 		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error should occur
+		// Then no error should occur and a descriptive message is printed
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -164,68 +167,11 @@ func TestDownCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipK8sFlag", func(t *testing.T) {
-		// Given a down command with skip-k8s flag
+	t.Run("SuccessWithWorkstation", func(t *testing.T) {
+		// Given a down command with a workstation configured (no terraform layer, no VM)
 		mocks := setupDownTest(t)
-
-		// When executing the down command with skip-k8s flag
-		cmd := createTestDownCmd()
-		cmd.SetArgs([]string{"--skip-k8s"})
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SkipTerraformFlag", func(t *testing.T) {
-		// Given a down command with skip-tf flag
-		mocks := setupDownTest(t)
-
-		// When executing the down command with skip-tf flag
-		cmd := createTestDownCmd()
-		cmd.SetArgs([]string{"--skip-tf"})
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("SkipDockerFlag", func(t *testing.T) {
-		// Given a down command with skip-docker flag
-		mocks := setupDownTest(t)
-
-		// When executing the down command with skip-docker flag
-		cmd := createTestDownCmd()
-		cmd.SetArgs([]string{"--skip-docker"})
-		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("DevModeWithoutWorkstation", func(t *testing.T) {
-		// Given a down command in non-dev mode
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.IsDevModeFunc = func(contextName string) bool { return false }
-
-		opts := &SetupOptions{
-			ConfigHandler: mockConfigHandler,
-		}
-		mocks := setupDownTest(t, opts)
-		mocks.Runtime.Runtime.ConfigHandler = mockConfigHandler
-		mocks.Project = project.NewProject("", &project.Project{Runtime: mocks.Runtime.Runtime})
+		ws := workstation.NewWorkstation(mocks.Runtime.Runtime)
+		mocks.Project.Workstation = ws
 
 		// When executing the down command
 		cmd := createTestDownCmd()
@@ -239,54 +185,30 @@ func TestDownCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("DockerFallbackWhenProviderDocker", func(t *testing.T) {
-		mockConfigHandler := config.NewMockConfigHandler()
-		mockConfigHandler.IsDevModeFunc = func(contextName string) bool { return false }
-		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "provider" {
-				return "docker"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return false
-		}
-		mockConfigHandler.GetContextFunc = func() string { return "test-context" }
-		mockConfigHandler.IsLoadedFunc = func() bool { return true }
-		mockConfigHandler.LoadConfigFunc = func() error { return nil }
-		mockConfigHandler.SaveConfigFunc = func(hasSetFlags ...bool) error { return nil }
-		mockConfigHandler.GenerateContextIDFunc = func() error { return nil }
+	t.Run("ErrorTearingDownWorkstationVM", func(t *testing.T) {
+		// Given a workstation whose VM teardown fails
+		mocks := setupDownTest(t)
 
-		opts := &SetupOptions{ConfigHandler: mockConfigHandler}
-		mocks := setupDownTest(t, opts)
-		mocks.Runtime.Runtime.ConfigHandler = mockConfigHandler
-		origExecSilent := mocks.Runtime.Shell.ExecSilentFunc
-		mocks.Runtime.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "docker" && len(args) >= 3 && args[0] == "info" && args[1] == "--format" && args[2] == "json" {
-				return `{"ServerErrors":[]}`, nil
-			}
-			if command == "docker" && len(args) > 0 && args[0] == "compose" {
-				return "Docker Compose version 2.0.0", nil
-			}
-			if origExecSilent != nil {
-				return origExecSilent(command, args...)
-			}
-			return "", nil
-		}
-		mocks.Project = project.NewProject("", &project.Project{Runtime: mocks.Runtime.Runtime})
+		mockVirt := virt.NewMockVirt()
+		mockVirt.DownFunc = func() error { return fmt.Errorf("vm down failed") }
 
+		ws := workstation.NewWorkstation(mocks.Runtime.Runtime, &workstation.Workstation{
+			VirtualMachine: mockVirt,
+		})
+		mocks.Project.Workstation = ws
+
+		// When executing the down command
 		cmd := createTestDownCmd()
-		cmd.SetArgs([]string{"--skip-k8s", "--skip-tf", "--skip-docker=false"})
 		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
 		cmd.SetContext(ctx)
-		if err := cmd.Execute(); err != nil {
-			t.Errorf("Expected no error, got %v", err)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error tearing down workstation VM") {
+			t.Errorf("Expected workstation VM error, got: %v", err)
 		}
 	})
 }
