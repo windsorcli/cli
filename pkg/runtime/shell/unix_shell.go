@@ -63,54 +63,6 @@ func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
 	return result.String()
 }
 
-// ExecInteractiveWithEnv runs the command with the spinner paused and /dev/tty connected for
-// stdin and stderr, so that interactive prompts from sub-processes (e.g. sudo called by a
-// terraform local-exec provisioner) appear on the terminal and can receive keyboard input.
-// stdout is suppressed. No new session is created, so the command inherits Windsor's controlling
-// terminal; sudo inside any child process can therefore open /dev/tty successfully.
-// Falls back to os.Stdin/os.Stderr when /dev/tty is unavailable (e.g. CI).
-func (s *DefaultShell) ExecInteractiveWithEnv(message string, command string, env map[string]string, args ...string) error {
-	cmd := s.shims.Command(command, args...)
-	if cmd == nil {
-		return fmt.Errorf("failed to create command")
-	}
-	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
-
-	if s.verbose {
-		fmt.Fprintln(os.Stderr, message)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := s.shims.CmdStart(cmd); err != nil {
-			return fmt.Errorf("command start failed: %w", err)
-		}
-		return s.shims.CmdWait(cmd)
-	}
-
-	// Open /dev/tty directly so that sudo (running inside a terraform local-exec provisioner
-	// several layers down) can display its password prompt and read input. /dev/tty always
-	// refers to the controlling terminal of the calling process — as long as we do NOT create
-	// a new session (no Setsid), the command inherits Windsor's controlling terminal, and any
-	// child that opens /dev/tty gets the same real user terminal.
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		cmd.Stdin = os.Stdin
-		cmd.Stderr = os.Stderr
-	} else {
-		defer tty.Close()
-		cmd.Stdin = tty
-		cmd.Stderr = tty
-	}
-	cmd.Stdout = nil // suppress terraform output in non-verbose mode
-
-	if err := s.shims.CmdStart(cmd); err != nil {
-		return fmt.Errorf("command start failed: %w", err)
-	}
-	if err := s.shims.CmdWait(cmd); err != nil {
-		return fmt.Errorf("command execution failed: %w", err)
-	}
-	return nil
-}
 
 // ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
 // connecting to the terminal and captures the command's output. If verbose mode is enabled or no TTY

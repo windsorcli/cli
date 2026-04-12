@@ -56,7 +56,6 @@ type Shell interface {
 	ExecSudo(message string, command string, args ...string) (string, error)
 	ExecProgress(message string, command string, args ...string) (string, error)
 	ExecProgressWithEnv(message string, command string, env map[string]string, args ...string) (string, error)
-	ExecInteractiveWithEnv(message string, command string, env map[string]string, args ...string) error
 	InstallHook(shellName string) error
 	AddCurrentDirToTrustedFile() error
 	CheckTrustedDirectory() error

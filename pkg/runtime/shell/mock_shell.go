@@ -25,7 +25,6 @@ type MockShell struct {
 	ExecSilentWithTimeoutFunc      func(command string, args []string, timeout time.Duration) (string, error)
 	ExecProgressFunc               func(message string, command string, args ...string) (string, error)
 	ExecProgressWithEnvFunc        func(message string, command string, env map[string]string, args ...string) (string, error)
-	ExecInteractiveWithEnvFunc     func(message string, command string, env map[string]string, args ...string) error
 	ExecSudoFunc                   func(message string, command string, args ...string) (string, error)
 	InstallHookFunc                func(shellName string) error
 	SetVerbosityFunc               func(verbose bool)
@@ -128,14 +127,6 @@ func (s *MockShell) ExecProgressWithEnv(message string, command string, env map[
 		return s.ExecProgressFunc(message, command, args...)
 	}
 	return "", nil
-}
-
-// ExecInteractiveWithEnv calls the custom ExecInteractiveWithEnvFunc if provided.
-func (s *MockShell) ExecInteractiveWithEnv(message string, command string, env map[string]string, args ...string) error {
-	if s.ExecInteractiveWithEnvFunc != nil {
-		return s.ExecInteractiveWithEnvFunc(message, command, env, args...)
-	}
-	return nil
 }
 
 // ExecSudo calls the custom ExecSudoFunc if provided.
