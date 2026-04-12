@@ -400,6 +400,43 @@ func TestTermSpinner_Pause(t *testing.T) {
 	})
 }
 
+// Tests for termSpinner Resume behavior
+func TestTermSpinner_Resume(t *testing.T) {
+	t.Run("ResumeAfterPauseDecrementsCounter", func(t *testing.T) {
+		// Given a paused termSpinner
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("deploying") })
+		captureStderr(t, s.Pause)
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Resume is called
+		captureStderr(t, s.Resume)
+
+		// Then paused counter is back to zero
+		if s.paused != 0 {
+			t.Errorf("expected paused=0 after Resume, got %d", s.paused)
+		}
+	})
+
+	t.Run("UnpairedResumeDoesNotDecrementBelowZero", func(t *testing.T) {
+		// Given a running termSpinner that has never been paused
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("deploying") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Resume is called without a prior Pause
+		captureStderr(t, s.Resume)
+
+		// Then paused stays at zero and spin is still non-nil
+		if s.paused != 0 {
+			t.Errorf("expected paused=0, got %d", s.paused)
+		}
+		if s.spin == nil {
+			t.Error("expected spin to still be non-nil after unpaired Resume")
+		}
+	})
+}
+
 // Tests for verboseSpinner output behavior
 func TestVerboseSpinner_Start(t *testing.T) {
 	t.Run("PrintsMessage", func(t *testing.T) {

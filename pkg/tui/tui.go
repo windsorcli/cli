@@ -226,10 +226,8 @@ func (s *termSpinner) pause(printMessage bool) {
 
 // Resume restarts the spinner animation using the previously set message.
 func (s *termSpinner) Resume() {
-	if s.spin != nil {
-		if s.paused > 0 {
-			s.paused--
-		}
+	if s.spin != nil && s.paused > 0 {
+		s.paused--
 		if s.paused == 0 {
 			s.spin.Start()
 		}
