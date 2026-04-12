@@ -6,6 +6,8 @@ type MockSpinner struct {
 	UpdateFunc func(message string)
 	DoneFunc   func()
 	FailFunc   func()
+	PauseFunc  func()
+	ResumeFunc func()
 }
 
 // =============================================================================
@@ -46,6 +48,20 @@ func (m *MockSpinner) Done() {
 func (m *MockSpinner) Fail() {
 	if m.FailFunc != nil {
 		m.FailFunc()
+	}
+}
+
+// Pause calls PauseFunc if set, otherwise does nothing.
+func (m *MockSpinner) Pause() {
+	if m.PauseFunc != nil {
+		m.PauseFunc()
+	}
+}
+
+// Resume calls ResumeFunc if set, otherwise does nothing.
+func (m *MockSpinner) Resume() {
+	if m.ResumeFunc != nil {
+		m.ResumeFunc()
 	}
 }
 

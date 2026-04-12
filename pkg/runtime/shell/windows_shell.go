@@ -88,6 +88,26 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 	return s.Exec(command, args...)
 }
 
+// ExecInteractiveWithEnv on Windows runs the command with stdin/stdout/stderr connected to the
+// terminal directly. Windows has no PTY concern equivalent to the Unix sudo/isatty issue.
+func (s *DefaultShell) ExecInteractiveWithEnv(message string, command string, env map[string]string, args ...string) error {
+	if s.verbose {
+		fmt.Fprintln(os.Stderr, message)
+	}
+	cmd := s.shims.Command(command, args...)
+	if cmd == nil {
+		return fmt.Errorf("failed to create command")
+	}
+	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := s.shims.CmdStart(cmd); err != nil {
+		return fmt.Errorf("command start failed: %w", err)
+	}
+	return s.shims.CmdWait(cmd)
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================

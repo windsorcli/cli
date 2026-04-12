@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -20,8 +21,10 @@ import (
 
 // termSpinner is the default terminal Spinner implementation backed by an animated spinner.
 type termSpinner struct {
-	spin    *spinner.Spinner
-	message string
+	spin              *spinner.Spinner
+	message           string
+	paused            int
+	pauseCursorSaved  bool
 }
 
 // verboseSpinner is the Spinner implementation used in verbose mode.
@@ -37,6 +40,8 @@ type Spinner interface {
 	Update(message string)
 	Done()
 	Fail()
+	Pause()
+	Resume()
 }
 
 // =============================================================================
@@ -87,6 +92,17 @@ func Done() {
 	Active.Done()
 }
 
+// SectionHeader returns a fixed-width section label padded with ─ characters.
+// Example: SectionHeader("Kustomize: gitops") → "── Kustomize: gitops ──────────────────────────────────────"
+func SectionHeader(label string) string {
+	s := fmt.Sprintf("── %s ", label)
+	const width = 62
+	if n := width - len(s); n > 0 {
+		s += strings.Repeat("─", n)
+	}
+	return s
+}
+
 // Fail stops the active spinner and prints a failure line.
 // When called inside a WithProgress block, it is a no-op.
 func Fail() {
@@ -95,6 +111,23 @@ func Fail() {
 	}
 	Active.Fail()
 }
+
+// Pause stops the spinner animation without printing Done or Fail.
+// Use before handing the terminal to an interactive subprocess; call Resume after it exits.
+func Pause() { Active.Pause() }
+
+// PauseWithMessage stops the spinner animation and prints a static progress line once.
+// Use this for interactive prompts where the current progress context should stay visible.
+func PauseWithMessage() {
+	if term, ok := Active.(*termSpinner); ok {
+		term.pause(true)
+		return
+	}
+	Active.Pause()
+}
+
+// Resume restarts the spinner animation after a Pause.
+func Resume() { Active.Resume() }
 
 // WithProgress runs fn with a progress spinner showing message.
 // Increments the nesting depth so that any Start/Done/Fail calls inside fn
@@ -124,10 +157,12 @@ func WithProgress(message string, fn func() error) error {
 
 // Start stops any existing spinner and begins a new one with the given message.
 func (s *termSpinner) Start(message string) {
-	if s.spin != nil {
+	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
 	}
 	s.message = message
+	s.paused = 0
+	s.pauseCursorSaved = false
 	s.spin = spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithColor("green"), spinner.WithWriter(os.Stderr))
 	s.spin.Suffix = " " + message
 	s.spin.Start()
@@ -142,20 +177,58 @@ func (s *termSpinner) Update(message string) {
 
 // Done stops the spinner and prints a green success line to stderr.
 func (s *termSpinner) Done() {
-	if s.spin != nil {
+	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
-		s.spin = nil
+	}
+	s.spin = nil
+	s.paused = 0
+	if s.pauseCursorSaved {
+		fmt.Fprint(os.Stderr, "\033[u\033[2K\r")
+		s.pauseCursorSaved = false
 	}
 	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", s.message)
 }
 
 // Fail stops the spinner and prints a red failure line to stderr.
 func (s *termSpinner) Fail() {
-	if s.spin != nil {
+	if s.spin != nil && s.spin.Active() {
 		s.spin.Stop()
-		s.spin = nil
 	}
+	s.spin = nil
+	s.paused = 0
 	fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", s.message)
+}
+
+// Pause stops the spinner animation without printing Done or Fail, preserving the message for Resume.
+func (s *termSpinner) Pause() {
+	s.pause(false)
+}
+
+// pause stops the spinner animation and optionally prints a static progress line.
+func (s *termSpinner) pause(printMessage bool) {
+	if s.spin != nil {
+		if s.paused == 0 {
+			fmt.Fprint(os.Stderr, "\033[s")
+			s.pauseCursorSaved = true
+			s.spin.Stop()
+			if printMessage {
+				fmt.Fprintf(os.Stderr, "… %s\n", s.message)
+			}
+		}
+		s.paused++
+	}
+}
+
+// Resume restarts the spinner animation using the previously set message.
+func (s *termSpinner) Resume() {
+	if s.spin != nil {
+		if s.paused > 0 {
+			s.paused--
+		}
+		if s.paused == 0 {
+			s.spin.Start()
+		}
+	}
 }
 
 // Start prints the message directly to stderr without animation.
@@ -173,3 +246,10 @@ func (s *verboseSpinner) Done() {}
 
 // Fail is a no-op in verbose mode since errors are surfaced through return values.
 func (s *verboseSpinner) Fail() {}
+
+// Pause is a no-op in verbose mode since there is no animation to stop.
+func (s *verboseSpinner) Pause() {}
+
+// Resume is a no-op in verbose mode since there is no animation to restart.
+func (s *verboseSpinner) Resume() {}
+

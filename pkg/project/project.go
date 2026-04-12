@@ -205,6 +205,9 @@ func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
 			return nil, err
 		}
 		onApply = p.Workstation.MakeApplyHook()
+		if postApply := p.Workstation.MakePostApplyHook(); postApply != nil {
+			p.Provisioner.OnTerraformPostApply(postApply)
+		}
 	}
 	if onApply != nil {
 		if err := p.Provisioner.Up(blueprint, onApply); err != nil {

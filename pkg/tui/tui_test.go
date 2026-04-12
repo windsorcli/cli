@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -274,6 +275,20 @@ func TestTermSpinner_Done(t *testing.T) {
 			t.Errorf("expected %q, got %q", want, out)
 		}
 	})
+
+	t.Run("PrintsSuccessLineWhenPaused", func(t *testing.T) {
+		// Given a termSpinner paused by an interactive prompt
+		s := &termSpinner{message: "Applying workstation/docker", paused: 1}
+
+		// When Done is called
+		out := captureStderr(t, s.Done)
+
+		// Then the full success line is written consistently, even after pause
+		want := "\033[32m✔\033[0m Applying workstation/docker - \033[32mDone\033[0m\n"
+		if out != want {
+			t.Errorf("expected %q, got %q", want, out)
+		}
+	})
 }
 
 // Tests for termSpinner Fail output
@@ -303,6 +318,65 @@ func TestTermSpinner_Fail(t *testing.T) {
 		// Then spin is nil and the spinner was stopped
 		if s.spin != nil {
 			t.Error("expected spin to be nil after Fail")
+		}
+	})
+}
+
+// Tests for termSpinner Pause behavior
+func TestTermSpinner_Pause(t *testing.T) {
+	t.Run("PauseDoesNotPrintMessage", func(t *testing.T) {
+		// Given a termSpinner with an active spinner
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("Applying workstation/docker") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Pause is called
+		out := captureStderr(t, s.Pause)
+
+		// Then no progress message text is emitted
+		if strings.Contains(out, "Applying workstation/docker") {
+			t.Errorf("expected no progress message text, got %q", out)
+		}
+	})
+
+	t.Run("NestedPauseDoesNotPrintMessage", func(t *testing.T) {
+		// Given a termSpinner with an active spinner
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("Applying workstation/docker") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Pause is called twice before a matching Resume
+		out := captureStderr(t, func() {
+			s.Pause()
+			s.Pause()
+		})
+
+		// Then no progress message text is emitted
+		if strings.Contains(out, "Applying workstation/docker") {
+			t.Errorf("expected no progress message text, got %q", out)
+		}
+	})
+
+	t.Run("PauseWithMessagePrintsOnce", func(t *testing.T) {
+		// Given an active term spinner installed as Active
+		s := &termSpinner{}
+		original := Active
+		Active = s
+		t.Cleanup(func() {
+			Active = original
+			captureStderr(t, s.Done)
+		})
+		captureStderr(t, func() { s.Start("Applying workstation/docker") })
+
+		// When PauseWithMessage is called twice
+		out := captureStderr(t, func() {
+			PauseWithMessage()
+			PauseWithMessage()
+		})
+
+		// Then PauseWithMessage emits one static progress line only once
+		if got := strings.Count(out, "Applying workstation/docker"); got != 1 {
+			t.Errorf("expected one paused progress line, got %d output %q", got, out)
 		}
 	})
 }

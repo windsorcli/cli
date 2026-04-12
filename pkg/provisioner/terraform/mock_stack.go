@@ -16,6 +16,7 @@ import (
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
 	UpFunc                   func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	PostApplyFunc            func(fns ...func(id string) error)
 	DestroyAllFunc           func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllFunc              func(blueprint *blueprintv1alpha1.Blueprint) error
@@ -46,6 +47,13 @@ func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(i
 		return m.UpFunc(blueprint, onApply...)
 	}
 	return nil
+}
+
+// PostApply is a mock implementation of the PostApply method.
+func (m *MockStack) PostApply(fns ...func(id string) error) {
+	if m.PostApplyFunc != nil {
+		m.PostApplyFunc(fns...)
+	}
 }
 
 // DestroyAll is a mock implementation of the DestroyAll method.

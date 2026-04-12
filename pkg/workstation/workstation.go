@@ -204,7 +204,11 @@ func (w *Workstation) EnsureNetworkPrivilege() error {
 		return nil
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) || stdruntime.GOOS == "windows" { // #nosec G115 -- file descriptors are small, safe to cast to int
-		fmt.Fprintln(os.Stderr, "Network configuration may require elevated privileges")
+		if os.Geteuid() != 0 {
+			if _, err := w.shell.ExecSilent("sudo", "-n", "true"); err != nil {
+				fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
+			}
+		}
 		if _, err := w.shell.ExecSudo("", "true"); err != nil {
 			return fmt.Errorf("privileged access required: %w", err)
 		}
