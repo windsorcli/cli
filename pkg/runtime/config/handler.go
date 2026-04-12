@@ -35,7 +35,6 @@ type ConfigHandler interface {
 	Get(key string) any
 	SaveConfig(overwrite ...bool) error
 	SaveWorkstationState() error
-	DeleteWorkstationState() error
 	SetDefault(context v1alpha1.Context) error
 	GetConfig() *v1alpha1.Context
 	GetContext() string
@@ -306,18 +305,6 @@ func (c *configHandler) SaveWorkstationState() error {
 		c.data,
 		c.getPersistencePolicyInput(),
 	)
-}
-
-// DeleteWorkstationState removes .windsor/contexts/<context>/workstation.yaml.
-func (c *configHandler) DeleteWorkstationState() error {
-	if c.shell == nil {
-		return fmt.Errorf("shell not initialized")
-	}
-	projectRoot, err := c.shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error retrieving project root: %w", err)
-	}
-	return c.workstation.Delete(projectRoot, c.GetContext())
 }
 
 // SetDefault sets the default context configuration in the config handler's internal data.

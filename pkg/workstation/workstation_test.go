@@ -1004,31 +1004,6 @@ func TestWorkstation_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("PreservesWorkstationState", func(t *testing.T) {
-		// Given
-		mocks := setupWorkstationMocks(t)
-		deleteStateCalled := false
-		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfig.DeleteWorkstationStateFunc = func() error {
-			deleteStateCalled = true
-			return nil
-		}
-		workstation := NewWorkstation(mocks.Runtime, &Workstation{
-			VirtualMachine:   mocks.VirtualMachine,
-			ContainerRuntime: mocks.ContainerRuntime,
-		})
-
-		// When
-		err := workstation.Down()
-
-		// Then
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-		if deleteStateCalled {
-			t.Error("Expected DeleteWorkstationState NOT to be called; workstation state must survive windsor down")
-		}
-	})
 
 }
 

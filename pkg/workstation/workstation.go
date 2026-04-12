@@ -325,8 +325,3 @@ func (w *Workstation) WriteState() error {
 	return w.configHandler.SaveWorkstationState()
 }
 
-// DeleteState delegates to ConfigHandler.DeleteWorkstationState to remove .windsor/contexts/<context>/workstation.yaml.
-func (w *Workstation) DeleteState() error {
-	return w.configHandler.DeleteWorkstationState()
-}
-
