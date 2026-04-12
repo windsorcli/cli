@@ -60,7 +60,7 @@ kustomize:
 
 Each entry under `kustomize` follows the [Flux Kustomization spec](https://fluxcd.io/flux/components/kustomize/kustomizations/). As such, you may include patches and any other necessary settings for modifying the behavior of `my-app`.
 
-When running `windsor up --install` or `windsor install`, all Kustomization resources are applied to your cluster. This involves creating [GitRepository](https://fluxcd.io/flux/components/source/gitrepositories/) resources from the corresponding `repository` and `sources`, as well as [Kustomizations](https://fluxcd.io/flux/components/kustomize/kustomizations/).
+When running `windsor up` or `windsor install`, all Kustomization resources are applied to your cluster. This involves creating [GitRepository](https://fluxcd.io/flux/components/source/gitrepositories/) resources from the corresponding `repository` and `sources`, as well as [Kustomizations](https://fluxcd.io/flux/components/kustomize/kustomizations/).
 
 You can observe these resources on your cluster by running the following commands,
 

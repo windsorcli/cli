@@ -67,7 +67,7 @@ windsor context get
 Start the local environment and install the default local blueprint, run:
 
 ```sh
-windsor up --install
+windsor up
 ```
 
 This command will start appropriate docker containers, run kubernetes nodes and support services with docker compose, and bootstrap your cluster using Terraform. It can take up to 5 minutes to fully launch, so be patient!

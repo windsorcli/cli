@@ -9,14 +9,13 @@ import (
 )
 
 var (
-	installFlag bool // Declare the install flag
-	waitFlag    bool // Declare the wait flag
+	waitFlag bool // Declare the wait flag
 )
 
 var upCmd = &cobra.Command{
 	Use:          "up",
-	Short:        "Set up the Windsor environment",
-	Long:         "Set up the Windsor environment by executing necessary shell commands.",
+	Short:        "Bring up the local workstation environment",
+	Long:         "Bring up the local workstation environment by starting the VM, applying Terraform, and installing the blueprint.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var opts []*project.Project
@@ -44,20 +43,23 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
+		if proj.Workstation == nil {
+			fmt.Fprintln(os.Stderr, "windsor up is only applicable when a workstation is enabled; use windsor apply to apply infrastructure")
+			return nil
+		}
+
 		blueprint, err := proj.Up()
 		if err != nil {
 			return err
 		}
 
-		if installFlag {
-			if err := proj.Provisioner.Install(blueprint); err != nil {
-				return fmt.Errorf("error installing blueprint: %w", err)
-			}
+		if err := proj.Provisioner.Install(blueprint); err != nil {
+			return fmt.Errorf("error installing blueprint: %w", err)
+		}
 
-			if waitFlag {
-				if err := proj.Provisioner.Wait(blueprint); err != nil {
-					return fmt.Errorf("error waiting for kustomizations: %w", err)
-				}
+		if waitFlag {
+			if err := proj.Provisioner.Wait(blueprint); err != nil {
+				return fmt.Errorf("error waiting for kustomizations: %w", err)
 			}
 		}
 
@@ -68,7 +70,6 @@ var upCmd = &cobra.Command{
 }
 
 func init() {
-	upCmd.Flags().BoolVar(&installFlag, "install", false, "Install the blueprint after setting up the environment")
 	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	rootCmd.AddCommand(upCmd)
 }
