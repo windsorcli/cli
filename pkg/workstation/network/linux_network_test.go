@@ -448,3 +448,26 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 }
+
+func TestLinuxNetworkManager_FlushDNS(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a network manager
+		manager, _ := setup(t)
+
+		// When flushing the DNS cache
+		err := manager.FlushDNS()
+
+		// Then no error should occur (FlushDNS is a no-op on Linux)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}

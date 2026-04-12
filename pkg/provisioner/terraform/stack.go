@@ -28,6 +28,7 @@ import (
 // Both the Stack struct and MockStack implement this interface.
 type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
@@ -62,6 +63,7 @@ type TerraformStack struct {
 	runtime      *runtime.Runtime
 	shims        *Shims
 	terraformEnv *envvars.TerraformEnvPrinter
+	postApply    []func(id string) error
 }
 
 // =============================================================================
@@ -95,15 +97,26 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 	return stack
 }
 
+// PostApply registers hooks to run after each component's WithProgress block completes (i.e. after Done is
+// printed). Hooks are consumed and cleared at the start of the next Up call so they are not retained.
+func (s *TerraformStack) PostApply(fns ...func(id string) error) {
+	s.postApply = append(s.postApply, fns...)
+}
+
 // Up creates a new stack of components by initializing and applying Terraform configurations.
 // It processes components in order, generating terraform arguments, running Terraform init,
 // plan, and apply operations. Backend override files are cleaned up after all components complete,
 // ensuring they remain available for terraform_output() calls between component executions.
-// Optional onApply hooks run after each component apply, in order; they are not retained after Up returns.
+// Optional onApply hooks run after each component apply inside the progress spinner, in order.
+// PostApply hooks run after each component's Done line is printed; they are not retained after Up returns.
 func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
+
+	// Consume and clear postApply hooks so they are not retained across calls.
+	postApply := s.postApply
+	s.postApply = nil
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
@@ -182,6 +195,16 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			return nil
 		}); err != nil {
 			return err
+		}
+
+		// Run post-apply hooks after Done is printed, before the next component's spinner starts.
+		componentID := component.GetID()
+		for _, fn := range postApply {
+			if fn != nil {
+				if err := fn(componentID); err != nil {
+					return fmt.Errorf("post-apply hook %s: %w", componentID, err)
+				}
+			}
 		}
 	}
 
@@ -292,35 +315,32 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 	for i := range components {
 		component := &components[i]
 
-		if err := tui.WithProgress(fmt.Sprintf("Planning %s", component.Path), func() error {
-			terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
-			if err != nil {
-				return err
-			}
+		fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+component.Path))
 
-			if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
-				cleanup()
-				return err
-			}
-
-			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
-			if jsonMode {
-				planArgs = append(planArgs, "-json", "-no-color")
-			}
-			planArgs = append(planArgs, terraformArgs.PlanArgs...)
-			planEnv := selectTerraformCommandEnv(terraformVars, true)
-			planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
-			cleanup()
-			if err != nil {
-				return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
-			}
-			if planOutput != "" {
-				fmt.Fprint(os.Stdout, planOutput)
-			}
-			return nil
-		}); err != nil {
+		terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+		if err != nil {
 			return err
+		}
+
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+			cleanup()
+			return err
+		}
+
+		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+		if jsonMode {
+			planArgs = append(planArgs, "-json", "-no-color")
+		}
+		planArgs = append(planArgs, terraformArgs.PlanArgs...)
+		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
+		cleanup()
+		if err != nil {
+			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		}
+		if planOutput != "" {
+			fmt.Fprint(os.Stdout, planOutput)
 		}
 	}
 

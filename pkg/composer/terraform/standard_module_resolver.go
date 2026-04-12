@@ -148,8 +148,7 @@ func (h *StandardModuleResolver) ProcessModules() error {
 		}
 
 		terraformCommand := h.runtime.ToolsManager.GetTerraformCommand()
-		output, err := h.runtime.Shell.ExecProgress(
-			fmt.Sprintf("Loading component %s", componentID),
+		output, err := h.runtime.Shell.ExecSilent(
 			terraformCommand,
 			"init",
 			"--backend=false",

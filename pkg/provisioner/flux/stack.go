@@ -21,6 +21,7 @@ import (
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/tui"
 	sigsyaml "sigs.k8s.io/yaml"
 )
 
@@ -362,10 +363,7 @@ func (s *FluxStack) planOne(blueprint *blueprintv1alpha1.Blueprint, k blueprintv
 	localPath := filepath.Join(sourceRoot, fluxK.Spec.Path)
 
 	if exists {
-		return s.runFluxDiff(
-			fmt.Sprintf("📋 Planning kustomize changes for %s", k.Name),
-			"diff", "kustomization", k.Name, "--namespace", namespace, "--path", localPath,
-		)
+		return s.runFluxDiff(k.Name, "diff", "kustomization", k.Name, "--namespace", namespace, "--path", localPath)
 	}
 
 	return s.runFromScratch(k, fluxK.Spec.Components, localPath, sourceRoot)
@@ -406,12 +404,10 @@ func (s *FluxStack) resolveSourceRoot(blueprint *blueprintv1alpha1.Blueprint, k 
 // mirrors what flux would generate at reconcile time: if localPath is a Component, it is
 // listed under components: (not resources:), matching flux's own wrapping behaviour.
 func (s *FluxStack) runFromScratch(k blueprintv1alpha1.Kustomization, components []string, localPath, sourceRoot string) error {
-	label := fmt.Sprintf("📋 Planning kustomize changes for %s", k.Name)
-
 	baseIsComponent := s.isKustomizeComponent(localPath)
 
 	if !baseIsComponent && len(components) == 0 {
-		return s.runKustomizeBuild(label, localPath)
+		return s.runKustomizeBuild(k.Name, localPath)
 	}
 
 	planDir := filepath.Join(sourceRoot, ".windsor", "plan", k.Name)
@@ -424,7 +420,7 @@ func (s *FluxStack) runFromScratch(k blueprintv1alpha1.Kustomization, components
 		return err
 	}
 
-	return s.runKustomizeBuild(label, planDir)
+	return s.runKustomizeBuild(k.Name, planDir)
 }
 
 // writeSyntheticKustomization writes a synthetic kustomization.yaml into planDir that mirrors
@@ -478,8 +474,8 @@ func (s *FluxStack) isKustomizeComponent(path string) bool {
 // runKustomizeBuild executes "kustomize build <path>" to render all kubernetes manifests
 // for a kustomization that does not yet exist in the cluster. Unlike flux diff/build,
 // kustomize build requires no cluster access and always emits rendered YAML to stdout.
-func (s *FluxStack) runKustomizeBuild(label, path string) error {
-	fmt.Fprintf(os.Stderr, "%s\n", label)
+func (s *FluxStack) runKustomizeBuild(name, path string) error {
+	fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Kustomize: "+name))
 	stdout, stderr, err := s.shims.ExecCommand("kustomize", "build", path)
 	if err != nil {
 		if stderr != "" {
@@ -489,6 +485,8 @@ func (s *FluxStack) runKustomizeBuild(label, path string) error {
 	}
 	if stdout != "" {
 		fmt.Print(stdout)
+	} else {
+		fmt.Fprintln(os.Stderr, "No changes.")
 	}
 	return nil
 }
@@ -497,10 +495,10 @@ func (s *FluxStack) runKustomizeBuild(label, path string) error {
 // stdout and stderr separately and sets NO_COLOR=1 to prevent flux from writing
 // progress indicators directly to the terminal TTY.
 // flux diff exits 0 (no changes) or 1 (changes exist) — both are treated as success.
-// On exit 0 output is suppressed. On exit 1 the diff (stdout) is printed.
+// On exit 0 "No changes." is printed. On exit 1 the diff (stdout) is printed.
 // Any other exit code is returned as an error with stderr details.
-func (s *FluxStack) runFluxDiff(label string, args ...string) error {
-	fmt.Fprintf(os.Stderr, "%s\n", label)
+func (s *FluxStack) runFluxDiff(name string, args ...string) error {
+	fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Kustomize: "+name))
 	stdout, stderr, err := s.shims.ExecCommand("flux", args...)
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -515,6 +513,7 @@ func (s *FluxStack) runFluxDiff(label string, args ...string) error {
 		}
 		return err
 	}
+	fmt.Fprintln(os.Stderr, "No changes.")
 	return nil
 }
 

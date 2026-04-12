@@ -2,6 +2,7 @@ package project
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1085,6 +1086,66 @@ func TestProject_PerformCleanup(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "error cleaning up context specific artifacts") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorReadingContextDir", func(t *testing.T) {
+		// Given a path where a regular file occupies the context directory slot
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		parent := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", "contexts")
+		if err := os.MkdirAll(parent, 0755); err != nil {
+			t.Fatalf("Failed to create parent dir: %v", err)
+		}
+		// Place a regular file where the context directory would be
+		contextPath := filepath.Join(parent, "test-context")
+		if err := os.WriteFile(contextPath, []byte("not a dir"), 0644); err != nil {
+			t.Fatalf("Failed to write file at context path: %v", err)
+		}
+
+		// When
+		err := proj.PerformCleanup()
+
+		// Then the error mentions the context directory
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error reading .windsor/contexts/test-context") {
+			t.Errorf("Expected context-dir read error, got: %v", err)
+		}
+	})
+
+	t.Run("PreservesWorkstationYaml", func(t *testing.T) {
+		// Given a context dir containing workstation.yaml alongside other artifacts
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime})
+
+		contextDir := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", "contexts", "test-context")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("Failed to create context dir: %v", err)
+		}
+		wsFile := filepath.Join(contextDir, "workstation.yaml")
+		if err := os.WriteFile(wsFile, []byte("state: preserved"), 0644); err != nil {
+			t.Fatalf("Failed to write workstation.yaml: %v", err)
+		}
+		otherFile := filepath.Join(contextDir, "ephemeral.txt")
+		if err := os.WriteFile(otherFile, []byte("ephemeral"), 0644); err != nil {
+			t.Fatalf("Failed to write ephemeral.txt: %v", err)
+		}
+
+		// When
+		err := proj.PerformCleanup()
+
+		// Then
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if _, statErr := os.Stat(wsFile); os.IsNotExist(statErr) {
+			t.Error("Expected workstation.yaml to be preserved, but it was deleted")
+		}
+		if _, statErr := os.Stat(otherFile); !os.IsNotExist(statErr) {
+			t.Error("Expected ephemeral.txt to be deleted, but it still exists")
 		}
 	})
 }

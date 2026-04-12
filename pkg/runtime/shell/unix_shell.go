@@ -9,6 +9,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The UnixShell is a platform-specific implementation of shell operations for Unix-like systems.
@@ -61,6 +63,7 @@ func (s *DefaultShell) RenderAliases(aliases map[string]string) string {
 	return result.String()
 }
 
+
 // ExecSudo runs a command with 'sudo', ensuring elevated privileges. It handles password prompts by
 // connecting to the terminal and captures the command's output. If verbose mode is enabled or no TTY
 // is available (CI/CD environments), it uses direct execution. Otherwise, it connects to /dev/tty for
@@ -78,6 +81,14 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 		return s.Exec(command, args...)
 	}
 
+	// Pause spinner while interactive sudo owns the TTY, preventing prompt overwrite.
+	// Use a static progress line only when the caller provided a sudo-specific message.
+	// Do not resume here; this avoids spinner redraw flicker before Done and between chained sudo calls.
+	if message != "" {
+		tui.PauseWithMessage()
+	} else {
+		tui.Pause()
+	}
 	cmd := s.shims.Command(command, args...)
 	if cmd == nil {
 		return "", fmt.Errorf("failed to create command")
@@ -114,7 +125,6 @@ func (s *DefaultShell) ExecSudo(message string, command string, args ...string) 
 		}
 		return stdoutBuf.String(), fmt.Errorf("command execution failed: %w", err)
 	}
-
 	if message != "" {
 		fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m %s - \033[32mDone\033[0m\n", message)
 	}
@@ -147,3 +157,4 @@ func (s *DefaultShell) renderEnvVarsWithExport(envVars map[string]string) string
 	}
 	return result.String()
 }
+

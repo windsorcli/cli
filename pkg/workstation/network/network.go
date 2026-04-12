@@ -21,7 +21,9 @@ type NetworkManager interface {
 	ConfigureHostRoute() error
 	ConfigureGuest() error
 	ConfigureDNS() error
+	FlushDNS() error
 	NeedsPrivilege() bool
+	DNSChanged() bool
 }
 
 // BaseNetworkManager is a concrete implementation of NetworkManager.
@@ -30,6 +32,7 @@ type BaseNetworkManager struct {
 	configHandler            config.ConfigHandler
 	shims                    *Shims
 	networkInterfaceProvider NetworkInterfaceProvider
+	dnsChanged               bool
 }
 
 // =============================================================================
@@ -62,6 +65,11 @@ func NewBaseNetworkManager(rt *runtime.Runtime) *BaseNetworkManager {
 // ConfigureGuest sets up the guest VM network. Base implementation is a no-op; Colima overrides and reads guest address from config.
 func (n *BaseNetworkManager) ConfigureGuest() error {
 	return nil
+}
+
+// DNSChanged reports whether ConfigureDNS wrote a new configuration during this run.
+func (n *BaseNetworkManager) DNSChanged() bool {
+	return n.dnsChanged
 }
 
 // NeedsPrivilege returns true when network configuration will require elevated privileges (sudo or administrator).

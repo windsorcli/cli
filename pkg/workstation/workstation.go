@@ -174,6 +174,11 @@ func (w *Workstation) Up() error {
 				if err := w.NetworkManager.ConfigureDNS(); err != nil {
 					return fmt.Errorf("error configuring DNS: %w", err)
 				}
+				if w.NetworkManager.DNSChanged() {
+					if err := w.FlushDNS(); err != nil {
+						return fmt.Errorf("error flushing DNS cache: %w", err)
+					}
+				}
 			}
 		}
 	}
@@ -204,7 +209,11 @@ func (w *Workstation) EnsureNetworkPrivilege() error {
 		return nil
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) || stdruntime.GOOS == "windows" { // #nosec G115 -- file descriptors are small, safe to cast to int
-		fmt.Fprintln(os.Stderr, "Network configuration may require elevated privileges")
+		if os.Geteuid() != 0 {
+			if _, err := w.shell.ExecSilent("sudo", "-n", "true"); err != nil {
+				fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
+			}
+		}
 		if _, err := w.shell.ExecSudo("", "true"); err != nil {
 			return fmt.Errorf("privileged access required: %w", err)
 		}
@@ -299,8 +308,43 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 	}
 }
 
-// Down stops the workstation environment: container runtime, then VM and networking.
+// FlushDNS flushes the DNS cache when DNS is enabled and fully configured.
+// It is a no-op when the network manager is absent or DNS domain/address are not set.
+func (w *Workstation) FlushDNS() error {
+	if w.NetworkManager == nil {
+		return nil
+	}
+	dnsEnabled := w.configHandler.Get("dns.enabled")
+	dnsDomain := w.configHandler.GetString("dns.domain")
+	dnsAddress := w.configHandler.GetString("workstation.dns.address")
+	if (dnsEnabled == nil || dnsEnabled == true) && dnsDomain != "" && dnsAddress != "" {
+		return w.NetworkManager.FlushDNS()
+	}
+	return nil
+}
+
+// MakePostApplyHook returns a callback for the provisioner's postApply when DeferHostGuestSetup is true.
+// The callback flushes the DNS cache after the "workstation" Terraform component's Done line is printed,
+// so the elevated-privilege prompt appears after the spinner completes rather than during it.
+// Returns nil when DeferHostGuestSetup is false.
+func (w *Workstation) MakePostApplyHook() func(componentID string) error {
+	if !w.DeferHostGuestSetup {
+		return nil
+	}
+	return func(componentID string) error {
+		if componentID != "workstation" {
+			return nil
+		}
+		if w.NetworkManager == nil || !w.NetworkManager.DNSChanged() {
+			return nil
+		}
+		return w.FlushDNS()
+	}
+}
+
+// Down stops the workstation environment: container runtime, then VM.
 // Gracefully shuts down the container runtime and virtual machine if present.
+// Workstation state is preserved so that windsor up can resume cleanly.
 func (w *Workstation) Down() error {
 	platform := w.configHandler.GetString("platform")
 

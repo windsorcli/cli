@@ -379,7 +379,7 @@ func TestStack_Up(t *testing.T) {
 
 	t.Run("ErrorRunningTerraformApply", func(t *testing.T) {
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && strings.HasPrefix(args[0], "-chdir=") && len(args) > 1 && args[1] == "apply" {
 				return "", fmt.Errorf("mock error running terraform apply")
 			}
@@ -708,7 +708,7 @@ func TestStack_DestroyAll(t *testing.T) {
 
 	t.Run("ErrorRunningTerraformDestroy", func(t *testing.T) {
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && strings.HasPrefix(args[0], "-chdir=") && len(args) > 1 && args[1] == "destroy" {
 				return "", fmt.Errorf("mock error running terraform destroy")
 			}
@@ -1507,7 +1507,7 @@ func TestStack_Apply(t *testing.T) {
 	t.Run("ErrorRunningTerraformApply", func(t *testing.T) {
 		// Given a stack whose shell fails on terraform apply
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "apply" {
 				return "", fmt.Errorf("mock error running terraform apply")
 			}

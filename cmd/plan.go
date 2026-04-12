@@ -9,8 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 var planNoColor bool
@@ -32,8 +34,12 @@ var planCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			summary, err := proj.Provisioner.PlanAll(blueprint)
-			if err != nil {
+			var summary *provisioner.PlanSummary
+			if err := tui.WithProgress("Generating plan...", func() error {
+				var planErr error
+				summary, planErr = proj.Provisioner.PlanAll(blueprint)
+				return planErr
+			}); err != nil {
 				return fmt.Errorf("error running plan: %w", err)
 			}
 			if planJSON {
@@ -76,6 +82,7 @@ var planCmd = &cobra.Command{
 		}
 
 		if inTerraform {
+			fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentID))
 			if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
 				return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
 			}
@@ -142,6 +149,7 @@ var planTerraformCmd = &cobra.Command{
 			return nil
 		}
 
+		fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentID))
 		if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
 			return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
 		}

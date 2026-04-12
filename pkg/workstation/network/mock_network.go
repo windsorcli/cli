@@ -19,7 +19,9 @@ type MockNetworkManager struct {
 	ConfigureHostRouteFunc func() error
 	ConfigureGuestFunc     func() error
 	ConfigureDNSFunc       func() error
+	FlushDNSFunc           func() error
 	NeedsPrivilegeFunc     func() bool
+	DNSChangedFunc         func() bool
 }
 
 // =============================================================================
@@ -59,10 +61,26 @@ func (m *MockNetworkManager) ConfigureDNS() error {
 	return nil
 }
 
+// FlushDNS calls the custom FlushDNSFunc if provided.
+func (m *MockNetworkManager) FlushDNS() error {
+	if m.FlushDNSFunc != nil {
+		return m.FlushDNSFunc()
+	}
+	return nil
+}
+
 // NeedsPrivilege calls the custom NeedsPrivilegeFunc if provided.
 func (m *MockNetworkManager) NeedsPrivilege() bool {
 	if m.NeedsPrivilegeFunc != nil {
 		return m.NeedsPrivilegeFunc()
+	}
+	return false
+}
+
+// DNSChanged calls the custom DNSChangedFunc if provided.
+func (m *MockNetworkManager) DNSChanged() bool {
+	if m.DNSChangedFunc != nil {
+		return m.DNSChangedFunc()
 	}
 	return false
 }

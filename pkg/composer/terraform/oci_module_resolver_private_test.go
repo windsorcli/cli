@@ -167,7 +167,6 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		// Given a resolver with valid OCI source and cached artifact
 		resolver := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
-		componentPath := "test-module"
 		ociArtifacts := map[string]string{
 			"registry.example.com/module:latest": "/test/project/.windsor/cache/oci/registry.example.com_module_latest",
 		}
@@ -189,7 +188,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// When extracting OCI module
-		path, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
+		path, err := resolver.extractOCIModule(resolvedSource, ociArtifacts)
 
 		// Then it should return the extracted path
 		if err != nil {
@@ -204,7 +203,6 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		// Given a resolver with existing extracted module
 		resolver := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
-		componentPath := "test-module"
 		ociArtifacts := map[string]string{
 			"registry.example.com/module:latest": "/test/project/.windsor/cache/oci/registry.example.com_module_latest",
 		}
@@ -230,7 +228,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = "/test/project"
 
 		// When extracting OCI module
-		path, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
+		path, err := resolver.extractOCIModule(resolvedSource, ociArtifacts)
 
 		// Then it should return the cached path without extraction
 		if err != nil {
@@ -251,28 +249,24 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		errorCases := []struct {
 			name           string
 			resolvedSource string
-			componentPath  string
 			ociArtifacts   map[string]string
 			expectedError  string
 		}{
 			{
 				name:           "InvalidOCISourceFormat",
 				resolvedSource: "invalid://source",
-				componentPath:  "test-module",
 				ociArtifacts:   map[string]string{},
 				expectedError:  "invalid resolved OCI source format",
 			},
 			{
 				name:           "MissingPathSeparator",
 				resolvedSource: "oci://registry.example.com/module:latest",
-				componentPath:  "test-module",
 				ociArtifacts:   map[string]string{},
 				expectedError:  "missing path separator",
 			},
 			{
 				name:           "ArtifactNotFoundInCache",
 				resolvedSource: "oci://registry.example.com/module:latest//terraform/test-module",
-				componentPath:  "test-module",
 				ociArtifacts:   map[string]string{},
 				expectedError:  "not found in cache",
 			},
@@ -300,7 +294,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 				}
 			}
 			// When extracting OCI module with error conditions
-			_, err := resolver.extractOCIModule(tc.resolvedSource, tc.componentPath, tc.ociArtifacts)
+			_, err := resolver.extractOCIModule(tc.resolvedSource, tc.ociArtifacts)
 
 			// Then it should return appropriate errors
 			if err == nil {
@@ -316,7 +310,6 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		// Given a resolver with GetProjectRoot error
 		resolver := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
-		componentPath := "test-module"
 		ociArtifacts := map[string]string{
 			"registry.example.com/module:latest": "/test/project/.windsor/cache/oci/registry.example.com_module_latest",
 		}
@@ -339,7 +332,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		resolver.BaseModuleResolver.runtime.ProjectRoot = ""
 
 		// When extracting OCI module
-		_, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
+		_, err := resolver.extractOCIModule(resolvedSource, ociArtifacts)
 
 		// Then it should return an error
 		if err == nil {
@@ -354,7 +347,6 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		// Given a resolver with invalid OCI reference format
 		resolver := setup(t)
 		resolvedSource := "oci://invalid-format//terraform/test-module"
-		componentPath := "test-module"
 		ociArtifacts := map[string]string{}
 
 		// Set up ParseOCIRef mock to return error
@@ -363,7 +355,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		}
 
 		// When extracting OCI module
-		_, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
+		_, err := resolver.extractOCIModule(resolvedSource, ociArtifacts)
 
 		// Then it should return an error
 		if err == nil {
@@ -378,7 +370,6 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		// Given a resolver with extraction error
 		resolver := setup(t)
 		resolvedSource := "oci://registry.example.com/module:latest//terraform/test-module"
-		componentPath := "test-module"
 		ociArtifacts := map[string]string{
 			"registry.example.com/module:latest": "/test/project/.windsor/cache/oci/registry.example.com_module_latest",
 		}
@@ -398,7 +389,7 @@ func TestOCIModuleResolver_extractOCIModule(t *testing.T) {
 		}
 
 		// When extracting OCI module
-		_, err := resolver.extractOCIModule(resolvedSource, componentPath, ociArtifacts)
+		_, err := resolver.extractOCIModule(resolvedSource, ociArtifacts)
 
 		// Then it should return an error
 		if err == nil {

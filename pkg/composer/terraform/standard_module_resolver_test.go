@@ -81,7 +81,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 			return json.Unmarshal(data, v)
 		}
 
-		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				// Return terraform init output with detected path different from standard
 				return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-01-09T16:25:03Z","type":"log","message":"- main in /detected/module/path"}`, nil
@@ -186,7 +186,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		// Given a resolver with Shell.ExecProgressFunc returning error for terraform init
 		resolver, mocks := setup(t)
 		resolver.BaseModuleResolver.runtime.ConfigRoot = "/test/config"
-		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return "", errors.New("terraform init error")
 			}
@@ -239,7 +239,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 			return json.Unmarshal(data, v)
 		}
 
-		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-01-09T16:25:03Z","type":"log","message":"- main in /path/to/module"}`, nil
 			}
@@ -276,7 +276,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 			return json.Unmarshal(data, v)
 		}
 
-		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return `{"@level":"info","@message":"Initializing modules...","@module":"terraform.ui","@timestamp":"2025-01-09T16:25:03Z","type":"log","message":"- main in /path/to/module"}`, nil
 			}
@@ -462,7 +462,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 		}
 
 		// And Shell.ExecProgressFunc returns all edge case lines
-		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return `invalid json line
 {"@type":"info","@message":"some info message","non_log_type":true}
@@ -509,7 +509,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 			return json.Unmarshal(data, v)
 		}
 
-		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return `{"@type":"log","@message":"- main in /first/path"}
 {"@type":"log","@message":"- main in /second/path"}`, nil
@@ -551,7 +551,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return `invalid json line
 {"@type":"log","@message":"- main in /valid/path"}`, nil
@@ -584,7 +584,7 @@ func TestStandardModuleResolver_ProcessModules(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		mocks.Shell.ExecProgressFunc = func(msg, cmd string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "terraform" && len(args) > 0 && args[0] == "init" {
 				return `
 

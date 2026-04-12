@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The DarwinNetworkManager is a platform-specific network manager for macOS.
@@ -57,7 +59,10 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
+	tui.Pause()
+	if os.Geteuid() != 0 && !n.sudoCached() {
+		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
+	}
 	output, err = n.shell.ExecSudo(
 		"Adding host route",
 		"route",
@@ -95,7 +100,11 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
+	n.dnsChanged = true
+	tui.Pause()
+	if os.Geteuid() != 0 && !n.sudoCached() {
+		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
+	}
 
 	if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
 		if _, err := n.shell.ExecSudo(
@@ -114,7 +123,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	if _, err := n.shell.ExecSudo(
-		fmt.Sprintf("Configuring DNS resolver at %s", resolverFile),
+		"",
 		"mv",
 		tempResolverFile,
 		resolverFile,
@@ -122,7 +131,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("Error moving resolver file: %w", err)
 	}
 	if _, err := n.shell.ExecSudo(
-		"Setting resolver file readable for next-run check",
+		"",
 		"chmod",
 		"0644",
 		resolverFile,
@@ -130,8 +139,17 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("Error setting resolver file mode: %w", err)
 	}
 
+	return nil
+}
+
+// FlushDNS flushes the macOS DNS cache by running dscacheutil and restarting mDNSResponder.
+func (n *BaseNetworkManager) FlushDNS() error {
+	tui.Pause()
+	if os.Geteuid() != 0 && !n.sudoCached() {
+		fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m DNS cache flush may require elevated privileges\n")
+	}
 	if _, err := n.shell.ExecSudo(
-		"Flushing DNS cache",
+		"",
 		"dscacheutil",
 		"-flushcache",
 	); err != nil {
@@ -139,7 +157,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	if _, err := n.shell.ExecSudo(
-		"Restarting mDNSResponder",
+		"",
 		"killall",
 		"-HUP",
 		"mDNSResponder",
@@ -153,6 +171,12 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// sudoCached reports whether sudo credentials are currently cached, i.e., sudo -n true succeeds without a password prompt.
+func (n *BaseNetworkManager) sudoCached() bool {
+	_, err := n.shell.ExecSilent("sudo", "-n", "true")
+	return err == nil
+}
 
 // resolverAlreadyConfigured reports whether the resolver file content already has a nameserver line for desiredIP.
 // Used to skip writing and sudo when the effective config matches. Parses lines and checks the first nameserver line.

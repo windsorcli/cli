@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -274,6 +275,20 @@ func TestTermSpinner_Done(t *testing.T) {
 			t.Errorf("expected %q, got %q", want, out)
 		}
 	})
+
+	t.Run("PrintsSuccessLineWhenPaused", func(t *testing.T) {
+		// Given a termSpinner paused by an interactive prompt
+		s := &termSpinner{message: "Applying workstation/docker", paused: 1}
+
+		// When Done is called
+		out := captureStderr(t, s.Done)
+
+		// Then the full success line is written consistently, even after pause
+		want := "\033[32m✔\033[0m Applying workstation/docker - \033[32mDone\033[0m\n"
+		if out != want {
+			t.Errorf("expected %q, got %q", want, out)
+		}
+	})
 }
 
 // Tests for termSpinner Fail output
@@ -303,6 +318,121 @@ func TestTermSpinner_Fail(t *testing.T) {
 		// Then spin is nil and the spinner was stopped
 		if s.spin != nil {
 			t.Error("expected spin to be nil after Fail")
+		}
+	})
+
+	t.Run("ClearsPauseWithMessageLine", func(t *testing.T) {
+		// Given a termSpinner that has printed a static progress line via PauseWithMessage
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("deploying") })
+		captureStderr(t, func() { s.pause(true) }) // simulate PauseWithMessage
+
+		// When Fail is called
+		out := captureStderr(t, s.Fail)
+
+		// Then the cursor-restore and line-clear sequence is emitted before the failure line
+		if !strings.Contains(out, "\033[u\033[2K\r") {
+			t.Errorf("expected cursor restore/clear sequence in output, got %q", out)
+		}
+		// And pauseCursorSaved is reset
+		if s.pauseCursorSaved {
+			t.Error("expected pauseCursorSaved to be false after Fail")
+		}
+	})
+}
+
+// Tests for termSpinner Pause behavior
+func TestTermSpinner_Pause(t *testing.T) {
+	t.Run("PauseDoesNotPrintMessage", func(t *testing.T) {
+		// Given a termSpinner with an active spinner
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("Applying workstation/docker") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Pause is called
+		out := captureStderr(t, s.Pause)
+
+		// Then no progress message text is emitted
+		if strings.Contains(out, "Applying workstation/docker") {
+			t.Errorf("expected no progress message text, got %q", out)
+		}
+	})
+
+	t.Run("NestedPauseDoesNotPrintMessage", func(t *testing.T) {
+		// Given a termSpinner with an active spinner
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("Applying workstation/docker") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Pause is called twice before a matching Resume
+		out := captureStderr(t, func() {
+			s.Pause()
+			s.Pause()
+		})
+
+		// Then no progress message text is emitted
+		if strings.Contains(out, "Applying workstation/docker") {
+			t.Errorf("expected no progress message text, got %q", out)
+		}
+	})
+
+	t.Run("PauseWithMessagePrintsOnce", func(t *testing.T) {
+		// Given an active term spinner installed as Active
+		s := &termSpinner{}
+		original := Active
+		Active = s
+		t.Cleanup(func() {
+			Active = original
+			captureStderr(t, s.Done)
+		})
+		captureStderr(t, func() { s.Start("Applying workstation/docker") })
+
+		// When PauseWithMessage is called twice
+		out := captureStderr(t, func() {
+			PauseWithMessage()
+			PauseWithMessage()
+		})
+
+		// Then PauseWithMessage emits one static progress line only once
+		if got := strings.Count(out, "Applying workstation/docker"); got != 1 {
+			t.Errorf("expected one paused progress line, got %d output %q", got, out)
+		}
+	})
+}
+
+// Tests for termSpinner Resume behavior
+func TestTermSpinner_Resume(t *testing.T) {
+	t.Run("ResumeAfterPauseDecrementsCounter", func(t *testing.T) {
+		// Given a paused termSpinner
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("deploying") })
+		captureStderr(t, s.Pause)
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Resume is called
+		captureStderr(t, s.Resume)
+
+		// Then paused counter is back to zero
+		if s.paused != 0 {
+			t.Errorf("expected paused=0 after Resume, got %d", s.paused)
+		}
+	})
+
+	t.Run("UnpairedResumeDoesNotDecrementBelowZero", func(t *testing.T) {
+		// Given a running termSpinner that has never been paused
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("deploying") })
+		t.Cleanup(func() { captureStderr(t, s.Done) })
+
+		// When Resume is called without a prior Pause
+		captureStderr(t, s.Resume)
+
+		// Then paused stays at zero and spin is still non-nil
+		if s.paused != 0 {
+			t.Errorf("expected paused=0, got %d", s.paused)
+		}
+		if s.spin == nil {
+			t.Error("expected spin to still be non-nil after unpaired Resume")
 		}
 	})
 }

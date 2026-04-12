@@ -43,9 +43,10 @@ type Provisioner struct {
 	configRoot    string
 	runtime       *runtime.Runtime
 
-	TerraformStack    terraforminfra.Stack
-	FluxStack         fluxinfra.Stack
-	onTerraformApply  []func(id string) error
+	TerraformStack         terraforminfra.Stack
+	FluxStack              fluxinfra.Stack
+	onTerraformApply       []func(id string) error
+	onTerraformPostApply   []func(id string) error
 	KubernetesManager kubernetes.KubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
 	ClusterClient     cluster.ClusterClient
@@ -122,10 +123,18 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 // Public Methods
 // =============================================================================
 
-// OnTerraformApply registers a hook to run after each Terraform component apply.
+// OnTerraformApply registers a hook to run after each Terraform component apply, inside the progress spinner.
 func (i *Provisioner) OnTerraformApply(fn func(id string) error) {
 	if fn != nil {
 		i.onTerraformApply = append(i.onTerraformApply, fn)
+	}
+}
+
+// OnTerraformPostApply registers a hook to run after each Terraform component's Done line is printed.
+// Use this for operations that must not run inside the progress spinner (e.g. interactive sudo prompts).
+func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
+	if fn != nil {
+		i.onTerraformPostApply = append(i.onTerraformPostApply, fn)
 	}
 }
 
@@ -144,6 +153,9 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 	}
 	hooks := append([]func(id string) error{}, i.onTerraformApply...)
 	hooks = append(hooks, onApply...)
+	if len(i.onTerraformPostApply) > 0 {
+		i.TerraformStack.PostApply(i.onTerraformPostApply...)
+	}
 	if err := i.TerraformStack.Up(blueprint, hooks...); err != nil {
 		return fmt.Errorf("failed to run terraform up: %w", err)
 	}
