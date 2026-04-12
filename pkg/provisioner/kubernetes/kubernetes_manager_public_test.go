@@ -268,6 +268,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	})
 
 	t.Run("TimeoutWaitingForDeletion", func(t *testing.T) {
+		// Given a kustomization that never disappears (stuck in Terminating)
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
@@ -276,16 +277,53 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{}, nil
 		}
+		patchCalled := false
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			patchCalled = true
+			return nil, nil
+		}
 		manager.client = kubernetesClient
 		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
 		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
 
+		// When
 		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
-		if err == nil {
-			t.Error("Expected timeout error, got nil")
+
+		// Then finalizers are stripped and no error is returned
+		if err != nil {
+			t.Errorf("Expected nil after finalizer strip, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "timeout waiting for kustomization") {
-			t.Errorf("Expected timeout error, got: %v", err)
+		if !patchCalled {
+			t.Error("Expected PatchResource to be called to strip finalizers")
+		}
+	})
+
+	t.Run("FinalizerStripError", func(t *testing.T) {
+		// Given a kustomization stuck in Terminating and PatchResource fails
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		}
+		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("patch failed")
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then an error combining timeout and patch failure is returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to remove finalizers") {
+			t.Errorf("Expected finalizer error, got: %v", err)
 		}
 	})
 

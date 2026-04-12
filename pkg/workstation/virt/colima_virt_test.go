@@ -83,7 +83,6 @@ version: v1alpha1
 contexts:
   mock-context:
     vm:
-      driver: colima
       cpu: 2
       memory: 4
       disk: 60

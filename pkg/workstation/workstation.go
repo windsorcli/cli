@@ -316,10 +316,6 @@ func (w *Workstation) Down() error {
 		}
 	}
 
-	if err := w.DeleteState(); err != nil {
-		return fmt.Errorf("Error deleting workstation state: %w", err)
-	}
-
 	return nil
 }
 
@@ -327,10 +323,5 @@ func (w *Workstation) Down() error {
 // config keys (workstation.*, platform, dns.*) to .windsor/contexts/<context>/workstation.yaml.
 func (w *Workstation) WriteState() error {
 	return w.configHandler.SaveWorkstationState()
-}
-
-// DeleteState delegates to ConfigHandler.DeleteWorkstationState to remove .windsor/contexts/<context>/workstation.yaml.
-func (w *Workstation) DeleteState() error {
-	return w.configHandler.DeleteWorkstationState()
 }
 

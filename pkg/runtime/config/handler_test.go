@@ -823,28 +823,6 @@ func TestConfigHandler_WorkstationStatePersistence(t *testing.T) {
 		}
 	})
 
-	t.Run("DeletesContextScopedWorkstationState", func(t *testing.T) {
-		mocks := setupConfigMocks(t)
-		tmpDir, _ := mocks.Shell.GetProjectRoot()
-
-		handler := NewConfigHandler(mocks.Shell)
-		if err := handler.SetContext("ctx-a"); err != nil {
-			t.Fatalf("Expected no error setting context, got %v", err)
-		}
-
-		contextPath := filepath.Join(tmpDir, ".windsor", "contexts", "ctx-a", "workstation.yaml")
-		os.MkdirAll(filepath.Dir(contextPath), 0755)
-		os.WriteFile(contextPath, []byte("workstation:\n  runtime: colima\n"), 0644)
-
-		if err := handler.DeleteWorkstationState(); err != nil {
-			t.Fatalf("Expected no error deleting workstation state, got %v", err)
-		}
-
-		if _, err := os.Stat(contextPath); !os.IsNotExist(err) {
-			t.Errorf("Expected context-scoped workstation state to be removed, stat err=%v", err)
-		}
-	})
-
 	t.Run("SaveConfigAndSaveWorkstationStateRespectOwnershipBoundaries", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		if err := handler.SetContext("local-dev"); err != nil {
