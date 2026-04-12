@@ -367,58 +367,6 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("FlushDNSCacheError", func(t *testing.T) {
-		// Given a network manager with DNS cache flush error
-		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
-
-		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "dscacheutil" && args[0] == "-flushcache" {
-				return "", fmt.Errorf("mock error flushing DNS cache")
-			}
-			return "", nil
-		}
-
-		// And configuring DNS
-		err := manager.ConfigureDNS()
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "Error flushing DNS cache: mock error flushing DNS cache"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
-	t.Run("RestartMDNSResponderError", func(t *testing.T) {
-		// Given a network manager with mDNSResponder restart error
-		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("dns.domain", "example.com")
-		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
-
-		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
-			if command == "killall" && args[0] == "-HUP" {
-				return "", fmt.Errorf("mock error restarting mDNSResponder")
-			}
-			return "", nil
-		}
-
-		// And configuring DNS
-		err := manager.ConfigureDNS()
-
-		// Then an error should occur
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		expectedError := "Error restarting mDNSResponder: mock error restarting mDNSResponder"
-		if err.Error() != expectedError {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
-		}
-	})
-
 	t.Run("IsLocalhostScenario", func(t *testing.T) {
 		// Given a network manager in localhost mode
 		manager, mocks := setup(t)
@@ -431,6 +379,75 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestDarwinNetworkManager_FlushDNS(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a network manager
+		manager, _ := setup(t)
+
+		// When flushing the DNS cache
+		err := manager.FlushDNS()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("FlushCacheError", func(t *testing.T) {
+		// Given a network manager where dscacheutil fails
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "dscacheutil" {
+				return "", fmt.Errorf("mock error flushing DNS cache")
+			}
+			return "", nil
+		}
+
+		// When flushing the DNS cache
+		err := manager.FlushDNS()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "Error flushing DNS cache: mock error flushing DNS cache"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("RestartMDNSResponderError", func(t *testing.T) {
+		// Given a network manager where killall mDNSResponder fails
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
+			if command == "killall" {
+				return "", fmt.Errorf("mock error restarting mDNSResponder")
+			}
+			return "", nil
+		}
+
+		// When flushing the DNS cache
+		err := manager.FlushDNS()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "Error restarting mDNSResponder: mock error restarting mDNSResponder"
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
 }

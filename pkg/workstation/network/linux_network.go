@@ -48,7 +48,9 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
+	if os.Geteuid() != 0 {
+		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
+	}
 	output, err = n.shell.ExecSudo(
 		"Adding host route",
 		"ip",
@@ -93,7 +95,10 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
+	n.dnsChanged = true
+	if os.Geteuid() != 0 {
+		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
+	}
 
 	_, err = n.shell.ExecSudo(
 		"Creating DNS configuration directory",
@@ -131,6 +136,11 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// FlushDNS is a no-op on Linux; DNS cache is cleared by restarting systemd-resolved during ConfigureDNS.
+func (n *BaseNetworkManager) FlushDNS() error {
+	return nil
+}
 
 // needsPrivilegeForResolver reports whether sudo is required to apply the desired DNS resolver IP
 // for the configured domain. It returns true when systemd-resolved is in use and the current

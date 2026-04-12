@@ -666,6 +666,212 @@ func TestWorkstation_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("FlushesAfterConfigureDNSWhenChanged", func(t *testing.T) {
+		// Given a workstation without DeferHostGuestSetup where DNS is configured and changed
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "test.example")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			if key == "dns.enabled" {
+				return nil
+			}
+			return nil
+		}
+		flushCalled := false
+		mocks.NetworkManager.DNSChangedFunc = func() bool { return true }
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			flushCalled = true
+			return nil
+		}
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		workstation.DeferHostGuestSetup = false
+
+		// When calling Up()
+		err := workstation.Up()
+
+		// Then no error occurs and FlushDNS was called
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if !flushCalled {
+			t.Error("Expected FlushDNS to be called after ConfigureDNS changed the resolver")
+		}
+	})
+
+	t.Run("SkipsFlushAfterConfigureDNSWhenUnchanged", func(t *testing.T) {
+		// Given a workstation without DeferHostGuestSetup where DNS is configured but unchanged
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "test.example")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			if key == "dns.enabled" {
+				return nil
+			}
+			return nil
+		}
+		flushCalled := false
+		mocks.NetworkManager.DNSChangedFunc = func() bool { return false }
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			flushCalled = true
+			return nil
+		}
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		workstation.DeferHostGuestSetup = false
+
+		// When calling Up()
+		err := workstation.Up()
+
+		// Then no error occurs and FlushDNS was not called
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if flushCalled {
+			t.Error("Expected FlushDNS not to be called when DNS was not changed")
+		}
+	})
+
+	t.Run("PropagatesFlushDNSError", func(t *testing.T) {
+		// Given a workstation without DeferHostGuestSetup where FlushDNS fails
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "test.example")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			if key == "dns.enabled" {
+				return nil
+			}
+			return nil
+		}
+		mocks.NetworkManager.DNSChangedFunc = func() bool { return true }
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			return fmt.Errorf("flush failed")
+		}
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		workstation.DeferHostGuestSetup = false
+
+		// When calling Up()
+		err := workstation.Up()
+
+		// Then the error is propagated
+		if err == nil {
+			t.Error("Expected error for FlushDNS failure")
+		}
+		if !strings.Contains(err.Error(), "error flushing DNS cache") {
+			t.Errorf("Expected flush DNS error, got: %v", err)
+		}
+	})
+
+}
+
+func TestWorkstation_FlushDNS(t *testing.T) {
+	t.Run("CallsFlushDNSWhenDNSConfigured", func(t *testing.T) {
+		// Given a workstation with DNS domain and address configured
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "test.example")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			if key == "dns.enabled" {
+				return nil
+			}
+			return "mock-value"
+		}
+		flushCalled := false
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			flushCalled = true
+			return nil
+		}
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager: mocks.NetworkManager,
+		})
+
+		// When FlushDNS is called
+		err := workstation.FlushDNS()
+
+		// Then no error occurs and FlushDNS was called on the network manager
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !flushCalled {
+			t.Error("expected NetworkManager.FlushDNS to be called")
+		}
+	})
+
+	t.Run("SkipsFlushWhenDNSDomainNotSet", func(t *testing.T) {
+		// Given a workstation with no DNS domain
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		flushCalled := false
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			flushCalled = true
+			return nil
+		}
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager: mocks.NetworkManager,
+		})
+
+		// When FlushDNS is called
+		err := workstation.FlushDNS()
+
+		// Then no error occurs and FlushDNS was not called
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if flushCalled {
+			t.Error("expected NetworkManager.FlushDNS not to be called when domain is empty")
+		}
+	})
+
+	t.Run("PropagatesNetworkManagerError", func(t *testing.T) {
+		// Given a workstation where NetworkManager.FlushDNS returns an error
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "test.example")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			if key == "dns.enabled" {
+				return nil
+			}
+			return "mock-value"
+		}
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			return fmt.Errorf("flush failed")
+		}
+		workstation := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager: mocks.NetworkManager,
+		})
+
+		// When FlushDNS is called
+		err := workstation.FlushDNS()
+
+		// Then the error is propagated
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+	})
+
+	t.Run("NoopWhenNetworkManagerNil", func(t *testing.T) {
+		// Given a workstation with no network manager
+		mocks := setupWorkstationMocks(t)
+		workstation := NewWorkstation(mocks.Runtime)
+
+		// When FlushDNS is called
+		err := workstation.FlushDNS()
+
+		// Then no error occurs
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
 }
 
 func TestWorkstation_PrepareForUp(t *testing.T) {
@@ -893,6 +1099,115 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		}
 		if !configureNetworkCalled {
 			t.Error("Expected ConfigureNetwork to be called for workstation component")
+		}
+	})
+}
+
+func TestWorkstation_MakePostApplyHook(t *testing.T) {
+	t.Run("ReturnsNilWhenDeferHostGuestSetupFalse", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		ws := NewWorkstation(mocks.Runtime)
+		ws.DeferHostGuestSetup = false
+
+		hook := ws.MakePostApplyHook()
+
+		if hook != nil {
+			t.Error("Expected nil hook when DeferHostGuestSetup is false")
+		}
+	})
+
+	t.Run("CallbackIgnoresNonWorkstationComponent", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "test.example")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		flushCalled := false
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			flushCalled = true
+			return nil
+		}
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager: mocks.NetworkManager,
+		})
+		ws.DeferHostGuestSetup = true
+
+		hook := ws.MakePostApplyHook()
+		if hook == nil {
+			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
+		}
+
+		err := hook("other-component")
+
+		if err != nil {
+			t.Errorf("Expected no error for non-workstation component, got: %v", err)
+		}
+		if flushCalled {
+			t.Error("Expected FlushDNS not to be called for non-workstation component")
+		}
+	})
+
+	t.Run("CallbackFlushDNSForWorkstationComponent", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "test.example")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
+			if key == "dns.enabled" {
+				return nil
+			}
+			return "mock-value"
+		}
+		flushCalled := false
+		mocks.NetworkManager.DNSChangedFunc = func() bool { return true }
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			flushCalled = true
+			return nil
+		}
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager: mocks.NetworkManager,
+		})
+		ws.DeferHostGuestSetup = true
+
+		hook := ws.MakePostApplyHook()
+		if hook == nil {
+			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
+		}
+
+		err := hook("workstation")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if !flushCalled {
+			t.Error("Expected FlushDNS to be called for workstation component")
+		}
+	})
+
+	t.Run("CallbackSkipsFlushDNSWhenDNSUnchanged", func(t *testing.T) {
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "test.example")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		flushCalled := false
+		mocks.NetworkManager.DNSChangedFunc = func() bool { return false }
+		mocks.NetworkManager.FlushDNSFunc = func() error {
+			flushCalled = true
+			return nil
+		}
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager: mocks.NetworkManager,
+		})
+		ws.DeferHostGuestSetup = true
+
+		hook := ws.MakePostApplyHook()
+		if hook == nil {
+			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
+		}
+
+		err := hook("workstation")
+
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if flushCalled {
+			t.Error("Expected FlushDNS not to be called when DNS was not changed")
 		}
 	})
 }

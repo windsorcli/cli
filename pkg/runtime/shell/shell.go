@@ -303,7 +303,9 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 		return "", fmt.Errorf("failed to create command")
 	}
 	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
-	cmd.Stdin = os.Stdin
+	if command == "sudo" {
+		cmd.Stdin = os.Stdin
+	}
 
 	stdoutPipe, err := s.shims.StdoutPipe(cmd)
 	if err != nil {

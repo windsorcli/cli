@@ -106,6 +106,7 @@ if ($existingRule) {
 	}
 
 	if strings.TrimSpace(output) == "False" || output == "" {
+		n.dnsChanged = true
 		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration requires elevated privileges\n")
 
 		addOrUpdateScript := fmt.Sprintf(`
@@ -138,6 +139,14 @@ if ($?) {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// FlushDNS clears the Windows DNS client cache via PowerShell.
+func (n *BaseNetworkManager) FlushDNS() error {
+	if _, err := n.shell.ExecSilent("powershell", "-Command", "Clear-DnsClientCache"); err != nil {
+		return fmt.Errorf("Error flushing DNS cache: %w", err)
+	}
+	return nil
+}
 
 // needsPrivilegeForResolver reports whether the NRPT rule for the configured DNS domain is missing
 // or has a different name server than desiredIP. Returns false on any error or when domain is unset.

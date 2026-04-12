@@ -1200,7 +1200,6 @@ func (k *BaseKubernetesManager) deployCleanupSemaphore() error {
 		return fmt.Errorf("failed to create cleanup semaphore: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "\033[32m✔\033[0m Cleanup authorization deployed\n")
 	return nil
 }
 

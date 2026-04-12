@@ -57,7 +57,10 @@ var configureNetworkCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "network: n/a")
 			return nil
 		}
-		return proj.Workstation.ConfigureNetwork(dnsAddr, true)
+		if err := proj.Workstation.ConfigureNetwork(dnsAddr, true); err != nil {
+			return err
+		}
+		return proj.Workstation.FlushDNS()
 	},
 }
 
