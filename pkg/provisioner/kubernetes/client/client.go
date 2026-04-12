@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -17,6 +18,17 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// requestTimeout is the per-request timeout for read and simple mutation API calls.
+const requestTimeout = 30 * time.Second
+
+// applyTimeout is the per-request timeout for server-side apply operations, which
+// run admission webhooks synchronously and can take significantly longer than reads.
+const applyTimeout = 5 * time.Minute
 
 // =============================================================================
 // Interfaces
@@ -61,7 +73,9 @@ func (c *DynamicKubernetesClient) GetResource(gvr schema.GroupVersionResource, n
 	if err := c.ensureClient(); err != nil {
 		return nil, err
 	}
-	return c.client.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+	return c.client.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 }
 
 // ListResources lists resources in a namespace
@@ -69,7 +83,9 @@ func (c *DynamicKubernetesClient) ListResources(gvr schema.GroupVersionResource,
 	if err := c.ensureClient(); err != nil {
 		return nil, err
 	}
-	return c.client.Resource(gvr).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+	return c.client.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
 }
 
 // ApplyResource applies a resource using server-side apply
@@ -77,7 +93,9 @@ func (c *DynamicKubernetesClient) ApplyResource(gvr schema.GroupVersionResource,
 	if err := c.ensureClient(); err != nil {
 		return nil, err
 	}
-	return c.client.Resource(gvr).Namespace(obj.GetNamespace()).Apply(context.Background(), obj.GetName(), obj, opts)
+	ctx, cancel := context.WithTimeout(context.Background(), applyTimeout)
+	defer cancel()
+	return c.client.Resource(gvr).Namespace(obj.GetNamespace()).Apply(ctx, obj.GetName(), obj, opts)
 }
 
 // DeleteResource deletes a resource
@@ -85,7 +103,9 @@ func (c *DynamicKubernetesClient) DeleteResource(gvr schema.GroupVersionResource
 	if err := c.ensureClient(); err != nil {
 		return err
 	}
-	return c.client.Resource(gvr).Namespace(namespace).Delete(context.Background(), name, opts)
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+	return c.client.Resource(gvr).Namespace(namespace).Delete(ctx, name, opts)
 }
 
 // PatchResource patches a resource
@@ -93,7 +113,9 @@ func (c *DynamicKubernetesClient) PatchResource(gvr schema.GroupVersionResource,
 	if err := c.ensureClient(); err != nil {
 		return nil, err
 	}
-	return c.client.Resource(gvr).Namespace(namespace).Patch(context.Background(), name, pt, data, opts)
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+	return c.client.Resource(gvr).Namespace(namespace).Patch(ctx, name, pt, data, opts)
 }
 
 // CheckHealth verifies Kubernetes API connectivity by listing nodes using the dynamic client.
