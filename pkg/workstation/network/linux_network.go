@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // The LinuxNetworkManager is a platform-specific network manager for Linux systems.
@@ -49,6 +51,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	}
 
 	if os.Geteuid() != 0 {
+		tui.Pause()
 		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
 	}
 	output, err = n.shell.ExecSudo(
@@ -97,6 +100,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 
 	n.dnsChanged = true
 	if os.Geteuid() != 0 {
+		tui.Pause()
 		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
 	}
 
