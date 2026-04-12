@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"unicode/utf8"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -97,7 +98,7 @@ func Done() {
 func SectionHeader(label string) string {
 	s := fmt.Sprintf("── %s ", label)
 	const width = 62
-	if n := width - len(s); n > 0 {
+	if n := width - utf8.RuneCountInString(s); n > 0 {
 		s += strings.Repeat("─", n)
 	}
 	return s
