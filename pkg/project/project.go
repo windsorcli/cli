@@ -228,8 +228,18 @@ func (p *Project) PerformCleanup() error {
 	}
 
 	contextDir := filepath.Join(p.projectRoot, ".windsor", "contexts", p.contextName)
+	info, err := os.Stat(contextDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("error reading .windsor/contexts/%s: %w", p.contextName, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("error reading .windsor/contexts/%s: not a directory", p.contextName)
+	}
 	entries, err := os.ReadDir(contextDir)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil {
 		return fmt.Errorf("error reading .windsor/contexts/%s: %w", p.contextName, err)
 	}
 	for _, entry := range entries {
