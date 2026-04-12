@@ -37,8 +37,6 @@ func setupVirtEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:
@@ -153,15 +151,13 @@ func TestVirtEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("DockerDesktopDriver", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with Docker Desktop driver on Linux
+		// Given a new VirtEnvPrinter with Docker Desktop workstation runtime on Linux
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker-desktop
     docker:
       registries:
         mock-registry-url:
@@ -245,15 +241,13 @@ contexts:
 	})
 
 	t.Run("DockerDriver", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with Docker driver
+		// Given a new VirtEnvPrinter with Docker workstation runtime
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker
     docker:
       registries:
         mock-registry-url:
@@ -397,8 +391,6 @@ contexts:
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker-desktop
     docker:
       registries:
         mock-registry-url:
@@ -432,26 +424,14 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostFromEnvironment", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with DOCKER_HOST environment variable
+	t.Run("DockerHostPreservedWhenNoRuntime", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with DOCKER_HOST in the environment but no workstation runtime configured
 		os.Setenv("DOCKER_HOST", "tcp://custom-docker-host:2375")
 		defer os.Unsetenv("DOCKER_HOST")
 
 		mocks := setupVirtEnvMocks(t)
-		configStr := `
-version: v1alpha1
-contexts:
-  test-context:
-    vm:
-      driver: docker-desktop
-    docker:
-      registries:
-        mock-registry-url:
-          hostport: 5000
-`
-		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
+		// Clear workstation.runtime so Windsor does not manage DOCKER_HOST
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "")
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "DOCKER_HOST" {
@@ -471,10 +451,15 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should match environment value
+		// And DOCKER_HOST should be preserved from the environment (no runtime to override it)
 		expectedDockerHost := "tcp://custom-docker-host:2375"
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+
+		// And DOCKER_CONFIG should not be set (no runtime configured)
+		if _, exists := envVars["DOCKER_CONFIG"]; exists {
+			t.Error("Expected DOCKER_CONFIG not to be set when workstation.runtime is empty")
 		}
 	})
 
@@ -509,15 +494,14 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostFromEnvironmentOverridesDriver", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with both DOCKER_HOST and vm driver
+	t.Run("DockerHostFromEnvironmentPreservedWithDockerConfig", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with workstation.runtime configured and DOCKER_HOST already in the environment
+		// (e.g. set by platform tooling on Windows or by a previous shell session)
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker-desktop
     docker:
       registries:
         mock-registry-url:
@@ -545,10 +529,16 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should match environment value, not driver value
+		// And DOCKER_HOST should be preserved from the environment (not overridden by workstation.runtime)
 		expectedDockerHost := "tcp://override-host:2375"
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+
+		// And DOCKER_CONFIG should be set (always set when workstation.runtime is configured)
+		expectedDockerConfig := filepath.ToSlash("/mock/home/.config/windsor/docker")
+		if envVars["DOCKER_CONFIG"] != expectedDockerConfig {
+			t.Errorf("DOCKER_CONFIG = %v, want %v", envVars["DOCKER_CONFIG"], expectedDockerConfig)
 		}
 
 		// And DOCKER_HOST should be marked as managed for reset tracking
@@ -565,16 +555,14 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostManagedByWindsorIsPreserved", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with DOCKER_HOST already managed by Windsor
+	t.Run("DockerHostManagedByWindsorIsPreservedWithDockerConfig", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with DOCKER_HOST already managed by Windsor and workstation.runtime=colima
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:
@@ -612,10 +600,16 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should preserve the existing managed value unless reset has cleared it
+		// And DOCKER_HOST should preserve the existing managed value
 		expectedDockerHost := "tcp://old-managed-host:2375"
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		}
+
+		// And DOCKER_CONFIG should be set (always set when workstation.runtime is configured)
+		expectedDockerConfig := filepath.ToSlash("/mock/home/.config/windsor/docker")
+		if envVars["DOCKER_CONFIG"] != expectedDockerConfig {
+			t.Errorf("DOCKER_CONFIG = %v, want %v", envVars["DOCKER_CONFIG"], expectedDockerConfig)
 		}
 
 		// And DOCKER_HOST should be marked as managed for reset tracking
@@ -632,16 +626,14 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostUnmanagedIsPreserved", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with DOCKER_HOST set but not managed
+	t.Run("DockerHostUnmanagedIsPreservedWithDockerConfig", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with DOCKER_HOST set by external tooling and workstation.runtime=colima
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:
@@ -684,6 +676,12 @@ contexts:
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 
+		// And DOCKER_CONFIG should be set (always set when workstation.runtime is configured)
+		expectedDockerConfig := filepath.ToSlash("/mock/home/.config/windsor/docker")
+		if envVars["DOCKER_CONFIG"] != expectedDockerConfig {
+			t.Errorf("DOCKER_CONFIG = %v, want %v", envVars["DOCKER_CONFIG"], expectedDockerConfig)
+		}
+
 		// And DOCKER_HOST should be marked as managed for reset tracking
 		managedEnv := printer.GetManagedEnv()
 		isManaged := false
@@ -706,8 +704,6 @@ contexts:
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker-desktop
     docker:
       registries:
         mock-registry-url:
@@ -812,16 +808,14 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostEmptyStringIsPreserved", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with DOCKER_HOST set to empty string (not managed)
+	t.Run("DockerHostEmptyStringNotPropagatedDockerConfigStillSet", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with workstation.runtime=colima and DOCKER_HOST set to empty string
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:
@@ -836,7 +830,7 @@ contexts:
 				return "", true // Empty string but exists
 			}
 			if key == "WINDSOR_MANAGED_ENV" {
-				return "DOCKER_CONFIG", true // DOCKER_HOST not in managed list
+				return "DOCKER_CONFIG", true
 			}
 			return "", false
 		}
@@ -858,25 +852,20 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should preserve the empty string value (since it exists and is not managed)
-		// Note: The code checks if DOCKER_HOST exists, and if it does and is not managed, it preserves it
-		// However, if the value is empty, it might still be preserved. Let's check the actual behavior.
-		if dockerHost, exists := envVars["DOCKER_HOST"]; exists {
-			// If DOCKER_HOST exists but is empty and not managed, it should be preserved
-			// But the code logic says: if vmDriver != "" && (!dockerHostExists || isDockerHostManaged)
-			// Since dockerHostExists is true and isDockerHostManaged is false, the condition is false
-			// So it goes to the else branch which preserves the existing value
-			if dockerHost != "" {
-				t.Errorf("DOCKER_HOST = %v, want empty string (preserved)", dockerHost)
-			}
-		} else {
-			// If DOCKER_HOST doesn't exist in envVars, that's also acceptable
-			// The code might not add it if it's empty
+		// And DOCKER_HOST should not be propagated (empty value is not set)
+		if dockerHost, exists := envVars["DOCKER_HOST"]; exists && dockerHost != "" {
+			t.Errorf("DOCKER_HOST = %v, want empty or absent", dockerHost)
+		}
+
+		// And DOCKER_CONFIG should be set (always set when workstation.runtime is configured)
+		expectedDockerConfig := filepath.ToSlash("/mock/home/.config/windsor/docker")
+		if envVars["DOCKER_CONFIG"] != expectedDockerConfig {
+			t.Errorf("DOCKER_CONFIG = %v, want %v", envVars["DOCKER_CONFIG"], expectedDockerConfig)
 		}
 	})
 
 	t.Run("IncusRuntimeSetsIncusSocket", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with colima driver and provider incus
+		// Given a new VirtEnvPrinter with colima workstation runtime and incus platform
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
@@ -885,8 +874,6 @@ contexts:
   test-context:
     platform: incus
     provider: incus
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:

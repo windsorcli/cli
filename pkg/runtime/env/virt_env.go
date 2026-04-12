@@ -57,7 +57,7 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	workstationRuntime := e.configHandler.GetString("workstation.runtime")
 	platform := e.configHandler.GetString("platform")
 	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
-	if platform != "incus" && workstationRuntime != "" && !dockerHostExists {
+	if platform != "incus" && workstationRuntime != "" {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
@@ -73,7 +73,24 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		var contextName string
 		configContext := e.configHandler.GetContext()
 
-		if e.shims.Goos() == "windows" {
+		if dockerHostExists {
+			if dockerHostValue, _ := e.shims.LookupEnv("DOCKER_HOST"); dockerHostValue != "" {
+				envVars["DOCKER_HOST"] = dockerHostValue
+				e.SetManagedEnv("DOCKER_HOST")
+			}
+			if e.shims.Goos() == "windows" {
+				contextName = "desktop-linux"
+			} else {
+				switch workstationRuntime {
+				case "colima":
+					contextName = fmt.Sprintf("colima-windsor-%s", configContext)
+				case "docker-desktop":
+					contextName = "desktop-linux"
+				default:
+					contextName = "default"
+				}
+			}
+		} else if e.shims.Goos() == "windows" {
 			contextName = "desktop-linux"
 			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
 			e.SetManagedEnv("DOCKER_HOST")
