@@ -197,6 +197,10 @@ func (s *termSpinner) Fail() {
 	}
 	s.spin = nil
 	s.paused = 0
+	if s.pauseCursorSaved {
+		fmt.Fprint(os.Stderr, "\033[u\033[2K\r")
+		s.pauseCursorSaved = false
+	}
 	fmt.Fprintf(os.Stderr, "\033[31m✗ %s - Failed\033[0m\n", s.message)
 }
 

@@ -320,6 +320,25 @@ func TestTermSpinner_Fail(t *testing.T) {
 			t.Error("expected spin to be nil after Fail")
 		}
 	})
+
+	t.Run("ClearsPauseWithMessageLine", func(t *testing.T) {
+		// Given a termSpinner that has printed a static progress line via PauseWithMessage
+		s := &termSpinner{}
+		captureStderr(t, func() { s.Start("deploying") })
+		captureStderr(t, func() { s.pause(true) }) // simulate PauseWithMessage
+
+		// When Fail is called
+		out := captureStderr(t, s.Fail)
+
+		// Then the cursor-restore and line-clear sequence is emitted before the failure line
+		if !strings.Contains(out, "\033[u\033[2K\r") {
+			t.Errorf("expected cursor restore/clear sequence in output, got %q", out)
+		}
+		// And pauseCursorSaved is reset
+		if s.pauseCursorSaved {
+			t.Error("expected pauseCursorSaved to be false after Fail")
+		}
+	})
 }
 
 // Tests for termSpinner Pause behavior
