@@ -37,8 +37,6 @@ func setupVirtEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:
@@ -153,15 +151,13 @@ func TestVirtEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("DockerDesktopDriver", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with Docker Desktop driver on Linux
+		// Given a new VirtEnvPrinter with Docker Desktop workstation runtime on Linux
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker-desktop
     docker:
       registries:
         mock-registry-url:
@@ -245,15 +241,13 @@ contexts:
 	})
 
 	t.Run("DockerDriver", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with Docker driver
+		// Given a new VirtEnvPrinter with Docker workstation runtime
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker
     docker:
       registries:
         mock-registry-url:
@@ -397,8 +391,6 @@ contexts:
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker-desktop
     docker:
       registries:
         mock-registry-url:
@@ -432,26 +424,14 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostFromEnvironment", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with DOCKER_HOST environment variable
+	t.Run("DockerHostPreservedWhenNoRuntime", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with DOCKER_HOST in the environment but no workstation runtime configured
 		os.Setenv("DOCKER_HOST", "tcp://custom-docker-host:2375")
 		defer os.Unsetenv("DOCKER_HOST")
 
 		mocks := setupVirtEnvMocks(t)
-		configStr := `
-version: v1alpha1
-contexts:
-  test-context:
-    vm:
-      driver: docker-desktop
-    docker:
-      registries:
-        mock-registry-url:
-          hostport: 5000
-`
-		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
+		// Clear workstation.runtime so Windsor does not manage DOCKER_HOST
+		_ = mocks.ConfigHandler.Set("workstation.runtime", "")
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "DOCKER_HOST" {
@@ -471,10 +451,14 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should match environment value
-		expectedDockerHost := "tcp://custom-docker-host:2375"
-		if envVars["DOCKER_HOST"] != expectedDockerHost {
-			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		// And DOCKER_HOST should not be in envVars (Windsor leaves user-owned values alone)
+		if _, exists := envVars["DOCKER_HOST"]; exists {
+			t.Error("Expected DOCKER_HOST not to be in envVars when workstation.runtime is empty")
+		}
+
+		// And DOCKER_CONFIG should not be set (no runtime configured)
+		if _, exists := envVars["DOCKER_CONFIG"]; exists {
+			t.Error("Expected DOCKER_CONFIG not to be set when workstation.runtime is empty")
 		}
 	})
 
@@ -509,15 +493,14 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostFromEnvironmentOverridesDriver", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with both DOCKER_HOST and vm driver
+	t.Run("DockerHostUserOwnedNotManagedDockerConfigStillSet", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with workstation.runtime configured and a user-owned DOCKER_HOST
+		// that Windsor has never managed (not in WINDSOR_MANAGED_ENV)
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker-desktop
     docker:
       registries:
         mock-registry-url:
@@ -529,7 +512,7 @@ contexts:
 
 		mocks.Shims.LookupEnv = func(key string) (string, bool) {
 			if key == "DOCKER_HOST" {
-				return "tcp://override-host:2375", true
+				return "tcp://user-owned-host:2375", true
 			}
 			return "", false
 		}
@@ -545,36 +528,36 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should match environment value, not driver value
-		expectedDockerHost := "tcp://override-host:2375"
-		if envVars["DOCKER_HOST"] != expectedDockerHost {
-			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		// And DOCKER_HOST should not be in envVars (Windsor leaves user-owned values alone)
+		if _, exists := envVars["DOCKER_HOST"]; exists {
+			t.Errorf("Expected DOCKER_HOST not to be in envVars, got %v", envVars["DOCKER_HOST"])
 		}
 
-		// And DOCKER_HOST should be marked as managed for reset tracking
+		// And DOCKER_CONFIG should still be set (always set when workstation.runtime is configured)
+		expectedDockerConfig := filepath.ToSlash("/mock/home/.config/windsor/docker")
+		if envVars["DOCKER_CONFIG"] != expectedDockerConfig {
+			t.Errorf("DOCKER_CONFIG = %v, want %v", envVars["DOCKER_CONFIG"], expectedDockerConfig)
+		}
+
+		// And DOCKER_HOST should not be marked as managed
 		managedEnv := printer.GetManagedEnv()
-		isManaged := false
 		for _, env := range managedEnv {
 			if env == "DOCKER_HOST" {
-				isManaged = true
+				t.Error("Expected DOCKER_HOST not to be marked as managed when user-owned")
 				break
 			}
 		}
-		if !isManaged {
-			t.Error("Expected DOCKER_HOST to be marked as managed for reset tracking")
-		}
 	})
 
-	t.Run("DockerHostManagedByWindsorIsPreserved", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with DOCKER_HOST already managed by Windsor
+	t.Run("DockerHostManagedByWindsorIsReinjectedWithDockerConfig", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with DOCKER_HOST previously managed by Windsor
+		// (present in WINDSOR_MANAGED_ENV) and workstation.runtime=colima
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:
@@ -588,18 +571,18 @@ contexts:
 			if key == "DOCKER_HOST" {
 				return "tcp://old-managed-host:2375", true
 			}
-			if key == "WINDSOR_MANAGED_ENV" {
-				return "DOCKER_HOST DOCKER_CONFIG", true
-			}
 			return "", false
 		}
 
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_MANAGED_ENV" {
-				return "DOCKER_HOST DOCKER_CONFIG"
+				return "DOCKER_HOST,DOCKER_CONFIG"
 			}
 			return ""
 		}
+
+		// Force non-Windows so the colima socket path is derived, not the named pipe
+		mocks.Shims.Goos = func() string { return "linux" }
 
 		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
@@ -612,13 +595,19 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should preserve the existing managed value unless reset has cleared it
-		expectedDockerHost := "tcp://old-managed-host:2375"
+		// And DOCKER_HOST should be re-derived from workstation.runtime (Windsor re-asserts ownership)
+		expectedDockerHost := fmt.Sprintf("unix://%s/.colima/windsor-test-context/docker.sock", filepath.ToSlash("/mock/home"))
 		if envVars["DOCKER_HOST"] != expectedDockerHost {
 			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
 		}
 
-		// And DOCKER_HOST should be marked as managed for reset tracking
+		// And DOCKER_CONFIG should be set (always set when workstation.runtime is configured)
+		expectedDockerConfig := filepath.ToSlash("/mock/home/.config/windsor/docker")
+		if envVars["DOCKER_CONFIG"] != expectedDockerConfig {
+			t.Errorf("DOCKER_CONFIG = %v, want %v", envVars["DOCKER_CONFIG"], expectedDockerConfig)
+		}
+
+		// And DOCKER_HOST should be marked as managed
 		managedEnv := printer.GetManagedEnv()
 		isManaged := false
 		for _, env := range managedEnv {
@@ -628,20 +617,19 @@ contexts:
 			}
 		}
 		if !isManaged {
-			t.Error("Expected DOCKER_HOST to be marked as managed when preserved")
+			t.Error("Expected DOCKER_HOST to be marked as managed when re-injected")
 		}
 	})
 
-	t.Run("DockerHostUnmanagedIsPreserved", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with DOCKER_HOST set but not managed
+	t.Run("DockerHostUserOwnedExplicitlyNotManagedDockerConfigStillSet", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with DOCKER_HOST set by external tooling, explicitly absent
+		// from WINDSOR_MANAGED_ENV, and workstation.runtime=colima
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:
@@ -655,14 +643,11 @@ contexts:
 			if key == "DOCKER_HOST" {
 				return "tcp://custom-unmanaged-host:2375", true
 			}
-			if key == "WINDSOR_MANAGED_ENV" {
-				return "DOCKER_CONFIG", true // DOCKER_HOST not in managed list
-			}
 			return "", false
 		}
 		mocks.Shims.Getenv = func(key string) string {
 			if key == "WINDSOR_MANAGED_ENV" {
-				return "DOCKER_CONFIG"
+				return "DOCKER_CONFIG" // DOCKER_HOST not in managed list
 			}
 			return ""
 		}
@@ -678,23 +663,24 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should preserve the unmanaged value
-		expectedDockerHost := "tcp://custom-unmanaged-host:2375"
-		if envVars["DOCKER_HOST"] != expectedDockerHost {
-			t.Errorf("DOCKER_HOST = %v, want %v", envVars["DOCKER_HOST"], expectedDockerHost)
+		// And DOCKER_HOST should not be in envVars (Windsor leaves user-owned values alone)
+		if _, exists := envVars["DOCKER_HOST"]; exists {
+			t.Errorf("Expected DOCKER_HOST not to be in envVars, got %v", envVars["DOCKER_HOST"])
 		}
 
-		// And DOCKER_HOST should be marked as managed for reset tracking
+		// And DOCKER_CONFIG should be set (always set when workstation.runtime is configured)
+		expectedDockerConfig := filepath.ToSlash("/mock/home/.config/windsor/docker")
+		if envVars["DOCKER_CONFIG"] != expectedDockerConfig {
+			t.Errorf("DOCKER_CONFIG = %v, want %v", envVars["DOCKER_CONFIG"], expectedDockerConfig)
+		}
+
+		// And DOCKER_HOST should not be marked as managed
 		managedEnv := printer.GetManagedEnv()
-		isManaged := false
 		for _, env := range managedEnv {
 			if env == "DOCKER_HOST" {
-				isManaged = true
+				t.Error("Expected DOCKER_HOST not to be marked as managed when user-owned")
 				break
 			}
-		}
-		if !isManaged {
-			t.Error("Expected DOCKER_HOST to be marked as managed when unmanaged value is preserved")
 		}
 	})
 
@@ -706,8 +692,6 @@ contexts:
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: docker-desktop
     docker:
       registries:
         mock-registry-url:
@@ -812,16 +796,14 @@ contexts:
 		}
 	})
 
-	t.Run("DockerHostEmptyStringIsPreserved", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with DOCKER_HOST set to empty string (not managed)
+	t.Run("DockerHostEmptyStringNotPropagatedDockerConfigStillSet", func(t *testing.T) {
+		// Given a new VirtEnvPrinter with workstation.runtime=colima and DOCKER_HOST set to empty string
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
 version: v1alpha1
 contexts:
   test-context:
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:
@@ -836,7 +818,7 @@ contexts:
 				return "", true // Empty string but exists
 			}
 			if key == "WINDSOR_MANAGED_ENV" {
-				return "DOCKER_CONFIG", true // DOCKER_HOST not in managed list
+				return "DOCKER_CONFIG", true
 			}
 			return "", false
 		}
@@ -858,25 +840,20 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// And DOCKER_HOST should preserve the empty string value (since it exists and is not managed)
-		// Note: The code checks if DOCKER_HOST exists, and if it does and is not managed, it preserves it
-		// However, if the value is empty, it might still be preserved. Let's check the actual behavior.
-		if dockerHost, exists := envVars["DOCKER_HOST"]; exists {
-			// If DOCKER_HOST exists but is empty and not managed, it should be preserved
-			// But the code logic says: if vmDriver != "" && (!dockerHostExists || isDockerHostManaged)
-			// Since dockerHostExists is true and isDockerHostManaged is false, the condition is false
-			// So it goes to the else branch which preserves the existing value
-			if dockerHost != "" {
-				t.Errorf("DOCKER_HOST = %v, want empty string (preserved)", dockerHost)
-			}
-		} else {
-			// If DOCKER_HOST doesn't exist in envVars, that's also acceptable
-			// The code might not add it if it's empty
+		// And DOCKER_HOST should not be propagated (empty value is not set)
+		if dockerHost, exists := envVars["DOCKER_HOST"]; exists && dockerHost != "" {
+			t.Errorf("DOCKER_HOST = %v, want empty or absent", dockerHost)
+		}
+
+		// And DOCKER_CONFIG should be set (always set when workstation.runtime is configured)
+		expectedDockerConfig := filepath.ToSlash("/mock/home/.config/windsor/docker")
+		if envVars["DOCKER_CONFIG"] != expectedDockerConfig {
+			t.Errorf("DOCKER_CONFIG = %v, want %v", envVars["DOCKER_CONFIG"], expectedDockerConfig)
 		}
 	})
 
 	t.Run("IncusRuntimeSetsIncusSocket", func(t *testing.T) {
-		// Given a new VirtEnvPrinter with colima driver and provider incus
+		// Given a new VirtEnvPrinter with colima workstation runtime and incus platform
 		os.Unsetenv("DOCKER_HOST")
 		mocks := setupVirtEnvMocks(t)
 		configStr := `
@@ -885,8 +862,6 @@ contexts:
   test-context:
     platform: incus
     provider: incus
-    vm:
-      driver: colima
     docker:
       registries:
         mock-registry-url:

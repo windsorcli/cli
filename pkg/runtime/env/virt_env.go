@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -46,18 +47,32 @@ func NewVirtEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *V
 // Public Methods
 // =============================================================================
 
-// GetEnvVars sets environment variables for virtual machine and container runtimes, using DOCKER_HOST
-// from workstation.runtime or existing env, and INCUS_SOCKET for colima-incus.
-// Defaults to WINDSORCONFIG or home dir for Docker paths, ensuring config directory exists. Writes config if
-// content changes, adds DOCKER_CONFIG, REGISTRY_URL, and INCUS_SOCKET as appropriate, and returns the map.
-// Handles "colima", "docker-desktop", and "docker" workstation runtime settings, defaulting to "default" if unrecognized.
+// GetEnvVars sets environment variables for virtual machine and container runtimes. When
+// workstation.runtime is configured, it writes a Docker config file and sets DOCKER_CONFIG.
+// DOCKER_HOST is set from the runtime when it does not yet exist or was previously managed
+// by Windsor (present in WINDSOR_MANAGED_ENV); if DOCKER_HOST was set by the user it is left
+// untouched. Handles "colima", "docker-desktop", and "docker" workstation runtimes. Also sets
+// REGISTRY_URL from docker registry config, and INCUS_SOCKET for colima-incus setups.
 func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
 	workstationRuntime := e.configHandler.GetString("workstation.runtime")
 	platform := e.configHandler.GetString("platform")
+
+	isDockerHostManaged := false
+	if managedEnvStr := e.shims.Getenv("WINDSOR_MANAGED_ENV"); managedEnvStr != "" {
+		for _, key := range strings.Split(managedEnvStr, ",") {
+			if strings.TrimSpace(key) == "DOCKER_HOST" {
+				isDockerHostManaged = true
+				break
+			}
+		}
+	}
+
 	_, dockerHostExists := e.shims.LookupEnv("DOCKER_HOST")
-	if platform != "incus" && workstationRuntime != "" && !dockerHostExists {
+	shouldSetDockerHost := !dockerHostExists || isDockerHostManaged
+
+	if platform != "incus" && workstationRuntime != "" {
 		homeDir, err := e.shims.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving user home directory: %w", err)
@@ -70,36 +85,41 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		dockerConfigDir := filepath.Join(windsorConfigDir, "docker")
 		dockerConfigPath := filepath.Join(dockerConfigDir, "config.json")
 
-		var contextName string
 		configContext := e.configHandler.GetContext()
 
+		var contextName string
 		if e.shims.Goos() == "windows" {
 			contextName = "desktop-linux"
-			envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
-			e.SetManagedEnv("DOCKER_HOST")
 		} else {
 			switch workstationRuntime {
 			case "colima":
 				contextName = fmt.Sprintf("colima-windsor-%s", configContext)
-				dockerHostPath := fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
-				envVars["DOCKER_HOST"] = dockerHostPath
-				e.SetManagedEnv("DOCKER_HOST")
-
 			case "docker-desktop":
 				contextName = "desktop-linux"
-				dockerHostPath := fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
-				envVars["DOCKER_HOST"] = dockerHostPath
-				e.SetManagedEnv("DOCKER_HOST")
-
-			case "docker":
-				contextName = "default"
-				envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
-				e.SetManagedEnv("DOCKER_HOST")
-
 			default:
 				contextName = "default"
 			}
 		}
+
+		if shouldSetDockerHost {
+			if e.shims.Goos() == "windows" {
+				envVars["DOCKER_HOST"] = "npipe:////./pipe/docker_engine"
+				e.SetManagedEnv("DOCKER_HOST")
+			} else {
+				switch workstationRuntime {
+				case "colima":
+					envVars["DOCKER_HOST"] = fmt.Sprintf("unix://%s/.colima/windsor-%s/docker.sock", homeDir, configContext)
+					e.SetManagedEnv("DOCKER_HOST")
+				case "docker-desktop":
+					envVars["DOCKER_HOST"] = fmt.Sprintf("unix://%s/.docker/run/docker.sock", homeDir)
+					e.SetManagedEnv("DOCKER_HOST")
+				case "docker":
+					envVars["DOCKER_HOST"] = "unix:///var/run/docker.sock"
+					e.SetManagedEnv("DOCKER_HOST")
+				}
+			}
+		}
+
 		dockerConfigContent := fmt.Sprintf(`{
 			"auths": {},
 			"currentContext": "%s",
@@ -119,11 +139,6 @@ func (e *VirtEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 		envVars["DOCKER_CONFIG"] = filepath.ToSlash(dockerConfigDir)
 		e.SetManagedEnv("DOCKER_CONFIG")
-	} else if platform != "incus" && dockerHostExists {
-		if dockerHostValue, _ := e.shims.LookupEnv("DOCKER_HOST"); dockerHostValue != "" {
-			envVars["DOCKER_HOST"] = dockerHostValue
-			e.SetManagedEnv("DOCKER_HOST")
-		}
 	}
 
 	registryURL, _ := e.getRegistryURL()
