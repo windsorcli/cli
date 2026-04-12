@@ -581,6 +581,9 @@ contexts:
 			return ""
 		}
 
+		// Force non-Windows so the colima socket path is derived, not the named pipe
+		mocks.Shims.Goos = func() string { return "linux" }
+
 		printer := NewVirtEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		printer.shims = mocks.Shims
 
