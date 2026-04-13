@@ -2492,6 +2492,30 @@ func TestComposer_dropEmptyCompositionFragments(t *testing.T) {
 			t.Errorf("Expected KEEP='v', got %q", common["KEEP"])
 		}
 	})
+
+	t.Run("PrunesTopLevelSubstitutionsEmptyKeysAndValues", func(t *testing.T) {
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Substitutions: map[string]string{
+				"keep":        "10.0.0.1",
+				"drop_empty":  "",
+				"":            "empty-key",
+			},
+		}
+
+		composer.dropEmptyCompositionFragments(blueprint)
+
+		if _, hasEmpty := blueprint.Substitutions[""]; hasEmpty {
+			t.Error("Expected empty key to be removed from Substitutions")
+		}
+		if _, hasDrop := blueprint.Substitutions["drop_empty"]; hasDrop {
+			t.Error("Expected key with empty value to be removed from Substitutions")
+		}
+		if blueprint.Substitutions["keep"] != "10.0.0.1" {
+			t.Errorf("Expected keep='10.0.0.1', got %q", blueprint.Substitutions["keep"])
+		}
+	})
 }
 
 // =============================================================================

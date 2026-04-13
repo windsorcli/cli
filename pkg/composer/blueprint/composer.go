@@ -240,6 +240,9 @@ func (c *BaseBlueprintComposer) dropEmptyCompositionFragments(blueprint *bluepri
 			pruneEmptyValue(blueprint.TerraformComponents[i].Inputs)
 		}
 	}
+	if blueprint.Substitutions != nil {
+		pruneEmptyValue(blueprint.Substitutions)
+	}
 	if blueprint.ConfigMaps != nil {
 		for _, m := range blueprint.ConfigMaps {
 			if m != nil {
