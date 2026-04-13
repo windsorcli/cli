@@ -87,6 +87,7 @@ func setupApplyTest(t *testing.T, opts ...*SetupOptions) *ApplyMocks {
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
+	mockKubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 	rt := runtime.NewRuntime(&runtime.Runtime{
 		Shell:         baseMocks.Shell,
@@ -382,6 +383,59 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error applying kustomize") {
 			t.Errorf("Expected apply error, got: %v", err)
+		}
+	})
+
+	t.Run("SuccessWithWait", func(t *testing.T) {
+		// Given a properly configured apply kustomize command with --wait
+		mocks := setupApplyTest(t)
+		testBlueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "my-app"}},
+		}
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+		proj := newApplyKustomizeProject(mocks)
+
+		// When executing the apply kustomize command with --wait
+		cmd := createTestApplyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorWaitFails", func(t *testing.T) {
+		// Given a kubernetes manager whose WaitForKustomizations fails
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("wait for kustomizations failed")
+		}
+		testBlueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "my-app"}},
+		}
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+		proj := newApplyKustomizeProject(mocks)
+
+		// When executing the apply kustomize command with --wait
+		cmd := createTestApplyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+			t.Errorf("Expected wait error, got: %v", err)
 		}
 	})
 }

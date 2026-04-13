@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var applyWaitFlag bool // Wait for kustomization resources to be ready after applying
+
 var applyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply infrastructure changes",
@@ -54,12 +56,17 @@ var applyKustomizeCmd = &cobra.Command{
 			if err := proj.Provisioner.ApplyKustomizeAll(blueprint); err != nil {
 				return fmt.Errorf("error applying kustomize: %w", err)
 			}
-			return nil
+		} else {
+			componentID := args[0]
+			if err := proj.Provisioner.ApplyKustomize(blueprint, componentID); err != nil {
+				return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
+			}
 		}
 
-		componentID := args[0]
-		if err := proj.Provisioner.ApplyKustomize(blueprint, componentID); err != nil {
-			return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
+		if applyWaitFlag {
+			if err := proj.Provisioner.Wait(blueprint); err != nil {
+				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			}
 		}
 
 		return nil
@@ -67,6 +74,7 @@ var applyKustomizeCmd = &cobra.Command{
 }
 
 func init() {
+	applyKustomizeCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	applyCmd.AddCommand(applyTerraformCmd)
 	applyCmd.AddCommand(applyKustomizeCmd)
 	rootCmd.AddCommand(applyCmd)
