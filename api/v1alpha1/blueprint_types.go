@@ -291,6 +291,11 @@ type Blueprint struct {
 	// Kustomizations are kustomization configs in the blueprint.
 	Kustomizations []Kustomization `yaml:"kustomize,omitempty"`
 
+	// Substitutions are top-level key/value pairs evaluated with facet scope and injected into
+	// values-common, making them available to all kustomizations via PostBuild substitution.
+	// Values may use expression syntax (e.g. "${dns.domain}") resolved against facet config blocks.
+	Substitutions map[string]string `yaml:"substitutions,omitempty"`
+
 	// ConfigMaps are standalone ConfigMaps to be created, not tied to specific kustomizations.
 	// These ConfigMaps are referenced by all kustomizations in PostBuild substitution.
 	ConfigMaps map[string]map[string]string `yaml:"configMaps,omitempty"`
@@ -643,6 +648,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		Sources:             sourcesCopy,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,
+		Substitutions:       maps.Clone(b.Substitutions),
 		ConfigMaps:          configMapsCopy,
 	}
 }
@@ -707,6 +713,13 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 			if err := b.strategicMergeKustomization(overlayK); err != nil {
 				return err
 			}
+		}
+
+		if overlay.Substitutions != nil {
+			if b.Substitutions == nil {
+				b.Substitutions = make(map[string]string)
+			}
+			maps.Copy(b.Substitutions, overlay.Substitutions)
 		}
 
 		if overlay.ConfigMaps != nil {

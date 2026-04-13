@@ -404,6 +404,10 @@ func (c *BaseBlueprintComposer) applyCommonSubstitutions(blueprint *blueprintv1a
 		}
 	}
 
+	for k, v := range blueprint.Substitutions {
+		mergedCommonValues[k] = v
+	}
+
 	if c.runtime != nil && c.runtime.ConfigHandler != nil {
 		values, err := c.runtime.ConfigHandler.GetContextValues()
 		if err == nil {

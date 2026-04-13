@@ -1503,6 +1503,59 @@ func TestComposer_applyCommonSubstitutions(t *testing.T) {
 			t.Error("Expected ConfigMaps to be nil")
 		}
 	})
+
+	t.Run("IncludesBlueprintSubstitutionsInValuesCommon", func(t *testing.T) {
+		// Given a blueprint with top-level Substitutions (set by the processor from facets)
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Substitutions: map[string]string{
+				"private_dns": "10.0.0.1",
+				"public_dns":  "8.8.8.8",
+			},
+		}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then values-common should contain the blueprint-level substitutions
+		common := blueprint.ConfigMaps["values-common"]
+		if common["private_dns"] != "10.0.0.1" {
+			t.Errorf("Expected private_dns='10.0.0.1', got '%s'", common["private_dns"])
+		}
+		if common["public_dns"] != "8.8.8.8" {
+			t.Errorf("Expected public_dns='8.8.8.8', got '%s'", common["public_dns"])
+		}
+	})
+
+	t.Run("ValuesYamlOverridesBlueprintSubstitutions", func(t *testing.T) {
+		// Given a blueprint with Substitutions and values.yaml with a conflicting key
+		mocks := setupComposerMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"substitutions": map[string]any{
+					"common": map[string]any{
+						"private_dns": "user-override",
+					},
+				},
+			}, nil
+		}
+		composer := NewBlueprintComposer(mocks.Runtime)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Substitutions: map[string]string{
+				"private_dns": "blueprint-default",
+			},
+		}
+
+		// When applying common substitutions
+		composer.applyCommonSubstitutions(blueprint)
+
+		// Then values.yaml should win over blueprint-level substitutions
+		common := blueprint.ConfigMaps["values-common"]
+		if common["private_dns"] != "user-override" {
+			t.Errorf("Expected values.yaml to override blueprint substitutions, got '%s'", common["private_dns"])
+		}
+	})
 }
 
 func TestComposer_mergeLegacySpecialVariables(t *testing.T) {

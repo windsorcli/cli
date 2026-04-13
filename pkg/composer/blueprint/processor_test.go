@@ -1619,6 +1619,145 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
+	t.Run("CollectsStaticFacetSubstitutionsIntoTarget", func(t *testing.T) {
+		// Given a facet with top-level substitutions
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "dns"},
+				Substitutions: map[string]string{
+					"private_dns": "10.0.0.1",
+					"public_dns":  "8.8.8.8",
+				},
+			},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		// Then target.Substitutions should contain the facet values
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Substitutions == nil {
+			t.Fatal("Expected target.Substitutions to be initialized")
+		}
+		if target.Substitutions["private_dns"] != "10.0.0.1" {
+			t.Errorf("Expected private_dns='10.0.0.1', got '%s'", target.Substitutions["private_dns"])
+		}
+		if target.Substitutions["public_dns"] != "8.8.8.8" {
+			t.Errorf("Expected public_dns='8.8.8.8', got '%s'", target.Substitutions["public_dns"])
+		}
+	})
+
+	t.Run("EvaluatesFacetSubstitutionExpressionsWithConfigScope", func(t *testing.T) {
+		// Given a facet with config block and substitution expression referencing it
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "dns"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{
+						Name: "dns",
+						Body: map[string]any{
+							"value": map[string]any{
+								"private": "10.0.0.1",
+								"public":  "8.8.8.8",
+							},
+						},
+					},
+				},
+				Substitutions: map[string]string{
+					"private_dns": "${dns.private}",
+					"public_dns":  "${dns.public}",
+				},
+			},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		// Then substitution expressions should be evaluated against config scope
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Substitutions["private_dns"] != "10.0.0.1" {
+			t.Errorf("Expected private_dns='10.0.0.1', got '%s'", target.Substitutions["private_dns"])
+		}
+		if target.Substitutions["public_dns"] != "8.8.8.8" {
+			t.Errorf("Expected public_dns='8.8.8.8', got '%s'", target.Substitutions["public_dns"])
+		}
+	})
+
+	t.Run("LaterOrdinalFacetSubstitutionsOverrideEarlier", func(t *testing.T) {
+		// Given two facets with overlapping substitution keys, higher ordinal wins
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		lowOrdinal := 100
+		highOrdinal := 200
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata:      blueprintv1alpha1.Metadata{Name: "base"},
+				Ordinal:       &lowOrdinal,
+				Substitutions: map[string]string{"private_dns": "base-value"},
+			},
+			{
+				Metadata:      blueprintv1alpha1.Metadata{Name: "override"},
+				Ordinal:       &highOrdinal,
+				Substitutions: map[string]string{"private_dns": "override-value"},
+			},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		// Then the higher-ordinal facet's value should win
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Substitutions["private_dns"] != "override-value" {
+			t.Errorf("Expected private_dns='override-value', got '%s'", target.Substitutions["private_dns"])
+		}
+	})
+
+	t.Run("ExcludesFacetSubstitutionsWhenFacetConditionFalse", func(t *testing.T) {
+		// Given a facet with a false when condition
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata:      blueprintv1alpha1.Metadata{Name: "conditional"},
+				When:          "enabled == true",
+				Substitutions: map[string]string{"private_dns": "10.0.0.1"},
+			},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		// Then substitutions from excluded facet should not appear
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Substitutions != nil && target.Substitutions["private_dns"] != "" {
+			t.Errorf("Expected private_dns to be absent, got '%s'", target.Substitutions["private_dns"])
+		}
+	})
+}
+
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
 		base := map[string]any{"a": 1, "b": map[string]any{"x": 10}}

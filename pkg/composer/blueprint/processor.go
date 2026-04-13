@@ -232,6 +232,16 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
 			return nil, nil, err
 		}
+		if len(facet.Substitutions) > 0 {
+			evaluated, _, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
+			if err != nil {
+				return nil, nil, fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
+			}
+			if target.Substitutions == nil {
+				target.Substitutions = make(map[string]string)
+			}
+			maps.Copy(target.Substitutions, evaluated)
+		}
 	}
 
 	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {
