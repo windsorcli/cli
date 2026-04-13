@@ -11,7 +11,6 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	blueprintcomposer "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -133,20 +132,8 @@ func init() {
 // composition errors. Composition errors are non-fatal and allow the blueprint to be returned for
 // inspection when possible.
 func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, map[string]bool, error) {
-	var opts []*project.Project
-	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
-		opts = []*project.Project{overridesVal.(*project.Project)}
-	}
-
-	proj := project.NewProject("", opts...)
-
-	proj.Runtime.Shell.SetVerbosity(verbose)
-
-	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-		return nil, nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
-	}
-
-	if err := proj.Configure(nil); err != nil {
+	proj, err := configureProject(cmd)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -210,20 +197,8 @@ func errKustomizationNotFound(name string) error {
 // complete set of configuration values available for use in blueprint processing. No files are written
 // or terraform modules processed. Returns values, schema (may be nil), and any error.
 func getValues(cmd *cobra.Command) (map[string]any, map[string]any, error) {
-	var opts []*project.Project
-	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
-		opts = []*project.Project{overridesVal.(*project.Project)}
-	}
-
-	proj := project.NewProject("", opts...)
-
-	proj.Runtime.Shell.SetVerbosity(verbose)
-
-	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-		return nil, nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
-	}
-
-	if err := proj.Configure(nil); err != nil {
+	proj, err := configureProject(cmd)
+	if err != nil {
 		return nil, nil, err
 	}
 

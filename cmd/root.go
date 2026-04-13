@@ -58,11 +58,11 @@ func commandPreflight(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// prepareProject creates and initializes a project for the given command. It reads any test
-// overrides from the command context, sets shell verbosity, checks for a trusted directory,
-// configures the project, and runs initialization. Commands that need additional steps between
-// Configure and Initialize (e.g. ValidateContextValues) should not use this helper.
-func prepareProject(cmd *cobra.Command) (*project.Project, error) {
+// configureProject creates a project for the given command and runs setup through Configure.
+// It reads any test overrides from the command context, sets shell verbosity, checks for a
+// trusted directory, and configures the project. Commands that need additional steps after
+// Configure (e.g. ComposeBlueprint, GetContextValues) call this directly.
+func configureProject(cmd *cobra.Command) (*project.Project, error) {
 	var opts []*project.Project
 	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
 		opts = []*project.Project{overridesVal.(*project.Project)}
@@ -73,6 +73,18 @@ func prepareProject(cmd *cobra.Command) (*project.Project, error) {
 		return nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 	}
 	if err := proj.Configure(nil); err != nil {
+		return nil, err
+	}
+	return proj, nil
+}
+
+// prepareProject creates and fully initializes a project for the given command. It delegates
+// setup through Configure to configureProject, then runs Initialize. Commands that need
+// additional steps between Configure and Initialize (e.g. ValidateContextValues) should not
+// use this helper — call configureProject directly instead.
+func prepareProject(cmd *cobra.Command) (*project.Project, error) {
+	proj, err := configureProject(cmd)
+	if err != nil {
 		return nil, err
 	}
 	if err := proj.Initialize(false); err != nil {
