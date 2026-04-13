@@ -151,6 +151,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			if err != nil {
 				return err
 			}
+			terraformVars["TF_VAR_operation"] = "apply"
 
 			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 			if _, err := s.shims.Stat(backendOverridePath); err == nil {
@@ -262,6 +263,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) erro
 			if err != nil {
 				return err
 			}
+			terraformVars["TF_VAR_operation"] = "destroy"
 
 			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 			if _, err := s.shims.Stat(backendOverridePath); err == nil {
@@ -507,6 +509,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 		return err
 	}
 	defer cleanup()
+	terraformVars["TF_VAR_operation"] = "apply"
 
 	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
 		return err
@@ -552,6 +555,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		return err
 	}
 	defer cleanup()
+	terraformVars["TF_VAR_operation"] = "destroy"
 
 	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
 		return err

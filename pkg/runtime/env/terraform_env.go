@@ -134,6 +134,7 @@ func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 		"TF_VAR_context_path",
 		"TF_VAR_context_id",
 		"TF_VAR_os_type",
+		"TF_VAR_operation",
 	}
 	if managedEnv := e.shims.Getenv("WINDSOR_MANAGED_ENV"); managedEnv != "" {
 		for _, key := range strings.Split(managedEnv, ",") {

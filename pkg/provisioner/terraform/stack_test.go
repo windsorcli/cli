@@ -510,6 +510,32 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("SetsTFVarOperationToApply", func(t *testing.T) {
+		// Given a stack and a blueprint
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When Up is called, capture the env passed to terraform plan
+		// (TF_VAR_* are included in the plan step, not apply, since apply uses a plan file)
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				capturedEnv = env
+			}
+			return "", nil
+		}
+
+		_ = stack.Up(blueprint)
+
+		// Then TF_VAR_operation is "apply"
+		if capturedEnv == nil {
+			t.Fatal("Expected plan to be invoked")
+		}
+		if capturedEnv["TF_VAR_operation"] != "apply" {
+			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
+		}
+	})
+
 }
 
 func TestStack_DestroyAll(t *testing.T) {
@@ -836,6 +862,31 @@ func TestStack_DestroyAll(t *testing.T) {
 
 		if err := stack.DestroyAll(blueprint); err != nil {
 			t.Errorf("Expected Down to succeed with named component with source, got %v", err)
+		}
+	})
+
+	t.Run("SetsTFVarOperationToDestroy", func(t *testing.T) {
+		// Given a stack and a blueprint
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When DestroyAll is called, capture the env passed to terraform destroy
+		var capturedEnv map[string]string
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "destroy" {
+				capturedEnv = env
+			}
+			return "", nil
+		}
+
+		_ = stack.DestroyAll(blueprint)
+
+		// Then TF_VAR_operation is "destroy"
+		if capturedEnv == nil {
+			t.Fatal("Expected destroy to be invoked")
+		}
+		if capturedEnv["TF_VAR_operation"] != "destroy" {
+			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "destroy", capturedEnv["TF_VAR_operation"])
 		}
 	})
 
@@ -1572,6 +1623,32 @@ func TestStack_Apply(t *testing.T) {
 			t.Errorf("Expected no error (cleanup is best-effort), got: %v", err)
 		}
 	})
+
+	t.Run("SetsTFVarOperationToApply", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When Apply is called, capture the env passed to terraform plan
+		// (TF_VAR_* are included in the plan step, not apply, since apply uses a plan file)
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				capturedEnv = env
+			}
+			return "", nil
+		}
+
+		_ = stack.Apply(blueprint, "local/path")
+
+		// Then TF_VAR_operation is "apply"
+		if capturedEnv == nil {
+			t.Fatal("Expected plan to be invoked")
+		}
+		if capturedEnv["TF_VAR_operation"] != "apply" {
+			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
+		}
+	})
 }
 
 func TestStack_Destroy(t *testing.T) {
@@ -1797,6 +1874,31 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Expected refresh command to include -var-file=secrets.tfvars, got args: %v", refreshArgs)
+		}
+	})
+
+	t.Run("SetsTFVarOperationToDestroy", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When Destroy is called, capture the env passed to terraform destroy
+		var capturedEnv map[string]string
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "destroy" {
+				capturedEnv = env
+			}
+			return "", nil
+		}
+
+		_ = stack.Destroy(blueprint, "local/path")
+
+		// Then TF_VAR_operation is "destroy"
+		if capturedEnv == nil {
+			t.Fatal("Expected destroy to be invoked")
+		}
+		if capturedEnv["TF_VAR_operation"] != "destroy" {
+			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "destroy", capturedEnv["TF_VAR_operation"])
 		}
 	})
 }
