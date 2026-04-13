@@ -9,7 +9,8 @@ import (
 )
 
 var (
-	waitFlag bool // Declare the wait flag
+	waitFlag    bool // Declare the wait flag
+	installFlag bool // Deprecated: no-op, kept for backwards compatibility
 )
 
 var upCmd = &cobra.Command{
@@ -71,5 +72,7 @@ var upCmd = &cobra.Command{
 
 func init() {
 	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
+	upCmd.Flags().BoolVar(&installFlag, "install", false, "")
+	_ = upCmd.Flags().MarkDeprecated("install", "the --install flag is no longer needed and will be removed in a future release")
 	rootCmd.AddCommand(upCmd)
 }

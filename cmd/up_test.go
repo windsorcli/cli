@@ -252,6 +252,24 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("DeprecatedInstallFlagIsNoOp", func(t *testing.T) {
+		// Given a project with a workstation configured
+		mocks := setupUpTest(t)
+		proj := newUpTestProject(mocks, true)
+
+		// When executing the up command with the deprecated --install flag
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--install"})
+		err := cmd.Execute()
+
+		// Then no error should occur (flag is a no-op)
+		if err != nil {
+			t.Errorf("Expected success with deprecated --install flag, got error: %v", err)
+		}
+	})
+
 	t.Run("ProvisionerUpError", func(t *testing.T) {
 		// Given a terraform stack that fails during Up
 		mocks := setupUpTest(t)
