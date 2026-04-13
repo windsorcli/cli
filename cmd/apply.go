@@ -10,9 +10,37 @@ import (
 var applyWaitFlag bool // Wait for kustomization resources to be ready after applying
 
 var applyCmd = &cobra.Command{
-	Use:   "apply",
-	Short: "Apply infrastructure changes",
-	Long:  "Apply infrastructure changes for Windsor environment components.",
+	Use:          "apply",
+	Short:        "Apply infrastructure changes",
+	Long:         "Apply infrastructure changes for Windsor environment components by running Terraform and installing the blueprint.",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		proj, err := prepareProject(cmd)
+		if err != nil {
+			return err
+		}
+
+		blueprint := proj.Composer.BlueprintHandler.Generate()
+		if blueprint == nil {
+			return fmt.Errorf("blueprint is not available")
+		}
+
+		if err := proj.Provisioner.Up(blueprint); err != nil {
+			return fmt.Errorf("error applying terraform: %w", err)
+		}
+
+		if err := proj.Provisioner.Install(blueprint); err != nil {
+			return fmt.Errorf("error applying kustomize: %w", err)
+		}
+
+		if applyWaitFlag {
+			if err := proj.Provisioner.Wait(blueprint); err != nil {
+				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			}
+		}
+
+		return nil
+	},
 }
 
 var applyTerraformCmd = &cobra.Command{
@@ -89,6 +117,7 @@ var applyKustomizeCmd = &cobra.Command{
 }
 
 func init() {
+	applyCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	applyKustomizeCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	applyCmd.AddCommand(applyTerraformCmd)
 	applyCmd.AddCommand(applyKustomizeCmd)

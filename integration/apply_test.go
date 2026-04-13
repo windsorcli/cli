@@ -80,3 +80,18 @@ func TestApplyKustomize_AcceptsWaitFlag(t *testing.T) {
 	}
 	_ = err // failure is expected without a live cluster; the flag must be accepted
 }
+
+func TestApply_AcceptsWaitFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "--wait"}, env)
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("--wait should be a recognised flag on apply, got: %s", stderr)
+	}
+	_ = err // may fail due to infrastructure not being available; flag must be accepted
+}

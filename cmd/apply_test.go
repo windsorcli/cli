@@ -110,54 +110,185 @@ func setupApplyTest(t *testing.T, opts ...*SetupOptions) *ApplyMocks {
 	}
 }
 
-// newApplyProject wires mocks into a project for apply tests.
-func newApplyProject(mocks *ApplyMocks) *project.Project {
+// newApplyProjectWith wires mocks into a project using the given provisioner overrides.
+func newApplyProjectWith(mocks *ApplyMocks, overrides *provisioner.Provisioner) *project.Project {
 	comp := composer.NewComposer(mocks.Runtime)
 	comp.BlueprintHandler = mocks.BlueprintHandler
-	mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
-		TerraformStack: mocks.TerraformStack,
-	})
 	return project.NewProject("", &project.Project{
 		Runtime:     mocks.Runtime,
 		Composer:    comp,
-		Provisioner: mockProvisioner,
+		Provisioner: provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, overrides),
 	})
 }
 
-// newApplyKustomizeProject wires mocks into a project for apply kustomize tests.
+func newApplyProject(mocks *ApplyMocks) *project.Project {
+	return newApplyProjectWith(mocks, &provisioner.Provisioner{TerraformStack: mocks.TerraformStack})
+}
+
 func newApplyKustomizeProject(mocks *ApplyMocks) *project.Project {
-	comp := composer.NewComposer(mocks.Runtime)
-	comp.BlueprintHandler = mocks.BlueprintHandler
-	mockProvisioner := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
-		KubernetesManager: mocks.KubernetesManager,
-	})
-	return project.NewProject("", &project.Project{
-		Runtime:     mocks.Runtime,
-		Composer:    comp,
-		Provisioner: mockProvisioner,
-	})
+	return newApplyProjectWith(mocks, &provisioner.Provisioner{KubernetesManager: mocks.KubernetesManager})
+}
+
+func newApplyAllProject(mocks *ApplyMocks) *project.Project {
+	return newApplyProjectWith(mocks, &provisioner.Provisioner{TerraformStack: mocks.TerraformStack, KubernetesManager: mocks.KubernetesManager})
+}
+
+// makeApplyTestCmd clones source into a fresh isolated command for use in unit tests.
+func makeApplyTestCmd(source *cobra.Command) *cobra.Command {
+	cmd := &cobra.Command{Use: source.Use, RunE: source.RunE, Args: source.Args}
+	source.Flags().VisitAll(func(flag *pflag.Flag) { cmd.Flags().AddFlag(flag) })
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	return cmd
 }
 
 // =============================================================================
 // Test Cases
 // =============================================================================
 
-func TestApplyTerraformCmd(t *testing.T) {
-	createTestApplyTerraformCmd := func() *cobra.Command {
-		cmd := &cobra.Command{
-			Use:  "terraform",
-			RunE: applyTerraformCmd.RunE,
+func TestApplyCmd(t *testing.T) {
+	createTestApplyCmd := func() *cobra.Command { return makeApplyTestCmd(applyCmd) }
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a properly configured apply command
+		mocks := setupApplyTest(t)
+		proj := newApplyAllProject(mocks)
+
+		// When executing the bare apply command
+		cmd := createTestApplyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
 		}
-		applyTerraformCmd.Flags().VisitAll(func(flag *pflag.Flag) {
-			cmd.Flags().AddFlag(flag)
-		})
-		cmd.Args = applyTerraformCmd.Args
-		cmd.SilenceUsage = true
-		cmd.SilenceErrors = true
-		cmd.SetOut(io.Discard)
-		cmd.SetErr(io.Discard)
-		return cmd
-	}
+	})
+
+	t.Run("SuccessWithWait", func(t *testing.T) {
+		t.Cleanup(func() { applyWaitFlag = false })
+		// Given a properly configured apply command with --wait
+		mocks := setupApplyTest(t)
+		proj := newApplyAllProject(mocks)
+
+		// When executing the bare apply command with --wait
+		cmd := createTestApplyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a blueprint handler that returns nil
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return nil }
+		proj := newApplyAllProject(mocks)
+
+		// When executing the bare apply command
+		cmd := createTestApplyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "blueprint is not available") {
+			t.Errorf("Expected blueprint error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorTerraformFails", func(t *testing.T) {
+		// Given a terraform stack whose Up fails
+		mocks := setupApplyTest(t)
+		mocks.TerraformStack.UpFunc = func(bp *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			return fmt.Errorf("terraform up failed")
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the bare apply command
+		cmd := createTestApplyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "error applying terraform") {
+			t.Errorf("Expected terraform error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorKustomizeFails", func(t *testing.T) {
+		// Given a kubernetes manager whose ApplyBlueprint fails
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("kustomize apply failed")
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the bare apply command
+		cmd := createTestApplyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "error applying kustomize") {
+			t.Errorf("Expected kustomize error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWaitFails", func(t *testing.T) {
+		t.Cleanup(func() { applyWaitFlag = false })
+		// Given a kubernetes manager whose WaitForKustomizations fails
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, bp *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("wait failed")
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the bare apply command with --wait
+		cmd := createTestApplyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+			t.Errorf("Expected wait error, got: %v", err)
+		}
+	})
+}
+
+func TestApplyTerraformCmd(t *testing.T) {
+	createTestApplyTerraformCmd := func() *cobra.Command { return makeApplyTestCmd(applyTerraformCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
@@ -272,21 +403,7 @@ func TestApplyTerraformCmd(t *testing.T) {
 }
 
 func TestApplyKustomizeCmd(t *testing.T) {
-	createTestApplyKustomizeCmd := func() *cobra.Command {
-		cmd := &cobra.Command{
-			Use:  "kustomize",
-			RunE: applyKustomizeCmd.RunE,
-		}
-		applyKustomizeCmd.Flags().VisitAll(func(flag *pflag.Flag) {
-			cmd.Flags().AddFlag(flag)
-		})
-		cmd.Args = applyKustomizeCmd.Args
-		cmd.SilenceUsage = true
-		cmd.SilenceErrors = true
-		cmd.SetOut(io.Discard)
-		cmd.SetErr(io.Discard)
-		return cmd
-	}
+	createTestApplyKustomizeCmd := func() *cobra.Command { return makeApplyTestCmd(applyKustomizeCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
