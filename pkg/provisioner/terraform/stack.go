@@ -323,6 +323,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 		if err != nil {
 			return err
 		}
+		terraformVars["TF_VAR_operation"] = "apply"
 
 		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
 			cleanup()
@@ -380,6 +381,7 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 		return err
 	}
 	defer cleanup()
+	terraformVars["TF_VAR_operation"] = "apply"
 
 	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
 		return err
@@ -416,6 +418,7 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 		return err
 	}
 	defer cleanup()
+	terraformVars["TF_VAR_operation"] = "apply"
 
 	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
 		return err
@@ -683,6 +686,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 		return result
 	}
 	defer cleanup()
+	terraformVars["TF_VAR_operation"] = "apply"
 
 	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
 		result.Err = err

@@ -1333,6 +1333,31 @@ func TestStack_Plan(t *testing.T) {
 		}
 	})
 
+	t.Run("SetsTFVarOperationToApply", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When Plan is called, capture the env passed to terraform plan
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				capturedEnv = env
+			}
+			return "", nil
+		}
+
+		_ = stack.Plan(blueprint, "local/path")
+
+		// Then TF_VAR_operation is "apply"
+		if capturedEnv == nil {
+			t.Fatal("Expected plan to be invoked")
+		}
+		if capturedEnv["TF_VAR_operation"] != "apply" {
+			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
+		}
+	})
+
 }
 
 func TestStack_PlanAll(t *testing.T) {
@@ -1383,6 +1408,66 @@ func TestStack_PlanAll(t *testing.T) {
 		}
 		if planCalls != 2 {
 			t.Errorf("expected 2 plan calls, got %d", planCalls)
+		}
+	})
+
+	t.Run("SetsTFVarOperationToApply", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When PlanAll is called, capture the env passed to terraform plan
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				capturedEnv = env
+			}
+			return "", nil
+		}
+
+		_ = stack.PlanAll(blueprint)
+
+		// Then TF_VAR_operation is "apply"
+		if capturedEnv == nil {
+			t.Fatal("Expected plan to be invoked")
+		}
+		if capturedEnv["TF_VAR_operation"] != "apply" {
+			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
+		}
+	})
+}
+
+func TestStack_PlanJSON(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("SetsTFVarOperationToApply", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When PlanJSON is called, capture the env passed to terraform plan
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				capturedEnv = env
+			}
+			return "", nil
+		}
+
+		_ = stack.PlanJSON(blueprint, "local/path")
+
+		// Then TF_VAR_operation is "apply"
+		if capturedEnv == nil {
+			t.Fatal("Expected plan to be invoked")
+		}
+		if capturedEnv["TF_VAR_operation"] != "apply" {
+			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
 		}
 	})
 }
@@ -2047,6 +2132,31 @@ func TestStack_PlanSummary(t *testing.T) {
 			if r.Err == nil {
 				t.Errorf("expected plan error for %q, got nil", r.ComponentID)
 			}
+		}
+	})
+
+	t.Run("SetsTFVarOperationToApply", func(t *testing.T) {
+		// Given a stack and a blueprint with a local component
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When PlanSummary is called, capture the env passed to terraform plan
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "plan" {
+				capturedEnv = env
+			}
+			return "", nil
+		}
+
+		_ = stack.PlanSummary(blueprint)
+
+		// Then TF_VAR_operation is "apply"
+		if capturedEnv == nil {
+			t.Fatal("Expected plan to be invoked")
+		}
+		if capturedEnv["TF_VAR_operation"] != "apply" {
+			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
 		}
 	})
 }
