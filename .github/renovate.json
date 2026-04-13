@@ -98,7 +98,8 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^Taskfile.yaml$/"
+        "/^Taskfile.yaml$/",
+        "/^\\.github/workflows/.*\\.ya?ml$/"
       ],
       "matchStrings": [
         "go install (?<depName>\\S+)@(?<currentValue>\\S+)"
