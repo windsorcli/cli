@@ -240,6 +240,9 @@ func (c *BaseBlueprintComposer) dropEmptyCompositionFragments(blueprint *bluepri
 			pruneEmptyValue(blueprint.TerraformComponents[i].Inputs)
 		}
 	}
+	if blueprint.Substitutions != nil {
+		pruneEmptyValue(blueprint.Substitutions)
+	}
 	if blueprint.ConfigMaps != nil {
 		for _, m := range blueprint.ConfigMaps {
 			if m != nil {
@@ -402,6 +405,10 @@ func (c *BaseBlueprintComposer) applyCommonSubstitutions(blueprint *blueprintv1a
 		for k, v := range c.commonSubstitutions {
 			mergedCommonValues[k] = v
 		}
+	}
+
+	for k, v := range blueprint.Substitutions {
+		mergedCommonValues[k] = v
 	}
 
 	if c.runtime != nil && c.runtime.ConfigHandler != nil {

@@ -106,6 +106,14 @@ func TestFacetDeepCopy(t *testing.T) {
 			t.Error("Deep copy failed: kustomization substitutions map was not copied")
 		}
 
+		// Verify top-level Substitutions independence (set after initial copy to test the map)
+		original.Substitutions = map[string]string{"dns": "10.0.0.1"}
+		copy2 := original.DeepCopy()
+		original.Substitutions["dns"] = "mutated"
+		if copy2.Substitutions["dns"] != "10.0.0.1" {
+			t.Error("Deep copy failed: top-level Substitutions map was not copied independently")
+		}
+
 		if len(copy.Config) != len(original.Config) {
 			t.Error("Deep copy failed: config slice length mismatch")
 		}

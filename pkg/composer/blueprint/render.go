@@ -65,6 +65,11 @@ func applyDeferredPathsToBlueprint(bp *blueprintv1alpha1.Blueprint, deferredPath
 			}
 		}
 	}
+	for key := range bp.Substitutions {
+		if deferredPaths["substitutions."+key] {
+			bp.Substitutions[key] = deferredPlaceholder
+		}
+	}
 	for i := range bp.Kustomizations {
 		name := bp.Kustomizations[i].Name
 		if deferredPaths["kustomize."+name+".path"] {

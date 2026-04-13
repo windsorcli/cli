@@ -232,6 +232,36 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
 			return nil, nil, err
 		}
+		if len(facet.Substitutions) > 0 {
+			evaluated, deferredKeys, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
+			if err != nil {
+				return nil, nil, fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
+			}
+			if target.Substitutions == nil {
+				target.Substitutions = make(map[string]string)
+			}
+			maps.Copy(target.Substitutions, evaluated)
+			facetOrd := resolvedFacetOrdinal(facet)
+			sn := ""
+			if len(sourceName) > 0 {
+				sn = sourceName[0]
+			}
+			for key, rawVal := range facet.Substitutions {
+				p.recordTrace("substitutions."+key, TraceContribution{
+					FacetPath:  facet.Path,
+					SourceName: sn,
+					Ordinal:    facetOrd,
+					Strategy:   "merge",
+					Line:       yamlNodeLine(facet.Path, "substitutions", key),
+					RawValue:   deepCopyValue(rawVal),
+				})
+			}
+			for key, isDeferred := range deferredKeys {
+				if isDeferred {
+					p.markDeferredPath("substitutions." + key)
+				}
+			}
+		}
 	}
 
 	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {

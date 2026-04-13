@@ -211,9 +211,11 @@ func getValues(cmd *cobra.Command) (map[string]any, map[string]any, error) {
 	return values, schema, nil
 }
 
-// buildFluxKustomization converts a blueprint Kustomization to a Flux Kustomization resource.
+// buildFluxKustomization converts a blueprint Kustomization to a Flux Kustomization resource,
+// including blueprint-level ConfigMaps (e.g. values-common) in postBuild.substituteFrom to
+// match what the kubernetes manager applies to the cluster.
 func buildFluxKustomization(blueprint *blueprintv1alpha1.Blueprint, kustomization *blueprintv1alpha1.Kustomization) kustomizev1.Kustomization {
 	defaultSourceName := blueprint.Metadata.Name
 	namespace := constants.DefaultFluxSystemNamespace
-	return kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
+	return kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, blueprint.ConfigMaps)
 }

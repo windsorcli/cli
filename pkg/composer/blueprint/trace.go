@@ -25,6 +25,7 @@ const (
 	ExplainPathKindKustomizeSubstitution
 	ExplainPathKindKustomizeComponents
 	ExplainPathKindConfigMap
+	ExplainPathKindSubstitution
 )
 
 // =============================================================================
@@ -278,6 +279,12 @@ func (c *DefaultTraceCollector) GetTrace(pathStr string) (*ExplainTrace, error) 
 		trace.Value = val
 		trace.Contributions = []ExplainContribution{{SourceName: "composition (runtime config)", Effective: true}}
 
+	case ExplainPathKindSubstitution:
+		if bp.Substitutions != nil {
+			trace.Value = bp.Substitutions[p.Key]
+		}
+		trace.Contributions = c.buildContributions("substitutions." + p.Key)
+
 	default:
 		return nil, errors.New("unknown path kind")
 	}
@@ -298,6 +305,8 @@ func (p ExplainPath) String() string {
 		return fmt.Sprintf("kustomize.%s.components", p.Segment)
 	case ExplainPathKindConfigMap:
 		return fmt.Sprintf("configMaps.%s.%s", p.Segment, p.Key)
+	case ExplainPathKindSubstitution:
+		return fmt.Sprintf("substitutions.%s", p.Key)
 	default:
 		return ""
 	}
@@ -352,8 +361,16 @@ func ParseExplainPath(path string) (ExplainPath, error) {
 			Segment: parts[1],
 			Key:     strings.Join(parts[2:], "."),
 		}, nil
+	case "substitutions":
+		if len(parts) < 2 {
+			return ExplainPath{}, fmt.Errorf("invalid substitutions path %q: expected substitutions.<key>", path)
+		}
+		return ExplainPath{
+			Kind: ExplainPathKindSubstitution,
+			Key:  strings.Join(parts[1:], "."),
+		}, nil
 	default:
-		return ExplainPath{}, fmt.Errorf("invalid path %q: must start with terraform., kustomize., or configMaps.", path)
+		return ExplainPath{}, fmt.Errorf("invalid path %q: must start with terraform., kustomize., configMaps., or substitutions.", path)
 	}
 }
 

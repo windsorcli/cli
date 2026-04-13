@@ -2,7 +2,10 @@
 // +groupName=blueprints.windsorcli.dev
 package v1alpha1
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+)
 
 // =============================================================================
 // Types
@@ -64,6 +67,11 @@ type Facet struct {
 
 	// Kustomizations are kustomization configs in the facet.
 	Kustomizations []ConditionalKustomization `yaml:"kustomize,omitempty"`
+
+	// Substitutions are top-level key/value pairs evaluated with facet scope and injected into
+	// values-common, making them available to all kustomizations via PostBuild substitution.
+	// Values may use expression syntax (e.g. "${dns.domain}") resolved against facet config blocks.
+	Substitutions map[string]string `yaml:"substitutions,omitempty"`
 }
 
 // ConditionalTerraformComponent extends TerraformComponent with conditional logic support.
@@ -225,6 +233,7 @@ func (f *Facet) DeepCopy() *Facet {
 		Config:              configCopy,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,
+		Substitutions:       maps.Clone(f.Substitutions),
 	}
 }
 

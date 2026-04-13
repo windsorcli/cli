@@ -738,28 +738,13 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 				return fmt.Errorf("failed to create ConfigMap for kustomization %s: %w", kustomization.Name, err)
 			}
 		}
-		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
+		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, blueprint.ConfigMaps)
 
 		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
 			Labels: map[string]string{
 				"windsorcli.dev/context":    k.configHandler.GetContext(),
 				"windsorcli.dev/context-id": k.configHandler.GetString("id"),
 			},
-		}
-
-		if len(blueprint.ConfigMaps) > 0 {
-			if fluxKustomization.Spec.PostBuild == nil {
-				fluxKustomization.Spec.PostBuild = &kustomizev1.PostBuild{
-					SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
-				}
-			}
-			for configMapName := range blueprint.ConfigMaps {
-				fluxKustomization.Spec.PostBuild.SubstituteFrom = append(fluxKustomization.Spec.PostBuild.SubstituteFrom, kustomizev1.SubstituteReference{
-					Kind:     "ConfigMap",
-					Name:     configMapName,
-					Optional: false,
-				})
-			}
 		}
 
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
@@ -1025,7 +1010,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 			}
 		}
 
-		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources)
+		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, blueprint.ConfigMaps)
 
 		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
 			Labels: map[string]string{
@@ -1041,21 +1026,6 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 			}
 		}
 		fluxKustomization.Spec.DependsOn = filteredDependsOn
-
-		if len(blueprint.ConfigMaps) > 0 {
-			if fluxKustomization.Spec.PostBuild == nil {
-				fluxKustomization.Spec.PostBuild = &kustomizev1.PostBuild{
-					SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
-				}
-			}
-			for configMapName := range blueprint.ConfigMaps {
-				fluxKustomization.Spec.PostBuild.SubstituteFrom = append(fluxKustomization.Spec.PostBuild.SubstituteFrom, kustomizev1.SubstituteReference{
-					Kind:     "ConfigMap",
-					Name:     configMapName,
-					Optional: false,
-				})
-			}
-		}
 
 		tui.Start(fmt.Sprintf("Applying destroy-only kustomization %s", kustomization.Name))
 
