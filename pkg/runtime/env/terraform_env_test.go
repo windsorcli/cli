@@ -344,6 +344,35 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("ResetsTFVarOperationWhenNoProjectPathFound", func(t *testing.T) {
+		// Given a TerraformEnvPrinter outside a terraform project with TF_VAR_operation set
+		printer, mocks := setup(t)
+
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "TF_VAR_operation" {
+				return "apply", true
+			}
+			return "", false
+		}
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "", nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+
+		// Then TF_VAR_operation is reset to empty string
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if val, exists := envVars["TF_VAR_operation"]; !exists || val != "" {
+			t.Errorf("Expected TF_VAR_operation to be reset to empty string, got %q (exists=%v)", val, exists)
+		}
+	})
+
 	t.Run("ResetManagedDynamicTFVarsWhenNoProjectPathFound", func(t *testing.T) {
 		printer, mocks := setup(t)
 
