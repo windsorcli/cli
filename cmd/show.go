@@ -11,13 +11,14 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	blueprintcomposer "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
 var showBlueprintJSON bool
 var showBlueprintRaw bool
 var showKustomizationJSON bool
 var showKustomizationRaw bool
+var showValuesJSON bool
 
 var showCmd = &cobra.Command{
 	Use:   "show",
@@ -89,13 +90,35 @@ var showKustomizationCmd = &cobra.Command{
 	},
 }
 
+var showValuesCmd = &cobra.Command{
+	Use:          "values",
+	Short:        "Display the effective context values",
+	Long:         "Display the effective context values to stdout, combining schema defaults with values.yaml overrides. YAML output includes schema descriptions as comments. Use --json for plain JSON.",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		values, schema, err := getValues(cmd)
+		if err != nil {
+			return err
+		}
+
+		if showValuesJSON {
+			return outputResource(values, true, "values")
+		}
+
+		fmt.Print(config.RenderValuesWithDescriptions(values, schema))
+		return nil
+	},
+}
+
 func init() {
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintJSON, "json", false, "Output as JSON instead of YAML")
 	showBlueprintCmd.Flags().BoolVar(&showBlueprintRaw, "raw", false, "Output unresolved deferred values as expression text instead of <deferred>")
 	showKustomizationCmd.Flags().BoolVar(&showKustomizationJSON, "json", false, "Output as JSON instead of YAML")
 	showKustomizationCmd.Flags().BoolVar(&showKustomizationRaw, "raw", false, "Output unresolved deferred values as expression text instead of <deferred>")
+	showValuesCmd.Flags().BoolVar(&showValuesJSON, "json", false, "Output as JSON instead of YAML")
 	showCmd.AddCommand(showBlueprintCmd)
 	showCmd.AddCommand(showKustomizationCmd)
+	showCmd.AddCommand(showValuesCmd)
 	rootCmd.AddCommand(showCmd)
 }
 
@@ -109,20 +132,8 @@ func init() {
 // composition errors. Composition errors are non-fatal and allow the blueprint to be returned for
 // inspection when possible.
 func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, map[string]bool, error) {
-	var opts []*project.Project
-	if overridesVal := cmd.Context().Value(projectOverridesKey); overridesVal != nil {
-		opts = []*project.Project{overridesVal.(*project.Project)}
-	}
-
-	proj := project.NewProject("", opts...)
-
-	proj.Runtime.Shell.SetVerbosity(verbose)
-
-	if err := proj.Runtime.Shell.CheckTrustedDirectory(); err != nil {
-		return nil, nil, fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
-	}
-
-	if err := proj.Configure(nil); err != nil {
+	proj, err := configureProject(cmd)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -179,6 +190,25 @@ func findKustomization(blueprint *blueprintv1alpha1.Blueprint, name string) *blu
 // errKustomizationNotFound returns a formatted error for when a kustomization is not found.
 func errKustomizationNotFound(name string) error {
 	return fmt.Errorf("kustomization %q not found in blueprint", name)
+}
+
+// getValues configures the project and returns the effective context values and loaded schema without
+// running full initialization. It merges schema defaults with values.yaml overrides, providing the
+// complete set of configuration values available for use in blueprint processing. No files are written
+// or terraform modules processed. Returns values, schema (may be nil), and any error.
+func getValues(cmd *cobra.Command) (map[string]any, map[string]any, error) {
+	proj, err := configureProject(cmd)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	values, err := proj.Runtime.ConfigHandler.GetContextValues()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get context values: %w", err)
+	}
+
+	schema := proj.Runtime.ConfigHandler.GetSchema()
+	return values, schema, nil
 }
 
 // buildFluxKustomization converts a blueprint Kustomization to a Flux Kustomization resource.

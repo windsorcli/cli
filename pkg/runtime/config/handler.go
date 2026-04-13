@@ -48,6 +48,7 @@ type ConfigHandler interface {
 	GenerateContextID() error
 	LoadSchema(schemaPath string) error
 	LoadSchemaFromBytes(schemaContent []byte) error
+	GetSchema() map[string]any
 	GetContextValues() (map[string]any, error)
 	RegisterProvider(prefix string, provider ValueProvider)
 	ValidateContextValues() error
@@ -496,6 +497,23 @@ func (c *configHandler) Clean() error {
 // IsLoaded checks if the configuration has been loaded
 func (c *configHandler) IsLoaded() bool {
 	return c.loaded
+}
+
+// GetSchema returns a shallow copy of the loaded schema map, or nil if no schema is loaded.
+// A copy is returned so callers cannot mutate the validator's internal schema state.
+func (c *configHandler) GetSchema() map[string]any {
+	if c.schemaValidator == nil {
+		return nil
+	}
+	src := c.schemaValidator.Schema
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }
 
 // LoadSchema loads the schema.yaml file from the specified directory.

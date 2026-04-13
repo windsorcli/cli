@@ -442,6 +442,295 @@ func TestShowBlueprintCmd(t *testing.T) {
 	})
 }
 
+func TestShowValuesCmd(t *testing.T) {
+	createTestCmd := func() *cobra.Command {
+		showValuesJSON = false
+		cmd := &cobra.Command{
+			Use:          "values",
+			Short:        "Display the effective context values",
+			RunE:         showValuesCmd.RunE,
+			SilenceUsage: true,
+		}
+
+		showValuesCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			cmd.Flags().AddFlag(flag)
+		})
+
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		return cmd
+	}
+
+	setupOutput := func(t *testing.T) (*bytes.Buffer, func()) {
+		t.Helper()
+		stdout := new(bytes.Buffer)
+
+		oldStdout := os.Stdout
+		rStdout, wStdout, _ := os.Pipe()
+		os.Stdout = wStdout
+
+		done := make(chan struct{})
+		go func() {
+			io.Copy(stdout, rStdout)
+			rStdout.Close()
+			close(done)
+		}()
+
+		t.Cleanup(func() {
+			wStdout.Close()
+			<-done
+			os.Stdout = oldStdout
+		})
+
+		return stdout, func() {
+			wStdout.Close()
+			<-done
+		}
+	}
+
+	t.Run("SuccessWithYAMLAndDescriptions", func(t *testing.T) {
+		mocks := setupShowTest(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "docker", "dev": true}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetSchemaFunc = func() map[string]any {
+			return map[string]any{
+				"$schema": "https://windsorcli.dev/schema/2026-02/schema",
+				"type":    "object",
+				"properties": map[string]any{
+					"provider": map[string]any{
+						"type":        "string",
+						"description": "Cloud or platform provider.",
+					},
+				},
+			}
+		}
+
+		proj := project.NewProject("", &project.Project{
+			Runtime: mocks.Runtime,
+		})
+
+		stdout, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected non-empty stdout output")
+		}
+		if !strings.Contains(output, "# Cloud or platform provider.") {
+			t.Errorf("Expected description comment in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "provider: docker") {
+			t.Errorf("Expected provider value in output, got:\n%s", output)
+		}
+	})
+
+	t.Run("SchemaOnlyFieldsRenderedCommentedOut", func(t *testing.T) {
+		mocks := setupShowTest(t)
+		// values has gateway.enabled but not gateway.driver (no default in schema)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"gateway": map[string]any{"enabled": true},
+			}, nil
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetSchemaFunc = func() map[string]any {
+			return map[string]any{
+				"$schema": "https://windsorcli.dev/schema/2026-02/schema",
+				"type":    "object",
+				"properties": map[string]any{
+					"gateway": map[string]any{
+						"type":        "object",
+						"description": "Gateway configuration.",
+						"properties": map[string]any{
+							"enabled": map[string]any{
+								"type":        "boolean",
+								"description": "Enable gateway.",
+							},
+							"driver": map[string]any{
+								"type":        "string",
+								"description": "Gateway driver.",
+							},
+						},
+					},
+				},
+			}
+		}
+
+		proj := project.NewProject("", &project.Project{
+			Runtime: mocks.Runtime,
+		})
+
+		stdout, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		output := stdout.String()
+		if !strings.Contains(output, "enabled: true") {
+			t.Errorf("Expected enabled value in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "# Gateway driver.") {
+			t.Errorf("Expected driver description comment in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "# driver:") {
+			t.Errorf("Expected commented-out driver field in output, got:\n%s", output)
+		}
+	})
+
+	t.Run("SuccessWithYAMLNoSchema", func(t *testing.T) {
+		mocks := setupShowTest(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "docker"}, nil
+		}
+
+		proj := project.NewProject("", &project.Project{
+			Runtime: mocks.Runtime,
+		})
+
+		stdout, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected non-empty stdout output")
+		}
+		if !strings.Contains(output, "provider: docker") {
+			t.Errorf("Expected provider value in output, got:\n%s", output)
+		}
+		if strings.Contains(output, "#") {
+			t.Errorf("Expected no comments when schema is absent, got:\n%s", output)
+		}
+	})
+
+	t.Run("SuccessWithJSONOutput", func(t *testing.T) {
+		mocks := setupShowTest(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "aws"}, nil
+		}
+
+		proj := project.NewProject("", &project.Project{
+			Runtime: mocks.Runtime,
+		})
+
+		stdout, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--json"})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		output := stdout.String()
+		if output == "" {
+			t.Error("Expected non-empty stdout output")
+		}
+
+		var values map[string]any
+		if err := json.Unmarshal([]byte(output), &values); err != nil {
+			t.Errorf("Expected valid JSON output, got error: %v", err)
+		}
+		if values["provider"] != "aws" {
+			t.Errorf("Expected provider 'aws', got %v", values["provider"])
+		}
+		if strings.Contains(output, "#") {
+			t.Errorf("Expected no comments in JSON output, got:\n%s", output)
+		}
+	})
+
+	t.Run("CheckTrustedDirectoryError", func(t *testing.T) {
+		mocks := setupShowTest(t)
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("not in trusted directory")
+		}
+
+		proj := project.NewProject("", &project.Project{
+			Runtime: mocks.Runtime,
+		})
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "not in a trusted directory") {
+			t.Errorf("Expected trusted directory error, got: %v", err)
+		}
+	})
+
+	t.Run("GetContextValuesError", func(t *testing.T) {
+		mocks := setupShowTest(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextValuesFunc = func() (map[string]any, error) {
+			return nil, fmt.Errorf("schema load failure")
+		}
+
+		proj := project.NewProject("", &project.Project{
+			Runtime: mocks.Runtime,
+		})
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "failed to get context values") {
+			t.Errorf("Expected context values error, got: %v", err)
+		}
+	})
+
+	t.Run("CommandInitialization", func(t *testing.T) {
+		cmd := showValuesCmd
+
+		if cmd.Use != "values" {
+			t.Errorf("Expected Use to be 'values', got %q", cmd.Use)
+		}
+		if cmd.Short == "" {
+			t.Error("Expected non-empty Short description")
+		}
+		if cmd.Long == "" {
+			t.Error("Expected non-empty Long description")
+		}
+
+		jsonFlag := cmd.Flags().Lookup("json")
+		if jsonFlag == nil {
+			t.Error("Expected --json flag to be defined")
+		}
+		if jsonFlag.Usage == "" {
+			t.Error("Expected non-empty flag usage")
+		}
+	})
+}
+
 func TestShowKustomizationCmd(t *testing.T) {
 	createTestCmd := func() *cobra.Command {
 		showKustomizationJSON = false

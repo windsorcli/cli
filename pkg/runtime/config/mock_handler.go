@@ -34,6 +34,7 @@ type MockConfigHandler struct {
 	GenerateContextIDFunc      func() error
 	LoadSchemaFunc             func(schemaPath string) error
 	LoadSchemaFromBytesFunc    func(schemaContent []byte) error
+	GetSchemaFunc              func() map[string]any
 	GetContextValuesFunc       func() (map[string]any, error)
 	RegisterProviderFunc       func(prefix string, provider ValueProvider)
 	ValidateContextValuesFunc  func() error
@@ -268,6 +269,14 @@ func (m *MockConfigHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 		return m.LoadSchemaFromBytesFunc(schemaContent)
 	}
 	return fmt.Errorf("LoadSchemaFromBytesFunc not set")
+}
+
+// GetSchema calls the mock GetSchemaFunc if set, otherwise returns nil
+func (m *MockConfigHandler) GetSchema() map[string]any {
+	if m.GetSchemaFunc != nil {
+		return m.GetSchemaFunc()
+	}
+	return nil
 }
 
 // GetContextValues calls the mock GetContextValuesFunc if set, otherwise returns an error

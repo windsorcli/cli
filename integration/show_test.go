@@ -11,6 +11,50 @@ import (
 	"github.com/windsorcli/cli/integration/helpers"
 )
 
+func TestShowValues_DefaultFixture(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "default")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "values"}, env)
+	if err != nil {
+		t.Fatalf("show values: %v\nstderr: %s", err, stderr)
+	}
+	output := string(stdout)
+	// Output must be parseable as YAML (comments are stripped by the parser)
+	var values map[string]any
+	if err := yaml.Unmarshal(stdout, &values); err != nil {
+		t.Fatalf("parse values YAML: %v", err)
+	}
+	if values == nil {
+		t.Error("expected non-nil values map")
+	}
+	// Schema for the default fixture defines descriptions on provider, vm, workstation fields;
+	// at minimum the schema comment marker should appear if any described field is present.
+	if strings.Contains(output, "provider:") && !strings.Contains(output, "#") {
+		t.Errorf("expected description comments in output when schema is loaded, got:\n%s", output)
+	}
+}
+
+func TestShowValues_JSONFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "default")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "values", "--json"}, env)
+	if err != nil {
+		t.Fatalf("show values --json: %v\nstderr: %s", err, stderr)
+	}
+	var values map[string]any
+	if err := yaml.Unmarshal(stdout, &values); err != nil {
+		t.Fatalf("parse values JSON: %v", err)
+	}
+	if values == nil {
+		t.Error("expected non-nil values map")
+	}
+	if strings.Contains(string(stdout), "#") {
+		t.Errorf("expected no comments in JSON output, got:\n%s", stdout)
+	}
+}
+
 func TestShowBlueprint_DefaultFixture(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "default")
