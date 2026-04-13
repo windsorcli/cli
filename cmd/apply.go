@@ -4,12 +4,43 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
+var applyWaitFlag bool // Wait for kustomization resources to be ready after applying
+
 var applyCmd = &cobra.Command{
-	Use:   "apply",
-	Short: "Apply infrastructure changes",
-	Long:  "Apply infrastructure changes for Windsor environment components.",
+	Use:          "apply",
+	Short:        "Apply infrastructure changes",
+	Long:         "Apply infrastructure changes for Windsor environment components by running Terraform and installing the blueprint.",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		proj, err := prepareProject(cmd)
+		if err != nil {
+			return err
+		}
+
+		blueprint := proj.Composer.BlueprintHandler.Generate()
+		if blueprint == nil {
+			return fmt.Errorf("blueprint is not available")
+		}
+
+		if err := proj.Provisioner.Up(blueprint); err != nil {
+			return fmt.Errorf("error applying terraform: %w", err)
+		}
+
+		if err := proj.Provisioner.Install(blueprint); err != nil {
+			return fmt.Errorf("error applying kustomize: %w", err)
+		}
+
+		if applyWaitFlag {
+			if err := proj.Provisioner.Wait(blueprint); err != nil {
+				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			}
+		}
+
+		return nil
+	},
 }
 
 var applyTerraformCmd = &cobra.Command{
@@ -49,17 +80,36 @@ var applyKustomizeCmd = &cobra.Command{
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
+		if blueprint == nil {
+			return fmt.Errorf("blueprint is not available")
+		}
+		waitBlueprint := blueprint
 
 		if len(args) == 0 {
 			if err := proj.Provisioner.ApplyKustomizeAll(blueprint); err != nil {
 				return fmt.Errorf("error applying kustomize: %w", err)
 			}
-			return nil
+		} else {
+			componentID := args[0]
+			if err := proj.Provisioner.ApplyKustomize(blueprint, componentID); err != nil {
+				return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
+			}
+			// Narrow the wait scope to only the kustomization that was applied.
+			for _, k := range blueprint.Kustomizations {
+				if k.Name == componentID {
+					kCopy := k
+					filtered := *blueprint
+					filtered.Kustomizations = []blueprintv1alpha1.Kustomization{kCopy}
+					waitBlueprint = &filtered
+					break
+				}
+			}
 		}
 
-		componentID := args[0]
-		if err := proj.Provisioner.ApplyKustomize(blueprint, componentID); err != nil {
-			return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
+		if applyWaitFlag {
+			if err := proj.Provisioner.Wait(waitBlueprint); err != nil {
+				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			}
 		}
 
 		return nil
@@ -67,6 +117,8 @@ var applyKustomizeCmd = &cobra.Command{
 }
 
 func init() {
+	applyCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready")
+	applyKustomizeCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	applyCmd.AddCommand(applyTerraformCmd)
 	applyCmd.AddCommand(applyKustomizeCmd)
 	rootCmd.AddCommand(applyCmd)
