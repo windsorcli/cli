@@ -1289,6 +1289,57 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("MergesTopLevelSubstitutionsFromNilBase", func(t *testing.T) {
+		// Given a base blueprint with no Substitutions and an overlay with values
+		base := &Blueprint{}
+		overlay := &Blueprint{
+			Substitutions: map[string]string{
+				"private_dns": "10.0.0.1",
+				"public_dns":  "8.8.8.8",
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then base should have the overlay substitutions
+		if base.Substitutions == nil {
+			t.Fatal("Expected Substitutions to be initialized")
+		}
+		if base.Substitutions["private_dns"] != "10.0.0.1" {
+			t.Errorf("Expected private_dns='10.0.0.1', got '%s'", base.Substitutions["private_dns"])
+		}
+		if base.Substitutions["public_dns"] != "8.8.8.8" {
+			t.Errorf("Expected public_dns='8.8.8.8', got '%s'", base.Substitutions["public_dns"])
+		}
+	})
+
+	t.Run("OverlaySubstitutionsOverrideBase", func(t *testing.T) {
+		// Given a base blueprint with Substitutions and an overlay with overlapping key
+		base := &Blueprint{
+			Substitutions: map[string]string{
+				"private_dns": "base-value",
+				"keep_me":     "unchanged",
+			},
+		}
+		overlay := &Blueprint{
+			Substitutions: map[string]string{
+				"private_dns": "overlay-value",
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then overlay wins on conflicts, base keys not in overlay are preserved
+		if base.Substitutions["private_dns"] != "overlay-value" {
+			t.Errorf("Expected overlay to win, got '%s'", base.Substitutions["private_dns"])
+		}
+		if base.Substitutions["keep_me"] != "unchanged" {
+			t.Errorf("Expected base-only key to be preserved, got '%s'", base.Substitutions["keep_me"])
+		}
+	})
 }
 
 func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
@@ -3713,6 +3764,33 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 		}
 		if copy.Kustomizations[0].Enabled.Value == nil || *copy.Kustomizations[0].Enabled.Value {
 			t.Error("Expected Enabled to be false in copy")
+		}
+	})
+
+	t.Run("CopiesTopLevelSubstitutions", func(t *testing.T) {
+		// Given a blueprint with top-level Substitutions
+		blueprint := &Blueprint{
+			Substitutions: map[string]string{
+				"private_dns": "10.0.0.1",
+				"public_dns":  "8.8.8.8",
+			},
+		}
+
+		// When deep copying
+		copy := blueprint.DeepCopy()
+
+		// Then the copy should have the same values
+		if copy.Substitutions == nil {
+			t.Fatal("Expected Substitutions to be copied")
+		}
+		if copy.Substitutions["private_dns"] != "10.0.0.1" {
+			t.Errorf("Expected private_dns='10.0.0.1', got '%s'", copy.Substitutions["private_dns"])
+		}
+
+		// And mutating the copy must not affect the original
+		copy.Substitutions["private_dns"] = "mutated"
+		if blueprint.Substitutions["private_dns"] != "10.0.0.1" {
+			t.Error("Deep copy failed: mutating copy affected original Substitutions map")
 		}
 	})
 }

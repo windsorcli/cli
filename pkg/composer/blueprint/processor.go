@@ -233,7 +233,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			return nil, nil, err
 		}
 		if len(facet.Substitutions) > 0 {
-			evaluated, _, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
+			evaluated, deferredKeys, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
 			}
@@ -241,6 +241,11 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				target.Substitutions = make(map[string]string)
 			}
 			maps.Copy(target.Substitutions, evaluated)
+			for key, isDeferred := range deferredKeys {
+				if isDeferred {
+					p.markDeferredPath("substitutions." + key)
+				}
+			}
 		}
 	}
 

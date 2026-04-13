@@ -897,8 +897,10 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 // ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
 // It takes the namespace for the kustomization, the default source name to use if no source is specified,
 // and the list of sources to determine the source kind (GitRepository or OCIRepository).
+// An optional configMaps argument (blueprint-level ConfigMaps such as values-common) is added to
+// postBuild.substituteFrom so they are available to all kustomizations, matching what the provisioner applies.
 // PostBuild is constructed based on the kustomization's Substitutions field.
-func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source) kustomizev1.Kustomization {
+func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source, configMaps ...map[string]map[string]string) kustomizev1.Kustomization {
 	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
 	for idx, dep := range k.DependsOn {
 		dependsOn[idx] = kustomizev1.DependencyReference{
@@ -1000,6 +1002,20 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 					Optional: false,
 				},
 			},
+		}
+	}
+	if len(configMaps) > 0 && len(configMaps[0]) > 0 {
+		if postBuild == nil {
+			postBuild = &kustomizev1.PostBuild{
+				SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
+			}
+		}
+		for name := range configMaps[0] {
+			postBuild.SubstituteFrom = append(postBuild.SubstituteFrom, kustomizev1.SubstituteReference{
+				Kind:     "ConfigMap",
+				Name:     name,
+				Optional: false,
+			})
 		}
 	}
 
