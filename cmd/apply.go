@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
 var applyWaitFlag bool // Wait for kustomization resources to be ready after applying
@@ -51,6 +52,10 @@ var applyKustomizeCmd = &cobra.Command{
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
+		if blueprint == nil {
+			return fmt.Errorf("blueprint is not available")
+		}
+		waitBlueprint := blueprint
 
 		if len(args) == 0 {
 			if err := proj.Provisioner.ApplyKustomizeAll(blueprint); err != nil {
@@ -61,10 +66,20 @@ var applyKustomizeCmd = &cobra.Command{
 			if err := proj.Provisioner.ApplyKustomize(blueprint, componentID); err != nil {
 				return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
 			}
+			// Narrow the wait scope to only the kustomization that was applied.
+			for _, k := range blueprint.Kustomizations {
+				if k.Name == componentID {
+					kCopy := k
+					filtered := *blueprint
+					filtered.Kustomizations = []blueprintv1alpha1.Kustomization{kCopy}
+					waitBlueprint = &filtered
+					break
+				}
+			}
 		}
 
 		if applyWaitFlag {
-			if err := proj.Provisioner.Wait(blueprint); err != nil {
+			if err := proj.Provisioner.Wait(waitBlueprint); err != nil {
 				return fmt.Errorf("error waiting for kustomizations: %w", err)
 			}
 		}

@@ -386,30 +386,81 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessWithWait", func(t *testing.T) {
-		// Given a properly configured apply kustomize command with --wait
+	t.Run("SuccessWithWaitAll", func(t *testing.T) {
+		t.Cleanup(func() { applyWaitFlag = false })
+		// Given a blueprint with multiple kustomizations and --wait but no name argument
 		mocks := setupApplyTest(t)
 		testBlueprint := &blueprintv1alpha1.Blueprint{
-			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "my-app"}},
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app-a"},
+				{Name: "app-b"},
+			},
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+		var waitedBlueprint *blueprintv1alpha1.Blueprint
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, bp *blueprintv1alpha1.Blueprint) error {
+			waitedBlueprint = bp
+			return nil
+		}
 		proj := newApplyKustomizeProject(mocks)
 
-		// When executing the apply kustomize command with --wait
+		// When executing apply kustomize --wait with no name
 		cmd := createTestApplyKustomizeCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{"--wait"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error should occur
+		// Then no error should occur and the full blueprint is waited on
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(waitedBlueprint.Kustomizations) != 2 {
+			t.Errorf("Expected wait on full blueprint (2 kustomizations), got %d", len(waitedBlueprint.Kustomizations))
+		}
+	})
+
+	t.Run("SuccessWithWaitSingle", func(t *testing.T) {
+		t.Cleanup(func() { applyWaitFlag = false })
+		// Given a blueprint with multiple kustomizations and --wait with a specific name
+		mocks := setupApplyTest(t)
+		testBlueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app-a"},
+				{Name: "app-b"},
+			},
+		}
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+		var waitedBlueprint *blueprintv1alpha1.Blueprint
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, bp *blueprintv1alpha1.Blueprint) error {
+			waitedBlueprint = bp
+			return nil
+		}
+		proj := newApplyKustomizeProject(mocks)
+
+		// When executing apply kustomize app-a --wait
+		cmd := createTestApplyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"app-a", "--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then no error should occur and only the named kustomization is waited on
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(waitedBlueprint.Kustomizations) != 1 {
+			t.Errorf("Expected wait on 1 kustomization, got %d", len(waitedBlueprint.Kustomizations))
+		}
+		if waitedBlueprint.Kustomizations[0].Name != "app-a" {
+			t.Errorf("Expected wait on app-a, got %s", waitedBlueprint.Kustomizations[0].Name)
 		}
 	})
 
 	t.Run("ErrorWaitFails", func(t *testing.T) {
+		t.Cleanup(func() { applyWaitFlag = false })
 		// Given a kubernetes manager whose WaitForKustomizations fails
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
@@ -436,6 +487,59 @@ func TestApplyKustomizeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
 			t.Errorf("Expected wait error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorWaitFailsSingle", func(t *testing.T) {
+		t.Cleanup(func() { applyWaitFlag = false })
+		// Given a kubernetes manager whose WaitForKustomizations fails on a named kustomization
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("wait for kustomizations failed")
+		}
+		testBlueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "my-app"}},
+		}
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+		proj := newApplyKustomizeProject(mocks)
+
+		// When executing the apply kustomize command with a name and --wait
+		cmd := createTestApplyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"my-app", "--wait"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+			t.Errorf("Expected wait error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a blueprint handler that returns nil
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return nil }
+		proj := newApplyKustomizeProject(mocks)
+
+		// When executing the apply kustomize command
+		cmd := createTestApplyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur
+		if err == nil {
+			t.Error("Expected error, got nil")
+			return
+		}
+		if !strings.Contains(err.Error(), "blueprint is not available") {
+			t.Errorf("Expected blueprint error, got: %v", err)
 		}
 	})
 }
