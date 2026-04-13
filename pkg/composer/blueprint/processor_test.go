@@ -1756,6 +1756,41 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 			t.Errorf("Expected private_dns to be absent, got '%s'", target.Substitutions["private_dns"])
 		}
 	})
+
+	t.Run("RecordsTraceForEachSubstitutionKey", func(t *testing.T) {
+		// Given a facet with static substitutions and a trace collector attached
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		tc := NewTraceCollector()
+		processor.SetTraceCollector(tc)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "dns"},
+				Substitutions: map[string]string{
+					"private_dns": "10.0.0.1",
+					"public_dns":  "8.8.8.8",
+				},
+			},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+		tc.Finalize(target, nil, "")
+
+		// Then the trace collector should have a contribution for each substitution key
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		tracePrivate, errPrivate := tc.GetTrace("substitutions.private_dns")
+		if errPrivate != nil || tracePrivate == nil {
+			t.Errorf("Expected trace for substitutions.private_dns, got err=%v trace=%v", errPrivate, tracePrivate)
+		}
+		tracePublic, errPublic := tc.GetTrace("substitutions.public_dns")
+		if errPublic != nil || tracePublic == nil {
+			t.Errorf("Expected trace for substitutions.public_dns, got err=%v trace=%v", errPublic, tracePublic)
+		}
+	})
 }
 
 func TestProcessor_mergeHelpers(t *testing.T) {

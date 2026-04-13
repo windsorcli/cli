@@ -241,6 +241,21 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				target.Substitutions = make(map[string]string)
 			}
 			maps.Copy(target.Substitutions, evaluated)
+			facetOrd := resolvedFacetOrdinal(facet)
+			sn := ""
+			if len(sourceName) > 0 {
+				sn = sourceName[0]
+			}
+			for key, rawVal := range facet.Substitutions {
+				p.recordTrace("substitutions."+key, TraceContribution{
+					FacetPath:  facet.Path,
+					SourceName: sn,
+					Ordinal:    facetOrd,
+					Strategy:   "merge",
+					Line:       yamlNodeLine(facet.Path, "substitutions", key),
+					RawValue:   deepCopyValue(rawVal),
+				})
+			}
 			for key, isDeferred := range deferredKeys {
 				if isDeferred {
 					p.markDeferredPath("substitutions." + key)
