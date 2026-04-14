@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var destroyForce bool
+var destroyConfirm string
 
 // confirmDestroy prompts the user to type confirmValue to proceed with a destructive operation.
 // It prints a description of what will be destroyed and the expected confirmation token.
@@ -25,6 +25,19 @@ func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) 
 		return fmt.Errorf("confirmation failed: input did not match %q", confirmValue)
 	}
 	return nil
+}
+
+// resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
+// match expected exactly; otherwise the user is prompted interactively. This mirrors the prompt
+// in both directions so scripted callers cannot accidentally destroy the wrong target.
+func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected string) error {
+	if destroyConfirm != "" {
+		if destroyConfirm != expected {
+			return fmt.Errorf("confirmation failed: --confirm did not match %q", expected)
+		}
+		return nil
+	}
+	return confirmDestroy(r, w, description, expected)
 }
 
 var destroyCmd = &cobra.Command{
@@ -45,12 +58,10 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			if !destroyForce {
-				contextName := proj.Runtime.ContextName
-				desc := fmt.Sprintf("This will permanently destroy all infrastructure in context %q.", contextName)
-				if err := confirmDestroy(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
-					return err
-				}
+			contextName := proj.Runtime.ContextName
+			desc := fmt.Sprintf("This will permanently destroy all infrastructure in context %q.", contextName)
+			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
+				return err
 			}
 			if err := proj.Provisioner.DestroyAll(blueprint); err != nil {
 				return fmt.Errorf("error destroying all components: %w", err)
@@ -66,11 +77,9 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			return fmt.Errorf("component %q not found in blueprint", componentID)
 		}
 
-		if !destroyForce {
-			desc := fmt.Sprintf("This will permanently destroy component %q across all layers.", componentID)
-			if err := confirmDestroy(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
-				return err
-			}
+		desc := fmt.Sprintf("This will permanently destroy component %q across all layers.", componentID)
+		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
+			return err
 		}
 
 		if inKustomize {
@@ -104,12 +113,10 @@ var destroyTerraformCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			if !destroyForce {
-				contextName := proj.Runtime.ContextName
-				desc := fmt.Sprintf("This will permanently destroy all Terraform components in context %q.", contextName)
-				if err := confirmDestroy(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
-					return err
-				}
+			contextName := proj.Runtime.ContextName
+			desc := fmt.Sprintf("This will permanently destroy all Terraform components in context %q.", contextName)
+			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
+				return err
 			}
 			if err := proj.Provisioner.DestroyAllTerraform(blueprint); err != nil {
 				return fmt.Errorf("error destroying all terraform: %w", err)
@@ -118,11 +125,9 @@ var destroyTerraformCmd = &cobra.Command{
 		}
 
 		componentID := args[0]
-		if !destroyForce {
-			desc := fmt.Sprintf("This will permanently destroy Terraform component %q.", componentID)
-			if err := confirmDestroy(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
-				return err
-			}
+		desc := fmt.Sprintf("This will permanently destroy Terraform component %q.", componentID)
+		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
+			return err
 		}
 		if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
 			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
@@ -147,12 +152,10 @@ var destroyKustomizeCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
-			if !destroyForce {
-				contextName := proj.Runtime.ContextName
-				desc := fmt.Sprintf("This will permanently destroy all Flux kustomizations in context %q.", contextName)
-				if err := confirmDestroy(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
-					return err
-				}
+			contextName := proj.Runtime.ContextName
+			desc := fmt.Sprintf("This will permanently destroy all Flux kustomizations in context %q.", contextName)
+			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
+				return err
 			}
 			if err := proj.Provisioner.Uninstall(blueprint); err != nil {
 				return fmt.Errorf("error destroying all kustomizations: %w", err)
@@ -161,11 +164,9 @@ var destroyKustomizeCmd = &cobra.Command{
 		}
 
 		componentID := args[0]
-		if !destroyForce {
-			desc := fmt.Sprintf("This will permanently destroy Flux kustomization %q.", componentID)
-			if err := confirmDestroy(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
-				return err
-			}
+		desc := fmt.Sprintf("This will permanently destroy Flux kustomization %q.", componentID)
+		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
+			return err
 		}
 		if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
 			return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
@@ -174,9 +175,11 @@ var destroyKustomizeCmd = &cobra.Command{
 	},
 }
 
-// init registers destroy subcommands and persistent flags.
+// init registers destroy subcommands and the --confirm flag. --confirm must exactly match the
+// context name (for layer-wide destroy) or component name (for targeted destroy); this is the
+// CI-safe equivalent of the interactive prompt. There is no flag that skips confirmation entirely.
 func init() {
-	destroyCmd.PersistentFlags().BoolVarP(&destroyForce, "force", "f", false, "Skip confirmation prompt")
+	destroyCmd.PersistentFlags().StringVar(&destroyConfirm, "confirm", "", "Context or component name to confirm destruction (bypasses interactive prompt)")
 	destroyCmd.AddCommand(destroyTerraformCmd)
 	destroyCmd.AddCommand(destroyKustomizeCmd)
 	rootCmd.AddCommand(destroyCmd)

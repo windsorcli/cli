@@ -26,7 +26,7 @@ func TestDestroyTerraform_SucceedsWithMinimalLocalConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
 	}
-	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--force", "terraform", "null"}, env)
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--confirm=null", "terraform", "null"}, env)
 	if err != nil {
 		t.Fatalf("destroy terraform null: %v\nstderr: %s", err, stderr)
 	}
@@ -44,7 +44,7 @@ func TestDestroyTerraform_SucceedsAllWithMinimalLocalConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
 	}
-	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--force", "terraform"}, env)
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--confirm=local", "terraform"}, env)
 	if err != nil {
 		t.Fatalf("destroy terraform: %v\nstderr: %s", err, stderr)
 	}
@@ -62,6 +62,23 @@ func TestDestroyTerraform_FailsWhenNotInTrustedDirectory(t *testing.T) {
 	}
 }
 
+func TestDestroy_FailsWhenConfirmFlagDoesNotMatch(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--confirm=wrong", "terraform"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if !strings.Contains(string(stderr), "confirmation failed") {
+		t.Errorf("expected stderr to mention 'confirmation failed', got: %s", stderr)
+	}
+}
+
 func TestDestroyTerraform_FailsForNonexistentComponent(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
@@ -70,7 +87,7 @@ func TestDestroyTerraform_FailsForNonexistentComponent(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
-	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--force", "terraform", "nonexistent"}, env)
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--confirm=nonexistent", "terraform", "nonexistent"}, env)
 	if err == nil {
 		t.Fatal("expected failure but command succeeded")
 	}
