@@ -8,12 +8,14 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/siderolabs/talos/pkg/machinery/client"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
+	"github.com/windsorcli/cli/pkg/constants"
 )
 
 // =============================================================================
@@ -241,6 +243,71 @@ func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddress
 	return c.WaitForNodesHealthy(ctx, nodeAddresses, expectedVersion, skipServices)
 }
 
+// WaitForControlPlaneAPIReady waits for the kube-apiserver on a control-plane node
+// to accept TCP connections on port 6443. It first queries the Talos ServiceList to
+// determine the node's role: nodes that do not run the etcd service are treated as
+// workers and the method returns nil immediately. For control-plane nodes, it polls
+// a TCP dial to the apiserver port until a connection succeeds or the context deadline
+// is reached. The per-dial timeout is half the health check poll interval so a slow
+// dial does not starve polling. Returns an error if the role cannot be determined or
+// the apiserver does not become reachable in time.
+func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, nodeAddress string) error {
+	if err := c.ensureClient(); err != nil {
+		return fmt.Errorf("failed to initialize Talos client: %w", err)
+	}
+
+	isControlPlane, err := c.isControlPlaneNode(ctx, nodeAddress)
+	if err != nil {
+		return fmt.Errorf("failed to determine node role for %s: %w", nodeAddress, err)
+	}
+	if !isControlPlane {
+		fmt.Printf("Node %s is not a control-plane, skipping kube-apiserver readiness check\n", nodeAddress)
+		return nil
+	}
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(constants.DefaultAPIServerReadyTimeout)
+	}
+
+	dialTimeout := c.healthCheckPollInterval / 2
+	if dialTimeout <= 0 {
+		dialTimeout = 5 * time.Second
+	}
+
+	address := net.JoinHostPort(nodeAddress, fmt.Sprintf("%d", constants.DefaultAPIServerPort))
+	fmt.Printf("Waiting for kube-apiserver on %s...\n", address)
+
+	var lastErr error
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for kube-apiserver on %s: %w", address, ctx.Err())
+		default:
+		}
+
+		conn, dialErr := c.shims.NetDialTimeout("tcp", address, dialTimeout)
+		if dialErr == nil {
+			_ = conn.Close()
+			fmt.Printf("kube-apiserver on %s is accepting connections\n", address)
+			return nil
+		}
+		lastErr = dialErr
+		fmt.Printf("kube-apiserver on %s not ready: %v\n", address, dialErr)
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for kube-apiserver on %s: %w", address, ctx.Err())
+		case <-time.After(c.healthCheckPollInterval):
+		}
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("timeout waiting for kube-apiserver on %s: %w", address, lastErr)
+	}
+	return fmt.Errorf("timeout waiting for kube-apiserver on %s", address)
+}
+
 // Close releases resources held by the TalosClusterClient.
 // It safely closes the underlying Talos gRPC client connection if one exists and sets
 // the client reference to nil to prevent further use. This method is safe to call
@@ -353,6 +420,26 @@ func (c *TalosClusterClient) getNodeHealthDetails(ctx context.Context, nodeAddre
 	}
 
 	return overallHealthy, healthyServices, unhealthyServices, nil
+}
+
+// isControlPlaneNode determines whether a node is a control-plane node by checking
+// whether the Talos ServiceList reports an etcd service. etcd runs only on control-plane
+// nodes, so its presence is a reliable role signal. Returns an error only if the
+// ServiceList API call fails.
+func (c *TalosClusterClient) isControlPlaneNode(ctx context.Context, nodeAddress string) (bool, error) {
+	nodeCtx := c.shims.TalosWithNodes(ctx, nodeAddress)
+	serviceResp, err := c.shims.TalosServiceList(nodeCtx, c.client)
+	if err != nil {
+		return false, err
+	}
+	for _, serviceList := range serviceResp.GetMessages() {
+		for _, service := range serviceList.GetServices() {
+			if service.GetId() == "etcd" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 // getNodeVersion gets the version of a single node.

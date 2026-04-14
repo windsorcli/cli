@@ -2807,6 +2807,13 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 			capturedVersion = expectedVersion
 			return nil
 		}
+		apiReadyCalled := false
+		var capturedAPIReadyNode string
+		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, nodeAddress string) error {
+			apiReadyCalled = true
+			capturedAPIReadyNode = nodeAddress
+			return nil
+		}
 		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
@@ -2824,11 +2831,36 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		if !rebootCalled {
 			t.Error("Expected WaitForNodesReboot to be called")
 		}
+		if !apiReadyCalled {
+			t.Error("Expected WaitForControlPlaneAPIReady to be called")
+		}
+		if capturedAPIReadyNode != "10.0.0.1" {
+			t.Errorf("Expected api-ready node 10.0.0.1, got %q", capturedAPIReadyNode)
+		}
 		if len(output) == 0 {
 			t.Error("Expected output messages, got none")
 		}
 		if capturedVersion != "1.7.0" {
 			t.Errorf("Expected version 1.7.0 passed to WaitForNodesReboot, got: %q", capturedVersion)
+		}
+	})
+
+	t.Run("APIReadyFails", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, nodeAddress string) error {
+			return fmt.Errorf("connection refused")
+		}
+
+		opts := &Provisioner{ClusterClient: mocks.ClusterClient}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		err := provisioner.UpgradeNode(context.Background(), "10.0.0.1", "img", 0, nil)
+
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "kube-apiserver readiness check failed") {
+			t.Errorf("Expected apiserver error, got: %v", err)
 		}
 	})
 

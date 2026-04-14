@@ -20,6 +20,7 @@ type MockClusterClient struct {
 	WaitForNodesHealthyFunc func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string) error
 	WaitForNodesRebootFunc  func(ctx context.Context, nodeAddresses []string, expectedVersion string, skipServices []string, offlineTimeout time.Duration) error
 	UpgradeNodesFunc        func(ctx context.Context, nodeAddresses []string, image string) error
+	WaitForControlPlaneAPIReadyFunc func(ctx context.Context, nodeAddress string) error
 	CloseFunc               func()
 }
 
@@ -56,6 +57,14 @@ func (m *MockClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresse
 func (m *MockClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
 	if m.UpgradeNodesFunc != nil {
 		return m.UpgradeNodesFunc(ctx, nodeAddresses, image)
+	}
+	return nil
+}
+
+// WaitForControlPlaneAPIReady calls the mock WaitForControlPlaneAPIReadyFunc if set, otherwise returns nil
+func (m *MockClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, nodeAddress string) error {
+	if m.WaitForControlPlaneAPIReadyFunc != nil {
+		return m.WaitForControlPlaneAPIReadyFunc(ctx, nodeAddress)
 	}
 	return nil
 }

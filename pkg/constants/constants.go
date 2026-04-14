@@ -145,6 +145,13 @@ const DefaultNodeUpgradeTimeout = 10 * time.Minute
 
 const DefaultNodeOfflineTimeout = 3 * time.Minute
 
+// DefaultAPIServerReadyTimeout caps how long UpgradeNode waits for the kube-apiserver
+// on a control-plane node to accept connections after a reboot.
+const DefaultAPIServerReadyTimeout = 5 * time.Minute
+
+// DefaultAPIServerPort is the standard Kubernetes API server port.
+const DefaultAPIServerPort = 6443
+
 const DefaultOCIBlueprintURL = "oci://ghcr.io/windsorcli/core:latest"
 
 // =============================================================================

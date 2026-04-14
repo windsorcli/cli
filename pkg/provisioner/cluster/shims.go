@@ -7,6 +7,8 @@ package cluster
 
 import (
 	"context"
+	"net"
+	"time"
 
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
 	"github.com/siderolabs/talos/pkg/machinery/client"
@@ -27,6 +29,9 @@ type Shims struct {
 	TalosServiceList func(ctx context.Context, client *client.Client) (*machine.ServiceListResponse, error)
 	TalosUpgrade     func(ctx context.Context, client *client.Client, image string) error
 	TalosClose       func(client *client.Client)
+
+	// Network operations
+	NetDialTimeout func(network, address string, timeout time.Duration) (net.Conn, error)
 }
 
 // =============================================================================
@@ -56,5 +61,6 @@ func NewShims() *Shims {
 		TalosClose: func(c *client.Client) {
 			_ = c.Close()
 		},
+		NetDialTimeout: net.DialTimeout,
 	}
 }
