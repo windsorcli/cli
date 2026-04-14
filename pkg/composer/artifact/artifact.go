@@ -170,6 +170,12 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 		return "", err
 	}
 
+	a.metadata.Name = finalName
+	a.metadata.Version = finalVersion
+	if err := a.refreshArtifactManifest(); err != nil {
+		return "", err
+	}
+
 	finalOutputPath := a.resolveOutputPath(outputPath, finalName, finalVersion)
 
 	err = a.createTarballToDisk(finalOutputPath, metadata)
@@ -178,8 +184,6 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 	}
 
 	a.tarballPath = finalOutputPath
-	a.metadata.Name = finalName
-	a.metadata.Version = finalVersion
 
 	return finalOutputPath, nil
 }
@@ -242,6 +246,12 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 
 	finalName, tagName, metadata, err := a.parseTagAndResolveMetadata(repoName, tag)
 	if err != nil {
+		return err
+	}
+
+	a.metadata.Name = finalName
+	a.metadata.Version = tagName
+	if err := a.refreshArtifactManifest(); err != nil {
 		return err
 	}
 
@@ -645,6 +655,18 @@ func ValidateCliVersion(cliVersion, constraint string) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// refreshArtifactManifest regenerates the artifact manifest using current metadata
+// and replaces the manifest entry in the bundled files. Called after metadata name
+// and version are resolved so Blueprint provenance reflects the final values rather
+// than the zero values present when Bundle() first wrote the manifest.
+func (a *ArtifactBuilder) refreshArtifactManifest() error {
+	manifestYAML, err := a.generateArtifactManifest()
+	if err != nil {
+		return fmt.Errorf("failed to generate artifact manifest: %w", err)
+	}
+	return a.addFile(ManifestFileName, manifestYAML, 0644)
+}
 
 // generateArtifactManifest scans every bundled file for Renovate annotations
 // and returns a YAML-encoded ArtifactManifest capturing the pinned artifacts.
