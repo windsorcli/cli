@@ -170,6 +170,12 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 		return "", err
 	}
 
+	a.metadata.Name = finalName
+	a.metadata.Version = finalVersion
+	if err := a.refreshArtifactManifest(); err != nil {
+		return "", err
+	}
+
 	finalOutputPath := a.resolveOutputPath(outputPath, finalName, finalVersion)
 
 	err = a.createTarballToDisk(finalOutputPath, metadata)
@@ -178,8 +184,6 @@ func (a *ArtifactBuilder) Write(outputPath string, tag string) (string, error) {
 	}
 
 	a.tarballPath = finalOutputPath
-	a.metadata.Name = finalName
-	a.metadata.Version = finalVersion
 
 	return finalOutputPath, nil
 }
@@ -242,6 +246,12 @@ func (a *ArtifactBuilder) Push(registryBase string, repoName string, tag string)
 
 	finalName, tagName, metadata, err := a.parseTagAndResolveMetadata(repoName, tag)
 	if err != nil {
+		return err
+	}
+
+	a.metadata.Name = finalName
+	a.metadata.Version = tagName
+	if err := a.refreshArtifactManifest(); err != nil {
 		return err
 	}
 
@@ -444,7 +454,15 @@ func (a *ArtifactBuilder) Bundle() error {
 		},
 	}
 
-	return a.walkAndProcessFiles(processors)
+	if err := a.walkAndProcessFiles(processors); err != nil {
+		return err
+	}
+
+	manifestYAML, err := a.generateArtifactManifest()
+	if err != nil {
+		return fmt.Errorf("failed to generate artifact manifest: %w", err)
+	}
+	return a.addFile(ManifestFileName, manifestYAML, 0644)
 }
 
 // ExtractModulePath extracts a specific module path from a cached OCI artifact.
@@ -637,6 +655,41 @@ func ValidateCliVersion(cliVersion, constraint string) error {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// refreshArtifactManifest regenerates the artifact manifest using current metadata
+// and replaces the manifest entry in the bundled files. Called after metadata name
+// and version are resolved so Blueprint provenance reflects the final values rather
+// than the zero values present when Bundle() first wrote the manifest.
+func (a *ArtifactBuilder) refreshArtifactManifest() error {
+	manifestYAML, err := a.generateArtifactManifest()
+	if err != nil {
+		return fmt.Errorf("failed to generate artifact manifest: %w", err)
+	}
+	return a.addFile(ManifestFileName, manifestYAML, 0644)
+}
+
+// generateArtifactManifest scans every bundled file for Renovate annotations
+// and returns a YAML-encoded ArtifactManifest capturing the pinned artifacts.
+// Only kustomize and terraform sources are scanned, since those are the paths
+// where blueprint authors declare external dependencies.
+func (a *ArtifactBuilder) generateArtifactManifest() ([]byte, error) {
+	entries := make([]ManifestEntry, 0)
+	for path, info := range a.files {
+		if !isScannablePath(path) {
+			continue
+		}
+		entries = append(entries, scanRenovateAnnotations(path, info.Content)...)
+	}
+	sortManifestEntries(entries)
+	entries = dedupeManifestEntries(entries)
+
+	manifest := ArtifactManifest{
+		Version:   ManifestVersion,
+		Blueprint: Provenance{Name: a.metadata.Name, Version: a.metadata.Version},
+		Artifacts: entries,
+	}
+	return a.shims.YamlMarshal(&manifest)
+}
 
 // walkAndProcessFiles traverses the "contexts", "kustomize", and "terraform" directories and processes
 // all files found using the provided list of PathProcessors. For each file, the method identifies the
@@ -857,10 +910,13 @@ func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
 	tarWriter := a.shims.NewTarWriter(gzipWriter)
 	defer tarWriter.Close()
 
+	now := time.Now().UTC()
+
 	metadataHeader := &tar.Header{
-		Name: "metadata.yaml",
-		Mode: 0644,
-		Size: int64(len(metadata)),
+		Name:    "metadata.yaml",
+		Mode:    0644,
+		Size:    int64(len(metadata)),
+		ModTime: now,
 	}
 
 	if err := tarWriter.WriteHeader(metadataHeader); err != nil {
@@ -877,9 +933,10 @@ func (a *ArtifactBuilder) createTarball(w io.Writer, metadata []byte) error {
 		}
 
 		header := &tar.Header{
-			Name: path,
-			Mode: int64(fileInfo.Mode),
-			Size: int64(len(fileInfo.Content)),
+			Name:    path,
+			Mode:    int64(fileInfo.Mode),
+			Size:    int64(len(fileInfo.Content)),
+			ModTime: now,
 		}
 
 		if err := tarWriter.WriteHeader(header); err != nil {

@@ -1,0 +1,17 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: system-pki
+spec:
+  chart:
+    spec:
+      chart: cert-manager
+      # renovate: datasource=helm depName=cert-manager helmRepo=https://charts.jetstack.io
+      version: 1.20.1
+  values:
+    image:
+      repository: quay.io/jetstack/cert-manager-controller
+      # renovate: datasource=docker depName=quay.io/jetstack/cert-manager-controller
+      tag: v1.20.1@sha256:9f9556b4b131554694c67c8229d231b1f7d69b882b5f061a56bafa465f3b22fc
