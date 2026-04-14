@@ -51,7 +51,6 @@ type renovateAnnotation struct {
 	pkg        string
 	helmRepo   string
 	file       string
-	line       int
 }
 
 // =============================================================================
@@ -71,7 +70,7 @@ func scanRenovateAnnotations(filePath string, content []byte) []ManifestEntry {
 		if match == nil {
 			continue
 		}
-		annotation := parseRenovateAnnotation(match[1], filePath, i+1)
+		annotation := parseRenovateAnnotation(match[1], filePath)
 		if annotation.datasource == "" {
 			continue
 		}
@@ -141,8 +140,8 @@ func sortManifestEntries(entries []ManifestEntry) {
 // parseRenovateAnnotation extracts recognized key=value pairs from the body of
 // a Renovate comment. Unknown keys are ignored so future Renovate extensions
 // do not break scanning.
-func parseRenovateAnnotation(body, filePath string, lineNum int) renovateAnnotation {
-	a := renovateAnnotation{file: filePath, line: lineNum}
+func parseRenovateAnnotation(body, filePath string) renovateAnnotation {
+	a := renovateAnnotation{file: filePath}
 	for _, kv := range renovateKeyValuePattern.FindAllStringSubmatch(body, -1) {
 		switch kv[1] {
 		case "datasource":
