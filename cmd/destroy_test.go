@@ -196,7 +196,7 @@ func TestConfirmDestroy(t *testing.T) {
 
 func TestDestroyCmd(t *testing.T) {
 	createTestDestroyCmd := func() *cobra.Command {
-		destroyForce = false
+		destroyConfirm = ""
 		cmd := &cobra.Command{
 			Use:  "destroy",
 			RunE: destroyCmd.RunE,
@@ -218,14 +218,14 @@ func TestDestroyCmd(t *testing.T) {
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
-	t.Run("SuccessDestroyAllWithForce", func(t *testing.T) {
-		// Given a destroy command with --force and no arguments
+	t.Run("SuccessDestroyAllWithConfirmFlag", func(t *testing.T) {
+		// Given --confirm matches the context name, destroy all proceeds without a prompt.
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
 		cmd := createTestDestroyCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force"})
+		cmd.SetArgs([]string{"--confirm=test-context"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -234,8 +234,27 @@ func TestDestroyCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorDestroyAllWithMismatchedConfirmFlag", func(t *testing.T) {
+		// Given --confirm does not match the context name, destroy must refuse.
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=wrong-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected confirmation error, got nil")
+		}
+		if !strings.Contains(err.Error(), "confirmation failed") {
+			t.Errorf("Expected confirmation failed error, got: %v", err)
+		}
+	})
+
 	t.Run("SuccessDestroyAllWithConfirmation", func(t *testing.T) {
-		// Given a destroy command with correct confirmation input
+		// Given correct interactive confirmation input.
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
@@ -251,7 +270,7 @@ func TestDestroyCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorDestroyAllWrongConfirmation", func(t *testing.T) {
-		// Given a destroy command with wrong confirmation input
+		// Given wrong interactive confirmation input.
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
@@ -269,14 +288,14 @@ func TestDestroyCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessDestroyComponentWithForce", func(t *testing.T) {
-		// Given a blueprint with a terraform component named "cluster"
+	t.Run("SuccessDestroyComponentWithConfirmFlag", func(t *testing.T) {
+		// Given --confirm matches the component name.
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
 		cmd := createTestDestroyCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force", "cluster"})
+		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -285,8 +304,26 @@ func TestDestroyCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorDestroyComponentWithMismatchedConfirmFlag", func(t *testing.T) {
+		// Given --confirm does not match the component name.
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=other", "cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected confirmation error, got nil")
+		}
+		if !strings.Contains(err.Error(), "confirmation failed") {
+			t.Errorf("Expected confirmation failed error, got: %v", err)
+		}
+	})
+
 	t.Run("SuccessDestroyComponentWithConfirmation", func(t *testing.T) {
-		// Given correct component name typed as confirmation
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
@@ -303,13 +340,12 @@ func TestDestroyCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorComponentNotFound", func(t *testing.T) {
-		// Given a component that does not exist in the blueprint
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
 		cmd := createTestDestroyCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force", "nonexistent"})
+		cmd.SetArgs([]string{"--confirm=nonexistent", "nonexistent"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -330,7 +366,7 @@ func TestDestroyCmd(t *testing.T) {
 
 		cmd := createTestDestroyCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force"})
+		cmd.SetArgs([]string{"--confirm=test-context"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -351,7 +387,7 @@ func TestDestroyCmd(t *testing.T) {
 
 		cmd := createTestDestroyCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force"})
+		cmd.SetArgs([]string{"--confirm=test-context"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -366,7 +402,7 @@ func TestDestroyCmd(t *testing.T) {
 
 func TestDestroyTerraformCmd(t *testing.T) {
 	createTestDestroyTerraformCmd := func() *cobra.Command {
-		destroyForce = false
+		destroyConfirm = ""
 		cmd := &cobra.Command{
 			Use:  "terraform",
 			RunE: destroyTerraformCmd.RunE,
@@ -388,13 +424,13 @@ func TestDestroyTerraformCmd(t *testing.T) {
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
-	t.Run("SuccessAllWithForce", func(t *testing.T) {
+	t.Run("SuccessAllWithConfirmFlag", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
 		cmd := createTestDestroyTerraformCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force"})
+		cmd.SetArgs([]string{"--confirm=test-context"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -418,13 +454,13 @@ func TestDestroyTerraformCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessSpecificWithForce", func(t *testing.T) {
+	t.Run("SuccessSpecificWithConfirmFlag", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
 		cmd := createTestDestroyTerraformCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force", "cluster"})
+		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -468,6 +504,24 @@ func TestDestroyTerraformCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorMismatchedConfirmFlag", func(t *testing.T) {
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=other", "cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected confirmation error, got nil")
+		}
+		if !strings.Contains(err.Error(), "confirmation failed") {
+			t.Errorf("Expected confirmation failed error, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
@@ -477,7 +531,7 @@ func TestDestroyTerraformCmd(t *testing.T) {
 
 		cmd := createTestDestroyTerraformCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force", "cluster"})
+		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -498,7 +552,7 @@ func TestDestroyTerraformCmd(t *testing.T) {
 
 		cmd := createTestDestroyTerraformCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force", "cluster"})
+		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -513,7 +567,7 @@ func TestDestroyTerraformCmd(t *testing.T) {
 
 func TestDestroyKustomizeCmd(t *testing.T) {
 	createTestDestroyKustomizeCmd := func() *cobra.Command {
-		destroyForce = false
+		destroyConfirm = ""
 		cmd := &cobra.Command{
 			Use:  "kustomize",
 			RunE: destroyKustomizeCmd.RunE,
@@ -535,13 +589,13 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
-	t.Run("SuccessAllWithForce", func(t *testing.T) {
+	t.Run("SuccessAllWithConfirmFlag", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
 		cmd := createTestDestroyKustomizeCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force"})
+		cmd.SetArgs([]string{"--confirm=test-context"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -565,13 +619,13 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessSpecificWithForce", func(t *testing.T) {
+	t.Run("SuccessSpecificWithConfirmFlag", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		proj := newDestroyProject(mocks)
 
 		cmd := createTestDestroyKustomizeCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force", "my-app"})
+		cmd.SetArgs([]string{"--confirm=my-app", "my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -615,6 +669,24 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorMismatchedConfirmFlag", func(t *testing.T) {
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=other", "my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected confirmation error, got nil")
+		}
+		if !strings.Contains(err.Error(), "confirmation failed") {
+			t.Errorf("Expected confirmation failed error, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorCheckingTrustedDirectory", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
@@ -624,7 +696,7 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 
 		cmd := createTestDestroyKustomizeCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force", "my-app"})
+		cmd.SetArgs([]string{"--confirm=my-app", "my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -645,7 +717,7 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 
 		cmd := createTestDestroyKustomizeCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--force", "my-app"})
+		cmd.SetArgs([]string{"--confirm=my-app", "my-app"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
