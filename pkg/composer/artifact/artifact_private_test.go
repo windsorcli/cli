@@ -19,6 +19,123 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/types"
 )
 
+func TestArtifactBuilder_generateArtifactManifest(t *testing.T) {
+	setup := func(t *testing.T) *ArtifactBuilder {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		builder.shims.YamlMarshal = yaml.Marshal
+		builder.shims.YamlUnmarshal = yaml.Unmarshal
+		return builder
+	}
+
+	t.Run("EmptyFileSet_ProducesManifestWithNoArtifacts", func(t *testing.T) {
+		// Given a builder whose bundle has accumulated no files
+		builder := setup(t)
+
+		// When the manifest is generated
+		data, err := builder.generateArtifactManifest()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the manifest carries the current schema version and an empty
+		// artifact list rather than omitting the key
+		var m ArtifactManifest
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if m.Version != ManifestVersion {
+			t.Errorf("Version: got %q, want %q", m.Version, ManifestVersion)
+		}
+		if len(m.Artifacts) != 0 {
+			t.Errorf("Artifacts: got %d, want 0", len(m.Artifacts))
+		}
+	})
+
+	t.Run("MixedPaths_OnlyScansKustomizeAndTerraform", func(t *testing.T) {
+		// Given a bundle containing annotated YAML under kustomize/, a
+		// plain terraform file under terraform/, and a YAML sitting under
+		// _template/ that also carries a Renovate annotation
+		builder := setup(t)
+		builder.addFile(
+			"kustomize/helm-release.yaml",
+			[]byte("# renovate: datasource=helm depName=cilium helmRepo=https://helm.cilium.io\nversion: 1.16.3\n"),
+			0644,
+		)
+		builder.addFile(
+			"terraform/main.tf",
+			[]byte("# renovate: datasource=github-releases depName=flux package=fluxcd/flux2\ndefault = \"v2.3.0\"\n"),
+			0644,
+		)
+		builder.addFile(
+			"_template/metadata.yaml",
+			[]byte("# renovate: datasource=docker depName=shouldnotappear\ntag: v1.0.0\n"),
+			0644,
+		)
+
+		// When the manifest is generated
+		data, err := builder.generateArtifactManifest()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the _template path is excluded and only kustomize + terraform
+		// entries appear in the manifest
+		var m ArtifactManifest
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(m.Artifacts) != 2 {
+			t.Fatalf("Artifacts: got %d, want 2 (templates must be excluded)", len(m.Artifacts))
+		}
+		for _, a := range m.Artifacts {
+			if strings.HasPrefix(a.Source.File, "_template/") {
+				t.Errorf("unexpected _template entry in manifest: %+v", a)
+			}
+		}
+	})
+
+	t.Run("YamlMarshalFailure_ReturnsError", func(t *testing.T) {
+		// Given a builder whose YAML marshal shim fails
+		builder := setup(t)
+		builder.shims.YamlMarshal = func(any) ([]byte, error) {
+			return nil, errors.New("boom")
+		}
+
+		// When the manifest is generated
+		_, err := builder.generateArtifactManifest()
+
+		// Then the marshal error is propagated
+		if err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Errorf("expected marshal error, got %v", err)
+		}
+	})
+
+	t.Run("MetadataProvenance_PopulatesBlueprintFields", func(t *testing.T) {
+		// Given a builder whose metadata carries a blueprint name and version
+		builder := setup(t)
+		builder.metadata.Name = "testbp"
+		builder.metadata.Version = "v1.2.3"
+
+		// When the manifest is generated
+		data, err := builder.generateArtifactManifest()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the Provenance block reflects the builder's metadata
+		var m ArtifactManifest
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if m.Blueprint.Name != "testbp" || m.Blueprint.Version != "v1.2.3" {
+			t.Errorf("Blueprint: got %+v, want {testbp v1.2.3}", m.Blueprint)
+		}
+	})
+}
+
 func TestArtifactBuilder_resolveOutputPath(t *testing.T) {
 	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
 		t.Helper()

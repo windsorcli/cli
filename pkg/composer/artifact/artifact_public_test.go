@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-yaml"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -152,6 +153,15 @@ func (m *mockReference) Identifier() string         { return "" }
 func (m *mockReference) Name() string               { return "" }
 func (m *mockReference) String() string             { return "" }
 func (m *mockReference) Scope(action string) string { return "" }
+
+// useRealYAMLShims replaces the canned YAML marshal/unmarshal mocks with the
+// real implementations so tests whose assertions depend on faithful YAML
+// round-tripping (such as artifact-manifest generation) can operate on actual
+// serialized output.
+func useRealYAMLShims(shims *Shims) {
+	shims.YamlMarshal = yaml.Marshal
+	shims.YamlUnmarshal = yaml.Unmarshal
+}
 
 // setupDefaultShims creates shims with default test configurations
 func setupDefaultShims() *Shims {
@@ -634,6 +644,9 @@ description: A test project
 		builder, _ := setup(t)
 
 		builder.shims.YamlMarshal = func(data any) ([]byte, error) {
+			if _, ok := data.(*ArtifactManifest); ok {
+				return []byte("version: v1alpha1\nartifacts: []\n"), nil
+			}
 			return nil, fmt.Errorf("marshal error")
 		}
 
@@ -810,7 +823,7 @@ description: A test project
 		if err == nil {
 			t.Error("Expected error when file content write fails")
 		}
-		if !strings.Contains(err.Error(), "failed to write content for test.txt") {
+		if err == nil || !strings.Contains(err.Error(), "failed to write content for") {
 			t.Errorf("Expected file content error, got: %v", err)
 		}
 	})
@@ -2479,6 +2492,155 @@ func TestArtifactBuilder_Bundle(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to walk directory") {
 			t.Errorf("Expected walk error, got %v", err)
+		}
+	})
+}
+
+func TestArtifactBuilder_Bundle_EmitsArtifactManifest(t *testing.T) {
+	setup := func(t *testing.T) (*ArtifactBuilder, *ArtifactMocks) {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder, mocks
+	}
+
+	t.Run("BundleWithKustomizeAndTerraformAnnotations_WritesManifestFile", func(t *testing.T) {
+		// Given a builder whose kustomize and terraform sources contain
+		// Renovate annotations pinning both a helm chart and a docker image
+		builder, mocks := setup(t)
+		useRealYAMLShims(mocks.Shims)
+
+		kustomizeYAML := []byte(`  chart:
+    spec:
+      chart: longhorn
+      # renovate: datasource=helm depName=longhorn helmRepo=https://charts.longhorn.io
+      version: 1.11.1
+`)
+		terraformTF := []byte(`variable "cilium_version" {
+  # renovate: datasource=helm depName=cilium helmRepo=https://helm.cilium.io
+  default = "1.16.3"
+}
+`)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "kustomize" || name == "terraform" {
+				return &mockFileInfo{name: name, isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			switch root {
+			case "kustomize":
+				fn("kustomize", &mockFileInfo{name: "kustomize", isDir: true}, nil)
+				fn("kustomize/helm-release.yaml", &mockFileInfo{name: "helm-release.yaml", isDir: false}, nil)
+			case "terraform":
+				fn("terraform", &mockFileInfo{name: "terraform", isDir: true}, nil)
+				fn("terraform/variables.tf", &mockFileInfo{name: "variables.tf", isDir: false}, nil)
+			}
+			return nil
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			switch {
+			case strings.HasSuffix(name, "helm-release.yaml"):
+				return kustomizeYAML, nil
+			case strings.HasSuffix(name, "variables.tf"):
+				return terraformTF, nil
+			}
+			return nil, fmt.Errorf("unexpected read: %s", name)
+		}
+		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return filepath.Base(targpath), nil
+		}
+
+		// When bundling
+		if err := builder.Bundle(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then artifact-manifest.yaml is present in the bundle
+		info, ok := builder.files[ManifestFileName]
+		if !ok {
+			t.Fatalf("expected %q in bundle files", ManifestFileName)
+		}
+
+		// And its content parses back to a manifest containing both annotations
+		var manifest ArtifactManifest
+		if err := mocks.Shims.YamlUnmarshal(info.Content, &manifest); err != nil {
+			t.Fatalf("unmarshal manifest: %v", err)
+		}
+		if manifest.Version != ManifestVersion {
+			t.Errorf("manifest.Version: got %q", manifest.Version)
+		}
+		if len(manifest.Artifacts) != 2 {
+			t.Fatalf("artifacts: got %d, want 2", len(manifest.Artifacts))
+		}
+
+		// And each annotation produced the expected helm entry
+		foundCilium, foundLonghorn := false, false
+		for _, e := range manifest.Artifacts {
+			if e.Type != ArtifactTypeHelm {
+				t.Errorf("unexpected type %q for reference %q", e.Type, e.Reference)
+			}
+			switch e.Reference {
+			case "cilium":
+				foundCilium = true
+				if e.Version != "1.16.3" {
+					t.Errorf("cilium.Version: got %q", e.Version)
+				}
+			case "longhorn":
+				foundLonghorn = true
+				if e.Version != "1.11.1" {
+					t.Errorf("longhorn.Version: got %q", e.Version)
+				}
+			}
+		}
+		if !foundCilium || !foundLonghorn {
+			t.Errorf("expected both cilium and longhorn entries, got cilium=%v longhorn=%v", foundCilium, foundLonghorn)
+		}
+	})
+
+	t.Run("BundleWithNoAnnotations_WritesEmptyManifest", func(t *testing.T) {
+		// Given a builder whose sources contain no Renovate annotations
+		builder, mocks := setup(t)
+		useRealYAMLShims(mocks.Shims)
+
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "kustomize" {
+				return &mockFileInfo{name: "kustomize", isDir: true}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.Walk = func(root string, fn filepath.WalkFunc) error {
+			if root == "kustomize" {
+				fn("kustomize", &mockFileInfo{name: "kustomize", isDir: true}, nil)
+				fn("kustomize/plain.yaml", &mockFileInfo{name: "plain.yaml", isDir: false}, nil)
+			}
+			return nil
+		}
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			return []byte("apiVersion: v1\nkind: ConfigMap\n"), nil
+		}
+		mocks.Shims.FilepathRel = func(basepath, targpath string) (string, error) {
+			return filepath.Base(targpath), nil
+		}
+
+		// When bundling
+		if err := builder.Bundle(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the manifest is written with an empty artifacts list
+		info, ok := builder.files[ManifestFileName]
+		if !ok {
+			t.Fatalf("expected %q in bundle files", ManifestFileName)
+		}
+		var manifest ArtifactManifest
+		if err := mocks.Shims.YamlUnmarshal(info.Content, &manifest); err != nil {
+			t.Fatalf("unmarshal manifest: %v", err)
+		}
+		if len(manifest.Artifacts) != 0 {
+			t.Errorf("expected no artifacts, got %d", len(manifest.Artifacts))
 		}
 	})
 }
