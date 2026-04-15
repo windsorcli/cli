@@ -31,4 +31,25 @@ jobs:
             Then invoke the skill. Post the aggregated report as a single PR
             review comment. Also update the PR description with a summary and
             test plan via `gh pr edit ${{ github.event.pull_request.number }} --body`.
+
+            In addition, post a separate top-level PR comment (via
+            `gh pr comment ${{ github.event.pull_request.number }} --body`) with
+            a high-level summary in this exact format:
+
+              > [!NOTE]
+              > **{Low|Medium|High} Risk**
+              > {One-sentence risk rationale: what the change affects and why
+              > the chosen risk level is appropriate.}
+              >
+              > **Overview**
+              > {2-4 sentences describing what the PR does, the key
+              > structural/behavioral changes, and any notable test coverage
+              > or follow-ups.}
+
+            Pick the risk level based on blast radius: Low for isolated,
+            easily reversible changes; Medium for changes to shared
+            infra/CLI/workflows or anything that could break existing
+            automation; High for security, data-loss, or cross-cutting
+            changes. Keep the summary comment concise — it is separate from
+            the detailed review comment.
           claude_args: "--model claude-opus-4-6 --max-turns 15"
