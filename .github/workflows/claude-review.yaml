@@ -1,0 +1,33 @@
+name: Claude Code Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@39431830520a7ae6c0c572f11a7707e7043325e3 # v1.0.95
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Run the `review-pr` skill against this pull request.
+
+            Context adjustment: the skill is written for `git diff --staged`
+            (pre-commit use). In this CI context, stage the PR diff first so
+            the skill works unmodified:
+
+              git fetch origin ${{ github.base_ref }}
+              git diff origin/${{ github.base_ref }}...HEAD --name-only | xargs git add -N
+              git add -u
+
+            Then invoke the skill. Post the aggregated report as a single PR
+            review comment. Also update the PR description with a summary and
+            test plan via `gh pr edit ${{ github.event.pull_request.number }} --body`.
+          claude_args: "--model claude-opus-4-6 --max-turns 15"
