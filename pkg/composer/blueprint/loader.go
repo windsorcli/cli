@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/goccy/go-yaml"
+
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -56,6 +58,27 @@ func NewBlueprintLoader(rt *runtime.Runtime, artifactBuilder artifact.Artifact) 
 		shims:           NewShims(),
 		templateData:    make(map[string][]byte),
 	}
+}
+
+// =============================================================================
+// Public Functions
+// =============================================================================
+
+// LoadBlueprintFile reads and unmarshals a single blueprint.yaml at the given
+// path, returning the parsed Blueprint without running any composition or
+// processing pipeline. Callers that only need the raw Sources list (e.g.
+// `windsor mirror`) can use this instead of constructing a full
+// BlueprintLoader/BlueprintHandler.
+func LoadBlueprintFile(path string) (*blueprintv1alpha1.Blueprint, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- callers provide trusted paths
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	var bp blueprintv1alpha1.Blueprint
+	if err := yaml.Unmarshal(data, &bp); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+	}
+	return &bp, nil
 }
 
 // =============================================================================

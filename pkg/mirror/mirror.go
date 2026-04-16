@@ -53,11 +53,15 @@ type Report struct {
 // port (5000) used to expose the distribution registry container. Context
 // is recorded on the container as a `context` label for ownership tracking.
 // Concurrency caps the number of concurrent artifact copies; 0 falls back
-// to the package default.
+// to the package default. Target, when non-empty, points the mirror at an
+// existing OCI registry (e.g. "registry.local:5000" or "ghcr.io/me/cache")
+// instead of starting a local distribution container; HostPort and Context
+// are ignored in that mode.
 type Options struct {
 	HostPort    int
 	Context     string
 	Concurrency int
+	Target      string
 }
 
 // Mirror is the top-level orchestrator exposed by the package.
@@ -72,6 +76,8 @@ type Mirror struct {
 	localManifest *artifact.ArtifactManifest
 	concurrency   int
 	resolveSkips  []SkippedEntry
+	target        string
+	endpoint      string
 }
 
 // =============================================================================
@@ -92,15 +98,22 @@ func NewMirror(rt *runtime.Runtime, bp *blueprintv1alpha1.Blueprint, localManife
 	}
 
 	shims := NewShims()
-	cacheDir := filepath.Join(rt.ProjectRoot, ".windsor", "cache", "docker")
-	reg := NewRegistry(rt.Shell, shims, cacheDir, opts.HostPort, opts.Context)
 	m := &Mirror{
 		runtime:  rt,
 		shell:    rt.Shell,
 		shims:    shims,
-		registry: reg,
 		resolver: NewResolver(shims),
-		copier:   NewCopier(shims, fmt.Sprintf("localhost:%d", reg.hostPort)),
+	}
+	if target := normalizeTarget(opts.Target); target != "" {
+		m.target = target
+		m.endpoint = "https://" + target
+		m.copier = NewCopier(shims, target)
+	} else {
+		cacheDir := filepath.Join(rt.ProjectRoot, ".windsor", "cache", "docker")
+		reg := NewRegistry(rt.Shell, shims, cacheDir, opts.HostPort, opts.Context)
+		m.registry = reg
+		m.endpoint = reg.Endpoint()
+		m.copier = NewCopier(shims, fmt.Sprintf("localhost:%d", reg.hostPort))
 	}
 	m.seeds = extractBlueprintSeeds(bp)
 	m.localManifest = localManifest
@@ -125,15 +138,19 @@ func (m *Mirror) Run() (*Report, error) {
 		return nil, fmt.Errorf("no oci:// sources or local artifacts found — nothing to mirror")
 	}
 
-	if err := m.ensureCacheDir(); err != nil {
-		return nil, err
+	if m.registry != nil {
+		if err := m.ensureCacheDir(); err != nil {
+			return nil, err
+		}
 	}
 
 	var plan *CopyPlan
 	if err := tui.WithProgress("Mirroring artifacts", func() error {
-		tui.Update("starting registry")
-		if err := m.registry.EnsureRunning(); err != nil {
-			return fmt.Errorf("failed to ensure registry running: %w", err)
+		if m.registry != nil {
+			tui.Update("starting registry")
+			if err := m.registry.EnsureRunning(); err != nil {
+				return fmt.Errorf("failed to ensure registry running: %w", err)
+			}
 		}
 
 		m.resolver.OnStatus = func(s string) { tui.Update(s) }
@@ -150,7 +167,7 @@ func (m *Mirror) Run() (*Report, error) {
 	}
 
 	return &Report{
-		Endpoint:             m.registry.Endpoint(),
+		Endpoint:             m.endpoint,
 		MirroredBlueprints:   len(plan.Blueprints),
 		MirroredDockerImages: len(plan.DockerImages),
 		MirroredHelmCharts:   len(plan.HelmHTTPS) + len(plan.HelmOCI),
@@ -274,6 +291,20 @@ func (m *Mirror) ensureCacheDir() error {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// normalizeTarget strips any URL scheme and trailing slash from a user-supplied
+// target so it can be used directly as the destination authority by Copier.
+// Empty input yields empty output, signalling that no external target was set.
+func normalizeTarget(target string) string {
+	t := strings.TrimSpace(target)
+	if t == "" {
+		return ""
+	}
+	t = strings.TrimPrefix(t, "https://")
+	t = strings.TrimPrefix(t, "http://")
+	t = strings.TrimPrefix(t, "oci://")
+	return strings.TrimRight(t, "/")
+}
 
 // extractBlueprintSeeds returns the subset of Blueprint.Sources[].Url entries
 // that use the oci:// scheme. These form the roots of the recursive graph

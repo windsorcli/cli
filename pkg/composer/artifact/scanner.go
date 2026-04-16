@@ -1,6 +1,9 @@
 package artifact
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -51,6 +54,61 @@ type renovateAnnotation struct {
 	pkg        string
 	helmRepo   string
 	file       string
+}
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// ScanProject walks the `kustomize/` and `terraform/` directories under the
+// given project root for Renovate annotations and returns an ArtifactManifest
+// covering every docker image and helm chart declared in the local project.
+// Unlike Bundle-based scanning, this path is read-only and skips the full
+// artifact construction pipeline so callers (e.g. `windsor mirror`) can
+// discover local dependencies without composing blueprints or building tarballs.
+// Missing directories are treated as empty; .terraform caches are skipped.
+func ScanProject(projectRoot string) (*ArtifactManifest, error) {
+	entries := make([]ManifestEntry, 0)
+	for _, dir := range []string{"kustomize", "terraform"} {
+		root := filepath.Join(projectRoot, dir)
+		if _, err := os.Stat(root); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("failed to stat %s: %w", root, err)
+		}
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				if info.Name() == ".terraform" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, relErr := filepath.Rel(projectRoot, path)
+			if relErr != nil {
+				return relErr
+			}
+			rel = filepath.ToSlash(rel)
+			if !isScannablePath(rel) {
+				return nil
+			}
+			data, readErr := os.ReadFile(path) // #nosec G304 -- path is constrained to projectRoot kustomize/terraform subtrees
+			if readErr != nil {
+				return readErr
+			}
+			entries = append(entries, scanRenovateAnnotations(rel, data)...)
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan %s: %w", root, err)
+		}
+	}
+	sortManifestEntries(entries)
+	entries = dedupeManifestEntries(entries)
+	return &ArtifactManifest{Version: ManifestVersion, Artifacts: entries}, nil
 }
 
 // =============================================================================
