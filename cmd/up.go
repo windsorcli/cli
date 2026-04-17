@@ -49,10 +49,13 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
-		blueprint, err := proj.Up()
-		if err != nil {
+		if _, err := proj.Up(); err != nil {
 			return err
 		}
+
+		// Re-generate with deferred substitutions resolved now that terraform
+		// outputs are available from the Up step above.
+		blueprint := proj.Composer.BlueprintHandler.GenerateResolved()
 
 		if err := proj.Provisioner.Install(blueprint); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)

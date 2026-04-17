@@ -84,7 +84,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 	})
 
-	t.Run("CleansWorkstationManagedKeysFromExistingWhenNotOverwrite", func(t *testing.T) {
+	t.Run("LeavesExistingValuesUntouchedWhenNotOverwrite", func(t *testing.T) {
 		source := newValuesSource(NewShims(), nil, newPersistencePolicy())
 		projectRoot := t.TempDir()
 		contextName := "local"
@@ -98,7 +98,7 @@ func TestValuesSource_Save(t *testing.T) {
 		}
 
 		if err := source.Save(projectRoot, contextName, map[string]any{"cluster": map[string]any{"driver": "talos"}}, false, persistencePolicyInput{IsDevMode: true}); err != nil {
-			t.Fatalf("Expected no error cleaning existing values file, got %v", err)
+			t.Fatalf("Expected no error, got %v", err)
 		}
 
 		valuesPath := filepath.Join(contextDir, "values.yaml")
@@ -106,15 +106,8 @@ func TestValuesSource_Save(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected values.yaml to be readable, got %v", err)
 		}
-		valuesStr := string(content)
-		if contains(valuesStr, "platform:") {
-			t.Errorf("Expected platform to be removed during cleaning, got %s", valuesStr)
-		}
-		if contains(valuesStr, "workstation:") {
-			t.Errorf("Expected workstation to be removed during cleaning, got %s", valuesStr)
-		}
-		if contains(valuesStr, "provider:") {
-			t.Errorf("Expected provider to be removed during cleaning, got %s", valuesStr)
+		if string(content) != initial {
+			t.Errorf("Expected values.yaml to be unchanged, got %s", string(content))
 		}
 	})
 }

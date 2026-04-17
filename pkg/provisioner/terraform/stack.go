@@ -530,12 +530,8 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
 	applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
 	applyEnv := selectTerraformCommandEnv(terraformVars, false)
-	applyOutput, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...)
-	if err != nil {
+	if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
 		return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
-	}
-	if applyOutput != "" {
-		fmt.Fprint(os.Stdout, applyOutput)
 	}
 
 	_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())

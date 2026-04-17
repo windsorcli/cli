@@ -190,6 +190,24 @@ func TestApplyCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorUnexpectedArgs", func(t *testing.T) {
+		// Given a bare apply command with an unexpected positional argument
+		mocks := setupApplyTest(t)
+		proj := newApplyAllProject(mocks)
+
+		// When executing the apply command with a stray argument
+		cmd := createTestApplyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"workstation"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then an error should occur indicating no args are accepted
+		if err == nil {
+			t.Error("Expected error for unexpected argument, got nil")
+		}
+	})
+
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		// Given a blueprint handler that returns nil
 		mocks := setupApplyTest(t)

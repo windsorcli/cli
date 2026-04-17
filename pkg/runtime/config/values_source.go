@@ -95,39 +95,18 @@ func (s *valuesSource) Save(
 		valuesExists = true
 	}
 
-	if !valuesExists || overwrite {
-		partition := s.policy.Partition(data, input)
-		marshaled, err := s.shims.YamlMarshal(partition.Values)
-		if err != nil {
-			return fmt.Errorf("error marshalling values.yaml: %w", err)
-		}
-
-		if err := s.shims.WriteFile(valuesPath, marshaled, 0644); err != nil {
-			return fmt.Errorf("error writing values.yaml: %w", err)
-		}
-
+	if valuesExists && !overwrite {
 		return nil
 	}
 
-	fileData, err := s.shims.ReadFile(valuesPath)
+	partition := s.policy.Partition(data, input)
+	marshaled, err := s.shims.YamlMarshal(partition.Values)
 	if err != nil {
-		return nil
+		return fmt.Errorf("error marshalling values.yaml: %w", err)
 	}
 
-	var existing map[string]any
-	if err := s.shims.YamlUnmarshal(fileData, &existing); err != nil {
-		return nil
-	}
-
-	cleaned := s.policy.Partition(existing, input).Values
-	if len(cleaned) != len(existing) {
-		marshaled, err := s.shims.YamlMarshal(cleaned)
-		if err != nil {
-			return nil
-		}
-		if err := s.shims.WriteFile(valuesPath, marshaled, 0644); err != nil {
-			return fmt.Errorf("error writing cleaned values.yaml: %w", err)
-		}
+	if err := s.shims.WriteFile(valuesPath, marshaled, 0644); err != nil {
+		return fmt.Errorf("error writing values.yaml: %w", err)
 	}
 
 	return nil
