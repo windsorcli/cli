@@ -9,7 +9,7 @@
 #     - all
 registries:
   - type: standard
-    ref: v4.494.1 # renovate: depName=aquaproj/aqua-registry
+    ref: v4.495.0 # renovate: depName=aquaproj/aqua-registry
 packages:
 - name: siderolabs/talos@v1.12.6
 - name: siderolabs/omni/omnictl@v1.6.5
