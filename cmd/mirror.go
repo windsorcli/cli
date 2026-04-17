@@ -13,30 +13,36 @@ import (
 )
 
 var (
-	mirrorPort        int
 	mirrorConcurrency int
 	mirrorTarget      string
+	mirrorList        bool
 )
 
-// mirrorCmd hydrates a local distribution/distribution registry with every
-// OCI artifact referenced by the current project's blueprint graph.
+// mirrorCmd resolves the blueprint's transitive artifact graph and either
+// writes a Talos-compatible image cache to disk (default) or pushes to an
+// external OCI registry (--target).
 var mirrorCmd = &cobra.Command{
 	Use:   "mirror",
-	Short: "Hydrate a local OCI mirror registry with the blueprint's artifacts",
-	Long: `Hydrate a local OCI mirror registry with every artifact the current blueprint
-transitively depends on. This command starts a distribution/distribution
-container on localhost:5000, walks the blueprint's oci:// sources recursively,
-and copies each reachable blueprint artifact, docker image, and helm chart
-into the local registry. The registry's storage is bind-mounted from
-.windsor/cache/docker so mirrored content persists across invocations.
+	Short: "Build a Talos image cache or push artifacts to an OCI registry",
+	Long: `Build a Talos-compatible image cache from the current blueprint's artifact
+graph. The default output is a flat cache directory at .windsor/cache/image-cache
+containing blob/ and manifests/ trees that can be fed directly to the Talos
+imager (--image-cache flag) for air-gapped boot media.
 
-Cluster-side image references (e.g. docker.io/library/alpine:3.21) do not
-need to change — configure Talos registry mirrors with overridePath: true to
-redirect pulls through the local mirror.
+Alternatively, use --target to push artifacts to an existing OCI registry
+for environments with a pre-provisioned mirror.
+
+Use --list to output image refs (one per line) without downloading anything.
 
 Examples:
-  # Mirror every artifact for the current blueprint
-  windsor mirror`,
+  # Build Talos image cache (default)
+  windsor mirror
+
+  # Push to an external registry
+  windsor mirror --target registry.internal:5000
+
+  # Output image refs for external tooling
+  windsor mirror --list`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var rtOpts []*runtime.Runtime
@@ -61,25 +67,41 @@ Examples:
 			return fmt.Errorf("failed to scan project for local artifacts: %w", err)
 		}
 
-		target := mirrorTarget
-		if target == "" {
-			discovered, err := mirror.DiscoverTarget(rt.Shell, rt.ConfigHandler.GetContext())
+		m := mirror.NewMirror(rt, bp, localManifest, mirror.Options{
+			Concurrency: mirrorConcurrency,
+			Target:      mirrorTarget,
+		})
+
+		if mirrorList {
+			plan, err := m.Resolve()
 			if err != nil {
-				return fmt.Errorf("failed to discover workstation mirror: %w", err)
+				return fmt.Errorf("failed to resolve artifacts: %w", err)
 			}
-			target = discovered
+			for _, ref := range plan.Blueprints {
+				fmt.Println(ref)
+			}
+			for _, ref := range plan.DockerImages {
+				fmt.Println(ref)
+			}
+			for _, ref := range plan.HelmOCI {
+				fmt.Println(ref)
+			}
+			for _, h := range plan.HelmHTTPS {
+				fmt.Printf("%s:%s\n", h.ChartName, h.Version)
+			}
+			return nil
 		}
 
-		report, err := mirror.NewMirror(rt, bp, localManifest, mirror.Options{
-			HostPort:    mirrorPort,
-			Concurrency: mirrorConcurrency,
-			Target:      target,
-		}).Run()
+		report, err := m.Run()
 		if err != nil {
 			return fmt.Errorf("failed to mirror artifacts: %w", err)
 		}
 
-		fmt.Printf("Mirror ready at %s\n", report.Endpoint)
+		if mirrorTarget != "" {
+			fmt.Printf("Mirror ready at %s\n", report.Endpoint)
+		} else {
+			fmt.Printf("Image cache written to %s\n", report.Endpoint)
+		}
 		fmt.Printf("  Blueprints:    %d\n", report.MirroredBlueprints)
 		fmt.Printf("  Docker images: %d\n", report.MirroredDockerImages)
 		fmt.Printf("  Helm charts:   %d\n", report.MirroredHelmCharts)
@@ -95,8 +117,8 @@ Examples:
 }
 
 func init() {
-	mirrorCmd.Flags().IntVar(&mirrorPort, "port", 5000, "Host port to expose the local registry on (ignored when --target is set)")
 	mirrorCmd.Flags().IntVar(&mirrorConcurrency, "concurrency", 8, "Maximum number of artifacts copied in parallel")
-	mirrorCmd.Flags().StringVar(&mirrorTarget, "target", "", "Push to this OCI registry (host[:port][/path]) instead of starting a local mirror container")
+	mirrorCmd.Flags().StringVar(&mirrorTarget, "target", "", "Push to this OCI registry (host[:port][/path]) instead of writing a local image cache")
+	mirrorCmd.Flags().BoolVar(&mirrorList, "list", false, "Output image refs (one per line) without downloading")
 	rootCmd.AddCommand(mirrorCmd)
 }
