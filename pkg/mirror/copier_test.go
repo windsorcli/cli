@@ -164,12 +164,66 @@ func TestCopier_CopyHelmHTTPS(t *testing.T) {
 			Version:    "1.0.0",
 		})
 
-		// Then no error and the destination is under helm/<repo-host>/<chart>:<ver>
+		// Then no error and the destination is under charts/<chart>:<ver>
 		if err != nil {
 			t.Fatalf("CopyHelmHTTPS: %v", err)
 		}
-		if !strings.HasPrefix(wroteTo, "localhost:5000/helm/helm.example.com/widget") {
-			t.Errorf("unexpected dest %q", wroteTo)
+		if !strings.HasPrefix(wroteTo, "localhost:5000/charts/widget") {
+			t.Errorf("unexpected dest %q, want prefix localhost:5000/charts/widget", wroteTo)
+		}
+	})
+}
+
+func TestCopier_CopyHelmOCI(t *testing.T) {
+	t.Run("CopiesChartToFlatChartsPath", func(t *testing.T) {
+		// Given an OCI-hosted helm chart
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return name.ParseReference(ref, name.WeakValidation)
+		}
+		shims.RemoteGet = func(r name.Reference, opts ...remote.Option) (*remote.Descriptor, error) {
+			return nil, errors.New("not cached")
+		}
+		var copiedDst string
+		shims.CraneCopy = func(src, dst string) error {
+			copiedDst = dst
+			return nil
+		}
+
+		c := NewCopier(shims, "localhost:5000")
+
+		// When copying a helm OCI chart
+		if err := c.CopyHelmOCI("ghcr.io/cilium/charts/cilium:1.16.0"); err != nil {
+			t.Fatalf("CopyHelmOCI: %v", err)
+		}
+
+		// Then the destination uses the flat charts/<name>:<version> layout
+		if copiedDst != "localhost:5000/charts/cilium:1.16.0" {
+			t.Errorf("got %q, want localhost:5000/charts/cilium:1.16.0", copiedDst)
+		}
+	})
+
+	t.Run("SkipsWhenDestinationAlreadyHasChart", func(t *testing.T) {
+		// Given the destination already has the chart
+		shims := NewShims()
+		shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return name.ParseReference(ref, name.WeakValidation)
+		}
+		shims.RemoteGet = func(r name.Reference, opts ...remote.Option) (*remote.Descriptor, error) {
+			return &remote.Descriptor{}, nil
+		}
+		copyCalled := false
+		shims.CraneCopy = func(src, dst string) error {
+			copyCalled = true
+			return nil
+		}
+
+		c := NewCopier(shims, "localhost:5000")
+		if err := c.CopyHelmOCI("ghcr.io/cilium/charts/cilium:1.16.0"); err != nil {
+			t.Fatalf("CopyHelmOCI: %v", err)
+		}
+		if copyCalled {
+			t.Error("expected copy to be skipped when destination already has the chart")
 		}
 	})
 }

@@ -159,18 +159,6 @@ func TestHelm_buildHelmOCIImage(t *testing.T) {
 	})
 }
 
-func TestHelm_helmRepoHost(t *testing.T) {
-	t.Run("HTTPSStripped", func(t *testing.T) {
-		if got := helmRepoHost("https://helm.example.com/path"); got != "helm.example.com" {
-			t.Errorf("got %q", got)
-		}
-	})
-	t.Run("HTTPStripped", func(t *testing.T) {
-		if got := helmRepoHost("http://mirror:8080"); got != "mirror:8080" {
-			t.Errorf("got %q", got)
-		}
-	})
-}
 
 // =============================================================================
 // Test Helpers

@@ -11,20 +11,16 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
-	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/tui"
 	"golang.org/x/sync/errgroup"
 )
 
-// The Mirror orchestrates the end-to-end hydration of a local OCI mirror
-// registry from the current project's blueprint graph.
-// It provides an idempotent Run entrypoint that ensures the distribution/
-// distribution container is running, walks the transitive closure of
-// `oci://` blueprint sources, and mirrors every reachable blueprint
-// artifact, docker image, and helm chart into the local registry.
+// The Mirror orchestrates the end-to-end hydration of a Talos-compatible
+// image cache or an external OCI registry from the current project's blueprint
+// graph. It resolves the transitive closure of oci:// blueprint sources and
+// mirrors every reachable blueprint artifact, docker image, and helm chart.
 // Non-OCI manifest entries (github-release, git-tag) are collected for
-// reporting rather than failing the operation, since a Docker registry
-// cannot host them.
+// reporting rather than failing the operation.
 
 // =============================================================================
 // Constants
@@ -49,35 +45,27 @@ type Report struct {
 	Skipped              []SkippedEntry
 }
 
-// Options customise mirror behaviour. HostPort overrides the default host
-// port (5000) used to expose the distribution registry container. Context
-// is recorded on the container as a `context` label for ownership tracking.
-// Concurrency caps the number of concurrent artifact copies; 0 falls back
-// to the package default. Target, when non-empty, points the mirror at an
-// existing OCI registry (e.g. "registry.local:5000" or "ghcr.io/me/cache")
-// instead of starting a local distribution container; HostPort and Context
-// are ignored in that mode.
+// Options customise mirror behaviour. Concurrency caps the number of concurrent
+// artifact copies; 0 falls back to the package default. Target, when non-empty,
+// pushes artifacts to an existing OCI registry instead of writing to disk.
 type Options struct {
-	HostPort    int
-	Context     string
 	Concurrency int
 	Target      string
 }
 
 // Mirror is the top-level orchestrator exposed by the package.
 type Mirror struct {
-	runtime       *runtime.Runtime
-	shell         shell.Shell
-	shims         *Shims
-	registry      *Registry
-	resolver      *Resolver
-	copier        *Copier
-	seeds         []string
+	runtime      *runtime.Runtime
+	shims        *Shims
+	resolver     *Resolver
+	copier       *Copier
+	cacheWriter  *CacheWriter
+	seeds        []string
 	localManifest *artifact.ArtifactManifest
-	concurrency   int
-	resolveSkips  []SkippedEntry
-	target        string
-	endpoint      string
+	concurrency  int
+	resolveSkips []SkippedEntry
+	target       string
+	cacheDir     string
 }
 
 // =============================================================================
@@ -89,31 +77,27 @@ type Mirror struct {
 // sources; localManifest (when non-nil) contributes the current project's
 // own scanned docker and helm entries so base blueprints with no OCI
 // sources still hydrate their dependencies.
+//
+// When Target is set, artifacts are pushed to an external registry via Copier.
+// Otherwise, artifacts are written to a Talos-compatible image cache directory
+// at .windsor/cache/image-cache.
 func NewMirror(rt *runtime.Runtime, bp *blueprintv1alpha1.Blueprint, localManifest *artifact.ArtifactManifest, opts Options) *Mirror {
 	if rt == nil {
 		panic("runtime is required")
-	}
-	if rt.Shell == nil {
-		panic("shell is required on runtime")
 	}
 
 	shims := NewShims()
 	m := &Mirror{
 		runtime:  rt,
-		shell:    rt.Shell,
 		shims:    shims,
 		resolver: NewResolver(shims),
 	}
 	if target := normalizeTarget(opts.Target); target != "" {
 		m.target = target
-		m.endpoint = "https://" + target
 		m.copier = NewCopier(shims, target)
 	} else {
-		cacheDir := filepath.Join(rt.ProjectRoot, ".windsor", "cache", "docker")
-		reg := NewRegistry(rt.Shell, shims, cacheDir, opts.HostPort, opts.Context)
-		m.registry = reg
-		m.endpoint = reg.Endpoint()
-		m.copier = NewCopier(shims, fmt.Sprintf("localhost:%d", reg.hostPort))
+		m.cacheDir = filepath.Join(rt.ProjectRoot, ".windsor", "cache", "image-cache")
+		m.cacheWriter = NewCacheWriter(shims, m.cacheDir)
 	}
 	m.seeds = extractBlueprintSeeds(bp)
 	m.localManifest = localManifest
@@ -128,31 +112,17 @@ func NewMirror(rt *runtime.Runtime, bp *blueprintv1alpha1.Blueprint, localManife
 // Public Methods
 // =============================================================================
 
-// Run performs the full mirror hydration. It starts the local registry if
-// necessary, resolves the full artifact graph, then copies every OCI artifact
-// and helm chart into the local registry. The returned Report summarises the
-// counts of mirrored artifacts and any skipped entries.
+// Run performs the full mirror operation. It resolves the blueprint artifact
+// graph, then either writes to a Talos image cache directory or pushes to an
+// external registry. The returned Report summarises artifact counts and skips.
 func (m *Mirror) Run() (*Report, error) {
 	hasLocal := m.localManifest != nil && len(m.localManifest.Artifacts) > 0
 	if len(m.seeds) == 0 && !hasLocal {
 		return nil, fmt.Errorf("no oci:// sources or local artifacts found — nothing to mirror")
 	}
 
-	if m.registry != nil {
-		if err := m.ensureCacheDir(); err != nil {
-			return nil, err
-		}
-	}
-
 	var plan *CopyPlan
 	if err := tui.WithProgress("Mirroring artifacts", func() error {
-		if m.registry != nil {
-			tui.Update("starting registry")
-			if err := m.registry.EnsureRunning(); err != nil {
-				return fmt.Errorf("failed to ensure registry running: %w", err)
-			}
-		}
-
 		m.resolver.OnStatus = func(s string) { tui.Update(s) }
 		var rerr error
 		plan, rerr = m.resolver.Resolve(m.seeds)
@@ -166,14 +136,38 @@ func (m *Mirror) Run() (*Report, error) {
 		return nil, err
 	}
 
+	skippedExisting := int64(0)
+	endpoint := m.cacheDir
+	if m.copier != nil {
+		skippedExisting = m.copier.Skipped.Load()
+		endpoint = "https://" + m.target
+	} else if m.cacheWriter != nil {
+		skippedExisting = m.cacheWriter.Skipped.Load()
+	}
+
 	return &Report{
-		Endpoint:             m.endpoint,
+		Endpoint:             endpoint,
 		MirroredBlueprints:   len(plan.Blueprints),
 		MirroredDockerImages: len(plan.DockerImages),
 		MirroredHelmCharts:   len(plan.HelmHTTPS) + len(plan.HelmOCI),
-		SkippedExisting:      int(m.copier.Skipped.Load()),
+		SkippedExisting:      int(skippedExisting),
 		Skipped:              append(plan.Skipped, m.resolveSkips...),
 	}, nil
+}
+
+// Resolve returns the resolved copy plan without executing any copies.
+// Used by --list mode to output image refs.
+func (m *Mirror) Resolve() (*CopyPlan, error) {
+	hasLocal := m.localManifest != nil && len(m.localManifest.Artifacts) > 0
+	if len(m.seeds) == 0 && !hasLocal {
+		return nil, fmt.Errorf("no oci:// sources or local artifacts found — nothing to mirror")
+	}
+	plan, err := m.resolver.Resolve(m.seeds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve blueprint graph: %w", err)
+	}
+	m.resolver.IngestManifest(plan, m.localManifest)
+	return plan, nil
 }
 
 // =============================================================================
@@ -181,10 +175,8 @@ func (m *Mirror) Run() (*Report, error) {
 // =============================================================================
 
 // runCopyPlan executes every copy operation described by plan in parallel,
-// bounded by m.concurrency. A tracker of in-flight operations drives progress
-// updates so the spinner reflects the oldest still-running artifact — giving
-// the user a clear signal when a particular copy is hung instead of masking
-// it behind whichever goroutine most recently started.
+// bounded by m.concurrency. Progress updates show the most recently completed
+// artifact.
 func (m *Mirror) runCopyPlan(plan *CopyPlan) error {
 	total := len(plan.Blueprints) + len(plan.DockerImages) + len(plan.HelmOCI) + len(plan.HelmHTTPS)
 	if total == 0 {
@@ -192,41 +184,24 @@ func (m *Mirror) runCopyPlan(plan *CopyPlan) error {
 	}
 
 	var done atomic.Int64
-	var mu sync.Mutex
-	inFlight := map[int64]string{}
-	var seq atomic.Int64
+	var lastCompleted atomic.Value
 
 	render := func() {
-		mu.Lock()
-		defer mu.Unlock()
-		oldestID := int64(-1)
-		oldestRef := ""
-		for id, ref := range inFlight {
-			if oldestID == -1 || id < oldestID {
-				oldestID = id
-				oldestRef = ref
-			}
+		d := done.Load()
+		if last, ok := lastCompleted.Load().(string); ok && last != "" {
+			tui.Update(fmt.Sprintf("[%d/%d] %s", d, total, last))
+		} else {
+			tui.Update(fmt.Sprintf("[%d/%d]", d, total))
 		}
-		if oldestRef == "" {
-			tui.Update(fmt.Sprintf("[%d/%d] finishing", done.Load(), total))
-			return
-		}
-		tui.Update(fmt.Sprintf("[%d/%d] %d in flight, oldest: %s", done.Load(), total, len(inFlight), oldestRef))
 	}
 
-	enter := func(label, ref string) int64 {
-		id := seq.Add(1)
-		mu.Lock()
-		inFlight[id] = label + " " + ref
-		mu.Unlock()
+	enter := func(_, _ string) int64 {
 		render()
-		return id
+		return 0
 	}
-	leave := func(id int64) {
-		mu.Lock()
-		delete(inFlight, id)
-		mu.Unlock()
+	leave := func(_ int64, label, ref string) {
 		done.Add(1)
+		lastCompleted.Store(label + " " + ref)
 		render()
 	}
 
@@ -236,7 +211,7 @@ func (m *Mirror) runCopyPlan(plan *CopyPlan) error {
 	submit := func(label, ref string, op func() error) {
 		eg.Go(func() error {
 			id := enter(label, ref)
-			defer leave(id)
+			defer leave(id, label, ref)
 			if err := op(); err != nil {
 				return fmt.Errorf("%s %s: %w", label, ref, err)
 			}
@@ -244,6 +219,18 @@ func (m *Mirror) runCopyPlan(plan *CopyPlan) error {
 		})
 	}
 
+	// Dispatch to either copier (--target) or cacheWriter (default)
+	if m.copier != nil {
+		m.submitCopierOps(submit, plan)
+	} else {
+		m.submitCacheOps(submit, plan)
+	}
+
+	return eg.Wait()
+}
+
+// submitCopierOps dispatches copy operations to the Copier (--target mode).
+func (m *Mirror) submitCopierOps(submit func(string, string, func() error), plan *CopyPlan) {
 	for _, ref := range plan.Blueprints {
 		r := ref
 		submit("blueprint", r, func() error { return m.copier.CopyOCI(r) })
@@ -254,7 +241,7 @@ func (m *Mirror) runCopyPlan(plan *CopyPlan) error {
 	}
 	for _, ref := range plan.HelmOCI {
 		r := ref
-		submit("helm-oci", r, func() error { return m.copier.CopyOCI(r) })
+		submit("helm-oci", r, func() error { return m.copier.CopyHelmOCI(r) })
 	}
 	var softSkipMu sync.Mutex
 	for _, h := range plan.HelmHTTPS {
@@ -274,18 +261,40 @@ func (m *Mirror) runCopyPlan(plan *CopyPlan) error {
 			return err
 		})
 	}
-
-	return eg.Wait()
 }
 
-// ensureCacheDir creates the host-side directory bind-mounted into the
-// distribution container so mirrored blobs persist across runs.
-func (m *Mirror) ensureCacheDir() error {
-	cacheDir := filepath.Join(m.runtime.ProjectRoot, ".windsor", "cache", "docker")
-	if _, err := m.shell.ExecSilent("mkdir", "-p", cacheDir); err != nil {
-		return fmt.Errorf("failed to create cache directory %s: %w", cacheDir, err)
+// submitCacheOps dispatches write operations to the CacheWriter (default mode).
+func (m *Mirror) submitCacheOps(submit func(string, string, func() error), plan *CopyPlan) {
+	for _, ref := range plan.Blueprints {
+		r := ref
+		submit("blueprint", r, func() error { return m.cacheWriter.WriteOCI(r) })
 	}
-	return nil
+	for _, ref := range plan.DockerImages {
+		r := ref
+		submit("image", r, func() error { return m.cacheWriter.WriteOCI(r) })
+	}
+	for _, ref := range plan.HelmOCI {
+		r := ref
+		submit("helm-oci", r, func() error { return m.cacheWriter.WriteHelmOCI(r) })
+	}
+	var softSkipMu sync.Mutex
+	for _, h := range plan.HelmHTTPS {
+		he := h
+		submit("helm", he.ChartName+" "+he.Version, func() error {
+			err := m.cacheWriter.WriteHelmHTTPS(he)
+			if err != nil && strings.Contains(err.Error(), "not found in") {
+				softSkipMu.Lock()
+				m.resolveSkips = append(m.resolveSkips, SkippedEntry{
+					Reference: he.ChartName + " " + he.Version,
+					Type:      "helm",
+					Reason:    fmt.Sprintf("chart not found in %s (renovate depName likely mismatches chart name)", he.Repository),
+				})
+				softSkipMu.Unlock()
+				return nil
+			}
+			return err
+		})
+	}
 }
 
 // =============================================================================

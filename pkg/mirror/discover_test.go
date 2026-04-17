@@ -38,19 +38,15 @@ func TestDiscoverTarget(t *testing.T) {
 		}
 	})
 
-	t.Run("FallsBackToBridgeIPWhenPortUnpublished", func(t *testing.T) {
-		// Given a mirror container with no host port mapping but attached
-		// to a bridge network with IP 172.18.0.7
+	t.Run("ErrorsWhenPortUnpublished", func(t *testing.T) {
+		// Given a mirror container with no host port mapping
 		m := shell.NewMockShell()
 		m.ExecSilentFunc = func(cmd string, args ...string) (string, error) {
 			if cmd == "docker" && len(args) > 0 && args[0] == "ps" {
 				return "abc123\n", nil
 			}
 			if cmd == "docker" && len(args) > 0 && args[0] == "port" {
-				return "", nil
-			}
-			if cmd == "docker" && len(args) > 0 && args[0] == "inspect" {
-				return "172.18.0.7 \n", nil
+				return "", errors.New("no port")
 			}
 			return "", nil
 		}
@@ -58,12 +54,12 @@ func TestDiscoverTarget(t *testing.T) {
 		// When discovering
 		got, err := DiscoverTarget(m, "local")
 
-		// Then the bridge IP + internal port is returned
-		if err != nil {
-			t.Fatalf("DiscoverTarget: %v", err)
+		// Then an error is returned indicating the missing port mapping
+		if err == nil {
+			t.Fatal("expected error for unpublished port, got nil")
 		}
-		if got != "172.18.0.7:5000" {
-			t.Errorf("got %q, want 172.18.0.7:5000", got)
+		if got != "" {
+			t.Errorf("got %q, want empty", got)
 		}
 	})
 

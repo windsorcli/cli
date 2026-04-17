@@ -73,15 +73,51 @@ func (c *Copier) CopyOCI(srcRef string) error {
 	return nil
 }
 
+// CopyHelmOCI copies an OCI-hosted Helm chart into the destination registry
+// under a flat charts/<name>:<version> path. The chart name is the last path
+// segment of the source reference (e.g. ghcr.io/cilium/charts/cilium:1.16.0
+// becomes charts/cilium:1.16.0). This flat layout lets a single helm_registry
+// variable point at oci://<mirror>/charts for all charts.
+func (c *Copier) CopyHelmOCI(srcRef string) error {
+	src, err := c.shims.ParseReference(srcRef)
+	if err != nil {
+		return fmt.Errorf("parse source reference %s: %w", srcRef, err)
+	}
+
+	repo := src.Context().RepositoryStr()
+	chartName := repo
+	if idx := strings.LastIndex(repo, "/"); idx >= 0 {
+		chartName = repo[idx+1:]
+	}
+	identifier := src.Identifier()
+	dstRefStr := fmt.Sprintf("%s/charts/%s:%s", c.destHost, chartName, identifier)
+	if strings.HasPrefix(identifier, "sha256:") {
+		dstRefStr = fmt.Sprintf("%s/charts/%s@%s", c.destHost, chartName, identifier)
+	}
+	dstRef, err := c.shims.ParseReference(dstRefStr)
+	if err != nil {
+		return fmt.Errorf("parse dest reference %s: %w", dstRefStr, err)
+	}
+
+	if c.destAlreadyHas(dstRef) {
+		c.Skipped.Add(1)
+		return nil
+	}
+
+	if err := c.shims.CraneCopy(srcRef, dstRef.Name()); err != nil {
+		return fmt.Errorf("copy %s -> %s: %w", srcRef, dstRef.Name(), err)
+	}
+	return nil
+}
+
 // CopyHelmHTTPS pulls chartName at version from an HTTPS Helm repository,
 // wraps it as a canonical Helm OCI artifact, and writes it into the local
-// registry under helm/<repoHost>/<chart>:<version>. Provenance (.prov) is
-// included when the upstream publishes one. The push is skipped when the
-// destination already holds a manifest at the same tag, so reruns avoid
-// redundant chart downloads.
+// registry under charts/<chart>:<version>. Provenance (.prov) is included
+// when the upstream publishes one. The push is skipped when the destination
+// already holds a manifest at the same tag, so reruns avoid redundant chart
+// downloads.
 func (c *Copier) CopyHelmHTTPS(entry HelmHTTPSEntry) error {
-	repoHost := helmRepoHost(entry.Repository)
-	dstRefStr := fmt.Sprintf("%s/helm/%s/%s:%s", c.destHost, repoHost, entry.ChartName, entry.Version)
+	dstRefStr := fmt.Sprintf("%s/charts/%s:%s", c.destHost, entry.ChartName, entry.Version)
 	dstRef, err := c.shims.ParseReference(dstRefStr)
 	if err != nil {
 		return fmt.Errorf("parse dest reference %s: %w", dstRefStr, err)
@@ -170,17 +206,3 @@ func (c *Copier) writeImage(dst name.Reference, img v1.Image) error {
 	return nil
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
-// helmRepoHost extracts the host portion of an HTTPS Helm repository URL for
-// use as a namespace segment in the destination registry path.
-func helmRepoHost(repoURL string) string {
-	trimmed := strings.TrimPrefix(repoURL, "https://")
-	trimmed = strings.TrimPrefix(trimmed, "http://")
-	if idx := strings.Index(trimmed, "/"); idx >= 0 {
-		return trimmed[:idx]
-	}
-	return trimmed
-}

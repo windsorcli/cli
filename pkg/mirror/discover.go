@@ -58,25 +58,14 @@ func DiscoverTarget(sh shell.Shell, context string) (string, error) {
 	}
 	id := fields[0]
 
-	if port, err := sh.ExecSilent("docker", "port", id, registryInternalPort+"/tcp"); err == nil {
-		if ep := firstPublishedEndpoint(port); ep != "" {
-			return ep, nil
-		}
-	}
-
-	ip, err := sh.ExecSilent("docker", "inspect",
-		"--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}",
-		id,
-	)
+	port, err := sh.ExecSilent("docker", "port", id, registryInternalPort+"/tcp")
 	if err != nil {
-		return "", fmt.Errorf("inspect mirror container %s: %w", id, err)
+		return "", fmt.Errorf("mirror container %s has no published port for %s/tcp — add a host port mapping", id, registryInternalPort)
 	}
-	for _, addr := range strings.Fields(ip) {
-		if addr != "" {
-			return addr + ":" + registryInternalPort, nil
-		}
+	if ep := firstPublishedEndpoint(port); ep != "" {
+		return ep, nil
 	}
-	return "", nil
+	return "", fmt.Errorf("mirror container %s has no published port for %s/tcp — add a host port mapping", id, registryInternalPort)
 }
 
 // =============================================================================

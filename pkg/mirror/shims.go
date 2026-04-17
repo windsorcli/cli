@@ -3,6 +3,7 @@ package mirror
 import (
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -48,6 +49,10 @@ type Shims struct {
 	ConfigMediaType   func(img v1.Image, mt types.MediaType) v1.Image
 	Annotations       func(img v1.Image, anns map[string]string) v1.Image
 	CraneCopy         func(src, dst string) error
+	CraneManifest     func(ref string) ([]byte, error)
+	MkdirAll          func(path string, perm os.FileMode) error
+	WriteFile         func(name string, data []byte, perm os.FileMode) error
+	Stat              func(name string) (os.FileInfo, error)
 }
 
 // =============================================================================
@@ -101,5 +106,13 @@ func NewShims() *Shims {
 				}),
 			)
 		},
+		CraneManifest: func(ref string) ([]byte, error) {
+			return crane.Manifest(ref,
+				crane.WithAuthFromKeychain(authn.DefaultKeychain),
+			)
+		},
+		MkdirAll:  os.MkdirAll,
+		WriteFile: os.WriteFile,
+		Stat:      os.Stat,
 	}
 }
