@@ -201,16 +201,22 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	return h.composedBlueprint
 }
 
-// GenerateResolved returns the composed blueprint with deferred substitutions resolved.
-// This is the JIT entry point for consumers that need fully evaluated values (e.g. the
-// provisioner writing ConfigMaps to the cluster). Callers that only display the blueprint
-// (e.g. windsor show) should use Generate() instead to preserve deferred placeholders.
+// GenerateResolved returns a deep copy of the composed blueprint with deferred substitutions
+// resolved. This is the JIT entry point for consumers that need fully evaluated values (e.g.
+// the provisioner writing ConfigMaps to the cluster). The copy ensures the base composedBlueprint
+// is never mutated, so subsequent Generate() or GenerateResolved() calls start from the original
+// deferred expressions. Callers that only display the blueprint (e.g. windsor show) should use
+// Generate() instead to preserve deferred placeholders.
 func (h *BaseBlueprintHandler) GenerateResolved() *blueprintv1alpha1.Blueprint {
 	bp := h.Generate()
-	if bp != nil {
-		h.resolveDeferredSubstitutions()
+	if bp == nil {
+		return nil
 	}
-	return bp
+	resolved := bp.DeepCopy()
+	h.composedBlueprint = resolved
+	h.resolveDeferredSubstitutions()
+	h.composedBlueprint = bp
+	return resolved
 }
 
 // GetDeferredPaths returns composed paths whose values were deferred during expression evaluation.
