@@ -259,7 +259,7 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() {
 
 	for name, configMap := range bp.ConfigMaps {
 		for key, value := range configMap {
-			if !deferred["substitutions."+key] {
+			if !deferred["configmaps."+name+"."+key] {
 				continue
 			}
 			if str := h.resolveDeferred(value); str != nil {
@@ -298,6 +298,33 @@ func (h *BaseBlueprintHandler) resolveDeferred(expr string) *string {
 		s = fmt.Sprintf("%v", resolved)
 	}
 	return &s
+}
+
+// deriveConfigMapDeferredPaths propagates deferred status to ConfigMap entries that inherited
+// values from deferred substitutions. The composer copies blueprint.Substitutions into
+// values-common and kustomization substitutions into per-kustomization ConfigMaps; this
+// method marks the corresponding "configmaps.<name>.<key>" paths as deferred so that
+// resolveDeferredSubstitutions and applyDeferredPathsToBlueprint handle them correctly.
+func (h *BaseBlueprintHandler) deriveConfigMapDeferredPaths() {
+	bp := h.composedBlueprint
+	if bp == nil || len(bp.ConfigMaps) == 0 {
+		return
+	}
+
+	h.deferredPathsMu.Lock()
+	defer h.deferredPathsMu.Unlock()
+
+	for name, configMap := range bp.ConfigMaps {
+		for key, value := range configMap {
+			if value != deferredPlaceholder {
+				continue
+			}
+			if h.deferredPaths == nil {
+				h.deferredPaths = make(map[string]bool)
+			}
+			h.deferredPaths["configmaps."+name+"."+key] = true
+		}
+	}
 }
 
 // getMergedTemplateData returns template file contents from all loaded blueprint sources merged
@@ -712,6 +739,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	if composeErr != nil {
 		return composeErr
 	}
+
+	h.deriveConfigMapDeferredPaths()
 
 	if h.runtime.Evaluator != nil {
 		for i := range h.composedBlueprint.TerraformComponents {
