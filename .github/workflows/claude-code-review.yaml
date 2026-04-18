@@ -10,6 +10,7 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: >-
       github.event.pull_request.user.type != 'Bot' &&
       !contains(github.event.pull_request.labels.*.name, 'dependencies')
@@ -17,42 +18,198 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+      - name: Fetch base ref
+        run: git fetch --depth=1 origin ${{ github.base_ref }}
       - uses: anthropics/claude-code-action@38ec876110f9fbf8b950c79f534430740c3ac009 # v1.0.101
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BEFORE_SHA: ${{ github.event.before }}
+          EVENT_ACTION: ${{ github.event.action }}
+          BASE_REF: ${{ github.base_ref }}
+          GH_REPO: ${{ github.repository }}
+          STICKY_MARKER: "<!-- claude-code-review:summary -->"
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
-            Run the `review-pr` skill against this pull request.
+            Run the `review-pr` skill against this pull request and publish
+            findings as a GitHub pull request review with **inline, line-anchored
+            comments** plus a single **sticky summary comment** that updates in
+            place on every run.
 
-            Context adjustment: the skill is written for `git diff --staged`
-            (pre-commit use). In this CI context, stage the PR diff first so
-            the skill works unmodified:
+            Scope strictly to the diff. Do NOT read files outside the changed
+            set unless flagging a specific, concrete concern. Skip style nits
+            and focus on correctness, security, and blast-radius issues.
 
-              git fetch origin ${{ github.base_ref }}
-              git diff origin/${{ github.base_ref }}...HEAD --name-only | xargs git add -N
+            ## Tone and format
+
+            Calm, specific, prose-first. No emojis. No bulleted laundry lists
+            in the summary. No "Test plan" checklists. Write in short
+            paragraphs. Readers should scan the summary in ~15 seconds and
+            know the shape of the change and the risk.
+
+            ## Step 1 — Determine the review scope (per-commit)
+
+            Only review what changed in this push, not the whole PR:
+
+              if [ "$EVENT_ACTION" = "synchronize" ] && [ -n "$PR_BEFORE_SHA" ] \
+                   && [ "$PR_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+                git fetch --depth=50 origin "$PR_BEFORE_SHA" || true
+                DIFF_BASE="$PR_BEFORE_SHA"
+              else
+                DIFF_BASE="origin/$BASE_REF"
+              fi
+              echo "DIFF_BASE=$DIFF_BASE" >> "$GITHUB_ENV" || true
+
+            Stage the scoped diff so the review-pr skill (which reads
+            `git diff --staged`) sees only the changes under review:
+
+              git diff "$DIFF_BASE"...HEAD --name-only | xargs -r git add -N
               git add -u
 
-            Then invoke the skill. Post the aggregated report as a single PR
-            review comment. Also update the PR description with a summary and
-            test plan via `gh pr edit ${{ github.event.pull_request.number }} --body`.
+            Collect each finding as `{path, line, side, body}`. `side` is
+            "RIGHT" for added/modified lines, "LEFT" for deleted lines.
+            `line` must appear in the PR's current diff against the base
+            (not the scoped diff) — otherwise the API rejects it. For
+            multi-line findings use `start_line` + `line` + `start_side`
+            + `side`.
 
-            In addition, post a separate top-level PR comment (via
-            `gh pr comment ${{ github.event.pull_request.number }} --body`) with
-            a high-level summary in this exact format:
+            ## Step 2 — Resolve stale inline comments from earlier runs
+
+            Before posting new comments, resolve threads whose concerns are
+            no longer present in the current HEAD. Query via GraphQL:
+
+              gh api graphql -f query='
+                query($owner:String!,$repo:String!,$num:Int!){
+                  repository(owner:$owner,name:$repo){
+                    pullRequest(number:$num){
+                      reviewThreads(first:100){
+                        nodes{
+                          id isResolved isOutdated
+                          comments(first:1){ nodes{ author{login} path line body } }
+                        }
+                      }
+                    }
+                  }
+                }' -F owner="${GH_REPO%/*}" -F repo="${GH_REPO#*/}" -F num="$PR_NUMBER" \
+                > /tmp/threads.json
+
+            For each unresolved thread authored by the bot (login ending in
+            `[bot]` or matching `github-actions`), resolve when:
+            - GitHub reports `isOutdated: true`
+            - The specific issue is no longer present at HEAD
+
+            Do NOT resolve threads where a human has replied. Resolve via:
+
+              gh api graphql -f query='
+                mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ id } } }' \
+                -F id="<threadId>"
+
+            ## Step 3 — Post inline comments as a single PR review
+
+            Post one review with all new findings. Use `event: "COMMENT"`.
+
+            Each inline comment body MUST follow this structure:
+
+              **{One-line title describing the problem}**
+
+              _{Low|Medium|High} Severity_ · `{path}:{line}`
+
+              {1-3 sentences of prose explaining what's wrong and the
+              concrete consequence. No bullet lists. If a fix is obvious,
+              weave it into the prose.}
+
+            Title: imperative or declarative, 4-10 words, no trailing
+            punctuation. Severity: Low for maintainability, Medium for
+            latent bugs, High for correctness/security/data-loss.
+
+            De-duplicate against existing unresolved threads — skip if a
+            new finding matches an existing open comment on the same
+            path/line with the same concern.
+
+            Post via:
+
+              gh api -X POST "repos/$GH_REPO/pulls/$PR_NUMBER/reviews" --input /tmp/review.json
+
+            If there are no new inline findings, skip this step.
+
+            ## Step 4 — Upsert the sticky summary into the PR description
+
+            The summary describes the **whole PR as it stands now**, not
+            just this push. Read `git diff origin/$BASE_REF...HEAD` for
+            context.
+
+            The summary lives in the **PR body**, not as a separate
+            comment. Preserve the author's prose; append/update only a
+            marked block delimited by `$STICKY_MARKER` and
+            `<!-- /claude-code-review:summary -->`.
+
+            The marked block shape:
 
               > [!NOTE]
+              >
               > **{Low|Medium|High} Risk**
-              > {One-sentence risk rationale: what the change affects and why
-              > the chosen risk level is appropriate.}
+              >
+              > {One sentence: what the change affects and why this risk
+              > level is appropriate.}
               >
               > **Overview**
-              > {2-4 sentences describing what the PR does, the key
-              > structural/behavioral changes, and any notable test coverage
-              > or follow-ups.}
+              >
+              > {2-3 sentences on what the PR does at the highest level.}
+              >
+              > {Optional second paragraph on notable behavioral or
+              > structural detail.}
+              >
+              > Reviewed by Claude for commit `<short SHA of PR_HEAD_SHA>`.
 
-            Pick the risk level based on blast radius: Low for isolated,
-            easily reversible changes; Medium for changes to shared
-            infra/CLI/workflows or anything that could break existing
-            automation; High for security, data-loss, or cross-cutting
-            changes. Keep the summary comment concise — it is separate from
-            the detailed review comment.
-          claude_args: "--model claude-opus-4-6 --max-turns 40"
+              <!-- /claude-code-review:summary -->
+
+            Hard rules: prose paragraphs only, no bullet lists, no file
+            enumerations, under ~150 words.
+
+            Risk level: Low for isolated, reversible changes; Medium for
+            shared infra/CLI/workflows or changes to defaults; High for
+            security, data-loss, or cross-cutting changes.
+
+            Upsert logic (preserve author prose, replace only the block):
+
+              gh pr view "$PR_NUMBER" --json body --jq .body > /tmp/pr-body.md
+
+              python3 - <<'PY'
+              import os, re, pathlib
+              marker = os.environ["STICKY_MARKER"]
+              end    = "<!-- /claude-code-review:summary -->"
+              body   = pathlib.Path("/tmp/pr-body.md").read_text()
+              block  = pathlib.Path("/tmp/summary-block.md").read_text().rstrip() + "\n"
+              pattern = re.compile(
+                  re.escape(marker) + r".*?" + re.escape(end) + r"\s*",
+                  re.DOTALL,
+              )
+              body = pattern.sub("", body).rstrip()
+              new  = (body + "\n\n" + block) if body else block
+              pathlib.Path("/tmp/pr-body.new.md").write_text(new)
+              PY
+
+              gh pr edit "$PR_NUMBER" --body-file /tmp/pr-body.new.md
+
+            Clean up any legacy sticky comment from earlier runs:
+
+              LEGACY_ID=$(gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+                --jq ".[] | select(.body | contains(\"$STICKY_MARKER\")) | .id" \
+                | head -n1)
+              if [ -n "$LEGACY_ID" ]; then
+                gh api -X DELETE "repos/$GH_REPO/issues/comments/$LEGACY_ID"
+              fi
+
+            ## Notes
+            - The PR body is the only summary surface. Do NOT post a
+              separate top-level conversation comment.
+            - Never overwrite the author's prose.
+            - Prefer fewer, higher-signal inline comments over many nits.
+            - If a finding cannot be line-anchored, include it in the
+              sticky summary instead.
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 50
+            --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh pr view:*),Bash(gh pr edit:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task scan:*),Bash(go vet:*),Write
+            --disallowedTools WebSearch,WebFetch
