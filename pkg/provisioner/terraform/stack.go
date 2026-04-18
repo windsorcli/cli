@@ -514,29 +514,29 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
-		return err
-	}
+	return tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+			return err
+		}
 
-	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
-	planArgs = append(planArgs, terraformArgs.PlanArgs...)
-	planEnv := selectTerraformCommandEnv(terraformVars, true)
-	_, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
-	if err != nil {
-		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
-	}
+		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+		planArgs = append(planArgs, terraformArgs.PlanArgs...)
+		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
+			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		}
 
-	applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
-	applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
-	applyEnv := selectTerraformCommandEnv(terraformVars, false)
-	if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
-		return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
-	}
+		applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
+		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
+		applyEnv := selectTerraformCommandEnv(terraformVars, false)
+		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
+			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
+		}
+		_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
 
-	_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
-
-	return nil
+		return nil
+	})
 }
 
 // Destroy runs terraform init, plan -destroy, and destroy for a single component identified by componentID.
