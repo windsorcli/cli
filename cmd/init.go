@@ -128,13 +128,6 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Load persisted config so the smart-default below can tell whether
-		// workstation.runtime is already configured in values.yaml.
-		if err := rt.ConfigHandler.LoadConfig(); err != nil {
-			return fmt.Errorf("failed to load configuration: %w", err)
-		}
-		applyLocalWorkstationDefault(rt, flagOverrides)
-
 		var projectOpts *project.Project
 		if composerOverrideVal := cmd.Context().Value(composerOverridesKey); composerOverrideVal != nil {
 			compOverride := composerOverrideVal.(*composer.Composer)

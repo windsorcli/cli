@@ -151,14 +151,19 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 // fallbackToGlobal resolves the global project root at $HOME/.config/windsor,
 // creating the directory if it does not exist, and marks the shell as operating
 // in global mode. The originalDir is returned as a best-effort fallback if the
-// home directory cannot be resolved.
+// home directory cannot be resolved or the global directory cannot be created;
+// in those degraded cases the originalDir is cached as the project root so
+// subsequent calls do not re-traverse the directory tree or re-attempt the
+// failing operation, and global mode is left unset to signal the degraded state.
 func (s *DefaultShell) fallbackToGlobal(originalDir string) (string, error) {
 	homeDir, err := s.shims.UserHomeDir()
 	if err != nil {
+		s.projectRoot = originalDir
 		return originalDir, nil
 	}
 	globalRoot := filepath.Join(homeDir, ".config", "windsor")
 	if err := s.shims.MkdirAll(globalRoot, 0750); err != nil {
+		s.projectRoot = originalDir
 		return originalDir, nil
 	}
 	s.projectRoot = globalRoot

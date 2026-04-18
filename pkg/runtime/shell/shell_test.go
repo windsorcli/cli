@@ -502,6 +502,92 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			t.Error("Expected IsGlobal() to be false when windsor.yaml is found")
 		}
 	})
+
+	t.Run("MkdirAllFailureCachesOriginalDirAndShortCircuitsSubsequentCalls", func(t *testing.T) {
+		// Given a shell that will fall back to global mode but MkdirAll fails
+		// (e.g. read-only filesystem or restrictive $HOME/.config permissions)
+		shell, mocks := setup(t)
+		originalDir := "/some/dir"
+		mocks.Shims.Getwd = func() (string, error) {
+			return originalDir, nil
+		}
+		statCalls := 0
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			statCalls++
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.UserHomeDir = func() (string, error) {
+			return "/home/user", nil
+		}
+		mkdirCalls := 0
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			mkdirCalls++
+			return fmt.Errorf("permission denied")
+		}
+
+		// When getting the project root twice
+		root1, err1 := shell.GetProjectRoot()
+		statCallsAfterFirst := statCalls
+		root2, err2 := shell.GetProjectRoot()
+
+		// Then both calls return the original dir without erroring
+		if err1 != nil {
+			t.Errorf("Expected no error on first call, got %v", err1)
+		}
+		if err2 != nil {
+			t.Errorf("Expected no error on second call, got %v", err2)
+		}
+		if root1 != originalDir || root2 != originalDir {
+			t.Errorf("Expected %s on both calls, got %s and %s", originalDir, root1, root2)
+		}
+		// And global mode should not be claimed in the degraded state
+		if shell.IsGlobal() {
+			t.Error("Expected IsGlobal() to be false when MkdirAll fails")
+		}
+		// And the second call should not re-traverse the directory tree
+		if statCalls != statCallsAfterFirst {
+			t.Errorf("Expected no additional Stat calls on second invocation, got %d additional", statCalls-statCallsAfterFirst)
+		}
+		// And the failing MkdirAll should not be re-attempted
+		if mkdirCalls != 1 {
+			t.Errorf("Expected MkdirAll to be called exactly once, got %d", mkdirCalls)
+		}
+	})
+
+	t.Run("UserHomeDirFailureCachesOriginalDirAndShortCircuitsSubsequentCalls", func(t *testing.T) {
+		// Given a shell where UserHomeDir fails during fallback
+		shell, mocks := setup(t)
+		originalDir := "/some/dir"
+		mocks.Shims.Getwd = func() (string, error) {
+			return originalDir, nil
+		}
+		statCalls := 0
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			statCalls++
+			return nil, os.ErrNotExist
+		}
+		homeDirCalls := 0
+		mocks.Shims.UserHomeDir = func() (string, error) {
+			homeDirCalls++
+			return "", fmt.Errorf("no home dir")
+		}
+
+		// When getting the project root twice
+		_, err1 := shell.GetProjectRoot()
+		statCallsAfterFirst := statCalls
+		_, err2 := shell.GetProjectRoot()
+
+		// Then neither call errors and the second short-circuits
+		if err1 != nil || err2 != nil {
+			t.Errorf("Expected no errors, got %v and %v", err1, err2)
+		}
+		if statCalls != statCallsAfterFirst {
+			t.Errorf("Expected no additional Stat calls on second invocation, got %d additional", statCalls-statCallsAfterFirst)
+		}
+		if homeDirCalls != 1 {
+			t.Errorf("Expected UserHomeDir to be called exactly once, got %d", homeDirCalls)
+		}
+	})
 }
 
 func TestShell_Exec(t *testing.T) {

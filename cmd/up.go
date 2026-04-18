@@ -37,19 +37,14 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		// Load persisted config so the smart-default below can tell whether
-		// workstation.runtime is already configured.
-		if err := proj.Runtime.ConfigHandler.LoadConfig(); err != nil {
-			return fmt.Errorf("failed to load configuration: %w", err)
-		}
-
-		// Build flag overrides and blueprint URL using init's rules so that
-		// `windsor up` and `windsor init` share identical bootstrap semantics.
+		// Build flag overrides using init's rules so that `windsor up` and
+		// `windsor init` share identical bootstrap semantics. Runtime.ResolveConfig
+		// applies OS-appropriate workstation.runtime defaults for dev contexts when
+		// no flag is given, so we don't re-implement that here.
 		flagOverrides, err := buildUpFlagOverrides()
 		if err != nil {
 			return err
 		}
-		applyLocalWorkstationDefault(proj.Runtime, flagOverrides)
 
 		if err := proj.Configure(flagOverrides); err != nil {
 			return err
