@@ -1190,6 +1190,49 @@ func TestHandler_Generate(t *testing.T) {
 	})
 }
 
+func TestHandler_GenerateResolved(t *testing.T) {
+	t.Run("DoesNotMutateComposedBlueprint", func(t *testing.T) {
+		// Given a handler with a deferred substitution
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Substitutions: map[string]string{
+				"MY_KEY": "<deferred>",
+			},
+		}
+		handler.deferredPaths = map[string]bool{
+			"substitutions.MY_KEY": true,
+		}
+
+		// When calling GenerateResolved
+		resolved := handler.GenerateResolved()
+
+		// Then the returned blueprint is a separate object
+		if resolved == handler.composedBlueprint {
+			t.Error("Expected GenerateResolved to return a deep copy, not the same pointer")
+		}
+
+		// And the original composedBlueprint retains the deferred placeholder
+		if handler.composedBlueprint.Substitutions["MY_KEY"] != "<deferred>" {
+			t.Errorf("Expected composedBlueprint to retain '<deferred>', got '%s'", handler.composedBlueprint.Substitutions["MY_KEY"])
+		}
+	})
+
+	t.Run("ReturnsNilWhenNoBlueprint", func(t *testing.T) {
+		// Given a handler with no composed blueprint
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+
+		// When calling GenerateResolved
+		result := handler.GenerateResolved()
+
+		// Then should return nil
+		if result != nil {
+			t.Error("Expected nil when no blueprint")
+		}
+	})
+}
+
 func TestHandler_getConfigValues(t *testing.T) {
 	t.Run("ReturnsNilWhenConfigHandlerNil", func(t *testing.T) {
 		// Given a handler with nil ConfigHandler
@@ -1931,6 +1974,73 @@ func TestHandler_processAndCompose(t *testing.T) {
 		}
 		if !setConfigScopeCalled {
 			t.Error("Expected SetConfigScope to be called when provider exists")
+		}
+	})
+}
+
+func TestHandler_deriveConfigMapDeferredPaths(t *testing.T) {
+	t.Run("MarksConfigMapEntriesContainingDeferredPlaceholder", func(t *testing.T) {
+		// Given a handler with a composed blueprint containing deferred ConfigMap values
+		handler := &BaseBlueprintHandler{
+			deferredPaths: map[string]bool{
+				"substitutions.MY_KEY": true,
+			},
+			composedBlueprint: &blueprintv1alpha1.Blueprint{
+				ConfigMaps: map[string]map[string]string{
+					"values-common": {
+						"MY_KEY":       "<deferred>",
+						"RESOLVED_KEY": "resolved-value",
+					},
+					"values-my-app": {
+						"APP_KEY": "<deferred>",
+					},
+				},
+			},
+		}
+
+		// When deriving ConfigMap deferred paths
+		handler.deriveConfigMapDeferredPaths()
+
+		// Then deferred entries are marked with the configmaps prefix
+		paths := handler.GetDeferredPaths()
+		if !paths["configmaps.values-common.MY_KEY"] {
+			t.Error("Expected configmaps.values-common.MY_KEY to be marked deferred")
+		}
+		if paths["configmaps.values-common.RESOLVED_KEY"] {
+			t.Error("Expected configmaps.values-common.RESOLVED_KEY not to be marked deferred")
+		}
+		if !paths["configmaps.values-my-app.APP_KEY"] {
+			t.Error("Expected configmaps.values-my-app.APP_KEY to be marked deferred")
+		}
+	})
+
+	t.Run("NoOpWhenNilBlueprint", func(t *testing.T) {
+		// Given a handler with no composed blueprint
+		handler := &BaseBlueprintHandler{}
+
+		// When deriving ConfigMap deferred paths
+		handler.deriveConfigMapDeferredPaths()
+
+		// Then no paths are added
+		paths := handler.GetDeferredPaths()
+		if len(paths) != 0 {
+			t.Errorf("Expected empty deferred paths, got %v", paths)
+		}
+	})
+
+	t.Run("NoOpWhenNoConfigMaps", func(t *testing.T) {
+		// Given a handler with a composed blueprint but no ConfigMaps
+		handler := &BaseBlueprintHandler{
+			composedBlueprint: &blueprintv1alpha1.Blueprint{},
+		}
+
+		// When deriving ConfigMap deferred paths
+		handler.deriveConfigMapDeferredPaths()
+
+		// Then no paths are added
+		paths := handler.GetDeferredPaths()
+		if len(paths) != 0 {
+			t.Errorf("Expected empty deferred paths, got %v", paths)
 		}
 	})
 }

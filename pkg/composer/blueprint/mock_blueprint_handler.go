@@ -11,6 +11,7 @@ type MockBlueprintHandler struct {
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateDataFunc   func() (map[string][]byte, error)
 	GenerateFunc               func() *blueprintv1alpha1.Blueprint
+	GenerateResolvedFunc       func() *blueprintv1alpha1.Blueprint
 	ExplainFunc                func(string) (*ExplainTrace, error)
 	GetDeferredPathsFunc       func() map[string]bool
 }
@@ -66,6 +67,14 @@ func (m *MockBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 		return m.GenerateFunc()
 	}
 	return nil
+}
+
+// GenerateResolved calls the mock GenerateResolvedFunc if set, otherwise falls back to Generate.
+func (m *MockBlueprintHandler) GenerateResolved() *blueprintv1alpha1.Blueprint {
+	if m.GenerateResolvedFunc != nil {
+		return m.GenerateResolvedFunc()
+	}
+	return m.Generate()
 }
 
 // Explain calls the mock ExplainFunc if set, otherwise returns nil.

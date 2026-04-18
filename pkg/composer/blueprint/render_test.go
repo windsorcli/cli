@@ -56,6 +56,31 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		}
 	})
 
+	t.Run("RewritesDeferredConfigMapEntryToPlaceholder", func(t *testing.T) {
+		// Given a blueprint with a deferred ConfigMap entry
+		bp := &blueprintv1alpha1.Blueprint{
+			ConfigMaps: map[string]map[string]string{
+				"values-common": {
+					"DEFERRED_KEY": "${terraform_output(\"x\")}",
+					"RESOLVED_KEY": "resolved-value",
+				},
+			},
+		}
+		deferredPaths := map[string]bool{"configmaps.values-common.DEFERRED_KEY": true}
+
+		// When rendering deferred placeholders
+		result := RenderDeferredPlaceholders(bp, false, deferredPaths)
+
+		// Then the deferred key becomes <deferred> and the resolved key is unchanged
+		got := result.(*blueprintv1alpha1.Blueprint)
+		if got.ConfigMaps["values-common"]["DEFERRED_KEY"] != deferredPlaceholder {
+			t.Errorf("Expected deferred ConfigMap entry to be '%s', got '%s'", deferredPlaceholder, got.ConfigMaps["values-common"]["DEFERRED_KEY"])
+		}
+		if got.ConfigMaps["values-common"]["RESOLVED_KEY"] != "resolved-value" {
+			t.Errorf("Expected resolved ConfigMap entry unchanged, got '%s'", got.ConfigMaps["values-common"]["RESOLVED_KEY"])
+		}
+	})
+
 	t.Run("DoesNotMutateOriginalBlueprint", func(t *testing.T) {
 		// Given a blueprint with a deferred substitution
 		bp := &blueprintv1alpha1.Blueprint{

@@ -1619,6 +1619,66 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
+	t.Run("DeferredConfigBlockValuePreservesExpressionInSubstitution", func(t *testing.T) {
+		// Given a config block with a deferred helper and a substitution that
+		// references the config block value. During composition the helper is
+		// deferred, so the config block stores the raw expression string in scope
+		// and the substitution is also marked as deferred for JIT resolution.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+
+		realEval := evaluator.NewExpressionEvaluator(mocks.ConfigHandler, mocks.Runtime.ProjectRoot, mocks.Runtime.ConfigRoot)
+		realEval.Register("deferred_helper", func(params []any, deferred bool) (any, error) {
+			if !deferred {
+				return nil, &evaluator.DeferredError{
+					Expression: fmt.Sprintf("deferred_helper(%q)", params[0]),
+					Message:    "deferred",
+				}
+			}
+			return "mirror.test", nil
+		}, new(func(string) any))
+
+		mocks.Evaluator.EvaluateFunc = realEval.Evaluate
+		mocks.Evaluator.EvaluateMapFunc = realEval.EvaluateMap
+
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test-facet"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{
+						Name: "mirror_effective",
+						Body: map[string]any{
+							"value": map[string]any{
+								"address": "${(deferred_helper('workstation') ?? 'mirror') + ':5000'}",
+							},
+						},
+					},
+				},
+				Substitutions: map[string]string{
+					"helm_registry": "${mirror_effective.address != '' ? 'oci://' + mirror_effective.address + '/charts' : ''}",
+				},
+			},
+		}
+
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+
+		// Then helm_registry should be marked as deferred for JIT resolution
+		helmReg := target.Substitutions["helm_registry"]
+		deferred := processor.GetDeferredPaths()
+		if !deferred["substitutions.helm_registry"] {
+			t.Errorf("Expected helm_registry to be marked as deferred, got deferred paths: %v (value: %q)", deferred, helmReg)
+		}
+	})
+}
+
 func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 	t.Run("CollectsStaticFacetSubstitutionsIntoTarget", func(t *testing.T) {
 		// Given a facet with top-level substitutions

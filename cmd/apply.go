@@ -13,6 +13,7 @@ var applyCmd = &cobra.Command{
 	Use:          "apply",
 	Short:        "Apply infrastructure changes",
 	Long:         "Apply infrastructure changes for Windsor environment components by running Terraform and installing the blueprint.",
+	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		proj, err := prepareProject(cmd)
@@ -28,6 +29,10 @@ var applyCmd = &cobra.Command{
 		if err := proj.Provisioner.Up(blueprint); err != nil {
 			return fmt.Errorf("error applying terraform: %w", err)
 		}
+
+		// Re-generate with deferred substitutions resolved now that terraform
+		// outputs are available from the Up step above.
+		blueprint = proj.Composer.BlueprintHandler.GenerateResolved()
 
 		if err := proj.Provisioner.Install(blueprint); err != nil {
 			return fmt.Errorf("error applying kustomize: %w", err)

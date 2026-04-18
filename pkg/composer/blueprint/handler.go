@@ -21,6 +21,7 @@ type BlueprintHandler interface {
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
+	GenerateResolved() *blueprintv1alpha1.Blueprint
 	Explain(path string) (*ExplainTrace, error)
 	GetDeferredPaths() map[string]bool
 }
@@ -42,6 +43,7 @@ type BaseBlueprintHandler struct {
 	sourceBlueprintLoaders map[string]BlueprintLoader
 	userBlueprintLoader    BlueprintLoader
 	composedBlueprint      *blueprintv1alpha1.Blueprint
+	composedScope          map[string]any
 	deferredPathsMu        sync.Mutex
 	deferredPaths          map[string]bool
 	traceCollector         TraceCollector
@@ -199,6 +201,24 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 	return h.composedBlueprint
 }
 
+// GenerateResolved returns a deep copy of the composed blueprint with deferred substitutions
+// resolved. This is the JIT entry point for consumers that need fully evaluated values (e.g.
+// the provisioner writing ConfigMaps to the cluster). The copy ensures the base composedBlueprint
+// is never mutated, so subsequent Generate() or GenerateResolved() calls start from the original
+// deferred expressions. Callers that only display the blueprint (e.g. windsor show) should use
+// Generate() instead to preserve deferred placeholders.
+func (h *BaseBlueprintHandler) GenerateResolved() *blueprintv1alpha1.Blueprint {
+	bp := h.Generate()
+	if bp == nil {
+		return nil
+	}
+	resolved := bp.DeepCopy()
+	h.composedBlueprint = resolved
+	h.resolveDeferredSubstitutions()
+	h.composedBlueprint = bp
+	return resolved
+}
+
 // GetDeferredPaths returns composed paths whose values were deferred during expression evaluation.
 func (h *BaseBlueprintHandler) GetDeferredPaths() map[string]bool {
 	h.deferredPathsMu.Lock()
@@ -216,6 +236,102 @@ func (h *BaseBlueprintHandler) GetDeferredPaths() map[string]bool {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// resolveDeferredSubstitutions re-evaluates deferred substitutions with evaluateDeferred=true
+// so that helpers like terraform_output() resolve using outputs available at generate time
+// (after terraform apply). Only substitutions marked as deferred during composition are
+// re-evaluated; already-resolved substitutions are left untouched. Covers global substitutions,
+// blueprint-level ConfigMaps, and per-kustomization substitutions.
+func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() {
+	if h.runtime == nil || h.runtime.Evaluator == nil || h.composedBlueprint == nil {
+		return
+	}
+
+	deferred := h.GetDeferredPaths()
+	if len(deferred) == 0 {
+		return
+	}
+
+	bp := h.composedBlueprint
+
+	for key, value := range bp.Substitutions {
+		if !deferred["substitutions."+key] {
+			continue
+		}
+		if str := h.resolveDeferred(value); str != nil {
+			bp.Substitutions[key] = *str
+		}
+	}
+
+	for name, configMap := range bp.ConfigMaps {
+		for key, value := range configMap {
+			if !deferred["configmaps."+name+"."+key] {
+				continue
+			}
+			if str := h.resolveDeferred(value); str != nil {
+				bp.ConfigMaps[name][key] = *str
+			}
+		}
+	}
+
+	for i := range bp.Kustomizations {
+		k := &bp.Kustomizations[i]
+		for key, value := range k.Substitutions {
+			if !deferred["kustomize."+k.Name+".substitutions."+key] {
+				continue
+			}
+			if str := h.resolveDeferred(value); str != nil {
+				k.Substitutions[key] = *str
+			}
+		}
+	}
+}
+
+// resolveDeferred evaluates a single expression with evaluateDeferred=true using the composed
+// scope. Returns a pointer to the resolved string, or nil if evaluation fails (leaving the
+// original value unchanged for the next Generate() call to retry).
+func (h *BaseBlueprintHandler) resolveDeferred(expr string) *string {
+	resolved, err := h.runtime.Evaluator.Evaluate(expr, "", h.composedScope, true)
+	if err != nil {
+		return nil
+	}
+	var s string
+	if resolved == nil {
+		s = ""
+	} else if str, ok := resolved.(string); ok {
+		s = str
+	} else {
+		s = fmt.Sprintf("%v", resolved)
+	}
+	return &s
+}
+
+// deriveConfigMapDeferredPaths propagates deferred status to ConfigMap entries that inherited
+// values from deferred substitutions. The composer copies blueprint.Substitutions into
+// values-common and kustomization substitutions into per-kustomization ConfigMaps; this
+// method marks the corresponding "configmaps.<name>.<key>" paths as deferred so that
+// resolveDeferredSubstitutions and applyDeferredPathsToBlueprint handle them correctly.
+func (h *BaseBlueprintHandler) deriveConfigMapDeferredPaths() {
+	bp := h.composedBlueprint
+	if bp == nil || len(bp.ConfigMaps) == 0 {
+		return
+	}
+
+	h.deferredPathsMu.Lock()
+	defer h.deferredPathsMu.Unlock()
+
+	for name, configMap := range bp.ConfigMaps {
+		for key, value := range configMap {
+			if value != deferredPlaceholder {
+				continue
+			}
+			if h.deferredPaths == nil {
+				h.deferredPaths = make(map[string]bool)
+			}
+			h.deferredPaths["configmaps."+name+"."+key] = true
+		}
+	}
+}
 
 // getMergedTemplateData returns template file contents from all loaded blueprint sources merged
 // into a single map. Used by the evaluator when resolving yaml() and similar file-based
@@ -620,6 +736,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	}
 	composedBp, composeErr := h.composer.Compose(loaders, initLoaderNames, userPath, mergedScope)
 	h.composedBlueprint = composedBp
+	h.composedScope = mergedScope
 
 	if h.traceCollector != nil {
 		h.traceCollector.Finalize(h.composedBlueprint, mergedScope, h.runtime.TemplateRoot)
@@ -628,6 +745,8 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 	if composeErr != nil {
 		return composeErr
 	}
+
+	h.deriveConfigMapDeferredPaths()
 
 	if h.runtime.Evaluator != nil {
 		for i := range h.composedBlueprint.TerraformComponents {
