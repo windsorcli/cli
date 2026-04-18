@@ -249,9 +249,10 @@ func (c *TalosClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddress
 // workers and the method returns nil immediately. For control-plane nodes, it polls
 // a TCP dial to the apiserver port until a connection succeeds or the context deadline
 // is reached. The per-dial timeout is half the health check poll interval so a slow
-// dial does not starve polling. Returns an error if the role cannot be determined or
+// dial does not starve polling. outputFunc, when non-nil, receives a status message
+// on each failed poll attempt. Returns an error if the role cannot be determined or
 // the apiserver does not become reachable in time.
-func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, nodeAddress string) error {
+func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, nodeAddress string, outputFunc func(string)) error {
 	if err := c.ensureClient(); err != nil {
 		return fmt.Errorf("failed to initialize Talos client: %w", err)
 	}
@@ -290,6 +291,9 @@ func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, no
 			return nil
 		}
 		lastErr = dialErr
+		if outputFunc != nil {
+			outputFunc(fmt.Sprintf("kube-apiserver on %s not ready, retrying...", address))
+		}
 
 		select {
 		case <-ctx.Done():

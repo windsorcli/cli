@@ -676,7 +676,7 @@ func (i *Provisioner) UpgradeNode(ctx context.Context, node string, image string
 	if outputFunc != nil {
 		outputFunc(fmt.Sprintf("Verifying kube-apiserver readiness on %s (skipped for workers)...", node))
 	}
-	if err := i.ClusterClient.WaitForControlPlaneAPIReady(ctx, node); err != nil {
+	if err := i.ClusterClient.WaitForControlPlaneAPIReady(ctx, node, outputFunc); err != nil {
 		return fmt.Errorf("kube-apiserver readiness check failed: %w", err)
 	}
 

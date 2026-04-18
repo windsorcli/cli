@@ -2809,7 +2809,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 		}
 		apiReadyCalled := false
 		var capturedAPIReadyNode string
-		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, nodeAddress string) error {
+		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, nodeAddress string, outputFunc func(string)) error {
 			apiReadyCalled = true
 			capturedAPIReadyNode = nodeAddress
 			return nil
@@ -2847,7 +2847,7 @@ func TestProvisioner_UpgradeNode(t *testing.T) {
 
 	t.Run("APIReadyFails", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, nodeAddress string) error {
+		mocks.ClusterClient.WaitForControlPlaneAPIReadyFunc = func(ctx context.Context, nodeAddress string, outputFunc func(string)) error {
 			return fmt.Errorf("connection refused")
 		}
 

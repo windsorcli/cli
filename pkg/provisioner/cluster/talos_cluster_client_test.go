@@ -1057,7 +1057,7 @@ func TestTalosClusterClient_WaitForControlPlaneAPIReady(t *testing.T) {
 		}
 
 		// When calling WaitForControlPlaneAPIReady
-		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1")
+		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1", nil)
 
 		// Then it returns nil without probing port 6443
 		if err != nil {
@@ -1090,7 +1090,7 @@ func TestTalosClusterClient_WaitForControlPlaneAPIReady(t *testing.T) {
 		}
 
 		// When calling WaitForControlPlaneAPIReady
-		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1")
+		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1", nil)
 
 		// Then it probes the apiserver port and returns nil
 		if err != nil {
@@ -1121,7 +1121,7 @@ func TestTalosClusterClient_WaitForControlPlaneAPIReady(t *testing.T) {
 		// When calling WaitForControlPlaneAPIReady with a short deadline
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		err := client.WaitForControlPlaneAPIReady(ctx, "10.0.0.1")
+		err := client.WaitForControlPlaneAPIReady(ctx, "10.0.0.1", nil)
 
 		// Then it returns a timeout error mentioning the apiserver address
 		if err == nil {
@@ -1146,7 +1146,7 @@ func TestTalosClusterClient_WaitForControlPlaneAPIReady(t *testing.T) {
 		}
 
 		// When calling WaitForControlPlaneAPIReady
-		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1")
+		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1", nil)
 
 		// Then it returns an error explaining the role check failed
 		if err == nil {
@@ -1162,7 +1162,7 @@ func TestTalosClusterClient_WaitForControlPlaneAPIReady(t *testing.T) {
 		client := setup(t)
 
 		// When calling WaitForControlPlaneAPIReady
-		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1")
+		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1", nil)
 
 		// Then it returns a client initialization error
 		if err == nil {
