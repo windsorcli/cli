@@ -26,8 +26,11 @@ import (
 // Constants
 // =============================================================================
 
-// maxFolderSearchDepth is the maximum depth to search for the project root
-const maxFolderSearchDepth = 10
+// MaxFolderSearchDepth is the maximum depth to search for the project root.
+// Exported so callers performing their own walk-up (e.g. ensureProjectAnchor in
+// cmd/init.go) can match the traversal bounds GetProjectRoot uses, preventing
+// divergence where one finds an ancestor windsor.yaml that the other misses.
+const MaxFolderSearchDepth = 10
 
 // SessionTokenPrefix is the prefix used for session token files
 const SessionTokenPrefix = ".session."
@@ -126,7 +129,7 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 	currentDir := originalDir
 	depth := 0
 	for {
-		if depth > maxFolderSearchDepth {
+		if depth > MaxFolderSearchDepth {
 			return s.fallbackToGlobal(originalDir)
 		}
 		windsorYaml := filepath.Join(currentDir, "windsor.yaml")

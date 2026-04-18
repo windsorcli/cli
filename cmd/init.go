@@ -10,6 +10,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
 // =============================================================================
@@ -177,7 +178,7 @@ func ensureProjectAnchor() error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 	dir := cwd
-	for i := 0; i <= 10; i++ {
+	for i := 0; i <= shell.MaxFolderSearchDepth; i++ {
 		if _, err := os.Stat(filepath.Join(dir, "windsor.yaml")); err == nil {
 			return nil
 		}
