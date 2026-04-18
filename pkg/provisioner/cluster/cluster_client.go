@@ -28,6 +28,14 @@ type ClusterClient interface {
 	// UpgradeNodes upgrades the specified nodes to the specified image
 	UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error
 
+	// WaitForControlPlaneAPIReady waits for the kube-apiserver on a control-plane node
+	// to accept TCP connections on port 6443. Returns nil immediately when the node is
+	// not a control-plane (i.e. no etcd service present). outputFunc, when non-nil,
+	// receives status messages during the polling loop. Returns an error if the node
+	// role cannot be determined or the apiserver does not become reachable before the
+	// context deadline.
+	WaitForControlPlaneAPIReady(ctx context.Context, nodeAddress string, outputFunc func(string)) error
+
 	// Close closes any open connections.
 	Close()
 }
@@ -75,4 +83,14 @@ func (c *BaseClusterClient) WaitForNodesReboot(ctx context.Context, nodeAddresse
 // Provider-specific implementations should override this to perform node upgrades.
 func (c *BaseClusterClient) UpgradeNodes(ctx context.Context, nodeAddresses []string, image string) error {
 	return fmt.Errorf("UpgradeNodes not implemented")
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// WaitForControlPlaneAPIReady is a stub that returns an error indicating the method
+// is not implemented. Provider-specific implementations should override this.
+func (c *BaseClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, nodeAddress string, outputFunc func(string)) error {
+	return fmt.Errorf("WaitForControlPlaneAPIReady not implemented")
 }
