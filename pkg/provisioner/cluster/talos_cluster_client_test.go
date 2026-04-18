@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -1033,6 +1034,157 @@ func TestTalosClusterClient_getNodeVersion(t *testing.T) {
 // Test Shims
 // =============================================================================
 
+func TestTalosClusterClient_WaitForControlPlaneAPIReady(t *testing.T) {
+	setup := func(t *testing.T) *TalosClusterClient {
+		t.Helper()
+		client := NewTalosClusterClient()
+		client.shims = setupDefaultShims()
+		client.healthCheckTimeout = 200 * time.Millisecond
+		client.healthCheckPollInterval = 10 * time.Millisecond
+		return client
+	}
+
+	t.Run("SkipsWhenNotControlPlane", func(t *testing.T) {
+		// Given a node whose service list has no etcd service
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		dialCalled := false
+		client.shims.NetDialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+			dialCalled = true
+			return nil, fmt.Errorf("should not dial")
+		}
+
+		// When calling WaitForControlPlaneAPIReady
+		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1", nil)
+
+		// Then it returns nil without probing port 6443
+		if err != nil {
+			t.Errorf("Expected no error for worker node, got %v", err)
+		}
+		if dialCalled {
+			t.Error("Expected NetDialTimeout not to be called for workers")
+		}
+	})
+
+	t.Run("SuccessForControlPlane", func(t *testing.T) {
+		// Given a node whose service list includes etcd and dial succeeds
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return &machine.ServiceListResponse{
+				Messages: []*machine.ServiceList{
+					{Services: []*machine.ServiceInfo{{Id: "etcd"}}},
+				},
+			}, nil
+		}
+		var dialedAddress string
+		client.shims.NetDialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+			dialedAddress = address
+			srv, cli := net.Pipe()
+			srv.Close()
+			return cli, nil
+		}
+
+		// When calling WaitForControlPlaneAPIReady
+		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1", nil)
+
+		// Then it probes the apiserver port and returns nil
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if dialedAddress != "10.0.0.1:6443" {
+			t.Errorf("Expected dial to 10.0.0.1:6443, got %q", dialedAddress)
+		}
+	})
+
+	t.Run("TimeoutWhenAPIServerUnreachable", func(t *testing.T) {
+		// Given a control-plane node whose apiserver port keeps refusing connections
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return &machine.ServiceListResponse{
+				Messages: []*machine.ServiceList{
+					{Services: []*machine.ServiceInfo{{Id: "etcd"}}},
+				},
+			}, nil
+		}
+		client.shims.NetDialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+
+		// When calling WaitForControlPlaneAPIReady with a short deadline
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		var output []string
+		err := client.WaitForControlPlaneAPIReady(ctx, "10.0.0.1", func(msg string) {
+			output = append(output, msg)
+		})
+
+		// Then it returns a timeout error mentioning the apiserver address
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "kube-apiserver") {
+			t.Errorf("Expected kube-apiserver error, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "10.0.0.1:6443") {
+			t.Errorf("Expected error to reference node:port, got %v", err)
+		}
+		if len(output) == 0 {
+			t.Error("Expected outputFunc to be called at least once during retry loop")
+		}
+		for _, msg := range output {
+			if !strings.Contains(msg, "10.0.0.1:6443") {
+				t.Errorf("Expected output message to contain address, got %q", msg)
+			}
+		}
+	})
+
+	t.Run("ServiceListError", func(t *testing.T) {
+		// Given a node whose role cannot be determined
+		client := setup(t)
+		os.Setenv("TALOSCONFIG", "/tmp/talosconfig")
+		defer os.Unsetenv("TALOSCONFIG")
+
+		client.shims.TalosServiceList = func(ctx context.Context, c *talosclient.Client) (*machine.ServiceListResponse, error) {
+			return nil, fmt.Errorf("api unreachable")
+		}
+
+		// When calling WaitForControlPlaneAPIReady
+		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1", nil)
+
+		// Then it returns an error explaining the role check failed
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "determine node role") {
+			t.Errorf("Expected role error, got %v", err)
+		}
+	})
+
+	t.Run("EnsureClientError", func(t *testing.T) {
+		// Given TALOSCONFIG is unset
+		client := setup(t)
+
+		// When calling WaitForControlPlaneAPIReady
+		err := client.WaitForControlPlaneAPIReady(context.Background(), "10.0.0.1", nil)
+
+		// Then it returns a client initialization error
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "TALOSCONFIG") {
+			t.Errorf("Expected TALOSCONFIG error, got %v", err)
+		}
+	})
+}
+
 func TestNewShims(t *testing.T) {
 	t.Run("InitializesAllFields", func(t *testing.T) {
 		shims := NewShims()
@@ -1063,6 +1215,10 @@ func TestNewShims(t *testing.T) {
 
 		if shims.TalosClose == nil {
 			t.Error("Expected TalosClose to be initialized")
+		}
+
+		if shims.NetDialTimeout == nil {
+			t.Error("Expected NetDialTimeout to be initialized")
 		}
 	})
 }
