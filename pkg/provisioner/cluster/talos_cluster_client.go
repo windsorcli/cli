@@ -261,7 +261,6 @@ func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, no
 		return fmt.Errorf("failed to determine node role for %s: %w", nodeAddress, err)
 	}
 	if !isControlPlane {
-		fmt.Printf("Node %s is not a control-plane, skipping kube-apiserver readiness check\n", nodeAddress)
 		return nil
 	}
 
@@ -276,7 +275,6 @@ func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, no
 	}
 
 	address := net.JoinHostPort(nodeAddress, fmt.Sprintf("%d", constants.DefaultAPIServerPort))
-	fmt.Printf("Waiting for kube-apiserver on %s...\n", address)
 
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -289,11 +287,9 @@ func (c *TalosClusterClient) WaitForControlPlaneAPIReady(ctx context.Context, no
 		conn, dialErr := c.shims.NetDialTimeout("tcp", address, dialTimeout)
 		if dialErr == nil {
 			_ = conn.Close()
-			fmt.Printf("kube-apiserver on %s is accepting connections\n", address)
 			return nil
 		}
 		lastErr = dialErr
-		fmt.Printf("kube-apiserver on %s not ready: %v\n", address, dialErr)
 
 		select {
 		case <-ctx.Done():
