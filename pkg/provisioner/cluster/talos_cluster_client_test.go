@@ -1121,7 +1121,10 @@ func TestTalosClusterClient_WaitForControlPlaneAPIReady(t *testing.T) {
 		// When calling WaitForControlPlaneAPIReady with a short deadline
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		err := client.WaitForControlPlaneAPIReady(ctx, "10.0.0.1", nil)
+		var output []string
+		err := client.WaitForControlPlaneAPIReady(ctx, "10.0.0.1", func(msg string) {
+			output = append(output, msg)
+		})
 
 		// Then it returns a timeout error mentioning the apiserver address
 		if err == nil {
@@ -1132,6 +1135,14 @@ func TestTalosClusterClient_WaitForControlPlaneAPIReady(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "10.0.0.1:6443") {
 			t.Errorf("Expected error to reference node:port, got %v", err)
+		}
+		if len(output) == 0 {
+			t.Error("Expected outputFunc to be called at least once during retry loop")
+		}
+		for _, msg := range output {
+			if !strings.Contains(msg, "10.0.0.1:6443") {
+				t.Errorf("Expected output message to contain address, got %q", msg)
+			}
 		}
 	})
 
