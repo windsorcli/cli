@@ -798,6 +798,35 @@ properties:
 			t.Errorf("Expected values.yaml write error, got %v", err)
 		}
 	})
+
+	t.Run("SkipsEnsureRootInGlobalMode", func(t *testing.T) {
+		handler, tmpDir := setupPrivateTestHandler(t)
+		// Swap in a global-mode shell pointing at the same tmp dir
+		globalShell := shell.NewMockShell()
+		globalShell.GetProjectRootFunc = func() (string, error) {
+			return tmpDir, nil
+		}
+		globalShell.IsGlobalFunc = func() bool {
+			return true
+		}
+		handler.shell = globalShell
+		handler.SetContext("test-context")
+		handler.Set("custom_dynamic_field", "dynamic_value")
+
+		if err := handler.SaveConfig(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		rootPath := filepath.Join(tmpDir, "windsor.yaml")
+		if _, err := os.Stat(rootPath); err == nil {
+			t.Errorf("Expected root windsor.yaml to NOT be created in global mode, but it exists at %s", rootPath)
+		}
+
+		valuesPath := filepath.Join(tmpDir, "contexts", "test-context", "values.yaml")
+		if _, err := os.Stat(valuesPath); err != nil {
+			t.Errorf("Expected values.yaml to still be written, got %v", err)
+		}
+	})
 }
 
 func TestConfigHandler_WorkstationStatePersistence(t *testing.T) {

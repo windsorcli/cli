@@ -272,8 +272,10 @@ func (c *configHandler) SaveConfig(overwrite ...bool) error {
 		return fmt.Errorf("error retrieving project root: %w", err)
 	}
 
-	if err := c.typed.EnsureRoot(projectRoot); err != nil {
-		return err
+	if !c.shell.IsGlobal() {
+		if err := c.typed.EnsureRoot(projectRoot); err != nil {
+			return err
+		}
 	}
 
 	if err := c.values.Save(

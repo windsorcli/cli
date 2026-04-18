@@ -33,6 +33,9 @@ var envCmd = &cobra.Command{
 		}
 
 		rt := runtime.NewRuntime(rtOpts...)
+		if hook && rt.Global {
+			return nil
+		}
 		if hook {
 			stderrNullFile, stderrNullErr := os.OpenFile(os.DevNull, os.O_WRONLY, 0600)
 			if stderrNullErr == nil {

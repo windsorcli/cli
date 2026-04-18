@@ -470,6 +470,72 @@ func TestRuntime_NewRuntime(t *testing.T) {
 			t.Error("Expected WindsorEnv to be set")
 		}
 	})
+
+	t.Run("PropagatesGlobalFromShell", func(t *testing.T) {
+		// Given a shell reporting global mode
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/home/user/.config/windsor", nil
+		}
+		mockShell.IsGlobalFunc = func() bool {
+			return true
+		}
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetContextFunc = func() string {
+			return "local"
+		}
+
+		// When NewRuntime is called
+		rt := NewRuntime(&Runtime{
+			Shell:         mockShell,
+			ConfigHandler: configHandler,
+		})
+
+		// Then Global should be true on the runtime
+		if !rt.Global {
+			t.Error("Expected rt.Global to be true when shell.IsGlobal() is true")
+		}
+	})
+
+	t.Run("GlobalFalseWhenShellIsNotGlobal", func(t *testing.T) {
+		// Given a shell not reporting global mode
+		mocks := setupRuntimeMocks(t)
+
+		// When NewRuntime has been called via setup
+		rt := mocks.Runtime
+
+		// Then Global should be false
+		if rt.Global {
+			t.Error("Expected rt.Global to be false when shell.IsGlobal() is false")
+		}
+	})
+
+	t.Run("GlobalOverrideIsHonored", func(t *testing.T) {
+		// Given an override setting Global to true even though shell is not global
+		mockShell := shell.NewMockShell()
+		mockShell.GetProjectRootFunc = func() (string, error) {
+			return "/some/project", nil
+		}
+		mockShell.IsGlobalFunc = func() bool {
+			return false
+		}
+		configHandler := config.NewMockConfigHandler()
+		configHandler.GetContextFunc = func() string {
+			return "local"
+		}
+
+		// When NewRuntime is called with Global override
+		rt := NewRuntime(&Runtime{
+			Shell:         mockShell,
+			ConfigHandler: configHandler,
+			Global:        true,
+		})
+
+		// Then Global should be true
+		if !rt.Global {
+			t.Error("Expected rt.Global to be true when override is set")
+		}
+	})
 }
 
 // =============================================================================

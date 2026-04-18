@@ -38,7 +38,10 @@ func NewShims() *Shims {
 		ReadFile:  os.ReadFile,
 		WriteFile: os.WriteFile,
 		ExecCommand: func(command string, args ...string) (string, string, error) {
-			cmd := exec.Command(command, args...) //nolint:gosec // G204: command is always "flux" or "kustomize", never user input
+			// command is always a compile-time literal "flux" or "kustomize"
+			// passed by pkg/provisioner/flux/stack.go; never user-controlled.
+			cmd := exec.Command(command, args...) // #nosec G204 G702
+
 			cmd.Env = append(os.Environ(), "NO_COLOR=1")
 			var stdoutBuf, stderrBuf bytes.Buffer
 			cmd.Stdout = &stdoutBuf

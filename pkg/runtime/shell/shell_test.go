@@ -354,7 +354,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		}
 	})
 
-	t.Run("MaxDepthExceeded", func(t *testing.T) {
+	t.Run("MaxDepthExceededFallsBackToGlobalRoot", func(t *testing.T) {
 		// Given a shell in a deep directory structure without windsor.yaml/yml
 		shell, mocks := setup(t)
 		originalDir := "/test/very/deep/directory/structure/without/config/file"
@@ -364,16 +364,142 @@ func TestShell_GetProjectRoot(t *testing.T) {
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		}
+		mocks.Shims.UserHomeDir = func() (string, error) {
+			return "/home/user", nil
+		}
 
 		// When getting the project root
 		root, err := shell.GetProjectRoot()
 
-		// Then it should return the original directory without error
+		// Then it should fall back to $HOME/.config/windsor in global mode
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		expected := filepath.Join("/home/user", ".config", "windsor")
+		if root != expected {
+			t.Errorf("Expected %s, got %s", expected, root)
+		}
+		if !shell.IsGlobal() {
+			t.Error("Expected IsGlobal() to be true when falling back")
+		}
+	})
+
+	t.Run("FallsBackToGlobalRootWhenFilesystemRootReached", func(t *testing.T) {
+		// Given a shell starting at filesystem root without windsor.yaml/yml
+		shell, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/", nil
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.UserHomeDir = func() (string, error) {
+			return "/home/user", nil
+		}
+
+		// When getting the project root
+		root, err := shell.GetProjectRoot()
+
+		// Then it should fall back to $HOME/.config/windsor in global mode
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		expected := filepath.Join("/home/user", ".config", "windsor")
+		if root != expected {
+			t.Errorf("Expected %s, got %s", expected, root)
+		}
+		if !shell.IsGlobal() {
+			t.Error("Expected IsGlobal() to be true when falling back")
+		}
+	})
+
+	t.Run("GlobalFallbackCreatesDirectory", func(t *testing.T) {
+		// Given a shell that will fall back to global mode
+		shell, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/", nil
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.UserHomeDir = func() (string, error) {
+			return "/home/user", nil
+		}
+		var createdPath string
+		var createdMode os.FileMode
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			createdPath = path
+			createdMode = perm
+			return nil
+		}
+
+		// When getting the project root
+		_, err := shell.GetProjectRoot()
+
+		// Then MkdirAll should be called on the global root path
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		expected := filepath.Join("/home/user", ".config", "windsor")
+		if createdPath != expected {
+			t.Errorf("Expected MkdirAll called with %s, got %s", expected, createdPath)
+		}
+		if createdMode != 0750 {
+			t.Errorf("Expected mode 0750, got %o", createdMode)
+		}
+	})
+
+	t.Run("GlobalFallbackReturnsOriginalDirWhenHomeDirFails", func(t *testing.T) {
+		// Given a shell where UserHomeDir fails during fallback
+		shell, mocks := setup(t)
+		originalDir := "/some/dir"
+		mocks.Shims.Getwd = func() (string, error) {
+			return originalDir, nil
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.UserHomeDir = func() (string, error) {
+			return "", fmt.Errorf("no home dir")
+		}
+
+		// When getting the project root
+		root, err := shell.GetProjectRoot()
+
+		// Then it should return the original dir without marking global mode
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
 		if root != originalDir {
 			t.Errorf("Expected %s, got %s", originalDir, root)
+		}
+		if shell.IsGlobal() {
+			t.Error("Expected IsGlobal() to be false when home dir resolution fails")
+		}
+	})
+
+	t.Run("IsGlobalFalseWhenProjectFound", func(t *testing.T) {
+		// Given a shell in a directory with windsor.yaml
+		shell, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/test/current", nil
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			if name == "/test/current/windsor.yaml" {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When getting the project root
+		_, err := shell.GetProjectRoot()
+
+		// Then IsGlobal() should be false
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if shell.IsGlobal() {
+			t.Error("Expected IsGlobal() to be false when windsor.yaml is found")
 		}
 	})
 }
@@ -1851,6 +1977,39 @@ func TestShell_AddCurrentDirToTrustedFile(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
+
+	t.Run("NoOpInGlobalMode", func(t *testing.T) {
+		// Given a shell that has resolved to global mode
+		shell, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/some/random/dir", nil
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.UserHomeDir = func() (string, error) {
+			return "/home/test", nil
+		}
+		writeCalled := false
+		mocks.Shims.WriteFile = func(name string, data []byte, perm os.FileMode) error {
+			writeCalled = true
+			return nil
+		}
+
+		// When adding current dir to trusted file
+		err := shell.AddCurrentDirToTrustedFile()
+
+		// Then it should succeed without writing the trust file
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !shell.IsGlobal() {
+			t.Error("Expected shell to be in global mode")
+		}
+		if writeCalled {
+			t.Error("Expected WriteFile to not be called in global mode")
+		}
+	})
 }
 
 func TestShell_CheckTrustedDirectory(t *testing.T) {
@@ -2040,6 +2199,39 @@ func TestShell_CheckTrustedDirectory(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "Current directory not in the trusted list") {
 			t.Errorf("Expected error about directory not trusted, got: %v", err)
+		}
+	})
+
+	t.Run("NoOpInGlobalMode", func(t *testing.T) {
+		// Given a shell that has resolved to global mode
+		shell, mocks := setup(t)
+		mocks.Shims.Getwd = func() (string, error) {
+			return "/some/random/dir", nil
+		}
+		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.UserHomeDir = func() (string, error) {
+			return "/home/test", nil
+		}
+		readCalled := false
+		mocks.Shims.ReadFile = func(name string) ([]byte, error) {
+			readCalled = true
+			return nil, os.ErrNotExist
+		}
+
+		// When checking trusted directory
+		err := shell.CheckTrustedDirectory()
+
+		// Then it should succeed without reading the trust file
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !shell.IsGlobal() {
+			t.Error("Expected shell to be in global mode")
+		}
+		if readCalled {
+			t.Error("Expected ReadFile to not be called in global mode")
 		}
 	})
 }

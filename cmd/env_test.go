@@ -303,6 +303,31 @@ func TestEnvCmd_SuccessScenarios(t *testing.T) {
 			t.Error("Expected empty stderr")
 		}
 	})
+
+	t.Run("HookSkippedInGlobalMode", func(t *testing.T) {
+		// Given a runtime running in global mode whose trust check would fail if invoked
+		stdout, _ := setupOutputCapture(t)
+		mocks := setupMocks(t)
+		mocks.Runtime.Global = true
+		mocks.Shell.CheckTrustedDirectoryFunc = func() error {
+			return fmt.Errorf("should not be called")
+		}
+
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		rootCmd.SetContext(ctx)
+
+		// When executing env --hook
+		rootCmd.SetArgs([]string{"env", "--hook"})
+		err := Execute()
+
+		// Then it should succeed silently without running trust checks or emitting output
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if stdout.String() != "" {
+			t.Errorf("Expected no stdout output in global hook mode, got: %q", stdout.String())
+		}
+	})
 }
 
 func TestEnvCmd_ErrorScenarios(t *testing.T) {

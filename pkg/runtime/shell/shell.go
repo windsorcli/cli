@@ -46,6 +46,7 @@ type HookContext struct {
 type Shell interface {
 	SetVerbosity(verbose bool)
 	IsVerbose() bool
+	IsGlobal() bool
 	RenderEnvVars(envVars map[string]string, export bool) string
 	RenderAliases(aliases map[string]string) string
 	GetProjectRoot() (string, error)
@@ -72,6 +73,7 @@ type Shell interface {
 type DefaultShell struct {
 	Shell
 	projectRoot  string
+	global       bool
 	verbose      bool
 	sessionToken string
 	shims        *Shims
@@ -100,9 +102,19 @@ func (s *DefaultShell) IsVerbose() bool {
 	return s.verbose
 }
 
+// IsGlobal reports whether the shell is operating in global mode. Global mode is set
+// when GetProjectRoot could not locate a windsor.yaml/windsor.yml in the current
+// directory or any of its parents, and the shell has fallen back to the user's
+// $HOME/.config/windsor directory as the effective project root.
+func (s *DefaultShell) IsGlobal() bool {
+	return s.global
+}
+
 // GetProjectRoot finds the project root. It checks for a cached root first.
-// If not found, it looks for "windsor.yaml" or "windsor.yml" in the current
-// directory and its parents up to a maximum depth. Returns the root path or an empty string if not found.
+// If not found, it looks for "windsor.yaml" or "windsor.yml" in the current directory
+// and its parents up to a maximum depth, returning the first match. When no project
+// file is found, it falls back to $HOME/.config/windsor, creating that directory if
+// needed, and marks the shell as operating in global mode.
 func (s *DefaultShell) GetProjectRoot() (string, error) {
 	if s.projectRoot != "" {
 		return s.projectRoot, nil
@@ -115,7 +127,7 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 	depth := 0
 	for {
 		if depth > maxFolderSearchDepth {
-			return originalDir, nil
+			return s.fallbackToGlobal(originalDir)
 		}
 		windsorYaml := filepath.Join(currentDir, "windsor.yaml")
 		windsorYml := filepath.Join(currentDir, "windsor.yml")
@@ -129,11 +141,29 @@ func (s *DefaultShell) GetProjectRoot() (string, error) {
 		}
 		parentDir := filepath.Dir(currentDir)
 		if parentDir == currentDir {
-			return originalDir, nil
+			return s.fallbackToGlobal(originalDir)
 		}
 		currentDir = parentDir
 		depth++
 	}
+}
+
+// fallbackToGlobal resolves the global project root at $HOME/.config/windsor,
+// creating the directory if it does not exist, and marks the shell as operating
+// in global mode. The originalDir is returned as a best-effort fallback if the
+// home directory cannot be resolved.
+func (s *DefaultShell) fallbackToGlobal(originalDir string) (string, error) {
+	homeDir, err := s.shims.UserHomeDir()
+	if err != nil {
+		return originalDir, nil
+	}
+	globalRoot := filepath.Join(homeDir, ".config", "windsor")
+	if err := s.shims.MkdirAll(globalRoot, 0750); err != nil {
+		return originalDir, nil
+	}
+	s.projectRoot = globalRoot
+	s.global = true
+	return s.projectRoot, nil
 }
 
 // Exec runs a command with args, capturing stdout and stderr. It prints output and returns stdout as a string.
@@ -467,10 +497,15 @@ func (s *DefaultShell) InstallHook(shellName string) error {
 // AddCurrentDirToTrustedFile adds the current directory to a trusted list stored in a file.
 // Creates necessary directories if they don't exist.
 // Checks if the directory is already trusted before adding.
+// In global mode, trust is implicit for $HOME/.config/windsor and this is a no-op.
 func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("Error getting project root directory: %w", err)
+	}
+
+	if s.global {
+		return nil
 	}
 
 	homeDir, err := s.shims.UserHomeDir()
@@ -507,10 +542,15 @@ func (s *DefaultShell) AddCurrentDirToTrustedFile() error {
 }
 
 // CheckTrustedDirectory verifies if the current directory is in the trusted file list.
+// In global mode, trust is implicit for $HOME/.config/windsor and this check is skipped.
 func (s *DefaultShell) CheckTrustedDirectory() error {
 	projectRoot, err := s.GetProjectRoot()
 	if err != nil {
 		return fmt.Errorf("Error getting project root directory: %w", err)
+	}
+
+	if s.global {
+		return nil
 	}
 
 	homeDir, err := s.shims.UserHomeDir()

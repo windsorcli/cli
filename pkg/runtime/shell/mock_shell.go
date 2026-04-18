@@ -29,6 +29,7 @@ type MockShell struct {
 	InstallHookFunc                func(shellName string) error
 	SetVerbosityFunc               func(verbose bool)
 	IsVerboseFunc                  func() bool
+	IsGlobalFunc                   func() bool
 	AddCurrentDirToTrustedFileFunc func() error
 	CheckTrustedDirectoryFunc      func() error
 	UnsetEnvsFunc                  func(envVars []string)
@@ -156,6 +157,14 @@ func (s *MockShell) SetVerbosity(verbose bool) {
 func (s *MockShell) IsVerbose() bool {
 	if s.IsVerboseFunc != nil {
 		return s.IsVerboseFunc()
+	}
+	return false
+}
+
+// IsGlobal calls the custom IsGlobalFunc if provided.
+func (s *MockShell) IsGlobal() bool {
+	if s.IsGlobalFunc != nil {
+		return s.IsGlobalFunc()
 	}
 	return false
 }

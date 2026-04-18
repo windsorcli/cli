@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
@@ -11,6 +12,10 @@ import (
 var (
 	waitFlag    bool // Declare the wait flag
 	installFlag bool // Deprecated: no-op, kept for backwards compatibility
+	upVmDriver  string
+	upPlatform  string
+	upBlueprint string
+	upSetFlags  []string
 )
 
 var upCmd = &cobra.Command{
@@ -32,7 +37,21 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("not in a trusted directory. If you are in a Windsor project, run 'windsor init' to approve")
 		}
 
-		if err := proj.Configure(nil); err != nil {
+		// Load persisted config so the smart-default below can tell whether
+		// workstation.runtime is already configured.
+		if err := proj.Runtime.ConfigHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("failed to load configuration: %w", err)
+		}
+
+		// Build flag overrides and blueprint URL using init's rules so that
+		// `windsor up` and `windsor init` share identical bootstrap semantics.
+		flagOverrides, err := buildUpFlagOverrides()
+		if err != nil {
+			return err
+		}
+		applyLocalWorkstationDefault(proj.Runtime, flagOverrides)
+
+		if err := proj.Configure(flagOverrides); err != nil {
 			return err
 		}
 
@@ -40,8 +59,18 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("invalid configuration: %w", err)
 		}
 
-		if err := proj.Initialize(false); err != nil {
+		blueprintURL, err := resolveBlueprintURL(upBlueprint, upPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot)
+		if err != nil {
 			return err
+		}
+
+		if err := proj.Initialize(false, blueprintURL...); err != nil {
+			return err
+		}
+
+		hasSetFlags := len(upSetFlags) > 0
+		if err := proj.Runtime.SaveConfig(hasSetFlags); err != nil {
+			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
 		if proj.Workstation == nil {
@@ -73,9 +102,30 @@ var upCmd = &cobra.Command{
 	},
 }
 
+// buildUpFlagOverrides builds a config override map from up's command-line
+// flags. The workstation-related mapping is shared with `windsor init` via
+// applyWorkstationFlagOverrides; --set is parsed strictly (returning an error
+// on malformed entries) to give users clear feedback on typos.
+func buildUpFlagOverrides() (map[string]any, error) {
+	overrides := make(map[string]any)
+	applyWorkstationFlagOverrides(overrides, upVmDriver, upPlatform)
+	for _, setFlag := range upSetFlags {
+		parts := strings.SplitN(setFlag, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid --set format, expected key=value: %s", setFlag)
+		}
+		overrides[parts[0]] = parts[1]
+	}
+	return overrides, nil
+}
+
 func init() {
 	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
 	upCmd.Flags().BoolVar(&installFlag, "install", false, "")
 	_ = upCmd.Flags().MarkDeprecated("install", "the --install flag is no longer needed and will be removed in a future release")
+	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker)")
+	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp]")
+	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Specify the blueprint to use")
+	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false")
 	rootCmd.AddCommand(upCmd)
 }

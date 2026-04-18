@@ -3,11 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
-	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -47,6 +47,15 @@ var initCmd = &cobra.Command{
 			rtOpts = []*runtime.Runtime{overridesVal.(*runtime.Runtime)}
 		}
 
+		// Ensure the current directory is a project before resolving the runtime.
+		// Without this, an `init` run in an empty directory would fall back to
+		// global mode (via GetProjectRoot) and silently operate against $HOME.
+		if len(rtOpts) == 0 {
+			if err := ensureProjectAnchor(); err != nil {
+				return fmt.Errorf("failed to initialize project: %w", err)
+			}
+		}
+
 		contextName := "local"
 		changingContext := len(args) > 0
 		tempRt := runtime.NewRuntime(rtOpts...)
@@ -83,9 +92,7 @@ var initCmd = &cobra.Command{
 
 		// Build flag overrides map
 		flagOverrides := make(map[string]any)
-		if initPlatform != "" {
-			flagOverrides["platform"] = initPlatform
-		}
+		applyWorkstationFlagOverrides(flagOverrides, initVmDriver, initPlatform)
 		if initBackend != "" {
 			flagOverrides["terraform.backend.type"] = initBackend
 		}
@@ -94,23 +101,6 @@ var initCmd = &cobra.Command{
 		}
 		if initAwsEndpointURL != "" {
 			flagOverrides["aws.endpoint_url"] = initAwsEndpointURL
-		}
-		if initVmDriver != "" {
-			runtimeVal := initVmDriver
-			if initVmDriver == "colima-incus" {
-				runtimeVal = "colima"
-			}
-			flagOverrides["workstation.runtime"] = runtimeVal
-			if initPlatform == "" {
-				switch initVmDriver {
-				case "colima-incus":
-					flagOverrides["platform"] = "incus"
-				case "colima":
-					flagOverrides["platform"] = "docker"
-				case "docker-desktop", "docker":
-					flagOverrides["platform"] = "docker"
-				}
-			}
 		}
 		if initCpu > 0 {
 			flagOverrides["vm.cpu"] = initCpu
@@ -138,6 +128,13 @@ var initCmd = &cobra.Command{
 			}
 		}
 
+		// Load persisted config so the smart-default below can tell whether
+		// workstation.runtime is already configured in values.yaml.
+		if err := rt.ConfigHandler.LoadConfig(); err != nil {
+			return fmt.Errorf("failed to load configuration: %w", err)
+		}
+		applyLocalWorkstationDefault(rt, flagOverrides)
+
 		var projectOpts *project.Project
 		if composerOverrideVal := cmd.Context().Value(composerOverridesKey); composerOverrideVal != nil {
 			compOverride := composerOverrideVal.(*composer.Composer)
@@ -157,17 +154,9 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		var blueprintURL []string
-		if initBlueprint != "" {
-			blueprintURL = []string{initBlueprint}
-		} else if initPlatform != "" {
-			blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
-		} else if contextName == "local" {
-			if _, err := os.Stat(rt.TemplateRoot); os.IsNotExist(err) {
-				blueprintURL = []string{constants.GetEffectiveBlueprintURL()}
-			} else if err != nil {
-				return fmt.Errorf("error checking template root: %w", err)
-			}
+		blueprintURL, err := resolveBlueprintURL(initBlueprint, initPlatform, contextName, rt.TemplateRoot)
+		if err != nil {
+			return err
 		}
 		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err
@@ -182,6 +171,35 @@ var initCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// ensureProjectAnchor writes a minimal windsor.yaml in the current working
+// directory when no project file is found anywhere in the walk-up path. This
+// anchors `windsor init` to the cwd so subsequent runtime resolution does not
+// fall back to global mode and silently operate against $HOME/.config/windsor.
+// If a project file already exists at or above the cwd, this is a no-op.
+func ensureProjectAnchor() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+	dir := cwd
+	for i := 0; i <= 10; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "windsor.yaml")); err == nil {
+			return nil
+		}
+		if _, err := os.Stat(filepath.Join(dir, "windsor.yml")); err == nil {
+			return nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	// windsor.yaml is user-readable project config, 0644 matches the project
+	// convention used by typed_source.EnsureRoot.
+	return os.WriteFile(filepath.Join(cwd, "windsor.yaml"), []byte("version: v1alpha1\n"), 0644) // #nosec G306
 }
 
 func init() {

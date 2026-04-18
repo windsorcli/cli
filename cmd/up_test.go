@@ -345,3 +345,111 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildUpFlagOverrides(t *testing.T) {
+	// Package-level flag vars are shared; reset after each case.
+	resetFlags := func() {
+		upVmDriver = ""
+		upPlatform = ""
+		upBlueprint = ""
+		upSetFlags = nil
+	}
+
+	t.Run("EmptyFlagsYieldEmptyMap", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(overrides) != 0 {
+			t.Errorf("Expected empty overrides, got %v", overrides)
+		}
+	})
+
+	t.Run("VmDriverDockerDesktopInfersDockerPlatform", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upVmDriver = "docker-desktop"
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if overrides["workstation.runtime"] != "docker-desktop" {
+			t.Errorf("Expected workstation.runtime=docker-desktop, got %v", overrides["workstation.runtime"])
+		}
+		if overrides["platform"] != "docker" {
+			t.Errorf("Expected inferred platform=docker, got %v", overrides["platform"])
+		}
+	})
+
+	t.Run("VmDriverColimaIncusRemapsToColimaRuntimeAndIncusPlatform", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upVmDriver = "colima-incus"
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if overrides["workstation.runtime"] != "colima" {
+			t.Errorf("Expected workstation.runtime=colima (remapped from colima-incus), got %v", overrides["workstation.runtime"])
+		}
+		if overrides["platform"] != "incus" {
+			t.Errorf("Expected platform=incus, got %v", overrides["platform"])
+		}
+	})
+
+	t.Run("ExplicitPlatformOverridesVmDriverInference", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upVmDriver = "docker-desktop"
+		upPlatform = "aws"
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if overrides["platform"] != "aws" {
+			t.Errorf("Expected explicit platform=aws to win, got %v", overrides["platform"])
+		}
+		if overrides["workstation.runtime"] != "docker-desktop" {
+			t.Errorf("Expected workstation.runtime=docker-desktop, got %v", overrides["workstation.runtime"])
+		}
+	})
+
+	t.Run("SetFlagsParsedAsKeyValuePairs", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upSetFlags = []string{"dns.enabled=false", "cluster.endpoint=https://localhost:6443"}
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if overrides["dns.enabled"] != "false" {
+			t.Errorf("Expected dns.enabled=false, got %v", overrides["dns.enabled"])
+		}
+		if overrides["cluster.endpoint"] != "https://localhost:6443" {
+			t.Errorf("Expected cluster.endpoint=https://localhost:6443, got %v", overrides["cluster.endpoint"])
+		}
+	})
+
+	t.Run("InvalidSetFlagReturnsError", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upSetFlags = []string{"no-equals-sign"}
+
+		_, err := buildUpFlagOverrides()
+		if err == nil {
+			t.Fatal("Expected error for malformed --set, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid --set format") {
+			t.Errorf("Expected 'invalid --set format' error, got: %v", err)
+		}
+	})
+}
+
+

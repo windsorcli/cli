@@ -42,6 +42,10 @@ type Runtime struct {
 	// WindsorScratchPath is the windsor scratch directory (<projectRoot>/.windsor/contexts/<contextName>)
 	WindsorScratchPath string
 
+	// Global indicates the runtime is operating in global mode, where no windsor.yaml
+	// project was found and $HOME/.config/windsor is used as the effective project root.
+	Global bool
+
 	// Core dependencies
 	ConfigHandler config.ConfigHandler
 	Shell         shell.Shell
@@ -119,6 +123,9 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		if overrides.WindsorScratchPath != "" {
 			rt.WindsorScratchPath = overrides.WindsorScratchPath
 		}
+		if overrides.Global {
+			rt.Global = true
+		}
 		if overrides.ToolsManager != nil {
 			rt.ToolsManager = overrides.ToolsManager
 		}
@@ -161,6 +168,9 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 			panic(fmt.Sprintf("failed to get project root: %v", err))
 		}
 		rt.ProjectRoot = projectRoot
+		if !rt.Global {
+			rt.Global = rt.Shell.IsGlobal()
+		}
 	}
 
 	if rt.ConfigHandler == nil {
