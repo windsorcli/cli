@@ -93,8 +93,15 @@ func captureProcessStdout(t *testing.T) (buf *bytes.Buffer, restore func()) {
 }
 
 // resetCommandFlagValues resets flag values to DefValue on cmd and all descendants so Cobra flag state does not leak between Execute() calls (see cobra issue #2079).
+// Slice-typed flags (StringSliceVar, etc.) require Replace rather than Set: pflag's
+// Set for slice values appends instead of resetting, so calling Set("[]") would
+// accumulate the literal "[]" element across resets and corrupt later parses.
 func resetCommandFlagValues(cmd *cobra.Command) {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if sliceValue, ok := f.Value.(pflag.SliceValue); ok {
+			_ = sliceValue.Replace(nil)
+			return
+		}
 		_ = f.Value.Set(f.DefValue)
 	})
 	for _, child := range cmd.Commands() {

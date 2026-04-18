@@ -63,14 +63,17 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		hasSetFlags := len(upSetFlags) > 0
-		if err := proj.Runtime.SaveConfig(hasSetFlags); err != nil {
-			return fmt.Errorf("failed to save configuration: %w", err)
-		}
-
 		if proj.Workstation == nil {
 			fmt.Fprintln(os.Stderr, "windsor up is only applicable when a workstation is enabled; use windsor apply to apply infrastructure")
 			return nil
+		}
+
+		// Initialize already persisted config with overwrite=false; only re-save
+		// here to elevate to overwrite=true when --set was provided.
+		if len(upSetFlags) > 0 {
+			if err := proj.Runtime.SaveConfig(true); err != nil {
+				return fmt.Errorf("failed to save configuration: %w", err)
+			}
 		}
 
 		if _, err := proj.Up(); err != nil {

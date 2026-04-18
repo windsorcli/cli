@@ -320,6 +320,123 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("BareUpDoesNotIssueExtraSaveConfig", func(t *testing.T) {
+		// Given a workstation project and no flags overriding config
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing a bare `windsor up`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig is invoked exactly once (by Initialize) with overwrite=false;
+		// no extra explicit save fires from the up command.
+		if len(overwriteArgs) != 1 {
+			t.Fatalf("Expected 1 SaveConfig call from Initialize only, got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+		if len(overwriteArgs[0]) == 0 || overwriteArgs[0][0] {
+			t.Errorf("Expected Initialize SaveConfig overwrite=false, got %v", overwriteArgs[0])
+		}
+	})
+
+	t.Run("SetFlagAddsOverwriteSaveConfig", func(t *testing.T) {
+		// Given a workstation project and a --set flag override
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing `windsor up --set foo=bar`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--set", "foo=bar"})
+		t.Cleanup(func() { upSetFlags = nil })
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig is called twice: once by Initialize (overwrite=false), then
+		// explicitly by up to elevate values.yaml replacement (overwrite=true).
+		if len(overwriteArgs) != 2 {
+			t.Fatalf("Expected 2 SaveConfig calls, got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+		last := overwriteArgs[1]
+		if len(last) == 0 || !last[0] {
+			t.Errorf("Expected explicit SaveConfig overwrite=true, got %v", last)
+		}
+	})
+
+	t.Run("WorkstationFlagAloneSkipsExplicitSaveConfig", func(t *testing.T) {
+		// Given a workstation project and a --vm-driver flag (no --set)
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing `windsor up --vm-driver=docker-desktop`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--vm-driver=docker-desktop"})
+		t.Cleanup(func() { upVmDriver = "" })
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig fires once via Initialize only — --vm-driver alone does not
+		// require an overwrite re-save (workstation keys are persisted via workstation.yaml).
+		if len(overwriteArgs) != 1 {
+			t.Fatalf("Expected 1 SaveConfig call (Initialize only), got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+	})
+
+	t.Run("WorkstationDisabledSkipsExplicitSaveConfig", func(t *testing.T) {
+		// Given a project with no workstation, even when --set is provided
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, false)
+
+		// When executing `windsor up --set foo=bar`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--set", "foo=bar"})
+		t.Cleanup(func() { upSetFlags = nil })
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig fires only via Initialize (overwrite=false); the no-workstation
+		// guard short-circuits before the explicit overwrite save would run.
+		if len(overwriteArgs) != 1 {
+			t.Fatalf("Expected 1 SaveConfig call from Initialize only, got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+		if len(overwriteArgs[0]) == 0 || overwriteArgs[0][0] {
+			t.Errorf("Expected Initialize SaveConfig overwrite=false, got %v", overwriteArgs[0])
+		}
+	})
+
 	t.Run("ProvisionerWaitError", func(t *testing.T) {
 		// Given a kubernetes manager whose WaitForKustomizations fails
 		mocks := setupUpTest(t)
