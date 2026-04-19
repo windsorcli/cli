@@ -247,7 +247,6 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 	// spinner line for each one. A single top-level progress message covers the whole pass.
 	return tui.WithProgress("Migrating terraform state", func() error {
 		for _, component := range components {
-			component := component
 			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 				return fmt.Errorf("directory %s does not exist", component.FullPath)
 			}
