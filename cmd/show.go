@@ -11,6 +11,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	blueprintcomposer "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -32,7 +33,7 @@ var showBlueprintCmd = &cobra.Command{
 	Long:         "Display the fully rendered blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML, use --json for JSON. Unresolved deferred values are shown as <deferred> by default; use --raw to show expression text.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		blueprint, deferredPaths, validationErr := getBlueprint(cmd)
+		_, blueprint, deferredPaths, validationErr := getBlueprint(cmd)
 		if blueprint == nil {
 			if validationErr != nil {
 				return validationErr
@@ -62,7 +63,7 @@ var showKustomizationCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		componentName := args[0]
 
-		blueprint, deferredPaths, validationErr := getBlueprint(cmd)
+		proj, blueprint, deferredPaths, validationErr := getBlueprint(cmd)
 		if blueprint == nil {
 			if validationErr != nil {
 				return validationErr
@@ -75,7 +76,8 @@ var showKustomizationCmd = &cobra.Command{
 			return errKustomizationNotFound(componentName)
 		}
 
-		fluxKustomization := buildFluxKustomization(blueprint, kustomization)
+		namespace := proj.Runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+		fluxKustomization := buildFluxKustomization(blueprint, kustomization, namespace)
 		resource := blueprintcomposer.RenderDeferredPlaceholders(fluxKustomization, showKustomizationRaw, deferredPaths)
 
 		if err := outputResource(resource, showKustomizationJSON, "kustomization"); err != nil {
@@ -128,13 +130,13 @@ func init() {
 
 // getBlueprint configures the project and composes the blueprint without running full initialization.
 // It loads blueprint sources and composes them; it does not write blueprint files, process terraform
-// modules, or generate tfvars. Returns the composed blueprint, deferred composed paths, and any
-// composition errors. Composition errors are non-fatal and allow the blueprint to be returned for
-// inspection when possible.
-func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, map[string]bool, error) {
+// modules, or generate tfvars. Returns the configured project, composed blueprint, deferred composed
+// paths, and any composition errors. Composition errors are non-fatal and allow the blueprint to be
+// returned for inspection when possible.
+func getBlueprint(cmd *cobra.Command) (*project.Project, *blueprintv1alpha1.Blueprint, map[string]bool, error) {
 	proj, err := configureProject(cmd)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var validationErr error
@@ -145,12 +147,12 @@ func getBlueprint(cmd *cobra.Command) (*blueprintv1alpha1.Blueprint, map[string]
 	blueprint := proj.Composer.BlueprintHandler.Generate()
 	if blueprint == nil {
 		if validationErr != nil {
-			return nil, nil, validationErr
+			return proj, nil, nil, validationErr
 		}
-		return nil, nil, fmt.Errorf("failed to generate blueprint")
+		return proj, nil, nil, fmt.Errorf("failed to generate blueprint")
 	}
 	deferredPaths := proj.Composer.BlueprintHandler.GetDeferredPaths()
-	return blueprint, deferredPaths, validationErr
+	return proj, blueprint, deferredPaths, validationErr
 }
 
 // outputResource serializes the provided resource to YAML or JSON and writes it to stdout.
@@ -214,8 +216,7 @@ func getValues(cmd *cobra.Command) (map[string]any, map[string]any, error) {
 // buildFluxKustomization converts a blueprint Kustomization to a Flux Kustomization resource,
 // including blueprint-level ConfigMaps (e.g. values-common) in postBuild.substituteFrom to
 // match what the kubernetes manager applies to the cluster.
-func buildFluxKustomization(blueprint *blueprintv1alpha1.Blueprint, kustomization *blueprintv1alpha1.Kustomization) kustomizev1.Kustomization {
+func buildFluxKustomization(blueprint *blueprintv1alpha1.Blueprint, kustomization *blueprintv1alpha1.Kustomization, namespace string) kustomizev1.Kustomization {
 	defaultSourceName := blueprint.Metadata.Name
-	namespace := constants.DefaultFluxSystemNamespace
 	return kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, blueprint.ConfigMaps)
 }

@@ -118,7 +118,7 @@ func (s *FluxStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("blueprint not provided")
 	}
 
-	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+	namespace := s.gitopsNamespace()
 
 	var targets []blueprintv1alpha1.Kustomization
 	for _, k := range blueprint.Kustomizations {
@@ -164,7 +164,7 @@ func (s *FluxStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID str
 		return err
 	}
 
-	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+	namespace := s.gitopsNamespace()
 
 	k, found := findKustomization(blueprint, componentID)
 	if !found {
@@ -203,7 +203,7 @@ func (s *FluxStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]Kusto
 		kustomizeMissing = true
 	}
 
-	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+	namespace := s.gitopsNamespace()
 
 	var results []KustomizePlan
 	for _, k := range blueprint.Kustomizations {
@@ -245,7 +245,7 @@ func (s *FluxStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint,
 		kustomizeMissing = true
 	}
 
-	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+	namespace := s.gitopsNamespace()
 
 	return s.planOneKustomizeSummary(blueprint, k, namespace, fluxMissing, kustomizeMissing)
 }
@@ -262,7 +262,7 @@ func (s *FluxStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("kustomize CLI is required for 'plan kustomize --json'\nInstall: https://kubectl.docs.kubernetes.io/installation/kustomize/")
 	}
 
-	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+	namespace := s.gitopsNamespace()
 
 	var targets []blueprintv1alpha1.Kustomization
 	for _, k := range blueprint.Kustomizations {
@@ -294,7 +294,7 @@ func (s *FluxStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID
 		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
 	}
 
-	namespace := s.runtime.ConfigHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+	namespace := s.gitopsNamespace()
 
 	return s.encodeKustomizationsJSON(os.Stdout, blueprint, namespace, []blueprintv1alpha1.Kustomization{k})
 }
@@ -302,6 +302,11 @@ func (s *FluxStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// gitopsNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
+func (s *FluxStack) gitopsNamespace() string {
+	return s.runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+}
 
 // planOneKustomizeSummary computes the summary plan result for a single kustomization.
 // It is shared by PlanSummary (which iterates all kustomizations) and PlanComponentSummary

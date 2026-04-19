@@ -58,7 +58,7 @@ const DefaultWorkerCPU = 4
 
 const DefaultWorkerMemory = 8
 
-const DefaultFluxSystemNamespace = "system-gitops"
+const DefaultGitopsNamespace = "system-gitops"
 
 const DefaultFluxKustomizationInterval = 1 * time.Minute
 

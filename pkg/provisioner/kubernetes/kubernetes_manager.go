@@ -207,7 +207,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, blueprint 
 					Version:  "v1",
 					Resource: "kustomizations",
 				}
-				obj, err := k.client.GetResource(gvr, constants.DefaultFluxSystemNamespace, name)
+				obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
 				if err != nil {
 					allReady = false
 					break
@@ -509,7 +509,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		Resource: "gitrepositories",
 	}
 
-	gitObjList, err := k.client.ListResources(gitGvr, constants.DefaultFluxSystemNamespace)
+	gitObjList, err := k.client.ListResources(gitGvr, k.gitopsNamespace())
 	if err != nil {
 		return fmt.Errorf("failed to list git repositories: %w", err)
 	}
@@ -533,7 +533,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		Resource: "ocirepositories",
 	}
 
-	ociObjList, err := k.client.ListResources(ociGvr, constants.DefaultFluxSystemNamespace)
+	ociObjList, err := k.client.ListResources(ociGvr, k.gitopsNamespace())
 	if err != nil {
 		return fmt.Errorf("failed to list oci repositories: %w", err)
 	}
@@ -565,7 +565,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 		Resource: "kustomizations",
 	}
 
-	objList, err := k.client.ListResources(gvr, constants.DefaultFluxSystemNamespace)
+	objList, err := k.client.ListResources(gvr, k.gitopsNamespace())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
 	}
@@ -1112,6 +1112,11 @@ waitLoop:
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// gitopsNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
+func (k *BaseKubernetesManager) gitopsNamespace() string {
+	return k.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+}
 
 // applyWithRetry applies a resource using SSA with minimal logic
 func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) error {

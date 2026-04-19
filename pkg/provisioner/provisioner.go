@@ -935,7 +935,7 @@ func (i *Provisioner) ensureFluxStack() error {
 	return nil
 }
 
-// fluxNamespace returns the configured Flux system namespace, defaulting to DefaultFluxSystemNamespace.
+// fluxNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
 func (i *Provisioner) fluxNamespace() string {
-	return i.configHandler.GetString("flux.namespace", constants.DefaultFluxSystemNamespace)
+	return i.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 }

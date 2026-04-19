@@ -134,6 +134,45 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("FluxSystemNamespaceDefault", func(t *testing.T) {
+		// Given a KubeEnvPrinter with no gitops.namespace override
+		printer, _ := setup(t)
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And FLUX_SYSTEM_NAMESPACE should fall back to the Windsor default namespace
+		if envVars["FLUX_SYSTEM_NAMESPACE"] != "system-gitops" {
+			t.Errorf("Expected FLUX_SYSTEM_NAMESPACE=system-gitops, got %s", envVars["FLUX_SYSTEM_NAMESPACE"])
+		}
+	})
+
+	t.Run("FluxSystemNamespaceOverride", func(t *testing.T) {
+		// Given a KubeEnvPrinter with gitops.namespace overridden
+		printer, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("gitops.namespace", "custom-gitops"); err != nil {
+			t.Fatalf("Failed to set gitops.namespace: %v", err)
+		}
+
+		// When getting environment variables
+		envVars, err := printer.GetEnvVars()
+
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// And FLUX_SYSTEM_NAMESPACE should reflect the override
+		if envVars["FLUX_SYSTEM_NAMESPACE"] != "custom-gitops" {
+			t.Errorf("Expected FLUX_SYSTEM_NAMESPACE=custom-gitops, got %s", envVars["FLUX_SYSTEM_NAMESPACE"])
+		}
+	})
+
 	t.Run("SuccessWithVolumes", func(t *testing.T) {
 		// Given a KubeEnvPrinter with valid configuration
 		printer, _ := setup(t)
