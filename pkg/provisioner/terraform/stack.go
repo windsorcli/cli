@@ -174,10 +174,12 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			}
 			terraformVars["TF_VAR_operation"] = "apply"
 
+			// Track the per-component backend_override.tf path unconditionally. setupTerraformEnvironment,
+			// initComponentBackend (forced-local branch), and the Pass 2 migration loop can all write to
+			// this path; a per-iteration Stat check would miss files written later in the adaptive flow.
+			// The deferred cleanup tolerates missing files, so over-registration is harmless.
 			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-			if _, err := s.shims.Stat(backendOverridePath); err == nil {
-				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
-			}
+			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
 
 			terraformArgs, forcedLocal, err := s.initComponentBackend(&component, terraformVars, terraformArgs, probeBackend)
 			if err != nil {
@@ -873,6 +875,8 @@ func (s *TerraformStack) remoteBackendHasState(component *blueprintv1alpha1.Terr
 // causes terraform to migrate local state to the remote backend. Used as Pass 2 of Up after every
 // component has applied locally, so remote backends that are themselves provisioned by an earlier
 // component (e.g. the kubernetes cluster hosting the k8s backend) exist by the time migration runs.
+// On failure the local state written in Pass 1 is retained so the user can re-run Up to retry the
+// migration once the remote backend is reachable.
 func (s *TerraformStack) migrateComponentToRemote(component *blueprintv1alpha1.TerraformComponent) error {
 	if err := s.runtime.TerraformProvider.GenerateBackendOverride(component.FullPath); err != nil {
 		return fmt.Errorf("error writing remote backend override for %s: %w", component.Path, err)
@@ -882,7 +886,7 @@ func (s *TerraformStack) migrateComponentToRemote(component *blueprintv1alpha1.T
 		return fmt.Errorf("error getting terraform env vars for %s: %w", component.Path, err)
 	}
 	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
-		return fmt.Errorf("state migration failed for %s (local state preserved at %s): %w", component.Path, terraformArgs.TFDataDir, err)
+		return fmt.Errorf("state migration failed for %s (local state retained for retry): %w", component.Path, err)
 	}
 	return nil
 }

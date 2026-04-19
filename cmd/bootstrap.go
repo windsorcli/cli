@@ -65,6 +65,14 @@ var bootstrapCmd = &cobra.Command{
 		rt := runtime.NewRuntime(rtOpts...)
 		rt.Shell.SetVerbosity(verbose)
 
+		// Wire the freshly constructed runtime into the project override if the caller did not
+		// supply one, so that later stages (Configure, Initialize, Up) share the runtime that
+		// just handled WriteResetToken / SetContext / AddCurrentDirToTrustedFile. Without this
+		// a projectOverride without a Runtime would run Configure against a nil field.
+		if proj != nil && proj.Runtime == nil {
+			proj.Runtime = rt
+		}
+
 		if err := rt.Shell.AddCurrentDirToTrustedFile(); err != nil {
 			return fmt.Errorf("failed to add current directory to trusted file: %w", err)
 		}

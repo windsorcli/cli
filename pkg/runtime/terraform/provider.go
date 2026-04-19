@@ -23,6 +23,17 @@ import (
 )
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+// localBackendStanza is the HCL block written to backend_override.tf when pinning a component
+// to the local backend. Shared by GenerateBackendOverride (configured-local case) and
+// GenerateLocalBackendOverride (bootstrap Pass 1 force-local) so the two stay in lockstep.
+const localBackendStanza = `terraform {
+  backend "local" {}
+}`
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -199,9 +210,7 @@ func (p *terraformProvider) IsInTerraformProject() bool {
 func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 	backend := p.configHandler.GetString("terraform.backend.type", "local")
 
-	var backendConfig string
-	switch backend {
-	case "none":
+	if backend == "none" {
 		backendOverridePath := filepath.Join(directory, "backend_override.tf")
 		if _, err := p.Shims.Stat(backendOverridePath); err == nil {
 			if err := p.Shims.Remove(backendOverridePath); err != nil {
@@ -209,33 +218,29 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 			}
 		}
 		return nil
+	}
+
+	var stanza string
+	switch backend {
 	case "local":
-		backendConfig = `terraform {
-  backend "local" {}
-}`
+		stanza = localBackendStanza
 	case "s3":
-		backendConfig = `terraform {
+		stanza = `terraform {
   backend "s3" {}
 }`
 	case "kubernetes":
-		backendConfig = `terraform {
+		stanza = `terraform {
   backend "kubernetes" {}
 }`
 	case "azurerm":
-		backendConfig = `terraform {
+		stanza = `terraform {
   backend "azurerm" {}
 }`
 	default:
 		return fmt.Errorf("unsupported backend: %s", backend)
 	}
 
-	backendOverridePath := filepath.Join(directory, "backend_override.tf")
-	err := p.Shims.WriteFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("error writing backend_override.tf: %w", err)
-	}
-
-	return nil
+	return p.writeBackendOverride(directory, stanza)
 }
 
 // GenerateLocalBackendOverride writes a backend_override.tf file pinning the component to the
@@ -244,14 +249,7 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 // state to the configured remote backend. Overwrites any existing backend_override.tf in the
 // target directory.
 func (p *terraformProvider) GenerateLocalBackendOverride(directory string) error {
-	backendConfig := `terraform {
-  backend "local" {}
-}`
-	backendOverridePath := filepath.Join(directory, "backend_override.tf")
-	if err := p.Shims.WriteFile(backendOverridePath, []byte(backendConfig), os.ModePerm); err != nil {
-		return fmt.Errorf("error writing backend_override.tf: %w", err)
-	}
-	return nil
+	return p.writeBackendOverride(directory, localBackendStanza)
 }
 
 // GenerateTerraformArgs constructs Terraform CLI arguments for the specified component using the
@@ -547,6 +545,17 @@ func (p *terraformProvider) ClearCache() {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// writeBackendOverride writes stanza to backend_override.tf in directory. Shared by
+// GenerateBackendOverride and GenerateLocalBackendOverride so both write identically and any
+// change to the file layout lands in one place. Errors are wrapped to name the file.
+func (p *terraformProvider) writeBackendOverride(directory, stanza string) error {
+	backendOverridePath := filepath.Join(directory, "backend_override.tf")
+	if err := p.Shims.WriteFile(backendOverridePath, []byte(stanza), os.ModePerm); err != nil {
+		return fmt.Errorf("error writing backend_override.tf: %w", err)
+	}
+	return nil
+}
 
 // generateTerraformArgs is the shared implementation backing GenerateTerraformArgs and
 // GenerateTerraformArgsForcedLocal. When backendOverride is empty the configured backend type is
