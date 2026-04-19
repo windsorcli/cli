@@ -53,7 +53,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should generate local backend args with correct path
 		if err != nil {
@@ -111,7 +111,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should include prefix in path
 		if err != nil {
@@ -179,7 +179,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should include backend.tfvars
 		if err != nil {
@@ -240,7 +240,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should prefer new location
 		if err != nil {
@@ -312,7 +312,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should fall back to old location
 		if err != nil {
@@ -390,7 +390,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should generate S3 backend args
 		if err != nil {
@@ -464,7 +464,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should generate kubernetes backend args
 		if err != nil {
@@ -526,7 +526,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should include prefix in secret_suffix
 		if err != nil {
@@ -606,7 +606,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should generate azurerm backend args
 		if err != nil {
@@ -647,7 +647,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		_, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		_, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should return an error
 		if err == nil {
@@ -684,7 +684,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		_, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		_, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should return an error
 		if err == nil {
@@ -739,7 +739,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 
 		// When generating backend config args
-		_, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		_, err := provider.generateBackendConfigArgs("test/path", configRoot, "")
 
 		// Then it should return an error
 		if err == nil {
@@ -747,6 +747,63 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "S3 backend config") {
 			t.Errorf("Expected error about S3 backend config, got: %v", err)
+		}
+	})
+
+	t.Run("BackendOverrideTakesPrecedence", func(t *testing.T) {
+		// Given a provider configured for s3 but called with a "local" override
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+
+		windsorScratchPath := "/test/scratch"
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
+
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When generating backend config args with a "local" override
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot, "local")
+
+		// Then the args match the local backend (local path, no s3 key arg)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedPath := filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "test/path", "terraform.tfstate"))
+		var foundPath bool
+		for _, arg := range args {
+			if strings.Contains(arg, expectedPath) {
+				foundPath = true
+			}
+			if strings.HasPrefix(arg, "-backend-config=key=") {
+				t.Errorf("Expected no s3 key arg when override is local, got %q", arg)
+			}
+		}
+		if !foundPath {
+			t.Errorf("Expected args to contain local path %s, got %v", expectedPath, args)
 		}
 	})
 }

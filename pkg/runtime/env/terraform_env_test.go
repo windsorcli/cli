@@ -142,7 +142,7 @@ func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformPro
 			return filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", componentID)), nil
 		},
 		ClearCacheFunc: func() {},
-		GenerateTerraformArgsFunc: func(componentID, modulePath string, interactive bool) (*terraform.TerraformArgs, error) {
+		GenerateTerraformArgsFunc: func(componentID string, interactive bool) (*terraform.TerraformArgs, error) {
 			// Ensure the real provider uses the test's mocked Stat function
 			// We need to access the concrete type to set Shims
 			if provider, ok := realProvider.(interface{ GetShims() *terraform.Shims }); ok {
@@ -151,7 +151,7 @@ func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformPro
 					shims.Stat = mocks.Shims.Stat
 				}
 			}
-			return realProvider.GenerateTerraformArgs(componentID, modulePath, interactive)
+			return realProvider.GenerateTerraformArgs(componentID, interactive)
 		},
 		GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
 			// Ensure the real provider uses the test's mocked functions
@@ -503,8 +503,8 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 			}
 		}
 		mockProvider := setupMockTerraformProvider(mocks)
-		mockProvider.GenerateTerraformArgsFunc = func(componentID, modulePath string, interactive bool) (*terraform.TerraformArgs, error) {
-			return realProvider.GenerateTerraformArgs(componentID, modulePath, interactive)
+		mockProvider.GenerateTerraformArgsFunc = func(componentID string, interactive bool) (*terraform.TerraformArgs, error) {
+			return realProvider.GenerateTerraformArgs(componentID, interactive)
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
@@ -1431,12 +1431,12 @@ terraform:
 				}
 			}
 		}
-		mockProvider.GenerateTerraformArgsFunc = func(componentID, modulePath string, interactive bool) (*terraform.TerraformArgs, error) {
+		mockProvider.GenerateTerraformArgsFunc = func(componentID string, interactive bool) (*terraform.TerraformArgs, error) {
 			tfDataDir, _ := mockProvider.GetTFDataDirFunc(componentID)
 			tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
 
 			// GenerateBackendConfigArgs is now private, get args from GenerateTerraformArgs
-			args, _ := realProvider.GenerateTerraformArgs(componentID, modulePath, interactive)
+			args, _ := realProvider.GenerateTerraformArgs(componentID, interactive)
 			backendConfigArgs := args.InitArgs[3:] // Skip "-backend=true", "-force-copy", "-upgrade"
 			initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
 			initArgs = append(initArgs, backendConfigArgs...)
@@ -1459,7 +1459,7 @@ terraform:
 			}, nil
 		}
 		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
-			args, err := mockProvider.GenerateTerraformArgsFunc(componentID, "", interactive)
+			args, err := mockProvider.GenerateTerraformArgsFunc(componentID, interactive)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1785,7 +1785,7 @@ terraform:
 			return "", fmt.Errorf("error getting windsor scratch path: test error")
 		}
 		// Override GenerateTerraformArgs to return error when GetTFDataDir fails
-		mockProvider.GenerateTerraformArgsFunc = func(componentID, modulePath string, interactive bool) (*terraform.TerraformArgs, error) {
+		mockProvider.GenerateTerraformArgsFunc = func(componentID string, interactive bool) (*terraform.TerraformArgs, error) {
 			_, err := mockProvider.GetTFDataDirFunc(componentID)
 			if err != nil {
 				return nil, fmt.Errorf("error getting TF_DATA_DIR: %w", err)
@@ -1793,7 +1793,7 @@ terraform:
 			return &terraform.TerraformArgs{}, nil
 		}
 		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
-			_, err := mockProvider.GenerateTerraformArgsFunc(componentID, "", interactive)
+			_, err := mockProvider.GenerateTerraformArgsFunc(componentID, interactive)
 			return nil, nil, err
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
@@ -1858,12 +1858,12 @@ terraform:
 				}
 			}
 		}
-		mockProvider.GenerateTerraformArgsFunc = func(componentID, modulePath string, interactive bool) (*terraform.TerraformArgs, error) {
+		mockProvider.GenerateTerraformArgsFunc = func(componentID string, interactive bool) (*terraform.TerraformArgs, error) {
 			tfDataDir, _ := mockProvider.GetTFDataDirFunc(componentID)
 			tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
 
 			// GenerateBackendConfigArgs is now private, get args from GenerateTerraformArgs
-			args, _ := realProvider.GenerateTerraformArgs(componentID, modulePath, interactive)
+			args, _ := realProvider.GenerateTerraformArgs(componentID, interactive)
 			backendConfigArgs := args.InitArgs[3:] // Skip "-backend=true", "-force-copy", "-upgrade"
 			initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
 			initArgs = append(initArgs, backendConfigArgs...)
@@ -1886,7 +1886,7 @@ terraform:
 			}, nil
 		}
 		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
-			args, err := mockProvider.GenerateTerraformArgsFunc(componentID, "", interactive)
+			args, err := mockProvider.GenerateTerraformArgsFunc(componentID, interactive)
 			if err != nil {
 				return nil, nil, err
 			}
