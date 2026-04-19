@@ -62,8 +62,13 @@ func TestBootstrap_FailsOnMalformedSetFlag(t *testing.T) {
 func TestBootstrap_PersistsSetValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "bootstrap")
-	// Run bootstrap; failure at the install step is expected and tolerated.
-	_, _, _ = helpers.RunCLI(dir, []string{"bootstrap", "staging", "--set", "dns.enabled=false", "--set", "custom.key=hello"}, env)
+	// Run bootstrap; failure at the install step is expected and tolerated. Capture the
+	// exit so an early/unexpected failure (missing binary, panic, etc.) surfaces in test
+	// output alongside the later "values.yaml not found" assertion rather than hiding it.
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "staging", "--set", "dns.enabled=false", "--set", "custom.key=hello"}, env)
+	if err != nil {
+		t.Logf("bootstrap exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
 
 	valuesPath := filepath.Join(dir, "contexts", "staging", "values.yaml")
 	data, err := os.ReadFile(valuesPath)
@@ -86,8 +91,13 @@ func TestBootstrap_PersistsSetValues(t *testing.T) {
 func TestBootstrap_WritesContextFileOnFirstRun(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "bootstrap")
-	// Run bootstrap; failure at the install step is expected and tolerated.
-	_, _, _ = helpers.RunCLI(dir, []string{"bootstrap", "staging"}, env)
+	// Run bootstrap; failure at the install step is expected and tolerated. Capture the
+	// exit so an early/unexpected failure (missing binary, panic, etc.) surfaces in test
+	// output alongside the later ".windsor/context not found" assertion rather than hiding it.
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "staging"}, env)
+	if err != nil {
+		t.Logf("bootstrap exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
 
 	contextPath := filepath.Join(dir, ".windsor", "context")
 	data, err := os.ReadFile(contextPath)
