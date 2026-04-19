@@ -109,7 +109,15 @@ var bootstrapCmd = &cobra.Command{
 		}
 
 		if !bootstrapYes {
-			if err := confirmBootstrapIfContextExists(cmd.InOrStdin(), proj.Runtime.ConfigRoot, contextName); err != nil {
+			// Use the canonical ConfigHandler.GetConfigRoot() rather than proj.Runtime.ConfigRoot
+			// so the guard doesn't silently depend on NewProject having mutated rt as a side effect
+			// — if that ordering ever changes or ConfigRoot is empty for any reason, the guard
+			// would pass silently and lose its protection against accidental re-bootstrap.
+			configRoot, err := proj.Runtime.ConfigHandler.GetConfigRoot()
+			if err != nil {
+				return fmt.Errorf("failed to resolve config root for bootstrap confirmation: %w", err)
+			}
+			if err := confirmBootstrapIfContextExists(cmd.InOrStdin(), configRoot, contextName); err != nil {
 				return err
 			}
 		}

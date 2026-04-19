@@ -432,6 +432,49 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("GuardReadsConfigRootFromConfigHandlerNotRuntimeField", func(t *testing.T) {
+		// Guards against regression where the prompt reads proj.Runtime.ConfigRoot directly
+		// instead of the canonical ConfigHandler.GetConfigRoot(). If the two diverge (because
+		// NewProject hasn't mutated Runtime.ConfigRoot, or is mutated later), the prompt must
+		// still fire based on the ConfigHandler's answer — that's the canonical source.
+		mocks := setupBootstrapTest(t)
+		// Point GetConfigRoot at a distinct directory from whatever NewProject would compute
+		// (which is <tmpDir>/contexts/test-context). If the code still reads Runtime.ConfigRoot,
+		// it will look at the wrong directory, find no values.yaml, and skip the prompt — which
+		// would cause this test to succeed trivially; we explicitly check for the prompt-cancelled
+		// path to catch that regression.
+		guardRoot := mocks.TmpDir + "/distinct-config-root"
+		if err := os.MkdirAll(guardRoot, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(guardRoot+"/values.yaml", []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("write values.yaml: %v", err)
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetConfigRootFunc = func() (string, error) { return guardRoot, nil }
+
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader("n\n"))
+
+		// When executing bootstrap with "n" on stdin
+		err := cmd.Execute()
+
+		// Then the prompt must have fired (guard saw values.yaml at guardRoot via GetConfigRoot)
+		// and been cancelled. If the code regressed to reading Runtime.ConfigRoot, the prompt
+		// wouldn't have fired at guardRoot and bootstrap would have proceeded — a non-cancel outcome.
+		if err == nil {
+			t.Fatal("Expected cancellation: the prompt must fire based on ConfigHandler.GetConfigRoot(), not Runtime.ConfigRoot")
+		}
+		if !strings.Contains(err.Error(), "cancelled") {
+			t.Errorf("Expected cancellation error indicating the prompt fired at the canonical config root, got: %v", err)
+		}
+	})
+
 	t.Run("PromptsAndProceedsOnYes", func(t *testing.T) {
 		// Given a context whose values.yaml already exists (simulating prior configuration)
 		mocks := setupBootstrapTest(t)
