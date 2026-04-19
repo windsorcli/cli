@@ -9,7 +9,7 @@ type MockTerraformProvider struct {
 	FindRelativeProjectPathFunc func(directory ...string) (string, error)
 	IsInTerraformProjectFunc    func() bool
 	GenerateBackendOverrideFunc func(directory string) error
-	GenerateTerraformArgsFunc   func(componentID, modulePath string, interactive bool) (*TerraformArgs, error)
+	GenerateTerraformArgsFunc   func(componentID string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponentFunc   func(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponentsFunc  func() []blueprintv1alpha1.TerraformComponent
 	SetTerraformComponentsFunc  func(components []blueprintv1alpha1.TerraformComponent)
@@ -47,9 +47,9 @@ func (m *MockTerraformProvider) GenerateBackendOverride(directory string) error 
 }
 
 // GenerateTerraformArgs implements TerraformProvider.
-func (m *MockTerraformProvider) GenerateTerraformArgs(componentID, modulePath string, interactive bool) (*TerraformArgs, error) {
+func (m *MockTerraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
 	if m.GenerateTerraformArgsFunc != nil {
-		return m.GenerateTerraformArgsFunc(componentID, modulePath, interactive)
+		return m.GenerateTerraformArgsFunc(componentID, interactive)
 	}
 	return &TerraformArgs{}, nil
 }

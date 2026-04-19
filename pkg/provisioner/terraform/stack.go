@@ -28,6 +28,7 @@ import (
 // Both the Stack struct and MockStack implement this interface.
 type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	MigrateState(blueprint *blueprintv1alpha1.Blueprint) error
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -65,6 +66,19 @@ type TerraformStack struct {
 	terraformEnv *envvars.TerraformEnvPrinter
 	postApply    []func(id string) error
 }
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// defaultInitFlags are the execution-policy flags passed to `terraform init` by every
+// operation that applies or inspects infrastructure (Up, Apply, Plan, PlanJSON,
+// planComponents, Destroy, planOneTerraformSummary). They refresh provider plugins to
+// their locked versions and auto-confirm state-copy prompts during backend changes.
+// MigrateState uses a different set (-migrate-state + -force-copy) because moving state
+// must not reinstall providers or mutate .terraform.lock.hcl; its call site spells
+// those flags inline to keep the distinction visible.
+var defaultInitFlags = []string{"-upgrade", "-force-copy"}
 
 // =============================================================================
 // Constructors
@@ -141,7 +155,6 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 	}()
 
 	for _, component := range components {
-		component := component
 		if err := tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
 			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 				return fmt.Errorf("directory %s does not exist", component.FullPath)
@@ -158,14 +171,11 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
 			}
 
-			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-			initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
-			initArgs = append(initArgs, terraformArgs.InitArgs...)
-			initEnv := selectTerraformCommandEnv(terraformVars, false)
-			if _, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...); err != nil {
-				return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
+			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+				return err
 			}
 
+			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 			refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 			refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
 			refreshEnv := selectTerraformCommandEnv(terraformVars, true)
@@ -210,6 +220,69 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 	}
 
 	return nil
+}
+
+// MigrateState reinitializes every Terraform component's backend against the currently configured
+// backend, migrating state from whatever backend is recorded in each component's .terraform/
+// directory to the configured target. It runs terraform init with -migrate-state -force-copy per
+// component; no plan or apply is executed. Intended to be called after a backend configuration
+// change (e.g. at the end of bootstrap, after the initial local-state applies, once the configured
+// remote backend exists and is reachable). A component whose state is already on the configured
+// backend is a no-op. On the first failure MigrateState returns; any components not yet migrated
+// retain their existing state, so the call is safe to retry once the underlying issue is resolved.
+func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	currentDir, err := s.shims.Getwd()
+	if err != nil {
+		return fmt.Errorf("error getting current directory: %v", err)
+	}
+	defer func() {
+		_ = s.shims.Chdir(currentDir)
+	}()
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("error getting project root: project root is empty")
+	}
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+
+	var backendOverridePaths []string
+	defer func() {
+		for _, path := range backendOverridePaths {
+			_ = s.shims.Remove(path)
+		}
+	}()
+
+	// Migration is a fast post-apply bookkeeping step per component; users don't need a
+	// spinner line for each one. A single top-level progress message covers the whole pass.
+	return tui.WithProgress("Migrating terraform state", func() error {
+		for _, component := range components {
+			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+				return fmt.Errorf("directory %s does not exist", component.FullPath)
+			}
+
+			terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+			if err != nil {
+				return err
+			}
+
+			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+			if _, err := s.shims.Stat(backendOverridePath); err == nil {
+				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+			}
+
+			// Migration intentionally omits -upgrade: its contract is moving state, not
+			// reinstalling providers or mutating .terraform.lock.hcl. -force-copy auto-confirms
+			// terraform's "copy state?" prompt when the backend actually changes.
+			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, "-migrate-state", "-force-copy"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // DestroyAll destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
@@ -325,7 +398,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 		}
 		terraformVars["TF_VAR_operation"] = "apply"
 
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 			cleanup()
 			return err
 		}
@@ -383,7 +456,7 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
@@ -420,7 +493,7 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
@@ -515,7 +588,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	terraformVars["TF_VAR_operation"] = "apply"
 
 	return tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 			return err
 		}
 
@@ -556,7 +629,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "destroy"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
@@ -684,7 +757,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		result.Err = err
 		return result
 	}
@@ -769,10 +842,14 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 	return component, terraformVars, terraformArgs, cleanup, nil
 }
 
-// runTerraformInit executes terraform init for the given component.
-func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) error {
+// runTerraformInit executes terraform init for the given component, inserting any extraFlags
+// (e.g. "-migrate-state") immediately after the "init" subcommand and before the argument set
+// generated by the terraform provider. Returning a wrapped error keeps command-construction in
+// one place so the Up path and the MigrateState path can't drift.
+func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
+	initArgs = append(initArgs, extraFlags...)
 	initArgs = append(initArgs, terraformArgs.InitArgs...)
 	initEnv := selectTerraformCommandEnv(terraformVars, false)
 	_, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...)

@@ -749,6 +749,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 			t.Errorf("Expected error about S3 backend config, got: %v", err)
 		}
 	})
+
 }
 
 func Test_sanitizeForK8s(t *testing.T) {

@@ -538,6 +538,106 @@ func TestStack_Up(t *testing.T) {
 
 }
 
+func TestStack_MigrateState(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+		if err := stack.MigrateState(nil); err == nil {
+			t.Fatal("Expected error for nil blueprint")
+		}
+	})
+
+	t.Run("RunsInitWithMigrateStateForEachComponent", func(t *testing.T) {
+		// Given a stack and a two-component blueprint
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		migrateStateInits := 0
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				for _, a := range args {
+					if a == "-migrate-state" {
+						migrateStateInits++
+						break
+					}
+				}
+			}
+			return "", nil
+		}
+
+		// When MigrateState runs
+		if err := stack.MigrateState(blueprint); err != nil {
+			t.Fatalf("Expected MigrateState to succeed, got %v", err)
+		}
+
+		// Then terraform init -migrate-state fired once per component and no plan/apply ran.
+		if migrateStateInits != 2 {
+			t.Errorf("Expected 2 migrate-state inits (one per component), got %d", migrateStateInits)
+		}
+	})
+
+	t.Run("DoesNotPassUpgradeFlag", func(t *testing.T) {
+		// MigrateState must not include -upgrade: its contract is moving state, not
+		// reinstalling providers or rewriting .terraform.lock.hcl. Execution flags are
+		// added per operation at each call site, and MigrateState's call site passes
+		// only -migrate-state + -force-copy.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var upgradeSeen bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				for _, a := range args {
+					if a == "-upgrade" {
+						upgradeSeen = true
+					}
+				}
+			}
+			return "", nil
+		}
+
+		// When MigrateState runs
+		if err := stack.MigrateState(blueprint); err != nil {
+			t.Fatalf("Expected MigrateState to succeed, got %v", err)
+		}
+
+		// Then no init invocation carried -upgrade
+		if upgradeSeen {
+			t.Error("Expected MigrateState's init not to include -upgrade; state migration must not reinstall providers")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenMigrationInitFails", func(t *testing.T) {
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				return "", fmt.Errorf("backend not reachable")
+			}
+			return "", nil
+		}
+
+		err := stack.MigrateState(blueprint)
+		if err == nil {
+			t.Fatal("Expected MigrateState to return an error when init fails")
+		}
+		if !strings.Contains(err.Error(), "error running terraform init") {
+			t.Errorf("Expected error to mention terraform init failure, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "backend not reachable") {
+			t.Errorf("Expected error to wrap the underlying cause, got: %v", err)
+		}
+	})
+}
+
 func TestStack_DestroyAll(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()

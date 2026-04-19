@@ -1618,9 +1618,8 @@ terraform:
 			return nil, os.ErrNotExist
 		}
 
-		modulePath := filepath.Join("/test/project", "terraform", "test/path")
 		// When generating terraform args
-		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		// Then args should be generated successfully
 		if err != nil {
@@ -1700,9 +1699,8 @@ terraform:
 			return nil, os.ErrNotExist
 		}
 
-		modulePath := filepath.Join("/test/project", "terraform", "test/path")
 		// When generating terraform args
-		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		// Then var-file args should be included
 		if err != nil {
@@ -1773,9 +1771,8 @@ terraform:
 			return nil, os.ErrNotExist
 		}
 
-		modulePath := filepath.Join("/test/project", "terraform", "test/path")
 		// When generating terraform args
-		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		// Then parallelism should be included in apply and destroy args
 		if err != nil {
@@ -1873,8 +1870,7 @@ terraform:
 			t.Errorf("Expected parallelism to be %d, got %d", parallelismValue, *parallelismInt)
 		}
 
-		modulePath := filepath.Join("/test/project", "terraform", "test/path")
-		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -1952,8 +1948,7 @@ terraform:
 			return nil, os.ErrNotExist
 		}
 
-		modulePath := filepath.Join("/test/project", "terraform", "test/path")
-		args, err := mocks.Provider.GenerateTerraformArgs("test/path", modulePath, true)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -2009,7 +2004,7 @@ terraform:
 		}
 
 		// When generating terraform args with non-interactive mode
-		args, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", false)
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", false)
 
 		// Then auto-approve should be included
 		if err != nil {
@@ -2030,7 +2025,7 @@ terraform:
 		}
 
 		// When generating terraform args
-		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		// Then it should return an error
 		if err == nil {
@@ -2055,7 +2050,7 @@ terraform:
 		}
 
 		// When generating terraform args
-		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		// Then it should return an error
 		if err == nil {
@@ -2103,7 +2098,7 @@ terraform:
 		}
 
 		// When generating terraform args
-		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		// Then it should return an error
 		if err == nil {
@@ -2151,7 +2146,7 @@ terraform:
 		}
 
 		// When generating terraform args
-		_, err := mocks.Provider.GenerateTerraformArgs("test/path", "test/module", true)
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
 
 		// Then it should return an error
 		if err == nil {
@@ -2906,29 +2901,6 @@ terraform:
 
 		if _, exists := envVars["TF_VAR_vpc_id"]; exists {
 			t.Error("Expected TF_VAR_vpc_id to not be set when JSON marshal fails")
-		}
-	})
-
-	t.Run("HandlesResolveModulePathErrorForDirectComponent", func(t *testing.T) {
-		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
-
-		component := blueprintv1alpha1.TerraformComponent{
-			Name:   "cluster",
-			Source: "./modules/cluster",
-		}
-		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
-
-		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) {
-			return "", errors.New("scratch path error")
-		}
-
-		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
-
-		if err == nil {
-			t.Fatal("Expected error when resolveModulePath fails")
-		}
-		if !strings.Contains(err.Error(), "error resolving module path") {
-			t.Errorf("Expected error to mention resolving module path, got: %v", err)
 		}
 	})
 

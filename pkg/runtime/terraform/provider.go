@@ -72,7 +72,7 @@ type TerraformProvider interface {
 	FindRelativeProjectPath(directory ...string) (string, error)
 	IsInTerraformProject() bool
 	GenerateBackendOverride(directory string) error
-	GenerateTerraformArgs(componentID, modulePath string, interactive bool) (*TerraformArgs, error)
+	GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent)
@@ -236,12 +236,11 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 	return nil
 }
 
-// GenerateTerraformArgs constructs Terraform CLI arguments for the specified component ID, module path, and interaction mode.
-// This function discovers applicable var files, configures backend arguments, and assembles all common Terraform command
-// arguments for init, plan, apply, destroy, import, and refresh operations. The componentID is used for tfstate paths,
-// var file lookups, and backend configuration. The modulePath parameter is unused and maintained for backward compatibility.
+// GenerateTerraformArgs constructs Terraform CLI arguments for the specified component using the
+// configured backend type. It discovers applicable var files, assembles backend-config arguments,
+// and builds the init, plan, apply, refresh, import, destroy, and plan-destroy arg sets.
 // Returns a fully populated TerraformArgs structure or an error if processing or lookup fails.
-func (p *terraformProvider) GenerateTerraformArgs(componentID, modulePath string, interactive bool) (*TerraformArgs, error) {
+func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
 	configRoot, err := p.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error getting config root: %w", err)
@@ -292,7 +291,10 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID, modulePath string
 		return nil, fmt.Errorf("error generating backend config args: %w", err)
 	}
 
-	initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
+	// InitArgs carries only configuration (backend selection + backend-config) — execution
+	// policy flags like -upgrade, -force-copy, -migrate-state, or -reconfigure are added by
+	// each caller of runTerraformInit according to the operation it's performing.
+	initArgs := []string{"-backend=true"}
 	initArgs = append(initArgs, backendConfigArgs...)
 
 	planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}
@@ -419,22 +421,7 @@ func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 // are not included as separate TF_VAR_* variables. Complex output values are JSON-encoded.
 // Returns the generated environment variables map, the TerraformArgs struct, or an error if processing fails.
 func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error) {
-	component := p.GetTerraformComponent(componentID)
-	var modulePath string
-	if component != nil {
-		var err error
-		modulePath, err = p.resolveModulePath(component)
-		if err != nil {
-			return nil, nil, fmt.Errorf("error resolving module path for component %s: %w", componentID, err)
-		}
-	} else {
-		projectRoot, err := p.shell.GetProjectRoot()
-		if err != nil {
-			return nil, nil, fmt.Errorf("component %s not found and module path could not be resolved: %w", componentID, err)
-		}
-		modulePath = filepath.Join(projectRoot, "terraform", componentID)
-	}
-	terraformArgs, err := p.GenerateTerraformArgs(componentID, modulePath, interactive)
+	terraformArgs, err := p.GenerateTerraformArgs(componentID, interactive)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
@@ -787,7 +774,7 @@ func (p *terraformProvider) prepareTerraformContext(componentID string) (*terraf
 		return nil, nil, fmt.Errorf("failed to resolve module path: %w", err)
 	}
 
-	terraformArgs, err := p.GenerateTerraformArgs(componentID, absModulePath, false)
+	terraformArgs, err := p.GenerateTerraformArgs(componentID, false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate terraform args: %w", err)
 	}
