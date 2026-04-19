@@ -6,6 +6,7 @@
 package flux
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"strconv"
@@ -122,6 +123,11 @@ func (n *BaseNotifier) buildTargetFromReceiver(r *unstructured.Unstructured, nam
 // (even "generic" receivers are protected by the path which is hashed from it).
 // The dynamic client surfaces Secret data values as base64-encoded strings (as
 // they appear on the wire), so the token is decoded before being returned.
+// Decoded tokens containing CR or LF bytes are rejected up front because the
+// gitlab receiver type injects the raw token into an HTTP header value — net/http
+// would silently reject such a request deep inside the post() call, which Notify
+// then swallows as an opaque warning; rejecting here turns a malformed secret
+// (commonly from accidental newlines in operator copy-paste) into a clear error.
 func (n *BaseNotifier) readSecretToken(namespace, secretName string) ([]byte, error) {
 	obj, err := n.kubeClient.GetResource(secretGVR(), namespace, secretName)
 	if err != nil {
@@ -145,6 +151,9 @@ func (n *BaseNotifier) readSecretToken(namespace, secretName string) ([]byte, er
 	decoded, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
 		return nil, fmt.Errorf("secret %q token decode: %w", secretName, err)
+	}
+	if bytes.ContainsAny(decoded, "\r\n") {
+		return nil, fmt.Errorf("secret %q token contains CR or LF bytes; reissue the token without embedded newlines", secretName)
 	}
 	return decoded, nil
 }
