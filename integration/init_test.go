@@ -58,7 +58,7 @@ func getPathValue(data map[string]any, path ...string) (any, bool) {
 	return current, true
 }
 
-func TestInitConfig_PersistsSetValues(t *testing.T) {
+func TestInit_PersistsSetValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 
@@ -77,7 +77,7 @@ func TestInitConfig_PersistsSetValues(t *testing.T) {
 	}
 }
 
-func TestInitConfig_DevPlatformGoesToWorkstationState(t *testing.T) {
+func TestInit_DevPlatformGoesToWorkstationState(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 
@@ -104,7 +104,7 @@ func TestInitConfig_DevPlatformGoesToWorkstationState(t *testing.T) {
 	}
 }
 
-func TestInitConfig_NonDevPlatformStaysInValues(t *testing.T) {
+func TestInit_NonDevPlatformStaysInValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 
@@ -131,7 +131,7 @@ func TestInitConfig_NonDevPlatformStaysInValues(t *testing.T) {
 	}
 }
 
-func TestInitConfig_RepeatedInitIsIdempotentForExplicitValues(t *testing.T) {
+func TestInit_RepeatedInitIsIdempotentForExplicitValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 
@@ -152,7 +152,7 @@ func TestInitConfig_RepeatedInitIsIdempotentForExplicitValues(t *testing.T) {
 	}
 }
 
-func TestInitConfig_PreservesUserValuesAcrossInit(t *testing.T) {
+func TestInit_PreservesUserValuesAcrossInit(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 	contextDir := filepath.Join(dir, "contexts", "prod")
@@ -175,7 +175,7 @@ func TestInitConfig_PreservesUserValuesAcrossInit(t *testing.T) {
 	}
 }
 
-func TestInitConfig_SetContextThenInitUsesSelectedContext(t *testing.T) {
+func TestInit_SetContextThenInitUsesSelectedContext(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 
@@ -202,7 +202,7 @@ func TestInitConfig_SetContextThenInitUsesSelectedContext(t *testing.T) {
 	}
 }
 
-func TestInitConfig_DevContextOwnershipStableAcrossReinit(t *testing.T) {
+func TestInit_DevContextOwnershipStableAcrossReinit(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 
@@ -231,7 +231,58 @@ func TestInitConfig_DevContextOwnershipStableAcrossReinit(t *testing.T) {
 	}
 }
 
-func TestInitConfig_InvalidValuesDoNotBlockShowCommand(t *testing.T) {
+// TestInit_CreatesProjectAnchorInEmptyDirectory verifies that
+// `windsor init` writes a windsor.yaml into the current directory when none
+// exists anywhere up the path. Without this anchor, init would otherwise fall
+// back to the global home config and silently operate against $HOME.
+func TestInit_CreatesProjectAnchorInEmptyDirectory(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	env := []string{
+		"HOME=" + homeDir,
+		"USERPROFILE=" + homeDir,
+		"PATH=" + os.Getenv("PATH"),
+	}
+
+	_, stderr, err := helpers.RunCLI(workDir, []string{"init"}, env)
+	if err != nil {
+		t.Fatalf("init in empty dir: %v\nstderr: %s", err, stderr)
+	}
+
+	cwdProject := filepath.Join(workDir, "windsor.yaml")
+	if _, err := os.Stat(cwdProject); err != nil {
+		t.Fatalf("expected windsor.yaml at %s, got %v", cwdProject, err)
+	}
+
+	globalProject := filepath.Join(homeDir, ".config", "windsor", "windsor.yaml")
+	if _, err := os.Stat(globalProject); err == nil {
+		t.Errorf("init should anchor to cwd, but also created windsor.yaml in global home: %s", globalProject)
+	}
+}
+
+// TestInit_NoAnchorWhenProjectExistsInParent verifies that running
+// `windsor init` in a subdirectory of an existing project reuses the parent's
+// windsor.yaml instead of creating a stray one in the subdirectory.
+func TestInit_NoAnchorWhenProjectExistsInParent(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	subDir := filepath.Join(dir, "nested", "deeper")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+
+	_, stderr, err := helpers.RunCLI(subDir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init in subdir: %v\nstderr: %s", err, stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(subDir, "windsor.yaml")); err == nil {
+		t.Error("expected no windsor.yaml in subdir because parent already has one")
+	}
+}
+
+func TestInit_InvalidValuesDoNotBlockShowCommand(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 

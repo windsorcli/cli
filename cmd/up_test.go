@@ -320,6 +320,153 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("BareUpDoesNotIssueExtraSaveConfig", func(t *testing.T) {
+		// Given a workstation project and no flags overriding config
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing a bare `windsor up`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig is invoked exactly once (by Initialize) with overwrite=false;
+		// no extra explicit save fires from the up command.
+		if len(overwriteArgs) != 1 {
+			t.Fatalf("Expected 1 SaveConfig call from Initialize only, got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+		if len(overwriteArgs[0]) == 0 || overwriteArgs[0][0] {
+			t.Errorf("Expected Initialize SaveConfig overwrite=false, got %v", overwriteArgs[0])
+		}
+	})
+
+	t.Run("SetFlagAddsOverwriteSaveConfig", func(t *testing.T) {
+		// Given a workstation project and a --set flag override
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing `windsor up --set foo=bar`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--set", "foo=bar"})
+		t.Cleanup(func() { upSetFlags = nil })
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig is called twice: once by Initialize (overwrite=false), then
+		// explicitly by up to elevate values.yaml replacement (overwrite=true).
+		if len(overwriteArgs) != 2 {
+			t.Fatalf("Expected 2 SaveConfig calls, got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+		last := overwriteArgs[1]
+		if len(last) == 0 || !last[0] {
+			t.Errorf("Expected explicit SaveConfig overwrite=true, got %v", last)
+		}
+	})
+
+	t.Run("WorkstationFlagAloneSkipsExplicitSaveConfig", func(t *testing.T) {
+		// Given a workstation project and a --vm-driver flag (no --set)
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		// When executing `windsor up --vm-driver=docker-desktop`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--vm-driver=docker-desktop"})
+		t.Cleanup(func() { upVmDriver = "" })
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig fires once via Initialize only — --vm-driver alone does not
+		// require an overwrite re-save (workstation keys are persisted via workstation.yaml).
+		if len(overwriteArgs) != 1 {
+			t.Fatalf("Expected 1 SaveConfig call (Initialize only), got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+	})
+
+	t.Run("WorkstationDisabledStillPersistsSetFlags", func(t *testing.T) {
+		// Given a project with no workstation but --set provided
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, false)
+
+		// When executing `windsor up --set foo=bar`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--set", "foo=bar"})
+		t.Cleanup(func() { upSetFlags = nil })
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then the --set values must still land in values.yaml (overwrite=true)
+		// before the no-workstation guard short-circuits the rest of the flow.
+		if len(overwriteArgs) != 2 {
+			t.Fatalf("Expected 2 SaveConfig calls (Initialize + explicit --set save), got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+		last := overwriteArgs[1]
+		if len(last) == 0 || !last[0] {
+			t.Errorf("Expected explicit SaveConfig overwrite=true, got %v", last)
+		}
+	})
+
+	t.Run("WorkstationDisabledBareUpSkipsExplicitSaveConfig", func(t *testing.T) {
+		// Given a project with no workstation and no flags
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, false)
+
+		// When executing a bare `windsor up`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig fires only via Initialize (overwrite=false); no extra
+		// explicit save runs since --set was not provided.
+		if len(overwriteArgs) != 1 {
+			t.Fatalf("Expected 1 SaveConfig call from Initialize only, got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+		if len(overwriteArgs[0]) == 0 || overwriteArgs[0][0] {
+			t.Errorf("Expected Initialize SaveConfig overwrite=false, got %v", overwriteArgs[0])
+		}
+	})
+
 	t.Run("ProvisionerWaitError", func(t *testing.T) {
 		// Given a kubernetes manager whose WaitForKustomizations fails
 		mocks := setupUpTest(t)
@@ -345,3 +492,111 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildUpFlagOverrides(t *testing.T) {
+	// Package-level flag vars are shared; reset after each case.
+	resetFlags := func() {
+		upVmDriver = ""
+		upPlatform = ""
+		upBlueprint = ""
+		upSetFlags = nil
+	}
+
+	t.Run("EmptyFlagsYieldEmptyMap", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(overrides) != 0 {
+			t.Errorf("Expected empty overrides, got %v", overrides)
+		}
+	})
+
+	t.Run("VmDriverDockerDesktopInfersDockerPlatform", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upVmDriver = "docker-desktop"
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if overrides["workstation.runtime"] != "docker-desktop" {
+			t.Errorf("Expected workstation.runtime=docker-desktop, got %v", overrides["workstation.runtime"])
+		}
+		if overrides["platform"] != "docker" {
+			t.Errorf("Expected inferred platform=docker, got %v", overrides["platform"])
+		}
+	})
+
+	t.Run("VmDriverColimaIncusRemapsToColimaRuntimeAndIncusPlatform", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upVmDriver = "colima-incus"
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if overrides["workstation.runtime"] != "colima" {
+			t.Errorf("Expected workstation.runtime=colima (remapped from colima-incus), got %v", overrides["workstation.runtime"])
+		}
+		if overrides["platform"] != "incus" {
+			t.Errorf("Expected platform=incus, got %v", overrides["platform"])
+		}
+	})
+
+	t.Run("ExplicitPlatformOverridesVmDriverInference", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upVmDriver = "docker-desktop"
+		upPlatform = "aws"
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if overrides["platform"] != "aws" {
+			t.Errorf("Expected explicit platform=aws to win, got %v", overrides["platform"])
+		}
+		if overrides["workstation.runtime"] != "docker-desktop" {
+			t.Errorf("Expected workstation.runtime=docker-desktop, got %v", overrides["workstation.runtime"])
+		}
+	})
+
+	t.Run("SetFlagsParsedAsKeyValuePairs", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upSetFlags = []string{"dns.enabled=false", "cluster.endpoint=https://localhost:6443"}
+
+		overrides, err := buildUpFlagOverrides()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if overrides["dns.enabled"] != "false" {
+			t.Errorf("Expected dns.enabled=false, got %v", overrides["dns.enabled"])
+		}
+		if overrides["cluster.endpoint"] != "https://localhost:6443" {
+			t.Errorf("Expected cluster.endpoint=https://localhost:6443, got %v", overrides["cluster.endpoint"])
+		}
+	})
+
+	t.Run("InvalidSetFlagReturnsError", func(t *testing.T) {
+		resetFlags()
+		t.Cleanup(resetFlags)
+		upSetFlags = []string{"no-equals-sign"}
+
+		_, err := buildUpFlagOverrides()
+		if err == nil {
+			t.Fatal("Expected error for malformed --set, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid --set format") {
+			t.Errorf("Expected 'invalid --set format' error, got: %v", err)
+		}
+	})
+}
+
+

@@ -32,6 +32,9 @@ func TestGetContextsCmd(t *testing.T) {
 		}
 
 		tmpDir := t.TempDir()
+		// Redirect HOME so the global-mode fallback (from GetProjectRoot) lands
+		// in the test's tmp dir rather than the developer's real config.
+		t.Setenv("HOME", tmpDir)
 		if err := os.Chdir(tmpDir); err != nil {
 			t.Fatalf("Failed to change to temp directory: %v", err)
 		}
@@ -361,6 +364,9 @@ func TestGetContextCmd(t *testing.T) {
 		}
 
 		tmpDir := t.TempDir()
+		// Redirect HOME so the global-mode fallback (from GetProjectRoot) lands
+		// in the test's tmp dir rather than the developer's real config.
+		t.Setenv("HOME", tmpDir)
 		if err := os.Chdir(tmpDir); err != nil {
 			t.Fatalf("Failed to change to temp directory: %v", err)
 		}
