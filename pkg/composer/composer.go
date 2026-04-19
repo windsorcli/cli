@@ -250,7 +250,7 @@ func (r *Composer) generateGitignore() error {
 		finalContent += "\n"
 	}
 
-	// #nosec G306 - .gitignore files are standard 0644 permissions (world-readable, owner-writable)
+	// #nosec G306,G703 - .gitignore files use standard 0644 permissions; gitignorePath is constructed from trusted project root
 	if err := os.WriteFile(gitignorePath, []byte(finalContent), 0644); err != nil {
 		return fmt.Errorf("failed to write to .gitignore: %w", err)
 	}
