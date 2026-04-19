@@ -241,7 +241,97 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 // and builds the init, plan, apply, refresh, import, destroy, and plan-destroy arg sets.
 // Returns a fully populated TerraformArgs structure or an error if processing or lookup fails.
 func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
-	return p.generateTerraformArgs(componentID, interactive, "")
+	configRoot, err := p.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error getting config root: %w", err)
+	}
+
+	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
+	if err != nil {
+		return nil, fmt.Errorf("error getting windsor scratch path: %w", err)
+	}
+
+	component := p.GetTerraformComponent(componentID)
+	actualComponentID := componentID
+	if component != nil {
+		actualComponentID = component.GetID()
+	}
+
+	patterns := []string{
+		filepath.Join(windsorScratchPath, "terraform", actualComponentID, "terraform.tfvars"),
+		filepath.Join(configRoot, "terraform", actualComponentID+".tfvars"),
+		filepath.Join(configRoot, "terraform", actualComponentID+".tfvars.json"),
+	}
+	if component != nil && component.Path != actualComponentID {
+		patterns = append(patterns,
+			filepath.Join(configRoot, "terraform", component.Path+".tfvars"),
+			filepath.Join(configRoot, "terraform", component.Path+".tfvars.json"),
+		)
+	}
+
+	var varFileArgs []string
+	for _, pattern := range patterns {
+		if _, err := p.Shims.Stat(filepath.FromSlash(pattern)); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("error checking file: %w", err)
+			}
+		} else {
+			slashPath := filepath.ToSlash(pattern)
+			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", slashPath))
+		}
+	}
+	tfDataDir, err := p.GetTFDataDir(actualComponentID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting TF_DATA_DIR: %w", err)
+	}
+	tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
+
+	backendConfigArgs, err := p.generateBackendConfigArgs(actualComponentID, configRoot)
+	if err != nil {
+		return nil, fmt.Errorf("error generating backend config args: %w", err)
+	}
+
+	initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
+	initArgs = append(initArgs, backendConfigArgs...)
+
+	planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}
+	planArgs = append(planArgs, varFileArgs...)
+
+	applyArgs := []string{}
+	refreshArgs := []string{}
+	refreshArgs = append(refreshArgs, varFileArgs...)
+
+	planDestroyArgs := []string{"-destroy"}
+	planDestroyArgs = append(planDestroyArgs, varFileArgs...)
+
+	destroyArgs := []string{}
+	if !interactive {
+		destroyArgs = append(destroyArgs, "-auto-approve")
+	}
+	destroyArgs = append(destroyArgs, varFileArgs...)
+
+	if component != nil && component.Parallelism != nil {
+		parallelism := component.Parallelism.ToInt()
+		if parallelism != nil {
+			parallelismArg := fmt.Sprintf("-parallelism=%d", *parallelism)
+			applyArgs = append(applyArgs, parallelismArg)
+			destroyArgs = append(destroyArgs, parallelismArg)
+		}
+	}
+
+	applyArgs = append(applyArgs, tfPlanPath)
+
+	return &TerraformArgs{
+		TFDataDir:       strings.TrimSpace(tfDataDir),
+		InitArgs:        initArgs,
+		PlanArgs:        planArgs,
+		ApplyArgs:       applyArgs,
+		RefreshArgs:     refreshArgs,
+		ImportArgs:      varFileArgs,
+		DestroyArgs:     destroyArgs,
+		PlanDestroyArgs: planDestroyArgs,
+		BackendConfig:   strings.Join(backendConfigArgs, " "),
+	}, nil
 }
 
 // GetTerraformComponent finds a terraform component by its path or name from the loaded blueprint components.
@@ -520,103 +610,6 @@ func (p *terraformProvider) ClearCache() {
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// generateTerraformArgs is the shared implementation backing GenerateTerraformArgs. The
-// backendOverride parameter forces a specific backend type when non-empty; callers currently
-// pass "" so the configured backend type is used.
-func (p *terraformProvider) generateTerraformArgs(componentID string, interactive bool, backendOverride string) (*TerraformArgs, error) {
-	configRoot, err := p.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error getting config root: %w", err)
-	}
-
-	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
-	if err != nil {
-		return nil, fmt.Errorf("error getting windsor scratch path: %w", err)
-	}
-
-	component := p.GetTerraformComponent(componentID)
-	actualComponentID := componentID
-	if component != nil {
-		actualComponentID = component.GetID()
-	}
-
-	patterns := []string{
-		filepath.Join(windsorScratchPath, "terraform", actualComponentID, "terraform.tfvars"),
-		filepath.Join(configRoot, "terraform", actualComponentID+".tfvars"),
-		filepath.Join(configRoot, "terraform", actualComponentID+".tfvars.json"),
-	}
-	if component != nil && component.Path != actualComponentID {
-		patterns = append(patterns,
-			filepath.Join(configRoot, "terraform", component.Path+".tfvars"),
-			filepath.Join(configRoot, "terraform", component.Path+".tfvars.json"),
-		)
-	}
-
-	var varFileArgs []string
-	for _, pattern := range patterns {
-		if _, err := p.Shims.Stat(filepath.FromSlash(pattern)); err != nil {
-			if !os.IsNotExist(err) {
-				return nil, fmt.Errorf("error checking file: %w", err)
-			}
-		} else {
-			slashPath := filepath.ToSlash(pattern)
-			varFileArgs = append(varFileArgs, fmt.Sprintf("-var-file=%s", slashPath))
-		}
-	}
-	tfDataDir, err := p.GetTFDataDir(actualComponentID)
-	if err != nil {
-		return nil, fmt.Errorf("error getting TF_DATA_DIR: %w", err)
-	}
-	tfPlanPath := filepath.ToSlash(filepath.Join(tfDataDir, "terraform.tfplan"))
-
-	backendConfigArgs, err := p.generateBackendConfigArgs(actualComponentID, configRoot, backendOverride)
-	if err != nil {
-		return nil, fmt.Errorf("error generating backend config args: %w", err)
-	}
-
-	initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
-	initArgs = append(initArgs, backendConfigArgs...)
-
-	planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}
-	planArgs = append(planArgs, varFileArgs...)
-
-	applyArgs := []string{}
-	refreshArgs := []string{}
-	refreshArgs = append(refreshArgs, varFileArgs...)
-
-	planDestroyArgs := []string{"-destroy"}
-	planDestroyArgs = append(planDestroyArgs, varFileArgs...)
-
-	destroyArgs := []string{}
-	if !interactive {
-		destroyArgs = append(destroyArgs, "-auto-approve")
-	}
-	destroyArgs = append(destroyArgs, varFileArgs...)
-
-	if component != nil && component.Parallelism != nil {
-		parallelism := component.Parallelism.ToInt()
-		if parallelism != nil {
-			parallelismArg := fmt.Sprintf("-parallelism=%d", *parallelism)
-			applyArgs = append(applyArgs, parallelismArg)
-			destroyArgs = append(destroyArgs, parallelismArg)
-		}
-	}
-
-	applyArgs = append(applyArgs, tfPlanPath)
-
-	return &TerraformArgs{
-		TFDataDir:       strings.TrimSpace(tfDataDir),
-		InitArgs:        initArgs,
-		PlanArgs:        planArgs,
-		ApplyArgs:       applyArgs,
-		RefreshArgs:     refreshArgs,
-		ImportArgs:      varFileArgs,
-		DestroyArgs:     destroyArgs,
-		PlanDestroyArgs: planDestroyArgs,
-		BackendConfig:   strings.Join(backendConfigArgs, " "),
-	}, nil
-}
 
 // registerTerraformOutputHelper registers the terraform_output helper function with the evaluator.
 // This allows blueprint expressions to reference Terraform outputs from other components using
@@ -947,16 +940,11 @@ func (p *terraformProvider) restoreEnvVars(originalEnvVars map[string]string) {
 // This method determines the backend type from the configuration and assembles key-value argument pairs for supported
 // backend types (local, s3, kubernetes, azurerm). It also detects the presence of backend.tfvars in the context root
 // or a terraform/ fallback subdirectory, and includes a -backend-config pointing to that file if found.
-// When backendOverride is non-empty, it takes precedence over the configured backend type; this is used during bootstrap
-// Pass 1 to force local-backend args regardless of the configured remote backend.
 // Returns raw CLI arguments without shell quoting; formatting for environment variables is handled by the calling context.
 // Returns a slice of backend configuration arguments or an error if required configuration or paths are unavailable.
-func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot, backendOverride string) ([]string, error) {
+func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot string) ([]string, error) {
 	var backendConfigArgs []string
-	backend := backendOverride
-	if backend == "" {
-		backend = p.configHandler.GetString("terraform.backend.type", "local")
-	}
+	backend := p.configHandler.GetString("terraform.backend.type", "local")
 
 	addBackendConfigArg := func(key, value string) {
 		if value != "" {
