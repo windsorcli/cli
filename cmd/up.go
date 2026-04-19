@@ -63,17 +63,19 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		if proj.Workstation == nil {
-			fmt.Fprintln(os.Stderr, "windsor up is only applicable when a workstation is enabled; use windsor apply to apply infrastructure")
-			return nil
-		}
-
-		// Initialize already persisted config with overwrite=false; only re-save
-		// here to elevate to overwrite=true when --set was provided.
+		// Initialize already persisted config with overwrite=false; re-save with
+		// overwrite=true only when --set was provided so user values land in
+		// values.yaml. Runs before the workstation guard so non-workstation
+		// contexts can still receive --set overrides.
 		if len(upSetFlags) > 0 {
 			if err := proj.Runtime.SaveConfig(true); err != nil {
 				return fmt.Errorf("failed to save configuration: %w", err)
 			}
+		}
+
+		if proj.Workstation == nil {
+			fmt.Fprintln(os.Stderr, "windsor up is only applicable when a workstation is enabled; use windsor apply to apply infrastructure")
+			return nil
 		}
 
 		if _, err := proj.Up(); err != nil {

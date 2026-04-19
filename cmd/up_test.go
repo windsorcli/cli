@@ -407,8 +407,8 @@ func TestUpCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("WorkstationDisabledSkipsExplicitSaveConfig", func(t *testing.T) {
-		// Given a project with no workstation, even when --set is provided
+	t.Run("WorkstationDisabledStillPersistsSetFlags", func(t *testing.T) {
+		// Given a project with no workstation but --set provided
 		mocks := setupUpTest(t)
 		var overwriteArgs [][]bool
 		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
@@ -427,8 +427,38 @@ func TestUpCmd(t *testing.T) {
 			t.Fatalf("Expected success, got error: %v", err)
 		}
 
-		// Then SaveConfig fires only via Initialize (overwrite=false); the no-workstation
-		// guard short-circuits before the explicit overwrite save would run.
+		// Then the --set values must still land in values.yaml (overwrite=true)
+		// before the no-workstation guard short-circuits the rest of the flow.
+		if len(overwriteArgs) != 2 {
+			t.Fatalf("Expected 2 SaveConfig calls (Initialize + explicit --set save), got %d: %v", len(overwriteArgs), overwriteArgs)
+		}
+		last := overwriteArgs[1]
+		if len(last) == 0 || !last[0] {
+			t.Errorf("Expected explicit SaveConfig overwrite=true, got %v", last)
+		}
+	})
+
+	t.Run("WorkstationDisabledBareUpSkipsExplicitSaveConfig", func(t *testing.T) {
+		// Given a project with no workstation and no flags
+		mocks := setupUpTest(t)
+		var overwriteArgs [][]bool
+		mocks.ConfigHandler.(*config.MockConfigHandler).SaveConfigFunc = func(overwrite ...bool) error {
+			overwriteArgs = append(overwriteArgs, append([]bool(nil), overwrite...))
+			return nil
+		}
+		proj := newUpTestProject(mocks, false)
+
+		// When executing a bare `windsor up`
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+
+		// Then SaveConfig fires only via Initialize (overwrite=false); no extra
+		// explicit save runs since --set was not provided.
 		if len(overwriteArgs) != 1 {
 			t.Fatalf("Expected 1 SaveConfig call from Initialize only, got %d: %v", len(overwriteArgs), overwriteArgs)
 		}
