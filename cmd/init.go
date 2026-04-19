@@ -148,7 +148,7 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		blueprintURL, err := resolveBlueprintURL(initBlueprint, initPlatform, contextName, rt.TemplateRoot)
+		blueprintURL, err := resolveBlueprintURL(initBlueprint, initPlatform, contextName, rt.TemplateRoot, true)
 		if err != nil {
 			return err
 		}

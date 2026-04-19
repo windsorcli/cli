@@ -42,19 +42,21 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 }
 
 // resolveBlueprintURL determines the blueprint URL (if any) that init or up
-// should pass to Project.Initialize, mirroring init's historical resolution:
-// an explicit --blueprint wins, then --platform falls back to the default OCI
-// URL, then the "local" context falls back to the default URL when no
-// contexts/_template directory exists. Returns a nil slice when the caller
-// should use whatever blueprint state is already on disk.
-func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot string) ([]string, error) {
+// should pass to Project.Initialize. An explicit --blueprint wins, then
+// --platform falls back to the default OCI URL. The "local" context falls
+// back to the default URL when no contexts/_template directory exists, but
+// only when allowLocalBootstrap is true — init opts in to bootstrap a fresh
+// local context, while up must not silently pull from the network on a bare
+// invocation. Returns a nil slice when the caller should use whatever
+// blueprint state is already on disk.
+func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot string, allowLocalBootstrap bool) ([]string, error) {
 	if blueprintFlag != "" {
 		return []string{blueprintFlag}, nil
 	}
 	if platformFlag != "" {
 		return []string{constants.GetEffectiveBlueprintURL()}, nil
 	}
-	if contextName != "local" {
+	if !allowLocalBootstrap || contextName != "local" {
 		return nil, nil
 	}
 	if _, err := os.Stat(templateRoot); err != nil {

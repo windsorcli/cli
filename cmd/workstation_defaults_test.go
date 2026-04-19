@@ -93,7 +93,7 @@ func TestApplyWorkstationFlagOverrides(t *testing.T) {
 func TestResolveBlueprintURL(t *testing.T) {
 	t.Run("ExplicitBlueprintWins", func(t *testing.T) {
 		// Given an explicit --blueprint value
-		urls, err := resolveBlueprintURL("oci://custom/blueprint:v1", "docker", "local", "/does/not/matter")
+		urls, err := resolveBlueprintURL("oci://custom/blueprint:v1", "docker", "local", "/does/not/matter", true)
 
 		// Then the explicit URL is returned
 		if err != nil {
@@ -106,7 +106,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 
 	t.Run("PlatformFallsBackToDefaultURL", func(t *testing.T) {
 		// Given --platform but no --blueprint
-		urls, err := resolveBlueprintURL("", "docker", "aws", "/does/not/matter")
+		urls, err := resolveBlueprintURL("", "docker", "aws", "/does/not/matter", true)
 
 		// Then the default blueprint URL is returned
 		if err != nil {
@@ -117,12 +117,12 @@ func TestResolveBlueprintURL(t *testing.T) {
 		}
 	})
 
-	t.Run("LocalContextWithoutTemplateUsesDefault", func(t *testing.T) {
-		// Given context=local and a template dir that does not exist
+	t.Run("LocalContextWithoutTemplateUsesDefaultWhenBootstrapAllowed", func(t *testing.T) {
+		// Given context=local, a missing template dir, and bootstrap allowed (init flow)
 		tmpDir := t.TempDir()
 		missingTemplate := filepath.Join(tmpDir, "contexts", "_template")
 
-		urls, err := resolveBlueprintURL("", "", "local", missingTemplate)
+		urls, err := resolveBlueprintURL("", "", "local", missingTemplate, true)
 
 		// Then the default blueprint URL is returned
 		if err != nil {
@@ -130,6 +130,22 @@ func TestResolveBlueprintURL(t *testing.T) {
 		}
 		if len(urls) != 1 || urls[0] == "" {
 			t.Errorf("Expected a non-empty default blueprint URL, got %v", urls)
+		}
+	})
+
+	t.Run("LocalContextWithoutTemplateReturnsNilWhenBootstrapDisallowed", func(t *testing.T) {
+		// Given context=local, a missing template dir, and bootstrap disallowed (up flow)
+		tmpDir := t.TempDir()
+		missingTemplate := filepath.Join(tmpDir, "contexts", "_template")
+
+		urls, err := resolveBlueprintURL("", "", "local", missingTemplate, false)
+
+		// Then no URL is returned — up must not silently pull from OCI
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if urls != nil {
+			t.Errorf("Expected nil URLs when bootstrap disallowed, got %v", urls)
 		}
 	})
 
@@ -141,7 +157,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 			t.Fatalf("Failed to create template dir: %v", err)
 		}
 
-		urls, err := resolveBlueprintURL("", "", "local", templateDir)
+		urls, err := resolveBlueprintURL("", "", "local", templateDir, true)
 
 		// Then no URL is returned (use existing blueprint state on disk)
 		if err != nil {
@@ -154,7 +170,7 @@ func TestResolveBlueprintURL(t *testing.T) {
 
 	t.Run("NonLocalContextWithoutFlagsReturnsNil", func(t *testing.T) {
 		// Given context != local and no flags
-		urls, err := resolveBlueprintURL("", "", "aws", "/does/not/matter")
+		urls, err := resolveBlueprintURL("", "", "aws", "/does/not/matter", true)
 
 		// Then no URL is returned
 		if err != nil {
@@ -165,12 +181,28 @@ func TestResolveBlueprintURL(t *testing.T) {
 		}
 	})
 
+	t.Run("BootstrapDisallowedSkipsStat", func(t *testing.T) {
+		// Given an invalid template path that would fail os.Stat
+		badPath := "\x00invalid"
+
+		// When bootstrap is disallowed, the stat is never reached
+		urls, err := resolveBlueprintURL("", "", "local", badPath, false)
+
+		// Then no error and no URL — stat short-circuited by the gate
+		if err != nil {
+			t.Fatalf("Expected no error when bootstrap is disallowed, got %v", err)
+		}
+		if urls != nil {
+			t.Errorf("Expected nil URLs, got %v", urls)
+		}
+	})
+
 	t.Run("PermissionErrorOnStatIsWrapped", func(t *testing.T) {
 		// Given a template path whose parent is not traversable. We simulate this
 		// with a path containing an embedded NUL which os.Stat treats as invalid.
 		badPath := "\x00invalid"
 
-		_, err := resolveBlueprintURL("", "", "local", badPath)
+		_, err := resolveBlueprintURL("", "", "local", badPath, true)
 
 		// Then a wrapped error is returned (not os.IsNotExist)
 		if err == nil {

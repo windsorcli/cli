@@ -54,7 +54,7 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("invalid configuration: %w", err)
 		}
 
-		blueprintURL, err := resolveBlueprintURL(upBlueprint, upPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot)
+		blueprintURL, err := resolveBlueprintURL(upBlueprint, upPlatform, proj.Runtime.ContextName, proj.Runtime.TemplateRoot, false)
 		if err != nil {
 			return err
 		}
