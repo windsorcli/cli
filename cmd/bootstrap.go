@@ -66,9 +66,9 @@ var bootstrapCmd = &cobra.Command{
 		rt.Shell.SetVerbosity(verbose)
 
 		// Wire the freshly constructed runtime into the project override if the caller did not
-		// supply one, so that later stages (Configure, Initialize, Up) share the runtime that
-		// just handled WriteResetToken / SetContext / AddCurrentDirToTrustedFile. Without this
-		// a projectOverride without a Runtime would run Configure against a nil field.
+		// supply one, so that later stages (Configure, Initialize, Up) run against the same
+		// runtime that AddCurrentDirToTrustedFile is about to use. Without this a projectOverride
+		// without a Runtime would hit a nil field in Configure.
 		if proj != nil && proj.Runtime == nil {
 			proj.Runtime = rt
 		}
