@@ -200,7 +200,7 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("NotifiesAfterWait", func(t *testing.T) {
+	t.Run("NotifiesDuringInstallWithResolvedBlueprint", func(t *testing.T) {
 		// Given a bootstrap test project wired with a MockNotifier
 		mocks := setupBootstrapTest(t)
 		proj := newBootstrapTestProject(mocks)
@@ -225,9 +225,11 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected success, got %v", err)
 		}
 
-		// Then Notify is called after the wait step with the resolved blueprint
+		// Then Notify fires during the install step (inside Provisioner.Install's
+		// progress scope, before Wait) and receives the resolved blueprint so
+		// flux's reconcile request targets the fully-substituted sources.
 		if !notifyCalled {
-			t.Error("Expected Notify to be called after Wait")
+			t.Error("Expected Notify to be called during Install")
 		}
 		if notifyBlueprint == nil {
 			t.Error("Expected Notify to receive the resolved blueprint, got nil")
