@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -44,6 +45,7 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 	bootstrapPlatform = ""
 	bootstrapBlueprint = ""
 	bootstrapSetFlags = []string{}
+	bootstrapYes = false
 
 	mockConfigHandler := config.NewMockConfigHandler()
 	mockConfigHandler.GetContextFunc = func() string { return "test-context" }
@@ -194,6 +196,66 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if !waitCalled {
 			t.Error("Expected Wait to be called unconditionally")
+		}
+	})
+
+	t.Run("OverridesBackendToLocalThenMigratesAfterApply", func(t *testing.T) {
+		// Given a project with a kubernetes-configured backend and all provisioner steps mocked
+		mocks := setupBootstrapTest(t)
+
+		// Track the ordered sequence of backend writes, Up calls, and MigrateState calls to
+		// verify bootstrap overrides to "local" before Up and restores + migrates after.
+		var timeline []string
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				timeline = append(timeline, fmt.Sprintf("set=%v", value))
+			}
+			return nil
+		}
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			timeline = append(timeline, "up")
+			return nil
+		}
+		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+			timeline = append(timeline, "migrate")
+			return nil
+		}
+
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		err := cmd.Execute()
+
+		// Then the sequence is: override to local, run Up, restore to kubernetes, migrate
+		// state. A trailing "set=kubernetes" is expected from the deferred safety restore
+		// that guards against panics or future code paths that might persist config while
+		// the override is active — the defer fires idempotently on normal exit.
+		if err != nil {
+			t.Fatalf("Expected success, got %v", err)
+		}
+		expected := []string{"set=local", "up", "set=kubernetes", "migrate", "set=kubernetes"}
+		if len(timeline) != len(expected) {
+			t.Fatalf("Expected timeline %v, got %v", expected, timeline)
+		}
+		for i, step := range expected {
+			if timeline[i] != step {
+				t.Errorf("Expected timeline[%d]=%q, got %q (full: %v)", i, step, timeline[i], timeline)
+			}
 		}
 	})
 
@@ -367,6 +429,114 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "reset token") {
 			t.Errorf("Expected reset-token error, got %v", err)
+		}
+	})
+
+	t.Run("PromptsAndProceedsOnYes", func(t *testing.T) {
+		// Given a context whose values.yaml already exists (simulating prior configuration)
+		mocks := setupBootstrapTest(t)
+		configRoot := mocks.TmpDir + "/contexts/test-context"
+		if err := os.MkdirAll(configRoot, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(configRoot+"/values.yaml", []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("write values.yaml: %v", err)
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader("y\n"))
+
+		// When executing bootstrap with "y" on stdin
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success when user confirms with y, got %v", err)
+		}
+	})
+
+	t.Run("CancelsOnNo", func(t *testing.T) {
+		// Given a context whose values.yaml already exists and the user declines
+		mocks := setupBootstrapTest(t)
+		configRoot := mocks.TmpDir + "/contexts/test-context"
+		if err := os.MkdirAll(configRoot, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(configRoot+"/values.yaml", []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("write values.yaml: %v", err)
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader("n\n"))
+
+		// When executing bootstrap with "n" on stdin
+		err := cmd.Execute()
+
+		// Then an error surfaces and bootstrap did not continue
+		if err == nil {
+			t.Fatal("Expected cancellation error when user declines")
+		}
+		if !strings.Contains(err.Error(), "cancelled") {
+			t.Errorf("Expected cancellation error, got %v", err)
+		}
+	})
+
+	t.Run("CancelsOnEmptyStdin", func(t *testing.T) {
+		// Given a context whose values.yaml exists and stdin is empty (non-interactive)
+		mocks := setupBootstrapTest(t)
+		configRoot := mocks.TmpDir + "/contexts/test-context"
+		if err := os.MkdirAll(configRoot, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(configRoot+"/values.yaml", []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("write values.yaml: %v", err)
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader(""))
+
+		// When executing bootstrap with no stdin input
+		err := cmd.Execute()
+
+		// Then it cancels rather than silently proceeding — non-interactive callers must pass --yes
+		if err == nil {
+			t.Fatal("Expected cancellation on empty stdin (non-interactive without --yes)")
+		}
+		if !strings.Contains(err.Error(), "cancelled") {
+			t.Errorf("Expected cancellation error, got %v", err)
+		}
+	})
+
+	t.Run("YesFlagSkipsPrompt", func(t *testing.T) {
+		// Given a context whose values.yaml exists and --yes is passed
+		mocks := setupBootstrapTest(t)
+		configRoot := mocks.TmpDir + "/contexts/test-context"
+		if err := os.MkdirAll(configRoot, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(configRoot+"/values.yaml", []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("write values.yaml: %v", err)
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+		// Intentionally no stdin — --yes must bypass the prompt entirely.
+
+		// When executing bootstrap with --yes
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected --yes to skip the prompt, got %v", err)
 		}
 	})
 }

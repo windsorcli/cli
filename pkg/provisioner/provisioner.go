@@ -162,6 +162,28 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 	return nil
 }
 
+// MigrateState reinitializes every Terraform component's backend against the currently configured
+// backend, migrating state as needed. Used by `windsor bootstrap` after its local-first apply
+// pass to move state to the configured remote backend once that backend's underlying infrastructure
+// (e.g. the kubernetes cluster hosting the k8s backend) has been provisioned. Safe to invoke
+// directly for users who change backend config and want existing state migrated in place. The
+// blueprint parameter is required.
+func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return nil
+	}
+	if err := i.TerraformStack.MigrateState(blueprint); err != nil {
+		return fmt.Errorf("failed to migrate terraform state: %w", err)
+	}
+	return nil
+}
+
 // Down destroys the "workstation" terraform component if it is present in the blueprint, then returns.
 // All other terraform components are left untouched; use Destroy / DestroyAll for those.
 // If terraform is disabled or the blueprint has no "workstation" component, Down is a no-op.

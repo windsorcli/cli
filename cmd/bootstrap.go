@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -19,6 +22,7 @@ var (
 	bootstrapPlatform  string
 	bootstrapBlueprint string
 	bootstrapSetFlags  []string
+	bootstrapYes       bool
 )
 
 // bootstrapCmd stands up a fresh Windsor environment end-to-end. It combines init-style
@@ -28,13 +32,16 @@ var (
 // is suitable for both local workstation contexts and non-workstation contexts (staging,
 // production). Unlike `windsor init`, bootstrap does not anchor the current directory as
 // a project root — it is allowed to run in global mode, where directory trust is implicit.
-// Adaptive terraform backend handling (local-first apply followed by automatic migration
-// to the configured remote backend) is inherited from TerraformStack.Up and runs for all
-// callers, so bootstrap does not special-case it here.
+//
+// To handle the chicken-and-egg case where a configured remote backend (e.g. the kubernetes
+// backend) lives in infrastructure that terraform must create first, bootstrap temporarily
+// overrides the configured backend to "local" in-memory, runs the apply pass, then restores
+// the configured backend and calls Provisioner.MigrateState to move each component's state
+// to the real backend. The on-disk config (values.yaml) is never mutated during this window.
 var bootstrapCmd = &cobra.Command{
 	Use:          "bootstrap [context]",
 	Short:        "Bootstrap a fresh Windsor environment end-to-end",
-	Long:         "Bootstrap a fresh Windsor environment: configure the project, apply terraform (migrating state from local to the configured remote backend as needed), install the blueprint, and wait for kustomizations to be ready.",
+	Long:         "Bootstrap a fresh Windsor environment: configure the project, apply terraform with local state first, migrate state to the configured remote backend, install the blueprint, and wait for kustomizations to be ready.",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -101,6 +108,12 @@ var bootstrapCmd = &cobra.Command{
 			proj = project.NewProject(contextName, projectOpts)
 		}
 
+		if !bootstrapYes {
+			if err := confirmBootstrapIfContextExists(cmd.InOrStdin(), proj.Runtime.ConfigRoot, contextName); err != nil {
+				return err
+			}
+		}
+
 		if err := proj.Configure(flagOverrides); err != nil {
 			return err
 		}
@@ -122,7 +135,38 @@ var bootstrapCmd = &cobra.Command{
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
+		// Temporarily pin the backend to local for the first-run apply pass. The configured
+		// value is captured first and restored via defer so any panic or early error still
+		// unwinds the in-memory override — guarding against future code in this RunE that
+		// might persist config while the override is active. SaveConfig was called above
+		// with the real backend, so values.yaml on disk is unaffected by this override.
+		ch := proj.Runtime.ConfigHandler
+		originalBackend := ch.GetString("terraform.backend.type", "local")
+		if err := ch.Set("terraform.backend.type", "local"); err != nil {
+			return fmt.Errorf("failed to override backend for bootstrap apply: %w", err)
+		}
+		defer func() {
+			_ = ch.Set("terraform.backend.type", originalBackend)
+		}()
+
 		if _, err := proj.Up(); err != nil {
+			return err
+		}
+
+		// Restore the configured backend before migration so MigrateState reads the real
+		// config. The deferred restore above remains a safety net for any exit path below.
+		// MigrateState is a no-op per component when state is already on the configured
+		// backend, so re-runs (e.g. re-bootstrapping after success) stay safe.
+		if err := ch.Set("terraform.backend.type", originalBackend); err != nil {
+			return fmt.Errorf("failed to restore backend after bootstrap apply: %w", err)
+		}
+		// Intentionally pass the freshly-generated blueprint without a nil guard. If Generate
+		// returns nil here, that's an anomaly (proj.Up just succeeded against a blueprint a
+		// few lines up) and MigrateState's own nil check will surface it as a loud error
+		// rather than silently skipping migration — a skipped migration would leave state on
+		// local disk while the on-disk config points at the real remote backend, a genuinely
+		// wrong outcome that subsequent `windsor apply` runs would discover inconsistently.
+		if err := proj.Provisioner.MigrateState(proj.Composer.BlueprintHandler.Generate()); err != nil {
 			return err
 		}
 
@@ -142,9 +186,39 @@ var bootstrapCmd = &cobra.Command{
 	},
 }
 
+// confirmBootstrapIfContextExists prompts the user to confirm when the context's values.yaml
+// already exists (i.e. the context has been configured by a prior init or bootstrap). Returns
+// nil to proceed, an error to abort. Reads a single line from in; anything other than "y" or
+// "yes" (case-insensitive) cancels — including empty input and EOF, which means non-interactive
+// callers must pass --yes explicitly rather than silently re-bootstrapping. The prompt is
+// especially important in global mode where users have no directory-level cue that they're
+// about to touch a context they may not have intended to run against.
+func confirmBootstrapIfContextExists(in io.Reader, configRoot, contextName string) error {
+	valuesPath := filepath.Join(configRoot, "values.yaml")
+	if _, err := os.Stat(valuesPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to check existing context configuration: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Context %q is already configured at %s.\n", contextName, configRoot)
+	fmt.Fprintln(os.Stderr, "Re-running bootstrap will re-apply terraform, migrate state, and reinstall the blueprint.")
+	fmt.Fprint(os.Stderr, "Continue? [y/N]: ")
+
+	reader := bufio.NewReader(in)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer != "y" && answer != "yes" {
+		return fmt.Errorf("bootstrap cancelled (pass --yes to skip this prompt on re-runs)")
+	}
+	return nil
+}
+
 func init() {
 	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp]")
 	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Specify the blueprint (OCI reference) to use")
 	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false")
+	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip the confirmation prompt when re-bootstrapping an existing context")
 	rootCmd.AddCommand(bootstrapCmd)
 }

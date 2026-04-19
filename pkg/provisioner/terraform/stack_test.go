@@ -229,19 +229,6 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 	return mocks
 }
 
-// ensureResolvedComponentDirs creates the directories that resolveComponentPaths computes for
-// the two components in createTestBlueprint. Needed for tests that exercise the adaptive Pass 1
-// logic because that path writes backend_override.tf to disk for real via the terraform provider,
-// unlike the legacy path where PostEnvHook no-ops when there are no .tf files in the directory.
-func ensureResolvedComponentDirs(t *testing.T) {
-	t.Helper()
-	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
-	remoteDir := filepath.Join(projectRoot, ".windsor", "contexts", "terraform", "remote", "path")
-	if err := os.MkdirAll(remoteDir, 0755); err != nil {
-		t.Fatalf("Failed to create remote component dir: %v", err)
-	}
-}
-
 // =============================================================================
 // Test Public Methods
 // =============================================================================
@@ -549,275 +536,73 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsProbeForLocalBackend", func(t *testing.T) {
-		// Given a stack whose configured backend is local (the default)
-		stack, mocks := setup(t)
-		blueprint := createTestBlueprint()
+}
 
-		stateListCalls := 0
-		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 3 && args[1] == "state" && args[2] == "list" {
-				stateListCalls++
-			}
-			return "", nil
-		}
+func TestStack_MigrateState(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
 
-		// When Up runs
-		if err := stack.Up(blueprint); err != nil {
-			t.Fatalf("Expected Up to succeed, got %v", err)
-		}
-
-		// Then no state list probe ran for any component
-		if stateListCalls != 0 {
-			t.Errorf("Expected zero state list calls for local backend, got %d", stateListCalls)
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+		if err := stack.MigrateState(nil); err == nil {
+			t.Fatal("Expected error for nil blueprint")
 		}
 	})
 
-	t.Run("SkipsProbeForNoneBackend", func(t *testing.T) {
-		// Given a stack whose configured backend is none
+	t.Run("RunsInitWithMigrateStateForEachComponent", func(t *testing.T) {
+		// Given a stack and a two-component blueprint
 		stack, mocks := setup(t)
-		if err := mocks.ConfigHandler.LoadConfigString(`
-contexts:
-  mock-context:
-    terraform:
-      backend:
-        type: none`); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
 		blueprint := createTestBlueprint()
 
-		stateListCalls := 0
-		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 3 && args[1] == "state" && args[2] == "list" {
-				stateListCalls++
-			}
-			return "", nil
-		}
-
-		// When Up runs
-		if err := stack.Up(blueprint); err != nil {
-			t.Fatalf("Expected Up to succeed, got %v", err)
-		}
-
-		// Then no state list probe ran
-		if stateListCalls != 0 {
-			t.Errorf("Expected zero state list calls for none backend, got %d", stateListCalls)
-		}
-	})
-
-	t.Run("RemoteBackendWithPopulatedStateAppliesWithoutMigration", func(t *testing.T) {
-		// Given a stack configured for s3 and a mock that reports populated state
-		stack, mocks := setup(t)
-		if err := mocks.ConfigHandler.LoadConfigString(`
-contexts:
-  mock-context:
-    terraform:
-      backend:
-        type: s3`); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-		blueprint := createTestBlueprint()
-
-		initCalls := 0
-		stateListCalls := 0
+		migrateStateInits := 0
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) >= 2 && args[1] == "init" {
-				initCalls++
-			}
-			if len(args) >= 3 && args[1] == "state" && args[2] == "list" {
-				stateListCalls++
-				return "aws_instance.foo\n", nil
-			}
-			return "", nil
-		}
-
-		// When Up runs
-		if err := stack.Up(blueprint); err != nil {
-			t.Fatalf("Expected Up to succeed, got %v", err)
-		}
-
-		// Then state list was called once per component (probe), init once per component (probe only),
-		// and no migration init ran after the apply phase
-		if stateListCalls != 2 {
-			t.Errorf("Expected 2 state list calls (one per component), got %d", stateListCalls)
-		}
-		if initCalls != 2 {
-			t.Errorf("Expected 2 init calls (probe only, no force-local, no migration), got %d", initCalls)
-		}
-	})
-
-	t.Run("RemoteBackendWithEmptyStateForcesLocalAndMigrates", func(t *testing.T) {
-		// Given a stack configured for s3 where remote state is empty for every component
-		stack, mocks := setup(t)
-		if err := mocks.ConfigHandler.LoadConfigString(`
-contexts:
-  mock-context:
-    terraform:
-      backend:
-        type: s3`); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-		ensureResolvedComponentDirs(t)
-		blueprint := createTestBlueprint()
-
-		initCalls := 0
-		stateListCalls := 0
-		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 2 && args[1] == "init" {
-				initCalls++
-			}
-			if len(args) >= 3 && args[1] == "state" && args[2] == "list" {
-				stateListCalls++
-				return "", nil
-			}
-			return "", nil
-		}
-
-		// When Up runs
-		if err := stack.Up(blueprint); err != nil {
-			t.Fatalf("Expected Up to succeed, got %v", err)
-		}
-
-		// Then each component ran probe init + force-local init in Pass 1, then migration init in Pass 2
-		// 2 components * (probe + force-local) = 4 Pass 1 inits, plus 2 migration inits = 6 total
-		if initCalls != 6 {
-			t.Errorf("Expected 6 init calls (2 per component in Pass 1 + 2 migration in Pass 2), got %d", initCalls)
-		}
-		if stateListCalls != 2 {
-			t.Errorf("Expected 2 state list calls, got %d", stateListCalls)
-		}
-	})
-
-	t.Run("RemoteBackendWithInitFailureForcesLocalAndMigrates", func(t *testing.T) {
-		// Given a stack configured for s3 where the probe's remote init fails for every component
-		stack, mocks := setup(t)
-		if err := mocks.ConfigHandler.LoadConfigString(`
-contexts:
-  mock-context:
-    terraform:
-      backend:
-        type: s3`); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-		ensureResolvedComponentDirs(t)
-		blueprint := createTestBlueprint()
-
-		initCalls := 0
-		stateListCalls := 0
-		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 2 && args[1] == "init" {
-				initCalls++
-				// First init per component is the probe — fail it to simulate unreachable remote.
-				// Force-local inits (every other init) and migration inits succeed.
-				if initCalls == 1 || initCalls == 3 {
-					return "", fmt.Errorf("remote backend unreachable")
+				for _, a := range args {
+					if a == "-migrate-state" {
+						migrateStateInits++
+						break
+					}
 				}
 			}
-			if len(args) >= 3 && args[1] == "state" && args[2] == "list" {
-				stateListCalls++
-			}
 			return "", nil
 		}
 
-		// When Up runs
-		if err := stack.Up(blueprint); err != nil {
-			t.Fatalf("Expected Up to succeed, got %v", err)
+		// When MigrateState runs
+		if err := stack.MigrateState(blueprint); err != nil {
+			t.Fatalf("Expected MigrateState to succeed, got %v", err)
 		}
 
-		// Then state list was never reached (init failed first for each component)
-		if stateListCalls != 0 {
-			t.Errorf("Expected 0 state list calls (init failed before probe could list state), got %d", stateListCalls)
-		}
-		// Init sequence: C1 probe(fail) + C1 local + C2 probe(fail) + C2 local + C1 migrate + C2 migrate = 6
-		if initCalls != 6 {
-			t.Errorf("Expected 6 init calls total, got %d", initCalls)
+		// Then terraform init -migrate-state fired once per component and no plan/apply ran.
+		if migrateStateInits != 2 {
+			t.Errorf("Expected 2 migrate-state inits (one per component), got %d", migrateStateInits)
 		}
 	})
 
-	t.Run("ReturnsErrorWhenPass2MigrationFails", func(t *testing.T) {
-		// Given a stack configured for s3 where Pass 1 succeeds but Pass 2 migration fails
+	t.Run("ReturnsErrorWhenMigrationInitFails", func(t *testing.T) {
 		stack, mocks := setup(t)
-		if err := mocks.ConfigHandler.LoadConfigString(`
-contexts:
-  mock-context:
-    terraform:
-      backend:
-        type: s3`); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-		ensureResolvedComponentDirs(t)
 		blueprint := createTestBlueprint()
 
-		initCalls := 0
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) >= 2 && args[1] == "init" {
-				initCalls++
-				// Init sequence for empty-state path: C1 probe + C1 local + C2 probe + C2 local + C1 migrate (5th) + C2 migrate (6th)
-				// Fail the 5th call (first migration init).
-				if initCalls == 5 {
-					return "", fmt.Errorf("backend not reachable")
-				}
-			}
-			if len(args) >= 3 && args[1] == "state" && args[2] == "list" {
-				return "", nil
+				return "", fmt.Errorf("backend not reachable")
 			}
 			return "", nil
 		}
 
-		// When Up runs
-		err := stack.Up(blueprint)
-
-		// Then Up returns an error mentioning migration and the local state path
+		err := stack.MigrateState(blueprint)
 		if err == nil {
-			t.Fatal("Expected Up to return an error when migration fails")
+			t.Fatal("Expected MigrateState to return an error when init fails")
 		}
-		if !strings.Contains(err.Error(), "state migration failed") {
-			t.Errorf("Expected error to mention state migration failure, got: %v", err)
+		if !strings.Contains(err.Error(), "error running terraform init") {
+			t.Errorf("Expected error to mention terraform init failure, got: %v", err)
 		}
-	})
-
-	t.Run("MigratesOnlyComponentsThatForcedLocal", func(t *testing.T) {
-		// Given a stack configured for s3 where component "remote/path" has populated state
-		// but "local/path" has empty state
-		stack, mocks := setup(t)
-		if err := mocks.ConfigHandler.LoadConfigString(`
-contexts:
-  mock-context:
-    terraform:
-      backend:
-        type: s3`); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-		blueprint := createTestBlueprint()
-
-		initCalls := 0
-		stateListCalls := 0
-		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if len(args) >= 2 && args[1] == "init" {
-				initCalls++
-			}
-			if len(args) >= 3 && args[1] == "state" && args[2] == "list" {
-				stateListCalls++
-				// First state list is for "remote/path" (populated); second is for "local/path" (empty).
-				if stateListCalls == 1 {
-					return "aws_instance.existing\n", nil
-				}
-				return "", nil
-			}
-			return "", nil
-		}
-
-		// When Up runs
-		if err := stack.Up(blueprint); err != nil {
-			t.Fatalf("Expected Up to succeed, got %v", err)
-		}
-
-		// Then component 1 used remote directly (1 init), component 2 forced local (2 inits) and migrated (1 init) = 4
-		if initCalls != 4 {
-			t.Errorf("Expected 4 init calls (C1 probe only + C2 probe + C2 local + C2 migrate), got %d", initCalls)
-		}
-		if stateListCalls != 2 {
-			t.Errorf("Expected 2 state list calls, got %d", stateListCalls)
+		if !strings.Contains(err.Error(), "backend not reachable") {
+			t.Errorf("Expected error to wrap the underlying cause, got: %v", err)
 		}
 	})
 }

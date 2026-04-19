@@ -23,17 +23,6 @@ import (
 )
 
 // =============================================================================
-// Constants
-// =============================================================================
-
-// localBackendStanza is the HCL block written to backend_override.tf when pinning a component
-// to the local backend. Shared by GenerateBackendOverride (configured-local case) and
-// GenerateLocalBackendOverride (bootstrap Pass 1 force-local) so the two stay in lockstep.
-const localBackendStanza = `terraform {
-  backend "local" {}
-}`
-
-// =============================================================================
 // Types
 // =============================================================================
 
@@ -83,9 +72,7 @@ type TerraformProvider interface {
 	FindRelativeProjectPath(directory ...string) (string, error)
 	IsInTerraformProject() bool
 	GenerateBackendOverride(directory string) error
-	GenerateLocalBackendOverride(directory string) error
 	GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error)
-	GenerateTerraformArgsForcedLocal(componentID string, interactive bool) (*TerraformArgs, error)
 	GetTerraformComponent(componentID string) *blueprintv1alpha1.TerraformComponent
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	SetTerraformComponents(components []blueprintv1alpha1.TerraformComponent)
@@ -210,7 +197,9 @@ func (p *terraformProvider) IsInTerraformProject() bool {
 func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 	backend := p.configHandler.GetString("terraform.backend.type", "local")
 
-	if backend == "none" {
+	var backendConfig string
+	switch backend {
+	case "none":
 		backendOverridePath := filepath.Join(directory, "backend_override.tf")
 		if _, err := p.Shims.Stat(backendOverridePath); err == nil {
 			if err := p.Shims.Remove(backendOverridePath); err != nil {
@@ -218,38 +207,33 @@ func (p *terraformProvider) GenerateBackendOverride(directory string) error {
 			}
 		}
 		return nil
-	}
-
-	var stanza string
-	switch backend {
 	case "local":
-		stanza = localBackendStanza
+		backendConfig = `terraform {
+  backend "local" {}
+}`
 	case "s3":
-		stanza = `terraform {
+		backendConfig = `terraform {
   backend "s3" {}
 }`
 	case "kubernetes":
-		stanza = `terraform {
+		backendConfig = `terraform {
   backend "kubernetes" {}
 }`
 	case "azurerm":
-		stanza = `terraform {
+		backendConfig = `terraform {
   backend "azurerm" {}
 }`
 	default:
 		return fmt.Errorf("unsupported backend: %s", backend)
 	}
 
-	return p.writeBackendOverride(directory, stanza)
-}
+	backendOverridePath := filepath.Join(directory, "backend_override.tf")
+	err := p.Shims.WriteFile(backendOverridePath, []byte(backendConfig), os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("error writing backend_override.tf: %w", err)
+	}
 
-// GenerateLocalBackendOverride writes a backend_override.tf file pinning the component to the
-// local backend, regardless of the configured backend type. This is used during bootstrap Pass 1
-// to force every component to apply against local state before Pass 2 migrates each component's
-// state to the configured remote backend. Overwrites any existing backend_override.tf in the
-// target directory.
-func (p *terraformProvider) GenerateLocalBackendOverride(directory string) error {
-	return p.writeBackendOverride(directory, localBackendStanza)
+	return nil
 }
 
 // GenerateTerraformArgs constructs Terraform CLI arguments for the specified component using the
@@ -258,15 +242,6 @@ func (p *terraformProvider) GenerateLocalBackendOverride(directory string) error
 // Returns a fully populated TerraformArgs structure or an error if processing or lookup fails.
 func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactive bool) (*TerraformArgs, error) {
 	return p.generateTerraformArgs(componentID, interactive, "")
-}
-
-// GenerateTerraformArgsForcedLocal constructs Terraform CLI arguments that pin the component to the
-// local backend regardless of the configured backend type. It is used during bootstrap Pass 1 so
-// every component initializes against local state even when the project is configured for a remote
-// backend; Pass 2 later migrates each component's local state to the configured remote backend.
-// Returns a fully populated TerraformArgs structure with local-style backend-config args.
-func (p *terraformProvider) GenerateTerraformArgsForcedLocal(componentID string, interactive bool) (*TerraformArgs, error) {
-	return p.generateTerraformArgs(componentID, interactive, "local")
 }
 
 // GetTerraformComponent finds a terraform component by its path or name from the loaded blueprint components.
@@ -546,20 +521,9 @@ func (p *terraformProvider) ClearCache() {
 // Private Methods
 // =============================================================================
 
-// writeBackendOverride writes stanza to backend_override.tf in directory. Shared by
-// GenerateBackendOverride and GenerateLocalBackendOverride so both write identically and any
-// change to the file layout lands in one place. Errors are wrapped to name the file.
-func (p *terraformProvider) writeBackendOverride(directory, stanza string) error {
-	backendOverridePath := filepath.Join(directory, "backend_override.tf")
-	if err := p.Shims.WriteFile(backendOverridePath, []byte(stanza), os.ModePerm); err != nil {
-		return fmt.Errorf("error writing backend_override.tf: %w", err)
-	}
-	return nil
-}
-
-// generateTerraformArgs is the shared implementation backing GenerateTerraformArgs and
-// GenerateTerraformArgsForcedLocal. When backendOverride is empty the configured backend type is
-// used; when non-empty it takes precedence. All other arg-generation behavior is identical.
+// generateTerraformArgs is the shared implementation backing GenerateTerraformArgs. The
+// backendOverride parameter forces a specific backend type when non-empty; callers currently
+// pass "" so the configured backend type is used.
 func (p *terraformProvider) generateTerraformArgs(componentID string, interactive bool, backendOverride string) (*TerraformArgs, error) {
 	configRoot, err := p.configHandler.GetConfigRoot()
 	if err != nil {

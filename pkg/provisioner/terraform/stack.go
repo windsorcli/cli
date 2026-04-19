@@ -28,6 +28,7 @@ import (
 // Both the Stack struct and MockStack implement this interface.
 type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	MigrateState(blueprint *blueprintv1alpha1.Blueprint) error
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -103,29 +104,12 @@ func (s *TerraformStack) PostApply(fns ...func(id string) error) {
 	s.postApply = append(s.postApply, fns...)
 }
 
-// Up applies every Terraform component in dependency order, adaptively choosing each
-// component's backend based on the current state of the configured remote backend.
-//
-// For each component with a remote backend configured, Up first writes the configured
-// backend_override.tf, runs `terraform init`, and runs `terraform state list`. When the
-// configured remote is reachable and already holds state for the component, apply proceeds
-// against that remote backend. When the remote is unreachable (e.g. the cluster hosting
-// the k8s backend has not been provisioned yet) or holds no state, Up swaps to a local
-// backend_override.tf, re-initializes against local state, applies, and remembers the
-// component for a second pass.
-//
-// After every component has applied, any components that were forced to local state
-// are migrated to the configured remote backend via another `terraform init` (the
-// terraform provider's init args already include -force-copy). This produces one
-// idempotent behavior that works for fresh environments, partial bootstraps, and
-// fully-migrated environments without any mode flags.
-//
-// When the configured backend is local or none, the probe is skipped and no migration
-// is attempted; this matches the pre-existing behavior for those backends.
-//
-// Optional onApply hooks run after each component apply inside the progress spinner.
-// PostApply hooks run after each component's Done line is printed and are consumed
-// (cleared) at the start of the next Up call so they do not leak across invocations.
+// Up creates a new stack of components by initializing and applying Terraform configurations.
+// It processes components in order, generating terraform arguments, running Terraform init,
+// plan, and apply operations. Backend override files are cleaned up after all components complete,
+// ensuring they remain available for terraform_output() calls between component executions.
+// Optional onApply hooks run after each component apply inside the progress spinner, in order.
+// PostApply hooks run after each component's Done line is printed; they are not retained after Up returns.
 func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -157,12 +141,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 		}
 	}()
 
-	backendType := s.runtime.ConfigHandler.GetString("terraform.backend.type", "local")
-	probeBackend := backendType != "local" && backendType != "none"
-
-	var needMigration []blueprintv1alpha1.TerraformComponent
 	for _, component := range components {
-		migrateThisComponent := false
 		if err := tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
 			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 				return fmt.Errorf("directory %s does not exist", component.FullPath)
@@ -174,18 +153,14 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			}
 			terraformVars["TF_VAR_operation"] = "apply"
 
-			// Track the per-component backend_override.tf path unconditionally. setupTerraformEnvironment,
-			// initComponentBackend (forced-local branch), and the Pass 2 migration loop can all write to
-			// this path; a per-iteration Stat check would miss files written later in the adaptive flow.
-			// The deferred cleanup tolerates missing files, so over-registration is harmless.
 			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+			if _, err := s.shims.Stat(backendOverridePath); err == nil {
+				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+			}
 
-			terraformArgs, forcedLocal, err := s.initComponentBackend(&component, terraformVars, terraformArgs, probeBackend)
-			if err != nil {
+			if err := s.runTerraformInit(&component, terraformVars, terraformArgs); err != nil {
 				return err
 			}
-			migrateThisComponent = forcedLocal
 
 			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 			refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
@@ -220,10 +195,6 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			return err
 		}
 
-		if migrateThisComponent {
-			needMigration = append(needMigration, component)
-		}
-
 		// Run post-apply hooks after Done is printed, before the next component's spinner starts.
 		componentID := component.GetID()
 		for _, fn := range postApply {
@@ -235,13 +206,68 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 		}
 	}
 
-	for i := range needMigration {
-		if err := s.migrateComponentToRemote(&needMigration[i]); err != nil {
-			return err
-		}
+	return nil
+}
+
+// MigrateState reinitializes every Terraform component's backend against the currently configured
+// backend, migrating state from whatever backend is recorded in each component's .terraform/
+// directory to the configured target. It runs terraform init with -migrate-state -force-copy per
+// component; no plan or apply is executed. Intended to be called after a backend configuration
+// change (e.g. at the end of bootstrap, after the initial local-state applies, once the configured
+// remote backend exists and is reachable). A component whose state is already on the configured
+// backend is a no-op. On the first failure MigrateState returns; any components not yet migrated
+// retain their existing state, so the call is safe to retry once the underlying issue is resolved.
+func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
 	}
 
-	return nil
+	currentDir, err := s.shims.Getwd()
+	if err != nil {
+		return fmt.Errorf("error getting current directory: %v", err)
+	}
+	defer func() {
+		_ = s.shims.Chdir(currentDir)
+	}()
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("error getting project root: project root is empty")
+	}
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+
+	var backendOverridePaths []string
+	defer func() {
+		for _, path := range backendOverridePaths {
+			_ = s.shims.Remove(path)
+		}
+	}()
+
+	// Migration is a fast post-apply bookkeeping step per component; users don't need a
+	// spinner line for each one. A single top-level progress message covers the whole pass.
+	return tui.WithProgress("Migrating terraform state", func() error {
+		for _, component := range components {
+			component := component
+			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+				return fmt.Errorf("directory %s does not exist", component.FullPath)
+			}
+
+			terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+			if err != nil {
+				return err
+			}
+
+			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+			if _, err := s.shims.Stat(backendOverridePath); err == nil {
+				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+			}
+
+			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, "-migrate-state"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // DestroyAll destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
@@ -801,92 +827,19 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 	return component, terraformVars, terraformArgs, cleanup, nil
 }
 
-// runTerraformInit executes terraform init for the given component.
-func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) error {
+// runTerraformInit executes terraform init for the given component, inserting any extraFlags
+// (e.g. "-migrate-state") immediately after the "init" subcommand and before the argument set
+// generated by the terraform provider. Returning a wrapped error keeps command-construction in
+// one place so the Up path and the MigrateState path can't drift.
+func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
+	initArgs = append(initArgs, extraFlags...)
 	initArgs = append(initArgs, terraformArgs.InitArgs...)
 	initEnv := selectTerraformCommandEnv(terraformVars, false)
 	_, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...)
 	if err != nil {
 		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
-	}
-	return nil
-}
-
-// initComponentBackend picks the effective backend for a component, writes the matching
-// backend_override.tf, and runs terraform init. When probeBackend is true, it first probes
-// the configured remote backend; if the remote has populated state, init has already run
-// inside the probe and the configured remote args are returned unchanged. If the remote is
-// unreachable or empty, the component is pinned to local state: a local backend_override.tf
-// is written, forced-local args are generated, terraform init runs again, and the returned
-// forcedLocal flag signals that Pass 2 migration is required for this component. When
-// probeBackend is false (backend is local or none) the probe is skipped and init runs once
-// with the configured args.
-func (s *TerraformStack) initComponentBackend(
-	component *blueprintv1alpha1.TerraformComponent,
-	terraformVars map[string]string,
-	terraformArgs *envvars.TerraformArgs,
-	probeBackend bool,
-) (*envvars.TerraformArgs, bool, error) {
-	if probeBackend {
-		if s.remoteBackendHasState(component, terraformVars, terraformArgs) {
-			return terraformArgs, false, nil
-		}
-		if err := s.runtime.TerraformProvider.GenerateLocalBackendOverride(component.FullPath); err != nil {
-			return nil, false, fmt.Errorf("error writing local backend override for %s: %w", component.Path, err)
-		}
-		forcedArgs, err := s.runtime.TerraformProvider.GenerateTerraformArgsForcedLocal(component.GetID(), false)
-		if err != nil {
-			return nil, false, fmt.Errorf("error generating forced-local args for %s: %w", component.Path, err)
-		}
-		if err := s.runTerraformInit(component, terraformVars, forcedArgs); err != nil {
-			return nil, false, err
-		}
-		return forcedArgs, true, nil
-	}
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
-		return nil, false, err
-	}
-	return terraformArgs, false, nil
-}
-
-// remoteBackendHasState runs terraform init and terraform state list against the configured
-// remote backend to determine whether this component already has state there. Returns true only
-// when both commands succeed and state list reports at least one resource. Any init or state
-// list failure, and any empty state list output, returns false; the caller interprets false as
-// "force local" and the real error (if any) will surface at Pass 2 migration time.
-func (s *TerraformStack) remoteBackendHasState(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) bool {
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
-		return false
-	}
-	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-	stateArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "state", "list"}
-	stateEnv := selectTerraformCommandEnv(terraformVars, false)
-	output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, stateEnv, stateArgs...)
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(output) != ""
-}
-
-// migrateComponentToRemote rewrites the component's backend_override.tf to the configured remote
-// backend and runs terraform init. The provider's init args already include -force-copy, which
-// causes terraform to migrate local state to the remote backend. Used as Pass 2 of Up after every
-// component has applied locally, so remote backends that are themselves provisioned by an earlier
-// component (e.g. the kubernetes cluster hosting the k8s backend) exist by the time migration runs.
-// On failure the local state written in Pass 1 is retained so the user can re-run Up to retry the
-// migration once the remote backend is reachable.
-func (s *TerraformStack) migrateComponentToRemote(component *blueprintv1alpha1.TerraformComponent) error {
-	if err := s.runtime.TerraformProvider.GenerateBackendOverride(component.FullPath); err != nil {
-		return fmt.Errorf("error writing remote backend override for %s: %w", component.Path, err)
-	}
-	terraformVars, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
-	if err != nil {
-		return fmt.Errorf("error getting terraform env vars for %s: %w", component.Path, err)
-	}
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
-		return fmt.Errorf("state migration failed for %s (local state retained for retry): %w", component.Path, err)
 	}
 	return nil
 }
