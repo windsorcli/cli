@@ -578,7 +578,7 @@ func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, 
 // delegates to the kubernetes manager. Returns an error if the blueprint is nil, the
 // kubernetes manager is not configured, the kustomization is not found, the kustomization
 // is marked destroyOnly, or the apply fails.
-func (i *Provisioner) ApplyKustomize(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -608,7 +608,7 @@ func (i *Provisioner) ApplyKustomize(blueprint *blueprintv1alpha1.Blueprint, com
 		if err := i.KubernetesManager.ApplyBlueprint(&filtered, i.fluxNamespace()); err != nil {
 			return err
 		}
-		_ = i.Notify(context.Background(), &filtered)
+		_ = i.Notify(ctx, &filtered)
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to apply kustomization %s: %w", componentID, err)
@@ -621,8 +621,8 @@ func (i *Provisioner) ApplyKustomize(blueprint *blueprintv1alpha1.Blueprint, com
 // Delegates to Install, which creates the namespace, applies sources, and applies each
 // kustomization in order. Returns an error if the blueprint is nil, the kubernetes manager
 // is not configured, or the apply fails.
-func (i *Provisioner) ApplyKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) error {
-	return i.Install(blueprint)
+func (i *Provisioner) ApplyKustomizeAll(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
+	return i.Install(ctx, blueprint)
 }
 
 // Install orchestrates the high-level kustomization installation process from the blueprint.
@@ -630,8 +630,10 @@ func (i *Provisioner) ApplyKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) 
 // applies source repositories, and applies all kustomizations. After the apply completes it fires a
 // best-effort flux webhook notification inside the same progress scope so flux reconciles sources
 // immediately instead of waiting for the next scheduled interval; notification failures never abort
-// Install. The blueprint must be provided as a parameter. Returns an error if the apply step fails.
-func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
+// Install. The ctx parameter is threaded into Notify so a cancelled parent context (e.g. Ctrl+C)
+// tears down the port-forward and HTTP POST immediately instead of waiting for notifyTimeout.
+// The blueprint must be provided. Returns an error if the apply step fails.
+func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -644,7 +646,7 @@ func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 		if err := i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace()); err != nil {
 			return err
 		}
-		_ = i.Notify(context.Background(), blueprint)
+		_ = i.Notify(ctx, blueprint)
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to apply blueprint: %w", err)

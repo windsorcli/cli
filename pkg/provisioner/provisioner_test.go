@@ -847,7 +847,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomize is called with a valid kustomization name
-		err := provisioner.ApplyKustomize(createTestBlueprint(), "test-kustomization")
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then no error is returned
 		if err != nil {
@@ -861,7 +861,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		// When ApplyKustomize is called with a nil blueprint
-		err := provisioner.ApplyKustomize(nil, "test-kustomization")
+		err := provisioner.ApplyKustomize(context.Background(), nil, "test-kustomization")
 
 		// Then an error is returned
 		if err == nil {
@@ -879,7 +879,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		// When ApplyKustomize is called
-		err := provisioner.ApplyKustomize(createTestBlueprint(), "test-kustomization")
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then an error is returned
 		if err == nil {
@@ -897,7 +897,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomize is called with a name not in the blueprint
-		err := provisioner.ApplyKustomize(createTestBlueprint(), "nonexistent")
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "nonexistent")
 
 		// Then an error is returned
 		if err == nil {
@@ -919,7 +919,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		bp.Kustomizations[0].DestroyOnly = &destroyOnly
 
 		// When ApplyKustomize is called with that kustomization name
-		err := provisioner.ApplyKustomize(bp, "test-kustomization")
+		err := provisioner.ApplyKustomize(context.Background(), bp, "test-kustomization")
 
 		// Then an error is returned indicating it cannot be applied
 		if err == nil {
@@ -940,7 +940,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomize is called
-		err := provisioner.ApplyKustomize(createTestBlueprint(), "test-kustomization")
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then an error is returned
 		if err == nil {
@@ -963,7 +963,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomize is called with a specific kustomization name
-		err := provisioner.ApplyKustomize(createTestBlueprint(), "test-kustomization")
+		err := provisioner.ApplyKustomize(context.Background(), createTestBlueprint(), "test-kustomization")
 
 		// Then only the named kustomization is passed to ApplyBlueprint
 		if err != nil {
@@ -989,7 +989,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(createTestBlueprint())
+		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
 
 		// Then no error is returned
 		if err != nil {
@@ -1003,7 +1003,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		// When ApplyKustomizeAll is called with a nil blueprint
-		err := provisioner.ApplyKustomizeAll(nil)
+		err := provisioner.ApplyKustomizeAll(context.Background(), nil)
 
 		// Then an error is returned
 		if err == nil {
@@ -1021,7 +1021,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(createTestBlueprint())
+		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
 
 		// Then an error is returned
 		if err == nil {
@@ -1042,7 +1042,7 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When ApplyKustomizeAll is called
-		err := provisioner.ApplyKustomizeAll(createTestBlueprint())
+		err := provisioner.ApplyKustomizeAll(context.Background(), createTestBlueprint())
 
 		// Then an error is returned
 		if err == nil {
@@ -1066,7 +1066,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(blueprint)
+		err := provisioner.Install(context.Background(), blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1077,7 +1077,7 @@ func TestProvisioner_Install(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Install(nil)
+		err := provisioner.Install(context.Background(), nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -1094,7 +1094,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(blueprint)
+		err := provisioner.Install(context.Background(), blueprint)
 
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
@@ -1116,7 +1116,7 @@ func TestProvisioner_Install(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Install(blueprint)
+		err := provisioner.Install(context.Background(), blueprint)
 
 		if err == nil {
 			t.Error("Expected error for apply blueprint failure")
