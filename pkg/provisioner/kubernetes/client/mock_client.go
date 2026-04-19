@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 )
 
 // =============================================================================
@@ -26,6 +27,7 @@ type MockKubernetesClient struct {
 	PatchResourceFunc      func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealthFunc        func(ctx context.Context, endpoint string) error
 	GetNodeReadyStatusFunc func(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	RESTConfigFunc         func() (*rest.Config, error)
 }
 
 // =============================================================================
@@ -95,4 +97,12 @@ func (m *MockKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames
 		return m.GetNodeReadyStatusFunc(ctx, nodeNames)
 	}
 	return make(map[string]bool), nil
+}
+
+// RESTConfig implements KubernetesClient interface
+func (m *MockKubernetesClient) RESTConfig() (*rest.Config, error) {
+	if m.RESTConfigFunc != nil {
+		return m.RESTConfigFunc()
+	}
+	return &rest.Config{}, nil
 }

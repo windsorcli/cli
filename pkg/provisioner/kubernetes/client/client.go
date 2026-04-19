@@ -43,6 +43,7 @@ type KubernetesClient interface {
 	PatchResource(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealth(ctx context.Context, endpoint string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
+	RESTConfig() (*rest.Config, error)
 }
 
 // =============================================================================
@@ -52,6 +53,7 @@ type KubernetesClient interface {
 // DynamicKubernetesClient implements KubernetesClient using dynamic client
 type DynamicKubernetesClient struct {
 	client   dynamic.Interface
+	config   *rest.Config
 	endpoint string
 }
 
@@ -142,6 +144,16 @@ func (c *DynamicKubernetesClient) CheckHealth(ctx context.Context, endpoint stri
 	return nil
 }
 
+// RESTConfig returns the rest.Config used by the client, initializing it lazily. The returned
+// config is the same one backing the dynamic client and is safe to pass to clients that require
+// a typed kubernetes.Clientset or a spdy transport for port-forwarding.
+func (c *DynamicKubernetesClient) RESTConfig() (*rest.Config, error) {
+	if err := c.ensureClient(); err != nil {
+		return nil, err
+	}
+	return c.config, nil
+}
+
 // GetNodeReadyStatus returns a map of node names to their Ready condition status.
 // It checks the Ready condition for each specified node using the dynamic client.
 // If nodeNames is empty, all nodes are checked. Nodes not found are omitted from the result.
@@ -229,6 +241,7 @@ func (c *DynamicKubernetesClient) ensureClient() error {
 		return err
 	}
 	c.client = cli
+	c.config = config
 	return nil
 }
 

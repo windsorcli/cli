@@ -1202,6 +1202,54 @@ func TestProvisioner_Wait(t *testing.T) {
 	})
 }
 
+func TestProvisioner_Notify(t *testing.T) {
+	t.Run("DelegatesToInjectedNotifier", func(t *testing.T) {
+		// Given a provisioner with a stub Notifier recording the call
+		mocks := setupProvisionerMocks(t)
+		notifier := fluxinfra.NewMockNotifier()
+		var called bool
+		var seenBlueprint *blueprintv1alpha1.Blueprint
+		notifier.NotifyFunc = func(ctx context.Context, bp *blueprintv1alpha1.Blueprint) error {
+			called = true
+			seenBlueprint = bp
+			return nil
+		}
+		opts := &Provisioner{Notifier: notifier}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When Notify is called with a blueprint
+		blueprint := createTestBlueprint()
+		err := provisioner.Notify(context.Background(), blueprint)
+
+		// Then the injected notifier receives the blueprint and nil is returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if !called {
+			t.Error("Expected Notifier.Notify to be called")
+		}
+		if seenBlueprint != blueprint {
+			t.Error("Expected the same blueprint pointer to be forwarded")
+		}
+	})
+
+	t.Run("ConstructsDefaultNotifierWhenUnset", func(t *testing.T) {
+		// Given a provisioner with no Notifier override
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+		if provisioner.Notifier != nil {
+			t.Fatal("Expected Notifier to be nil before Notify is called")
+		}
+
+		// When Notify is called
+		// Then a default Notifier is constructed lazily
+		_ = provisioner.Notify(context.Background(), createTestBlueprint())
+		if provisioner.Notifier == nil {
+			t.Error("Expected Notifier to be constructed on first Notify call")
+		}
+	})
+}
+
 func TestProvisioner_Uninstall(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)

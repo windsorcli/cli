@@ -45,12 +45,37 @@ type Provisioner struct {
 
 	TerraformStack         terraforminfra.Stack
 	FluxStack              fluxinfra.Stack
+	Notifier               fluxinfra.Notifier
 	onTerraformApply       []func(id string) error
 	onTerraformPostApply   []func(id string) error
 	KubernetesManager kubernetes.KubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
 	ClusterClient     cluster.ClusterClient
 	blueprintHandler  blueprint.BlueprintHandler
+}
+
+// PlanSummary holds aggregated plan results across all infrastructure layers.
+// Terraform contains one entry per enabled component; Kustomize contains one
+// entry per non-destroyOnly kustomization. Either slice may be nil when the
+// corresponding layer is absent from the blueprint or its tooling is unavailable.
+// Hints contains upgrade suggestions collected when required CLI tools are absent.
+type PlanSummary struct {
+	Terraform []terraforminfra.TerraformComponentPlan
+	Kustomize []fluxinfra.KustomizePlan
+	Hints     []string
+}
+
+// NodeHealthCheckOptions contains options for node health checking.
+type NodeHealthCheckOptions struct {
+	Nodes               []string
+	Timeout             time.Duration
+	Version             string
+	K8SEndpoint         string
+	K8SEndpointProvided bool
+	CheckNodeReady      bool
+	SkipServices        []string
+	WaitForReboot       bool
+	OfflineTimeout      time.Duration
 }
 
 // =============================================================================
@@ -96,6 +121,9 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 		}
 		if overrides.FluxStack != nil {
 			provisioner.FluxStack = overrides.FluxStack
+		}
+		if overrides.Notifier != nil {
+			provisioner.Notifier = overrides.Notifier
 		}
 		if overrides.KubernetesManager != nil {
 			provisioner.KubernetesManager = overrides.KubernetesManager
@@ -349,17 +377,6 @@ func (i *Provisioner) Plan(blueprint *blueprintv1alpha1.Blueprint, componentID s
 	return nil
 }
 
-// PlanSummary holds aggregated plan results across all infrastructure layers.
-// Terraform contains one entry per enabled component; Kustomize contains one
-// entry per non-destroyOnly kustomization. Either slice may be nil when the
-// corresponding layer is absent from the blueprint or its tooling is unavailable.
-// Hints contains upgrade suggestions collected when required CLI tools are absent.
-type PlanSummary struct {
-	Terraform []terraforminfra.TerraformComponentPlan
-	Kustomize []fluxinfra.KustomizePlan
-	Hints     []string
-}
-
 // PlanTerraformAll runs terraform init and plan for every enabled component, streaming
 // output directly. Returns an error if blueprint is nil, the stack cannot be initialised,
 // or any component's plan fails.
@@ -588,7 +605,11 @@ func (i *Provisioner) ApplyKustomize(blueprint *blueprintv1alpha1.Blueprint, com
 	filtered.Kustomizations = []blueprintv1alpha1.Kustomization{*found}
 
 	if err := tui.WithProgress(fmt.Sprintf("Applying kustomization %s", componentID), func() error {
-		return i.KubernetesManager.ApplyBlueprint(&filtered, i.fluxNamespace())
+		if err := i.KubernetesManager.ApplyBlueprint(&filtered, i.fluxNamespace()); err != nil {
+			return err
+		}
+		_ = i.Notify(context.Background(), &filtered)
+		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to apply kustomization %s: %w", componentID, err)
 	}
@@ -606,8 +627,10 @@ func (i *Provisioner) ApplyKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) 
 
 // Install orchestrates the high-level kustomization installation process from the blueprint.
 // It initializes the kubernetes manager and applies all blueprint resources in order: creates namespace,
-// applies source repositories, and applies all kustomizations. The blueprint must be provided as a parameter.
-// Returns an error if any step fails.
+// applies source repositories, and applies all kustomizations. After the apply completes it fires a
+// best-effort flux webhook notification inside the same progress scope so flux reconciles sources
+// immediately instead of waiting for the next scheduled interval; notification failures never abort
+// Install. The blueprint must be provided as a parameter. Returns an error if the apply step fails.
 func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -618,7 +641,11 @@ func (i *Provisioner) Install(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 
 	if err := tui.WithProgress("Installing blueprint resources", func() error {
-		return i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace())
+		if err := i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace()); err != nil {
+			return err
+		}
+		_ = i.Notify(context.Background(), blueprint)
+		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to apply blueprint: %w", err)
 	}
@@ -845,17 +872,17 @@ func (i *Provisioner) CheckNodeHealth(ctx context.Context, options NodeHealthChe
 	return nil
 }
 
-// NodeHealthCheckOptions contains options for node health checking.
-type NodeHealthCheckOptions struct {
-	Nodes               []string
-	Timeout             time.Duration
-	Version             string
-	K8SEndpoint         string
-	K8SEndpointProvided bool
-	CheckNodeReady      bool
-	SkipServices        []string
-	WaitForReboot       bool
-	OfflineTimeout      time.Duration
+// Notify forwards to the flux webhook Notifier and is intended as the final
+// step of bootstrap/up/apply so flux reconciles the blueprint's sources
+// immediately instead of waiting for its next scheduled interval. The call
+// is best-effort: every failure path inside the Notifier is converted to
+// nil with a warning, so callers can invoke Notify unconditionally without
+// risking command failure on clusters that have no webhook configured.
+func (i *Provisioner) Notify(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
+	if err := i.ensureNotifier(); err != nil {
+		return err
+	}
+	return i.Notifier.Notify(ctx, blueprint)
 }
 
 // Close releases resources held by provisioner components.
@@ -932,6 +959,18 @@ func (i *Provisioner) ensureFluxStack() error {
 		return nil
 	}
 	i.FluxStack = fluxinfra.NewStack(i.runtime, i.KubernetesManager)
+	return nil
+}
+
+// ensureNotifier initializes the flux webhook Notifier if it is not already
+// initialized. Mirrors ensureFluxStack — the Notifier is only constructed when
+// something actually calls Notify, which keeps Provisioner construction cheap
+// for commands that do not need webhook notification.
+func (i *Provisioner) ensureNotifier() error {
+	if i.Notifier != nil {
+		return nil
+	}
+	i.Notifier = fluxinfra.NewNotifier(i.runtime, i.KubernetesClient)
 	return nil
 }
 

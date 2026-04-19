@@ -15,6 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
+	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -196,6 +197,66 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 		if !waitCalled {
 			t.Error("Expected Wait to be called unconditionally")
+		}
+	})
+
+	t.Run("NotifiesAfterWait", func(t *testing.T) {
+		// Given a bootstrap test project wired with a MockNotifier
+		mocks := setupBootstrapTest(t)
+		proj := newBootstrapTestProject(mocks)
+
+		notifier := fluxinfra.NewMockNotifier()
+		var notifyCalled bool
+		var notifyBlueprint *blueprintv1alpha1.Blueprint
+		notifier.NotifyFunc = func(ctx context.Context, bp *blueprintv1alpha1.Blueprint) error {
+			notifyCalled = true
+			notifyBlueprint = bp
+			return nil
+		}
+		proj.Provisioner.Notifier = notifier
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got %v", err)
+		}
+
+		// Then Notify is called after the wait step with the resolved blueprint
+		if !notifyCalled {
+			t.Error("Expected Notify to be called after Wait")
+		}
+		if notifyBlueprint == nil {
+			t.Error("Expected Notify to receive the resolved blueprint, got nil")
+		}
+	})
+
+	t.Run("NotifyFailureIsTolerated", func(t *testing.T) {
+		// Given a MockNotifier that returns an error (simulating an internal
+		// bug: production Notifier is supposed to convert all errors to nil,
+		// but bootstrap should still succeed even if that contract is ever
+		// broken because the caller discards the error).
+		mocks := setupBootstrapTest(t)
+		proj := newBootstrapTestProject(mocks)
+
+		notifier := fluxinfra.NewMockNotifier()
+		notifier.NotifyFunc = func(ctx context.Context, bp *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("simulated notify failure")
+		}
+		proj.Provisioner.Notifier = notifier
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		// Then bootstrap completes successfully regardless of the notifier error
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected bootstrap success even when Notify errors, got %v", err)
 		}
 	})
 

@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 )
 
 // =============================================================================
@@ -224,6 +225,40 @@ func TestMockKubernetesClient_CheckHealth(t *testing.T) {
 		err := client.CheckHealth(ctx, endpoint)
 		if err != nil {
 			t.Errorf("Expected nil, got %v", err)
+		}
+	})
+}
+
+func TestMockKubernetesClient_RESTConfig(t *testing.T) {
+	setup := func(t *testing.T) *MockKubernetesClient {
+		t.Helper()
+		return NewMockKubernetesClient()
+	}
+
+	t.Run("FuncSet", func(t *testing.T) {
+		client := setup(t)
+		expected := &rest.Config{Host: "https://example.com:6443"}
+		errVal := fmt.Errorf("config error")
+		client.RESTConfigFunc = func() (*rest.Config, error) {
+			return expected, errVal
+		}
+		cfg, err := client.RESTConfig()
+		if cfg != expected {
+			t.Errorf("Expected %v, got %v", expected, cfg)
+		}
+		if err != errVal {
+			t.Errorf("Expected err, got %v", err)
+		}
+	})
+
+	t.Run("FuncNotSet", func(t *testing.T) {
+		client := setup(t)
+		cfg, err := client.RESTConfig()
+		if err != nil {
+			t.Errorf("Expected nil err, got %v", err)
+		}
+		if cfg == nil {
+			t.Error("Expected non-nil default *rest.Config")
 		}
 	})
 }
