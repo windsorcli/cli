@@ -583,6 +583,37 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 	})
 
+	t.Run("DoesNotPassUpgradeFlag", func(t *testing.T) {
+		// MigrateState must not include -upgrade: its contract is moving state, not
+		// reinstalling providers or rewriting .terraform.lock.hcl. Execution flags are
+		// added per operation at each call site, and MigrateState's call site passes
+		// only -migrate-state + -force-copy.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var upgradeSeen bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				for _, a := range args {
+					if a == "-upgrade" {
+						upgradeSeen = true
+					}
+				}
+			}
+			return "", nil
+		}
+
+		// When MigrateState runs
+		if err := stack.MigrateState(blueprint); err != nil {
+			t.Fatalf("Expected MigrateState to succeed, got %v", err)
+		}
+
+		// Then no init invocation carried -upgrade
+		if upgradeSeen {
+			t.Error("Expected MigrateState's init not to include -upgrade; state migration must not reinstall providers")
+		}
+	})
+
 	t.Run("ReturnsErrorWhenMigrationInitFails", func(t *testing.T) {
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()

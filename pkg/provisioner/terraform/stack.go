@@ -68,6 +68,19 @@ type TerraformStack struct {
 }
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+// defaultInitFlags are the execution-policy flags passed to `terraform init` by every
+// operation that applies or inspects infrastructure (Up, Apply, Plan, PlanJSON,
+// planComponents, Destroy, planOneTerraformSummary). They refresh provider plugins to
+// their locked versions and auto-confirm state-copy prompts during backend changes.
+// MigrateState uses a different set (-migrate-state + -force-copy) because moving state
+// must not reinstall providers or mutate .terraform.lock.hcl; its call site spells
+// those flags inline to keep the distinction visible.
+var defaultInitFlags = []string{"-upgrade", "-force-copy"}
+
+// =============================================================================
 // Constructors
 // =============================================================================
 
@@ -158,7 +171,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
 			}
 
-			if err := s.runTerraformInit(&component, terraformVars, terraformArgs); err != nil {
+			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 				return err
 			}
 
@@ -261,7 +274,10 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
 			}
 
-			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, "-migrate-state"); err != nil {
+			// Migration intentionally omits -upgrade: its contract is moving state, not
+			// reinstalling providers or mutating .terraform.lock.hcl. -force-copy auto-confirms
+			// terraform's "copy state?" prompt when the backend actually changes.
+			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, "-migrate-state", "-force-copy"); err != nil {
 				return err
 			}
 		}
@@ -382,7 +398,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 		}
 		terraformVars["TF_VAR_operation"] = "apply"
 
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 			cleanup()
 			return err
 		}
@@ -440,7 +456,7 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
@@ -477,7 +493,7 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
@@ -572,7 +588,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	terraformVars["TF_VAR_operation"] = "apply"
 
 	return tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 			return err
 		}
 
@@ -613,7 +629,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "destroy"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
@@ -741,7 +757,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		result.Err = err
 		return result
 	}

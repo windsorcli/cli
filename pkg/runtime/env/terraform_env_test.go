@@ -215,7 +215,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "project/path", "terraform.tfstate"))),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "project/path", "terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
@@ -580,7 +580,7 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform/project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -force-copy -upgrade -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate/project/path/terraform.tfstate"))),
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate/project/path/terraform.tfstate"))),
 			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
 				filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
@@ -1437,8 +1437,8 @@ terraform:
 
 			// GenerateBackendConfigArgs is now private, get args from GenerateTerraformArgs
 			args, _ := realProvider.GenerateTerraformArgs(componentID, interactive)
-			backendConfigArgs := args.InitArgs[3:] // Skip "-backend=true", "-force-copy", "-upgrade"
-			initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
+			backendConfigArgs := args.InitArgs[1:] // Skip "-backend=true"
+			initArgs := []string{"-backend=true"}
 			initArgs = append(initArgs, backendConfigArgs...)
 
 			planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}
@@ -1864,8 +1864,8 @@ terraform:
 
 			// GenerateBackendConfigArgs is now private, get args from GenerateTerraformArgs
 			args, _ := realProvider.GenerateTerraformArgs(componentID, interactive)
-			backendConfigArgs := args.InitArgs[3:] // Skip "-backend=true", "-force-copy", "-upgrade"
-			initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
+			backendConfigArgs := args.InitArgs[1:] // Skip "-backend=true"
+			initArgs := []string{"-backend=true"}
 			initArgs = append(initArgs, backendConfigArgs...)
 
 			planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}

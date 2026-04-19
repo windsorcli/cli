@@ -291,7 +291,10 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 		return nil, fmt.Errorf("error generating backend config args: %w", err)
 	}
 
-	initArgs := []string{"-backend=true", "-force-copy", "-upgrade"}
+	// InitArgs carries only configuration (backend selection + backend-config) — execution
+	// policy flags like -upgrade, -force-copy, -migrate-state, or -reconfigure are added by
+	// each caller of runTerraformInit according to the operation it's performing.
+	initArgs := []string{"-backend=true"}
 	initArgs = append(initArgs, backendConfigArgs...)
 
 	planArgs := []string{fmt.Sprintf("-out=%s", tfPlanPath)}
