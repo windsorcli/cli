@@ -292,7 +292,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			return "/test/current", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/current/windsor.yaml" {
+			if name == filepath.Join("/test/current", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -317,7 +317,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			return "/test/current", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/current/windsor.yml" {
+			if name == filepath.Join("/test/current", "windsor.yml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -485,7 +485,7 @@ func TestShell_GetProjectRoot(t *testing.T) {
 			return "/test/current", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/current/windsor.yaml" {
+			if name == filepath.Join("/test/current", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -1909,7 +1909,7 @@ func TestShell_AddCurrentDirToTrustedFile(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -1937,7 +1937,7 @@ func TestShell_AddCurrentDirToTrustedFile(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -1968,7 +1968,7 @@ func TestShell_AddCurrentDirToTrustedFile(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2002,7 +2002,7 @@ func TestShell_AddCurrentDirToTrustedFile(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2173,7 +2173,7 @@ func TestShell_CheckTrustedDirectory(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2201,7 +2201,7 @@ func TestShell_CheckTrustedDirectory(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2232,7 +2232,7 @@ func TestShell_CheckTrustedDirectory(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2454,7 +2454,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2491,7 +2491,7 @@ func TestShell_WriteResetToken(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2587,7 +2587,7 @@ func TestShell_Reset(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2608,7 +2608,7 @@ func TestShell_Reset(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
@@ -2632,7 +2632,7 @@ func TestShell_Reset(t *testing.T) {
 			return "/test/project", nil
 		}
 		mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-			if name == "/test/project/windsor.yaml" {
+			if name == filepath.Join("/test/project", "windsor.yaml") {
 				return nil, nil
 			}
 			return nil, os.ErrNotExist
