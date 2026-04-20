@@ -967,10 +967,19 @@ func (i *Provisioner) ensureFluxStack() error {
 // ensureNotifier initializes the flux webhook Notifier if it is not already
 // initialized. Mirrors ensureFluxStack — the Notifier is only constructed when
 // something actually calls Notify, which keeps Provisioner construction cheap
-// for commands that do not need webhook notification.
+// for commands that do not need webhook notification. The runtime and
+// KubernetesClient guards convert struct-literal misuse (a *Provisioner
+// constructed outside NewProvisioner in a test or future caller) from a
+// panic-inside-spinner into a graceful error the caller can log or swallow.
 func (i *Provisioner) ensureNotifier() error {
 	if i.Notifier != nil {
 		return nil
+	}
+	if i.runtime == nil {
+		return fmt.Errorf("runtime not initialized")
+	}
+	if i.KubernetesClient == nil {
+		return fmt.Errorf("kubernetes client not initialized")
 	}
 	i.Notifier = fluxinfra.NewNotifier(i.runtime, i.KubernetesClient)
 	return nil

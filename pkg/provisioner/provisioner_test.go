@@ -1248,6 +1248,40 @@ func TestProvisioner_Notify(t *testing.T) {
 			t.Error("Expected Notifier to be constructed on first Notify call")
 		}
 	})
+
+	t.Run("ReturnsErrorInsteadOfPanicWhenKubernetesClientMissing", func(t *testing.T) {
+		// Given a Provisioner built as a struct literal (bypassing NewProvisioner's
+		// defaulting) with no KubernetesClient — simulates a future caller or test
+		// that forgets to initialise the client field
+		provisioner := &Provisioner{runtime: &runtime.Runtime{}}
+
+		// When Notify is called
+		err := provisioner.Notify(context.Background(), createTestBlueprint())
+
+		// Then an error is returned rather than a panic inside the TUI spinner
+		if err == nil {
+			t.Fatal("Expected error on missing KubernetesClient, got nil")
+		}
+		if !strings.Contains(err.Error(), "kubernetes client") {
+			t.Errorf("Expected error to mention kubernetes client, got: %v", err)
+		}
+	})
+
+	t.Run("ReturnsErrorInsteadOfPanicWhenRuntimeMissing", func(t *testing.T) {
+		// Given a Provisioner built as a struct literal with no runtime
+		provisioner := &Provisioner{KubernetesClient: k8sclient.NewMockKubernetesClient()}
+
+		// When Notify is called
+		err := provisioner.Notify(context.Background(), createTestBlueprint())
+
+		// Then an error is returned rather than panicking in NewNotifier
+		if err == nil {
+			t.Fatal("Expected error on missing runtime, got nil")
+		}
+		if !strings.Contains(err.Error(), "runtime") {
+			t.Errorf("Expected error to mention runtime, got: %v", err)
+		}
+	})
 }
 
 func TestProvisioner_Uninstall(t *testing.T) {
