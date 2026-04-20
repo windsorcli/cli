@@ -180,7 +180,7 @@ var bootstrapCmd = &cobra.Command{
 
 		blueprint := proj.Composer.BlueprintHandler.GenerateResolved()
 
-		if err := proj.Provisioner.Install(blueprint); err != nil {
+		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)
 		}
 

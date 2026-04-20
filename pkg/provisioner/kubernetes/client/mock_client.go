@@ -23,7 +23,7 @@ type MockKubernetesClient struct {
 	ListResourcesFunc      func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
 	ApplyResourceFunc      func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResourceFunc     func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
-	PatchResourceFunc      func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
+	PatchResourceFunc      func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealthFunc        func(ctx context.Context, endpoint string) error
 	GetNodeReadyStatusFunc func(ctx context.Context, nodeNames []string) (map[string]bool, error)
 }
@@ -74,9 +74,9 @@ func (m *MockKubernetesClient) DeleteResource(gvr schema.GroupVersionResource, n
 }
 
 // PatchResource implements KubernetesClient interface
-func (m *MockKubernetesClient) PatchResource(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+func (m *MockKubernetesClient) PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 	if m.PatchResourceFunc != nil {
-		return m.PatchResourceFunc(gvr, namespace, name, pt, data, opts)
+		return m.PatchResourceFunc(ctx, gvr, namespace, name, pt, data, opts)
 	}
 	return nil, nil
 }

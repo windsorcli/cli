@@ -165,7 +165,7 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 
 	// Kustomization is stuck in Terminating — strip finalizers to unblock deletion.
 	patch := []byte(`{"metadata":{"finalizers":[]}}`)
-	if _, err := k.client.PatchResource(gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{FieldManager: "windsor-cli"}); err != nil && !isNotFoundError(err) {
+	if _, err := k.client.PatchResource(context.Background(), gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{FieldManager: "windsor-cli"}); err != nil && !isNotFoundError(err) {
 		return fmt.Errorf("timeout waiting for kustomization %s to be deleted, and failed to remove finalizers: %w", name, err)
 	}
 	return nil
@@ -207,7 +207,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, blueprint 
 					Version:  "v1",
 					Resource: "kustomizations",
 				}
-				obj, err := k.client.GetResource(gvr, constants.DefaultFluxSystemNamespace, name)
+				obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
 				if err != nil {
 					allReady = false
 					break
@@ -383,7 +383,7 @@ func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) err
 	}
 
 	patch := []byte(`{"spec":{"suspend":true}}`)
-	_, err := k.client.PatchResource(gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
+	_, err := k.client.PatchResource(context.Background(), gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
 		FieldManager: "windsor-cli",
 	})
 
@@ -399,7 +399,7 @@ func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error
 	}
 
 	patch := []byte(`{"spec":{"suspend":true}}`)
-	_, err := k.client.PatchResource(gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
+	_, err := k.client.PatchResource(context.Background(), gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
 		FieldManager: "windsor-cli",
 	})
 
@@ -509,7 +509,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		Resource: "gitrepositories",
 	}
 
-	gitObjList, err := k.client.ListResources(gitGvr, constants.DefaultFluxSystemNamespace)
+	gitObjList, err := k.client.ListResources(gitGvr, k.gitopsNamespace())
 	if err != nil {
 		return fmt.Errorf("failed to list git repositories: %w", err)
 	}
@@ -533,7 +533,7 @@ func (k *BaseKubernetesManager) CheckGitRepositoryStatus() error {
 		Resource: "ocirepositories",
 	}
 
-	ociObjList, err := k.client.ListResources(ociGvr, constants.DefaultFluxSystemNamespace)
+	ociObjList, err := k.client.ListResources(ociGvr, k.gitopsNamespace())
 	if err != nil {
 		return fmt.Errorf("failed to list oci repositories: %w", err)
 	}
@@ -565,7 +565,7 @@ func (k *BaseKubernetesManager) GetKustomizationStatus(names []string) (map[stri
 		Resource: "kustomizations",
 	}
 
-	objList, err := k.client.ListResources(gvr, constants.DefaultFluxSystemNamespace)
+	objList, err := k.client.ListResources(gvr, k.gitopsNamespace())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
 	}
@@ -693,6 +693,8 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 		return fmt.Errorf("failed to create namespace: %w", err)
 	}
 
+	mode := k.gitopsMode()
+
 	if blueprint.Repository.Url != "" {
 		var secretName string
 		if blueprint.Repository.SecretName != nil {
@@ -738,7 +740,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 				return fmt.Errorf("failed to create ConfigMap for kustomization %s: %w", kustomization.Name, err)
 			}
 		}
-		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, blueprint.ConfigMaps)
+		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
 
 		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
 			Labels: map[string]string{
@@ -821,6 +823,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 // deleteKustomizationWithCleanup handles the deletion of a single kustomization, including cleanup steps if defined.
 // Returns a slice of errors encountered during deletion, which may be empty if no errors occurred.
 func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blueprintv1alpha1.Kustomization, blueprint *blueprintv1alpha1.Blueprint, namespace, defaultSourceName string) []error {
+	mode := k.gitopsMode()
 	var errors []error
 
 	if len(kustomization.Cleanup) > 0 {
@@ -858,7 +861,7 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 			timeout = metav1.Duration{Duration: kustomization.Timeout.Duration}
 		}
 
-		interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
+		interval := metav1.Duration{Duration: constants.FluxKustomizationInterval(mode)}
 		if kustomization.Interval != nil && kustomization.Interval.Duration != 0 {
 			interval = metav1.Duration{Duration: kustomization.Interval.Duration}
 		}
@@ -986,6 +989,7 @@ func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blu
 // This approach ensures dependencies remain available while Flux reconciles dependent kustomizations.
 // Returns a slice of errors encountered during the process, which may be empty if no errors occurred.
 func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations []blueprintv1alpha1.Kustomization, blueprint *blueprintv1alpha1.Blueprint, namespace, defaultSourceName string) []error {
+	mode := k.gitopsMode()
 	var errors []error
 
 	destroyOnlyNames := make(map[string]bool)
@@ -1010,7 +1014,7 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 			}
 		}
 
-		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, blueprint.ConfigMaps)
+		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
 
 		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
 			Labels: map[string]string{
@@ -1113,6 +1117,11 @@ waitLoop:
 // Private Methods
 // =============================================================================
 
+// gitopsNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
+func (k *BaseKubernetesManager) gitopsNamespace() string {
+	return k.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+}
+
 // applyWithRetry applies a resource using SSA with minimal logic
 func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) error {
 	existing, err := k.client.GetResource(gvr, obj.GetNamespace(), obj.GetName())
@@ -1206,6 +1215,16 @@ func (k *BaseKubernetesManager) applyBlueprintSource(source blueprintv1alpha1.So
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// gitopsMode returns the configured gitops mode, defaulting to pull. Centralising
+// the "gitops.mode" config read here keeps the several call sites below in sync:
+// Kustomization intervals (ApplyBlueprint, deleteKustomizationWithCleanup,
+// processDestroyOnlyKustomizations) and Source intervals (applyBlueprintGit/OCI
+// Repository) must all read the same value; having one accessor makes that a
+// single point of change if the config key ever moves or gains validation.
+func (k *BaseKubernetesManager) gitopsMode() constants.GitopsMode {
+	return constants.ParseGitopsMode(k.configHandler.GetString("gitops.mode", ""))
+}
 
 // waitForNodesReady blocks until all specified nodes exist and are in Ready state or the context deadline is reached.
 // It periodically queries node status, invokes outputFunc on status changes, and returns an error if any nodes are missing or not Ready within the deadline.
@@ -1309,6 +1328,7 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 // applyBlueprintGitRepository converts and applies a blueprint Source as a GitRepository.
 func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1alpha1.Source, namespace string) error {
 	sourceUrl := runtimegit.NormalizeRemoteURL(source.Url)
+	mode := k.gitopsMode()
 
 	gitRepo := &sourcev1.GitRepository{
 		TypeMeta: metav1.TypeMeta{
@@ -1322,7 +1342,7 @@ func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1al
 		Spec: sourcev1.GitRepositorySpec{
 			URL: sourceUrl,
 			Interval: metav1.Duration{
-				Duration: constants.DefaultFluxSourceInterval,
+				Duration: constants.FluxSourceInterval(mode),
 			},
 			Timeout: &metav1.Duration{
 				Duration: constants.DefaultFluxSourceTimeout,
@@ -1348,6 +1368,7 @@ func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1al
 // applyBlueprintOCIRepository converts and applies a blueprint Source as an OCIRepository.
 func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1alpha1.Source, namespace string) error {
 	ociURL := source.Url
+	mode := k.gitopsMode()
 	var ref *sourcev1.OCIRepositoryRef
 
 	if lastColon := strings.LastIndex(ociURL, ":"); lastColon > len("oci://") {
@@ -1385,7 +1406,7 @@ func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1al
 		Spec: sourcev1.OCIRepositorySpec{
 			URL: ociURL,
 			Interval: metav1.Duration{
-				Duration: constants.DefaultFluxSourceInterval,
+				Duration: constants.FluxSourceInterval(mode),
 			},
 			Timeout: &metav1.Duration{
 				Duration: constants.DefaultFluxSourceTimeout,

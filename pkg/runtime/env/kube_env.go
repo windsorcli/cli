@@ -74,6 +74,8 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	e.SetManagedEnv("KUBE_CONFIG_PATH")
 	envVars["K8S_AUTH_KUBECONFIG"] = kubeConfigPath
 	e.SetManagedEnv("K8S_AUTH_KUBECONFIG")
+	envVars["FLUX_SYSTEM_NAMESPACE"] = e.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+	e.SetManagedEnv("FLUX_SYSTEM_NAMESPACE")
 
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 	if projectRoot == "" {

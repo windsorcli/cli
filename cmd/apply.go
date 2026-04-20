@@ -34,7 +34,7 @@ var applyCmd = &cobra.Command{
 		// outputs are available from the Up step above.
 		blueprint = proj.Composer.BlueprintHandler.GenerateResolved()
 
-		if err := proj.Provisioner.Install(blueprint); err != nil {
+		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 			return fmt.Errorf("error applying kustomize: %w", err)
 		}
 
@@ -91,12 +91,12 @@ var applyKustomizeCmd = &cobra.Command{
 		waitBlueprint := blueprint
 
 		if len(args) == 0 {
-			if err := proj.Provisioner.ApplyKustomizeAll(blueprint); err != nil {
+			if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error applying kustomize: %w", err)
 			}
 		} else {
 			componentID := args[0]
-			if err := proj.Provisioner.ApplyKustomize(blueprint, componentID); err != nil {
+			if err := proj.Provisioner.ApplyKustomize(cmd.Context(), blueprint, componentID); err != nil {
 				return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
 			}
 			// Narrow the wait scope to only the kustomization that was applied.

@@ -169,10 +169,10 @@ func TestMockKubernetesClient_PatchResource(t *testing.T) {
 	t.Run("FuncSet", func(t *testing.T) {
 		client := setup(t)
 		errVal := fmt.Errorf("err")
-		client.PatchResourceFunc = func(g schema.GroupVersionResource, n, nm string, p types.PatchType, d []byte, o metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		client.PatchResourceFunc = func(c context.Context, g schema.GroupVersionResource, n, nm string, p types.PatchType, d []byte, o metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return obj, errVal
 		}
-		res, err := client.PatchResource(gvr, ns, name, pt, data, opts)
+		res, err := client.PatchResource(context.Background(), gvr, ns, name, pt, data, opts)
 		if res != obj {
 			t.Errorf("Expected obj, got %v", res)
 		}
@@ -183,7 +183,7 @@ func TestMockKubernetesClient_PatchResource(t *testing.T) {
 
 	t.Run("FuncNotSet", func(t *testing.T) {
 		client := setup(t)
-		res, err := client.PatchResource(gvr, ns, name, pt, data, opts)
+		res, err := client.PatchResource(context.Background(), gvr, ns, name, pt, data, opts)
 		if res != nil {
 			t.Errorf("Expected nil, got %v", res)
 		}
@@ -227,3 +227,4 @@ func TestMockKubernetesClient_CheckHealth(t *testing.T) {
 		}
 	})
 }
+

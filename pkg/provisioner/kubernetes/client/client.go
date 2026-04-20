@@ -40,7 +40,7 @@ type KubernetesClient interface {
 	ListResources(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
 	ApplyResource(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResource(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
-	PatchResource(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
+	PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealth(ctx context.Context, endpoint string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 }
@@ -108,12 +108,16 @@ func (c *DynamicKubernetesClient) DeleteResource(gvr schema.GroupVersionResource
 	return c.client.Resource(gvr).Namespace(namespace).Delete(ctx, name, opts)
 }
 
-// PatchResource patches a resource
-func (c *DynamicKubernetesClient) PatchResource(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+// PatchResource patches a resource. The caller-supplied ctx is honoured so
+// parent cancellation (e.g. Ctrl+C propagated through cmd.Context()) and short
+// caller-defined deadlines (e.g. Notify's 10s notifyTimeout) actually preempt
+// in-flight requests. A requestTimeout is layered on top as an upper bound so
+// callers that pass context.Background() still get the pre-existing 30s cap.
+func (c *DynamicKubernetesClient) PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 	if err := c.ensureClient(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	return c.client.Resource(gvr).Namespace(namespace).Patch(ctx, name, pt, data, opts)
 }

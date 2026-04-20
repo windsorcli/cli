@@ -58,9 +58,15 @@ const DefaultWorkerCPU = 4
 
 const DefaultWorkerMemory = 8
 
-const DefaultFluxSystemNamespace = "system-gitops"
+const DefaultGitopsNamespace = "system-gitops"
 
 const DefaultFluxKustomizationInterval = 1 * time.Minute
+
+// DefaultFluxKustomizationIntervalPush is the reconciliation interval for
+// Kustomizations when gitops.mode is "push". It is intentionally long because
+// Windsor annotates sources on every install/apply to trigger reconcile; flux's
+// own poll becomes a fallback rather than the primary path.
+const DefaultFluxKustomizationIntervalPush = 1 * time.Hour
 
 const DefaultFluxKustomizationPrune = true
 
@@ -73,6 +79,55 @@ const DefaultFluxKustomizationForce = false
 const DefaultFluxKustomizationTimeout = 5 * time.Minute
 
 const DefaultFluxSourceInterval = 1 * time.Minute
+
+// DefaultFluxSourceIntervalPush is the reconciliation interval for flux Sources
+// (GitRepository / OCIRepository) when gitops.mode is "push". Matches the
+// Kustomization push interval so the two layers stay in step.
+const DefaultFluxSourceIntervalPush = 1 * time.Hour
+
+// GitopsMode controls whether Windsor or flux drives reconciliation cadence.
+// In "pull" mode (default) flux polls sources on short intervals so changes
+// propagate without CLI involvement. In "push" mode Windsor triggers reconcile
+// via annotation during install/apply, so polling becomes a long-interval
+// fallback rather than the primary path. Unknown and empty values resolve to
+// "pull" via ParseGitopsMode so an unset config key keeps today's behaviour.
+type GitopsMode string
+
+const (
+	GitopsModePull GitopsMode = "pull"
+	GitopsModePush GitopsMode = "push"
+)
+
+// ParseGitopsMode resolves a config string to a GitopsMode, defaulting to
+// "pull" for empty or unrecognised values. Keeps the config surface forgiving
+// so typos fall back to safe behaviour rather than refusing to apply.
+func ParseGitopsMode(s string) GitopsMode {
+	if GitopsMode(s) == GitopsModePush {
+		return GitopsModePush
+	}
+	return GitopsModePull
+}
+
+// FluxKustomizationInterval returns the default reconciliation interval for
+// Kustomizations under the given mode. Blueprint-level Interval overrides take
+// precedence over both defaults; this only affects Kustomizations that leave
+// Interval unset.
+func FluxKustomizationInterval(mode GitopsMode) time.Duration {
+	if mode == GitopsModePush {
+		return DefaultFluxKustomizationIntervalPush
+	}
+	return DefaultFluxKustomizationInterval
+}
+
+// FluxSourceInterval returns the default reconciliation interval for flux
+// Sources (GitRepository / OCIRepository) under the given mode. As with
+// FluxKustomizationInterval, blueprint-level overrides win when present.
+func FluxSourceInterval(mode GitopsMode) time.Duration {
+	if mode == GitopsModePush {
+		return DefaultFluxSourceIntervalPush
+	}
+	return DefaultFluxSourceInterval
+}
 
 const DefaultFluxSourceTimeout = 2 * time.Minute
 
