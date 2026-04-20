@@ -14,6 +14,7 @@ import (
 	meta "github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -278,7 +279,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 			return &unstructured.Unstructured{}, nil
 		}
 		patchCalled := false
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			patchCalled = true
 			return nil, nil
 		}
@@ -308,7 +309,7 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
 			return &unstructured.Unstructured{}, nil
 		}
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("patch failed")
 		}
 		manager.client = kubernetesClient
@@ -1496,7 +1497,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			expectedPatch := []byte(`{"spec":{"suspend":true}}`)
 			if !bytes.Equal(data, expectedPatch) {
 				t.Errorf("Expected patch %s, got %s", expectedPatch, data)
@@ -1514,7 +1515,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 	t.Run("PatchError", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("patch error")
 		}
 		manager.client = kubernetesClient
@@ -1531,7 +1532,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 	t.Run("ResourceNotFound", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("resource not found")
 		}
 		manager.client = kubernetesClient
@@ -1548,7 +1549,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 	t.Run("PatchResourceError", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("namespace not found")
 		}
 		manager.client = kubernetesClient
@@ -1565,7 +1566,7 @@ func TestBaseKubernetesManager_SuspendKustomization(t *testing.T) {
 	t.Run("ServerCouldNotFindResource", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
 		manager.client = kubernetesClient
@@ -1591,7 +1592,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			expectedPatch := []byte(`{"spec":{"suspend":true}}`)
 			if !bytes.Equal(data, expectedPatch) {
 				t.Errorf("Expected patch %s, got %s", expectedPatch, data)
@@ -1609,7 +1610,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 	t.Run("PatchError", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("patch error")
 		}
 		manager.client = kubernetesClient
@@ -1626,7 +1627,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 	t.Run("ResourceNotFound", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("resource not found")
 		}
 		manager.client = kubernetesClient
@@ -1643,7 +1644,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 	t.Run("PatchResourceError", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("namespace not found")
 		}
 		manager.client = kubernetesClient
@@ -1660,7 +1661,7 @@ func TestBaseKubernetesManager_SuspendHelmRelease(t *testing.T) {
 	t.Run("ServerCouldNotFindResource", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("the server could not find the requested resource")
 		}
 		manager.client = kubernetesClient
@@ -4836,7 +4837,7 @@ func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var suspendedNames []string
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			suspendedNames = append(suspendedNames, name)
 			return &unstructured.Unstructured{}, nil
 		}
@@ -4858,7 +4859,7 @@ func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			if name == "nonexistent" {
 				return nil, fmt.Errorf("the server could not find the requested resource")
 			}
@@ -4876,7 +4877,7 @@ func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			if name == "fail-1" || name == "fail-2" {
 				return nil, fmt.Errorf("patch error for %s", name)
 			}
@@ -4895,7 +4896,7 @@ func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var patchCalled bool
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			patchCalled = true
 			return &unstructured.Unstructured{}, nil
 		}
@@ -4915,7 +4916,7 @@ func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var suspendedName string
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			suspendedName = name
 			return &unstructured.Unstructured{}, nil
 		}
@@ -4935,7 +4936,7 @@ func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var usedNamespace string
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			usedNamespace = namespace
 			return &unstructured.Unstructured{}, nil
 		}
@@ -4951,7 +4952,7 @@ func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			expectedPatch := []byte(`{"spec":{"suspend":true}}`)
 			if !bytes.Equal(data, expectedPatch) {
 				t.Errorf("Expected patch %s, got %s", expectedPatch, data)
@@ -4971,7 +4972,7 @@ func TestBaseKubernetesManager_suspendKustomizations(t *testing.T) {
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var suspendedNames []string
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			suspendedNames = append(suspendedNames, name)
 			if name == "kust-2" {
 				return nil, fmt.Errorf("patch error")
@@ -5006,7 +5007,7 @@ func TestBaseKubernetesManager_DeleteBlueprint_SuspendIntegration(t *testing.T) 
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var operations []string
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			operations = append(operations, "suspend:"+name)
 			return &unstructured.Unstructured{}, nil
 		}
@@ -5064,7 +5065,7 @@ func TestBaseKubernetesManager_DeleteBlueprint_SuspendIntegration(t *testing.T) 
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
 
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return nil, fmt.Errorf("suspend error")
 		}
 
@@ -5100,7 +5101,7 @@ func TestBaseKubernetesManager_DeleteBlueprint_SuspendIntegration(t *testing.T) 
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var patchCalled bool
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			patchCalled = true
 			return &unstructured.Unstructured{}, nil
 		}
@@ -5125,7 +5126,7 @@ func TestBaseKubernetesManager_DeleteBlueprint_SuspendIntegration(t *testing.T) 
 		kubernetesClient := client.NewMockKubernetesClient()
 
 		var suspendOrder []string
-		kubernetesClient.PatchResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			suspendOrder = append(suspendOrder, name)
 			return &unstructured.Unstructured{}, nil
 		}
@@ -6086,6 +6087,84 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		}
 		if contextIDLabel != "test-context-id" {
 			t.Errorf("Expected 'windsorcli.dev/context-id' label to be 'test-context-id', got '%s'", contextIDLabel)
+		}
+	})
+
+	t.Run("PushModeWritesLongIntervalsOnSourceAndKustomization", func(t *testing.T) {
+		// Given an ApplyBlueprint run with gitops.mode=push
+		mocks := setupKubernetesMocks(t)
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "id":
+				return "test-context-id"
+			case "gitops.mode":
+				return "push"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.shims = mocks.Shims
+		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		}
+		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
+		}
+
+		var appliedRepo *sourcev1.GitRepository
+		var appliedKust *kustomizev1.Kustomization
+		kc := client.NewMockKubernetesClient()
+		kc.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			switch gvr.Resource {
+			case "gitrepositories":
+				var repo sourcev1.GitRepository
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+					appliedRepo = &repo
+				}
+			case "kustomizations":
+				var k kustomizev1.Kustomization
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &k); err == nil {
+					appliedKust = &k
+				}
+			}
+			return obj, nil
+		}
+		kc.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kc
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "test-source", Url: "https://github.com/example/repo.git", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "test-kustomization"},
+			},
+		}
+
+		// When the blueprint is applied
+		if err := manager.ApplyBlueprint(blueprint, "test-namespace"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then both source and kustomization carry the push-mode long interval,
+		// matching the expectation that Windsor's annotation is the primary trigger
+		if appliedRepo == nil {
+			t.Fatal("Expected GitRepository to be applied")
+		}
+		if appliedRepo.Spec.Interval.Duration != constants.DefaultFluxSourceIntervalPush {
+			t.Errorf("Expected GitRepository interval %v in push mode, got %v", constants.DefaultFluxSourceIntervalPush, appliedRepo.Spec.Interval.Duration)
+		}
+		if appliedKust == nil {
+			t.Fatal("Expected Kustomization to be applied")
+		}
+		if appliedKust.Spec.Interval.Duration != constants.DefaultFluxKustomizationIntervalPush {
+			t.Errorf("Expected Kustomization interval %v in push mode, got %v", constants.DefaultFluxKustomizationIntervalPush, appliedKust.Spec.Interval.Duration)
 		}
 	})
 }

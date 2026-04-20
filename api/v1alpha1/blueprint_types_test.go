@@ -2230,7 +2230,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Name != "test-kustomization" {
 			t.Errorf("Expected name 'test-kustomization', got '%s'", result.Name)
@@ -2296,7 +2296,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.SourceRef.Name != "custom-source" {
 			t.Errorf("Expected source name 'custom-source', got '%s'", result.Spec.SourceRef.Name)
@@ -2349,7 +2349,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.PostBuild == nil {
 			t.Fatal("Expected PostBuild to be set when there are substitutions")
@@ -2368,7 +2368,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Path: "test/path",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		// PostBuild should not be set when there are no substitutions
 		if result.Spec.PostBuild != nil {
@@ -2390,7 +2390,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources, constants.GitopsModePull)
 
 		if result.Spec.SourceRef.Kind != "OCIRepository" {
 			t.Errorf("Expected source kind 'OCIRepository', got '%s'", result.Spec.SourceRef.Kind)
@@ -2414,7 +2414,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources, constants.GitopsModePull)
 
 		if result.Spec.SourceRef.Kind != "GitRepository" {
 			t.Errorf("Expected source kind 'GitRepository', got '%s'", result.Spec.SourceRef.Kind)
@@ -2430,7 +2430,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Path: "",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.Path != "kustomize" {
 			t.Errorf("Expected path 'kustomize', got '%s'", result.Spec.Path)
@@ -2443,7 +2443,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Path: "test\\path\\with\\backslashes",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.Path != "kustomize/test/path/with/backslashes" {
 			t.Errorf("Expected path with forward slashes, got '%s'", result.Spec.Path)
@@ -2458,7 +2458,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Destroy: boolExprPtr(destroy),
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.DeletionPolicy != "WaitForTermination" {
 			t.Errorf("Expected deletion policy 'WaitForTermination', got '%s'", result.Spec.DeletionPolicy)
@@ -2473,7 +2473,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Destroy: boolExprPtr(destroy),
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.DeletionPolicy != "MirrorPrune" {
 			t.Errorf("Expected deletion policy 'MirrorPrune', got '%s'", result.Spec.DeletionPolicy)
@@ -2487,7 +2487,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Destroy: nil,
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.DeletionPolicy != "WaitForTermination" {
 			t.Errorf("Expected deletion policy 'WaitForTermination' when Destroy is nil, got '%s'", result.Spec.DeletionPolicy)
@@ -2501,7 +2501,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Source: "",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.SourceRef.Name != "default-source" {
 			t.Errorf("Expected source name 'default-source', got '%s'", result.Spec.SourceRef.Name)
@@ -2516,7 +2516,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 		sources := []Source{{Name: "template", Url: ""}}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources, constants.GitopsModePull)
 
 		if result.Spec.SourceRef.Name != "default-source" {
 			t.Errorf("Expected source name 'default-source' when template is local, got '%s'", result.Spec.SourceRef.Name)
@@ -2531,7 +2531,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 		sources := []Source{{Name: "template", Url: "https://github.com/example/template.git"}}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources)
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", sources, constants.GitopsModePull)
 
 		if result.Spec.SourceRef.Name != "template" {
 			t.Errorf("Expected source name 'template' when template is remote, got '%s'", result.Spec.SourceRef.Name)
@@ -2546,7 +2546,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Interval: &zeroInterval,
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
 			t.Errorf("Expected default interval, got %v", result.Spec.Interval.Duration)
@@ -2564,7 +2564,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if len(result.Spec.Patches) != 1 {
 			t.Fatalf("Expected 1 patch, got %d", len(result.Spec.Patches))
@@ -2588,7 +2588,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			},
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if len(result.Spec.Patches) != 0 {
 			t.Errorf("Expected 0 patches (empty patch ignored), got %d", len(result.Spec.Patches))
@@ -2601,7 +2601,7 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 			Path: "test/path",
 		}
 
-		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{})
+		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
 		if result.Kind != "Kustomization" {
 			t.Errorf("Expected Kind 'Kustomization', got '%s'", result.Kind)
@@ -2614,6 +2614,34 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 		if result.Namespace != "test-namespace" {
 			t.Errorf("Expected Namespace 'test-namespace', got '%s'", result.Namespace)
+		}
+	})
+
+	t.Run("PushModeUsesLongDefaultInterval", func(t *testing.T) {
+		// Given a kustomization with no explicit Interval (leans on the default)
+		kustomization := &Kustomization{Name: "k", Path: "p"}
+
+		// When converted under push mode
+		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
+
+		// Then the rendered Interval matches the push-mode default so flux polls
+		// on a long cadence and Windsor's annotation is the primary trigger
+		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationIntervalPush {
+			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxKustomizationIntervalPush, result.Spec.Interval.Duration)
+		}
+	})
+
+	t.Run("BlueprintIntervalOverrideBeatsPushDefault", func(t *testing.T) {
+		// Given a kustomization that explicitly sets a short Interval
+		override := DurationString{Duration: 2 * time.Minute}
+		kustomization := &Kustomization{Name: "k", Path: "p", Interval: &override}
+
+		// When converted under push mode
+		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
+
+		// Then the user's explicit Interval wins over the push-mode default
+		if result.Spec.Interval.Duration != override.Duration {
+			t.Errorf("Expected explicit interval %v to override push default, got %v", override.Duration, result.Spec.Interval.Duration)
 		}
 	})
 }

@@ -11,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/rest"
 )
 
 // =============================================================================
@@ -24,10 +23,9 @@ type MockKubernetesClient struct {
 	ListResourcesFunc      func(gvr schema.GroupVersionResource, namespace string) (*unstructured.UnstructuredList, error)
 	ApplyResourceFunc      func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error)
 	DeleteResourceFunc     func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error
-	PatchResourceFunc      func(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
+	PatchResourceFunc      func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error)
 	CheckHealthFunc        func(ctx context.Context, endpoint string) error
 	GetNodeReadyStatusFunc func(ctx context.Context, nodeNames []string) (map[string]bool, error)
-	RESTConfigFunc         func() (*rest.Config, error)
 }
 
 // =============================================================================
@@ -76,9 +74,9 @@ func (m *MockKubernetesClient) DeleteResource(gvr schema.GroupVersionResource, n
 }
 
 // PatchResource implements KubernetesClient interface
-func (m *MockKubernetesClient) PatchResource(gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+func (m *MockKubernetesClient) PatchResource(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
 	if m.PatchResourceFunc != nil {
-		return m.PatchResourceFunc(gvr, namespace, name, pt, data, opts)
+		return m.PatchResourceFunc(ctx, gvr, namespace, name, pt, data, opts)
 	}
 	return nil, nil
 }
@@ -97,12 +95,4 @@ func (m *MockKubernetesClient) GetNodeReadyStatus(ctx context.Context, nodeNames
 		return m.GetNodeReadyStatusFunc(ctx, nodeNames)
 	}
 	return make(map[string]bool), nil
-}
-
-// RESTConfig implements KubernetesClient interface
-func (m *MockKubernetesClient) RESTConfig() (*rest.Config, error) {
-	if m.RESTConfigFunc != nil {
-		return m.RESTConfigFunc()
-	}
-	return &rest.Config{}, nil
 }

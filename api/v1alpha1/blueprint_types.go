@@ -897,10 +897,14 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 // ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
 // It takes the namespace for the kustomization, the default source name to use if no source is specified,
 // and the list of sources to determine the source kind (GitRepository or OCIRepository).
+// The mode parameter selects the default Interval: pull mode uses the short
+// poll-friendly default; push mode uses a long fallback interval on the
+// assumption that Windsor triggers reconciliation via annotation. Blueprint-
+// level Interval overrides still win over both mode defaults.
 // An optional configMaps argument (blueprint-level ConfigMaps such as values-common) is added to
 // postBuild.substituteFrom so they are available to all kustomizations, matching what the provisioner applies.
 // PostBuild is constructed based on the kustomization's Substitutions field.
-func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source, configMaps ...map[string]map[string]string) kustomizev1.Kustomization {
+func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source, mode constants.GitopsMode, configMaps ...map[string]map[string]string) kustomizev1.Kustomization {
 	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
 	for idx, dep := range k.DependsOn {
 		dependsOn[idx] = kustomizev1.DependencyReference{
@@ -935,7 +939,7 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		}
 	}
 
-	interval := metav1.Duration{Duration: constants.DefaultFluxKustomizationInterval}
+	interval := metav1.Duration{Duration: constants.FluxKustomizationInterval(mode)}
 	if k.Interval != nil && k.Interval.Duration != 0 {
 		interval = metav1.Duration{Duration: k.Interval.Duration}
 	}

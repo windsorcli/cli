@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/rest"
 )
 
 // =============================================================================
@@ -170,10 +169,10 @@ func TestMockKubernetesClient_PatchResource(t *testing.T) {
 	t.Run("FuncSet", func(t *testing.T) {
 		client := setup(t)
 		errVal := fmt.Errorf("err")
-		client.PatchResourceFunc = func(g schema.GroupVersionResource, n, nm string, p types.PatchType, d []byte, o metav1.PatchOptions) (*unstructured.Unstructured, error) {
+		client.PatchResourceFunc = func(c context.Context, g schema.GroupVersionResource, n, nm string, p types.PatchType, d []byte, o metav1.PatchOptions) (*unstructured.Unstructured, error) {
 			return obj, errVal
 		}
-		res, err := client.PatchResource(gvr, ns, name, pt, data, opts)
+		res, err := client.PatchResource(context.Background(), gvr, ns, name, pt, data, opts)
 		if res != obj {
 			t.Errorf("Expected obj, got %v", res)
 		}
@@ -184,7 +183,7 @@ func TestMockKubernetesClient_PatchResource(t *testing.T) {
 
 	t.Run("FuncNotSet", func(t *testing.T) {
 		client := setup(t)
-		res, err := client.PatchResource(gvr, ns, name, pt, data, opts)
+		res, err := client.PatchResource(context.Background(), gvr, ns, name, pt, data, opts)
 		if res != nil {
 			t.Errorf("Expected nil, got %v", res)
 		}
@@ -229,36 +228,3 @@ func TestMockKubernetesClient_CheckHealth(t *testing.T) {
 	})
 }
 
-func TestMockKubernetesClient_RESTConfig(t *testing.T) {
-	setup := func(t *testing.T) *MockKubernetesClient {
-		t.Helper()
-		return NewMockKubernetesClient()
-	}
-
-	t.Run("FuncSet", func(t *testing.T) {
-		client := setup(t)
-		expected := &rest.Config{Host: "https://example.com:6443"}
-		errVal := fmt.Errorf("config error")
-		client.RESTConfigFunc = func() (*rest.Config, error) {
-			return expected, errVal
-		}
-		cfg, err := client.RESTConfig()
-		if cfg != expected {
-			t.Errorf("Expected %v, got %v", expected, cfg)
-		}
-		if err != errVal {
-			t.Errorf("Expected err, got %v", err)
-		}
-	})
-
-	t.Run("FuncNotSet", func(t *testing.T) {
-		client := setup(t)
-		cfg, err := client.RESTConfig()
-		if err != nil {
-			t.Errorf("Expected nil err, got %v", err)
-		}
-		if cfg == nil {
-			t.Error("Expected non-nil default *rest.Config")
-		}
-	})
-}
