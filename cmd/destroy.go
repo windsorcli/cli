@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -220,9 +221,11 @@ func migrateStateToLocal(proj *project.Project, blueprint *blueprintv1alpha1.Blu
 		return nil, fmt.Errorf("failed to override backend for destroy: %w", err)
 	}
 	restore := func() {
-		_ = ch.Set("terraform.backend.type", originalBackend)
+		if err := ch.Set("terraform.backend.type", originalBackend); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after destroy: %v\n", originalBackend, err)
+		}
 	}
-	if err := proj.Provisioner.MigrateState(blueprint); err != nil {
+	if _, err := proj.Provisioner.MigrateState(blueprint); err != nil {
 		restore()
 		return nil, fmt.Errorf("failed to migrate state to local before destroy: %w", err)
 	}

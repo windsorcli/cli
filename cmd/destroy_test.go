@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -588,9 +589,9 @@ func TestDestroyTerraformCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.MigrateStateFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+		mocks.TerraformStack.MigrateStateFunc = func(bp *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate")
-			return nil
+			return nil, nil
 		}
 		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
 			ops = append(ops, "destroy")
@@ -643,9 +644,9 @@ func TestDestroyTerraformCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.MigrateStateFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+		mocks.TerraformStack.MigrateStateFunc = func(bp *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate-fail")
-			return fmt.Errorf("remote backend unreachable")
+			return nil, fmt.Errorf("remote backend unreachable")
 		}
 		destroyCalled := false
 		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
@@ -678,6 +679,63 @@ func TestDestroyTerraformCmd(t *testing.T) {
 			if ops[i] != want {
 				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
 			}
+		}
+	})
+
+	t.Run("RestoreFailureEmitsStderrWarning", func(t *testing.T) {
+		// Given the restore path's ch.Set fails (rare but possible), the error used
+		// to be silently discarded — leaving the in-memory backend type stuck on
+		// "local" for any code that ran after destroy in the same process. Destroy
+		// itself has already succeeded, so we don't want to fail the command, but
+		// the problem must be observable on stderr rather than invisible.
+		mocks := setupDestroyTest(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" && value == "s3" {
+				return fmt.Errorf("mock restore failure")
+			}
+			return nil
+		}
+
+		// Capture stderr so we can assert on the warning text.
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
+		proj := newDestroyProject(mocks)
+		cmd := createTestDestroyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		execErr := cmd.Execute()
+
+		// Flush the write side so the pipe reader can finish.
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
+		// Destroy itself should still succeed — the restore failure is post-destroy.
+		if execErr != nil {
+			t.Fatalf("Expected destroy to succeed despite restore failure, got %v", execErr)
+		}
+		if !strings.Contains(stderrOutput, "failed to restore terraform.backend.type") {
+			t.Errorf("Expected stderr warning about restore failure, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "mock restore failure") {
+			t.Errorf("Expected stderr warning to include underlying cause, got: %q", stderrOutput)
 		}
 	})
 }
