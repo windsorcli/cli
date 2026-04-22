@@ -563,6 +563,123 @@ func TestDestroyTerraformCmd(t *testing.T) {
 			t.Errorf("Expected destroy error, got: %v", err)
 		}
 	})
+
+	t.Run("MigratesStateToLocalBeforeDestroyAll", func(t *testing.T) {
+		// Given a context configured for a remote backend (e.g. S3). Before tearing
+		// anything down the destroy flow must pull state back to local — otherwise
+		// destroying backend/s3 itself would try to delete the bucket while its own
+		// state file still lives inside it.
+		mocks := setupDestroyTest(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		var ops []string
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				ops = append(ops, fmt.Sprintf("set:%v", value))
+			}
+			return nil
+		}
+		mocks.TerraformStack.MigrateStateFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			ops = append(ops, "migrate")
+			return nil
+		}
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			ops = append(ops, "destroy")
+			return nil
+		}
+
+		proj := newDestroyProject(mocks)
+		cmd := createTestDestroyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the sequence must be: override backend to local, migrate state to
+		// local, run destroy, restore the originally configured backend.
+		expected := []string{"set:local", "migrate", "destroy", "set:s3"}
+		if len(ops) != len(expected) {
+			t.Fatalf("Expected %d ops %v, got %d %v", len(expected), expected, len(ops), ops)
+		}
+		for i, want := range expected {
+			if ops[i] != want {
+				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
+			}
+		}
+	})
+
+	t.Run("MigrationFailureAbortsDestroyAndRestoresBackend", func(t *testing.T) {
+		// Given pre-destroy state migration fails (e.g. remote backend unreachable),
+		// the destroy pass must not run — otherwise we'd attempt teardown against an
+		// inconsistent or empty local state. The originally configured backend must
+		// still be restored so subsequent windsor invocations see the real config.
+		mocks := setupDestroyTest(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		var ops []string
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				ops = append(ops, fmt.Sprintf("set:%v", value))
+			}
+			return nil
+		}
+		mocks.TerraformStack.MigrateStateFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			ops = append(ops, "migrate-fail")
+			return fmt.Errorf("remote backend unreachable")
+		}
+		destroyCalled := false
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error {
+			destroyCalled = true
+			return nil
+		}
+
+		proj := newDestroyProject(mocks)
+		cmd := createTestDestroyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected migration error to surface, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to migrate state to local before destroy") {
+			t.Errorf("Expected migration wrapper error, got %v", err)
+		}
+		if destroyCalled {
+			t.Error("Destroy must not run after migration failure")
+		}
+		// Backend override must be restored on the failure path.
+		expected := []string{"set:local", "migrate-fail", "set:s3"}
+		if len(ops) != len(expected) {
+			t.Fatalf("Expected %d ops %v, got %d %v", len(expected), expected, len(ops), ops)
+		}
+		for i, want := range expected {
+			if ops[i] != want {
+				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
+			}
+		}
+	})
 }
 
 func TestDestroyKustomizeCmd(t *testing.T) {

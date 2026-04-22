@@ -7,38 +7,15 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/project"
 )
 
+// =============================================================================
+// Destroy Commands
+// =============================================================================
+
 var destroyConfirm string
-
-// confirmDestroy prompts the user to type confirmValue to proceed with a destructive operation.
-// It prints a description of what will be destroyed and the expected confirmation token.
-// Returns nil if the user types the correct value, or an error if input does not match or cannot be read.
-func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) error {
-	fmt.Fprintf(w, "%s\n", description)
-	fmt.Fprintf(w, "Type %q to confirm: ", confirmValue)
-	scanner := bufio.NewScanner(r)
-	if !scanner.Scan() {
-		return fmt.Errorf("confirmation aborted")
-	}
-	if strings.TrimSpace(scanner.Text()) != confirmValue {
-		return fmt.Errorf("confirmation failed: input did not match %q", confirmValue)
-	}
-	return nil
-}
-
-// resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
-// match expected exactly; otherwise the user is prompted interactively. This mirrors the prompt
-// in both directions so scripted callers cannot accidentally destroy the wrong target.
-func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected string) error {
-	if destroyConfirm != "" {
-		if destroyConfirm != expected {
-			return fmt.Errorf("confirmation failed: --confirm did not match %q", expected)
-		}
-		return nil
-	}
-	return confirmDestroy(r, w, description, expected)
-}
 
 var destroyCmd = &cobra.Command{
 	Use:   "destroy [component]",
@@ -63,6 +40,11 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
+			restore, err := migrateStateToLocal(proj, blueprint)
+			if err != nil {
+				return err
+			}
+			defer restore()
 			if err := proj.Provisioner.DestroyAll(blueprint); err != nil {
 				return fmt.Errorf("error destroying all components: %w", err)
 			}
@@ -88,6 +70,11 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			}
 		}
 		if inTerraform {
+			restore, err := migrateStateToLocal(proj, blueprint)
+			if err != nil {
+				return err
+			}
+			defer restore()
 			if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
 				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 			}
@@ -118,6 +105,11 @@ var destroyTerraformCmd = &cobra.Command{
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
+			restore, err := migrateStateToLocal(proj, blueprint)
+			if err != nil {
+				return err
+			}
+			defer restore()
 			if err := proj.Provisioner.DestroyAllTerraform(blueprint); err != nil {
 				return fmt.Errorf("error destroying all terraform: %w", err)
 			}
@@ -129,6 +121,11 @@ var destroyTerraformCmd = &cobra.Command{
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
 			return err
 		}
+		restore, err := migrateStateToLocal(proj, blueprint)
+		if err != nil {
+			return err
+		}
+		defer restore()
 		if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
 			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 		}
@@ -173,6 +170,63 @@ var destroyKustomizeCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// confirmDestroy prompts the user to type confirmValue to proceed with a destructive operation.
+// It prints a description of what will be destroyed and the expected confirmation token.
+// Returns nil if the user types the correct value, or an error if input does not match or cannot be read.
+func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) error {
+	fmt.Fprintf(w, "%s\n", description)
+	fmt.Fprintf(w, "Type %q to confirm: ", confirmValue)
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		return fmt.Errorf("confirmation aborted")
+	}
+	if strings.TrimSpace(scanner.Text()) != confirmValue {
+		return fmt.Errorf("confirmation failed: input did not match %q", confirmValue)
+	}
+	return nil
+}
+
+// resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
+// match expected exactly; otherwise the user is prompted interactively. This mirrors the prompt
+// in both directions so scripted callers cannot accidentally destroy the wrong target.
+func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected string) error {
+	if destroyConfirm != "" {
+		if destroyConfirm != expected {
+			return fmt.Errorf("confirmation failed: --confirm did not match %q", expected)
+		}
+		return nil
+	}
+	return confirmDestroy(r, w, description, expected)
+}
+
+// migrateStateToLocal overrides the configured terraform backend to "local" in-memory and runs
+// MigrateState so each component's state is pulled from its currently configured remote backend
+// into local files. The override must remain active through the subsequent destroy pass —
+// otherwise destroy would try to read state from the remote backend again, which may be about
+// to be torn down (for example, the S3 bucket that stores its own state). Returns a restore
+// function the caller must defer; it re-applies the originally configured backend type once
+// destruction completes. Components whose state is already local (or whose directories are not
+// materialized) are no-ops, so this is safe to call on every terraform-touching destroy path.
+func migrateStateToLocal(proj *project.Project, blueprint *blueprintv1alpha1.Blueprint) (func(), error) {
+	ch := proj.Runtime.ConfigHandler
+	originalBackend := ch.GetString("terraform.backend.type", "local")
+	if err := ch.Set("terraform.backend.type", "local"); err != nil {
+		return nil, fmt.Errorf("failed to override backend for destroy: %w", err)
+	}
+	restore := func() {
+		_ = ch.Set("terraform.backend.type", originalBackend)
+	}
+	if err := proj.Provisioner.MigrateState(blueprint); err != nil {
+		restore()
+		return nil, fmt.Errorf("failed to migrate state to local before destroy: %w", err)
+	}
+	return restore, nil
 }
 
 // init registers destroy subcommands and the --confirm flag. --confirm must exactly match the
