@@ -28,7 +28,7 @@ import (
 // Both the Stack struct and MockStack implement this interface.
 type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	MigrateState(blueprint *blueprintv1alpha1.Blueprint) error
+	MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -229,19 +229,26 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 // change (e.g. at the end of bootstrap, after the initial local-state applies, once the configured
 // remote backend exists and is reachable, or before destroy, after overriding the backend to
 // local in-memory so state is pulled back out of the remote backend for teardown). A component
-// whose state is already on the configured backend is a no-op. Components whose directories
-// have not been materialized on disk are skipped — they have no state to migrate and forcing
-// an error would block pre-destroy migration when the blueprint lists components that were
-// never applied. On the first failure MigrateState returns; any components not yet migrated
-// retain their existing state, so the call is safe to retry once the underlying issue is resolved.
-func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+// whose state is already on the configured backend is a no-op.
+//
+// Components whose directories are not materialized on disk are skipped — there is literally no
+// state to migrate — and their IDs are returned in the skipped slice so callers can decide what
+// to do about it. Bootstrap, which calls MigrateState only after a successful Up that itself
+// errors on missing dirs, should treat a non-empty skipped list as a hard error (state/config
+// would be left inconsistent). Pre-destroy migration should discard the list, because the
+// blueprint may legitimately list components that were never applied or were torn down
+// out-of-band. Returning the signal rather than branching internally keeps both contracts
+// visible at the call site. On the first terraform failure MigrateState returns; any components
+// not yet migrated retain their existing state, so the call is safe to retry once the
+// underlying issue is resolved.
+func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return nil, fmt.Errorf("blueprint not provided")
 	}
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return nil, fmt.Errorf("error getting current directory: %v", err)
 	}
 	defer func() {
 		_ = s.shims.Chdir(currentDir)
@@ -249,7 +256,7 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 
 	projectRoot := s.runtime.ProjectRoot
 	if projectRoot == "" {
-		return fmt.Errorf("error getting project root: project root is empty")
+		return nil, fmt.Errorf("error getting project root: project root is empty")
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
@@ -260,11 +267,13 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 		}
 	}()
 
+	var skipped []string
 	// Migration is a fast post-apply bookkeeping step per component; users don't need a
 	// spinner line for each one. A single top-level progress message covers the whole pass.
-	return tui.WithProgress("Migrating terraform state", func() error {
+	err = tui.WithProgress("Migrating terraform state", func() error {
 		for _, component := range components {
 			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+				skipped = append(skipped, component.GetID())
 				continue
 			}
 
@@ -287,6 +296,10 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return skipped, nil
 }
 
 // DestroyAll destroys all Terraform components in the stack in reverse dependency order.

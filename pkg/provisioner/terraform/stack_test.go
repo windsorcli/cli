@@ -549,7 +549,7 @@ func TestStack_MigrateState(t *testing.T) {
 
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
-		if err := stack.MigrateState(nil); err == nil {
+		if _, err := stack.MigrateState(nil); err == nil {
 			t.Fatal("Expected error for nil blueprint")
 		}
 	})
@@ -573,8 +573,12 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		if err := stack.MigrateState(blueprint); err != nil {
+		skipped, err := stack.MigrateState(blueprint)
+		if err != nil {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
+		}
+		if len(skipped) != 0 {
+			t.Errorf("Expected no skipped components when all dirs exist, got %v", skipped)
 		}
 
 		// Then terraform init -migrate-state fired once per component and no plan/apply ran.
@@ -604,7 +608,7 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		if err := stack.MigrateState(blueprint); err != nil {
+		if _, err := stack.MigrateState(blueprint); err != nil {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
 		}
 
@@ -625,7 +629,7 @@ func TestStack_MigrateState(t *testing.T) {
 			return "", nil
 		}
 
-		err := stack.MigrateState(blueprint)
+		_, err := stack.MigrateState(blueprint)
 		if err == nil {
 			t.Fatal("Expected MigrateState to return an error when init fails")
 		}
@@ -637,12 +641,14 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsComponentsWithMissingDirectories", func(t *testing.T) {
+	t.Run("SkipsComponentsWithMissingDirectoriesAndReportsThem", func(t *testing.T) {
 		// Given a stat shim that reports every component directory as missing — the
 		// blueprint may list components that were never applied (or were already
 		// torn down manually), and MigrateState is called before destroy precisely
-		// when some of that state may be absent. Erroring out here would block the
-		// whole destroy flow.
+		// when some of that state may be absent. The skipped components must be
+		// returned to the caller so bootstrap (which calls MigrateState after Up
+		// has materialized all dirs) can treat a non-empty skip as an anomaly,
+		// while pre-destroy migration can discard the list and proceed.
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
@@ -659,13 +665,18 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		if err := stack.MigrateState(blueprint); err != nil {
+		skipped, err := stack.MigrateState(blueprint)
+		if err != nil {
 			t.Fatalf("Expected no error when every component dir is missing, got %v", err)
 		}
 
-		// Then no terraform init was invoked — the missing components were skipped.
+		// Then no terraform init was invoked — the missing components were skipped —
+		// and both component IDs appear in the returned skip list.
 		if initsSeen != 0 {
 			t.Errorf("Expected 0 init invocations when all dirs are missing, got %d", initsSeen)
+		}
+		if len(skipped) != 2 {
+			t.Fatalf("Expected 2 skipped component IDs, got %d: %v", len(skipped), skipped)
 		}
 	})
 }
