@@ -11,12 +11,15 @@ properties:
       enabled:
         type: boolean
         description: Enable or disable AWS integration
-      aws_endpoint_url:
+      endpoint_url:
         type: string
         description: Custom endpoint URL for AWS services
-      aws_profile:
+      profile:
         type: string
         description: AWS CLI profile to use for authentication
+      region:
+        type: string
+        description: AWS region for API calls, exported to tools as AWS_REGION
       s3_hostname:
         type: string
         description: Custom hostname for the S3 service
