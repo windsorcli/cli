@@ -71,14 +71,14 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		if !os.IsNotExist(err) {
 			return nil, fmt.Errorf("error checking %s: %w", awsConfigPath, err)
 		}
-	} else if info != nil && info.Size() > 0 {
+	} else if info.Size() > 0 {
 		envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(awsConfigPath)
 	}
 	if info, err := e.shims.Stat(awsCredentialsPath); err != nil {
 		if !os.IsNotExist(err) {
 			return nil, fmt.Errorf("error checking %s: %w", awsCredentialsPath, err)
 		}
-	} else if info != nil && info.Size() > 0 {
+	} else if info.Size() > 0 {
 		envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(awsCredentialsPath)
 	}
 
