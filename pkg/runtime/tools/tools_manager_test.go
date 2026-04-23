@@ -478,6 +478,29 @@ contexts:
 		}
 	})
 
+	t.Run("AWSPlatformButAwsCliNotAvailable", func(t *testing.T) {
+		// When platform is aws and the aws CLI is not in PATH, Check must route through
+		// checkAWS and return a wrapped "aws check failed" error so operators see the
+		// platform-triggered requirement before bootstrap runs terraform.
+		configStr := `
+contexts:
+  test:
+    platform: aws
+`
+		_, toolsManager := setup(t, configStr)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "", exec.ErrNotFound
+			}
+			return originalExecLookPath(name)
+		}
+		err := toolsManager.Check()
+		if err == nil || !strings.Contains(err.Error(), "aws check failed") {
+			t.Errorf("Expected 'aws check failed' error, got: %v", err)
+		}
+	})
+
 	t.Run("MultipleToolFailures", func(t *testing.T) {
 		// Given multiple tools are enabled but fail checks
 		mocks, toolsManager := setup(t, defaultConfig)
@@ -1272,6 +1295,171 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Errorf("Expected checkKubelogin to succeed with all required env vars, but got error: %v", err)
+		}
+	})
+}
+
+func TestToolsManager_checkAWS(t *testing.T) {
+	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t)
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		return mocks, toolsManager
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given aws is available, meets version, and sts get-caller-identity resolves
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "/usr/bin/aws", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Darwin/24.1.0", constants.MinimumVersionAWS), nil
+			}
+			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
+				return `{"UserId":"AIDAXXX","Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/test"}`, nil
+			}
+			return "", fmt.Errorf("command not mocked: %s %v", command, args)
+		}
+		// When checking aws
+		err := toolsManager.checkAWS()
+		// Then no error should be returned
+		if err != nil {
+			t.Errorf("Expected checkAWS to succeed, got %v", err)
+		}
+	})
+
+	t.Run("AwsNotAvailable", func(t *testing.T) {
+		// Given aws is not in PATH
+		_, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "", exec.ErrNotFound
+			}
+			return originalExecLookPath(name)
+		}
+		// When checking aws
+		err := toolsManager.checkAWS()
+		// Then error mentions not in PATH and points to vendor install URL
+		if err == nil {
+			t.Fatal("Expected error when aws is not in PATH")
+		}
+		if !strings.Contains(err.Error(), "aws CLI is not available in the PATH") {
+			t.Errorf("Expected 'not available in the PATH' in error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html") {
+			t.Errorf("Expected vendor install URL in error, got: %v", err)
+		}
+	})
+
+	t.Run("VersionCommandFails", func(t *testing.T) {
+		// Given aws is in PATH but `aws --version` errors
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "/usr/bin/aws", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return "", fmt.Errorf("permission denied")
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When checking aws
+		err := toolsManager.checkAWS()
+		// Then the version-command error surfaces
+		if err == nil || !strings.Contains(err.Error(), "aws --version failed") {
+			t.Errorf("Expected 'aws --version failed' error, got: %v", err)
+		}
+	})
+
+	t.Run("VersionUnparseable", func(t *testing.T) {
+		// Given aws returns output without a parseable semver
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "/usr/bin/aws", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return "aws-cli banana", nil
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When checking aws
+		err := toolsManager.checkAWS()
+		// Then the extraction-failure error surfaces
+		if err == nil || !strings.Contains(err.Error(), "failed to extract aws CLI version") {
+			t.Errorf("Expected 'failed to extract aws CLI version' error, got: %v", err)
+		}
+	})
+
+	t.Run("VersionTooLow", func(t *testing.T) {
+		// Given aws reports a version below the minimum
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "/usr/bin/aws", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return "aws-cli/1.2.3 Python/3.11.8 Darwin/24.1.0", nil
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When checking aws
+		err := toolsManager.checkAWS()
+		// Then the version-too-low error surfaces
+		if err == nil || !strings.Contains(err.Error(), "below the minimum required version") {
+			t.Errorf("Expected version-too-low error, got: %v", err)
+		}
+	})
+
+	t.Run("StsCallerIdentityFails", func(t *testing.T) {
+		// Given aws is installed and new enough but credentials don't resolve
+		mocks, toolsManager := setup(t)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "/usr/bin/aws", nil
+			}
+			return originalExecLookPath(name)
+		}
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Darwin/24.1.0", constants.MinimumVersionAWS), nil
+			}
+			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
+				return "", fmt.Errorf("Unable to locate credentials")
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When checking aws
+		err := toolsManager.checkAWS()
+		// Then the credential-resolution error surfaces with an actionable hint
+		if err == nil {
+			t.Fatal("Expected error when sts get-caller-identity fails")
+		}
+		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
+			t.Errorf("Expected 'aws credentials did not resolve' in error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "aws configure") {
+			t.Errorf("Expected actionable 'aws configure' hint in error, got: %v", err)
 		}
 	})
 }

@@ -108,6 +108,18 @@ func (t *BaseToolsManager) Check() error {
 			return fmt.Errorf("kubelogin check failed: %v", err)
 		}
 	}
+
+	platform := t.configHandler.GetString("platform")
+	if platform == "" {
+		platform = t.configHandler.GetString("provider")
+	}
+	configData := t.configHandler.GetConfig()
+	hasAWSConfig := configData != nil && configData.AWS != nil
+	if platform == "aws" || hasAWSConfig {
+		if err := t.checkAWS(); err != nil {
+			return fmt.Errorf("aws check failed: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -361,6 +373,38 @@ func (t *BaseToolsManager) checkKubelogin() error {
 		}
 	}
 
+	return nil
+}
+
+// checkAWS ensures the AWS CLI is available in PATH, meets the minimum version, and that the
+// caller identity resolves via `aws sts get-caller-identity`. The identity call is a cheap
+// read-only STS API that forces the SDK to run its full credential-resolution chain (SSO
+// session, static keys, env vars, IMDS) end-to-end; a success proves the operator's AWS setup
+// will work when terraform/SDK calls run later, while a failure surfaces the vendor's own
+// message (expired SSO, profile not found, no credentials) at check time rather than minutes
+// into a `terraform apply`. Credential resolution is agnostic to how Windsor is scoping AWS:
+// inside a Windsor shell the SDK picks up the context-scoped AWS_CONFIG_FILE/AWS_PROFILE the
+// env injection exported, outside a Windsor shell it falls back to its own defaults.
+func (t *BaseToolsManager) checkAWS() error {
+	if _, err := execLookPath("aws"); err != nil {
+		return fmt.Errorf("aws CLI is not available in the PATH; install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
+	}
+
+	out, err := t.shell.ExecSilentWithTimeout("aws", []string{"--version"}, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("aws --version failed: %v", err)
+	}
+	version := extractVersion(out)
+	if version == "" {
+		return fmt.Errorf("failed to extract aws CLI version")
+	}
+	if compareVersion(version, constants.MinimumVersionAWS) < 0 {
+		return fmt.Errorf("aws CLI version %s is below the minimum required version %s", version, constants.MinimumVersionAWS)
+	}
+
+	if _, err := t.shell.ExecSilentWithTimeout("aws", []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
+		return fmt.Errorf("aws credentials did not resolve: %v; run 'aws configure' or 'aws configure sso' to set up your credentials.", err)
+	}
 	return nil
 }
 
