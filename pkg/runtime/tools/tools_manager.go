@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -36,6 +37,27 @@ type BaseToolsManager struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
 }
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// awsProfileNone, awsProfileSSO, and awsProfileKeys describe what (if anything) the
+// context-scoped .aws/config has for a given profile. awsProfileNone covers "file missing,
+// unreadable, or profile not present"; callers treat it as first-time setup.
+const (
+	awsProfileNone awsProfileState = iota
+	awsProfileSSO
+	awsProfileKeys
+)
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// awsProfileState classifies an entry in a context's .aws/config so CheckAuth can return a
+// hint tuned to the operator's actual state rather than generic advice.
+type awsProfileState int
 
 // =============================================================================
 // Constructor
@@ -411,7 +433,9 @@ func (t *BaseToolsManager) checkAWS() error {
 // SSO, profile not found, no credentials) at preflight time rather than minutes into a
 // `terraform apply`. CheckAuth must NOT be called from `windsor init` (which only scaffolds
 // files and has no obligation to be authed yet); it is intended for bootstrap/up/apply paths
-// where credentials are about to be exercised.
+// where credentials are about to be exercised. Error messages are tuned to the operator's
+// current state (missing config, expired SSO session, rejected static keys) so the returned
+// hint is a copy-pasteable command rather than generic advice.
 func (t *BaseToolsManager) CheckAuth() error {
 	platform := t.configHandler.GetString("platform")
 	if platform == "" {
@@ -421,10 +445,75 @@ func (t *BaseToolsManager) CheckAuth() error {
 	hasAWSConfig := configData != nil && configData.AWS != nil
 	if platform == "aws" || hasAWSConfig {
 		if _, err := t.shell.ExecSilentWithTimeout("aws", []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
-			return fmt.Errorf("aws credentials did not resolve: %v; run 'aws configure' or 'aws configure sso' to set up your credentials", err)
+			return fmt.Errorf("aws credentials did not resolve for context %q: %v\n%s", t.configHandler.GetContext(), err, t.awsAuthHint())
 		}
 	}
 	return nil
+}
+
+// awsAuthHint inspects the context-scoped AWS config file and returns an actionable next-step
+// message tuned to what it finds there. The three useful states are: no profile configured yet
+// (first-time setup — offer both SSO and access-key commands), an SSO profile whose token has
+// expired (point at `aws sso login`), and a static-keys profile that was rejected (point at
+// rotation). Anything unparseable or missing falls back to a generic hint so the error is still
+// useful even when the file is in an unexpected shape.
+func (t *BaseToolsManager) awsAuthHint() string {
+	ctx := t.configHandler.GetContext()
+	configRoot, err := t.configHandler.GetConfigRoot()
+	if err != nil || configRoot == "" {
+		return fmt.Sprintf("Run 'aws configure sso --profile %s' (SSO) or 'aws configure --profile %s' (access keys) to set up credentials.", ctx, ctx)
+	}
+	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
+	state := detectAWSProfileState(awsConfigPath, ctx)
+	switch state {
+	case awsProfileSSO:
+		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run: aws sso login --profile %s", ctx, ctx)
+	case awsProfileKeys:
+		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with: aws configure --profile %s", ctx, ctx)
+	default:
+		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  aws configure sso --profile %s   (SSO — recommended for teams)\n  aws configure --profile %s       (access keys)", ctx, ctx, ctx)
+	}
+}
+
+// detectAWSProfileState parses the AWS config INI at path and classifies the profile named
+// profileName. It looks for either [profile <name>] or [default] (when profileName is
+// "default"), then scans subsequent lines until the next section header for sso_session= or
+// aws_access_key_id=, returning the appropriate state. Absent file, parse errors, or an empty
+// matching section all resolve to awsProfileNone so the caller gets the first-time-setup hint
+// rather than a misleading refresh hint.
+func detectAWSProfileState(path, profileName string) awsProfileState {
+	data, err := osReadFile(path)
+	if err != nil {
+		return awsProfileNone
+	}
+	var wantedHeader string
+	if profileName == "default" {
+		wantedHeader = "[default]"
+	} else {
+		wantedHeader = "[profile " + profileName + "]"
+	}
+	inSection := false
+	for rawLine := range strings.SplitSeq(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			inSection = line == wantedHeader
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		key := strings.TrimSpace(strings.SplitN(line, "=", 2)[0])
+		switch key {
+		case "sso_session", "sso_start_url", "sso_account_id":
+			return awsProfileSSO
+		case "aws_access_key_id":
+			return awsProfileKeys
+		}
+	}
+	return awsProfileNone
 }
 
 // compareVersion is a helper function to compare two version strings.

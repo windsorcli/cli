@@ -1526,6 +1526,103 @@ contexts:
 	})
 }
 
+func Test_detectAWSProfileState(t *testing.T) {
+	withReadFile := func(t *testing.T, contents string, readErr error) {
+		t.Helper()
+		original := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			if readErr != nil {
+				return nil, readErr
+			}
+			return []byte(contents), nil
+		}
+		t.Cleanup(func() { osReadFile = original })
+	}
+
+	t.Run("NoFileReturnsNone", func(t *testing.T) {
+		withReadFile(t, "", os.ErrNotExist)
+		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileNone {
+			t.Errorf("expected awsProfileNone for missing file, got %v", got)
+		}
+	})
+
+	t.Run("ProfileWithSsoSessionReturnsSSO", func(t *testing.T) {
+		withReadFile(t, `
+[profile prod]
+sso_session = company
+sso_account_id = 123456789012
+sso_role_name = Admin
+region = us-east-1
+`, nil)
+		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
+			t.Errorf("expected awsProfileSSO, got %v", got)
+		}
+	})
+
+	t.Run("ProfileWithSsoStartUrlAloneReturnsSSO", func(t *testing.T) {
+		// Legacy SSO profile form (pre-IAM-Identity-Center-sessions) uses sso_start_url
+		// directly on the profile. detectAWSProfileState treats that as SSO too so expired
+		// tokens route to the sso-login hint.
+		withReadFile(t, `
+[profile prod]
+sso_start_url = https://example.awsapps.com/start
+sso_region = us-east-1
+sso_account_id = 123456789012
+`, nil)
+		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
+			t.Errorf("expected awsProfileSSO for legacy sso_start_url profile, got %v", got)
+		}
+	})
+
+	t.Run("ProfileWithAccessKeysReturnsKeys", func(t *testing.T) {
+		withReadFile(t, `
+[profile prod]
+aws_access_key_id = AKIATEST
+aws_secret_access_key = secret
+region = us-west-2
+`, nil)
+		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileKeys {
+			t.Errorf("expected awsProfileKeys, got %v", got)
+		}
+	})
+
+	t.Run("MissingProfileReturnsNone", func(t *testing.T) {
+		// Config file has sections for other profiles but nothing for `prod`.
+		withReadFile(t, `
+[profile dev]
+aws_access_key_id = AKIADEV
+`, nil)
+		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileNone {
+			t.Errorf("expected awsProfileNone when profile not present, got %v", got)
+		}
+	})
+
+	t.Run("DefaultProfileUsesDefaultHeader", func(t *testing.T) {
+		// [default] uses a different header form than [profile <name>]; detection must
+		// route to the bare header when the profile name is literally "default".
+		withReadFile(t, `
+[default]
+aws_access_key_id = AKIADEFAULT
+`, nil)
+		if got := detectAWSProfileState("/irrelevant", "default"); got != awsProfileKeys {
+			t.Errorf("expected awsProfileKeys for [default], got %v", got)
+		}
+	})
+
+	t.Run("CommentsAndBlankLinesIgnored", func(t *testing.T) {
+		withReadFile(t, `
+# header comment
+[profile prod]
+
+# inline comment
+sso_session = company
+`, nil)
+		if got := detectAWSProfileState("/irrelevant", "prod"); got != awsProfileSSO {
+			t.Errorf("expected awsProfileSSO with comments/blanks, got %v", got)
+		}
+	})
+}
+
 // =============================================================================
 // Test Helpers
 // =============================================================================
