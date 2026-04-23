@@ -2,8 +2,6 @@ package env
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -92,15 +90,6 @@ contexts:
 		t.Fatalf("Failed to set context: %v", err)
 	}
 
-	mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-		switch name {
-		case filepath.FromSlash("/mock/config/root/.aws/config"),
-			filepath.FromSlash("/mock/config/root/.aws/credentials"):
-			return mockFileInfo{name: filepath.Base(name), size: 1}, nil
-		}
-		return nil, os.ErrNotExist
-	}
-
 	return mocks
 }
 
@@ -144,69 +133,9 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("NonExistentConfigFileFallsThroughToSDKDefaults", func(t *testing.T) {
-		// Given an AWS env printer whose per-context .aws files don't exist
-		env, _ := setup()
-
-		env.shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
-
-		// Then AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE must not be emitted, so the
-		// SDK falls through to ~/.aws/config and picks up an existing SSO/profile setup.
-		// The configured overrides from the aws block are still emitted.
-		if err != nil {
-			t.Errorf("GetEnvVars returned an error: %v", err)
-		}
-
-		expected := map[string]string{
-			"AWS_PROFILE":      "default",
-			"AWS_REGION":       "us-west-2",
-			"AWS_ENDPOINT_URL": "https://aws.endpoint",
-			"S3_HOSTNAME":      "s3.amazonaws.com",
-			"MWAA_ENDPOINT":    "https://mwaa.endpoint",
-		}
-
-		if !reflect.DeepEqual(envVars, expected) {
-			t.Errorf("GetEnvVars returned %v, want %v", envVars, expected)
-		}
-	})
-
-	t.Run("EmptyConfigFileFallsThroughToSDKDefaults", func(t *testing.T) {
-		// Given a per-context .aws/config that exists but is empty (leftover from init)
-		env, _ := setup()
-
-		env.shims.Stat = func(name string) (os.FileInfo, error) {
-			switch name {
-			case filepath.FromSlash("/mock/config/root/.aws/config"),
-				filepath.FromSlash("/mock/config/root/.aws/credentials"):
-				return mockFileInfo{name: filepath.Base(name), size: 0}, nil
-			}
-			return nil, os.ErrNotExist
-		}
-
-		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
-
-		// Then AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE must not be emitted,
-		// since the empty file would point AWS CLIs at nothing and break default resolution.
-		if err != nil {
-			t.Errorf("GetEnvVars returned an error: %v", err)
-		}
-
-		if _, ok := envVars["AWS_CONFIG_FILE"]; ok {
-			t.Errorf("Expected AWS_CONFIG_FILE to be omitted for empty file, got %q", envVars["AWS_CONFIG_FILE"])
-		}
-		if _, ok := envVars["AWS_SHARED_CREDENTIALS_FILE"]; ok {
-			t.Errorf("Expected AWS_SHARED_CREDENTIALS_FILE to be omitted for empty file, got %q", envVars["AWS_SHARED_CREDENTIALS_FILE"])
-		}
-	})
-
-	t.Run("MissingAWSBlockDefaultsProfileToContext", func(t *testing.T) {
-		// Given an AWS env printer without an aws block in the context
+	t.Run("EmitsConfigPathsEvenWhenFilesAbsent", func(t *testing.T) {
+		// Given a fresh AWS-platform context where .aws/config and .aws/credentials
+		// have not been created yet (operator hasn't run `aws configure`)
 		mocks := setupAwsEnvMocks(t)
 		configStr := `
 version: v1alpha1
@@ -222,8 +151,10 @@ contexts:
 		// When GetEnvVars is called
 		envVars, err := env.GetEnvVars()
 
-		// Then static config paths emit (files exist) and AWS_PROFILE defaults to the context name,
-		// so `aws configure sso` creates a matching profile and subsequent calls resolve to it.
+		// Then AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE still point at the
+		// context-scoped paths so a subsequent `aws configure` writes into the context
+		// folder rather than ~/.aws. AWS_PROFILE defaults to the context name so the
+		// freshly-created profile section matches.
 		if err != nil {
 			t.Errorf("GetEnvVars returned an error: %v", err)
 		}
