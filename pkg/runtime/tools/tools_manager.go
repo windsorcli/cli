@@ -131,18 +131,11 @@ func (t *BaseToolsManager) Check() error {
 			return fmt.Errorf("kubelogin check failed: %v", err)
 		}
 	}
-
-	platform := t.configHandler.GetString("platform")
-	if platform == "" {
-		platform = t.configHandler.GetString("provider")
-	}
-	configData := t.configHandler.GetConfig()
-	hasAWSConfig := configData != nil && configData.AWS != nil
-	if platform == "aws" || hasAWSConfig {
-		if err := t.checkAWS(); err != nil {
-			return fmt.Errorf("aws check failed: %v", err)
-		}
-	}
+	// AWS tool verification lives on CheckAuth, not here. Check() fires from every command
+	// path including `windsor init` / `windsor env` — at those points the operator has no
+	// obligation to have the aws CLI installed OR to be authed. Both cloud-CLI presence and
+	// credential resolution belong to CheckAuth, which runs only from bootstrap/up/apply and
+	// from `windsor check`.
 	return nil
 }
 
@@ -399,13 +392,41 @@ func (t *BaseToolsManager) checkKubelogin() error {
 	return nil
 }
 
-// checkAWS verifies the AWS CLI is available in PATH and meets the minimum version. It runs
-// from Check(), which fires from every command path including `windsor init` — at that point
-// Windsor is just scaffolding files and there is no obligation for the operator to have
-// credentials yet. Credential validity is intentionally NOT checked here so that init on a
-// fresh machine or in CI doesn't fail before any AWS work has been requested; that check
-// lives in CheckAuth and runs only from bootstrap/up/apply preflights.
-func (t *BaseToolsManager) checkAWS() error {
+// CheckAuth verifies that the operator has the cloud CLIs for any in-use platforms AND that
+// their credentials actually resolve. For AWS it runs `aws --version` (presence + minimum
+// version) and then `aws sts get-caller-identity` — a cheap read-only STS API that forces the
+// SDK to run its full credential-resolution chain (SSO session, static keys, env vars, IMDS)
+// end-to-end. A success proves the operator's AWS setup will work when terraform/SDK calls
+// run later; a failure surfaces the vendor's own message (expired SSO, profile not found, no
+// credentials) at preflight time rather than minutes into a `terraform apply`. CheckAuth must
+// NOT be called from `windsor init` or `windsor env` (which have no obligation to be authed
+// yet); it is intended for bootstrap/up/apply paths where credentials are about to be
+// exercised, and from `windsor check` where the operator is explicitly asking to verify.
+// Error messages are tuned to the operator's current state (missing config, expired SSO
+// session, rejected static keys) so the returned hint is a copy-pasteable command rather than
+// generic advice.
+func (t *BaseToolsManager) CheckAuth() error {
+	platform := t.configHandler.GetString("platform")
+	if platform == "" {
+		platform = t.configHandler.GetString("provider")
+	}
+	configData := t.configHandler.GetConfig()
+	hasAWSConfig := configData != nil && configData.AWS != nil
+	if platform == "aws" || hasAWSConfig {
+		if err := t.checkAWSBinary(); err != nil {
+			return err
+		}
+		if _, err := t.shell.ExecSilentWithTimeout("aws", []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
+			return fmt.Errorf("aws credentials did not resolve for context %q: %v\n%s", t.configHandler.GetContext(), err, t.awsAuthHint())
+		}
+	}
+	return nil
+}
+
+// checkAWSBinary verifies the AWS CLI is available in PATH and meets the minimum version.
+// Pulled out of CheckAuth so the binary vs. credential failure modes each have a clean
+// single-error exit point.
+func (t *BaseToolsManager) checkAWSBinary() error {
 	if _, err := execLookPath("aws"); err != nil {
 		return fmt.Errorf("aws CLI is not available in the PATH; install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
 	}
@@ -422,32 +443,6 @@ func (t *BaseToolsManager) checkAWS() error {
 		return fmt.Errorf("aws CLI version %s is below the minimum required version %s", version, constants.MinimumVersionAWS)
 	}
 
-	return nil
-}
-
-// CheckAuth verifies that the operator's credentials for any in-use cloud platforms actually
-// resolve. For AWS this runs `aws sts get-caller-identity` — a cheap read-only STS API that
-// forces the SDK to run its full credential-resolution chain (SSO session, static keys, env
-// vars, IMDS) end-to-end; a success proves the operator's AWS setup will work when
-// terraform/SDK calls run later, while a failure surfaces the vendor's own message (expired
-// SSO, profile not found, no credentials) at preflight time rather than minutes into a
-// `terraform apply`. CheckAuth must NOT be called from `windsor init` (which only scaffolds
-// files and has no obligation to be authed yet); it is intended for bootstrap/up/apply paths
-// where credentials are about to be exercised. Error messages are tuned to the operator's
-// current state (missing config, expired SSO session, rejected static keys) so the returned
-// hint is a copy-pasteable command rather than generic advice.
-func (t *BaseToolsManager) CheckAuth() error {
-	platform := t.configHandler.GetString("platform")
-	if platform == "" {
-		platform = t.configHandler.GetString("provider")
-	}
-	configData := t.configHandler.GetConfig()
-	hasAWSConfig := configData != nil && configData.AWS != nil
-	if platform == "aws" || hasAWSConfig {
-		if _, err := t.shell.ExecSilentWithTimeout("aws", []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
-			return fmt.Errorf("aws credentials did not resolve for context %q: %v\n%s", t.configHandler.GetContext(), err, t.awsAuthHint())
-		}
-	}
 	return nil
 }
 

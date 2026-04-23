@@ -478,10 +478,12 @@ contexts:
 		}
 	})
 
-	t.Run("AWSPlatformButAwsCliNotAvailable", func(t *testing.T) {
-		// When platform is aws and the aws CLI is not in PATH, Check must route through
-		// checkAWS and return a wrapped "aws check failed" error so operators see the
-		// platform-triggered requirement before bootstrap runs terraform.
+	t.Run("AWSPlatformDoesNotTriggerAWSCheckInCheck", func(t *testing.T) {
+		// AWS CLI presence and credentials are explicitly OUT of Check(): `windsor init`
+		// and `windsor env` go through PrepareTools → Check and have no obligation to have
+		// the aws CLI installed or be authenticated. Both checks live on CheckAuth, which
+		// fires from bootstrap/up/apply preflights and from `windsor check`. This test
+		// ensures Check() stays silent even when platform is aws and the aws CLI is absent.
 		configStr := `
 contexts:
   test:
@@ -495,9 +497,8 @@ contexts:
 			}
 			return originalExecLookPath(name)
 		}
-		err := toolsManager.Check()
-		if err == nil || !strings.Contains(err.Error(), "aws check failed") {
-			t.Errorf("Expected 'aws check failed' error, got: %v", err)
+		if err := toolsManager.Check(); err != nil {
+			t.Errorf("Expected Check to succeed when aws is absent (platform: aws), got: %v", err)
 		}
 	})
 
@@ -1299,7 +1300,7 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 	})
 }
 
-func TestToolsManager_checkAWS(t *testing.T) {
+func TestToolsManager_checkAWSBinary(t *testing.T) {
 	setup := func(t *testing.T) (*Mocks, *BaseToolsManager) {
 		t.Helper()
 		mocks := setupMocks(t)
@@ -1323,12 +1324,13 @@ func TestToolsManager_checkAWS(t *testing.T) {
 			}
 			return "", fmt.Errorf("command not mocked: %s %v", command, args)
 		}
-		// When checking aws
-		err := toolsManager.checkAWS()
-		// Then no error should be returned. checkAWS must NOT invoke sts get-caller-identity
-		// — that lives in CheckAuth and is exercised at bootstrap/up preflight time only.
+		// When checking the aws binary
+		err := toolsManager.checkAWSBinary()
+		// Then no error should be returned. checkAWSBinary must NOT invoke sts — that lives
+		// in CheckAuth, which is called only from bootstrap/up/apply preflights and from
+		// `windsor check`.
 		if err != nil {
-			t.Errorf("Expected checkAWS to succeed, got %v", err)
+			t.Errorf("Expected checkAWSBinary to succeed, got %v", err)
 		}
 	})
 
@@ -1343,7 +1345,7 @@ func TestToolsManager_checkAWS(t *testing.T) {
 			return originalExecLookPath(name)
 		}
 		// When checking aws
-		err := toolsManager.checkAWS()
+		err := toolsManager.checkAWSBinary()
 		// Then error mentions not in PATH and points to vendor install URL
 		if err == nil {
 			t.Fatal("Expected error when aws is not in PATH")
@@ -1373,7 +1375,7 @@ func TestToolsManager_checkAWS(t *testing.T) {
 			return "", fmt.Errorf("command not mocked")
 		}
 		// When checking aws
-		err := toolsManager.checkAWS()
+		err := toolsManager.checkAWSBinary()
 		// Then the version-command error surfaces
 		if err == nil || !strings.Contains(err.Error(), "aws --version failed") {
 			t.Errorf("Expected 'aws --version failed' error, got: %v", err)
@@ -1397,7 +1399,7 @@ func TestToolsManager_checkAWS(t *testing.T) {
 			return "", fmt.Errorf("command not mocked")
 		}
 		// When checking aws
-		err := toolsManager.checkAWS()
+		err := toolsManager.checkAWSBinary()
 		// Then the extraction-failure error surfaces
 		if err == nil || !strings.Contains(err.Error(), "failed to extract aws CLI version") {
 			t.Errorf("Expected 'failed to extract aws CLI version' error, got: %v", err)
@@ -1421,7 +1423,7 @@ func TestToolsManager_checkAWS(t *testing.T) {
 			return "", fmt.Errorf("command not mocked")
 		}
 		// When checking aws
-		err := toolsManager.checkAWS()
+		err := toolsManager.checkAWSBinary()
 		// Then the version-too-low error surfaces
 		if err == nil || !strings.Contains(err.Error(), "below the minimum required version") {
 			t.Errorf("Expected version-too-low error, got: %v", err)
@@ -1449,14 +1451,63 @@ func TestToolsManager_CheckAuth(t *testing.T) {
 		}
 	})
 
+	// awsBinaryMock wires execLookPath and the version shell call so CheckAuth can reach the
+	// sts-get-caller-identity step. Every sub-test that exercises CheckAuth beyond the binary
+	// check uses this to get past the preliminaries.
+	awsBinaryMock := func(t *testing.T) {
+		t.Helper()
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "/usr/bin/aws", nil
+			}
+			return originalExecLookPath(name)
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+	}
+
+	t.Run("AWSPlatformWithAwsCliMissing", func(t *testing.T) {
+		// Given platform: aws and the aws CLI is not in PATH
+		_, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "aws" {
+				return "", exec.ErrNotFound
+			}
+			return originalExecLookPath(name)
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the missing-binary error surfaces with the vendor install URL — the binary
+		// check is part of CheckAuth now so bootstrap/up preflights catch a missing CLI
+		// before they try to resolve credentials.
+		if err == nil {
+			t.Fatal("Expected error when aws CLI is missing")
+		}
+		if !strings.Contains(err.Error(), "aws CLI is not available in the PATH") {
+			t.Errorf("Expected 'not available in the PATH' error, got: %v", err)
+		}
+	})
+
 	t.Run("AWSPlatformWithValidCredentials", func(t *testing.T) {
-		// Given platform: aws and sts get-caller-identity succeeds
+		// Given platform: aws, the aws CLI is installed at the minimum version, and sts
+		// get-caller-identity succeeds
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: aws
 `)
+		awsBinaryMock(t)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+			}
 			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
 				return `{"Arn":"arn:aws:iam::123456789012:user/test"}`, nil
 			}
@@ -1471,13 +1522,17 @@ contexts:
 	})
 
 	t.Run("AWSPlatformWithStsFailure", func(t *testing.T) {
-		// Given platform: aws and credentials cannot be resolved
+		// Given platform: aws, the aws CLI is installed, but credentials cannot be resolved
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: aws
 `)
+		awsBinaryMock(t)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+			}
 			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
 				return "", fmt.Errorf("Unable to locate credentials")
 			}
@@ -1505,10 +1560,14 @@ contexts:
     aws:
       region: us-east-1
 `)
-		called := false
+		awsBinaryMock(t)
+		stsCalled := false
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+			}
 			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
-				called = true
+				stsCalled = true
 				return "", fmt.Errorf("Unable to locate credentials")
 			}
 			return "", fmt.Errorf("command not mocked")
@@ -1517,7 +1576,7 @@ contexts:
 		err := toolsManager.CheckAuth()
 		// Then sts was invoked and the error surfaced — an aws block alone is enough to gate
 		// on credentials, matching the env-printer activation rule
-		if !called {
+		if !stsCalled {
 			t.Error("Expected sts get-caller-identity to be invoked when aws block is present")
 		}
 		if err == nil {
