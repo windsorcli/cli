@@ -1308,7 +1308,7 @@ func TestToolsManager_checkAWS(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		// Given aws is available, meets version, and sts get-caller-identity resolves
+		// Given aws is available and meets the minimum version
 		mocks, toolsManager := setup(t)
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
@@ -1321,14 +1321,12 @@ func TestToolsManager_checkAWS(t *testing.T) {
 			if command == "aws" && len(args) == 1 && args[0] == "--version" {
 				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Darwin/24.1.0", constants.MinimumVersionAWS), nil
 			}
-			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
-				return `{"UserId":"AIDAXXX","Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/test"}`, nil
-			}
 			return "", fmt.Errorf("command not mocked: %s %v", command, args)
 		}
 		// When checking aws
 		err := toolsManager.checkAWS()
-		// Then no error should be returned
+		// Then no error should be returned. checkAWS must NOT invoke sts get-caller-identity
+		// — that lives in CheckAuth and is exercised at bootstrap/up preflight time only.
 		if err != nil {
 			t.Errorf("Expected checkAWS to succeed, got %v", err)
 		}
@@ -1430,28 +1428,64 @@ func TestToolsManager_checkAWS(t *testing.T) {
 		}
 	})
 
-	t.Run("StsCallerIdentityFails", func(t *testing.T) {
-		// Given aws is installed and new enough but credentials don't resolve
-		mocks, toolsManager := setup(t)
-		originalExecLookPath := execLookPath
-		execLookPath = func(name string) (string, error) {
-			if name == "aws" {
-				return "/usr/bin/aws", nil
-			}
-			return originalExecLookPath(name)
+}
+
+func TestToolsManager_CheckAuth(t *testing.T) {
+	setup := func(t *testing.T, configStr string) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		return mocks, toolsManager
+	}
+
+	t.Run("NoCloudPlatformIsNoOp", func(t *testing.T) {
+		// Given a context with no AWS platform or aws block
+		_, toolsManager := setup(t, defaultConfig)
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then it returns nil without invoking any cloud-CLI calls
+		if err != nil {
+			t.Errorf("Expected CheckAuth to be a no-op for non-cloud contexts, got %v", err)
 		}
+	})
+
+	t.Run("AWSPlatformWithValidCredentials", func(t *testing.T) {
+		// Given platform: aws and sts get-caller-identity succeeds
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
-			if command == "aws" && len(args) == 1 && args[0] == "--version" {
-				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Darwin/24.1.0", constants.MinimumVersionAWS), nil
+			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
+				return `{"Arn":"arn:aws:iam::123456789012:user/test"}`, nil
 			}
+			return "", fmt.Errorf("command not mocked: %s %v", command, args)
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then it succeeds
+		if err != nil {
+			t.Errorf("Expected CheckAuth to succeed when sts resolves, got %v", err)
+		}
+	})
+
+	t.Run("AWSPlatformWithStsFailure", func(t *testing.T) {
+		// Given platform: aws and credentials cannot be resolved
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
 				return "", fmt.Errorf("Unable to locate credentials")
 			}
 			return "", fmt.Errorf("command not mocked")
 		}
-		// When checking aws
-		err := toolsManager.checkAWS()
-		// Then the credential-resolution error surfaces with an actionable hint
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then it surfaces the credential-resolution error with an actionable hint
 		if err == nil {
 			t.Fatal("Expected error when sts get-caller-identity fails")
 		}
@@ -1459,7 +1493,35 @@ func TestToolsManager_checkAWS(t *testing.T) {
 			t.Errorf("Expected 'aws credentials did not resolve' in error, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "aws configure") {
-			t.Errorf("Expected actionable 'aws configure' hint in error, got: %v", err)
+			t.Errorf("Expected 'aws configure' hint in error, got: %v", err)
+		}
+	})
+
+	t.Run("AWSConfigBlockTriggersAuthCheck", func(t *testing.T) {
+		// Given the context has an aws block (no platform set) and creds are invalid
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    aws:
+      region: us-east-1
+`)
+		called := false
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
+				called = true
+				return "", fmt.Errorf("Unable to locate credentials")
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then sts was invoked and the error surfaced — an aws block alone is enough to gate
+		// on credentials, matching the env-printer activation rule
+		if !called {
+			t.Error("Expected sts get-caller-identity to be invoked when aws block is present")
+		}
+		if err == nil {
+			t.Error("Expected CheckAuth to surface the credential failure")
 		}
 	})
 }
