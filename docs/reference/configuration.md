@@ -39,19 +39,21 @@ Configuration details specific to the AWS cloud provider. Additionally, configur
 ```yaml
 aws:
   enabled: true
-  aws_endpoint_url: http://aws.test:4566
-  aws_profile: local
+  profile: local
+  region: us-east-2
+  endpoint_url: http://aws.test:4566
   localstack: #...
 ```
 
 | Field            | Type     | Description                                                                 |
 |------------------|----------|-----------------------------------------------------------------------------|
 | `enabled`        | `bool`   | Indicates whether AWS integration is enabled.                               |
-| `aws_endpoint_url` | `string` | Specifies the custom endpoint URL for AWS services.                        |
-| `aws_profile`    | `string` | Defines the AWS CLI profile to use for authentication.                      |
-| `s3_hostname`    | `string` | Sets the custom hostname for the S3 service.                                |
-| `mwaa_endpoint`  | `string` | Specifies the endpoint for Managed Workflows for Apache Airflow.            |
-| `localstack`     | `LocalstackConfig` | Contains the configuration for Localstack, a local AWS cloud emulator. |
+| `profile`        | `string` | AWS CLI profile to use for authentication. Defaults to the context name.     |
+| `region`         | `string` | AWS region for API calls. Emitted as `AWS_REGION` to every tool run inside the context. |
+| `endpoint_url`   | `string` | Custom endpoint URL for AWS services (for example, LocalStack).              |
+| `s3_hostname`    | `string` | Custom hostname for the S3 service.                                         |
+| `mwaa_endpoint`  | `string` | Endpoint for Managed Workflows for Apache Airflow.                          |
+| `localstack`     | `LocalstackConfig` | Configuration for Localstack, a local AWS cloud emulator.          |
 
 #### Localstack
 Configures details specific to the Localstack service container. This service is available at `aws.test:4566`.
