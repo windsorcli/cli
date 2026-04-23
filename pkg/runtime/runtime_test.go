@@ -41,7 +41,7 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 		switch key {
 		case "docker.enabled", "terraform.enabled":
 			return true
-		case "aws.enabled", "azure.enabled", "gcp.enabled":
+		case "azure.enabled", "gcp.enabled":
 			return false
 		default:
 			return false
@@ -2743,7 +2743,9 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 	})
 
 	t.Run("DoesNotOverrideExistingPrinters", func(t *testing.T) {
-		// Given a runtime with an existing env printer
+		// Given a runtime with an existing env printer and an AWS config block that would
+		// otherwise trigger the gate (presence of an aws: block activates AWS injection now
+		// that aws.enabled has been removed).
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
@@ -2751,11 +2753,10 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.EnvPrinters.AwsEnv = existingAwsEnv
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "aws.enabled" {
-				return true
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				AWS: &awsv1alpha1.AWSConfig{},
 			}
-			return false
 		}
 
 		// When initializeEnvPrinters is called

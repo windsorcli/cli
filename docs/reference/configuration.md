@@ -34,11 +34,10 @@ Windsor applies default values for various configuration options when they are n
 These defaults ensure that basic functionality is available without requiring explicit configuration. You can override any default by explicitly setting the value in your `windsor.yaml` file.
 
 ### AWS
-Configuration details specific to the AWS cloud provider. Additionally, configures a Localstack service to simulate AWS resources locally.
+Configuration details specific to the AWS cloud provider. AWS integration activates whenever this block is present in a context (or when `platform: aws` is set); there is no separate `enabled` flag. Additionally, configures a Localstack service to simulate AWS resources locally.
 
 ```yaml
 aws:
-  enabled: true
   profile: local
   region: us-east-2
   endpoint_url: http://aws.test:4566
@@ -47,8 +46,7 @@ aws:
 
 | Field            | Type     | Description                                                                 |
 |------------------|----------|-----------------------------------------------------------------------------|
-| `enabled`        | `bool`   | Indicates whether AWS integration is enabled.                               |
-| `profile`        | `string` | AWS CLI profile to use for authentication. Defaults to the context name.     |
+| `profile`        | `string` | AWS CLI profile to use for authentication. Defaults to the context name, so `aws configure sso --profile <context>` lines up with what Windsor exports. Set this when your existing profile name differs from the context name. |
 | `region`         | `string` | AWS region for API calls. Emitted as `AWS_REGION` to every tool run inside the context. |
 | `endpoint_url`   | `string` | Custom endpoint URL for AWS services (for example, LocalStack).              |
 | `s3_hostname`    | `string` | Custom hostname for the S3 service.                                         |

@@ -1,10 +1,8 @@
 package aws
 
-// AWSConfig represents the AWS configuration
+// AWSConfig represents the AWS configuration. AWS integration activates whenever this block
+// is present in a context (or when platform is "aws"); there is no separate `enabled` flag.
 type AWSConfig struct {
-	// Enabled indicates whether AWS integration is enabled.
-	Enabled *bool `yaml:"enabled,omitempty"`
-
 	// AWSEndpointURL specifies the custom endpoint URL for AWS services.
 	AWSEndpointURL *string `yaml:"endpoint_url,omitempty"`
 
@@ -23,9 +21,6 @@ type AWSConfig struct {
 
 // Merge performs a deep merge of the current AWSConfig with another AWSConfig.
 func (base *AWSConfig) Merge(overlay *AWSConfig) {
-	if overlay.Enabled != nil {
-		base.Enabled = overlay.Enabled
-	}
 	if overlay.AWSEndpointURL != nil {
 		base.AWSEndpointURL = overlay.AWSEndpointURL
 	}
@@ -50,10 +45,6 @@ func (c *AWSConfig) DeepCopy() *AWSConfig {
 	}
 	copied := &AWSConfig{}
 
-	if c.Enabled != nil {
-		enabledCopy := *c.Enabled
-		copied.Enabled = &enabledCopy
-	}
 	if c.AWSEndpointURL != nil {
 		urlCopy := *c.AWSEndpointURL
 		copied.AWSEndpointURL = &urlCopy

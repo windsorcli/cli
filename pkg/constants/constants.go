@@ -184,6 +184,8 @@ const MinimumVersionKubelogin = "0.1.7"
 
 const MinimumVersionSOPS = "3.10.0"
 
+const MinimumVersionAWS = "2.0.0"
+
 // DefaultAKSOIDCServerID is the standard Azure AKS OIDC server ID (application ID of the
 // Microsoft-managed enterprise application "Azure Kubernetes Service AAD Server").
 // This is the same for all AKS clusters with AKS-managed Azure AD enabled.

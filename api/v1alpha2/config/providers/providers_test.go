@@ -7,12 +7,20 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha2/config/providers/azure"
 )
 
+// awsProfileA and awsProfileB stand in for the two distinct states the merge/copy tests
+// previously expressed via aws.Enabled = true/false. The Enabled field has been removed; any
+// non-nil AWS field works as the "did the merge run" signal.
+const (
+	awsProfileA = "profile-a"
+	awsProfileB = "profile-b"
+)
+
 // TestProvidersConfig_Merge tests the Merge method of ProvidersConfig
 func TestProvidersConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNilOverlay", func(t *testing.T) {
 		base := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(false),
@@ -22,7 +30,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 
 		base.Merge(nil)
 
-		if base.AWS == nil || *base.AWS.Enabled != *original.AWS.Enabled {
+		if base.AWS == nil || *base.AWS.AWSProfile != *original.AWS.AWSProfile {
 			t.Errorf("Expected AWS config to remain unchanged")
 		}
 		if base.Azure == nil || *base.Azure.Enabled != *original.Azure.Enabled {
@@ -33,7 +41,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 	t.Run("MergeWithEmptyOverlay", func(t *testing.T) {
 		base := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(false),
@@ -43,8 +51,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.AWS == nil || !*base.AWS.Enabled {
-			t.Errorf("Expected AWS config to remain enabled")
+		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
+			t.Errorf("Expected AWS config to remain at profile %q", awsProfileA)
 		}
 		if base.Azure == nil || *base.Azure.Enabled {
 			t.Errorf("Expected Azure config to remain disabled")
@@ -54,7 +62,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 	t.Run("MergeWithPartialOverlay", func(t *testing.T) {
 		base := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(false),
@@ -62,7 +70,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		}
 		overlay := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(false),
+				AWSProfile: stringPtr(awsProfileB),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(true),
@@ -71,8 +79,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.AWS == nil || *base.AWS.Enabled {
-			t.Errorf("Expected AWS config to be disabled after merge")
+		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileB {
+			t.Errorf("Expected AWS profile to be %q after merge, got %q", awsProfileB, *base.AWS.AWSProfile)
 		}
 		if base.Azure == nil || !*base.Azure.Enabled {
 			t.Errorf("Expected Azure config to be enabled after merge")
@@ -82,7 +90,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 	t.Run("MergeWithOnlyAWS", func(t *testing.T) {
 		base := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(false),
@@ -90,14 +98,14 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		}
 		overlay := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(false),
+				AWSProfile: stringPtr(awsProfileB),
 			},
 		}
 
 		base.Merge(overlay)
 
-		if base.AWS == nil || *base.AWS.Enabled {
-			t.Errorf("Expected AWS config to be disabled after merge")
+		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileB {
+			t.Errorf("Expected AWS profile to be %q after merge", awsProfileB)
 		}
 		if base.Azure == nil || *base.Azure.Enabled {
 			t.Errorf("Expected Azure config to remain disabled")
@@ -107,7 +115,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 	t.Run("MergeWithOnlyAzure", func(t *testing.T) {
 		base := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(false),
@@ -121,8 +129,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.AWS == nil || !*base.AWS.Enabled {
-			t.Errorf("Expected AWS config to remain enabled")
+		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
+			t.Errorf("Expected AWS profile to remain %q", awsProfileA)
 		}
 		if base.Azure == nil || !*base.Azure.Enabled {
 			t.Errorf("Expected Azure config to be enabled after merge")
@@ -133,7 +141,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		base := &ProvidersConfig{}
 		overlay := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(false),
@@ -142,8 +150,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.AWS == nil || !*base.AWS.Enabled {
-			t.Errorf("Expected AWS config to be initialized and enabled")
+		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
+			t.Errorf("Expected AWS config to be initialized with profile %q", awsProfileA)
 		}
 		if base.Azure == nil || *base.Azure.Enabled {
 			t.Errorf("Expected Azure config to be initialized and disabled")
@@ -158,14 +166,14 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		}
 		overlay := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 		}
 
 		base.Merge(overlay)
 
-		if base.AWS == nil || !*base.AWS.Enabled {
-			t.Errorf("Expected AWS config to be initialized and enabled")
+		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
+			t.Errorf("Expected AWS config to be initialized with profile %q", awsProfileA)
 		}
 		if base.Azure == nil || *base.Azure.Enabled {
 			t.Errorf("Expected Azure config to remain disabled")
@@ -175,7 +183,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNilBaseAzure", func(t *testing.T) {
 		base := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 		}
 		overlay := &ProvidersConfig{
@@ -186,8 +194,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.AWS == nil || !*base.AWS.Enabled {
-			t.Errorf("Expected AWS config to remain enabled")
+		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
+			t.Errorf("Expected AWS profile to remain %q", awsProfileA)
 		}
 		if base.Azure == nil || *base.Azure.Enabled {
 			t.Errorf("Expected Azure config to be initialized and disabled")
@@ -224,7 +232,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 	t.Run("CopyPopulatedConfig", func(t *testing.T) {
 		config := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(false),
@@ -239,7 +247,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 		if copied == config {
 			t.Error("Expected copy to be a new instance")
 		}
-		if copied.AWS == nil || *copied.AWS.Enabled != *config.AWS.Enabled {
+		if copied.AWS == nil || *copied.AWS.AWSProfile != *config.AWS.AWSProfile {
 			t.Errorf("Expected AWS config to be copied correctly")
 		}
 		if copied.Azure == nil || *copied.Azure.Enabled != *config.Azure.Enabled {
@@ -250,7 +258,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 	t.Run("CopyWithPartialFields", func(t *testing.T) {
 		config := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 		}
 
@@ -259,7 +267,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 		if copied == nil {
 			t.Error("Expected non-nil copy")
 		}
-		if copied.AWS == nil || *copied.AWS.Enabled != *config.AWS.Enabled {
+		if copied.AWS == nil || *copied.AWS.AWSProfile != *config.AWS.AWSProfile {
 			t.Errorf("Expected AWS config to be copied correctly")
 		}
 		if copied.Azure != nil {
@@ -270,7 +278,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 	t.Run("CopyWithIndependentValues", func(t *testing.T) {
 		config := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
 				Enabled: boolPtr(false),
@@ -280,10 +288,10 @@ func TestProvidersConfig_Copy(t *testing.T) {
 		copied := config.DeepCopy()
 
 		// Modify original to verify independence
-		*config.AWS.Enabled = false
+		*config.AWS.AWSProfile = awsProfileB
 		*config.Azure.Enabled = true
 
-		if *copied.AWS.Enabled != true {
+		if *copied.AWS.AWSProfile != awsProfileA {
 			t.Error("Expected copied AWS config to remain independent")
 		}
 		if *copied.Azure.Enabled != false {
@@ -294,7 +302,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 	t.Run("CopyWithSingleField", func(t *testing.T) {
 		config := &ProvidersConfig{
 			AWS: &aws.AWSConfig{
-				Enabled: boolPtr(true),
+				AWSProfile: stringPtr(awsProfileA),
 			},
 		}
 
@@ -303,7 +311,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 		if copied == nil {
 			t.Error("Expected non-nil copy")
 		}
-		if copied.AWS == nil || *copied.AWS.Enabled != *config.AWS.Enabled {
+		if copied.AWS == nil || *copied.AWS.AWSProfile != *config.AWS.AWSProfile {
 			t.Errorf("Expected AWS config to be copied correctly")
 		}
 		if copied.Azure != nil {
@@ -314,4 +322,8 @@ func TestProvidersConfig_Copy(t *testing.T) {
 
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func stringPtr(s string) *string {
+	return &s
 }

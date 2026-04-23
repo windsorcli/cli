@@ -6,11 +6,8 @@ type: object
 properties:
   aws:
     type: object
-    description: AWS provider configuration
+    description: AWS provider configuration. AWS integration activates whenever this block is present in a context (or when platform is "aws"); there is no separate enabled flag.
     properties:
-      enabled:
-        type: boolean
-        description: Enable or disable AWS integration
       endpoint_url:
         type: string
         description: Custom endpoint URL for AWS services
