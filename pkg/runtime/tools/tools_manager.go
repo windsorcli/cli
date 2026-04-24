@@ -565,7 +565,7 @@ func (t *BaseToolsManager) awsAuthHint() string {
 	}
 	configRoot, err := t.configHandler.GetConfigRoot()
 	if err != nil || configRoot == "" {
-		return fmt.Sprintf("Run 'aws configure sso --profile %s' to set up credentials.", profile)
+		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  aws configure sso --profile %s   (SSO)\n  aws configure --profile %s       (access keys)", ctx, profile, profile)
 	}
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
 	awsCredentialsPath := filepath.Join(configRoot, ".aws", "credentials")

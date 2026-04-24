@@ -2124,6 +2124,32 @@ contexts:
 	})
 }
 
+func Test_awsAuthHint(t *testing.T) {
+	t.Run("ConfigRootFailureOffersBothSSOAndAccessKeys", func(t *testing.T) {
+		// Given a toolsManager whose configHandler cannot resolve configRoot — the hint's
+		// defensive fallback branch. This is reached when CheckAuth ran through awsContextEnv
+		// via ambient credentials (which short-circuits GetConfigRoot), sts still failed, and
+		// awsAuthHint is invoked for the first-and-only GetConfigRoot call which then errors.
+		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root not found")
+		}
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		// When awsAuthHint runs
+		hint := toolsManager.awsAuthHint()
+		// Then the fallback surfaces BOTH setup paths — dropping access-key guidance would
+		// send CI service accounts and non-SSO operators to a command they cannot complete,
+		// contradicting the function header's contract that first-time setup always offers
+		// both since nothing in this code path distinguishes which kind of operator is here
+		if !strings.Contains(hint, "aws configure sso --profile") {
+			t.Errorf("Expected SSO setup hint in configRoot-failure fallback, got: %q", hint)
+		}
+		if !strings.Contains(hint, "aws configure --profile") {
+			t.Errorf("Expected access-key setup hint in configRoot-failure fallback, got: %q", hint)
+		}
+	})
+}
+
 func Test_detectAWSProfileState(t *testing.T) {
 	withReadFile := func(t *testing.T, contents string, readErr error) {
 		t.Helper()
