@@ -576,7 +576,12 @@ func (t *BaseToolsManager) awsAuthHint() string {
 	case awsProfileKeys:
 		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  %saws configure --profile %s", profile, prefix, profile)
 	default:
-		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run:\n  %saws configure sso --profile %s", ctx, prefix, profile)
+		// Surface both SSO and access-key paths here: CI service accounts, accounts not
+		// enrolled in SSO, and operators handed programmatic keys directly all need the
+		// access-key command, and there is no signal at this point in the flow that lets
+		// us pick one automatically. SSO is listed first because it is the expected path
+		// for human operators at SSO-enrolled orgs.
+		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  %saws configure sso --profile %s   (SSO)\n  %saws configure --profile %s       (access keys)", ctx, prefix, profile, prefix, profile)
 	}
 }
 

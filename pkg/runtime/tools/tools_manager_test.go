@@ -1734,6 +1734,46 @@ sso_account_id = 123456789012
 		}
 	})
 
+	t.Run("AWSPlatformStsHintFirstTimeOffersSSOAndAccessKeys", func(t *testing.T) {
+		// Given platform: aws, the binary check passes, sts fails, and the context's
+		// .aws/config is empty — the first-time-setup state where no profile is present
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_CONFIG_FILE", "")
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return nil, fmt.Errorf("file not found")
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Unable to locate credentials")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the surfaced error presents BOTH `aws configure sso` and `aws configure`
+		// paths — CI service accounts, accounts not enrolled in SSO, and operators handed
+		// programmatic keys need the access-key command, and we cannot infer which path the
+		// operator is on at this point in the flow. Dropping either path sends some fraction
+		// of operators to a command that will not work for their account type.
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), "aws configure sso --profile test") {
+			t.Errorf("Expected SSO setup hint, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "aws configure --profile test") {
+			t.Errorf("Expected access-key setup hint, got: %v", err)
+		}
+	})
+
 	t.Run("AWSPlatformStsHintHonorsAwsProfileOverride", func(t *testing.T) {
 		// Given platform: aws, an explicit aws.profile that differs from the context name,
 		// and a context-scoped .aws/config containing only the override-named SSO profile
