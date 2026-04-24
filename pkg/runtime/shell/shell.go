@@ -57,6 +57,7 @@ type Shell interface {
 	ExecSilent(command string, args ...string) (string, error)
 	ExecSilentWithEnv(command string, env map[string]string, args ...string) (string, error)
 	ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error)
+	ExecSilentWithEnvAndTimeout(command string, env map[string]string, args []string, timeout time.Duration) (string, error)
 	ExecSudo(message string, command string, args ...string) (string, error)
 	ExecProgress(message string, command string, args ...string) (string, error)
 	ExecProgressWithEnv(message string, command string, env map[string]string, args ...string) (string, error)
@@ -272,6 +273,51 @@ func (s *DefaultShell) ExecSilentWithTimeout(command string, args []string, time
 	if cmd.Env == nil {
 		cmd.Env = s.shims.Environ()
 	}
+
+	if err := s.shims.CmdStart(cmd); err != nil {
+		return "", fmt.Errorf("command start failed: %w", err)
+	}
+
+	var waitOnce sync.Once
+	execFn := func() (string, error) {
+		var waitErr error
+		waitOnce.Do(func() {
+			waitErr = s.shims.CmdWait(cmd)
+		})
+		if waitErr != nil {
+			return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", waitErr, s.scrubString(stderrBuf.String()))
+		}
+		return s.scrubString(stdoutBuf.String()), nil
+	}
+
+	cleanupFn := func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			waitOnce.Do(func() {
+				_ = s.shims.CmdWait(cmd)
+			})
+		}
+	}
+
+	return executeWithTimeout(execFn, cleanupFn, timeout)
+}
+
+// ExecSilentWithEnvAndTimeout combines ExecSilentWithEnv and ExecSilentWithTimeout: it merges
+// command-scoped env overrides into the inherited environment AND enforces a timeout, killing
+// the child process if it exceeds the deadline. Used by callers that need both behaviors at
+// once — e.g. CheckAuth() running `aws sts get-caller-identity` with the context-scoped
+// AWS_CONFIG_FILE/AWS_PROFILE set, where the env is required for credential resolution and
+// the timeout guards against a hung network call.
+func (s *DefaultShell) ExecSilentWithEnvAndTimeout(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd := s.shims.Command(command, args...)
+	if cmd == nil {
+		return "", fmt.Errorf("failed to create command")
+	}
+
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
 
 	if err := s.shims.CmdStart(cmd); err != nil {
 		return "", fmt.Errorf("command start failed: %w", err)

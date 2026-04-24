@@ -19,7 +19,6 @@ func TestConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNonNilValues", func(t *testing.T) {
 		base := &Context{
 			AWS: &aws.AWSConfig{
-				Enabled:        ptrBool(true),
 				AWSEndpointURL: ptrString("https://base.aws.endpoint"),
 			},
 			Azure: &azure.AzureConfig{
@@ -162,7 +161,6 @@ func TestConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNilOverlay", func(t *testing.T) {
 		base := &Context{
 			AWS: &aws.AWSConfig{
-				Enabled:        ptrBool(true),
 				AWSEndpointURL: ptrString("https://base.aws.endpoint"),
 			},
 			Azure: &azure.AzureConfig{
@@ -379,7 +377,6 @@ func TestConfig_Copy(t *testing.T) {
 				"KEY": "value",
 			},
 			AWS: &aws.AWSConfig{
-				Enabled:        ptrBool(true),
 				AWSEndpointURL: ptrString("https://original.aws.endpoint"),
 			},
 			Azure: &azure.AzureConfig{
@@ -427,8 +424,8 @@ func TestConfig_Copy(t *testing.T) {
 		if original.Environment["KEY"] != copy.Environment["KEY"] {
 			t.Errorf("Environment mismatch: expected %v, got %v", original.Environment["KEY"], copy.Environment["KEY"])
 		}
-		if original.AWS.Enabled == nil || copy.AWS.Enabled == nil || *original.AWS.Enabled != *copy.AWS.Enabled {
-			t.Errorf("AWS Enabled mismatch: expected %v, got %v", *original.AWS.Enabled, *copy.AWS.Enabled)
+		if original.AWS.AWSEndpointURL == nil || copy.AWS.AWSEndpointURL == nil || *original.AWS.AWSEndpointURL != *copy.AWS.AWSEndpointURL {
+			t.Errorf("AWS AWSEndpointURL mismatch: expected %v, got %v", *original.AWS.AWSEndpointURL, *copy.AWS.AWSEndpointURL)
 		}
 		if original.Azure.Enabled == nil || copy.Azure.Enabled == nil || *original.Azure.Enabled != *copy.Azure.Enabled {
 			t.Errorf("Azure Enabled mismatch: expected %v, got %v", *original.Azure.Enabled, *copy.Azure.Enabled)

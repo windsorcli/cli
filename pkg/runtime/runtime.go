@@ -696,17 +696,20 @@ func (rt *Runtime) initializeEnvPrinters() {
 	if clusterDriver == "" {
 		clusterDriver = rt.ConfigHandler.GetString("cluster.driver", "")
 	}
-	awsEnabled := rt.ConfigHandler.GetBool("aws.enabled", false)
 	azureEnabled := rt.ConfigHandler.GetBool("azure.enabled", false)
 	gcpEnabled := rt.ConfigHandler.GetBool("gcp.enabled", false)
 	clusterEnabled := clusterDriver != ""
 	needsDocker := rt.needsDockerEnv()
 	configData := rt.ConfigHandler.GetConfig()
+	platform := rt.ConfigHandler.GetString("platform", "")
+	if platform == "" {
+		platform = rt.ConfigHandler.GetString("provider", "")
+	}
 	hasAWSConfig := configData != nil && configData.AWS != nil
 	hasAzureConfig := configData != nil && configData.Azure != nil
 	hasGCPConfig := configData != nil && configData.GCP != nil
 
-	if rt.EnvPrinters.AwsEnv == nil && awsEnabled && hasAWSConfig {
+	if rt.EnvPrinters.AwsEnv == nil && (hasAWSConfig || platform == "aws") {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.AzureEnv == nil && azureEnabled && hasAzureConfig {
