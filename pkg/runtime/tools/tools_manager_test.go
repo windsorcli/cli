@@ -1435,6 +1435,16 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 func TestToolsManager_CheckAuth(t *testing.T) {
 	setup := func(t *testing.T, configStr string) (*Mocks, *BaseToolsManager) {
 		t.Helper()
+		// Clear every env var the ambient-credentials guard consults so CheckAuth behaves
+		// identically on a dev laptop, an EKS pod, and a GitHub Actions runner. Without
+		// this, tests that assume context-env injection will intermittently skip injection
+		// on machines where a stray AWS_ACCESS_KEY_ID or AWS_WEB_IDENTITY_TOKEN_FILE
+		// happens to be exported.
+		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
+		t.Setenv("AWS_ACCESS_KEY_ID", "")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "")
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
@@ -1787,6 +1797,137 @@ sso_session = company
 		}
 		if !strings.Contains(err.Error(), `AWS_CONFIG_FILE="/Users/foo/my projects/contexts/test/.aws/config"`) {
 			t.Errorf("Expected AWS_CONFIG_FILE to be double-quoted in hint, got: %v", err)
+		}
+	})
+
+	t.Run("AWSPlatformWebIdentitySkipsProfileInjection", func(t *testing.T) {
+		// Given an IRSA/OIDC environment — AWS_WEB_IDENTITY_TOKEN_FILE is set by the EKS
+		// pod-identity webhook or a GitHub Actions OIDC step — and aws CLI is installed
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
+		t.Setenv("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/my-role")
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		var capturedEnv map[string]string
+		var capturedEnvSeen bool
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			capturedEnvSeen = true
+			return `{"Arn":"arn:aws:sts::123456789012:assumed-role/my-role/session"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed under IRSA, got %v", err)
+		}
+		// Then the shell receives a nil env map — overriding AWS_PROFILE in an IRSA pod
+		// would point aws at a profile that does not exist on the pod filesystem and
+		// surface a spurious "profile not found" before the SDK's web-identity provider
+		// ever runs
+		if !capturedEnvSeen {
+			t.Fatal("Expected sts to be invoked")
+		}
+		if capturedEnv != nil {
+			t.Errorf("Expected nil env under IRSA (SDK native chain must win), got %v", capturedEnv)
+		}
+	})
+
+	t.Run("AWSPlatformEcsContainerRoleSkipsProfileInjection", func(t *testing.T) {
+		// Given an ECS task with a task role — AWS_CONTAINER_CREDENTIALS_RELATIVE_URI is
+		// injected by the ECS agent and points at the 169.254.170.2 metadata endpoint
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/credentials/abc123")
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			return `{"Arn":"arn:aws:sts::123456789012:assumed-role/task-role/session"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed under ECS container role, got %v", err)
+		}
+		// Then the shell receives a nil env map so the SDK's container-credentials provider
+		// (169.254.170.2) is consulted rather than getting short-circuited by a profile
+		// lookup for a config file that doesn't exist in the task
+		if capturedEnv != nil {
+			t.Errorf("Expected nil env under ECS container role, got %v", capturedEnv)
+		}
+	})
+
+	t.Run("AWSPlatformStaticEnvKeysSkipProfileInjection", func(t *testing.T) {
+		// Given a CI environment that exports AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+		// directly (no profile file involved)
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			return `{"Arn":"arn:aws:iam::123456789012:user/ci"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed with static env keys, got %v", err)
+		}
+		// Then the shell receives a nil env map — the static keys already in the parent env
+		// are the intended credentials and injecting AWS_PROFILE would route the aws CLI
+		// through a profile lookup that ignores them
+		if capturedEnv != nil {
+			t.Errorf("Expected nil env with static credentials, got %v", capturedEnv)
+		}
+	})
+
+	t.Run("AWSPlatformAccessKeyWithoutSecretStillInjects", func(t *testing.T) {
+		// Given only AWS_ACCESS_KEY_ID (no AWS_SECRET_ACCESS_KEY) — an incomplete
+		// credential export that is NOT a working native chain
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			return `{"Arn":"arn:aws:iam::123456789012:user/x"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed, got %v", err)
+		}
+		// Then context env is still injected — the guard requires BOTH halves of the static
+		// keypair before declaring the native chain ready, so a stray AWS_ACCESS_KEY_ID
+		// doesn't accidentally disable the context-scoped profile lookup
+		if capturedEnv == nil {
+			t.Fatal("Expected context env injection when static keypair is incomplete")
+		}
+		if capturedEnv["AWS_PROFILE"] != "test" {
+			t.Errorf("AWS_PROFILE = %q, want %q", capturedEnv["AWS_PROFILE"], "test")
 		}
 	})
 

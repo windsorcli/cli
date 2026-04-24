@@ -439,9 +439,20 @@ func (t *BaseToolsManager) CheckAuth() error {
 // awsContextEnv returns the env vars that point the AWS CLI / SDK at the context-scoped
 // .aws/ directory and select the right profile. Mirrors AwsEnvPrinter.GetEnvVars but is
 // duplicated here intentionally — pkg/runtime/tools doesn't depend on pkg/runtime/env, and
-// the shape is small. Returns (nil, err) if the configRoot can't be resolved; callers may
-// pass nil straight through to the shell, which then falls back to the inherited env.
+// the shape is small. Returns (nil, err) if the configRoot can't be resolved.
+//
+// Returns (nil, nil) when the parent env already advertises AWS credentials via a native
+// SDK mechanism (IRSA / OIDC web identity, ECS container role, or static env keys). In
+// those environments — typically CI pods, fargate tasks, and OIDC-federated runners —
+// overriding AWS_PROFILE / AWS_CONFIG_FILE would point the aws CLI at a profile that
+// doesn't exist on the pod's filesystem, causing sts get-caller-identity to fail with
+// "profile not found" before the SDK ever consults the web-identity or container-credentials
+// provider. Passing nil through to the shell exec preserves the inherited env so the native
+// credential chain resolves normally.
 func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
+	if hasAmbientAWSCredentials() {
+		return nil, nil
+	}
 	configRoot, err := t.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, err
@@ -458,6 +469,35 @@ func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
 		env["AWS_PROFILE"] = ctx
 	}
 	return env, nil
+}
+
+// hasAmbientAWSCredentials reports whether the parent process environment already carries
+// AWS credentials via a native SDK mechanism that must not be overridden by context-scoped
+// profile/config vars. Triggers on:
+//
+//   - AWS_WEB_IDENTITY_TOKEN_FILE — IRSA pods on EKS, GitHub Actions OIDC, generic OIDC
+//   - AWS_CONTAINER_CREDENTIALS_RELATIVE_URI — ECS/Fargate task roles
+//   - AWS_CONTAINER_CREDENTIALS_FULL_URI — ECS Anywhere / externally hosted containers
+//   - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY — static keys already exported
+//
+// IMDS-based EC2 is intentionally not covered: there is no env var to detect it, and an
+// operator who explicitly sets AWS_PROFILE against a missing profile on an IMDS host gets
+// the same "profile not found" error from stock aws CLI — this is baseline AWS behavior we
+// do not need to preempt.
+func hasAmbientAWSCredentials() bool {
+	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" {
+		return true
+	}
+	if os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" {
+		return true
+	}
+	if os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
+		return true
+	}
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
+		return true
+	}
+	return false
 }
 
 // checkAWSBinary verifies the AWS CLI is available in PATH and meets the minimum version.
