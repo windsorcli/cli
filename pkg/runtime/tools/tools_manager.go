@@ -421,8 +421,14 @@ func (t *BaseToolsManager) CheckAuth() error {
 		// `windsor env` / installed the windsor shell hook yet — without this, bootstrap on a
 		// fresh machine deadlocks: it can't proceed without valid credentials, but the
 		// operator can't establish credentials (`aws sso login`, `aws configure`) without the
-		// same env pointing aws at the context's .aws/config.
-		env, _ := t.awsContextEnv()
+		// same env pointing aws at the context's .aws/config. When configRoot can't be
+		// resolved the error is surfaced rather than swallowed — letting sts fall back to the
+		// ambient shell env would silently validate the wrong credentials and produce the
+		// exact false-positive CheckAuth exists to prevent.
+		env, err := t.awsContextEnv()
+		if err != nil {
+			return fmt.Errorf("cannot resolve context-scoped AWS env for credential check: %w", err)
+		}
 		if _, err := t.shell.ExecSilentWithEnvAndTimeout("aws", env, []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
 			return fmt.Errorf("aws credentials did not resolve for context %q: %v\n%s", t.configHandler.GetContext(), err, t.awsAuthHint())
 		}

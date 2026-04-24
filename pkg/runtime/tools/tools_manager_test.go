@@ -1715,6 +1715,42 @@ sso_account_id = 123456789012
 		}
 	})
 
+	t.Run("AWSPlatformConfigRootFailureSurfacesError", func(t *testing.T) {
+		// Given platform: aws, the aws CLI is installed, and GetProjectRoot fails so the
+		// context-scoped AWS env cannot be computed
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root not found")
+		}
+		stsCalled := false
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			stsCalled = true
+			return "", nil
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the configRoot-resolution failure surfaces as an error and sts is never
+		// invoked — letting the exec fall through with a nil env would silently validate
+		// against the operator's ambient shell credentials, defeating the preflight
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when configRoot cannot be resolved")
+		}
+		if !strings.Contains(err.Error(), "context-scoped AWS env") {
+			t.Errorf("Expected context-scoped AWS env error, got: %v", err)
+		}
+		if stsCalled {
+			t.Error("sts must not be invoked when the context-scoped env is unresolvable")
+		}
+	})
+
 	t.Run("AWSConfigBlockTriggersAuthCheck", func(t *testing.T) {
 		// Given the context has an aws block (no platform set) and creds are invalid
 		mocks, toolsManager := setup(t, `
