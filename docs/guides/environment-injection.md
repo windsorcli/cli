@@ -12,17 +12,30 @@ You should have set up the hook during [installation](../install.md). If configu
 Several tools are presently supported by Windsor's environment management system. The following outlines what to expect for each of these tools.
 
 ### AWS CLI
-If you are using Amazon Web Services (AWS), it is assumed that your AWS config file is located in your project at `contexts/<context-name>/.aws/config`, and leverage non-sensitive, OIDC-based authentication. It's only necessary to configure a single `default` profile.
+AWS integration activates whenever a context has `platform: aws` or an `aws:` block of any kind. There is no separate `enabled` flag — its presence is the signal.
+
+Inside a Windsor shell, `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` always point at the context's own `.aws/` directory, so `aws configure` and `aws configure sso` write into the context folder rather than the operator's global `~/.aws/`. This mirrors how Windsor scopes `KUBECONFIG` and `TALOSCONFIG` per context.
+
+`AWS_PROFILE` defaults to **the context name** so that `aws configure sso --profile <context>` and `aws sso login --profile <context>` line up with what Windsor will export in subsequent shells. If your AWS profile names don't match Windsor context names (e.g. you keep `[profile company-prod]` globally but your context is `prod`), set `aws.profile` in the context to override:
+
+```yaml
+contexts:
+  prod:
+    aws:
+      profile: company-prod
+```
 
 The following environment variables are set automatically, or can be configured in your `windsor.yaml` file:
 
-| Variable         | Default Value                          | Configuration                                      |
-|------------------|----------------------------------------|----------------------------------------------------|
-| AWS_CONFIG_FILE  | `contexts/<context-name>/.aws/config`  |                                                    |
-| AWS_PROFILE      | system default                         | `contexts.<context-name>.aws.aws_profile`          |
-| AWS_ENDPOINT_URL | system default                         | `contexts.<context-name>.aws.aws_endpoint_url`     |
-| S3_HOSTNAME      | system default                         | `contexts.<context-name>.aws.s3_hostname`          |
-| MWAA_ENDPOINT    | system default                         | `contexts.<context-name>.aws.mwaa_endpoint`        |
+| Variable                    | Default Value                                | Configuration                                      |
+|-----------------------------|----------------------------------------------|----------------------------------------------------|
+| AWS_CONFIG_FILE             | `contexts/<context-name>/.aws/config`        |                                                    |
+| AWS_SHARED_CREDENTIALS_FILE | `contexts/<context-name>/.aws/credentials`   |                                                    |
+| AWS_PROFILE                 | current context name                         | `contexts.<context-name>.aws.profile`              |
+| AWS_REGION                  | profile's own `region =` line                | `contexts.<context-name>.aws.region`               |
+| AWS_ENDPOINT_URL            | system default                               | `contexts.<context-name>.aws.endpoint_url`         |
+| S3_HOSTNAME                 | system default                               | `contexts.<context-name>.aws.s3_hostname`          |
+| MWAA_ENDPOINT               | system default                               | `contexts.<context-name>.aws.mwaa_endpoint`        |
 
 ### Docker
 The Windsor CLI provides several functionalities to manage Docker environments effectively. It automatically sets the `DOCKER_HOST` environment variable based on the `workstation.runtime` configuration, ensuring compatibility with both Colima and Docker Desktop setups. The CLI also ensures the Docker configuration directory exists and writes necessary configuration files. Additionally, it adds the `DOCKER_CONFIG` environment variable pointing to the Docker configuration directory and manages aliases for Docker commands, such as `docker-compose`, if specific plugins are detected.

@@ -45,41 +45,51 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 // =============================================================================
 
 // GetEnvVars retrieves the environment variables for the AWS environment.
+// AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at the context's
+// .aws/config and .aws/credentials, even when those files do not yet exist, so
+// that `aws configure` (run inside a windsor-shell session) writes into the
+// context folder rather than contaminating the operator's global ~/.aws files.
+// Subsequent aws/terraform/SDK calls then read the same context-scoped files.
+// AWS_PROFILE defaults to the current context name so `aws configure sso` creates
+// a profile bound to the context; an explicit aws.profile in the context's aws
+// block overrides the default. AWS_REGION is emitted only when aws.region is set;
+// downstream tools otherwise fall back to the profile's own `region =` line.
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Get the context configuration
-	contextConfigData := e.configHandler.GetConfig()
-
-	// Ensure the context configuration and AWS-specific settings are available.
-	if contextConfigData == nil || contextConfigData.AWS == nil {
-		return nil, fmt.Errorf("context configuration or AWS configuration is missing")
-	}
-
-	// Determine the root directory for configuration files.
 	configRoot, err := e.configHandler.GetConfigRoot()
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 	}
 
-	// Set AWS config folder environment variables to allow CLIs to generate auth files in the right location.
 	awsConfigDir := filepath.Join(configRoot, ".aws")
-	awsConfigPath := filepath.Join(awsConfigDir, "config")
-	awsCredentialsPath := filepath.Join(awsConfigDir, "credentials")
+	envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "config"))
+	envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
 
-	envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(awsConfigPath)
-	envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(awsCredentialsPath)
-	if contextConfigData.AWS.AWSProfile != nil {
-		envVars["AWS_PROFILE"] = *contextConfigData.AWS.AWSProfile
+	contextConfigData := e.configHandler.GetConfig()
+	awsProfileOverride := ""
+	if contextConfigData != nil && contextConfigData.AWS != nil {
+		if contextConfigData.AWS.AWSProfile != nil {
+			awsProfileOverride = *contextConfigData.AWS.AWSProfile
+		}
+		if contextConfigData.AWS.AWSRegion != nil {
+			envVars["AWS_REGION"] = *contextConfigData.AWS.AWSRegion
+		}
+		if contextConfigData.AWS.AWSEndpointURL != nil {
+			envVars["AWS_ENDPOINT_URL"] = *contextConfigData.AWS.AWSEndpointURL
+		}
+		if contextConfigData.AWS.S3Hostname != nil {
+			envVars["S3_HOSTNAME"] = *contextConfigData.AWS.S3Hostname
+		}
+		if contextConfigData.AWS.MWAAEndpoint != nil {
+			envVars["MWAA_ENDPOINT"] = *contextConfigData.AWS.MWAAEndpoint
+		}
 	}
-	if contextConfigData.AWS.AWSEndpointURL != nil {
-		envVars["AWS_ENDPOINT_URL"] = *contextConfigData.AWS.AWSEndpointURL
-	}
-	if contextConfigData.AWS.S3Hostname != nil {
-		envVars["S3_HOSTNAME"] = *contextConfigData.AWS.S3Hostname
-	}
-	if contextConfigData.AWS.MWAAEndpoint != nil {
-		envVars["MWAA_ENDPOINT"] = *contextConfigData.AWS.MWAAEndpoint
+
+	if awsProfileOverride != "" {
+		envVars["AWS_PROFILE"] = awsProfileOverride
+	} else if ctx := e.configHandler.GetContext(); ctx != "" {
+		envVars["AWS_PROFILE"] = ctx
 	}
 
 	return envVars, nil

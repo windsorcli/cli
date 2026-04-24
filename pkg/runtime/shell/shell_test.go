@@ -2993,6 +2993,111 @@ func TestShell_ExecSilentWithTimeout(t *testing.T) {
 	})
 }
 
+func TestShell_ExecSilentWithEnvAndTimeout(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a shell with mocked command execution
+		shell, _ := setup(t)
+
+		// When executing a command with env vars and a timeout
+		out, err := shell.ExecSilentWithEnvAndTimeout("test", map[string]string{"FOO": "bar"}, []string{"arg"}, 5*time.Second)
+
+		// Then it succeeds and returns the captured output
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if out != "test\n" {
+			t.Errorf("Expected output 'test\\n', got %q", out)
+		}
+	})
+
+	t.Run("MergesEnvVars", func(t *testing.T) {
+		// Given a shell that captures cmd.Env on run
+		shell, mocks := setup(t)
+		var capturedEnv []string
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			capturedEnv = cmd.Env
+			return nil
+		}
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
+			return nil
+		}
+
+		// When executing with extra env vars
+		_, _ = shell.ExecSilentWithEnvAndTimeout("test", map[string]string{"AWS_PROFILE": "ctx"}, []string{"arg"}, 5*time.Second)
+
+		// Then the extra env var is present in the merged environment — confirming the env
+		// override actually reaches the child process rather than being silently dropped
+		found := false
+		for _, e := range capturedEnv {
+			if e == "AWS_PROFILE=ctx" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected AWS_PROFILE=ctx in cmd.Env, got %v", capturedEnv)
+		}
+	})
+
+	t.Run("Timeout", func(t *testing.T) {
+		// Given a CmdWait that sleeps past the timeout
+		shell, mocks := setup(t)
+		mocks.Shims.CmdStart = func(cmd *exec.Cmd) error {
+			return nil
+		}
+		mocks.Shims.CmdWait = func(cmd *exec.Cmd) error {
+			time.Sleep(200 * time.Millisecond)
+			return nil
+		}
+
+		// When executing with a short timeout
+		out, err := shell.ExecSilentWithEnvAndTimeout("test", nil, []string{"arg"}, 50*time.Millisecond)
+
+		// Then a timeout error is surfaced — the env-aware variant must inherit the same
+		// process-killing safety net as ExecSilentWithTimeout, otherwise hung commands would
+		// block bootstrap indefinitely
+		if err == nil {
+			t.Error("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timed out") {
+			t.Errorf("Expected timeout error, got: %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty output on timeout, got %q", out)
+		}
+	})
+
+	t.Run("CommandNil", func(t *testing.T) {
+		// Given a Command shim that returns nil
+		shell, mocks := setup(t)
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			return nil
+		}
+
+		// When executing
+		output, err := shell.ExecSilentWithEnvAndTimeout("test", nil, []string{"arg"}, 5*time.Second)
+
+		// Then a command-creation error is returned
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to create command") {
+			t.Errorf("Expected error about command creation, got: %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %q", output)
+		}
+	})
+}
+
 func TestShell_ExecProgress(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()

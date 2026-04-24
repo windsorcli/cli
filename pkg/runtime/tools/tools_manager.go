@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ type ToolsManager interface {
 	WriteManifest() error
 	Install() error
 	Check() error
+	CheckAuth() error
 	GetTerraformCommand() string
 }
 
@@ -35,6 +37,27 @@ type BaseToolsManager struct {
 	configHandler config.ConfigHandler
 	shell         shell.Shell
 }
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// awsProfileNone, awsProfileSSO, and awsProfileKeys describe what (if anything) the
+// context-scoped .aws/config has for a given profile. awsProfileNone covers "file missing,
+// unreadable, or profile not present"; callers treat it as first-time setup.
+const (
+	awsProfileNone awsProfileState = iota
+	awsProfileSSO
+	awsProfileKeys
+)
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// awsProfileState classifies an entry in a context's .aws/config so CheckAuth can return a
+// hint tuned to the operator's actual state rather than generic advice.
+type awsProfileState int
 
 // =============================================================================
 // Constructor
@@ -108,6 +131,11 @@ func (t *BaseToolsManager) Check() error {
 			return fmt.Errorf("kubelogin check failed: %v", err)
 		}
 	}
+	// AWS tool verification lives on CheckAuth, not here. Check() fires from every command
+	// path including `windsor init` / `windsor env` — at those points the operator has no
+	// obligation to have the aws CLI installed OR to be authed. Both cloud-CLI presence and
+	// credential resolution belong to CheckAuth, which runs only from bootstrap/up/apply and
+	// from `windsor check`.
 	return nil
 }
 
@@ -362,6 +390,268 @@ func (t *BaseToolsManager) checkKubelogin() error {
 	}
 
 	return nil
+}
+
+// CheckAuth verifies that the operator has the cloud CLIs for any in-use platforms AND that
+// their credentials actually resolve. For AWS it runs `aws --version` (presence + minimum
+// version) and then `aws sts get-caller-identity` — a cheap read-only STS API that forces the
+// SDK to run its full credential-resolution chain (SSO session, static keys, env vars, IMDS)
+// end-to-end. A success proves the operator's AWS setup will work when terraform/SDK calls
+// run later; a failure surfaces the vendor's own message (expired SSO, profile not found, no
+// credentials) at preflight time rather than minutes into a `terraform apply`. CheckAuth must
+// NOT be called from `windsor init` or `windsor env` (which have no obligation to be authed
+// yet); it is intended for bootstrap/up/apply paths where credentials are about to be
+// exercised, and from `windsor check` where the operator is explicitly asking to verify.
+// Error messages are tuned to the operator's current state (missing config, expired SSO
+// session, rejected static keys) so the returned hint is a copy-pasteable command rather than
+// generic advice.
+func (t *BaseToolsManager) CheckAuth() error {
+	platform := t.configHandler.GetString("platform")
+	if platform == "" {
+		platform = t.configHandler.GetString("provider")
+	}
+	configData := t.configHandler.GetConfig()
+	hasAWSConfig := configData != nil && configData.AWS != nil
+	if platform == "aws" || hasAWSConfig {
+		// In a CI environment where AWS credentials are already exported via a native SDK
+		// mechanism (IRSA, ECS task role, static keys), the aws CLI binary is not required:
+		// terraform's AWS provider resolves credentials through its own SDK and never
+		// shells out. A lean CI image (e.g. a minimal GitHub Actions runner that pulls
+		// OIDC creds but never installs awscli) would otherwise fail preflight for no
+		// real reason. When ambient creds are present AND the CLI is absent, accept that
+		// we can't run sts here and defer validation to the actual terraform call — the
+		// SDK will surface its own error at that point if the web-identity token / task
+		// role is misconfigured.
+		if hasAmbientAWSCredentials() {
+			if _, err := execLookPath("aws"); err != nil {
+				return nil
+			}
+		}
+		if err := t.checkAWSBinary(); err != nil {
+			return err
+		}
+		// Inject the context-scoped AWS env (AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE,
+		// AWS_PROFILE) so the credential check succeeds even when the operator hasn't sourced
+		// `windsor env` / installed the windsor shell hook yet — without this, bootstrap on a
+		// fresh machine deadlocks: it can't proceed without valid credentials, but the
+		// operator can't establish credentials (`aws sso login`, `aws configure`) without the
+		// same env pointing aws at the context's .aws/config. When configRoot can't be
+		// resolved the error is surfaced rather than swallowed — letting sts fall back to the
+		// ambient shell env would silently validate the wrong credentials and produce the
+		// exact false-positive CheckAuth exists to prevent.
+		env, err := t.awsContextEnv()
+		if err != nil {
+			return fmt.Errorf("cannot resolve context-scoped AWS env for credential check: %w", err)
+		}
+		if _, err := t.shell.ExecSilentWithEnvAndTimeout("aws", env, []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
+			return fmt.Errorf("aws credentials did not resolve for context %q: %v\n%s", t.configHandler.GetContext(), err, t.awsAuthHint())
+		}
+	}
+	return nil
+}
+
+// awsContextEnv returns the env vars that point the AWS CLI / SDK at the context-scoped
+// .aws/ directory and select the right profile. Mirrors AwsEnvPrinter.GetEnvVars but is
+// duplicated here intentionally — pkg/runtime/tools doesn't depend on pkg/runtime/env, and
+// the shape is small. Returns (nil, err) if the configRoot can't be resolved.
+//
+// Returns (nil, nil) when the parent env already advertises AWS credentials via a native
+// SDK mechanism (IRSA / OIDC web identity, ECS container role, or static env keys). In
+// those environments — typically CI pods, fargate tasks, and OIDC-federated runners —
+// overriding AWS_PROFILE / AWS_CONFIG_FILE would point the aws CLI at a profile that
+// doesn't exist on the pod's filesystem, causing sts get-caller-identity to fail with
+// "profile not found" before the SDK ever consults the web-identity or container-credentials
+// provider. Passing nil through to the shell exec preserves the inherited env so the native
+// credential chain resolves normally.
+func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
+	if hasAmbientAWSCredentials() {
+		return nil, nil
+	}
+	configRoot, err := t.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, err
+	}
+	awsConfigDir := filepath.Join(configRoot, ".aws")
+	env := map[string]string{
+		"AWS_CONFIG_FILE":             filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
+		"AWS_SHARED_CREDENTIALS_FILE": filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
+	}
+	cfg := t.configHandler.GetConfig()
+	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil && *cfg.AWS.AWSProfile != "" {
+		env["AWS_PROFILE"] = *cfg.AWS.AWSProfile
+	} else if ctx := t.configHandler.GetContext(); ctx != "" {
+		env["AWS_PROFILE"] = ctx
+	}
+	return env, nil
+}
+
+// hasAmbientAWSCredentials reports whether the parent process environment already carries
+// AWS credentials via a native SDK mechanism that must not be overridden by context-scoped
+// profile/config vars. Triggers on:
+//
+//   - AWS_WEB_IDENTITY_TOKEN_FILE — IRSA pods on EKS, GitHub Actions OIDC, generic OIDC
+//   - AWS_CONTAINER_CREDENTIALS_RELATIVE_URI — ECS/Fargate task roles
+//   - AWS_CONTAINER_CREDENTIALS_FULL_URI — ECS Anywhere / externally hosted containers
+//   - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY — static keys already exported
+//
+// IMDS-based EC2 is intentionally not covered: there is no env var to detect it, and an
+// operator who explicitly sets AWS_PROFILE against a missing profile on an IMDS host gets
+// the same "profile not found" error from stock aws CLI — this is baseline AWS behavior we
+// do not need to preempt.
+func hasAmbientAWSCredentials() bool {
+	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" {
+		return true
+	}
+	if os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" {
+		return true
+	}
+	if os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
+		return true
+	}
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
+		return true
+	}
+	return false
+}
+
+// checkAWSBinary verifies the AWS CLI is available in PATH and meets the minimum version.
+// Pulled out of CheckAuth so the binary vs. credential failure modes each have a clean
+// single-error exit point.
+func (t *BaseToolsManager) checkAWSBinary() error {
+	if _, err := execLookPath("aws"); err != nil {
+		return fmt.Errorf("aws CLI is not available in the PATH; install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
+	}
+
+	out, err := t.shell.ExecSilentWithTimeout("aws", []string{"--version"}, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("aws --version failed: %v", err)
+	}
+	version := extractVersion(out)
+	if version == "" {
+		return fmt.Errorf("failed to extract aws CLI version")
+	}
+	if compareVersion(version, constants.MinimumVersionAWS) < 0 {
+		return fmt.Errorf("aws CLI version %s is below the minimum required version %s", version, constants.MinimumVersionAWS)
+	}
+
+	return nil
+}
+
+// awsAuthHint inspects the context-scoped AWS config file and returns an actionable next-step
+// message tuned to what it finds there. The three useful states are: an SSO profile whose
+// token has expired (point at `aws sso login`), a static-keys profile that was rejected
+// (point at rotation), and no profile configured yet (first-time setup — surface BOTH
+// `aws configure sso` AND `aws configure` because CI service accounts, accounts not enrolled
+// in SSO, and operators handed programmatic keys directly all need the access-key command,
+// and nothing in this code path distinguishes which kind of operator reached it; dropping
+// either path sends some fraction of them to a command that will not work for their account
+// type). The lookup uses the operator's effective profile name — the value of aws.profile
+// when set, falling back to the context name — so a context like `prod` configured with
+// `aws.profile: company-prod` searches for `[profile company-prod]` and emits commands with
+// `--profile company-prod` rather than misleadingly suggesting `--profile prod`. When the
+// current process env already advertises the context's AWS_CONFIG_FILE /
+// AWS_SHARED_CREDENTIALS_FILE (operator has sourced `windsor env`), the suggestion is a bare
+// `aws ...` command. When the env does not match — the hint was reached from a plain shell
+// — the env pair is prepended so the suggested command still writes into the context-scoped
+// .aws/ directory. Dropping the prefix unconditionally was tried and creates a silent loop on
+// a fresh machine: operators who follow the hint land their SSO tokens in ~/.aws and the next
+// windsor check re-fails against the context path with no signal explaining why.
+func (t *BaseToolsManager) awsAuthHint() string {
+	ctx := t.configHandler.GetContext()
+	profile := ctx
+	cfg := t.configHandler.GetConfig()
+	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil && *cfg.AWS.AWSProfile != "" {
+		profile = *cfg.AWS.AWSProfile
+	}
+	configRoot, err := t.configHandler.GetConfigRoot()
+	if err != nil || configRoot == "" {
+		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  aws configure sso --profile %s   (SSO)\n  aws configure --profile %s       (access keys)", ctx, profile, profile)
+	}
+	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
+	awsCredentialsPath := filepath.Join(configRoot, ".aws", "credentials")
+	prefix := ""
+	if !awsEnvPointsAtContext(awsConfigPath, awsCredentialsPath) {
+		prefix = awsEnvPrefix(configRoot)
+	}
+	state := detectAWSProfileState(awsConfigPath, profile)
+	switch state {
+	case awsProfileSSO:
+		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  %saws sso login --profile %s", profile, prefix, profile)
+	case awsProfileKeys:
+		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  %saws configure --profile %s", profile, prefix, profile)
+	default:
+		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  %saws configure sso --profile %s   (SSO)\n  %saws configure --profile %s       (access keys)", ctx, prefix, profile, prefix, profile)
+	}
+}
+
+// awsEnvPointsAtContext reports whether the current process env has AWS_CONFIG_FILE and
+// AWS_SHARED_CREDENTIALS_FILE already resolving to the given context paths — i.e. the
+// operator is in a shell where `windsor env` has been sourced for this exact context. Both
+// vars must match; a partial or mismatched set means the operator is either in a plain shell
+// or has env from a different context still loaded, and in either case a bare `aws ...`
+// suggestion would write credentials to the wrong place.
+func awsEnvPointsAtContext(configPath, credentialsPath string) bool {
+	cf := os.Getenv("AWS_CONFIG_FILE")
+	sf := os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
+	if cf == "" || sf == "" {
+		return false
+	}
+	return filepath.ToSlash(cf) == filepath.ToSlash(configPath) &&
+		filepath.ToSlash(sf) == filepath.ToSlash(credentialsPath)
+}
+
+// awsEnvPrefix returns the `KEY="VALUE" KEY="VALUE" ` prefix that, when prepended to an aws
+// CLI invocation, makes that invocation read from and write to the context-scoped .aws/
+// directory. Paths are double-quoted so a projectRoot containing spaces (e.g.
+// `/Users/foo/my projects/…`) still parses as a single shell token instead of splitting at
+// the space and breaking the command.
+func awsEnvPrefix(configRoot string) string {
+	awsConfigDir := filepath.Join(configRoot, ".aws")
+	return fmt.Sprintf("AWS_CONFIG_FILE=%q AWS_SHARED_CREDENTIALS_FILE=%q ",
+		filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
+		filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
+	)
+}
+
+// detectAWSProfileState parses the AWS config INI at path and classifies the profile named
+// profileName. It looks for either [profile <name>] or [default] (when profileName is
+// "default"), then scans subsequent lines until the next section header for sso_session= or
+// aws_access_key_id=, returning the appropriate state. Absent file, parse errors, or an empty
+// matching section all resolve to awsProfileNone so the caller gets the first-time-setup hint
+// rather than a misleading refresh hint.
+func detectAWSProfileState(path, profileName string) awsProfileState {
+	data, err := osReadFile(path)
+	if err != nil {
+		return awsProfileNone
+	}
+	var wantedHeader string
+	if profileName == "default" {
+		wantedHeader = "[default]"
+	} else {
+		wantedHeader = "[profile " + profileName + "]"
+	}
+	inSection := false
+	for rawLine := range strings.SplitSeq(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			inSection = line == wantedHeader
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		key := strings.TrimSpace(strings.SplitN(line, "=", 2)[0])
+		switch key {
+		case "sso_session", "sso_start_url", "sso_account_id":
+			return awsProfileSSO
+		case "aws_access_key_id":
+			return awsProfileKeys
+		}
+	}
+	return awsProfileNone
 }
 
 // compareVersion is a helper function to compare two version strings.

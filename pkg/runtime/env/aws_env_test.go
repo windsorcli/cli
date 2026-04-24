@@ -2,8 +2,6 @@ package env
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -76,8 +74,9 @@ version: v1alpha1
 contexts:
   test-context:
     aws:
-      aws_profile: default
-      aws_endpoint_url: https://aws.endpoint
+      profile: default
+      region: us-west-2
+      endpoint_url: https://aws.endpoint
       s3_hostname: s3.amazonaws.com
       mwaa_endpoint: https://mwaa.endpoint
 `
@@ -89,13 +88,6 @@ contexts:
 
 	if err := mocks.ConfigHandler.SetContext("test-context"); err != nil {
 		t.Fatalf("Failed to set context: %v", err)
-	}
-
-	mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
-		if name == filepath.FromSlash("/mock/config/root/.aws/config") {
-			return nil, nil
-		}
-		return nil, os.ErrNotExist
 	}
 
 	return mocks
@@ -128,6 +120,7 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 
 		expected := map[string]string{
 			"AWS_PROFILE":                 "default",
+			"AWS_REGION":                  "us-west-2",
 			"AWS_ENDPOINT_URL":            "https://aws.endpoint",
 			"S3_HOSTNAME":                 "s3.amazonaws.com",
 			"MWAA_ENDPOINT":               "https://mwaa.endpoint",
@@ -140,39 +133,9 @@ func TestAwsEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("NonExistentConfigFile", func(t *testing.T) {
-		// Given an AWS env printer with non-existent config file
-		env, _ := setup()
-
-		env.shims.Stat = func(name string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		}
-
-		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
-
-		// Then environment variables should be returned with AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE
-		// set even when files don't exist, to allow CLIs to generate auth files in the right location
-		if err != nil {
-			t.Errorf("GetEnvVars returned an error: %v", err)
-		}
-
-		expected := map[string]string{
-			"AWS_PROFILE":                 "default",
-			"AWS_ENDPOINT_URL":            "https://aws.endpoint",
-			"S3_HOSTNAME":                 "s3.amazonaws.com",
-			"MWAA_ENDPOINT":               "https://mwaa.endpoint",
-			"AWS_CONFIG_FILE":             "/mock/config/root/.aws/config",
-			"AWS_SHARED_CREDENTIALS_FILE": "/mock/config/root/.aws/credentials",
-		}
-
-		if !reflect.DeepEqual(envVars, expected) {
-			t.Errorf("GetEnvVars returned %v, want %v", envVars, expected)
-		}
-	})
-
-	t.Run("MissingConfiguration", func(t *testing.T) {
-		// Given an AWS env printer with missing AWS configuration
+	t.Run("EmitsConfigPathsEvenWhenFilesAbsent", func(t *testing.T) {
+		// Given a fresh AWS-platform context where .aws/config and .aws/credentials
+		// have not been created yet (operator hasn't run `aws configure`)
 		mocks := setupAwsEnvMocks(t)
 		configStr := `
 version: v1alpha1
@@ -186,14 +149,52 @@ contexts:
 		env.shims = mocks.Shims
 
 		// When GetEnvVars is called
-		_, err := env.GetEnvVars()
+		envVars, err := env.GetEnvVars()
 
-		// Then an error should be returned
-		if err == nil {
-			t.Error("GetEnvVars did not return an error")
+		// Then AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE still point at the
+		// context-scoped paths so a subsequent `aws configure` writes into the context
+		// folder rather than ~/.aws. AWS_PROFILE defaults to the context name so the
+		// freshly-created profile section matches.
+		if err != nil {
+			t.Errorf("GetEnvVars returned an error: %v", err)
 		}
-		if err != nil && !strings.Contains(err.Error(), "context configuration or AWS configuration is missing") {
-			t.Errorf("GetEnvVars returned error %v, want error containing 'context configuration or AWS configuration is missing'", err)
+
+		expected := map[string]string{
+			"AWS_CONFIG_FILE":             "/mock/config/root/.aws/config",
+			"AWS_SHARED_CREDENTIALS_FILE": "/mock/config/root/.aws/credentials",
+			"AWS_PROFILE":                 "test-context",
+		}
+
+		if !reflect.DeepEqual(envVars, expected) {
+			t.Errorf("GetEnvVars returned %v, want %v", envVars, expected)
+		}
+	})
+
+	t.Run("ExplicitAWSProfileOverridesContextDefault", func(t *testing.T) {
+		// Given an AWS block that pins a specific profile name
+		mocks := setupAwsEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    aws:
+      profile: shared-ops
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+
+		// Then AWS_PROFILE reflects the override, not the context name
+		if err != nil {
+			t.Errorf("GetEnvVars returned an error: %v", err)
+		}
+		if got := envVars["AWS_PROFILE"]; got != "shared-ops" {
+			t.Errorf("AWS_PROFILE = %q, want %q", got, "shared-ops")
 		}
 	})
 
@@ -205,7 +206,7 @@ version: v1alpha1
 contexts:
   test-context:
     aws:
-      aws_profile: default
+      profile: default
 `
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
