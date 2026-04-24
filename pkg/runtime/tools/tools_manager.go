@@ -538,11 +538,15 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 }
 
 // awsAuthHint inspects the context-scoped AWS config file and returns an actionable next-step
-// message tuned to what it finds there. The three useful states are: no profile configured yet
-// (first-time setup — point at `aws configure sso`), an SSO profile whose token has expired
-// (point at `aws sso login`), and a static-keys profile that was rejected (point at rotation).
-// The lookup uses the operator's effective profile name — the value of aws.profile when set,
-// falling back to the context name — so a context like `prod` configured with
+// message tuned to what it finds there. The three useful states are: an SSO profile whose
+// token has expired (point at `aws sso login`), a static-keys profile that was rejected
+// (point at rotation), and no profile configured yet (first-time setup — surface BOTH
+// `aws configure sso` AND `aws configure` because CI service accounts, accounts not enrolled
+// in SSO, and operators handed programmatic keys directly all need the access-key command,
+// and nothing in this code path distinguishes which kind of operator reached it; dropping
+// either path sends some fraction of them to a command that will not work for their account
+// type). The lookup uses the operator's effective profile name — the value of aws.profile
+// when set, falling back to the context name — so a context like `prod` configured with
 // `aws.profile: company-prod` searches for `[profile company-prod]` and emits commands with
 // `--profile company-prod` rather than misleadingly suggesting `--profile prod`. When the
 // current process env already advertises the context's AWS_CONFIG_FILE /
@@ -576,11 +580,6 @@ func (t *BaseToolsManager) awsAuthHint() string {
 	case awsProfileKeys:
 		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  %saws configure --profile %s", profile, prefix, profile)
 	default:
-		// Surface both SSO and access-key paths here: CI service accounts, accounts not
-		// enrolled in SSO, and operators handed programmatic keys directly all need the
-		// access-key command, and there is no signal at this point in the flow that lets
-		// us pick one automatically. SSO is listed first because it is the expected path
-		// for human operators at SSO-enrolled orgs.
 		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  %saws configure sso --profile %s   (SSO)\n  %saws configure --profile %s       (access keys)", ctx, prefix, profile, prefix, profile)
 	}
 }
