@@ -1751,6 +1751,45 @@ contexts:
 		}
 	})
 
+	t.Run("AWSPlatformStsHintQuotesPathsWithSpaces", func(t *testing.T) {
+		// Given platform: aws and a projectRoot whose path contains a space
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/Users/foo/my projects", nil
+		}
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return []byte(`
+[profile test]
+sso_session = company
+`), nil
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Token has expired")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the env-prefix quotes the path so the suggested command pastes into a shell
+		// as a single token — an unquoted path with a space would cause the shell to split
+		// at the space and treat `projects/.aws/config` as a separate command, breaking the
+		// copy-pasteable contract the hint advertises
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), `AWS_CONFIG_FILE="/Users/foo/my projects/contexts/test/.aws/config"`) {
+			t.Errorf("Expected AWS_CONFIG_FILE to be double-quoted in hint, got: %v", err)
+		}
+	})
+
 	t.Run("AWSConfigBlockTriggersAuthCheck", func(t *testing.T) {
 		// Given the context has an aws block (no platform set) and creds are invalid
 		mocks, toolsManager := setup(t, `

@@ -520,13 +520,15 @@ func (t *BaseToolsManager) awsAuthHint() string {
 	}
 }
 
-// awsEnvPrefix returns the `KEY=VALUE KEY=VALUE ` prefix that, when prepended to an aws CLI
-// invocation, makes that invocation read from and write to the context-scoped .aws/ directory.
-// Pulled out of awsAuthHint so all three hint branches (sso, keys, none) share one source of
-// truth for the env-prefix shape.
+// awsEnvPrefix returns the `KEY="VALUE" KEY="VALUE" ` prefix that, when prepended to an aws
+// CLI invocation, makes that invocation read from and write to the context-scoped .aws/
+// directory. Paths are double-quoted so a projectRoot containing spaces (e.g.
+// `/Users/foo/my projects/…`) still parses as a single shell token instead of splitting at
+// the space and breaking the command. Pulled out of awsAuthHint so all three hint branches
+// (sso, keys, none) share one source of truth for the env-prefix shape.
 func awsEnvPrefix(configRoot string) string {
 	awsConfigDir := filepath.Join(configRoot, ".aws")
-	return fmt.Sprintf("AWS_CONFIG_FILE=%s AWS_SHARED_CREDENTIALS_FILE=%s ",
+	return fmt.Sprintf("AWS_CONFIG_FILE=%q AWS_SHARED_CREDENTIALS_FILE=%q ",
 		filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
 		filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
 	)
