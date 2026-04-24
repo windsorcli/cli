@@ -955,20 +955,22 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		}
 	}
 
-	if context := p.configHandler.GetContext(); context != "" {
+	appendBackendTfvars := func() {
+		if p.configHandler.GetContext() == "" {
+			return
+		}
 		backendTfvarsPath := filepath.Join(configRoot, "backend.tfvars")
 		if _, err := p.Shims.Stat(backendTfvarsPath); err != nil {
 			backendTfvarsPath = filepath.Join(configRoot, "terraform", "backend.tfvars")
 			if _, err := p.Shims.Stat(backendTfvarsPath); err != nil {
-				backendTfvarsPath = ""
+				return
 			}
 		}
-		if backendTfvarsPath != "" {
-			absBackendTfvarsPath, err := filepath.Abs(backendTfvarsPath)
-			if err == nil {
-				backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=%s", filepath.ToSlash(absBackendTfvarsPath)))
-			}
+		absBackendTfvarsPath, err := filepath.Abs(backendTfvarsPath)
+		if err != nil {
+			return
 		}
+		backendConfigArgs = append(backendConfigArgs, fmt.Sprintf("-backend-config=%s", filepath.ToSlash(absBackendTfvarsPath)))
 	}
 
 	prefix := p.configHandler.GetString("terraform.backend.prefix", "")
@@ -983,6 +985,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 		}
 		addBackendConfigArg("path", filepath.ToSlash(statePath))
 	case "s3":
+		appendBackendTfvars()
 		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
 		addBackendConfigArg("key", keyPath)
 		if backend := p.configHandler.GetConfig().Terraform.Backend.S3; backend != nil {
@@ -991,6 +994,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 			}
 		}
 	case "kubernetes":
+		appendBackendTfvars()
 		secretSuffix := projectPath
 		if prefix != "" {
 			secretSuffix = fmt.Sprintf("%s-%s", strings.ReplaceAll(prefix, "/", "-"), secretSuffix)
@@ -1003,6 +1007,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 			}
 		}
 	case "azurerm":
+		appendBackendTfvars()
 		keyPath := fmt.Sprintf("%s%s", prefix, filepath.ToSlash(filepath.Join(projectPath, "terraform.tfstate")))
 		addBackendConfigArg("key", keyPath)
 		if backend := p.configHandler.GetConfig().Terraform.Backend.AzureRM; backend != nil {

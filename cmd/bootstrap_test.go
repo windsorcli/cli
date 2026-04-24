@@ -289,9 +289,9 @@ func TestBootstrapCmd(t *testing.T) {
 			timeline = append(timeline, "up")
 			return nil
 		}
-		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 			timeline = append(timeline, "migrate")
-			return nil
+			return nil, nil
 		}
 
 		proj := newBootstrapTestProject(mocks)
@@ -319,6 +319,41 @@ func TestBootstrapCmd(t *testing.T) {
 			if timeline[i] != step {
 				t.Errorf("Expected timeline[%d]=%q, got %q (full: %v)", i, step, timeline[i], timeline)
 			}
+		}
+	})
+
+	t.Run("FailsWhenMigrateStateReportsSkippedComponents", func(t *testing.T) {
+		// Given bootstrap runs Up → MigrateState and a component dir has been removed
+		// between those two steps (a nearly-impossible race, but the failure mode we
+		// care about). MigrateState silently skipping would leave state on local disk
+		// while the restored config points at the remote backend — subsequent windsor
+		// apply runs would hit an inconsistent state. Bootstrap must fail loudly with
+		// the offending component IDs so the operator can investigate instead of
+		// discovering the partial migration later.
+		mocks := setupBootstrapTest(t)
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			return nil
+		}
+		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return []string{"network", "cluster"}, nil
+		}
+
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatal("Expected bootstrap to fail when MigrateState reports skipped components, got nil")
+		}
+		if !strings.Contains(err.Error(), "skipped components") {
+			t.Errorf("Expected error to mention skipped components, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "network") || !strings.Contains(err.Error(), "cluster") {
+			t.Errorf("Expected error to name the skipped components (network, cluster), got: %v", err)
 		}
 	})
 

@@ -195,21 +195,25 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 // pass to move state to the configured remote backend once that backend's underlying infrastructure
 // (e.g. the kubernetes cluster hosting the k8s backend) has been provisioned. Safe to invoke
 // directly for users who change backend config and want existing state migrated in place. The
-// blueprint parameter is required.
-func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+// blueprint parameter is required. Returns the IDs of components whose directories were missing
+// and therefore skipped; callers decide whether that is an error condition — bootstrap treats
+// any skip as anomalous (Up should have materialized every dir); pre-destroy migration discards
+// the list because un-applied components are a normal condition there.
+func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return nil, fmt.Errorf("blueprint not provided")
 	}
 	if err := i.ensureTerraformStack(); err != nil {
-		return err
+		return nil, err
 	}
 	if i.TerraformStack == nil {
-		return nil
+		return nil, nil
 	}
-	if err := i.TerraformStack.MigrateState(blueprint); err != nil {
-		return fmt.Errorf("failed to migrate terraform state: %w", err)
+	skipped, err := i.TerraformStack.MigrateState(blueprint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to migrate terraform state: %w", err)
 	}
-	return nil
+	return skipped, nil
 }
 
 // Down destroys the "workstation" terraform component if it is present in the blueprint, then returns.

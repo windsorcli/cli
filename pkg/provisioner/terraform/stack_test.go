@@ -549,7 +549,7 @@ func TestStack_MigrateState(t *testing.T) {
 
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
-		if err := stack.MigrateState(nil); err == nil {
+		if _, err := stack.MigrateState(nil); err == nil {
 			t.Fatal("Expected error for nil blueprint")
 		}
 	})
@@ -573,7 +573,7 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		if err := stack.MigrateState(blueprint); err != nil {
+		if _, err := stack.MigrateState(blueprint); err != nil {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
 		}
 
@@ -604,13 +604,62 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		if err := stack.MigrateState(blueprint); err != nil {
+		if _, err := stack.MigrateState(blueprint); err != nil {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
 		}
 
 		// Then no init invocation carried -upgrade
 		if upgradeSeen {
 			t.Error("Expected MigrateState's init not to include -upgrade; state migration must not reinstall providers")
+		}
+	})
+
+	t.Run("ReturnsPartialSkippedListAlongsideError", func(t *testing.T) {
+		// Given a two-component blueprint where the first component's directory is missing
+		// (will be appended to skipped) and the second component's terraform init fails.
+		// MigrateState must return BOTH: the skipped list so far AND the error, so a
+		// caller (e.g. bootstrap) can render "skipped A, then B failed" in a single
+		// diagnostic rather than losing the skip signal on the error path.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		statCallsByPath := make(map[string]int)
+		originalStat := mocks.Shims.Stat
+		firstSeen := ""
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
+			// The MigrateState loop calls Stat once on component.FullPath per component.
+			// Treat the first unique path seen as the "missing" one to get a skip; every
+			// other path falls through to the default behavior so init can run against it.
+			if strings.HasSuffix(path, "backend_override.tf") {
+				return originalStat(path)
+			}
+			statCallsByPath[path]++
+			if firstSeen == "" {
+				firstSeen = path
+			}
+			if path == firstSeen {
+				return nil, os.ErrNotExist
+			}
+			return originalStat(path)
+		}
+
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				return "", fmt.Errorf("backend not reachable")
+			}
+			return "", nil
+		}
+
+		skipped, err := stack.MigrateState(blueprint)
+
+		// Then the error from the second component surfaces AND the skip from the first
+		// survives — callers that only looked at err previously would have silently lost
+		// the fact that something upstream was already missing
+		if err == nil {
+			t.Fatal("Expected MigrateState to return an error")
+		}
+		if len(skipped) == 0 {
+			t.Error("Expected skipped list to include the first component whose directory was missing")
 		}
 	})
 
@@ -625,7 +674,7 @@ func TestStack_MigrateState(t *testing.T) {
 			return "", nil
 		}
 
-		err := stack.MigrateState(blueprint)
+		_, err := stack.MigrateState(blueprint)
 		if err == nil {
 			t.Fatal("Expected MigrateState to return an error when init fails")
 		}

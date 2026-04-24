@@ -16,7 +16,7 @@ import (
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
 	UpFunc                   func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	MigrateStateFunc         func(blueprint *blueprintv1alpha1.Blueprint) error
+	MigrateStateFunc         func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	PostApplyFunc            func(fns ...func(id string) error)
 	DestroyAllFunc           func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -51,11 +51,11 @@ func (m *MockStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(i
 }
 
 // MigrateState is a mock implementation of the MigrateState method.
-func (m *MockStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+func (m *MockStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if m.MigrateStateFunc != nil {
 		return m.MigrateStateFunc(blueprint)
 	}
-	return nil
+	return nil, nil
 }
 
 // PostApply is a mock implementation of the PostApply method.

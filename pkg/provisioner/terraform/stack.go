@@ -28,7 +28,7 @@ import (
 // Both the Stack struct and MockStack implement this interface.
 type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	MigrateState(blueprint *blueprintv1alpha1.Blueprint) error
+	MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -230,14 +230,20 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 // remote backend exists and is reachable). A component whose state is already on the configured
 // backend is a no-op. On the first failure MigrateState returns; any components not yet migrated
 // retain their existing state, so the call is safe to retry once the underlying issue is resolved.
-func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+//
+// The returned []string is the IDs of components whose directories were missing (skipped) — it
+// is returned alongside any error, not only on success, so an operator seeing
+// "cluster failed" can also see "network was skipped" in the same report. Callers that only
+// care about success can discard the slice; callers that want full diagnostics (bootstrap)
+// use it to render a complete picture of what happened before the abort.
+func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return nil, fmt.Errorf("blueprint not provided")
 	}
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return nil, fmt.Errorf("error getting current directory: %v", err)
 	}
 	defer func() {
 		_ = s.shims.Chdir(currentDir)
@@ -245,7 +251,7 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 
 	projectRoot := s.runtime.ProjectRoot
 	if projectRoot == "" {
-		return fmt.Errorf("error getting project root: project root is empty")
+		return nil, fmt.Errorf("error getting project root: project root is empty")
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
@@ -256,12 +262,17 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 		}
 	}()
 
+	var skipped []string
 	// Migration is a fast post-apply bookkeeping step per component; users don't need a
 	// spinner line for each one. A single top-level progress message covers the whole pass.
-	return tui.WithProgress("Migrating terraform state", func() error {
+	err = tui.WithProgress("Migrating terraform state", func() error {
 		for _, component := range components {
-			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-				return fmt.Errorf("directory %s does not exist", component.FullPath)
+			if _, statErr := s.shims.Stat(component.FullPath); statErr != nil {
+				if os.IsNotExist(statErr) {
+					skipped = append(skipped, component.GetID())
+					continue
+				}
+				return fmt.Errorf("error checking component directory %s: %w", component.FullPath, statErr)
 			}
 
 			terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
@@ -283,6 +294,7 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 		}
 		return nil
 	})
+	return skipped, err
 }
 
 // DestroyAll destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
