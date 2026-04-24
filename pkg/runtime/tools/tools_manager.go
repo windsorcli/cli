@@ -413,6 +413,20 @@ func (t *BaseToolsManager) CheckAuth() error {
 	configData := t.configHandler.GetConfig()
 	hasAWSConfig := configData != nil && configData.AWS != nil
 	if platform == "aws" || hasAWSConfig {
+		// In a CI environment where AWS credentials are already exported via a native SDK
+		// mechanism (IRSA, ECS task role, static keys), the aws CLI binary is not required:
+		// terraform's AWS provider resolves credentials through its own SDK and never
+		// shells out. A lean CI image (e.g. a minimal GitHub Actions runner that pulls
+		// OIDC creds but never installs awscli) would otherwise fail preflight for no
+		// real reason. When ambient creds are present AND the CLI is absent, accept that
+		// we can't run sts here and defer validation to the actual terraform call — the
+		// SDK will surface its own error at that point if the web-identity token / task
+		// role is misconfigured.
+		if hasAmbientAWSCredentials() {
+			if _, err := execLookPath("aws"); err != nil {
+				return nil
+			}
+		}
 		if err := t.checkAWSBinary(); err != nil {
 			return err
 		}

@@ -1931,6 +1931,41 @@ contexts:
 		}
 	})
 
+	t.Run("AWSPlatformAmbientCredsWithoutAwsCliIsNoOp", func(t *testing.T) {
+		// Given a lean CI image that has IRSA creds exported but no aws CLI binary —
+		// typical of a minimal GitHub Actions runner using OIDC federation where
+		// awscli was never added to the image
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			return "", exec.ErrNotFound
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+		stsCalled := false
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			stsCalled = true
+			return "", nil
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then CheckAuth accepts that it can't preflight here and returns nil — terraform's
+		// AWS provider will exercise the native credential chain at apply time and surface
+		// its own error if IRSA is actually misconfigured. A hard requirement on the aws
+		// CLI in this case would be a false negative, since the CLI isn't part of the
+		// runtime credential path for terraform at all.
+		if err != nil {
+			t.Errorf("Expected CheckAuth to be a no-op under IRSA without aws CLI, got %v", err)
+		}
+		if stsCalled {
+			t.Error("sts must not be invoked when the aws CLI is absent")
+		}
+	})
+
 	t.Run("AWSConfigBlockTriggersAuthCheck", func(t *testing.T) {
 		// Given the context has an aws block (no platform set) and creds are invalid
 		mocks, toolsManager := setup(t, `
