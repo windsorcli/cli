@@ -117,6 +117,50 @@ func TestResolveBlueprintURL(t *testing.T) {
 		}
 	})
 
+	t.Run("PlatformWithExistingTemplateReturnsNilWhenBootstrapAllowed", func(t *testing.T) {
+		// Given --platform and a contexts/_template directory that exists on disk, init
+		// flow (allowLocalBootstrap=true). The local template is authoritative and the
+		// OCI fallback must NOT be layered on top — otherwise repos like windsorcli/core,
+		// where the template and the default OCI source are effectively the same
+		// blueprint, end up with duplicate template/core entries that Initialize
+		// rejects as ambiguous.
+		tmpDir := t.TempDir()
+		templateDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		urls, err := resolveBlueprintURL("", "aws", "aws", templateDir, true)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if urls != nil {
+			t.Errorf("Expected nil URLs when --platform is set and local template exists, got %v", urls)
+		}
+	})
+
+	t.Run("PlatformFallsBackToDefaultURLWhenBootstrapDisallowed", func(t *testing.T) {
+		// Given --platform, a template dir that exists on disk, but allowLocalBootstrap=false
+		// (the `up` flow). The existing-template guard intentionally does NOT kick in here;
+		// `up` preserves the prior unconditional-URL behavior on --platform so its
+		// semantics don't shift based on disk contents.
+		tmpDir := t.TempDir()
+		templateDir := filepath.Join(tmpDir, "contexts", "_template")
+		if err := os.MkdirAll(templateDir, 0755); err != nil {
+			t.Fatalf("Failed to create template dir: %v", err)
+		}
+
+		urls, err := resolveBlueprintURL("", "aws", "aws", templateDir, false)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(urls) != 1 || urls[0] == "" {
+			t.Errorf("Expected default URL for --platform on up flow even when template exists, got %v", urls)
+		}
+	})
+
 	t.Run("LocalContextWithoutTemplateUsesDefaultWhenBootstrapAllowed", func(t *testing.T) {
 		// Given context=local, a missing template dir, and bootstrap allowed (init flow)
 		tmpDir := t.TempDir()

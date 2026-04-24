@@ -43,17 +43,32 @@ func applyWorkstationFlagOverrides(overrides map[string]any, vmDriver, platform 
 
 // resolveBlueprintURL determines the blueprint URL (if any) that init or up
 // should pass to Project.Initialize. An explicit --blueprint wins, then
-// --platform falls back to the default OCI URL. The "local" context falls
-// back to the default URL when no contexts/_template directory exists, but
-// only when allowLocalBootstrap is true — init opts in to bootstrap a fresh
-// local context, while up must not silently pull from the network on a bare
-// invocation. Returns a nil slice when the caller should use whatever
-// blueprint state is already on disk.
+// --platform falls back to the default OCI URL — but only when no local
+// template root is present. A present contexts/_template directory is
+// always authoritative, because in repos like windsorcli/core the template
+// and the default OCI source are effectively the same blueprint and
+// layering them produces duplicate template/core entries. The "local"
+// context falls back to the default URL when no contexts/_template
+// directory exists, but only when allowLocalBootstrap is true — init opts
+// in to bootstrap a fresh local context, while up must not silently pull
+// from the network on a bare invocation. Returns a nil slice when the
+// caller should use whatever blueprint state is already on disk.
 func resolveBlueprintURL(blueprintFlag, platformFlag, contextName, templateRoot string, allowLocalBootstrap bool) ([]string, error) {
 	if blueprintFlag != "" {
 		return []string{blueprintFlag}, nil
 	}
 	if platformFlag != "" {
+		// Only consult the template root when the caller permits local bootstrap (init
+		// and bootstrap flows). `up` passes allowLocalBootstrap=false and must retain
+		// the pre-existing "always inject on --platform" behavior so it doesn't
+		// accidentally observe stat errors on a badly-shaped templateRoot.
+		if allowLocalBootstrap {
+			if _, err := os.Stat(templateRoot); err == nil {
+				return nil, nil
+			} else if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("error checking template root: %w", err)
+			}
+		}
 		return []string{constants.GetEffectiveBlueprintURL()}, nil
 	}
 	if !allowLocalBootstrap || contextName != "local" {
