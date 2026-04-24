@@ -539,17 +539,16 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 
 // awsAuthHint inspects the context-scoped AWS config file and returns an actionable next-step
 // message tuned to what it finds there. The three useful states are: no profile configured yet
-// (first-time setup — offer both SSO and access-key commands), an SSO profile whose token has
-// expired (point at `aws sso login`), and a static-keys profile that was rejected (point at
-// rotation). The lookup uses the operator's effective profile name — the value of aws.profile
-// when set, falling back to the context name — so a context like `prod` configured with
+// (first-time setup — point at `aws configure sso`), an SSO profile whose token has expired
+// (point at `aws sso login`), and a static-keys profile that was rejected (point at rotation).
+// The lookup uses the operator's effective profile name — the value of aws.profile when set,
+// falling back to the context name — so a context like `prod` configured with
 // `aws.profile: company-prod` searches for `[profile company-prod]` and emits commands with
-// `--profile company-prod` rather than misleadingly suggesting `--profile prod`. Each
-// suggestion is prefixed with the context's AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE so
-// the command works in any shell — including one where `windsor env` hasn't been sourced —
-// and the resulting profile/keys land in the context folder rather than ~/.aws. Anything
-// unparseable or missing falls back to a generic hint so the error is still useful even when
-// the file is in an unexpected shape.
+// `--profile company-prod` rather than misleadingly suggesting `--profile prod`. Hints assume
+// the operator is running inside a windsor-managed shell where AWS_CONFIG_FILE /
+// AWS_SHARED_CREDENTIALS_FILE already point at the context's .aws/ directory; that is the only
+// shell where the suggested command's output will be picked up on the next run, so there is no
+// value in prefixing env vars for other shells.
 func (t *BaseToolsManager) awsAuthHint() string {
 	ctx := t.configHandler.GetContext()
 	profile := ctx
@@ -559,33 +558,18 @@ func (t *BaseToolsManager) awsAuthHint() string {
 	}
 	configRoot, err := t.configHandler.GetConfigRoot()
 	if err != nil || configRoot == "" {
-		return fmt.Sprintf("Run 'aws configure sso --profile %s' (SSO) or 'aws configure --profile %s' (access keys) to set up credentials.", profile, profile)
+		return fmt.Sprintf("Run 'aws configure sso --profile %s' to set up credentials.", profile)
 	}
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
-	envPrefix := awsEnvPrefix(configRoot)
 	state := detectAWSProfileState(awsConfigPath, profile)
 	switch state {
 	case awsProfileSSO:
-		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  %saws sso login --profile %s", profile, envPrefix, profile)
+		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  aws sso login --profile %s", profile, profile)
 	case awsProfileKeys:
-		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  %saws configure --profile %s", profile, envPrefix, profile)
+		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  aws configure --profile %s", profile, profile)
 	default:
-		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  %saws configure sso --profile %s   (SSO — recommended for teams)\n  %saws configure --profile %s       (access keys)", ctx, envPrefix, profile, envPrefix, profile)
+		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run:\n  aws configure sso --profile %s", ctx, profile)
 	}
-}
-
-// awsEnvPrefix returns the `KEY="VALUE" KEY="VALUE" ` prefix that, when prepended to an aws
-// CLI invocation, makes that invocation read from and write to the context-scoped .aws/
-// directory. Paths are double-quoted so a projectRoot containing spaces (e.g.
-// `/Users/foo/my projects/…`) still parses as a single shell token instead of splitting at
-// the space and breaking the command. Pulled out of awsAuthHint so all three hint branches
-// (sso, keys, none) share one source of truth for the env-prefix shape.
-func awsEnvPrefix(configRoot string) string {
-	awsConfigDir := filepath.Join(configRoot, ".aws")
-	return fmt.Sprintf("AWS_CONFIG_FILE=%q AWS_SHARED_CREDENTIALS_FILE=%q ",
-		filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
-		filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
-	)
 }
 
 // detectAWSProfileState parses the AWS config INI at path and classifies the profile named
