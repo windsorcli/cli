@@ -1867,6 +1867,37 @@ contexts:
 		}
 	})
 
+	t.Run("AWSPlatformEcsAnywhereFullUriSkipsProfileInjection", func(t *testing.T) {
+		// Given an ECS-Anywhere / externally-hosted container — AWS_CONTAINER_CREDENTIALS_FULL_URI
+		// is set (rather than the RELATIVE_URI the in-cluster agent injects) because the creds
+		// endpoint lives on a non-link-local host. The SDK treats FULL_URI identically to
+		// RELATIVE_URI for credential resolution; the guard must treat it the same way too.
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "https://credentials.example.com/role/abc123")
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			return `{"Arn":"arn:aws:sts::123456789012:assumed-role/ecs-anywhere-role/session"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed under ECS-Anywhere FULL_URI, got %v", err)
+		}
+		// Then the shell receives a nil env map so the SDK resolves credentials from the
+		// externally-hosted endpoint rather than getting short-circuited by a profile lookup
+		if capturedEnv != nil {
+			t.Errorf("Expected nil env under ECS-Anywhere FULL_URI, got %v", capturedEnv)
+		}
+	})
+
 	t.Run("AWSPlatformStaticEnvKeysSkipProfileInjection", func(t *testing.T) {
 		// Given a CI environment that exports AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
 		// directly (no profile file involved)
