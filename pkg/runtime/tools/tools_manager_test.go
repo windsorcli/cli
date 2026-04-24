@@ -1552,6 +1552,169 @@ contexts:
 		}
 	})
 
+	t.Run("AWSPlatformInjectsContextEnvForSts", func(t *testing.T) {
+		// Given platform: aws and the aws CLI is installed
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 2 && args[0] == "sts" && args[1] == "get-caller-identity" {
+				capturedEnv = env
+				return `{"Arn":"arn:aws:iam::123456789012:user/test"}`, nil
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed, got %v", err)
+		}
+		// Then sts received the context-scoped AWS env so it resolves against the context's
+		// .aws/config and AWS_PROFILE rather than whatever happens to be active in the parent
+		// shell — without this, CheckAuth could green-light bootstrap using stale [default]
+		// credentials that terraform apply would later fail with
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("GetConfigRoot failed: %v", err)
+		}
+		wantConfig := filepath.ToSlash(filepath.Join(configRoot, ".aws", "config"))
+		wantCreds := filepath.ToSlash(filepath.Join(configRoot, ".aws", "credentials"))
+		if capturedEnv["AWS_CONFIG_FILE"] != wantConfig {
+			t.Errorf("AWS_CONFIG_FILE = %q, want %q", capturedEnv["AWS_CONFIG_FILE"], wantConfig)
+		}
+		if capturedEnv["AWS_SHARED_CREDENTIALS_FILE"] != wantCreds {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE = %q, want %q", capturedEnv["AWS_SHARED_CREDENTIALS_FILE"], wantCreds)
+		}
+		if capturedEnv["AWS_PROFILE"] != "test" {
+			t.Errorf("AWS_PROFILE = %q, want %q", capturedEnv["AWS_PROFILE"], "test")
+		}
+	})
+
+	t.Run("AWSPlatformWithProfileOverrideUsesAwsProfile", func(t *testing.T) {
+		// Given platform: aws and an explicit aws.profile that differs from the context name
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+    aws:
+      profile: company-prod
+`)
+		awsBinaryMock(t)
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "aws" && len(args) == 1 && args[0] == "--version" {
+				return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			return `{"Arn":"arn:aws:iam::123456789012:user/x"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed, got %v", err)
+		}
+		// Then AWS_PROFILE comes from aws.profile, not the context name — operators who
+		// alias their context to a differently-named upstream profile (e.g. company-prod)
+		// must have sts resolve against that profile, not the context label
+		if capturedEnv["AWS_PROFILE"] != "company-prod" {
+			t.Errorf("AWS_PROFILE = %q, want %q", capturedEnv["AWS_PROFILE"], "company-prod")
+		}
+	})
+
+	t.Run("AWSPlatformStsHintIncludesEnvPrefix", func(t *testing.T) {
+		// Given platform: aws, the binary check passes, sts fails, and the context's
+		// .aws/config has an SSO profile entry for the operator's context
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return []byte(`
+[profile test]
+sso_session = company
+sso_account_id = 123456789012
+`), nil
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Token has expired")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the surfaced error includes both the AWS_CONFIG_FILE= env prefix and the
+		// `aws sso login --profile test` command — the env prefix is what makes the suggestion
+		// runnable in a plain shell where `windsor env` hasn't been sourced yet, closing the
+		// chicken-and-egg loop on a freshly provisioned machine
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), "AWS_CONFIG_FILE=") {
+			t.Errorf("Expected AWS_CONFIG_FILE= prefix in hint, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "aws sso login --profile test") {
+			t.Errorf("Expected sso-login hint with profile, got: %v", err)
+		}
+	})
+
+	t.Run("AWSPlatformStsHintHonorsAwsProfileOverride", func(t *testing.T) {
+		// Given platform: aws, an explicit aws.profile that differs from the context name,
+		// and a context-scoped .aws/config containing only the override-named SSO profile
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+    aws:
+      profile: company-prod
+`)
+		awsBinaryMock(t)
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return []byte(`
+[profile company-prod]
+sso_session = company
+sso_account_id = 123456789012
+`), nil
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Token has expired")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the hint suggests `aws sso login --profile company-prod` rather than
+		// --profile test — operators with aliased upstream profiles get a runnable command,
+		// not a misleading first-time-setup hint
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), "aws sso login --profile company-prod") {
+			t.Errorf("Expected sso-login hint to use aws.profile override, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "--profile test") {
+			t.Errorf("Hint should not reference context name when aws.profile is set, got: %v", err)
+		}
+	})
+
 	t.Run("AWSConfigBlockTriggersAuthCheck", func(t *testing.T) {
 		// Given the context has an aws block (no platform set) and creds are invalid
 		mocks, toolsManager := setup(t, `

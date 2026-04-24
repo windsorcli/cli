@@ -416,11 +416,42 @@ func (t *BaseToolsManager) CheckAuth() error {
 		if err := t.checkAWSBinary(); err != nil {
 			return err
 		}
-		if _, err := t.shell.ExecSilentWithTimeout("aws", []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
+		// Inject the context-scoped AWS env (AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE,
+		// AWS_PROFILE) so the credential check succeeds even when the operator hasn't sourced
+		// `windsor env` / installed the windsor shell hook yet — without this, bootstrap on a
+		// fresh machine deadlocks: it can't proceed without valid credentials, but the
+		// operator can't establish credentials (`aws sso login`, `aws configure`) without the
+		// same env pointing aws at the context's .aws/config.
+		env, _ := t.awsContextEnv()
+		if _, err := t.shell.ExecSilentWithEnvAndTimeout("aws", env, []string{"sts", "get-caller-identity"}, 10*time.Second); err != nil {
 			return fmt.Errorf("aws credentials did not resolve for context %q: %v\n%s", t.configHandler.GetContext(), err, t.awsAuthHint())
 		}
 	}
 	return nil
+}
+
+// awsContextEnv returns the env vars that point the AWS CLI / SDK at the context-scoped
+// .aws/ directory and select the right profile. Mirrors AwsEnvPrinter.GetEnvVars but is
+// duplicated here intentionally — pkg/runtime/tools doesn't depend on pkg/runtime/env, and
+// the shape is small. Returns (nil, err) if the configRoot can't be resolved; callers may
+// pass nil straight through to the shell, which then falls back to the inherited env.
+func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
+	configRoot, err := t.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, err
+	}
+	awsConfigDir := filepath.Join(configRoot, ".aws")
+	env := map[string]string{
+		"AWS_CONFIG_FILE":             filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
+		"AWS_SHARED_CREDENTIALS_FILE": filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
+	}
+	cfg := t.configHandler.GetConfig()
+	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil && *cfg.AWS.AWSProfile != "" {
+		env["AWS_PROFILE"] = *cfg.AWS.AWSProfile
+	} else if ctx := t.configHandler.GetContext(); ctx != "" {
+		env["AWS_PROFILE"] = ctx
+	}
+	return env, nil
 }
 
 // checkAWSBinary verifies the AWS CLI is available in PATH and meets the minimum version.
@@ -450,24 +481,49 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 // message tuned to what it finds there. The three useful states are: no profile configured yet
 // (first-time setup — offer both SSO and access-key commands), an SSO profile whose token has
 // expired (point at `aws sso login`), and a static-keys profile that was rejected (point at
-// rotation). Anything unparseable or missing falls back to a generic hint so the error is still
-// useful even when the file is in an unexpected shape.
+// rotation). The lookup uses the operator's effective profile name — the value of aws.profile
+// when set, falling back to the context name — so a context like `prod` configured with
+// `aws.profile: company-prod` searches for `[profile company-prod]` and emits commands with
+// `--profile company-prod` rather than misleadingly suggesting `--profile prod`. Each
+// suggestion is prefixed with the context's AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE so
+// the command works in any shell — including one where `windsor env` hasn't been sourced —
+// and the resulting profile/keys land in the context folder rather than ~/.aws. Anything
+// unparseable or missing falls back to a generic hint so the error is still useful even when
+// the file is in an unexpected shape.
 func (t *BaseToolsManager) awsAuthHint() string {
 	ctx := t.configHandler.GetContext()
+	profile := ctx
+	cfg := t.configHandler.GetConfig()
+	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil && *cfg.AWS.AWSProfile != "" {
+		profile = *cfg.AWS.AWSProfile
+	}
 	configRoot, err := t.configHandler.GetConfigRoot()
 	if err != nil || configRoot == "" {
-		return fmt.Sprintf("Run 'aws configure sso --profile %s' (SSO) or 'aws configure --profile %s' (access keys) to set up credentials.", ctx, ctx)
+		return fmt.Sprintf("Run 'aws configure sso --profile %s' (SSO) or 'aws configure --profile %s' (access keys) to set up credentials.", profile, profile)
 	}
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
-	state := detectAWSProfileState(awsConfigPath, ctx)
+	envPrefix := awsEnvPrefix(configRoot)
+	state := detectAWSProfileState(awsConfigPath, profile)
 	switch state {
 	case awsProfileSSO:
-		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run: aws sso login --profile %s", ctx, ctx)
+		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  %saws sso login --profile %s", profile, envPrefix, profile)
 	case awsProfileKeys:
-		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with: aws configure --profile %s", ctx, ctx)
+		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  %saws configure --profile %s", profile, envPrefix, profile)
 	default:
-		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  aws configure sso --profile %s   (SSO — recommended for teams)\n  aws configure --profile %s       (access keys)", ctx, ctx, ctx)
+		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  %saws configure sso --profile %s   (SSO — recommended for teams)\n  %saws configure --profile %s       (access keys)", ctx, envPrefix, profile, envPrefix, profile)
 	}
+}
+
+// awsEnvPrefix returns the `KEY=VALUE KEY=VALUE ` prefix that, when prepended to an aws CLI
+// invocation, makes that invocation read from and write to the context-scoped .aws/ directory.
+// Pulled out of awsAuthHint so all three hint branches (sso, keys, none) share one source of
+// truth for the env-prefix shape.
+func awsEnvPrefix(configRoot string) string {
+	awsConfigDir := filepath.Join(configRoot, ".aws")
+	return fmt.Sprintf("AWS_CONFIG_FILE=%s AWS_SHARED_CREDENTIALS_FILE=%s ",
+		filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
+		filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
+	)
 }
 
 // detectAWSProfileState parses the AWS config INI at path and classifies the profile named
