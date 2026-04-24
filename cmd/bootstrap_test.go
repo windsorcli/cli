@@ -357,6 +357,42 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("FailsWhenMigrateStateErrorsAfterSkippingComponents", func(t *testing.T) {
+		// Given MigrateState skips some components and then fails on a later one — the
+		// provisioner returns both the partial skip list and the error. The operator
+		// debugging the failure needs to see BOTH facts ("network was missing before we
+		// even got there, THEN cluster blew up") to narrow the investigation from
+		// "why did migration fail?" to "what removed network's dir between Up and now?"
+		mocks := setupBootstrapTest(t)
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			return nil
+		}
+		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return []string{"network"}, fmt.Errorf("terraform init failed for cluster")
+		}
+
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatal("Expected bootstrap to fail when MigrateState errors, got nil")
+		}
+		// Then the surfaced error carries both the underlying failure AND the name of the
+		// component that was skipped beforehand — dropping the skip list would strand the
+		// operator with only half the diagnostic picture.
+		if !strings.Contains(err.Error(), "terraform init failed for cluster") {
+			t.Errorf("Expected underlying error in surfaced message, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "network") {
+			t.Errorf("Expected skipped component 'network' in surfaced message, got: %v", err)
+		}
+	})
+
 	t.Run("SuccessWithContextArg", func(t *testing.T) {
 		// Given a config handler that records SetContext calls
 		mocks := setupBootstrapTest(t)

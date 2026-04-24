@@ -416,6 +416,77 @@ func TestProvisioner_Up(t *testing.T) {
 
 }
 
+func TestProvisioner_MigrateState(t *testing.T) {
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
+
+		skipped, err := provisioner.MigrateState(nil)
+
+		if err == nil {
+			t.Fatal("Expected error for nil blueprint")
+		}
+		if skipped != nil {
+			t.Errorf("Expected nil skipped on nil-blueprint error, got %v", skipped)
+		}
+	})
+
+	t.Run("ForwardsSkippedListOnSuccess", func(t *testing.T) {
+		// Given a stack that skips two components and returns no error
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return []string{"network", "cluster"}, nil
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When MigrateState runs
+		skipped, err := provisioner.MigrateState(createTestBlueprint())
+
+		// Then the skip list is forwarded untouched to the caller
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(skipped) != 2 || skipped[0] != "network" || skipped[1] != "cluster" {
+			t.Errorf("Expected skipped=[network, cluster], got %v", skipped)
+		}
+	})
+
+	t.Run("PreservesSkippedListOnError", func(t *testing.T) {
+		// Given a stack that returns both a partial skip list AND an error — e.g. network
+		// was missing (skipped) then cluster's terraform init failed. The provisioner
+		// must forward both so bootstrap can assemble a "skipped A, then B failed"
+		// diagnostic. Dropping the skip list on the error path contradicts the
+		// Stack.MigrateState contract and strands callers who route through the
+		// provisioner without the signal they need to investigate.
+		mocks := setupProvisionerMocks(t)
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return []string{"network"}, fmt.Errorf("terraform init failed for cluster")
+		}
+		opts := &Provisioner{TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When MigrateState runs
+		skipped, err := provisioner.MigrateState(createTestBlueprint())
+
+		// Then the provisioner surfaces both the underlying failure and the partial skip
+		if err == nil {
+			t.Fatal("Expected MigrateState to surface the stack error")
+		}
+		if !strings.Contains(err.Error(), "failed to migrate terraform state") {
+			t.Errorf("Expected wrapped error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "terraform init failed for cluster") {
+			t.Errorf("Expected underlying cause preserved via %%w, got: %v", err)
+		}
+		if len(skipped) != 1 || skipped[0] != "network" {
+			t.Errorf("Expected skipped=[network] preserved on error path, got %v", skipped)
+		}
+	})
+}
+
 func TestProvisioner_OnTerraformApply(t *testing.T) {
 	t.Run("RegistersCallbackInvokedByStackOnUp", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)

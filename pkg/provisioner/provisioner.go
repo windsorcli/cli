@@ -199,6 +199,12 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 // and therefore skipped; callers decide whether that is an error condition — bootstrap treats
 // any skip as anomalous (Up should have materialized every dir); pre-destroy migration discards
 // the list because un-applied components are a normal condition there.
+//
+// The skipped slice is returned alongside any error (not only on success), mirroring the
+// Stack.MigrateState contract. Dropping it on the error path would strand bootstrap without
+// the context it needs to emit "A was skipped, then B failed" in a single diagnostic — the
+// exact signal the operator needs to investigate what removed A's directory between Up and
+// MigrateState.
 func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -211,7 +217,7 @@ func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]st
 	}
 	skipped, err := i.TerraformStack.MigrateState(blueprint)
 	if err != nil {
-		return nil, fmt.Errorf("failed to migrate terraform state: %w", err)
+		return skipped, fmt.Errorf("failed to migrate terraform state: %w", err)
 	}
 	return skipped, nil
 }
