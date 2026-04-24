@@ -1816,6 +1816,48 @@ sso_account_id = 123456789012
 		}
 	})
 
+	t.Run("AWSPlatformStsHintQuotesPathsWithSpacesInPlainShell", func(t *testing.T) {
+		// Given platform: aws, a projectRoot whose path contains a space, and no AWS env in
+		// the current process — the hint will take the prefix-emitting branch
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_CONFIG_FILE", "")
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/Users/foo/my projects", nil
+		}
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return []byte(`
+[profile test]
+sso_session = company
+`), nil
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Token has expired")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the emitted env-prefix double-quotes the path so the suggested command pastes
+		// into a shell as a single token — an unquoted path with a space would cause the
+		// shell to split at the space and treat `projects/.aws/config` as a separate command,
+		// breaking the copy-pasteable contract the hint advertises
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), `AWS_CONFIG_FILE="/Users/foo/my projects/contexts/test/.aws/config"`) {
+			t.Errorf("Expected AWS_CONFIG_FILE to be double-quoted in hint, got: %v", err)
+		}
+	})
+
 	t.Run("AWSPlatformConfigRootFailureSurfacesError", func(t *testing.T) {
 		// Given platform: aws, the aws CLI is installed, and GetProjectRoot fails so the
 		// context-scoped AWS env cannot be computed
