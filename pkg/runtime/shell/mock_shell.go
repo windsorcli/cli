@@ -16,29 +16,30 @@ import (
 
 type MockShell struct {
 	DefaultShell
-	RenderEnvVarsFunc              func(envVars map[string]string, export bool) string
-	RenderAliasesFunc              func(aliases map[string]string) string
-	GetProjectRootFunc             func() (string, error)
-	ExecFunc                       func(command string, args ...string) (string, error)
-	ExecSilentFunc                 func(command string, args ...string) (string, error)
-	ExecSilentWithEnvFunc          func(command string, env map[string]string, args ...string) (string, error)
-	ExecSilentWithTimeoutFunc      func(command string, args []string, timeout time.Duration) (string, error)
-	ExecProgressFunc               func(message string, command string, args ...string) (string, error)
-	ExecProgressWithEnvFunc        func(message string, command string, env map[string]string, args ...string) (string, error)
-	ExecSudoFunc                   func(message string, command string, args ...string) (string, error)
-	InstallHookFunc                func(shellName string) error
-	SetVerbosityFunc               func(verbose bool)
-	IsVerboseFunc                  func() bool
-	IsGlobalFunc                   func() bool
-	AddCurrentDirToTrustedFileFunc func() error
-	CheckTrustedDirectoryFunc      func() error
-	UnsetEnvsFunc                  func(envVars []string)
-	UnsetAliasFunc                 func(aliases []string)
-	WriteResetTokenFunc            func() (string, error)
-	GetSessionTokenFunc            func() (string, error)
-	CheckResetFlagsFunc            func() (bool, error)
-	ResetFunc                      func(...bool)
-	RegisterSecretFunc             func(value string)
+	RenderEnvVarsFunc               func(envVars map[string]string, export bool) string
+	RenderAliasesFunc               func(aliases map[string]string) string
+	GetProjectRootFunc              func() (string, error)
+	ExecFunc                        func(command string, args ...string) (string, error)
+	ExecSilentFunc                  func(command string, args ...string) (string, error)
+	ExecSilentWithEnvFunc           func(command string, env map[string]string, args ...string) (string, error)
+	ExecSilentWithTimeoutFunc       func(command string, args []string, timeout time.Duration) (string, error)
+	ExecSilentWithEnvAndTimeoutFunc func(command string, env map[string]string, args []string, timeout time.Duration) (string, error)
+	ExecProgressFunc                func(message string, command string, args ...string) (string, error)
+	ExecProgressWithEnvFunc         func(message string, command string, env map[string]string, args ...string) (string, error)
+	ExecSudoFunc                    func(message string, command string, args ...string) (string, error)
+	InstallHookFunc                 func(shellName string) error
+	SetVerbosityFunc                func(verbose bool)
+	IsVerboseFunc                   func() bool
+	IsGlobalFunc                    func() bool
+	AddCurrentDirToTrustedFileFunc  func() error
+	CheckTrustedDirectoryFunc       func() error
+	UnsetEnvsFunc                   func(envVars []string)
+	UnsetAliasFunc                  func(aliases []string)
+	WriteResetTokenFunc             func() (string, error)
+	GetSessionTokenFunc             func() (string, error)
+	CheckResetFlagsFunc             func() (bool, error)
+	ResetFunc                       func(...bool)
+	RegisterSecretFunc              func(value string)
 }
 
 // =============================================================================
@@ -104,6 +105,22 @@ func (s *MockShell) ExecSilentWithEnv(command string, env map[string]string, arg
 
 // ExecSilentWithTimeout calls the custom ExecSilentWithTimeoutFunc if provided, otherwise delegates to ExecSilent.
 func (s *MockShell) ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error) {
+	if s.ExecSilentWithTimeoutFunc != nil {
+		return s.ExecSilentWithTimeoutFunc(command, args, timeout)
+	}
+	return s.ExecSilent(command, args...)
+}
+
+// ExecSilentWithEnvAndTimeout calls the custom ExecSilentWithEnvAndTimeoutFunc if provided.
+// Falls back to ExecSilentWithEnvFunc (then ExecSilentWithTimeoutFunc, then ExecSilent) so
+// existing tests that only stub one of the simpler variants keep working.
+func (s *MockShell) ExecSilentWithEnvAndTimeout(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+	if s.ExecSilentWithEnvAndTimeoutFunc != nil {
+		return s.ExecSilentWithEnvAndTimeoutFunc(command, env, args, timeout)
+	}
+	if s.ExecSilentWithEnvFunc != nil {
+		return s.ExecSilentWithEnvFunc(command, env, args...)
+	}
 	if s.ExecSilentWithTimeoutFunc != nil {
 		return s.ExecSilentWithTimeoutFunc(command, args, timeout)
 	}

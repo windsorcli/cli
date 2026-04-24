@@ -139,6 +139,16 @@ var bootstrapCmd = &cobra.Command{
 			return err
 		}
 
+		// Validate cloud credentials before any infrastructure-touching work runs. CheckAuth
+		// is intentionally NOT part of Initialize/PrepareTools (which fire from `windsor init`
+		// where the operator has no obligation to be authed yet); bootstrap is the first
+		// command that will exercise credentials, so failing here gives the operator the
+		// vendor's own error (expired SSO, profile not found, etc.) up front rather than
+		// minutes into a `terraform apply`.
+		if err := proj.Runtime.ToolsManager.CheckAuth(); err != nil {
+			return fmt.Errorf("error validating credentials: %w", err)
+		}
+
 		if err := proj.Runtime.SaveConfig(len(bootstrapSetFlags) > 0); err != nil {
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}

@@ -41,7 +41,7 @@ func setupRuntimeMocks(t *testing.T) *RuntimeTestMocks {
 		switch key {
 		case "docker.enabled", "terraform.enabled":
 			return true
-		case "aws.enabled", "azure.enabled", "gcp.enabled":
+		case "azure.enabled", "gcp.enabled":
 			return false
 		default:
 			return false
@@ -111,6 +111,7 @@ type MockToolsManager struct {
 	WriteManifestFunc       func() error
 	InstallFunc             func() error
 	CheckFunc               func() error
+	CheckAuthFunc           func() error
 	GetTerraformCommandFunc func() string
 }
 
@@ -131,6 +132,13 @@ func (m *MockToolsManager) Install() error {
 func (m *MockToolsManager) Check() error {
 	if m.CheckFunc != nil {
 		return m.CheckFunc()
+	}
+	return nil
+}
+
+func (m *MockToolsManager) CheckAuth() error {
+	if m.CheckAuthFunc != nil {
+		return m.CheckAuthFunc()
 	}
 	return nil
 }
@@ -2419,18 +2427,12 @@ func TestRuntime_initializeComponents_EdgeCases(t *testing.T) {
 }
 
 func TestRuntime_initializeEnvPrinters(t *testing.T) {
-	t.Run("InitializesAwsEnvWhenEnabled", func(t *testing.T) {
-		// Given a runtime with AWS enabled
+	t.Run("InitializesAwsEnvWhenAWSConfigPresent", func(t *testing.T) {
+		// Given a runtime with an AWS config block (aws.enabled flag is not required)
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "aws.enabled" {
-				return true
-			}
-			return false
-		}
 		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				AWS: &awsv1alpha1.AWSConfig{},
@@ -2444,6 +2446,28 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 
 		if rt.EnvPrinters.AwsEnv == nil {
 			t.Error("Expected AwsEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesAwsEnvWhenPlatformIsAws", func(t *testing.T) {
+		// Given a runtime with platform=aws and no aws block
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "platform" {
+				return "aws"
+			}
+			return ""
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then AWS env printer should be initialized from the platform signal alone
+		if rt.EnvPrinters.AwsEnv == nil {
+			t.Error("Expected AwsEnv to be initialized when platform=aws")
 		}
 	})
 
@@ -2719,7 +2743,9 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 	})
 
 	t.Run("DoesNotOverrideExistingPrinters", func(t *testing.T) {
-		// Given a runtime with an existing env printer
+		// Given a runtime with an existing env printer and an AWS config block that would
+		// otherwise trigger the gate (presence of an aws: block activates AWS injection now
+		// that aws.enabled has been removed).
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
@@ -2727,11 +2753,10 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		rt.EnvPrinters.AwsEnv = existingAwsEnv
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "aws.enabled" {
-				return true
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				AWS: &awsv1alpha1.AWSConfig{},
 			}
-			return false
 		}
 
 		// When initializeEnvPrinters is called

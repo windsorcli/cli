@@ -1,15 +1,16 @@
 package aws
 
-// AWSConfig represents the AWS configuration
+// AWSConfig represents the AWS configuration. AWS integration activates whenever this block
+// is present in a context (or when platform is "aws"); there is no separate `enabled` flag.
 type AWSConfig struct {
-	// Enabled indicates whether AWS integration is enabled.
-	Enabled *bool `yaml:"enabled,omitempty"`
-
 	// AWSEndpointURL specifies the custom endpoint URL for AWS services.
-	AWSEndpointURL *string `yaml:"aws_endpoint_url,omitempty"`
+	AWSEndpointURL *string `yaml:"endpoint_url,omitempty"`
 
 	// AWSProfile defines the AWS CLI profile to use for authentication.
-	AWSProfile *string `yaml:"aws_profile,omitempty"`
+	AWSProfile *string `yaml:"profile,omitempty"`
+
+	// AWSRegion is the AWS region used for API calls, exported to downstream tools as AWS_REGION.
+	AWSRegion *string `yaml:"region,omitempty"`
 
 	// S3Hostname sets the custom hostname for the S3 service.
 	S3Hostname *string `yaml:"s3_hostname,omitempty"`
@@ -29,14 +30,14 @@ type LocalstackConfig struct {
 
 // Merge performs a deep merge of the current AWSConfig with another AWSConfig.
 func (base *AWSConfig) Merge(overlay *AWSConfig) {
-	if overlay.Enabled != nil {
-		base.Enabled = overlay.Enabled
-	}
 	if overlay.AWSEndpointURL != nil {
 		base.AWSEndpointURL = overlay.AWSEndpointURL
 	}
 	if overlay.AWSProfile != nil {
 		base.AWSProfile = overlay.AWSProfile
+	}
+	if overlay.AWSRegion != nil {
+		base.AWSRegion = overlay.AWSRegion
 	}
 	if overlay.S3Hostname != nil {
 		base.S3Hostname = overlay.S3Hostname
@@ -63,14 +64,14 @@ func (c *AWSConfig) Copy() *AWSConfig {
 		return nil
 	}
 	copy := &AWSConfig{}
-	if c.Enabled != nil {
-		copy.Enabled = c.Enabled
-	}
 	if c.AWSEndpointURL != nil {
 		copy.AWSEndpointURL = c.AWSEndpointURL
 	}
 	if c.AWSProfile != nil {
 		copy.AWSProfile = c.AWSProfile
+	}
+	if c.AWSRegion != nil {
+		copy.AWSRegion = c.AWSRegion
 	}
 	if c.S3Hostname != nil {
 		copy.S3Hostname = c.S3Hostname

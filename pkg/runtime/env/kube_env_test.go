@@ -31,10 +31,11 @@ func (m mockDirEntry) Info() (os.FileInfo, error) { return mockFileInfo{name: m.
 // mockFileInfo is a simple mock implementation of os.FileInfo
 type mockFileInfo struct {
 	name string
+	size int64
 }
 
 func (m mockFileInfo) Name() string       { return m.name }
-func (m mockFileInfo) Size() int64        { return 0 }
+func (m mockFileInfo) Size() int64        { return m.size }
 func (m mockFileInfo) Mode() os.FileMode  { return os.ModeDir }
 func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (m mockFileInfo) IsDir() bool        { return true }

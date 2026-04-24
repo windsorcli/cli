@@ -7,7 +7,6 @@ import (
 func TestAWSConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNoNils", func(t *testing.T) {
 		base := &AWSConfig{
-			Enabled:        ptrBool(true),
 			AWSEndpointURL: ptrString("https://base.aws.endpoint"),
 			AWSProfile:     ptrString("base-profile"),
 			S3Hostname:     ptrString("base-s3-hostname"),
@@ -15,7 +14,6 @@ func TestAWSConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &AWSConfig{
-			Enabled:        ptrBool(false),
 			AWSEndpointURL: ptrString("https://overlay.aws.endpoint"),
 			AWSProfile:     ptrString("overlay-profile"),
 			S3Hostname:     ptrString("overlay-s3-hostname"),
@@ -24,9 +22,6 @@ func TestAWSConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.Enabled == nil || *base.Enabled != false {
-			t.Errorf("Enabled mismatch: expected false, got %v", *base.Enabled)
-		}
 		if base.AWSEndpointURL == nil || *base.AWSEndpointURL != "https://overlay.aws.endpoint" {
 			t.Errorf("AWSEndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWSEndpointURL)
 		}
@@ -43,7 +38,6 @@ func TestAWSConfig_Merge(t *testing.T) {
 
 	t.Run("MergeWithAllNils", func(t *testing.T) {
 		base := &AWSConfig{
-			Enabled:        nil,
 			AWSEndpointURL: nil,
 			AWSProfile:     nil,
 			S3Hostname:     nil,
@@ -51,7 +45,6 @@ func TestAWSConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &AWSConfig{
-			Enabled:        nil,
 			AWSEndpointURL: nil,
 			AWSProfile:     nil,
 			S3Hostname:     nil,
@@ -60,9 +53,6 @@ func TestAWSConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if base.Enabled != nil {
-			t.Errorf("Enabled mismatch: expected nil, got %v", base.Enabled)
-		}
 		if base.AWSEndpointURL != nil {
 			t.Errorf("AWSEndpointURL mismatch: expected nil, got '%s'", *base.AWSEndpointURL)
 		}
@@ -81,7 +71,6 @@ func TestAWSConfig_Merge(t *testing.T) {
 func TestAWSConfig_Copy(t *testing.T) {
 	t.Run("CopyWithNonNilValues", func(t *testing.T) {
 		original := &AWSConfig{
-			Enabled:        ptrBool(true),
 			AWSEndpointURL: ptrString("https://original.aws.endpoint"),
 			AWSProfile:     ptrString("original-profile"),
 			S3Hostname:     ptrString("original-s3-hostname"),
@@ -90,9 +79,6 @@ func TestAWSConfig_Copy(t *testing.T) {
 
 		copy := original.DeepCopy()
 
-		if original.Enabled == nil || copy.Enabled == nil || *original.Enabled != *copy.Enabled {
-			t.Errorf("Enabled mismatch: expected %v, got %v", *original.Enabled, *copy.Enabled)
-		}
 		if original.AWSEndpointURL == nil || copy.AWSEndpointURL == nil || *original.AWSEndpointURL != *copy.AWSEndpointURL {
 			t.Errorf("AWSEndpointURL mismatch: expected %v, got %v", *original.AWSEndpointURL, *copy.AWSEndpointURL)
 		}
@@ -107,9 +93,10 @@ func TestAWSConfig_Copy(t *testing.T) {
 		}
 
 		// Modify the copy and ensure original is unchanged
-		copy.Enabled = ptrBool(false)
-		if original.Enabled == nil || *original.Enabled == *copy.Enabled {
-			t.Errorf("Original Enabled was modified: expected %v, got %v", true, *copy.Enabled)
+		newProfile := "modified-profile"
+		copy.AWSProfile = &newProfile
+		if original.AWSProfile == nil || *original.AWSProfile == *copy.AWSProfile {
+			t.Errorf("Original AWSProfile was modified: expected unchanged, got %v", *copy.AWSProfile)
 		}
 	})
 
@@ -122,11 +109,7 @@ func TestAWSConfig_Copy(t *testing.T) {
 	})
 }
 
-// Helper functions to create pointers for basic types
+// Helper function to create pointers for basic types
 func ptrString(s string) *string {
 	return &s
-}
-
-func ptrBool(b bool) *bool {
-	return &b
 }
