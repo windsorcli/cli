@@ -1642,15 +1642,18 @@ contexts:
 		}
 	})
 
-	t.Run("AWSPlatformStsHintSuggestsSsoLogin", func(t *testing.T) {
-		// Given platform: aws, the binary check passes, sts fails, and the context's
-		// .aws/config has an SSO profile entry for the operator's context
+	t.Run("AWSPlatformStsHintPrefixesEnvWhenShellNotSourced", func(t *testing.T) {
+		// Given platform: aws, the binary check passes, sts fails, the context's .aws/config
+		// has an SSO profile entry, and the process env does NOT have AWS_CONFIG_FILE
+		// pointing at the context (plain shell — `windsor env` has not been sourced)
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: aws
 `)
 		awsBinaryMock(t)
+		t.Setenv("AWS_CONFIG_FILE", "")
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
 		originalReadFile := osReadFile
 		osReadFile = func(name string) ([]byte, error) {
 			return []byte(`
@@ -1668,9 +1671,58 @@ sso_account_id = 123456789012
 		}
 		// When CheckAuth runs
 		err := toolsManager.CheckAuth()
-		// Then the surfaced error points the operator at `aws sso login --profile test`
-		// without any env-var prefix — hints assume the operator is in a windsor-managed
-		// shell where AWS_CONFIG_FILE already resolves, so the bare command is what pastes
+		// Then the surfaced error prepends AWS_CONFIG_FILE= / AWS_SHARED_CREDENTIALS_FILE= so
+		// the suggested `aws sso login` writes its token into the context path even though
+		// the operator's shell has no windsor env loaded — without the prefix the token would
+		// land in ~/.aws and the next windsor check would silently re-fail
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), "AWS_CONFIG_FILE=") {
+			t.Errorf("Expected AWS_CONFIG_FILE= prefix when shell env is not sourced, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "aws sso login --profile test") {
+			t.Errorf("Expected sso-login hint with profile, got: %v", err)
+		}
+	})
+
+	t.Run("AWSPlatformStsHintDropsEnvPrefixWhenShellIsSourced", func(t *testing.T) {
+		// Given platform: aws, the binary check passes, sts fails, the context's .aws/config
+		// has an SSO profile entry, and the process env's AWS_CONFIG_FILE /
+		// AWS_SHARED_CREDENTIALS_FILE already point at the context's .aws/ paths — the
+		// operator has sourced `windsor env` for this context
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("GetConfigRoot failed: %v", err)
+		}
+		t.Setenv("AWS_CONFIG_FILE", filepath.ToSlash(filepath.Join(configRoot, ".aws", "config")))
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.ToSlash(filepath.Join(configRoot, ".aws", "credentials")))
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return []byte(`
+[profile test]
+sso_session = company
+sso_account_id = 123456789012
+`), nil
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Token has expired")
+		}
+		// When CheckAuth runs
+		err = toolsManager.CheckAuth()
+		// Then the hint emits a bare `aws sso login --profile test` with no env prefix —
+		// the operator's shell will resolve AWS_CONFIG_FILE from its own env, so prefixing
+		// would just be noise in the common case (they're in a windsor-managed shell)
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when sts errors")
 		}
@@ -1678,7 +1730,7 @@ sso_account_id = 123456789012
 			t.Errorf("Expected sso-login hint with profile, got: %v", err)
 		}
 		if strings.Contains(err.Error(), "AWS_CONFIG_FILE=") {
-			t.Errorf("Hint should not include AWS_CONFIG_FILE= env prefix, got: %v", err)
+			t.Errorf("Hint should omit AWS_CONFIG_FILE= prefix when shell env already points at context, got: %v", err)
 		}
 	})
 

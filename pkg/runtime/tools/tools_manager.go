@@ -544,11 +544,14 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 // The lookup uses the operator's effective profile name — the value of aws.profile when set,
 // falling back to the context name — so a context like `prod` configured with
 // `aws.profile: company-prod` searches for `[profile company-prod]` and emits commands with
-// `--profile company-prod` rather than misleadingly suggesting `--profile prod`. Hints assume
-// the operator is running inside a windsor-managed shell where AWS_CONFIG_FILE /
-// AWS_SHARED_CREDENTIALS_FILE already point at the context's .aws/ directory; that is the only
-// shell where the suggested command's output will be picked up on the next run, so there is no
-// value in prefixing env vars for other shells.
+// `--profile company-prod` rather than misleadingly suggesting `--profile prod`. When the
+// current process env already advertises the context's AWS_CONFIG_FILE /
+// AWS_SHARED_CREDENTIALS_FILE (operator has sourced `windsor env`), the suggestion is a bare
+// `aws ...` command. When the env does not match — the hint was reached from a plain shell
+// — the env pair is prepended so the suggested command still writes into the context-scoped
+// .aws/ directory. Dropping the prefix unconditionally was tried and creates a silent loop on
+// a fresh machine: operators who follow the hint land their SSO tokens in ~/.aws and the next
+// windsor check re-fails against the context path with no signal explaining why.
 func (t *BaseToolsManager) awsAuthHint() string {
 	ctx := t.configHandler.GetContext()
 	profile := ctx
@@ -561,15 +564,49 @@ func (t *BaseToolsManager) awsAuthHint() string {
 		return fmt.Sprintf("Run 'aws configure sso --profile %s' to set up credentials.", profile)
 	}
 	awsConfigPath := filepath.Join(configRoot, ".aws", "config")
+	awsCredentialsPath := filepath.Join(configRoot, ".aws", "credentials")
+	prefix := ""
+	if !awsEnvPointsAtContext(awsConfigPath, awsCredentialsPath) {
+		prefix = awsEnvPrefix(configRoot)
+	}
 	state := detectAWSProfileState(awsConfigPath, profile)
 	switch state {
 	case awsProfileSSO:
-		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  aws sso login --profile %s", profile, profile)
+		return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  %saws sso login --profile %s", profile, prefix, profile)
 	case awsProfileKeys:
-		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  aws configure --profile %s", profile, profile)
+		return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  %saws configure --profile %s", profile, prefix, profile)
 	default:
-		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run:\n  aws configure sso --profile %s", ctx, profile)
+		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run:\n  %saws configure sso --profile %s", ctx, prefix, profile)
 	}
+}
+
+// awsEnvPointsAtContext reports whether the current process env has AWS_CONFIG_FILE and
+// AWS_SHARED_CREDENTIALS_FILE already resolving to the given context paths — i.e. the
+// operator is in a shell where `windsor env` has been sourced for this exact context. Both
+// vars must match; a partial or mismatched set means the operator is either in a plain shell
+// or has env from a different context still loaded, and in either case a bare `aws ...`
+// suggestion would write credentials to the wrong place.
+func awsEnvPointsAtContext(configPath, credentialsPath string) bool {
+	cf := os.Getenv("AWS_CONFIG_FILE")
+	sf := os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
+	if cf == "" || sf == "" {
+		return false
+	}
+	return filepath.ToSlash(cf) == filepath.ToSlash(configPath) &&
+		filepath.ToSlash(sf) == filepath.ToSlash(credentialsPath)
+}
+
+// awsEnvPrefix returns the `KEY="VALUE" KEY="VALUE" ` prefix that, when prepended to an aws
+// CLI invocation, makes that invocation read from and write to the context-scoped .aws/
+// directory. Paths are double-quoted so a projectRoot containing spaces (e.g.
+// `/Users/foo/my projects/…`) still parses as a single shell token instead of splitting at
+// the space and breaking the command.
+func awsEnvPrefix(configRoot string) string {
+	awsConfigDir := filepath.Join(configRoot, ".aws")
+	return fmt.Sprintf("AWS_CONFIG_FILE=%q AWS_SHARED_CREDENTIALS_FILE=%q ",
+		filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
+		filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
+	)
 }
 
 // detectAWSProfileState parses the AWS config INI at path and classifies the profile named
