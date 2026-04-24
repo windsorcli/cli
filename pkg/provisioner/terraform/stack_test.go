@@ -573,8 +573,12 @@ func TestStack_MigrateState(t *testing.T) {
 		}
 
 		// When MigrateState runs
-		if _, err := stack.MigrateState(blueprint); err != nil {
+		skipped, err := stack.MigrateState(blueprint)
+		if err != nil {
 			t.Fatalf("Expected MigrateState to succeed, got %v", err)
+		}
+		if len(skipped) != 0 {
+			t.Errorf("Expected no skipped components when all dirs exist, got %v", skipped)
 		}
 
 		// Then terraform init -migrate-state fired once per component and no plan/apply ran.
@@ -685,6 +689,45 @@ func TestStack_MigrateState(t *testing.T) {
 			t.Errorf("Expected error to wrap the underlying cause, got: %v", err)
 		}
 	})
+
+	t.Run("SkipsComponentsWithMissingDirectoriesAndReportsThem", func(t *testing.T) {
+		// Given a stat shim that reports every component directory as missing — the
+		// blueprint may list components that were never applied (or were already
+		// torn down manually), and MigrateState is called before destroy precisely
+		// when some of that state may be absent. The skipped components must be
+		// returned to the caller so bootstrap (which calls MigrateState after Up
+		// has materialized all dirs) can treat a non-empty skip as an anomaly,
+		// while pre-destroy migration can discard the list and proceed.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		mocks.Shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+
+		var initsSeen int
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				initsSeen++
+			}
+			return "", nil
+		}
+
+		// When MigrateState runs
+		skipped, err := stack.MigrateState(blueprint)
+		if err != nil {
+			t.Fatalf("Expected no error when every component dir is missing, got %v", err)
+		}
+
+		// Then no terraform init was invoked — the missing components were skipped —
+		// and both component IDs appear in the returned skip list.
+		if initsSeen != 0 {
+			t.Errorf("Expected 0 init invocations when all dirs are missing, got %d", initsSeen)
+		}
+		if len(skipped) != 2 {
+			t.Fatalf("Expected 2 skipped component IDs, got %d: %v", len(skipped), skipped)
+		}
+	})
 }
 
 func TestStack_DestroyAll(t *testing.T) {
@@ -744,10 +787,19 @@ func TestStack_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("ErrorRunningTerraformPlan", func(t *testing.T) {
+		// Given a stack whose shell fails on the destroy-phase terraform plan.
+		// Both the prep-apply plan and the destroy-phase plan run via ExecSilentWithEnv;
+		// this test matches the second occurrence (plan -destroy, identified by
+		// PlanDestroyArgs being appended), so the first prep-apply plan succeeds and we
+		// still exercise the destroy-phase error path.
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		planCalls := 0
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && strings.HasPrefix(args[0], "-chdir=") && len(args) > 1 && args[1] == "plan" {
-				return "", fmt.Errorf("mock error running terraform plan")
+				planCalls++
+				if planCalls >= 2 {
+					return "", fmt.Errorf("mock error running terraform plan")
+				}
 			}
 			return "", nil
 		}
@@ -755,6 +807,9 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 		err := stack.DestroyAll(blueprint)
 		expectedError := "error running terraform plan destroy for"
+		if err == nil {
+			t.Fatalf("Expected plan-destroy error, got nil")
+		}
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
@@ -792,7 +847,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		var terraformCommands []string
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" {
 				terraformCommands = append(terraformCommands, strings.Join(args, " "))
 			}
@@ -849,7 +904,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		var terraformCommands []string
-		mocks.Shell.ExecProgressFunc = func(message string, command string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" {
 				cmdStr := strings.Join(args, " ")
 				terraformCommands = append(terraformCommands, cmdStr)
@@ -882,8 +937,10 @@ func TestStack_DestroyAll(t *testing.T) {
 	})
 
 	t.Run("ErrorRunningTerraformDestroy", func(t *testing.T) {
+		// DestroyAll runs every terraform subcommand via ExecSilentWithEnv so the outer
+		// "Destroying <path>" progress span is the only label the user sees.
 		stack, mocks := setup(t)
-		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && strings.HasPrefix(args[0], "-chdir=") && len(args) > 1 && args[1] == "destroy" {
 				return "", fmt.Errorf("mock error running terraform destroy")
 			}
@@ -893,6 +950,9 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 		err := stack.DestroyAll(blueprint)
 		expectedError := "error running terraform destroy for"
+		if err == nil {
+			t.Fatalf("Expected destroy error, got nil")
+		}
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
 		}
@@ -1019,9 +1079,10 @@ func TestStack_DestroyAll(t *testing.T) {
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
-		// When DestroyAll is called, capture the env passed to terraform destroy
+		// When DestroyAll is called, capture the env passed to terraform destroy.
+		// All destroy-phase subcommands run via ExecSilentWithEnv now.
 		var capturedEnv map[string]string
-		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) > 1 && args[1] == "destroy" {
 				capturedEnv = env
 			}
@@ -1036,6 +1097,99 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 		if capturedEnv["TF_VAR_operation"] != "destroy" {
 			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "destroy", capturedEnv["TF_VAR_operation"])
+		}
+	})
+
+	t.Run("RunsPrepThenDestroyPerComponentInReverseOrder", func(t *testing.T) {
+		// Given a stack that records the per-component terraform steps in order
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		type step struct {
+			component  string
+			subcommand string
+			operation  string
+		}
+		var sequence []step
+		componentOf := func(args []string) string {
+			if len(args) == 0 {
+				return ""
+			}
+			switch {
+			case strings.Contains(args[0], "remote/path"):
+				return "remote/path"
+			case strings.Contains(args[0], "local/path"):
+				return "local/path"
+			}
+			return ""
+		}
+		record := func(env map[string]string, args []string) {
+			if len(args) <= 1 {
+				return
+			}
+			sequence = append(sequence, step{
+				component:  componentOf(args),
+				subcommand: args[1],
+				operation:  env["TF_VAR_operation"],
+			})
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" {
+				record(env, args)
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" {
+				record(env, args)
+			}
+			return "", nil
+		}
+
+		// When destroying all components
+		if err := stack.DestroyAll(blueprint); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then components are walked in reverse dependency order, and each component is
+		// taken fully through prep-apply then destroy before the next one begins. This
+		// matches terraform destroy semantics end-to-end: a dependent is torn down
+		// (including its prep) before its dependency is touched. TF_VAR_operation=destroy
+		// is forwarded to the commands that include TF_VAR_* in their env (plan, refresh,
+		// destroy); init and apply intentionally don't forward TF_VAR_* and rely on the
+		// process env set by windsor env.
+		type ordered struct {
+			component  string
+			subcommand string
+		}
+		expected := []ordered{
+			{component: "local/path", subcommand: "init"},
+			{component: "local/path", subcommand: "plan"},
+			{component: "local/path", subcommand: "apply"},
+			{component: "local/path", subcommand: "refresh"},
+			{component: "local/path", subcommand: "plan"},
+			{component: "local/path", subcommand: "destroy"},
+			{component: "remote/path", subcommand: "init"},
+			{component: "remote/path", subcommand: "plan"},
+			{component: "remote/path", subcommand: "apply"},
+			{component: "remote/path", subcommand: "refresh"},
+			{component: "remote/path", subcommand: "plan"},
+			{component: "remote/path", subcommand: "destroy"},
+		}
+		if len(sequence) != len(expected) {
+			t.Fatalf("Expected %d steps, got %d: %+v", len(expected), len(sequence), sequence)
+		}
+		for i, want := range expected {
+			got := ordered{component: sequence[i].component, subcommand: sequence[i].subcommand}
+			if got != want {
+				t.Errorf("step %d: got %+v, want %+v", i, got, want)
+			}
+			switch sequence[i].subcommand {
+			case "plan", "refresh", "destroy":
+				if sequence[i].operation != "destroy" {
+					t.Errorf("step %d (%s %s): TF_VAR_operation = %q, want %q", i, sequence[i].component, sequence[i].subcommand, sequence[i].operation, "destroy")
+				}
+			}
 		}
 	})
 
@@ -2033,12 +2187,12 @@ func TestStack_Destroy(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorRunningTerraformPlanDestroy", func(t *testing.T) {
-		// Given a stack whose shell fails on terraform plan -destroy
+	t.Run("ErrorRunningDestroyPrepPlan", func(t *testing.T) {
+		// Given a stack whose shell fails on the first terraform plan (the destroy-prep plan)
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
-				return "", fmt.Errorf("mock error running terraform plan destroy")
+				return "", fmt.Errorf("mock error running destroy-prep plan")
 			}
 			return "", nil
 		}
@@ -2047,7 +2201,31 @@ func TestStack_Destroy(t *testing.T) {
 		// When destroying
 		err := stack.Destroy(blueprint, "local/path")
 
-		// Then an error should occur
+		// Then the prep-plan error path should be reported
+		if !strings.Contains(err.Error(), "error running destroy-prep plan for") {
+			t.Fatalf("Expected error to contain %q, got %q", "error running destroy-prep plan for", err.Error())
+		}
+	})
+
+	t.Run("ErrorRunningTerraformPlanDestroy", func(t *testing.T) {
+		// Given a stack whose shell fails on the second terraform plan (the destroy-pass plan -destroy)
+		stack, mocks := setup(t)
+		planCalls := 0
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
+				planCalls++
+				if planCalls >= 2 {
+					return "", fmt.Errorf("mock error running terraform plan destroy")
+				}
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When destroying
+		err := stack.Destroy(blueprint, "local/path")
+
+		// Then the destroy-pass plan error path should be reported
 		if !strings.Contains(err.Error(), "error running terraform plan destroy for") {
 			t.Fatalf("Expected error to contain %q, got %q", "error running terraform plan destroy for", err.Error())
 		}
@@ -2133,6 +2311,63 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		if capturedEnv["TF_VAR_operation"] != "destroy" {
 			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "destroy", capturedEnv["TF_VAR_operation"])
+		}
+	})
+
+	t.Run("RunsPrepApplyBeforeDestroy", func(t *testing.T) {
+		// Given a stack that records the ordered sequence of terraform subcommands with their TF_VAR_operation
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		type step struct {
+			subcommand string
+			operation  string
+		}
+		var sequence []step
+		record := func(env map[string]string, args []string) {
+			if len(args) <= 1 {
+				return
+			}
+			sequence = append(sequence, step{subcommand: args[1], operation: env["TF_VAR_operation"]})
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" {
+				record(env, args)
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" {
+				record(env, args)
+			}
+			return "", nil
+		}
+
+		// When destroying a single component
+		if err := stack.Destroy(blueprint, "local/path"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the sequence starts with a full apply pass (init, plan, apply) followed by the
+		// destroy pass (refresh, plan, destroy). TF_VAR_operation=destroy is forwarded to the
+		// commands that include TF_VAR_* in their env (plan, refresh, destroy); init and apply
+		// intentionally don't forward TF_VAR_* and rely on the process env set by windsor env.
+		expected := []string{"init", "plan", "apply", "refresh", "plan", "destroy"}
+		if len(sequence) < len(expected) {
+			t.Fatalf("Expected at least %d terraform steps, got %d: %+v", len(expected), len(sequence), sequence)
+		}
+		for i, want := range expected {
+			if sequence[i].subcommand != want {
+				t.Errorf("step %d: subcommand = %q, want %q (full sequence: %+v)", i, sequence[i].subcommand, want, sequence)
+			}
+		}
+		for i, s := range sequence[:len(expected)] {
+			switch s.subcommand {
+			case "plan", "refresh", "destroy":
+				if s.operation != "destroy" {
+					t.Errorf("step %d (%s): TF_VAR_operation = %q, want %q", i, s.subcommand, s.operation, "destroy")
+				}
+			}
 		}
 	})
 }

@@ -226,16 +226,24 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 // backend, migrating state from whatever backend is recorded in each component's .terraform/
 // directory to the configured target. It runs terraform init with -migrate-state -force-copy per
 // component; no plan or apply is executed. Intended to be called after a backend configuration
-// change (e.g. at the end of bootstrap, after the initial local-state applies, once the configured
-// remote backend exists and is reachable). A component whose state is already on the configured
-// backend is a no-op. On the first failure MigrateState returns; any components not yet migrated
-// retain their existing state, so the call is safe to retry once the underlying issue is resolved.
+// change — two flows exercise this: bootstrap, after the initial local-state applies once the
+// configured remote backend exists and is reachable; and destroy, after overriding the backend
+// to local in-memory so state is pulled back out of the remote backend for teardown (the remote
+// backend itself may be about to be destroyed, e.g. the S3 bucket that stored its own state).
+// A component whose state is already on the configured backend is a no-op.
 //
-// The returned []string is the IDs of components whose directories were missing (skipped) — it
-// is returned alongside any error, not only on success, so an operator seeing
-// "cluster failed" can also see "network was skipped" in the same report. Callers that only
-// care about success can discard the slice; callers that want full diagnostics (bootstrap)
-// use it to render a complete picture of what happened before the abort.
+// Components whose directories are not materialized on disk are skipped — there is literally no
+// state to migrate — and their IDs are returned in the skipped slice so callers can decide what
+// to do about it. Bootstrap, which calls MigrateState only after a successful Up that itself
+// errors on missing dirs, should treat a non-empty skipped list as a hard error (state/config
+// would be left inconsistent). Pre-destroy migration discards the list, because the blueprint
+// may legitimately list components that were never applied or were torn down out-of-band.
+// Returning the signal rather than branching internally keeps both contracts visible at the
+// call site. The returned slice is always paired with the returned error — it is returned
+// alongside any failure, not only on success — so an operator seeing "cluster failed" can also
+// see "network was skipped" in the same report. On the first terraform failure MigrateState
+// returns; any components not yet migrated retain their existing state, so the call is safe
+// to retry once the underlying issue is resolved.
 func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
@@ -297,11 +305,13 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([
 	return skipped, err
 }
 
-// DestroyAll destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
-// For each component, DestroyAll generates Terraform arguments, sets required environment variables, unsets conflicting TF_CLI_ARGS_* variables,
-// creates backend override files, runs Terraform refresh, plan (with destroy flag), and destroy commands. Backend override files are
-// cleaned up after all components complete. Components with Destroy set to false are skipped. Directory state is restored after execution.
-// Errors are returned on any operation failure. The blueprint parameter is required to resolve terraform components.
+// DestroyAll destroys all Terraform components in the stack in reverse dependency order.
+// For each component, it runs a destroy-prep apply (init, plan, apply with TF_VAR_operation=destroy)
+// followed by the actual destroy (refresh, plan -destroy, destroy) in a single progress span.
+// This ensures modules can update state before teardown (e.g., remove protection flags).
+// Components with Destroy set to false are skipped. Backend override files are cleaned up after.
+// Directory state is restored on return. Returns an error on any failure.
+// The blueprint parameter is required to resolve components.
 func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -343,17 +353,22 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) erro
 			continue
 		}
 
+		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+		if err != nil {
+			return err
+		}
+
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, err := s.shims.Stat(backendOverridePath); err == nil {
+			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+		}
+
 		if err := tui.WithProgress(fmt.Sprintf("Destroying %s", component.Path), func() error {
-			terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
-			if err != nil {
+			if err := s.applyComponentForDestroy(&component, terraformVars, terraformArgs); err != nil {
 				return err
 			}
-			terraformVars["TF_VAR_operation"] = "destroy"
 
-			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-			if _, err := s.shims.Stat(backendOverridePath); err == nil {
-				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
-			}
+			terraformVars["TF_VAR_operation"] = "destroy"
 
 			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 			refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
@@ -364,14 +379,14 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) erro
 			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 			planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
 			planEnv := selectTerraformCommandEnv(terraformVars, true)
-			if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Planning terraform destroy for %s", component.Path), terraformCommand, planEnv, planArgs...); err != nil {
+			if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
 				return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
 			}
 
 			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy"}
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 			destroyEnv := selectTerraformCommandEnv(terraformVars, true)
-			if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Destroying terraform for %s", component.Path), terraformCommand, destroyEnv, destroyArgs...); err != nil {
+			if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...); err != nil {
 				return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 			}
 			return nil
@@ -624,8 +639,13 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	})
 }
 
-// Destroy runs terraform init, plan -destroy, and destroy for a single component identified by componentID.
-// Returns an error if the blueprint is nil, the component is not found, or any terraform operation fails.
+// Destroy runs a destroy-prep apply followed by terraform refresh, plan -destroy, and destroy
+// for a single component. The prep-apply cycle runs terraform init, plan, and apply with
+// TF_VAR_operation=destroy so the module can flip any destroy-prep flags (for example,
+// force_destroy on S3 buckets, deletion_protection off on RDS, lifecycle rules cleared)
+// into state before the destroy pass. Modules that don't consume var.operation see the
+// prep-apply as a no-op. Returns an error if the blueprint is nil, the component is not
+// found, or any terraform operation fails.
 func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -639,9 +659,8 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		return err
 	}
 	defer cleanup()
-	terraformVars["TF_VAR_operation"] = "destroy"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.applyComponentForDestroy(component, terraformVars, terraformArgs); err != nil {
 		return err
 	}
 
@@ -673,6 +692,41 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// applyComponentForDestroy runs terraform init, plan, and apply for a single component with
+// TF_VAR_operation=destroy. This is the destroy-prep phase of the destroy routine: it lets
+// the module flip any destroy-prep flags (force_destroy on S3 buckets, deletion_protection
+// off on RDS, lifecycle rules cleared, and so on) into state before the destroy pass runs.
+// Modules that don't consume var.operation see this as a no-op. Every step runs silently
+// so the caller's outer "Destroying <path>" progress span is the only label the user sees;
+// surfacing a separate "Preparing" spinner here would leak implementation detail into the
+// UI and make the destroy look like two operations. The caller owns directory save/restore
+// and backend override cleanup; this helper performs only the per-component terraform work.
+func (s *TerraformStack) applyComponentForDestroy(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) error {
+	terraformVars["TF_VAR_operation"] = "destroy"
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		return err
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+	planArgs = append(planArgs, terraformArgs.PlanArgs...)
+	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
+		return fmt.Errorf("error running destroy-prep plan for %s: %w", component.Path, err)
+	}
+
+	applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
+	applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
+	applyEnv := selectTerraformCommandEnv(terraformVars, false)
+	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, applyEnv, applyArgs...); err != nil {
+		return fmt.Errorf("error running destroy-prep apply for %s: %w", component.Path, err)
+	}
+
+	return nil
+}
 
 // resolveTerraformComponents resolves terraform components from the blueprint by resolving sources and paths.
 // Components with Enabled set to false are excluded from the returned list.
