@@ -1642,15 +1642,18 @@ contexts:
 		}
 	})
 
-	t.Run("AWSPlatformStsHintIncludesEnvPrefix", func(t *testing.T) {
-		// Given platform: aws, the binary check passes, sts fails, and the context's
-		// .aws/config has an SSO profile entry for the operator's context
+	t.Run("AWSPlatformStsHintPrefixesEnvWhenShellNotSourced", func(t *testing.T) {
+		// Given platform: aws, the binary check passes, sts fails, the context's .aws/config
+		// has an SSO profile entry, and the process env does NOT have AWS_CONFIG_FILE
+		// pointing at the context (plain shell — `windsor env` has not been sourced)
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: aws
 `)
 		awsBinaryMock(t)
+		t.Setenv("AWS_CONFIG_FILE", "")
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
 		originalReadFile := osReadFile
 		osReadFile = func(name string) ([]byte, error) {
 			return []byte(`
@@ -1668,18 +1671,106 @@ sso_account_id = 123456789012
 		}
 		// When CheckAuth runs
 		err := toolsManager.CheckAuth()
-		// Then the surfaced error includes both the AWS_CONFIG_FILE= env prefix and the
-		// `aws sso login --profile test` command — the env prefix is what makes the suggestion
-		// runnable in a plain shell where `windsor env` hasn't been sourced yet, closing the
-		// chicken-and-egg loop on a freshly provisioned machine
+		// Then the surfaced error prepends AWS_CONFIG_FILE= / AWS_SHARED_CREDENTIALS_FILE= so
+		// the suggested `aws sso login` writes its token into the context path even though
+		// the operator's shell has no windsor env loaded — without the prefix the token would
+		// land in ~/.aws and the next windsor check would silently re-fail
 		if err == nil {
 			t.Fatal("Expected CheckAuth to fail when sts errors")
 		}
 		if !strings.Contains(err.Error(), "AWS_CONFIG_FILE=") {
-			t.Errorf("Expected AWS_CONFIG_FILE= prefix in hint, got: %v", err)
+			t.Errorf("Expected AWS_CONFIG_FILE= prefix when shell env is not sourced, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "aws sso login --profile test") {
 			t.Errorf("Expected sso-login hint with profile, got: %v", err)
+		}
+	})
+
+	t.Run("AWSPlatformStsHintDropsEnvPrefixWhenShellIsSourced", func(t *testing.T) {
+		// Given platform: aws, the binary check passes, sts fails, the context's .aws/config
+		// has an SSO profile entry, and the process env's AWS_CONFIG_FILE /
+		// AWS_SHARED_CREDENTIALS_FILE already point at the context's .aws/ paths — the
+		// operator has sourced `windsor env` for this context
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("GetConfigRoot failed: %v", err)
+		}
+		t.Setenv("AWS_CONFIG_FILE", filepath.ToSlash(filepath.Join(configRoot, ".aws", "config")))
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.ToSlash(filepath.Join(configRoot, ".aws", "credentials")))
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return []byte(`
+[profile test]
+sso_session = company
+sso_account_id = 123456789012
+`), nil
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Token has expired")
+		}
+		// When CheckAuth runs
+		err = toolsManager.CheckAuth()
+		// Then the hint emits a bare `aws sso login --profile test` with no env prefix —
+		// the operator's shell will resolve AWS_CONFIG_FILE from its own env, so prefixing
+		// would just be noise in the common case (they're in a windsor-managed shell)
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), "aws sso login --profile test") {
+			t.Errorf("Expected sso-login hint with profile, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "AWS_CONFIG_FILE=") {
+			t.Errorf("Hint should omit AWS_CONFIG_FILE= prefix when shell env already points at context, got: %v", err)
+		}
+	})
+
+	t.Run("AWSPlatformStsHintFirstTimeOffersSSOAndAccessKeys", func(t *testing.T) {
+		// Given platform: aws, the binary check passes, sts fails, and the context's
+		// .aws/config is empty — the first-time-setup state where no profile is present
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_CONFIG_FILE", "")
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return nil, fmt.Errorf("file not found")
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Unable to locate credentials")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the surfaced error presents BOTH `aws configure sso` and `aws configure`
+		// paths — CI service accounts, accounts not enrolled in SSO, and operators handed
+		// programmatic keys need the access-key command, and we cannot infer which path the
+		// operator is on at this point in the flow. Dropping either path sends some fraction
+		// of operators to a command that will not work for their account type.
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), "aws configure sso --profile test") {
+			t.Errorf("Expected SSO setup hint, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "aws configure --profile test") {
+			t.Errorf("Expected access-key setup hint, got: %v", err)
 		}
 	})
 
@@ -1725,6 +1816,48 @@ sso_account_id = 123456789012
 		}
 	})
 
+	t.Run("AWSPlatformStsHintQuotesPathsWithSpacesInPlainShell", func(t *testing.T) {
+		// Given platform: aws, a projectRoot whose path contains a space, and no AWS env in
+		// the current process — the hint will take the prefix-emitting branch
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		awsBinaryMock(t)
+		t.Setenv("AWS_CONFIG_FILE", "")
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "/Users/foo/my projects", nil
+		}
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return []byte(`
+[profile test]
+sso_session = company
+`), nil
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Token has expired")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the emitted env-prefix double-quotes the path so the suggested command pastes
+		// into a shell as a single token — an unquoted path with a space would cause the
+		// shell to split at the space and treat `projects/.aws/config` as a separate command,
+		// breaking the copy-pasteable contract the hint advertises
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when sts errors")
+		}
+		if !strings.Contains(err.Error(), `AWS_CONFIG_FILE="/Users/foo/my projects/contexts/test/.aws/config"`) {
+			t.Errorf("Expected AWS_CONFIG_FILE to be double-quoted in hint, got: %v", err)
+		}
+	})
+
 	t.Run("AWSPlatformConfigRootFailureSurfacesError", func(t *testing.T) {
 		// Given platform: aws, the aws CLI is installed, and GetProjectRoot fails so the
 		// context-scoped AWS env cannot be computed
@@ -1758,45 +1891,6 @@ contexts:
 		}
 		if stsCalled {
 			t.Error("sts must not be invoked when the context-scoped env is unresolvable")
-		}
-	})
-
-	t.Run("AWSPlatformStsHintQuotesPathsWithSpaces", func(t *testing.T) {
-		// Given platform: aws and a projectRoot whose path contains a space
-		mocks, toolsManager := setup(t, `
-contexts:
-  test:
-    platform: aws
-`)
-		awsBinaryMock(t)
-		mocks.Shell.GetProjectRootFunc = func() (string, error) {
-			return "/Users/foo/my projects", nil
-		}
-		originalReadFile := osReadFile
-		osReadFile = func(name string) ([]byte, error) {
-			return []byte(`
-[profile test]
-sso_session = company
-`), nil
-		}
-		t.Cleanup(func() { osReadFile = originalReadFile })
-		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
-			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
-		}
-		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
-			return "", fmt.Errorf("Token has expired")
-		}
-		// When CheckAuth runs
-		err := toolsManager.CheckAuth()
-		// Then the env-prefix quotes the path so the suggested command pastes into a shell
-		// as a single token — an unquoted path with a space would cause the shell to split
-		// at the space and treat `projects/.aws/config` as a separate command, breaking the
-		// copy-pasteable contract the hint advertises
-		if err == nil {
-			t.Fatal("Expected CheckAuth to fail when sts errors")
-		}
-		if !strings.Contains(err.Error(), `AWS_CONFIG_FILE="/Users/foo/my projects/contexts/test/.aws/config"`) {
-			t.Errorf("Expected AWS_CONFIG_FILE to be double-quoted in hint, got: %v", err)
 		}
 	})
 
@@ -2026,6 +2120,32 @@ contexts:
 		}
 		if err == nil {
 			t.Error("Expected CheckAuth to surface the credential failure")
+		}
+	})
+}
+
+func Test_awsAuthHint(t *testing.T) {
+	t.Run("ConfigRootFailureOffersBothSSOAndAccessKeys", func(t *testing.T) {
+		// Given a toolsManager whose configHandler cannot resolve configRoot — the hint's
+		// defensive fallback branch. This is reached when CheckAuth ran through awsContextEnv
+		// via ambient credentials (which short-circuits GetConfigRoot), sts still failed, and
+		// awsAuthHint is invoked for the first-and-only GetConfigRoot call which then errors.
+		mocks := setupMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root not found")
+		}
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		// When awsAuthHint runs
+		hint := toolsManager.awsAuthHint()
+		// Then the fallback surfaces BOTH setup paths — dropping access-key guidance would
+		// send CI service accounts and non-SSO operators to a command they cannot complete,
+		// contradicting the function header's contract that first-time setup always offers
+		// both since nothing in this code path distinguishes which kind of operator is here
+		if !strings.Contains(hint, "aws configure sso --profile") {
+			t.Errorf("Expected SSO setup hint in configRoot-failure fallback, got: %q", hint)
+		}
+		if !strings.Contains(hint, "aws configure --profile") {
+			t.Errorf("Expected access-key setup hint in configRoot-failure fallback, got: %q", hint)
 		}
 	})
 }
