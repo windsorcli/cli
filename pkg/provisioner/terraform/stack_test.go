@@ -1429,19 +1429,28 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
+		// Drain stderr in a background goroutine — see Destroy's variant of this test for
+		// the rationale; spinner frames + small Windows pipe buffer cause deadlock without
+		// concurrent drainage.
 		r, w, pipeErr := os.Pipe()
 		if pipeErr != nil {
 			t.Fatalf("Pipe failed: %v", pipeErr)
 		}
 		origStderr := os.Stderr
 		os.Stderr = w
+		var captured strings.Builder
+		drained := make(chan struct{})
+		go func() {
+			io.Copy(&captured, r)
+			close(drained)
+		}()
 		defer func() { os.Stderr = origStderr }()
 
 		skipped, err := stack.DestroyAll(blueprint)
 
 		w.Close()
-		stderrBytes, _ := io.ReadAll(r)
-		stderrOutput := string(stderrBytes)
+		<-drained
+		stderrOutput := captured.String()
 
 		if err != nil {
 			t.Fatalf("Expected DestroyAll to tolerate refresh failure on one component, got %v", err)
@@ -2920,19 +2929,30 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
+		// Drain stderr in a background goroutine while Destroy runs. tui.WithProgress
+		// streams spinner frames to os.Stderr at ~10Hz; on Windows the pipe buffer fills
+		// before w.Close() and the spinner goroutine deadlocks. Linux/macOS pipes happen
+		// to be large enough to absorb the test's output, but the goroutine drain is the
+		// portable fix.
 		r, w, pipeErr := os.Pipe()
 		if pipeErr != nil {
 			t.Fatalf("Pipe failed: %v", pipeErr)
 		}
 		origStderr := os.Stderr
 		os.Stderr = w
+		var captured strings.Builder
+		drained := make(chan struct{})
+		go func() {
+			io.Copy(&captured, r)
+			close(drained)
+		}()
 		defer func() { os.Stderr = origStderr }()
 
 		skipped, err := stack.Destroy(blueprint, "local/path")
 
 		w.Close()
-		stderrBytes, _ := io.ReadAll(r)
-		stderrOutput := string(stderrBytes)
+		<-drained
+		stderrOutput := captured.String()
 
 		if err != nil {
 			t.Fatalf("Expected destroy to fall through despite refresh error, got %v", err)
