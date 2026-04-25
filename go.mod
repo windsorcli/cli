@@ -10,7 +10,7 @@ require (
 	github.com/expr-lang/expr v1.17.8
 	github.com/fluxcd/helm-controller/api v1.5.4
 	github.com/fluxcd/kustomize-controller/api v1.8.4
-	github.com/fluxcd/pkg/apis/kustomize v1.16.0
+	github.com/fluxcd/pkg/apis/kustomize v1.17.0
 	github.com/fluxcd/pkg/apis/meta v1.26.0
 	github.com/fluxcd/source-controller/api v1.8.3
 	github.com/goccy/go-yaml v1.19.2
