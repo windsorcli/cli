@@ -1,0 +1,8 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: backend-misordered
+  description: Fixture with the backend terraform component misordered (not at index 0). Used to exercise blueprint validation.
+terraform:
+  - path: "null"
+  - path: "backend"

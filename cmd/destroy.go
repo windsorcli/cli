@@ -45,8 +45,9 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			if err != nil {
 				return err
 			}
-			defer restore()
-			if err := proj.Provisioner.DestroyAll(blueprint); err != nil {
+			skipped, err := destroyAllWithBackendLifecycle(proj, blueprint, false)
+			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+			if err != nil {
 				return fmt.Errorf("error destroying all components: %w", err)
 			}
 			return nil
@@ -75,9 +76,12 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			if err != nil {
 				return err
 			}
-			defer restore()
-			if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
+			skipped, err := destroyTerraformComponentWithBackendLifecycle(proj, blueprint, componentID)
+			if err != nil {
 				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+			}
+			if skipped {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
 			}
 		}
 
@@ -110,8 +114,9 @@ var destroyTerraformCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			defer restore()
-			if err := proj.Provisioner.DestroyAllTerraform(blueprint); err != nil {
+			skipped, err := destroyAllWithBackendLifecycle(proj, blueprint, true)
+			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+			if err != nil {
 				return fmt.Errorf("error destroying all terraform: %w", err)
 			}
 			return nil
@@ -126,9 +131,12 @@ var destroyTerraformCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer restore()
-		if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
+		skipped, err := destroyTerraformComponentWithBackendLifecycle(proj, blueprint, componentID)
+		if err != nil {
 			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+		}
+		if skipped {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
 		}
 		return nil
 	},
@@ -193,6 +201,19 @@ func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) 
 	return nil
 }
 
+// reportSkippedDestroyComponents prints a one-line summary to w naming any terraform
+// components whose destroy was skipped because their state was empty (never applied, fully
+// torn down already, or upstream destroy collapsed their cloud objects out from under them).
+// Called after DestroyAll/DestroyAllTerraform regardless of whether the operation overall
+// succeeded — the skip list is paired with the returned error so an operator sees both
+// "these were no-ops" and "this one failed" in the same output. No-op when skipped is empty.
+func reportSkippedDestroyComponents(w io.Writer, skipped []string) {
+	if len(skipped) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Skipped (empty state, nothing to destroy): %s\n", strings.Join(skipped, ", "))
+}
+
 // resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
 // match expected exactly; otherwise the user is prompted interactively. This mirrors the prompt
 // in both directions so scripted callers cannot accidentally destroy the wrong target.
@@ -206,30 +227,155 @@ func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected 
 	return confirmDestroy(r, w, description, expected)
 }
 
-// migrateStateToLocal overrides the configured terraform backend to "local" in-memory and runs
-// MigrateState so each component's state is pulled from its currently configured remote backend
-// into local files. The override must remain active through the subsequent destroy pass —
-// otherwise destroy would try to read state from the remote backend again, which may be about
-// to be torn down (for example, the S3 bucket that stores its own state). Returns a restore
-// function the caller must defer; it re-applies the originally configured backend type once
-// destruction completes. Components whose state is already local (or whose directories are not
-// materialized) are no-ops, so this is safe to call on every terraform-touching destroy path.
-func migrateStateToLocal(proj *project.Project, blueprint *blueprintv1alpha1.Blueprint) (func(), error) {
+// destroyAllWithBackendLifecycle dispatches bulk destroy on terraform.backend.type:
+//
+//   - kubernetes  → full-cycle: pin backend.type=local, MigrateState pulls every
+//     component's state from the cluster's Secrets to local files, then DestroyAll
+//     tears everything down in reverse dependency order against the local state
+//     (which is critical because the cluster itself is going away). Mirror image
+//     of runFullCycleBootstrap on the destroy side.
+//
+//   - s3 / azurerm → per-component dance: destroy non-backend components FIRST
+//     against the live remote backend (init reads remote, destroy writes remote),
+//     then pin backend.type=local, migrate the backend component's state from
+//     remote to local, destroy the backend component last. Avoids the wasteful
+//     "migrate everything to local first" pattern for backends where every
+//     non-backend component's state is independent of the backend bucket.
+//
+//   - local / unset → direct DestroyAll, no migration.
+//
+// terraformOnly=true skips the kustomize uninstall that DestroyAll normally runs
+// first. Returns the IDs of components skipped because their state was empty
+// alongside any error, mirroring Provisioner.DestroyAll's contract.
+func destroyAllWithBackendLifecycle(proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
+	originalBackend := proj.Runtime.ConfigHandler.GetString("terraform.backend.type", "local")
+
+	switch originalBackend {
+	case "kubernetes":
+		return runFullCycleDestroyAll(proj, blueprint, terraformOnly, originalBackend)
+	case "s3", "azurerm":
+		return runPerComponentDestroyAll(proj, blueprint, terraformOnly, originalBackend)
+	default:
+		if terraformOnly {
+			return proj.Provisioner.DestroyAllTerraform(blueprint)
+		}
+		return proj.Provisioner.DestroyAll(blueprint)
+	}
+}
+
+// runFullCycleDestroyAll is the destroy mirror of runFullCycleBootstrap. The
+// backend (kubernetes Secrets in the cluster) is going away as part of this
+// teardown, so every component's state must move to local before any destroy
+// runs — otherwise destroy-in-progress would race with the cluster's Secret
+// store evaporating. After migration, DestroyAll iterates components in reverse
+// against the local state. The deferred restore guards exit paths between the
+// override and any panic; restoring twice is idempotent.
+func runFullCycleDestroyAll(proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, originalBackend string) ([]string, error) {
 	ch := proj.Runtime.ConfigHandler
-	originalBackend := ch.GetString("terraform.backend.type", "local")
 	if err := ch.Set("terraform.backend.type", "local"); err != nil {
 		return nil, fmt.Errorf("failed to override backend for destroy: %w", err)
 	}
-	restore := func() {
+	defer func() {
 		if err := ch.Set("terraform.backend.type", originalBackend); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after destroy: %v\n", originalBackend, err)
 		}
-	}
+	}()
+
 	if _, err := proj.Provisioner.MigrateState(blueprint); err != nil {
-		restore()
 		return nil, fmt.Errorf("failed to migrate state to local before destroy: %w", err)
 	}
-	return restore, nil
+
+	if terraformOnly {
+		return proj.Provisioner.DestroyAllTerraform(blueprint)
+	}
+	return proj.Provisioner.DestroyAll(blueprint)
+}
+
+// runPerComponentDestroyAll is the destroy mirror of runPerComponentBootstrap.
+// When the blueprint declares a "backend" terraform component and the configured
+// backend is s3/azurerm, non-backend components are destroyed first against the
+// live remote backend (their state is independent of any one component, the
+// bucket still exists), then backend.type flips to local, the backend
+// component's state is migrated from remote to local, and the backend component
+// is destroyed last. Without a backend component the call collapses to a direct
+// DestroyAll — out-of-band bucket setups stay on remote state through teardown.
+func runPerComponentDestroyAll(proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, originalBackend string) ([]string, error) {
+	ch := proj.Runtime.ConfigHandler
+	backendID := findBackendComponentID(blueprint)
+
+	if backendID == "" {
+		if terraformOnly {
+			return proj.Provisioner.DestroyAllTerraform(blueprint)
+		}
+		return proj.Provisioner.DestroyAll(blueprint)
+	}
+
+	var skipped []string
+	var bulkErr error
+	if terraformOnly {
+		skipped, bulkErr = proj.Provisioner.DestroyAllTerraform(blueprint, backendID)
+	} else {
+		skipped, bulkErr = proj.Provisioner.DestroyAll(blueprint, backendID)
+	}
+	if bulkErr != nil {
+		return skipped, bulkErr
+	}
+
+	if err := ch.Set("terraform.backend.type", "local"); err != nil {
+		return skipped, fmt.Errorf("failed to override backend for backend-component destroy: %w", err)
+	}
+	defer func() {
+		if err := ch.Set("terraform.backend.type", originalBackend); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after destroy: %v\n", originalBackend, err)
+		}
+	}()
+
+	if err := proj.Provisioner.MigrateComponentState(blueprint, backendID); err != nil {
+		return skipped, err
+	}
+	backendSkipped, err := proj.Provisioner.Destroy(blueprint, backendID)
+	if err != nil {
+		return skipped, err
+	}
+	if backendSkipped {
+		skipped = append(skipped, backendID)
+	}
+	return skipped, nil
+}
+
+// destroyTerraformComponentWithBackendLifecycle destroys a single terraform
+// component. The kubernetes path is intentionally simple: direct destroy with
+// kubeconfig already in env from a prior `windsor up` — operators destroying
+// individual components don't need the full-cycle dance because the cluster is
+// still alive and serving Secrets. For s3/azurerm, the backend component
+// special-case applies: migrate its state to local first, then destroy. All
+// other backends/components fall through to a direct destroy. Returns the same
+// (skipped, err) tuple as Provisioner.Destroy.
+func destroyTerraformComponentWithBackendLifecycle(proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	originalBackend := proj.Runtime.ConfigHandler.GetString("terraform.backend.type", "local")
+	if originalBackend != "s3" && originalBackend != "azurerm" {
+		return proj.Provisioner.Destroy(blueprint, componentID)
+	}
+
+	backendID := findBackendComponentID(blueprint)
+	if componentID != backendID {
+		return proj.Provisioner.Destroy(blueprint, componentID)
+	}
+
+	ch := proj.Runtime.ConfigHandler
+	if err := ch.Set("terraform.backend.type", "local"); err != nil {
+		return false, fmt.Errorf("failed to override backend for backend-component destroy: %w", err)
+	}
+	defer func() {
+		if err := ch.Set("terraform.backend.type", originalBackend); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after destroy: %v\n", originalBackend, err)
+		}
+	}()
+
+	if err := proj.Provisioner.MigrateComponentState(blueprint, componentID); err != nil {
+		return false, err
+	}
+	return proj.Provisioner.Destroy(blueprint, componentID)
 }
 
 // init registers destroy subcommands and the --confirm flag. --confirm must exactly match the

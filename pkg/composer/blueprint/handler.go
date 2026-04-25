@@ -139,6 +139,10 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		return fmt.Errorf("failed to compose blueprint: %w", err)
 	}
 
+	if err := ValidateComposedBlueprint(h.composedBlueprint); err != nil {
+		return err
+	}
+
 	return nil
 }
 

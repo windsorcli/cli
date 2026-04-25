@@ -15,18 +15,19 @@ import (
 
 // MockStack is a mock implementation of the Stack interface for testing.
 type MockStack struct {
-	UpFunc                   func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	MigrateStateFunc         func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
-	PostApplyFunc            func(fns ...func(id string) error)
-	DestroyAllFunc           func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAllFunc              func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanJSONFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAllJSONFunc          func(blueprint *blueprintv1alpha1.Blueprint) error
-	ApplyFunc                func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	DestroyFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanSummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
-	PlanComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	UpFunc                    func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	MigrateStateFunc          func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
+	MigrateComponentStateFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PostApplyFunc             func(fns ...func(id string) error)
+	DestroyAllFunc            func(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error)
+	PlanFunc                  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllFunc               func(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanJSONFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllJSONFunc           func(blueprint *blueprintv1alpha1.Blueprint) error
+	ApplyFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	DestroyFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	PlanSummaryFunc           func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanComponentSummaryFunc  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
 
 // =============================================================================
@@ -58,6 +59,14 @@ func (m *MockStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]stri
 	return nil, nil
 }
 
+// MigrateComponentState is a mock implementation of the MigrateComponentState method.
+func (m *MockStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.MigrateComponentStateFunc != nil {
+		return m.MigrateComponentStateFunc(blueprint, componentID)
+	}
+	return nil
+}
+
 // PostApply is a mock implementation of the PostApply method.
 func (m *MockStack) PostApply(fns ...func(id string) error) {
 	if m.PostApplyFunc != nil {
@@ -66,11 +75,11 @@ func (m *MockStack) PostApply(fns ...func(id string) error) {
 }
 
 // DestroyAll is a mock implementation of the DestroyAll method.
-func (m *MockStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error {
+func (m *MockStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
 	if m.DestroyAllFunc != nil {
-		return m.DestroyAllFunc(blueprint)
+		return m.DestroyAllFunc(blueprint, excludeIDs...)
 	}
-	return nil
+	return nil, nil
 }
 
 // Plan is a mock implementation of the Plan method.
@@ -114,11 +123,11 @@ func (m *MockStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID st
 }
 
 // Destroy is a mock implementation of the Destroy method.
-func (m *MockStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+func (m *MockStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if m.DestroyFunc != nil {
 		return m.DestroyFunc(blueprint, componentID)
 	}
-	return nil
+	return false, nil
 }
 
 // PlanSummary is a mock implementation of the PlanSummary method.
