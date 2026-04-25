@@ -91,14 +91,6 @@ var destroyTerraformCmd = &cobra.Command{
 			return err
 		}
 
-		// Validate cloud credentials before init + state migration. A stale SSO session or
-		// missing profile would otherwise surface minutes later inside terraform's own init,
-		// after the operator has already confirmed and the backend lifecycle has started
-		// flipping config — much harder to recover from than an upfront preflight failure.
-		if err := proj.Runtime.ToolsManager.CheckAuth(); err != nil {
-			return fmt.Errorf("error validating credentials: %w", err)
-		}
-
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {

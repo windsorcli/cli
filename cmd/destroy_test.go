@@ -19,7 +19,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
-	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -32,7 +31,6 @@ type DestroyMocks struct {
 	BlueprintHandler  *blueprint.MockBlueprintHandler
 	TerraformStack    *terraforminfra.MockStack
 	KubernetesManager *kubernetes.MockKubernetesManager
-	ToolsManager      *tools.MockToolsManager
 	Runtime           *runtime.Runtime
 	TmpDir            string
 }
@@ -115,7 +113,6 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 		BlueprintHandler:  mockBlueprintHandler,
 		TerraformStack:    mockTerraformStack,
 		KubernetesManager: mockKubernetesManager,
-		ToolsManager:      baseMocks.ToolsManager,
 		Runtime:           rt,
 		TmpDir:            tmpDir,
 	}
@@ -564,64 +561,6 @@ func TestDestroyTerraformCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error destroying terraform") {
 			t.Errorf("Expected destroy error, got: %v", err)
-		}
-	})
-
-
-	t.Run("CheckAuthFailureBlocksDestroyAllTerraformBeforeStateMigration", func(t *testing.T) {
-		// Given expired credentials, destroy terraform (no arg) must fail at preflight rather
-		// than after init + state migration. Mirrors TestDestroyCmd's coverage to make sure
-		// the dedicated terraform subcommand is gated too.
-		mocks := setupDestroyTest(t)
-		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
-		destroyAllCalled := false
-		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
-			destroyAllCalled = true
-			return nil, nil
-		}
-		proj := newDestroyProject(mocks)
-
-		cmd := createTestDestroyTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--confirm=test-context"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		if err == nil {
-			t.Fatal("Expected credential preflight error, got nil")
-		}
-		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
-			t.Errorf("Expected pass-through credential error, got: %v", err)
-		}
-		if destroyAllCalled {
-			t.Error("DestroyAll must not run when credential preflight fails")
-		}
-	})
-
-	t.Run("CheckAuthFailureBlocksDestroyTerraformComponent", func(t *testing.T) {
-		mocks := setupDestroyTest(t)
-		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
-		destroyCalled := false
-		mocks.TerraformStack.DestroyFunc = func(*blueprintv1alpha1.Blueprint, string) (bool, error) {
-			destroyCalled = true
-			return false, nil
-		}
-		proj := newDestroyProject(mocks)
-
-		cmd := createTestDestroyTerraformCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		if err == nil {
-			t.Fatal("Expected credential preflight error, got nil")
-		}
-		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
-			t.Errorf("Expected pass-through credential error, got: %v", err)
-		}
-		if destroyCalled {
-			t.Error("Destroy must not run when credential preflight fails")
 		}
 	})
 }
