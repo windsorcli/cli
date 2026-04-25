@@ -41,6 +41,10 @@ tasks:
     silent: true
     env:
       CI: true
+      # GOTRACEBACK=all dumps every goroutine's stack on panic, not just the panicking one.
+      # This is the difference between "FAIL with no test name" and a usable CI log when a
+      # background goroutine (e.g. a TUI spinner) panics outside of any test boundary.
+      GOTRACEBACK: all
     cmds:
       - cmd: |
           if [ -n "{{.CLI_ARGS}}" ]; then
@@ -49,7 +53,12 @@ tasks:
             go test -covermode=atomic -coverprofile=coverage.out ./api/... ./pkg/... ./cmd
           fi
         platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -covermode=atomic -coverprofile='coverage.out' ./api/... ./pkg/... ./cmd }"
+      # Windows: -v prints every test name to stdout so the failing TestName/SubName is
+      # impossible to miss when spinner output (stderr) overwhelms the log. -failfast stops
+      # at the first failure so the relevant context is at the end of the log instead of
+      # buried under subsequent passing subtests. Both are diagnostic-only — they do not
+      # change which tests run.
+      - cmd: powershell -NoProfile -Command "if ('{{.CLI_ARGS}}') { go test -v -failfast -covermode=atomic -coverprofile='coverage.out' -run '{{.CLI_ARGS}}' ./api/... ./pkg/... ./cmd } else { go test -v -failfast -covermode=atomic -coverprofile='coverage.out' ./api/... ./pkg/... ./cmd }"
         platforms: [windows]
       - go tool cover -html=coverage.out -o coverage.html
 
