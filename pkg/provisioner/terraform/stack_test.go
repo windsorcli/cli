@@ -1304,10 +1304,14 @@ func TestStack_DestroyAll(t *testing.T) {
 			if len(args) == 0 {
 				return ""
 			}
+			// Normalize OS-native separators to forward slashes before matching: FullPath
+			// goes through filepath.FromSlash, so on Windows args[0] is "-chdir=...\remote\path"
+			// and the literal substring "remote/path" never matches.
+			normalized := filepath.ToSlash(args[0])
 			switch {
-			case strings.Contains(args[0], "remote/path"):
+			case strings.Contains(normalized, "remote/path"):
 				return "remote/path"
-			case strings.Contains(args[0], "local/path"):
+			case strings.Contains(normalized, "local/path"):
 				return "local/path"
 			}
 			return ""
@@ -1398,10 +1402,12 @@ func TestStack_DestroyAll(t *testing.T) {
 				if len(args) == 0 {
 					return ""
 				}
+				// Normalize OS-native separators (Windows uses \) before matching.
+				normalized := filepath.ToSlash(args[0])
 				switch {
-				case strings.Contains(args[0], "remote/path"):
+				case strings.Contains(normalized, "remote/path"):
 					return "remote/path"
-				case strings.Contains(args[0], "local/path"):
+				case strings.Contains(normalized, "local/path"):
 					return "local/path"
 				}
 				return ""
