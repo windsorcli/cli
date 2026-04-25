@@ -11,6 +11,7 @@ package terraform
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,11 +37,18 @@ var defaultInitFlags = []string{"-upgrade", "-force-copy"}
 
 // TerraformStack manages Terraform infrastructure components by initializing and applying Terraform configurations.
 // It processes components in order, generating terraform arguments, running Terraform init, plan, and apply operations.
+//
+// warningWriter is the destination for non-blocking operator-facing warnings (e.g. the
+// refresh-fallback notice in destroy paths). Defaults to os.Stderr; tests inject a buffer.
+// Routing warnings through this field rather than os.Stderr directly keeps tests off the
+// fragile os.Stderr-redirect-with-pipe pattern, which deadlocks on Windows when the TUI
+// spinner shares the redirected stream.
 type TerraformStack struct {
-	runtime      *runtime.Runtime
-	shims        *Shims
-	terraformEnv *envvars.TerraformEnvPrinter
-	postApply    []func(id string) error
+	runtime       *runtime.Runtime
+	shims         *Shims
+	terraformEnv  *envvars.TerraformEnvPrinter
+	postApply     []func(id string) error
+	warningWriter io.Writer
 }
 
 // TerraformComponentPlan holds the plan result for a single Terraform component.
@@ -104,14 +112,18 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 	}
 
 	stack := &TerraformStack{
-		runtime: rt,
-		shims:   NewShims(),
+		runtime:       rt,
+		shims:         NewShims(),
+		warningWriter: os.Stderr,
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
 		overrides := opts[0]
 		if overrides.terraformEnv != nil {
 			stack.terraformEnv = overrides.terraformEnv
+		}
+		if overrides.warningWriter != nil {
+			stack.warningWriter = overrides.warningWriter
 		}
 	}
 
@@ -443,7 +455,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 			refreshFailed := false
 			if err := s.refreshComponentState(&component, terraformVars, terraformArgs); err != nil {
 				refreshFailed = true
-				fmt.Fprintf(os.Stderr, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
+				fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 			}
 
 			// Skip the post-refresh empty-state check when refresh failed — the state we would
@@ -671,7 +683,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		refreshFailed := false
 		if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
 			refreshFailed = true
-			fmt.Fprintf(os.Stderr, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
+			fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 		}
 
 		if !refreshFailed {

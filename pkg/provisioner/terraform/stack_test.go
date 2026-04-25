@@ -7,7 +7,6 @@ package terraform
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1397,6 +1396,11 @@ func TestStack_DestroyAll(t *testing.T) {
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
+		// Capture warnings via the injected writer rather than redirecting os.Stderr
+		// (the TUI spinner shares os.Stderr; pipe-based redirect deadlocks on Windows).
+		var captured strings.Builder
+		stack.warningWriter = &captured
+
 		var destroyArgsByComponent = map[string][]string{}
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			componentOf := func() string {
@@ -1429,28 +1433,8 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		// Drain stderr in a background goroutine — see Destroy's variant of this test for
-		// the rationale; spinner frames + small Windows pipe buffer cause deadlock without
-		// concurrent drainage.
-		r, w, pipeErr := os.Pipe()
-		if pipeErr != nil {
-			t.Fatalf("Pipe failed: %v", pipeErr)
-		}
-		origStderr := os.Stderr
-		os.Stderr = w
-		var captured strings.Builder
-		drained := make(chan struct{})
-		go func() {
-			io.Copy(&captured, r)
-			close(drained)
-		}()
-		defer func() { os.Stderr = origStderr }()
-
 		skipped, err := stack.DestroyAll(blueprint)
-
-		w.Close()
-		<-drained
-		stderrOutput := captured.String()
+		warningOutput := captured.String()
 
 		if err != nil {
 			t.Fatalf("Expected DestroyAll to tolerate refresh failure on one component, got %v", err)
@@ -1492,16 +1476,16 @@ func TestStack_DestroyAll(t *testing.T) {
 			t.Errorf("remote/path: expected -refresh=false on happy path, got %v", remoteArgs)
 		}
 
-		// Stderr warning must surface for the failed component only — silent fallback would
-		// hide a recurring credential or connectivity issue across a bulk destroy.
-		if !strings.Contains(stderrOutput, "warning: terraform refresh failed for local/path") {
-			t.Errorf("Expected stderr warning for failed component, got: %q", stderrOutput)
+		// Warning must surface for the failed component only — silent fallback would hide
+		// a recurring credential or connectivity issue across a bulk destroy.
+		if !strings.Contains(warningOutput, "warning: terraform refresh failed for local/path") {
+			t.Errorf("Expected warning for failed component, got: %q", warningOutput)
 		}
-		if !strings.Contains(stderrOutput, "mock refresh failure for local/path") {
-			t.Errorf("Expected stderr warning to include underlying refresh error, got: %q", stderrOutput)
+		if !strings.Contains(warningOutput, "mock refresh failure for local/path") {
+			t.Errorf("Expected warning to include underlying refresh error, got: %q", warningOutput)
 		}
-		if strings.Contains(stderrOutput, "warning: terraform refresh failed for remote/path") {
-			t.Errorf("No warning expected for remote/path (refresh succeeded), got: %q", stderrOutput)
+		if strings.Contains(warningOutput, "warning: terraform refresh failed for remote/path") {
+			t.Errorf("No warning expected for remote/path (refresh succeeded), got: %q", warningOutput)
 		}
 	})
 
@@ -2912,6 +2896,12 @@ func TestStack_Destroy(t *testing.T) {
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
+		// Capture warnings via the injected writer rather than redirecting os.Stderr;
+		// the TUI spinner shares os.Stderr and a pipe-based redirect deadlocks on Windows
+		// where the spinner goroutine cannot be reliably synchronized with w.Close().
+		var captured strings.Builder
+		stack.warningWriter = &captured
+
 		showCalls := 0
 		var destroyArgs []string
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
@@ -2929,30 +2919,8 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
-		// Drain stderr in a background goroutine while Destroy runs. tui.WithProgress
-		// streams spinner frames to os.Stderr at ~10Hz; on Windows the pipe buffer fills
-		// before w.Close() and the spinner goroutine deadlocks. Linux/macOS pipes happen
-		// to be large enough to absorb the test's output, but the goroutine drain is the
-		// portable fix.
-		r, w, pipeErr := os.Pipe()
-		if pipeErr != nil {
-			t.Fatalf("Pipe failed: %v", pipeErr)
-		}
-		origStderr := os.Stderr
-		os.Stderr = w
-		var captured strings.Builder
-		drained := make(chan struct{})
-		go func() {
-			io.Copy(&captured, r)
-			close(drained)
-		}()
-		defer func() { os.Stderr = origStderr }()
-
 		skipped, err := stack.Destroy(blueprint, "local/path")
-
-		w.Close()
-		<-drained
-		stderrOutput := captured.String()
+		warningOutput := captured.String()
 
 		if err != nil {
 			t.Fatalf("Expected destroy to fall through despite refresh error, got %v", err)
@@ -2978,11 +2946,11 @@ func TestStack_Destroy(t *testing.T) {
 		if !hasRefreshTrue {
 			t.Errorf("Expected destroy args to include -refresh=true, got %v", destroyArgs)
 		}
-		if !strings.Contains(stderrOutput, "warning: terraform refresh failed for local/path") {
-			t.Errorf("Expected stderr warning naming the component, got: %q", stderrOutput)
+		if !strings.Contains(warningOutput, "warning: terraform refresh failed for local/path") {
+			t.Errorf("Expected warning naming the component, got: %q", warningOutput)
 		}
-		if !strings.Contains(stderrOutput, "mock error refreshing state") {
-			t.Errorf("Expected stderr warning to include underlying refresh error for diagnostics, got: %q", stderrOutput)
+		if !strings.Contains(warningOutput, "mock error refreshing state") {
+			t.Errorf("Expected warning to include underlying refresh error for diagnostics, got: %q", warningOutput)
 		}
 	})
 
