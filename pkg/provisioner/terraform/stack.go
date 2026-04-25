@@ -430,23 +430,42 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 				return nil
 			}
 
+			// Tolerate refresh failures for non-empty-state components. A transient refresh
+			// issue (network blip, credential rotation, provider API hiccup) must not make a
+			// live component undestroyable. The pre-refresh check confirmed state is non-empty,
+			// so we know there is something to destroy; fall through to `terraform destroy
+			// -refresh=true` and let terraform's own refresh have a second shot. Persistent
+			// refresh problems will then surface from destroy itself with a more actionable
+			// error than the refresh step would have.
+			refreshFailed := false
 			if err := s.refreshComponentState(&component, terraformVars, terraformArgs); err != nil {
-				return err
+				refreshFailed = true
 			}
 
-			hasResources, err := s.hasStateResources(&component, terraformVars)
-			if err != nil {
-				return err
-			}
-			if !hasResources {
-				componentSkipped = true
-				return nil
+			// Skip the post-refresh empty-state check when refresh failed — the state we would
+			// be reading is the pre-refresh snapshot we already classified as non-empty, so the
+			// check would be redundant; if refresh succeeded but reconciliation dropped every
+			// resource, we still want the skip path.
+			if !refreshFailed {
+				hasResources, err := s.hasStateResources(&component, terraformVars)
+				if err != nil {
+					return err
+				}
+				if !hasResources {
+					componentSkipped = true
+					return nil
+				}
 			}
 
 			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 
-			// -refresh=false: refreshComponentState already ran.
-			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", "-refresh=false"}
+			// -refresh=false on the happy path because refreshComponentState already ran;
+			// -refresh=true on the fallback path so terraform retries refresh inside destroy.
+			destroyRefreshFlag := "-refresh=false"
+			if refreshFailed {
+				destroyRefreshFlag = "-refresh=true"
+			}
+			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 			destroyEnv := selectTerraformCommandEnv(terraformVars, true)
 			if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...); err != nil {
@@ -640,21 +659,31 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 			return nil
 		}
 
+		// Tolerate refresh failures for non-empty-state components — see DestroyAll for the
+		// detailed rationale. Falling through to `terraform destroy -refresh=true` keeps a
+		// live component destroyable when refresh hits a transient issue.
+		refreshFailed := false
 		if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
-			return err
+			refreshFailed = true
 		}
 
-		hasResources, err := s.hasStateResources(component, terraformVars)
-		if err != nil {
-			return err
-		}
-		if !hasResources {
-			skipped = true
-			return nil
+		if !refreshFailed {
+			hasResources, err := s.hasStateResources(component, terraformVars)
+			if err != nil {
+				return err
+			}
+			if !hasResources {
+				skipped = true
+				return nil
+			}
 		}
 
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-		destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", "-refresh=false"}
+		destroyRefreshFlag := "-refresh=false"
+		if refreshFailed {
+			destroyRefreshFlag = "-refresh=true"
+		}
+		destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 		destroyEnv := selectTerraformCommandEnv(terraformVars, true)
 		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...); err != nil {
@@ -825,7 +854,9 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 }
 
 // refreshComponentState runs `terraform refresh` to reconcile state with cloud reality.
-// Errors are surfaced — destroy must not proceed on stale state.
+// Errors are returned to the caller. Destroy callers tolerate refresh failures for non-
+// empty-state components by falling through to `terraform destroy -refresh=true`; see
+// Destroy / DestroyAll for the rationale.
 func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) error {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}

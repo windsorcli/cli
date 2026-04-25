@@ -1384,6 +1384,86 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 	})
 
+	t.Run("RefreshFailureFallsThroughToDestroyWithRefreshTrue", func(t *testing.T) {
+		// Given a non-empty-state component in a bulk destroy where refresh fails — same
+		// fallback contract as single-component Destroy. A transient refresh failure on one
+		// component must not abort the whole bulk pass; we fall through to `terraform destroy
+		// -refresh=true` for that component and continue iterating the rest in reverse order.
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var destroyArgsByComponent = map[string][]string{}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			componentOf := func() string {
+				if len(args) == 0 {
+					return ""
+				}
+				switch {
+				case strings.Contains(args[0], "remote/path"):
+					return "remote/path"
+				case strings.Contains(args[0], "local/path"):
+					return "local/path"
+				}
+				return ""
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" && len(args) == 3 {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
+				if componentOf() == "local/path" {
+					return "", fmt.Errorf("mock refresh failure for local/path")
+				}
+				return "", nil
+			}
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				destroyArgsByComponent[componentOf()] = append([]string(nil), args...)
+				return "", nil
+			}
+			return "", nil
+		}
+
+		skipped, err := stack.DestroyAll(blueprint)
+		if err != nil {
+			t.Fatalf("Expected DestroyAll to tolerate refresh failure on one component, got %v", err)
+		}
+		if len(skipped) != 0 {
+			t.Errorf("Expected no skipped components (state was non-empty), got %v", skipped)
+		}
+
+		// local/path (refresh failed) must have used -refresh=true on destroy.
+		localArgs, ok := destroyArgsByComponent["local/path"]
+		if !ok {
+			t.Fatal("Expected destroy to be called for local/path despite refresh failure")
+		}
+		hasRefreshTrue := false
+		for _, a := range localArgs {
+			if a == "-refresh=true" {
+				hasRefreshTrue = true
+			}
+			if a == "-refresh=false" {
+				t.Errorf("local/path: expected -refresh=true on refresh-fallback path, got -refresh=false in %v", localArgs)
+			}
+		}
+		if !hasRefreshTrue {
+			t.Errorf("local/path: expected destroy args to include -refresh=true, got %v", localArgs)
+		}
+
+		// remote/path (refresh succeeded) must have used -refresh=false on destroy.
+		remoteArgs, ok := destroyArgsByComponent["remote/path"]
+		if !ok {
+			t.Fatal("Expected destroy to be called for remote/path")
+		}
+		hasRefreshFalse := false
+		for _, a := range remoteArgs {
+			if a == "-refresh=false" {
+				hasRefreshFalse = true
+			}
+		}
+		if !hasRefreshFalse {
+			t.Errorf("remote/path: expected -refresh=false on happy path, got %v", remoteArgs)
+		}
+	})
+
 }
 
 func TestNewShims(t *testing.T) {
@@ -2776,31 +2856,59 @@ func TestStack_Destroy(t *testing.T) {
 		}
 	})
 
-	t.Run("SurfacesRefreshError", func(t *testing.T) {
-		// Given a component where refresh itself fails (provider credential issue,
-		// unreachable backend) — refresh is load-bearing now, so its failure must
-		// abort the destroy flow rather than silently proceeding on a stale state
-		// snapshot. Pre-refresh state must be non-empty so the empty-state skip does
-		// not short-circuit before refresh runs.
+	t.Run("RefreshFailureFallsThroughToDestroyWithRefreshTrue", func(t *testing.T) {
+		// Given a component with non-empty state where terraform refresh fails (transient
+		// network blip, credential rotation, provider API hiccup), refresh failure must not
+		// make a live component undestroyable. The pre-refresh check confirmed state is
+		// non-empty, so we know there is something to destroy. Destroy must fall through to
+		// `terraform destroy -refresh=true` so terraform's own refresh has a second shot.
+		// The post-refresh state-show must be skipped (its result would be from the same
+		// pre-refresh snapshot). Persistent refresh problems will then surface from destroy
+		// itself, which yields a more actionable error than surfacing refresh's.
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
+		showCalls := 0
+		var destroyArgs []string
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" && len(args) == 3 {
+				showCalls++
 				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
 			}
 			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
 				return "", fmt.Errorf("mock error refreshing state")
 			}
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				destroyArgs = append([]string(nil), args...)
+				return "", nil
+			}
 			return "", nil
 		}
 
-		_, err := stack.Destroy(blueprint, "local/path")
-		if err == nil {
-			t.Fatal("Expected refresh error to be surfaced, got nil")
+		skipped, err := stack.Destroy(blueprint, "local/path")
+		if err != nil {
+			t.Fatalf("Expected destroy to fall through despite refresh error, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "error refreshing terraform state") {
-			t.Errorf("Expected refresh error text, got %q", err.Error())
+		if skipped {
+			t.Error("Destroy must not report skipped when refresh fails on a non-empty-state component")
+		}
+		if showCalls != 1 {
+			t.Errorf("Expected exactly one state-show call (pre-refresh only); post-refresh check must be skipped on refresh failure, got %d show calls", showCalls)
+		}
+		if destroyArgs == nil {
+			t.Fatal("Expected terraform destroy to be called when refresh fails on non-empty state")
+		}
+		hasRefreshTrue := false
+		for _, a := range destroyArgs {
+			if a == "-refresh=true" {
+				hasRefreshTrue = true
+			}
+			if a == "-refresh=false" {
+				t.Errorf("Expected destroy to use -refresh=true on refresh fallback path, got -refresh=false in args %v", destroyArgs)
+			}
+		}
+		if !hasRefreshTrue {
+			t.Errorf("Expected destroy args to include -refresh=true, got %v", destroyArgs)
 		}
 	})
 
