@@ -436,10 +436,14 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 			// so we know there is something to destroy; fall through to `terraform destroy
 			// -refresh=true` and let terraform's own refresh have a second shot. Persistent
 			// refresh problems will then surface from destroy itself with a more actionable
-			// error than the refresh step would have.
+			// error than the refresh step would have. The warning is emitted to stderr so the
+			// operator can correlate a later destroy failure with the upstream refresh hiccup
+			// — without it, a recurring credential or connectivity issue is invisible until
+			// destroy errors out, and a successful fallback leaves no trace at all.
 			refreshFailed := false
 			if err := s.refreshComponentState(&component, terraformVars, terraformArgs); err != nil {
 				refreshFailed = true
+				fmt.Fprintf(os.Stderr, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 			}
 
 			// Skip the post-refresh empty-state check when refresh failed — the state we would
@@ -661,10 +665,13 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 
 		// Tolerate refresh failures for non-empty-state components — see DestroyAll for the
 		// detailed rationale. Falling through to `terraform destroy -refresh=true` keeps a
-		// live component destroyable when refresh hits a transient issue.
+		// live component destroyable when refresh hits a transient issue. The stderr warning
+		// gives the operator visibility into the failure so a subsequent destroy error can
+		// be correlated with the upstream refresh hiccup.
 		refreshFailed := false
 		if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
 			refreshFailed = true
+			fmt.Fprintf(os.Stderr, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 		}
 
 		if !refreshFailed {

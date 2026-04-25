@@ -7,6 +7,7 @@ package terraform
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1428,7 +1429,20 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
 		skipped, err := stack.DestroyAll(blueprint)
+
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
 		if err != nil {
 			t.Fatalf("Expected DestroyAll to tolerate refresh failure on one component, got %v", err)
 		}
@@ -1467,6 +1481,18 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 		if !hasRefreshFalse {
 			t.Errorf("remote/path: expected -refresh=false on happy path, got %v", remoteArgs)
+		}
+
+		// Stderr warning must surface for the failed component only — silent fallback would
+		// hide a recurring credential or connectivity issue across a bulk destroy.
+		if !strings.Contains(stderrOutput, "warning: terraform refresh failed for local/path") {
+			t.Errorf("Expected stderr warning for failed component, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "mock refresh failure for local/path") {
+			t.Errorf("Expected stderr warning to include underlying refresh error, got: %q", stderrOutput)
+		}
+		if strings.Contains(stderrOutput, "warning: terraform refresh failed for remote/path") {
+			t.Errorf("No warning expected for remote/path (refresh succeeded), got: %q", stderrOutput)
 		}
 	})
 
@@ -2870,7 +2896,10 @@ func TestStack_Destroy(t *testing.T) {
 		// `terraform destroy -refresh=true` so terraform's own refresh has a second shot.
 		// The post-refresh state-show must be skipped (its result would be from the same
 		// pre-refresh snapshot). Persistent refresh problems will then surface from destroy
-		// itself, which yields a more actionable error than surfacing refresh's.
+		// itself, which yields a more actionable error than surfacing refresh's. A stderr
+		// warning must also fire so the operator can correlate a later destroy failure with
+		// the upstream refresh hiccup — silent fallback would hide a recurring credential
+		// or connectivity issue until destroy itself errored.
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
@@ -2891,7 +2920,20 @@ func TestStack_Destroy(t *testing.T) {
 			return "", nil
 		}
 
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
 		skipped, err := stack.Destroy(blueprint, "local/path")
+
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
 		if err != nil {
 			t.Fatalf("Expected destroy to fall through despite refresh error, got %v", err)
 		}
@@ -2915,6 +2957,12 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		if !hasRefreshTrue {
 			t.Errorf("Expected destroy args to include -refresh=true, got %v", destroyArgs)
+		}
+		if !strings.Contains(stderrOutput, "warning: terraform refresh failed for local/path") {
+			t.Errorf("Expected stderr warning naming the component, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "mock error refreshing state") {
+			t.Errorf("Expected stderr warning to include underlying refresh error for diagnostics, got: %q", stderrOutput)
 		}
 	})
 
