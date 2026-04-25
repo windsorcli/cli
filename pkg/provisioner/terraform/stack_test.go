@@ -21,7 +21,20 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	terraformRuntime "github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
+	"github.com/windsorcli/cli/pkg/tui"
 )
+
+// TestMain switches tui.Active to the synchronous verboseSpinner for the lifetime of
+// this package's tests. The default termSpinner runs an animation goroutine via
+// briandowns/spinner; on Windows that goroutine occasionally panics outside of any test
+// boundary (a write to os.Stderr after the test has completed), surfacing as a package
+// "FAIL" with no test attribution and no assertion line in the CI log. The verboseSpinner
+// writes synchronously and has no goroutine, eliminating that flake without changing
+// production code paths.
+func TestMain(m *testing.M) {
+	tui.Init(true)
+	os.Exit(m.Run())
+}
 
 // =============================================================================
 // Test Setup
