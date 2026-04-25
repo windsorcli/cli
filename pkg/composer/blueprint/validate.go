@@ -49,16 +49,24 @@ func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 		return nil
 	case 1:
 		if backendIndices[0] != 0 {
+			// 1-based position in the operator-facing message: YAML authors count their list
+			// entries from 1, so "position 1" must refer to the first item. Reporting the raw
+			// 0-based index reads as if the offending component is one slot earlier than it
+			// actually is.
 			return fmt.Errorf(
 				"%w\n\nBlueprint configuration: terraform component \"backend\" needs to be the first item in terraformComponents (currently at position %d). The backend component bootstraps the remote state store, so subsequent components depend on it being applied first. Reorder your blueprint so \"backend\" appears first, then re-run.",
-				ErrBlueprintInvalid, backendIndices[0],
+				ErrBlueprintInvalid, backendIndices[0]+1,
 			)
 		}
 		return nil
 	default:
+		oneBasedPositions := make([]int, len(backendIndices))
+		for i, idx := range backendIndices {
+			oneBasedPositions[i] = idx + 1
+		}
 		return fmt.Errorf(
 			"%w\n\nBlueprint configuration: terraform component \"backend\" appears %d times in terraformComponents (positions %v). Exactly one backend component is allowed; remove the duplicates and re-run.",
-			ErrBlueprintInvalid, len(backendIndices), backendIndices,
+			ErrBlueprintInvalid, len(backendIndices), oneBasedPositions,
 		)
 	}
 }

@@ -326,8 +326,9 @@ func TestInit_RejectsBlueprintWithMisorderedBackendComponent(t *testing.T) {
 	if !strings.Contains(combined, "first item") {
 		t.Errorf("expected validation error to call out the ordering rule, got:\n%s", combined)
 	}
-	if !strings.Contains(combined, "position 1") {
-		t.Errorf("expected validation error to name the offending position, got:\n%s", combined)
+	// The fixture lists `null` then `backend`, so backend is at 1-based YAML position 2.
+	if !strings.Contains(combined, "position 2") {
+		t.Errorf("expected validation error to name 1-based position 2, got:\n%s", combined)
 	}
 }
 

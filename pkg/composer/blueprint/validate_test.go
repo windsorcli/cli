@@ -77,8 +77,10 @@ func TestValidateComposedBlueprint(t *testing.T) {
 		if !errors.Is(err, ErrBlueprintInvalid) {
 			t.Errorf("Expected error wrapping ErrBlueprintInvalid, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "position 2") {
-			t.Errorf("Expected error to name position 2, got %v", err)
+		// Backend is the third entry (vpc, iam, backend) → 1-based position 3 in the
+		// operator's YAML; raw slice index would be 2 but operators count from 1.
+		if !strings.Contains(err.Error(), "position 3") {
+			t.Errorf("Expected error to name 1-based position 3, got %v", err)
 		}
 	})
 
