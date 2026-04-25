@@ -66,6 +66,8 @@ func (i *Provisioner) DestroyTerraformComponentWithBackendLifecycle(blueprint *b
 		return i.Destroy(blueprint, componentID)
 	}
 
+	// Set is in-memory only; restore-failure is a stale in-process value, not a
+	// persisted-config corruption — see runFullCycleDestroyAll for the full note.
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
 		return false, fmt.Errorf("failed to override backend for backend-component destroy: %w", err)
 	}
@@ -92,6 +94,14 @@ func (i *Provisioner) DestroyTerraformComponentWithBackendLifecycle(blueprint *b
 // store evaporating. After migration, DestroyAll iterates components in reverse
 // against the local state. The deferred restore guards exit paths between the
 // override and any panic; restoring twice is idempotent.
+//
+// Note on Set/restore: configHandler.Set is in-memory only (see config.Set's
+// docstring — persistence requires SaveConfig, which we never call here). The
+// override and the deferred restore both mutate the in-process map, never
+// values.yaml on disk. If the deferred restore fails the worst case is a
+// stale in-memory backend.type=local for the remainder of this process; the
+// next windsor invocation reads the unchanged on-disk config and behaves
+// correctly. The stderr warning surfaces the unusual case for the operator.
 func (i *Provisioner) runFullCycleDestroyAll(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, originalBackend string) ([]string, error) {
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
 		return nil, fmt.Errorf("failed to override backend for destroy: %w", err)
@@ -142,6 +152,8 @@ func (i *Provisioner) runPerComponentDestroyAll(blueprint *blueprintv1alpha1.Blu
 		return skipped, bulkErr
 	}
 
+	// Set is in-memory only; restore-failure is a stale in-process value, not a
+	// persisted-config corruption — see runFullCycleDestroyAll for the full note.
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
 		return skipped, fmt.Errorf("failed to override backend for backend-component destroy: %w", err)
 	}
