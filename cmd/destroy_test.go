@@ -89,8 +89,8 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error { return nil }
-	mockTerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
+	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+	mockTerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
@@ -545,8 +545,8 @@ func TestDestroyTerraformCmd(t *testing.T) {
 
 	t.Run("ErrorDestroyFails", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
-		mocks.TerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
-			return fmt.Errorf("terraform destroy failed")
+		mocks.TerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+			return false, fmt.Errorf("terraform destroy failed")
 		}
 		proj := newDestroyProject(mocks)
 

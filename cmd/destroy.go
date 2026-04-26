@@ -9,36 +9,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// =============================================================================
+// Destroy Commands
+// =============================================================================
+
 var destroyConfirm string
-
-// confirmDestroy prompts the user to type confirmValue to proceed with a destructive operation.
-// It prints a description of what will be destroyed and the expected confirmation token.
-// Returns nil if the user types the correct value, or an error if input does not match or cannot be read.
-func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) error {
-	fmt.Fprintf(w, "%s\n", description)
-	fmt.Fprintf(w, "Type %q to confirm: ", confirmValue)
-	scanner := bufio.NewScanner(r)
-	if !scanner.Scan() {
-		return fmt.Errorf("confirmation aborted")
-	}
-	if strings.TrimSpace(scanner.Text()) != confirmValue {
-		return fmt.Errorf("confirmation failed: input did not match %q", confirmValue)
-	}
-	return nil
-}
-
-// resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
-// match expected exactly; otherwise the user is prompted interactively. This mirrors the prompt
-// in both directions so scripted callers cannot accidentally destroy the wrong target.
-func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected string) error {
-	if destroyConfirm != "" {
-		if destroyConfirm != expected {
-			return fmt.Errorf("confirmation failed: --confirm did not match %q", expected)
-		}
-		return nil
-	}
-	return confirmDestroy(r, w, description, expected)
-}
 
 var destroyCmd = &cobra.Command{
 	Use:   "destroy [component]",
@@ -50,7 +25,7 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		proj, err := prepareProjectSkipValidation(cmd)
 		if err != nil {
 			return err
 		}
@@ -63,7 +38,9 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
-			if err := proj.Provisioner.DestroyAll(blueprint); err != nil {
+			skipped, err := proj.Provisioner.DestroyAllWithBackendLifecycle(blueprint, false)
+			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+			if err != nil {
 				return fmt.Errorf("error destroying all components: %w", err)
 			}
 			return nil
@@ -88,8 +65,12 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			}
 		}
 		if inTerraform {
-			if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
+			skipped, err := proj.Provisioner.DestroyTerraformComponentWithBackendLifecycle(blueprint, componentID)
+			if err != nil {
 				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+			}
+			if skipped {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
 			}
 		}
 
@@ -105,7 +86,7 @@ var destroyTerraformCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		proj, err := prepareProjectSkipValidation(cmd)
 		if err != nil {
 			return err
 		}
@@ -118,7 +99,9 @@ var destroyTerraformCmd = &cobra.Command{
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
-			if err := proj.Provisioner.DestroyAllTerraform(blueprint); err != nil {
+			skipped, err := proj.Provisioner.DestroyAllWithBackendLifecycle(blueprint, true)
+			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+			if err != nil {
 				return fmt.Errorf("error destroying all terraform: %w", err)
 			}
 			return nil
@@ -129,8 +112,12 @@ var destroyTerraformCmd = &cobra.Command{
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
 			return err
 		}
-		if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
+		skipped, err := proj.Provisioner.DestroyTerraformComponentWithBackendLifecycle(blueprint, componentID)
+		if err != nil {
 			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+		}
+		if skipped {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
 		}
 		return nil
 	},
@@ -144,7 +131,7 @@ var destroyKustomizeCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		proj, err := prepareProjectSkipValidation(cmd)
 		if err != nil {
 			return err
 		}
@@ -173,6 +160,52 @@ var destroyKustomizeCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// confirmDestroy prompts the user to type confirmValue to proceed with a destructive operation.
+// It prints a description of what will be destroyed and the expected confirmation token.
+// Returns nil if the user types the correct value, or an error if input does not match or cannot be read.
+func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) error {
+	fmt.Fprintf(w, "%s\n", description)
+	fmt.Fprintf(w, "Type %q to confirm: ", confirmValue)
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		return fmt.Errorf("confirmation aborted")
+	}
+	if strings.TrimSpace(scanner.Text()) != confirmValue {
+		return fmt.Errorf("confirmation failed: input did not match %q", confirmValue)
+	}
+	return nil
+}
+
+// reportSkippedDestroyComponents prints a one-line summary to w naming any terraform
+// components whose destroy was skipped because their state was empty (never applied, fully
+// torn down already, or upstream destroy collapsed their cloud objects out from under them).
+// Called after DestroyAll/DestroyAllTerraform regardless of whether the operation overall
+// succeeded — the skip list is paired with the returned error so an operator sees both
+// "these were no-ops" and "this one failed" in the same output. No-op when skipped is empty.
+func reportSkippedDestroyComponents(w io.Writer, skipped []string) {
+	if len(skipped) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Skipped (empty state, nothing to destroy): %s\n", strings.Join(skipped, ", "))
+}
+
+// resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
+// match expected exactly; otherwise the user is prompted interactively. This mirrors the prompt
+// in both directions so scripted callers cannot accidentally destroy the wrong target.
+func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected string) error {
+	if destroyConfirm != "" {
+		if destroyConfirm != expected {
+			return fmt.Errorf("confirmation failed: --confirm did not match %q", expected)
+		}
+		return nil
+	}
+	return confirmDestroy(r, w, description, expected)
 }
 
 // init registers destroy subcommands and the --confirm flag. --confirm must exactly match the

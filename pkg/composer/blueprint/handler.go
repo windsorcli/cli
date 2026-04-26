@@ -17,6 +17,7 @@ import (
 // It orchestrates loading, processing, composing, and writing blueprints.
 type BlueprintHandler interface {
 	LoadBlueprint(blueprintURL ...string) error
+	SetSkipValidation(skip bool)
 	Write(overwrite ...bool) error
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
@@ -48,6 +49,7 @@ type BaseBlueprintHandler struct {
 	deferredPaths          map[string]bool
 	traceCollector         TraceCollector
 	initBlueprintURLs      []string
+	skipValidation         bool
 }
 
 // =============================================================================
@@ -139,7 +141,26 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		return fmt.Errorf("failed to compose blueprint: %w", err)
 	}
 
+	if !h.skipValidation {
+		if err := ValidateComposedBlueprint(h.composedBlueprint); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// SetSkipValidation toggles structural-invariant validation in LoadBlueprint. Default is
+// false (validate). Teardown/read commands (destroy, down, env, show, apply, plan) call
+// this with true so an operator with a deployed-but-misordered blueprint can still tear
+// down or inspect — without this escape hatch, the validator would block the only commands
+// that could resolve the situation. Write/deploy commands (init, bootstrap, up) leave it
+// false so structural mistakes surface at the moment they are introduced. Provisioner's
+// destroy paths iterate components independent of blueprint position
+// (findBackendComponentID + symmetric-destroy), so skipping validation does not produce a
+// wrong destroy order.
+func (h *BaseBlueprintHandler) SetSkipValidation(skip bool) {
+	h.skipValidation = skip
 }
 
 // Write persists the blueprint to blueprint.yaml in the config root directory. It always writes
