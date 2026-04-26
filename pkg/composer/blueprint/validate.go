@@ -38,12 +38,22 @@ func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 
 	var backendIndices []int
+	var backendIDs []string
 	for i := range blueprint.TerraformComponents {
 		c := blueprint.TerraformComponents[i]
 		if c.IsBackend() {
 			backendIndices = append(backendIndices, i)
+			backendIDs = append(backendIDs, c.GetID())
 		}
 	}
+
+	// Reserved-name preface used by both error messages below. The basename match
+	// (path.Base(GetID()) == "backend") means a non-state component like
+	// "services/backend" or "api/backend" can also trip these errors — without naming
+	// the convention up front, an operator with such a component sees a message about
+	// "remote state store" and can't tell why their unrelated component is being flagged.
+	// Naming the matched IDs in the message makes the false-positive case obvious.
+	const reservedNameNote = "Windsor treats any terraform component whose path or name basename is \"backend\" as the remote-state bootstrap. If a flagged component serves a different purpose (e.g. an application backend service), rename it so its basename is not \"backend\"."
 
 	switch len(backendIndices) {
 	case 0:
@@ -55,8 +65,8 @@ func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 			// 0-based index reads as if the offending component is one slot earlier than it
 			// actually is.
 			return fmt.Errorf(
-				"%w\n\nBlueprint configuration: terraform component \"backend\" needs to be the first item in terraformComponents (currently at position %d). The backend component bootstraps the remote state store, so subsequent components depend on it being applied first. Reorder your blueprint so \"backend\" appears first, then re-run.",
-				ErrBlueprintInvalid, backendIndices[0]+1,
+				"%w\n\n%s\n\nBlueprint configuration: terraform component %q (matched as backend) needs to be the first item in terraformComponents (currently at position %d). The backend component bootstraps the remote state store, so subsequent components depend on it being applied first. Reorder your blueprint so it appears first, then re-run.",
+				ErrBlueprintInvalid, reservedNameNote, backendIDs[0], backendIndices[0]+1,
 			)
 		}
 		return nil
@@ -66,8 +76,8 @@ func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 			oneBasedPositions[i] = idx + 1
 		}
 		return fmt.Errorf(
-			"%w\n\nBlueprint configuration: terraform component \"backend\" appears %d times in terraformComponents (positions %v). Exactly one backend component is allowed; remove the duplicates and re-run.",
-			ErrBlueprintInvalid, len(backendIndices), oneBasedPositions,
+			"%w\n\n%s\n\nBlueprint configuration: %d terraform components match as backend (%v at positions %v). Exactly one backend component is allowed; remove or rename the duplicates and re-run.",
+			ErrBlueprintInvalid, reservedNameNote, len(backendIndices), backendIDs, oneBasedPositions,
 		)
 	}
 }

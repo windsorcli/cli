@@ -104,8 +104,38 @@ func TestValidateComposedBlueprint(t *testing.T) {
 		if !errors.Is(err, ErrBlueprintInvalid) {
 			t.Errorf("Expected error wrapping ErrBlueprintInvalid, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "appears 2 times") {
+		if !strings.Contains(err.Error(), "2 terraform components match as backend") {
 			t.Errorf("Expected error to name duplicate count, got %v", err)
+		}
+	})
+
+	t.Run("ErrorMessageNamesReservedNameConvention", func(t *testing.T) {
+		// Given a misordered backend, the operator-facing message must explain that
+		// "backend" is a reserved basename — otherwise an operator who declared a
+		// non-state component like "services/backend" would see a misleading message
+		// about "remote state store" and have no way to discover the basename trigger.
+		// This test covers the false-positive UX: the matched component ID is named
+		// in the message and the reserved-name note appears as a preface.
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+				{Path: "services/backend"},
+			},
+		}
+
+		err := ValidateComposedBlueprint(bp)
+		if err == nil {
+			t.Fatal("Expected error for services/backend at index 1, got nil")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "services/backend") {
+			t.Errorf("Expected error to name the matched component ID \"services/backend\", got %v", err)
+		}
+		if !strings.Contains(msg, "rename it") {
+			t.Errorf("Expected error to advise renaming for false-positive case, got %v", err)
+		}
+		if !strings.Contains(msg, "basename") {
+			t.Errorf("Expected error to mention the basename convention, got %v", err)
 		}
 	})
 
