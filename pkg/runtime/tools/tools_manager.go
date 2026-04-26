@@ -540,7 +540,7 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 		return missingToolError("aws")
 	}
 
-	out, err := t.shell.ExecSilentWithTimeout("aws", []string{"--version"}, 30*time.Second)
+	out, err := t.shell.ExecSilentWithTimeout("aws", []string{"--version"}, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("aws --version failed: %v", err)
 	}
