@@ -82,11 +82,17 @@ func configureProject(cmd *cobra.Command) (*project.Project, error) {
 // setup through Configure to configureProject, then runs Initialize. Commands that need
 // additional steps between Configure and Initialize (e.g. ValidateContextValues) should not
 // use this helper — call configureProject directly instead.
+//
+// prepareProject opts out of blueprint structural validation. That allows teardown/read
+// commands (destroy, down, env, show, apply, plan) to proceed against a deployed-but-
+// misordered blueprint that an operator needs to clean up or inspect. The validator still
+// runs at deploy time on the init/bootstrap/up paths, which call Initialize directly.
 func prepareProject(cmd *cobra.Command) (*project.Project, error) {
 	proj, err := configureProject(cmd)
 	if err != nil {
 		return nil, err
 	}
+	proj.Composer.BlueprintHandler.SetSkipValidation(true)
 	if err := proj.Initialize(false); err != nil {
 		return nil, err
 	}
