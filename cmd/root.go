@@ -79,15 +79,33 @@ func configureProject(cmd *cobra.Command) (*project.Project, error) {
 }
 
 // prepareProject creates and fully initializes a project for the given command. It delegates
-// setup through Configure to configureProject, then runs Initialize. Commands that need
-// additional steps between Configure and Initialize (e.g. ValidateContextValues) should not
-// use this helper — call configureProject directly instead.
+// setup through Configure to configureProject, then runs Initialize with blueprint
+// structural validation enabled. Use this for write/deploy commands (apply, plan, install)
+// where misorderings should surface before terraform runs.
 //
-// prepareProject opts out of blueprint structural validation. That allows teardown/read
-// commands (destroy, down, env, show, apply, plan) to proceed against a deployed-but-
-// misordered blueprint that an operator needs to clean up or inspect. The validator still
-// runs at deploy time on the init/bootstrap/up paths, which call Initialize directly.
+// Commands that need additional steps between Configure and Initialize (e.g.
+// ValidateContextValues) should not use this helper — call configureProject directly
+// instead. Teardown/read commands that must tolerate a deployed-but-misordered blueprint
+// should use prepareProjectSkipValidation.
 func prepareProject(cmd *cobra.Command) (*project.Project, error) {
+	proj, err := configureProject(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if err := proj.Initialize(false); err != nil {
+		return nil, err
+	}
+	return proj, nil
+}
+
+// prepareProjectSkipValidation is prepareProject with blueprint structural validation
+// disabled. Used by teardown/read commands (destroy, down, env) that must operate against
+// a deployed blueprint whose structure may not satisfy the validator's invariants —
+// otherwise an operator with a misordered backend component cannot run windsor destroy to
+// clean up. The skip is explicit at the call site so a future write/deploy command using
+// this helper would have to consciously opt out of validation rather than inheriting the
+// behavior from a generic prepareProject.
+func prepareProjectSkipValidation(cmd *cobra.Command) (*project.Project, error) {
 	proj, err := configureProject(cmd)
 	if err != nil {
 		return nil, err

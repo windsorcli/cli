@@ -25,7 +25,7 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		proj, err := prepareProjectSkipValidation(cmd)
 		if err != nil {
 			return err
 		}
@@ -86,7 +86,7 @@ var destroyTerraformCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		proj, err := prepareProjectSkipValidation(cmd)
 		if err != nil {
 			return err
 		}
@@ -131,7 +131,7 @@ var destroyKustomizeCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		proj, err := prepareProjectSkipValidation(cmd)
 		if err != nil {
 			return err
 		}
