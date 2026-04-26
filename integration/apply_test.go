@@ -102,7 +102,9 @@ func TestApply_AcceptsWaitFlag(t *testing.T) {
 // and the matching aqua package so the operator has a copy-pasteable next step. init
 // runs with --set terraform.enabled=true so the preflight check actually fires (without
 // that gate, the provisioner would shell out directly and surface a raw exec error
-// instead of the formatted one).
+// instead of the formatted one). The "null" component arg is an arbitrary positional
+// placeholder — the preflight check fails inside Initialize before the command body
+// reads componentID, so no matching component needs to exist in the plan fixture.
 func TestApplyTerraform_MissingBinary_ShowsActionableError(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
