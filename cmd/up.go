@@ -84,6 +84,10 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
+		if err := requireCloudAuth(cmd, proj); err != nil {
+			return err
+		}
+
 		if _, err := proj.Up(); err != nil {
 			return err
 		}

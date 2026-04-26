@@ -38,6 +38,9 @@ var planCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
 			var summary *provisioner.PlanSummary
 			if err := tui.WithProgress("Generating plan...", func() error {
 				var planErr error
@@ -59,6 +62,12 @@ var planCmd = &cobra.Command{
 
 		if !inTerraform && !inKustomize {
 			return fmt.Errorf("component %q not found in blueprint", componentID)
+		}
+
+		if inTerraform {
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
 		}
 
 		if planSummary || planJSON {
@@ -111,6 +120,10 @@ var planTerraformCmd = &cobra.Command{
 		// `plan terraform` only invokes terraform; cluster/k8s tools are not used.
 		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
+			return err
+		}
+
+		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
 

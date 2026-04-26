@@ -19,6 +19,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -31,6 +32,7 @@ type DestroyMocks struct {
 	BlueprintHandler  *blueprint.MockBlueprintHandler
 	TerraformStack    *terraforminfra.MockStack
 	KubernetesManager *kubernetes.MockKubernetesManager
+	ToolsManager      *tools.MockToolsManager
 	Runtime           *runtime.Runtime
 	TmpDir            string
 }
@@ -113,6 +115,7 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 		BlueprintHandler:  mockBlueprintHandler,
 		TerraformStack:    mockTerraformStack,
 		KubernetesManager: mockKubernetesManager,
+		ToolsManager:      baseMocks.ToolsManager,
 		Runtime:           rt,
 		TmpDir:            tmpDir,
 	}
@@ -396,6 +399,89 @@ func TestDestroyCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error destroying all components") {
 			t.Errorf("Expected destroy error, got: %v", err)
+		}
+	})
+
+	t.Run("CheckAuthFailureBlocksDestroyAllBeforeStateMigration", func(t *testing.T) {
+		// Given expired/missing cloud credentials, destroy must fail at preflight rather than
+		// after several minutes of init + state migration. This is the bug: a long destroy
+		// would init every component, migrate state, then fail at the AWS provider.
+		mocks := setupDestroyTest(t)
+		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
+		destroyAllCalled := false
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint) error {
+			destroyAllCalled = true
+			return nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected credential preflight error, got nil")
+		}
+		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
+			t.Errorf("Expected pass-through credential error, got: %v", err)
+		}
+		if destroyAllCalled {
+			t.Error("DestroyAll must not run when credential preflight fails")
+		}
+	})
+
+	t.Run("CheckAuthFailureBlocksTerraformComponentDestroy", func(t *testing.T) {
+		// Given a terraform component is targeted, the preflight must fire before migrate/destroy.
+		mocks := setupDestroyTest(t)
+		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
+		destroyCalled := false
+		mocks.TerraformStack.DestroyFunc = func(*blueprintv1alpha1.Blueprint, string) error {
+			destroyCalled = true
+			return nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=cluster", "cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected credential preflight error, got nil")
+		}
+		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
+			t.Errorf("Expected pass-through credential error, got: %v", err)
+		}
+		if destroyCalled {
+			t.Error("Destroy must not run when credential preflight fails")
+		}
+	})
+
+	t.Run("CheckAuthSkippedForKustomizeOnlyComponent", func(t *testing.T) {
+		// Given a component that exists only in kustomize (not terraform), the cloud-credential
+		// preflight must NOT fire — kustomize-only paths have no obligation to be authed.
+		mocks := setupDestroyTest(t)
+		checkAuthCalled := false
+		mocks.ToolsManager.CheckAuthFunc = func() error {
+			checkAuthCalled = true
+			return fmt.Errorf("aws credentials did not resolve")
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=my-app", "my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected kustomize-only destroy to succeed without preflight, got %v", err)
+		}
+		if checkAuthCalled {
+			t.Error("CheckAuth must not be invoked for a kustomize-only component destroy")
 		}
 	})
 }

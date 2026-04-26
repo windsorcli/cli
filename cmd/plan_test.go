@@ -19,6 +19,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -30,6 +31,7 @@ type PlanMocks struct {
 	Shell            *shell.MockShell
 	BlueprintHandler *blueprint.MockBlueprintHandler
 	TerraformStack   *terraforminfra.MockStack
+	ToolsManager     *tools.MockToolsManager
 	Runtime          *runtime.Runtime
 	TmpDir           string
 }
@@ -99,6 +101,7 @@ func setupPlanTest(t *testing.T, opts ...*SetupOptions) *PlanMocks {
 		Shell:            baseMocks.Shell,
 		BlueprintHandler: mockBlueprintHandler,
 		TerraformStack:   mockTerraformStack,
+		ToolsManager:     baseMocks.ToolsManager,
 		Runtime:          rt,
 		TmpDir:           tmpDir,
 	}
@@ -296,6 +299,34 @@ func TestPlanTerraformCmd(t *testing.T) {
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+		}
+	})
+
+	t.Run("CheckAuthFailureBlocksPlanTerraform", func(t *testing.T) {
+		// Given expired credentials, plan terraform must fail at preflight rather than mid-init.
+		// Plan still hits provider APIs to refresh state, so the same gate applies.
+		mocks := setupPlanTest(t)
+		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
+		planCalled := false
+		mocks.TerraformStack.PlanAllFunc = func(*blueprintv1alpha1.Blueprint) error {
+			planCalled = true
+			return nil
+		}
+		proj := newPlanProject(mocks)
+
+		cmd := createTestPlanTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected credential preflight error, got nil")
+		}
+		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
+			t.Errorf("Expected pass-through credential error, got: %v", err)
+		}
+		if planCalled {
+			t.Error("PlanAll must not run when credential preflight fails")
 		}
 	})
 }

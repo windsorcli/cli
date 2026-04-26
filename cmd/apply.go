@@ -26,6 +26,10 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 
+		if err := requireCloudAuth(cmd, proj); err != nil {
+			return err
+		}
+
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 		if blueprint == nil {
 			return fmt.Errorf("blueprint is not available")
@@ -68,6 +72,10 @@ var applyTerraformCmd = &cobra.Command{
 		// docker, colima, and kubelogin are not exercised by this codepath.
 		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
+			return err
+		}
+
+		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
 

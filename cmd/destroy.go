@@ -69,6 +69,9 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
 			if err := proj.Provisioner.DestroyAll(blueprint); err != nil {
 				return fmt.Errorf("error destroying all components: %w", err)
 			}
@@ -88,6 +91,13 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			return err
 		}
 
+		// Gate auth before either teardown so a credential failure can't strand a both-layer
+		// component half-destroyed (kustomize gone, terraform state intact).
+		if inTerraform {
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
+		}
 		if inKustomize {
 			if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
 				return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
@@ -125,6 +135,9 @@ var destroyTerraformCmd = &cobra.Command{
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
 			if err := proj.Provisioner.DestroyAllTerraform(blueprint); err != nil {
 				return fmt.Errorf("error destroying all terraform: %w", err)
 			}
@@ -134,6 +147,9 @@ var destroyTerraformCmd = &cobra.Command{
 		componentID := args[0]
 		desc := fmt.Sprintf("This will permanently destroy Terraform component %q.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
+			return err
+		}
+		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
 		if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {

@@ -1741,15 +1741,23 @@ contexts:
 		}
 		// When CheckAuth runs
 		err := toolsManager.CheckAuth()
-		// Then it surfaces the credential-resolution error with an actionable hint
+		// Then it surfaces ONLY the actionable hint — no doubled "command execution failed"
+		// + raw aws-CLI stderr + hint stack. The hint names the actionable next step, which
+		// is the only thing the operator needs to see.
 		if err == nil {
 			t.Fatal("Expected error when sts get-caller-identity fails")
 		}
-		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
-			t.Errorf("Expected 'aws credentials did not resolve' in error, got: %v", err)
+		if !strings.Contains(err.Error(), "aws configure") && !strings.Contains(err.Error(), "aws sso login") {
+			t.Errorf("Expected an aws sso/configure remediation hint in error, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "aws configure") {
-			t.Errorf("Expected 'aws configure' hint in error, got: %v", err)
+		// Guard against the noise regression: the raw shell-exec wrapper text and aws-CLI
+		// stderr must not be present in the surfaced error. If either reappears it means
+		// somebody re-introduced the %v err interpolation.
+		if strings.Contains(err.Error(), "command execution failed") {
+			t.Errorf("Expected raw shell-exec error text to be suppressed, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "aws credentials did not resolve") {
+			t.Errorf("Expected the redundant 'aws credentials did not resolve' prefix to be removed, got: %v", err)
 		}
 	})
 

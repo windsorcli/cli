@@ -491,6 +491,34 @@ func TestUpCmd(t *testing.T) {
 			t.Errorf("Expected wait error, got: %v", err)
 		}
 	})
+
+	t.Run("CheckAuthFailureBlocksUpBeforeProjectUp", func(t *testing.T) {
+		// Given expired credentials, up must fail at preflight before kicking off the
+		// workstation/terraform path.
+		mocks := setupUpTest(t)
+		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
+		upCalled := false
+		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) error) error {
+			upCalled = true
+			return nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected credential preflight error, got nil")
+		}
+		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
+			t.Errorf("Expected pass-through credential error, got: %v", err)
+		}
+		if upCalled {
+			t.Error("Provisioner.Up must not run when credential preflight fails")
+		}
+	})
 }
 
 func TestBuildUpFlagOverrides(t *testing.T) {

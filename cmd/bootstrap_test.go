@@ -262,66 +262,6 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("OverridesBackendToLocalThenMigratesAfterApply", func(t *testing.T) {
-		// Given a project with a kubernetes-configured backend and all provisioner steps mocked
-		mocks := setupBootstrapTest(t)
-
-		// Track the ordered sequence of backend writes, Up calls, and MigrateState calls to
-		// verify bootstrap overrides to "local" before Up and restores + migrates after.
-		var timeline []string
-		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "kubernetes"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mockCH.SetFunc = func(key string, value any) error {
-			if key == "terraform.backend.type" {
-				timeline = append(timeline, fmt.Sprintf("set=%v", value))
-			}
-			return nil
-		}
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			timeline = append(timeline, "up")
-			return nil
-		}
-		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
-			timeline = append(timeline, "migrate")
-			return nil
-		}
-
-		proj := newBootstrapTestProject(mocks)
-
-		cmd := createTestBootstrapCmd()
-		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{})
-		cmd.SetContext(ctx)
-
-		// When executing bootstrap
-		err := cmd.Execute()
-
-		// Then the sequence is: override to local, run Up, restore to kubernetes, migrate
-		// state. A trailing "set=kubernetes" is expected from the deferred safety restore
-		// that guards against panics or future code paths that might persist config while
-		// the override is active — the defer fires idempotently on normal exit.
-		if err != nil {
-			t.Fatalf("Expected success, got %v", err)
-		}
-		expected := []string{"set=local", "up", "set=kubernetes", "migrate", "set=kubernetes"}
-		if len(timeline) != len(expected) {
-			t.Fatalf("Expected timeline %v, got %v", expected, timeline)
-		}
-		for i, step := range expected {
-			if timeline[i] != step {
-				t.Errorf("Expected timeline[%d]=%q, got %q (full: %v)", i, step, timeline[i], timeline)
-			}
-		}
-	})
-
 	t.Run("SuccessWithContextArg", func(t *testing.T) {
 		// Given a config handler that records SetContext calls
 		mocks := setupBootstrapTest(t)

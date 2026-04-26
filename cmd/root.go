@@ -99,6 +99,42 @@ func prepareProject(cmd *cobra.Command, reqs tools.Requirements) (*project.Proje
 	return proj, nil
 }
 
+// requireCloudAuth runs the cloud-credential preflight for any platform configured for the
+// current context. It is the gate before any operation that runs terraform — apply, plan,
+// destroy, up — so credential failures (expired SSO, missing profile) surface before init
+// and state migration burn several minutes against a credential set that was never going to
+// work. CheckAuth itself is platform-aware: AWS today, with azure/gcp wired in alongside as
+// they're added. Call sites that do NOT run terraform (down, env, init, kustomize-only
+// subcommands) must not call this — there is no obligation to be authed for those paths.
+// Bootstrap calls CheckAuth directly because it runs Initialize itself before its first
+// apply pass.
+//
+// On failure: prints CheckAuth's hint to stderr verbatim (the per-platform hint already
+// names the action and ends in a copy-pasteable remediation command), silences cobra's
+// "Error:" prefix on the parent command tree, and returns the error so the process exits
+// non-zero. This is a flow-guidance moment ("run aws sso login"), not an exception, so the
+// output should read calmly without scary "Error:" framing or stacked "credentials are
+// bad" prefixes — the operator just needs the next step.
+func requireCloudAuth(cmd *cobra.Command, proj *project.Project) error {
+	if err := proj.Runtime.ToolsManager.CheckAuth(); err != nil {
+		silenceErrorsOnAncestors(cmd)
+		fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+		return err
+	}
+	return nil
+}
+
+// silenceErrorsOnAncestors walks up the cobra command tree setting SilenceErrors=true on
+// each ancestor. Cobra prints "Error: <msg>" by checking SilenceErrors on the command that
+// returned the error AND walking upward; setting it only on the leaf is not enough when
+// the error bubbles past intermediate commands (root → destroy → terraform). Walking the
+// chain mirrors what cobra does internally for the same flag.
+func silenceErrorsOnAncestors(cmd *cobra.Command) {
+	for c := cmd; c != nil; c = c.Parent() {
+		c.SilenceErrors = true
+	}
+}
+
 // setupGlobalContext injects global flags and context values into the command's context.
 // It sets the verbose flag in the context if enabled.
 func setupGlobalContext(cmd *cobra.Command) error {
