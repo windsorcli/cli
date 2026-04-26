@@ -3,6 +3,7 @@ package provisioner
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
@@ -112,8 +113,15 @@ func (i *Provisioner) runFullCycleDestroyAll(blueprint *blueprintv1alpha1.Bluepr
 		}
 	}()
 
-	if _, err := i.MigrateState(blueprint); err != nil {
+	skipped, err := i.MigrateState(blueprint)
+	if err != nil {
+		if len(skipped) > 0 {
+			return nil, fmt.Errorf("failed to migrate state to local before destroy: %w (skipped components before failure: %s)", err, strings.Join(skipped, ", "))
+		}
 		return nil, fmt.Errorf("failed to migrate state to local before destroy: %w", err)
+	}
+	if len(skipped) > 0 {
+		return nil, fmt.Errorf("kubernetes full-cycle destroy aborted: state migration skipped components whose directories were missing (%s); their state may still live on the cluster's Secret store, which is about to be destroyed — running destroy now would orphan the underlying cloud resources. Restore the missing component directories and re-run, or destroy them individually first", strings.Join(skipped, ", "))
 	}
 
 	if terraformOnly {

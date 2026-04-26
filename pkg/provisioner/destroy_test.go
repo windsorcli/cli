@@ -405,6 +405,81 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		}
 	})
 
+	t.Run("KubernetesBackendMigrationSkipAbortsDestroy", func(t *testing.T) {
+		// Given the kubernetes full-cycle destroy's MigrateState reports a non-empty
+		// skip list with no error — i.e. one or more component directories were
+		// missing on disk and got skipped silently. Their state may still live on
+		// the cluster's kubernetes Secret store, which is about to be destroyed.
+		// DestroyAll must NOT proceed: doing so would mark those components as
+		// "empty state" and leave their cloud resources orphaned with no terraform
+		// record anywhere. The error must name the skipped component IDs so the
+		// operator can investigate, and the configured backend must still restore
+		// via defer for any subsequent operations in the same process.
+		mocks := setupProvisionerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+
+		var ops []string
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				ops = append(ops, fmt.Sprintf("set:%v", value))
+			}
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			ops = append(ops, "migrate-skip")
+			return []string{"vpc", "iam"}, nil
+		}
+		destroyCalled := false
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+			destroyCalled = true
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		_, err := provisioner.DestroyAllWithBackendLifecycle(createTestBlueprint(), true)
+
+		if err == nil {
+			t.Fatal("Expected skip-list to surface as a hard error, got nil")
+		}
+		if destroyCalled {
+			t.Error("DestroyAll must not run after MigrateState skips components on the kubernetes path")
+		}
+		msg := err.Error()
+		// The skipped IDs must appear by name so the operator can investigate which
+		// component dirs went missing — without them the operator gets a generic
+		// "skipped components" message and no diagnostic foothold.
+		for _, id := range []string{"vpc", "iam"} {
+			if !strings.Contains(msg, id) {
+				t.Errorf("Expected error to name skipped component %q, got %v", id, err)
+			}
+		}
+		// The orphaned-resources framing is the load-bearing piece of the message —
+		// asserting it locks in the explanation that distinguishes this hard-stop
+		// from a routine "skipped" warning.
+		if !strings.Contains(msg, "orphan") {
+			t.Errorf("Expected error to explain the orphaned-resources risk, got %v", err)
+		}
+		expected := []string{"set:local", "migrate-skip", "set:kubernetes"}
+		if len(ops) != len(expected) {
+			t.Fatalf("Expected %d ops %v, got %d %v", len(expected), expected, len(ops), ops)
+		}
+		for i, want := range expected {
+			if ops[i] != want {
+				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
+			}
+		}
+	})
+
 	t.Run("LocalBackendCollapsesToDirectDestroyAll", func(t *testing.T) {
 		// Given a local (or unset) backend, no migration dance fires — the call
 		// is a straight pass-through to DestroyAllTerraform. This is the no-op
