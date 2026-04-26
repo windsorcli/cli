@@ -177,18 +177,20 @@ func (i *Provisioner) runPerComponentDestroyAll(blueprint *blueprintv1alpha1.Blu
 }
 
 // findBackendComponentID returns the ID of the terraform component that bootstraps the
-// remote state backend, or "" if no such component is declared. The backend component
-// is identified by GetID() == "backend"; this is the same convention enforced by
-// blueprint.ValidateComposedBlueprint, so the lookup here matches the validator's view.
-// Out-of-band buckets (no backend component in the blueprint) return "" and let callers
-// collapse to a direct destroy without the migration dance.
+// remote state backend, or "" if no such component is declared. The backend component is
+// identified by TerraformComponent.IsBackend() (basename of GetID() == "backend"), which
+// is the same convention enforced by blueprint.ValidateComposedBlueprint — keeping the
+// two in lock-step via the shared helper guarantees the validator's view and the
+// destroy lookup cannot drift apart. Out-of-band buckets (no backend component in the
+// blueprint) return "" and let callers collapse to a direct destroy without the
+// migration dance.
 func findBackendComponentID(blueprint *blueprintv1alpha1.Blueprint) string {
 	if blueprint == nil {
 		return ""
 	}
 	for i := range blueprint.TerraformComponents {
 		c := blueprint.TerraformComponents[i]
-		if c.GetID() == "backend" {
+		if c.IsBackend() {
 			return c.GetID()
 		}
 	}

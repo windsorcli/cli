@@ -127,4 +127,29 @@ func TestValidateComposedBlueprint(t *testing.T) {
 			t.Errorf("Expected error for Name=backend at index 1, got %v", err)
 		}
 	})
+
+	t.Run("NestedPathBackendIsRecognized", func(t *testing.T) {
+		// Given a blueprint declaring its backend with a nested path (e.g.
+		// "terraform/backend") rather than the bare "backend" — a layout choice some
+		// operators make to organize terraform sources under a subdirectory. Before
+		// IsBackend used basename matching, the validator silently accepted misorderings
+		// of nested-path backends because GetID() returned the full path.
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+				{Path: "terraform/backend"},
+			},
+		}
+
+		// When validation runs
+		err := ValidateComposedBlueprint(bp)
+
+		// Then the misordering is caught and reported at 1-based position 2
+		if !errors.Is(err, ErrBlueprintInvalid) {
+			t.Fatalf("Expected error for nested-path backend at index 1, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "position 2") {
+			t.Errorf("Expected error to name 1-based position 2, got %v", err)
+		}
+	})
 }

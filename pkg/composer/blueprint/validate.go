@@ -23,11 +23,12 @@ var ErrBlueprintInvalid = errors.New("invalid blueprint")
 // =============================================================================
 
 // ValidateComposedBlueprint enforces structural invariants on a composed blueprint.
-// Today the only invariant is the "backend" terraform component placement: when a
-// component whose GetID() is "backend" exists, it must be the first item in
-// terraformComponents and there must be exactly one such component. Subsequent
-// components implicitly depend on the backend bootstrapping the remote state store,
-// so misordering or duplication produces a state-storage flow that cannot work.
+// Today the only invariant is the backend terraform component placement: when a
+// component identified by IsBackend() (basename of GetID() == "backend", which matches
+// both bare "backend" and nested layouts like "terraform/backend") exists, it must be
+// the first item in terraformComponents and there must be exactly one such component.
+// Subsequent components implicitly depend on the backend bootstrapping the remote state
+// store, so misordering or duplication produces a state-storage flow that cannot work.
 // Returns nil for blueprints without a backend component (out-of-band buckets are a
 // supported workflow). All failures wrap ErrBlueprintInvalid so the cmd layer can
 // route them through the calm-output presenter.
@@ -39,7 +40,7 @@ func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 	var backendIndices []int
 	for i := range blueprint.TerraformComponents {
 		c := blueprint.TerraformComponents[i]
-		if c.GetID() == "backend" {
+		if c.IsBackend() {
 			backendIndices = append(backendIndices, i)
 		}
 	}
