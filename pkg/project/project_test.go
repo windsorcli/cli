@@ -1046,6 +1046,93 @@ func TestProject_Initialize(t *testing.T) {
 	})
 }
 
+// TestProject_SetToolRequirements pins the contract for the per-command tool-requirement
+// hand-off: an unset toolRequirements pointer means "fall back to AllRequirements" (legacy
+// behavior), while a set pointer — even when its struct value is the zero Requirements —
+// means "honor the caller's narrow set". The distinction matters because `windsor init`
+// deliberately requests a near-empty Requirements set, and the dispatcher must NOT treat
+// that as equivalent to "unset" (which would re-introduce the eager-check behavior the
+// per-command refactor was meant to fix).
+func TestProject_SetToolRequirements(t *testing.T) {
+	t.Run("UnsetDefaultsToAllRequirements", func(t *testing.T) {
+		// Given a freshly-constructed Project with no SetToolRequirements call
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+
+		var observed tools.Requirements
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckRequirementsFunc = func(reqs tools.Requirements) error {
+			observed = reqs
+			return nil
+		}
+		proj.Runtime.ToolsManager = mockToolsManager
+
+		// When Initialize runs
+		_ = proj.Initialize(false)
+
+		// Then the tools manager receives AllRequirements — every family enabled — preserving
+		// the historical "check everything" behavior for callers that haven't migrated.
+		want := tools.AllRequirements()
+		if observed != want {
+			t.Errorf("expected unset toolRequirements to default to AllRequirements (%+v), got %+v", want, observed)
+		}
+	})
+
+	t.Run("SetEmptyMeansCheckNothing", func(t *testing.T) {
+		// Given a project where the caller has explicitly opted out of every check (the
+		// `windsor init` shape — a fresh-machine init must not block on tools the operator
+		// hasn't installed yet)
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		proj.SetToolRequirements(tools.Requirements{})
+
+		var observed tools.Requirements
+		observed.Docker = true // sentinel: prove the mock callback overwrites it
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckRequirementsFunc = func(reqs tools.Requirements) error {
+			observed = reqs
+			return nil
+		}
+		proj.Runtime.ToolsManager = mockToolsManager
+
+		// When Initialize runs
+		_ = proj.Initialize(false)
+
+		// Then the empty Requirements is forwarded verbatim — NOT silently replaced with
+		// AllRequirements. A regression here would silently re-enable every preflight check
+		// on init.
+		if observed != (tools.Requirements{}) {
+			t.Errorf("expected SetToolRequirements({}) to forward an empty set; got %+v", observed)
+		}
+	})
+
+	t.Run("SetNarrowForwardsExactRequest", func(t *testing.T) {
+		// Given a project with a narrow Requirements set (e.g. the `windsor down` shape)
+		mocks := setupProjectMocks(t)
+		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
+		want := tools.Requirements{Docker: true, Colima: true, Secrets: true}
+		proj.SetToolRequirements(want)
+
+		var observed tools.Requirements
+		mockToolsManager := tools.NewMockToolsManager()
+		mockToolsManager.CheckRequirementsFunc = func(reqs tools.Requirements) error {
+			observed = reqs
+			return nil
+		}
+		proj.Runtime.ToolsManager = mockToolsManager
+
+		// When Initialize runs
+		_ = proj.Initialize(false)
+
+		// Then the tools manager receives exactly the requested set — no fields silently
+		// added (which would re-introduce eager checks) or removed (which would skip a
+		// preflight the command intended to run).
+		if observed != want {
+			t.Errorf("expected forwarded Requirements %+v, got %+v", want, observed)
+		}
+	})
+}
+
 func TestProject_PerformCleanup(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProjectMocks(t)

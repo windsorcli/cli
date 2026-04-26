@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/env"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -111,6 +112,7 @@ type MockToolsManager struct {
 	WriteManifestFunc       func() error
 	InstallFunc             func() error
 	CheckFunc               func() error
+	CheckRequirementsFunc   func(reqs tools.Requirements) error
 	CheckAuthFunc           func() error
 	GetTerraformCommandFunc func() string
 }
@@ -130,6 +132,16 @@ func (m *MockToolsManager) Install() error {
 }
 
 func (m *MockToolsManager) Check() error {
+	if m.CheckFunc != nil {
+		return m.CheckFunc()
+	}
+	return nil
+}
+
+func (m *MockToolsManager) CheckRequirements(reqs tools.Requirements) error {
+	if m.CheckRequirementsFunc != nil {
+		return m.CheckRequirementsFunc(reqs)
+	}
 	if m.CheckFunc != nil {
 		return m.CheckFunc()
 	}

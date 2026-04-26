@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -33,11 +34,21 @@ var (
 // production). Unlike `windsor init`, bootstrap does not anchor the current directory as
 // a project root — it is allowed to run in global mode, where directory trust is implicit.
 //
-// To handle the chicken-and-egg case where a configured remote backend (e.g. the kubernetes
-// backend) lives in infrastructure that terraform must create first, bootstrap temporarily
-// overrides the configured backend to "local" in-memory, runs the apply pass, then restores
-// the configured backend and calls Provisioner.MigrateState to move each component's state
-// to the real backend. The on-disk config (values.yaml) is never mutated during this window.
+// To handle the chicken-and-egg case where a configured remote backend (e.g. an S3 bucket
+// or kubernetes Secret) lives in infrastructure that terraform must create first, bootstrap
+// uses a two-phase apply when the blueprint declares a "backend" terraform component:
+//
+//  1. Override terraform.backend.type to "local" in-memory and apply only the backend
+//     component, materializing the remote state store (bucket, dynamodb table, etc.).
+//  2. Restore the configured backend type and migrate just the backend component's state
+//     to remote via MigrateComponentState. Subsequent components in the next Up pass init
+//     directly against the configured remote backend with no migration needed, since they
+//     have not been applied yet.
+//
+// When the blueprint has no backend component, bootstrap falls through to a single Up
+// pass against whatever backend type is configured (typically "local" for non-cloud
+// contexts, or a backend whose bucket exists out-of-band). The on-disk config
+// (values.yaml) is never mutated during the override window.
 var bootstrapCmd = &cobra.Command{
 	Use:          "bootstrap [context]",
 	Short:        "Bootstrap a fresh Windsor environment end-to-end",
@@ -135,6 +146,10 @@ var bootstrapCmd = &cobra.Command{
 			return err
 		}
 
+		// Bootstrap stands up everything end-to-end: terraform apply, MigrateState, install,
+		// and wait. Every tool family may be exercised, so request the full set up front and
+		// let CheckAuth (called below) validate cloud credentials separately.
+		proj.SetToolRequirements(tools.AllRequirements())
 		if err := proj.Initialize(false, blueprintURL...); err != nil {
 			return err
 		}
@@ -144,9 +159,11 @@ var bootstrapCmd = &cobra.Command{
 		// where the operator has no obligation to be authed yet); bootstrap is the first
 		// command that will exercise credentials, so failing here gives the operator the
 		// vendor's own error (expired SSO, profile not found, etc.) up front rather than
-		// minutes into a `terraform apply`.
-		if err := proj.Runtime.ToolsManager.CheckAuth(); err != nil {
-			return fmt.Errorf("error validating credentials: %w", err)
+		// minutes into a `terraform apply`. Routed through requireCloudAuth so the calm
+		// output pattern (just the hint, no scary "Error:" prefix, no stacked wrappers) is
+		// consistent across all preflight call sites.
+		if err := requireCloudAuth(cmd, proj); err != nil {
+			return err
 		}
 
 		if err := proj.Runtime.SaveConfig(len(bootstrapSetFlags) > 0); err != nil {

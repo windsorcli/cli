@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -25,7 +26,12 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProjectSkipValidation(cmd)
+		// `destroy` (no args, or with a component name that may live in either layer) can
+		// dispatch to terraform or kustomize destroy paths depending on blueprint contents.
+		// Layer choice is data-driven so requirements can't be statically narrowed; request
+		// AllRequirements() and lean on the per-tool config gates. Skip-validation tolerates a
+		// deployed-but-misordered blueprint so the operator can still tear down a broken setup.
+		proj, err := prepareProjectSkipValidation(cmd, tools.AllRequirements())
 		if err != nil {
 			return err
 		}
@@ -36,6 +42,9 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all infrastructure in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
+				return err
+			}
+			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
 			skipped, err := proj.Provisioner.DestroyAllWithBackendLifecycle(blueprint, false)
@@ -59,6 +68,13 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			return err
 		}
 
+		// Gate auth before either teardown so a credential failure can't strand a both-layer
+		// component half-destroyed (kustomize gone, terraform state intact).
+		if inTerraform {
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
+		}
 		if inKustomize {
 			if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
 				return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
@@ -86,7 +102,10 @@ var destroyTerraformCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProjectSkipValidation(cmd)
+		// `destroy terraform` only invokes terraform; kustomize/k8s/docker tools are not used.
+		// Skip-validation tolerates a deployed-but-misordered blueprint so teardown can run
+		// against a setup the validator would otherwise reject.
+		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
 			return err
 		}
@@ -97,6 +116,9 @@ var destroyTerraformCmd = &cobra.Command{
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all Terraform components in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
+				return err
+			}
+			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
 			skipped, err := proj.Provisioner.DestroyAllWithBackendLifecycle(blueprint, true)
@@ -110,6 +132,9 @@ var destroyTerraformCmd = &cobra.Command{
 		componentID := args[0]
 		desc := fmt.Sprintf("This will permanently destroy Terraform component %q.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
+			return err
+		}
+		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
 		skipped, err := proj.Provisioner.DestroyTerraformComponentWithBackendLifecycle(blueprint, componentID)
@@ -131,7 +156,9 @@ var destroyKustomizeCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProjectSkipValidation(cmd)
+		// `destroy kustomize` only talks to the cluster API; terraform/docker tools are not used.
+		// Skip-validation tolerates a deployed-but-misordered blueprint.
+		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
 		}

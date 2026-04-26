@@ -8,13 +8,16 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	blueprintpkg "github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	envvars "github.com/windsorcli/cli/pkg/runtime/env"
@@ -524,6 +527,68 @@ func TestCommandPreflight(t *testing.T) {
 		// Then no error should occur (setupGlobalContext doesn't return errors currently)
 		if err != nil {
 			t.Errorf("Expected no error for preflight, got: %v", err)
+		}
+	})
+}
+
+func TestRequireCloudAuth(t *testing.T) {
+	t.Run("PrintsHintToStderrAndSilencesCobraOnFailure", func(t *testing.T) {
+		// Given CheckAuth returns the per-platform hint as the error (the awsAuthHint shape:
+		// "AWS SSO session for X has likely expired. Run: aws sso login --profile X"),
+		// requireCloudAuth must (a) print that hint to the command's stderr verbatim so the
+		// operator sees the actionable next step, (b) set SilenceErrors on the command tree
+		// so cobra does not double-print "Error: AWS SSO session..." on top — credential
+		// failures are flow-guidance moments, not exceptions, and the "Error:" framing reads
+		// as panic, and (c) still return the error so the parent command exits non-zero
+		// (preserving CI / scripted exit-code semantics).
+		mocks := setupMocks(t)
+		hint := "AWS SSO session for \"test-context\" has likely expired. Run:\n  aws sso login --profile test-context"
+		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("%s", hint) }
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+
+		root := &cobra.Command{Use: "windsor"}
+		leaf := &cobra.Command{Use: "destroy"}
+		root.AddCommand(leaf)
+
+		var stderr strings.Builder
+		leaf.SetErr(&stderr)
+
+		err := requireCloudAuth(leaf, proj)
+		if err == nil {
+			t.Fatal("Expected requireCloudAuth to return CheckAuth's error, got nil")
+		}
+		if !strings.Contains(stderr.String(), "aws sso login --profile test-context") {
+			t.Errorf("Expected hint printed to stderr, got: %q", stderr.String())
+		}
+		// Both leaf and root must be silenced — cobra walks the chain when deciding whether
+		// to print "Error: ...", and a missed parent re-introduces the prefix.
+		if !leaf.SilenceErrors {
+			t.Error("Expected leaf cmd's SilenceErrors to be set to suppress cobra's Error: prefix")
+		}
+		if !root.SilenceErrors {
+			t.Error("Expected root cmd's SilenceErrors to be set so cobra's chain check does not re-add Error: prefix")
+		}
+	})
+
+	t.Run("SuccessIsSilent", func(t *testing.T) {
+		// Given CheckAuth passes, requireCloudAuth must not touch stderr or fiddle with
+		// SilenceErrors — those side effects belong only on the failure path.
+		mocks := setupMocks(t)
+		// Default mock CheckAuth returns nil.
+		proj := project.NewProject("", &project.Project{Runtime: mocks.Runtime})
+
+		leaf := &cobra.Command{Use: "destroy"}
+		var stderr strings.Builder
+		leaf.SetErr(&stderr)
+
+		if err := requireCloudAuth(leaf, proj); err != nil {
+			t.Fatalf("Expected no error on success, got %v", err)
+		}
+		if stderr.String() != "" {
+			t.Errorf("Expected no stderr output on success, got: %q", stderr.String())
+		}
+		if leaf.SilenceErrors {
+			t.Error("Expected SilenceErrors to remain unset on success — only the failure path should touch it")
 		}
 	})
 }

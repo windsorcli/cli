@@ -19,6 +19,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -31,6 +32,7 @@ type ApplyMocks struct {
 	BlueprintHandler  *blueprint.MockBlueprintHandler
 	TerraformStack    *terraforminfra.MockStack
 	KubernetesManager *kubernetes.MockKubernetesManager
+	ToolsManager      *tools.MockToolsManager
 	Runtime           *runtime.Runtime
 	TmpDir            string
 }
@@ -105,6 +107,7 @@ func setupApplyTest(t *testing.T, opts ...*SetupOptions) *ApplyMocks {
 		BlueprintHandler:  mockBlueprintHandler,
 		TerraformStack:    mockTerraformStack,
 		KubernetesManager: mockKubernetesManager,
+		ToolsManager:      baseMocks.ToolsManager,
 		Runtime:           rt,
 		TmpDir:            tmpDir,
 	}
@@ -303,6 +306,35 @@ func TestApplyCmd(t *testing.T) {
 			t.Errorf("Expected wait error, got: %v", err)
 		}
 	})
+
+	t.Run("CheckAuthFailureBlocksTerraformApply", func(t *testing.T) {
+		// Given expired/missing cloud credentials, apply must fail at preflight rather than
+		// after several minutes of `terraform init` and `terraform apply`. This mirrors the
+		// destroy preflight bug — both paths must gate on CheckAuth.
+		mocks := setupApplyTest(t)
+		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
+		applyCalled := false
+		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) error) error {
+			applyCalled = true
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		cmd := makeApplyTestCmd(applyCmd)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected credential preflight error, got nil")
+		}
+		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
+			t.Errorf("Expected pass-through credential error, got: %v", err)
+		}
+		if applyCalled {
+			t.Error("Provisioner.Up must not run when credential preflight fails")
+		}
+	})
 }
 
 func TestApplyTerraformCmd(t *testing.T) {
@@ -416,6 +448,35 @@ func TestApplyTerraformCmd(t *testing.T) {
 		// Then an error should occur
 		if err == nil {
 			t.Error("Expected error, got nil")
+		}
+	})
+
+	t.Run("CheckAuthFailureBlocksTerraformComponentApply", func(t *testing.T) {
+		// Given expired credentials, apply terraform <component> must fail at preflight
+		// rather than mid-init.
+		mocks := setupApplyTest(t)
+		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
+		applyCalled := false
+		mocks.TerraformStack.ApplyFunc = func(*blueprintv1alpha1.Blueprint, string) error {
+			applyCalled = true
+			return nil
+		}
+		proj := newApplyProject(mocks)
+
+		cmd := createTestApplyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected credential preflight error, got nil")
+		}
+		if !strings.Contains(err.Error(), "aws credentials did not resolve") {
+			t.Errorf("Expected pass-through credential error, got: %v", err)
+		}
+		if applyCalled {
+			t.Error("Apply must not run when credential preflight fails")
 		}
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 var installWaitFlag bool
@@ -13,7 +14,9 @@ var installCmd = &cobra.Command{
 	Short:        "Install the blueprint's cluster-level services",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `install` applies the blueprint to the cluster (Flux + kustomizations); it does not
+		// invoke terraform or the local container runtime.
+		proj, err := prepareProject(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
 		}
