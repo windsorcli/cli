@@ -41,6 +41,10 @@ tasks:
     silent: true
     env:
       CI: true
+      # GOTRACEBACK=all dumps every goroutine's stack on panic, not just the panicking one.
+      # This is the difference between "FAIL with no test name" and a usable CI log when a
+      # background goroutine (e.g. a TUI spinner) panics outside of any test boundary.
+      GOTRACEBACK: all
     cmds:
       - cmd: |
           if [ -n "{{.CLI_ARGS}}" ]; then

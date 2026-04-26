@@ -13,7 +13,7 @@ var downCmd = &cobra.Command{
 	Long:         "Stop the local workstation environment by tearing down the VM, stopping container runtimes, and cleaning up context artifacts.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		proj, err := prepareProjectSkipValidation(cmd)
 		if err != nil {
 			return err
 		}

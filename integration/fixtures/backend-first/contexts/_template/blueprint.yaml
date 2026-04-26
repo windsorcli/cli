@@ -1,0 +1,8 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: backend-first
+  description: Fixture with a backend terraform component at index 0 followed by another component. Used to exercise bootstrap validation passing and symmetric destroy on a local backend.
+terraform:
+  - path: "backend"
+  - path: "null"

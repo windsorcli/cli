@@ -62,6 +62,47 @@ Every implementation file begins with a 4-line class header:
 
 Every function and method has a header comment. No explanatory comments inside function bodies — context belongs in the header.
 
+## In-body comments are a smell, not a tool
+
+The non-negotiable: **do not write explanatory comments inside function bodies.** Not single lines, not multi-line "novels," not "// Note: ..." asides. If you feel the urge to explain *why* the code does what it does at the point of the code, that belongs in:
+
+1. **The function header** — for behavior that callers and future readers need to understand.
+2. **The PR description or chat reply** — for justification of an implementation choice the reader can infer from the code itself.
+3. **Nowhere** — if the code is self-evident from naming and structure (the common case).
+
+In-body comments are reserved for the rare case where a hidden constraint, subtle invariant, or known bug would surprise a reader who only sees the local code. If removing the comment would not confuse a future reader, the comment must not exist.
+
+### Anti-patterns to delete on sight
+
+These shapes are common Claude failure modes; if you find yourself typing one, stop and either move the content to the header or delete it:
+
+```go
+// ❌ Multi-line "what + why + how" novel in body
+output, err := s.runtime.Shell.ExecSilentWithEnv(...)
+// Surface terraform's per-resource diagnostics to the operator on failure.
+// ExecSilentWithEnv captures stdout+stderr but discarding it would leave the
+// operator with only "exit status 1" — terraform's own message naming the
+// failed resource and provider error is the actionable signal. Routed through
+// warningWriter (rather than os.Stderr directly) so tests can capture it
+// deterministically and Windows TUI redirection stays safe.
+if err != nil { ... }
+
+// ❌ "See X for the full note" cross-reference inside a body
+// Set is in-memory only; restore-failure is a stale in-process value, not a
+// persisted-config corruption — see runFullCycleDestroyAll for the full note.
+if err := i.configHandler.Set(...); err != nil { ... }
+
+// ❌ Restating what the next line does
+// Capture the skip list and treat non-empty as a hard error.
+skipped, err := i.MigrateState(blueprint)
+```
+
+The replacement for all three is the same: delete the comment. If the rationale truly cannot be reconstructed from the code and the function header together, expand the function header.
+
+### Header novels are also bad, just less obvious
+
+Function headers should describe behavior, not narrate motivation. A header that runs past ~6 lines is usually doing the same job as an in-body novel — moved up to a "legal" location. Trim to: *what it does*, *what it returns*, and *the one constraint a caller must know about*. Drop incident history, design alternatives considered, and "Note on X" tangents — those belong in the commit message.
+
 ## Section header naming rule
 
 Section headers must use the **generic category names** listed above — never the name of a specific method, type, or feature. For example:

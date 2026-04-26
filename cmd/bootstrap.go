@@ -184,8 +184,19 @@ var bootstrapCmd = &cobra.Command{
 		// rather than silently skipping migration — a skipped migration would leave state on
 		// local disk while the on-disk config points at the real remote backend, a genuinely
 		// wrong outcome that subsequent `windsor apply` runs would discover inconsistently.
-		if err := proj.Provisioner.MigrateState(proj.Composer.BlueprintHandler.Generate()); err != nil {
+		// Any skipped components at this point also indicate an anomaly: Up errors on missing
+		// dirs, so if it returned nil all dirs should exist. A non-empty skip list means
+		// something removed a component dir between Up and MigrateState — fail loudly with
+		// the IDs so the operator can investigate rather than leave state half-migrated.
+		skipped, err := proj.Provisioner.MigrateState(proj.Composer.BlueprintHandler.Generate())
+		if err != nil {
+			if len(skipped) > 0 {
+				return fmt.Errorf("%w (skipped components before failure: %s)", err, strings.Join(skipped, ", "))
+			}
 			return err
+		}
+		if len(skipped) > 0 {
+			return fmt.Errorf("bootstrap state migration skipped components whose directories were missing after Up: %s", strings.Join(skipped, ", "))
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.GenerateResolved()

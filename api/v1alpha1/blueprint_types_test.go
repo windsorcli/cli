@@ -2795,6 +2795,66 @@ func TestTerraformComponent_GetID(t *testing.T) {
 	})
 }
 
+func TestTerraformComponent_IsBackend(t *testing.T) {
+	t.Run("MatchesBarePathBackend", func(t *testing.T) {
+		// Given the canonical bare-path declaration
+		component := &TerraformComponent{Path: "backend"}
+
+		// When checking IsBackend
+		// Then it reports true
+		if !component.IsBackend() {
+			t.Error("Expected path=\"backend\" to be recognized as backend")
+		}
+	})
+
+	t.Run("MatchesNestedPathBackend", func(t *testing.T) {
+		// Given a nested-path declaration (terraform/backend), a layout some operators
+		// adopt to keep terraform sources organized — historically this silently
+		// bypassed both the validator and the symmetric-destroy lookup.
+		component := &TerraformComponent{Path: "terraform/backend"}
+
+		// When checking IsBackend
+		// Then it reports true via the basename match
+		if !component.IsBackend() {
+			t.Error("Expected path=\"terraform/backend\" to be recognized as backend")
+		}
+	})
+
+	t.Run("MatchesNameOverrideBackend", func(t *testing.T) {
+		// Given a Name override that resolves to "backend" while Path points elsewhere
+		component := &TerraformComponent{Name: "backend", Path: "modules/s3-backend"}
+
+		// When checking IsBackend
+		// Then it reports true (Name takes precedence in GetID, basename of Name is "backend")
+		if !component.IsBackend() {
+			t.Error("Expected name=\"backend\" to be recognized as backend regardless of Path")
+		}
+	})
+
+	t.Run("DoesNotMatchSimilarSuffix", func(t *testing.T) {
+		// Given a path whose basename merely contains "backend" but is not equal to it
+		// (e.g. "my-backend", "backend-tools") — these are unrelated components and must
+		// not trip the backend invariant.
+		for _, p := range []string{"my-backend", "backend-tools", "backends"} {
+			component := &TerraformComponent{Path: p}
+			if component.IsBackend() {
+				t.Errorf("Expected path=%q to NOT be recognized as backend", p)
+			}
+		}
+	})
+
+	t.Run("DoesNotMatchUnrelatedComponent", func(t *testing.T) {
+		// Given any other component (vpc, cluster, etc.)
+		component := &TerraformComponent{Path: "vpc"}
+
+		// When checking IsBackend
+		// Then it reports false
+		if component.IsBackend() {
+			t.Error("Expected path=\"vpc\" to NOT be recognized as backend")
+		}
+	})
+}
+
 func TestKustomization_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		interval := DurationString{Duration: 5 * time.Minute}

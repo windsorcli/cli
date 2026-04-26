@@ -7,6 +7,7 @@ import (
 // MockBlueprintHandler is a mock implementation of BlueprintHandler interface for testing.
 type MockBlueprintHandler struct {
 	LoadBlueprintFunc          func(...string) error
+	SetSkipValidationFunc      func(skip bool)
 	WriteFunc                  func(overwrite ...bool) error
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateDataFunc   func() (map[string][]byte, error)
@@ -14,6 +15,7 @@ type MockBlueprintHandler struct {
 	GenerateResolvedFunc       func() *blueprintv1alpha1.Blueprint
 	ExplainFunc                func(string) (*ExplainTrace, error)
 	GetDeferredPathsFunc       func() map[string]bool
+	skipValidation             bool
 }
 
 // =============================================================================
@@ -35,6 +37,22 @@ func (m *MockBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 		return m.LoadBlueprintFunc(blueprintURL...)
 	}
 	return nil
+}
+
+// SetSkipValidation calls the mock SetSkipValidationFunc if set, otherwise records the
+// flag on the mock so tests can assert prepareProject toggled it.
+func (m *MockBlueprintHandler) SetSkipValidation(skip bool) {
+	if m.SetSkipValidationFunc != nil {
+		m.SetSkipValidationFunc(skip)
+		return
+	}
+	m.skipValidation = skip
+}
+
+// SkipValidation reports the recorded skip flag (only meaningful when SetSkipValidationFunc
+// is not set). Test-only accessor.
+func (m *MockBlueprintHandler) SkipValidation() bool {
+	return m.skipValidation
 }
 
 // Write calls the mock WriteFunc if set, otherwise returns nil.

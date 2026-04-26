@@ -195,8 +195,41 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 // pass to move state to the configured remote backend once that backend's underlying infrastructure
 // (e.g. the kubernetes cluster hosting the k8s backend) has been provisioned. Safe to invoke
 // directly for users who change backend config and want existing state migrated in place. The
-// blueprint parameter is required.
-func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+// blueprint parameter is required. Returns the IDs of components whose directories were missing
+// and therefore skipped; callers decide whether that is an error condition — bootstrap treats
+// any skip as anomalous (Up should have materialized every dir); pre-destroy migration discards
+// the list because un-applied components are a normal condition there.
+//
+// The skipped slice is returned alongside any error (not only on success), mirroring the
+// Stack.MigrateState contract. Dropping it on the error path would strand bootstrap without
+// the context it needs to emit "A was skipped, then B failed" in a single diagnostic — the
+// exact signal the operator needs to investigate what removed A's directory between Up and
+// MigrateState.
+func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return nil, err
+	}
+	if i.TerraformStack == nil {
+		return nil, nil
+	}
+	skipped, err := i.TerraformStack.MigrateState(blueprint)
+	if err != nil {
+		return skipped, fmt.Errorf("failed to migrate terraform state: %w", err)
+	}
+	return skipped, nil
+}
+
+// MigrateComponentState reinitializes a single Terraform component's backend against the
+// currently configured backend, migrating state as needed. Used by `windsor bootstrap` to
+// move only the backend component's state to remote (e.g. S3) immediately after the
+// backend infrastructure is applied with a local backend; subsequent components then init
+// directly against the configured remote backend on the next Up. Returns an error if the
+// blueprint is nil, the component is not found, terraform is disabled, or any terraform
+// operation fails.
+func (i *Provisioner) MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -204,10 +237,10 @@ func (i *Provisioner) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error
 		return err
 	}
 	if i.TerraformStack == nil {
-		return nil
+		return fmt.Errorf("terraform is disabled")
 	}
-	if err := i.TerraformStack.MigrateState(blueprint); err != nil {
-		return fmt.Errorf("failed to migrate terraform state: %w", err)
+	if err := i.TerraformStack.MigrateComponentState(blueprint, componentID); err != nil {
+		return fmt.Errorf("failed to migrate terraform state for %s: %w", componentID, err)
 	}
 	return nil
 }
@@ -238,29 +271,41 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 	if i.TerraformStack == nil {
 		return nil
 	}
-	if err := i.TerraformStack.Destroy(blueprint, "workstation"); err != nil {
+	// Down ignores the skipped flag from Destroy: an empty-state workstation component is
+	// effectively a successful tear-down for the workstation flow's purposes (nothing to
+	// destroy = nothing left). The cmd-level destroy paths surface skip status; Down does
+	// not need to.
+	if _, err := i.TerraformStack.Destroy(blueprint, "workstation"); err != nil {
 		return fmt.Errorf("failed to destroy workstation terraform component: %w", err)
 	}
 	return nil
 }
 
 // DestroyAllTerraform destroys all terraform components in the stack in reverse dependency order.
-// Components with Destroy set to false are skipped. If terraform is disabled, returns an error.
-// Returns an error if the blueprint is nil, the stack cannot be initialized, or any destroy fails.
-func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint) error {
+// Components with Destroy set to false are skipped. excludeIDs are skipped entirely (used by the
+// cmd-layer symmetric-destroy flow to peel the backend component off the bulk pass and migrate
+// it before destroying it last). If terraform is disabled, returns an error. Returns the IDs of
+// components that were skipped because their state was empty alongside any error, mirroring the
+// MigrateState contract — the slice is paired with the error so callers see partial progress
+// even when a later component fails. Skipped components had nothing in state to destroy (never
+// applied, fully torn down already, or upstream destroy collapsed their cloud objects out from
+// under them); cmd-layer callers surface them in the user-facing summary so an operator can see
+// "these were no-ops" alongside "these were destroyed".
+func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return nil, fmt.Errorf("blueprint not provided")
 	}
 	if err := i.ensureTerraformStack(); err != nil {
-		return err
+		return nil, err
 	}
 	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
+		return nil, fmt.Errorf("terraform is disabled")
 	}
-	if err := i.TerraformStack.DestroyAll(blueprint); err != nil {
-		return fmt.Errorf("failed to run terraform destroy: %w", err)
+	skipped, err := i.TerraformStack.DestroyAll(blueprint, excludeIDs...)
+	if err != nil {
+		return skipped, fmt.Errorf("failed to run terraform destroy: %w", err)
 	}
-	return nil
+	return skipped, nil
 }
 
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.
@@ -283,22 +328,25 @@ func (i *Provisioner) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID 
 }
 
 // Destroy runs terraform init and destroy for a single component identified by componentID.
-// Returns an error if the blueprint is nil, terraform is disabled, the stack cannot be initialized,
-// the component is not found, or any terraform operation fails.
-func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+// Returns (skipped, nil) when the component's state is empty (nothing to destroy), (false, nil)
+// when destroy ran successfully, or (false, err) on any failure. Returns an error if the
+// blueprint is nil, terraform is disabled, the stack cannot be initialized, the component is
+// not found, or any terraform operation fails.
+func (i *Provisioner) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return false, fmt.Errorf("blueprint not provided")
 	}
 	if err := i.ensureTerraformStack(); err != nil {
-		return err
+		return false, err
 	}
 	if i.TerraformStack == nil {
-		return fmt.Errorf("terraform is disabled")
+		return false, fmt.Errorf("terraform is disabled")
 	}
-	if err := i.TerraformStack.Destroy(blueprint, componentID); err != nil {
-		return fmt.Errorf("failed to run terraform destroy for %s: %w", componentID, err)
+	skipped, err := i.TerraformStack.Destroy(blueprint, componentID)
+	if err != nil {
+		return false, fmt.Errorf("failed to run terraform destroy for %s: %w", componentID, err)
 	}
-	return nil
+	return skipped, nil
 }
 
 // DestroyKustomize deletes a single kustomization by name from the cluster.
@@ -334,28 +382,37 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 }
 
 // DestroyAll destroys all infrastructure components: first uninstalls all kustomizations,
-// then destroys all terraform components. Returns an error if either step fails.
-func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error {
+// then destroys all terraform components. excludeIDs are forwarded to the terraform destroy
+// pass so cmd-layer callers can peel off the backend component for the symmetric-destroy
+// flow (destroy non-backend against live remote state, then migrate-and-destroy backend
+// last). Returns the IDs of terraform components that were skipped because their state was
+// empty (never applied, already torn down) alongside any error from either step — paired
+// with the error so callers see what was no-op'd even when a later step fails. Returns an
+// error if either step fails.
+func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return nil, fmt.Errorf("blueprint not provided")
 	}
 
 	if i.KubernetesManager != nil {
 		if err := i.Uninstall(blueprint); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	if err := i.ensureTerraformStack(); err != nil {
-		return err
+		return nil, err
 	}
+	var skipped []string
 	if i.TerraformStack != nil {
-		if err := i.TerraformStack.DestroyAll(blueprint); err != nil {
-			return fmt.Errorf("failed to run terraform destroy: %w", err)
+		s, err := i.TerraformStack.DestroyAll(blueprint, excludeIDs...)
+		skipped = s
+		if err != nil {
+			return skipped, fmt.Errorf("failed to run terraform destroy: %w", err)
 		}
 	}
 
-	return nil
+	return skipped, nil
 }
 
 // Plan runs terraform init and plan for a single component identified by componentID.

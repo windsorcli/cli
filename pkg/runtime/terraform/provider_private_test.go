@@ -149,7 +149,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
-				return "local"
+				return "s3"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -159,6 +159,23 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 		mockConfig.GetContextFunc = func() string {
 			return "default"
+		}
+
+		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Terraform: &terraform.TerraformConfig{
+					Backend: &terraform.BackendConfig{
+						S3: &terraform.S3Backend{},
+					},
+				},
+			}
+		}
+
+		provider.Shims.YamlMarshal = func(v any) ([]byte, error) { return []byte("{}"), nil }
+		provider.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			m := v.(*map[string]any)
+			*m = map[string]any{}
+			return nil
 		}
 
 		backendTfvarsPath := filepath.Join(configRoot, "backend.tfvars")
@@ -216,7 +233,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
-				return "local"
+				return "s3"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -226,6 +243,20 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 		mockConfig.GetContextFunc = func() string {
 			return "default"
+		}
+
+		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Terraform: &terraform.TerraformConfig{
+					Backend: &terraform.BackendConfig{S3: &terraform.S3Backend{}},
+				},
+			}
+		}
+		provider.Shims.YamlMarshal = func(v any) ([]byte, error) { return []byte("{}"), nil }
+		provider.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			m := v.(*map[string]any)
+			*m = map[string]any{}
+			return nil
 		}
 
 		newLocation := filepath.Join(configRoot, "backend.tfvars")
@@ -285,7 +316,7 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
-				return "local"
+				return "s3"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
@@ -295,6 +326,20 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 
 		mockConfig.GetContextFunc = func() string {
 			return "default"
+		}
+
+		mockConfig.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{
+				Terraform: &terraform.TerraformConfig{
+					Backend: &terraform.BackendConfig{S3: &terraform.S3Backend{}},
+				},
+			}
+		}
+		provider.Shims.YamlMarshal = func(v any) ([]byte, error) { return []byte("{}"), nil }
+		provider.Shims.YamlUnmarshal = func(data []byte, v any) error {
+			m := v.(*map[string]any)
+			*m = map[string]any{}
+			return nil
 		}
 
 		newLocation := filepath.Join(configRoot, "backend.tfvars")
@@ -329,6 +374,59 @@ func TestTerraformProvider_generateBackendConfigArgs(t *testing.T) {
 		}
 		if !foundOldLocation {
 			t.Errorf("Expected args to fall back to old location %s, got %v", oldLocationSlash, args)
+		}
+	})
+
+	t.Run("SkipsBackendTfvarsForLocalBackend", func(t *testing.T) {
+		// Given a provider with a local backend and a backend.tfvars file on disk (e.g. left
+		// over from a prior s3 setup, or mid-bootstrap while the backend type is temporarily
+		// pinned to local)
+		mocks := setupMocks(t)
+		provider := mocks.Provider
+		mockConfig := provider.configHandler.(*config.MockConfigHandler)
+
+		configRoot := "/test/config"
+		mockConfig.GetConfigRootFunc = func() (string, error) {
+			return configRoot, nil
+		}
+		windsorScratchPath := "/test/scratch"
+		mockConfig.GetWindsorScratchPathFunc = func() (string, error) {
+			return windsorScratchPath, nil
+		}
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfig.GetContextFunc = func() string {
+			return "default"
+		}
+
+		backendTfvarsPath := filepath.Join(configRoot, "backend.tfvars")
+		provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			if filepath.ToSlash(path) == filepath.ToSlash(backendTfvarsPath) {
+				return nil, nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When generating backend config args for the local backend
+		args, err := provider.generateBackendConfigArgs("test/path", configRoot)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then backend.tfvars must not be referenced — otherwise terraform would try to
+		// apply s3/azurerm-shaped keys to the local backend and reject them.
+		for _, arg := range args {
+			if strings.Contains(arg, "backend.tfvars") {
+				t.Errorf("Expected args to not reference backend.tfvars for local backend, got %v", args)
+				break
+			}
 		}
 	})
 

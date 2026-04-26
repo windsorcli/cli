@@ -9,7 +9,9 @@ package terraform
 // terraform environment configuration, and Terraform operations.
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,24 +23,32 @@ import (
 )
 
 // =============================================================================
-// Interface
+// Constants
 // =============================================================================
 
-// Stack defines the interface for Terraform stack operations.
-// Both the Stack struct and MockStack implement this interface.
-type Stack interface {
-	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
-	MigrateState(blueprint *blueprintv1alpha1.Blueprint) error
-	PostApply(fns ...func(id string) error)
-	DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error
-	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error
-	Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
-	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
-	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+// defaultInitFlags are passed to `terraform init` for normal apply/inspect operations.
+// MigrateState uses -migrate-state + -force-copy inline instead, since moving state must
+// not reinstall providers.
+var defaultInitFlags = []string{"-upgrade", "-force-copy"}
+
+// =============================================================================
+// Types
+// =============================================================================
+
+// TerraformStack manages Terraform infrastructure components by initializing and applying Terraform configurations.
+// It processes components in order, generating terraform arguments, running Terraform init, plan, and apply operations.
+//
+// warningWriter is the destination for non-blocking operator-facing warnings (e.g. the
+// refresh-fallback notice in destroy paths). Defaults to os.Stderr; tests inject a buffer.
+// Routing warnings through this field rather than os.Stderr directly keeps tests off the
+// fragile os.Stderr-redirect-with-pipe pattern, which deadlocks on Windows when the TUI
+// spinner shares the redirected stream.
+type TerraformStack struct {
+	runtime       *runtime.Runtime
+	shims         *Shims
+	terraformEnv  *envvars.TerraformEnvPrinter
+	postApply     []func(id string) error
+	warningWriter io.Writer
 }
 
 // TerraformComponentPlan holds the plan result for a single Terraform component.
@@ -54,34 +64,45 @@ type TerraformComponentPlan struct {
 	Err         error
 }
 
-// =============================================================================
-// Types
-// =============================================================================
+// tfStateModule is a node in the module tree emitted by `terraform show -json`. Windsor
+// blueprints wrap resources in a `module "main"` block, so the root's own Resources is
+// always empty — emptiness must be determined by walking the tree.
+type tfStateModule struct {
+	Resources    []json.RawMessage `json:"resources"`
+	ChildModules []tfStateModule   `json:"child_modules"`
+}
 
-// TerraformStack manages Terraform infrastructure components by initializing and applying Terraform configurations.
-// It processes components in order, generating terraform arguments, running Terraform init, plan, and apply operations.
-type TerraformStack struct {
-	runtime      *runtime.Runtime
-	shims        *Shims
-	terraformEnv *envvars.TerraformEnvPrinter
-	postApply    []func(id string) error
+// tfState is the minimal shape of `terraform show -json` we need for state emptiness.
+type tfState struct {
+	Values *struct {
+		RootModule tfStateModule `json:"root_module"`
+	} `json:"values"`
 }
 
 // =============================================================================
-// Constants
+// Interfaces
 // =============================================================================
 
-// defaultInitFlags are the execution-policy flags passed to `terraform init` by every
-// operation that applies or inspects infrastructure (Up, Apply, Plan, PlanJSON,
-// planComponents, Destroy, planOneTerraformSummary). They refresh provider plugins to
-// their locked versions and auto-confirm state-copy prompts during backend changes.
-// MigrateState uses a different set (-migrate-state + -force-copy) because moving state
-// must not reinstall providers or mutate .terraform.lock.hcl; its call site spells
-// those flags inline to keep the distinction visible.
-var defaultInitFlags = []string{"-upgrade", "-force-copy"}
+// Stack defines the interface for Terraform stack operations.
+// Both the Stack struct and MockStack implement this interface.
+type Stack interface {
+	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
+	MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PostApply(fns ...func(id string) error)
+	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error)
+	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
+	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error
+	Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+}
 
 // =============================================================================
-// Constructors
+// Constructor
 // =============================================================================
 
 // NewStack creates a new stack of components.
@@ -91,14 +112,18 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 	}
 
 	stack := &TerraformStack{
-		runtime: rt,
-		shims:   NewShims(),
+		runtime:       rt,
+		shims:         NewShims(),
+		warningWriter: os.Stderr,
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
 		overrides := opts[0]
 		if overrides.terraformEnv != nil {
 			stack.terraformEnv = overrides.terraformEnv
+		}
+		if overrides.warningWriter != nil {
+			stack.warningWriter = overrides.warningWriter
 		}
 	}
 
@@ -111,24 +136,25 @@ func NewStack(rt *runtime.Runtime, opts ...*TerraformStack) Stack {
 	return stack
 }
 
+// =============================================================================
+// Public Methods
+// =============================================================================
+
 // PostApply registers hooks to run after each component's WithProgress block completes (i.e. after Done is
 // printed). Hooks are consumed and cleared at the start of the next Up call so they are not retained.
 func (s *TerraformStack) PostApply(fns ...func(id string) error) {
 	s.postApply = append(s.postApply, fns...)
 }
 
-// Up creates a new stack of components by initializing and applying Terraform configurations.
-// It processes components in order, generating terraform arguments, running Terraform init,
-// plan, and apply operations. Backend override files are cleaned up after all components complete,
-// ensuring they remain available for terraform_output() calls between component executions.
-// Optional onApply hooks run after each component apply inside the progress spinner, in order.
-// PostApply hooks run after each component's Done line is printed; they are not retained after Up returns.
+// Up runs init/plan/apply for each component in order. Backend override files are cleaned up
+// after all components complete so terraform_output() calls between components keep working.
+// onApply hooks run inside each spinner; PostApply hooks run after each Done line and are
+// consumed (not retained across calls).
 func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
 
-	// Consume and clear postApply hooks so they are not retained across calls.
 	postApply := s.postApply
 	s.postApply = nil
 
@@ -161,15 +187,14 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			}
 
 			terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+			if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+			}
 			if err != nil {
 				return err
 			}
 			terraformVars["TF_VAR_operation"] = "apply"
-
-			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-			if _, err := s.shims.Stat(backendOverridePath); err == nil {
-				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
-			}
 
 			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 				return err
@@ -208,7 +233,6 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			return err
 		}
 
-		// Run post-apply hooks after Done is printed, before the next component's spinner starts.
 		componentID := component.GetID()
 		for _, fn := range postApply {
 			if fn != nil {
@@ -222,22 +246,18 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 	return nil
 }
 
-// MigrateState reinitializes every Terraform component's backend against the currently configured
-// backend, migrating state from whatever backend is recorded in each component's .terraform/
-// directory to the configured target. It runs terraform init with -migrate-state -force-copy per
-// component; no plan or apply is executed. Intended to be called after a backend configuration
-// change (e.g. at the end of bootstrap, after the initial local-state applies, once the configured
-// remote backend exists and is reachable). A component whose state is already on the configured
-// backend is a no-op. On the first failure MigrateState returns; any components not yet migrated
-// retain their existing state, so the call is safe to retry once the underlying issue is resolved.
-func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) error {
+// MigrateState runs `terraform init -migrate-state -force-copy` per component to move state
+// to the currently configured backend. Components whose directories don't exist on disk are
+// skipped and their IDs returned in the skipped slice, paired with any error so callers see
+// both what migrated and what didn't. Stops on the first failure; safe to retry.
+func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return nil, fmt.Errorf("blueprint not provided")
 	}
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return nil, fmt.Errorf("error getting current directory: %v", err)
 	}
 	defer func() {
 		_ = s.shims.Chdir(currentDir)
@@ -245,7 +265,7 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 
 	projectRoot := s.runtime.ProjectRoot
 	if projectRoot == "" {
-		return fmt.Errorf("error getting project root: project root is empty")
+		return nil, fmt.Errorf("error getting project root: project root is empty")
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
@@ -256,50 +276,41 @@ func (s *TerraformStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) er
 		}
 	}()
 
-	// Migration is a fast post-apply bookkeeping step per component; users don't need a
-	// spinner line for each one. A single top-level progress message covers the whole pass.
-	return tui.WithProgress("Migrating terraform state", func() error {
+	var skipped []string
+	err = tui.WithProgress("Migrating terraform state", func() error {
 		for _, component := range components {
-			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-				return fmt.Errorf("directory %s does not exist", component.FullPath)
-			}
-
-			terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+			migrated, err := s.migrateOneComponent(&component, &backendOverridePaths)
 			if err != nil {
 				return err
 			}
-
-			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-			if _, err := s.shims.Stat(backendOverridePath); err == nil {
-				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
-			}
-
-			// Migration intentionally omits -upgrade: its contract is moving state, not
-			// reinstalling providers or mutating .terraform.lock.hcl. -force-copy auto-confirms
-			// terraform's "copy state?" prompt when the backend actually changes.
-			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, "-migrate-state", "-force-copy"); err != nil {
-				return err
+			if !migrated {
+				skipped = append(skipped, component.GetID())
 			}
 		}
 		return nil
 	})
+	return skipped, err
 }
 
-// DestroyAll destroys all Terraform components in the stack by executing Terraform destroy operations in reverse dependency order.
-// For each component, DestroyAll generates Terraform arguments, sets required environment variables, unsets conflicting TF_CLI_ARGS_* variables,
-// creates backend override files, runs Terraform refresh, plan (with destroy flag), and destroy commands. Backend override files are
-// cleaned up after all components complete. Components with Destroy set to false are skipped. Directory state is restored after execution.
-// Errors are returned on any operation failure. The blueprint parameter is required to resolve terraform components.
-func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) error {
+// MigrateComponentState runs `terraform init -migrate-state -force-copy` for a single
+// component identified by componentID, moving its state to the currently configured
+// backend. Used by `windsor bootstrap` after applying just the backend component with a
+// local backend, so only that component's state is moved to remote (the rest haven't
+// been applied yet and will init directly against the configured backend on the next
+// Up). Returns an error if the blueprint is nil, the component is not found, the
+// component's directory does not exist, or any terraform operation fails.
+func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
+	}
+	if componentID == "" {
+		return fmt.Errorf("component ID not provided")
 	}
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
 		return fmt.Errorf("error getting current directory: %v", err)
 	}
-
 	defer func() {
 		_ = s.shims.Chdir(currentDir)
 	}()
@@ -310,6 +321,17 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) erro
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
+	var component *blueprintv1alpha1.TerraformComponent
+	for i := range components {
+		if components[i].GetID() == componentID {
+			component = &components[i]
+			break
+		}
+	}
+	if component == nil {
+		return fmt.Errorf("terraform component %q not found", componentID)
+	}
+
 	var backendOverridePaths []string
 	defer func() {
 		for _, path := range backendOverridePaths {
@@ -317,8 +339,68 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) erro
 		}
 	}()
 
+	// No progress UI here intentionally: MigrateComponentState runs as a hidden
+	// step inside the per-component bootstrap/destroy dance for s3/azurerm. The
+	// operator already saw "Applying <component>" before this fires, and adding
+	// "Migrating terraform state for <component>" between two applies of the
+	// same component reads as redundant noise. Bulk MigrateState (the
+	// kubernetes full-cycle path) keeps its progress UI because it's the only
+	// visible step covering many components at once.
+	migrated, err := s.migrateOneComponent(component, &backendOverridePaths)
+	if err != nil {
+		return err
+	}
+	if !migrated {
+		return fmt.Errorf("component %q directory %s does not exist", componentID, component.FullPath)
+	}
+	return nil
+}
+
+// DestroyAll destroys components in reverse dependency order using the idempotent flow:
+// init → pre-refresh state check → refresh → post-refresh state check → destroy, skipping
+// the rest when state is empty at either check. Components with Destroy=false are skipped.
+// excludeIDs are skipped entirely (used by symmetric-destroy flow at the cmd layer to peel
+// off the backend component from the bulk pass — it gets destroyed last, after its state
+// is migrated to local). Returns IDs skipped due to empty state, paired with any error.
+func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	currentDir, err := s.shims.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("error getting current directory: %v", err)
+	}
+
+	defer func() {
+		_ = s.shims.Chdir(currentDir)
+	}()
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return nil, fmt.Errorf("error getting project root: project root is empty")
+	}
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+
+	excluded := make(map[string]bool, len(excludeIDs))
+	for _, id := range excludeIDs {
+		excluded[id] = true
+	}
+
+	var backendOverridePaths []string
+	defer func() {
+		for _, path := range backendOverridePaths {
+			_ = s.shims.Remove(path)
+		}
+	}()
+
+	var skipped []string
 	for i := len(components) - 1; i >= 0; i-- {
 		component := components[i]
+
+		if excluded[component.GetID()] {
+			continue
+		}
 
 		if component.Destroy != nil {
 			destroy := component.Destroy.ToBool()
@@ -328,113 +410,97 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint) erro
 		}
 
 		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
+			skipped = append(skipped, component.GetID())
 			continue
 		}
 
+		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+		}
+		if err != nil {
+			return skipped, err
+		}
+
+		componentSkipped := false
 		if err := tui.WithProgress(fmt.Sprintf("Destroying %s", component.Path), func() error {
-			terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+			terraformVars["TF_VAR_operation"] = "destroy"
+
+			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+				return err
+			}
+
+			// Skip refresh if state is already empty: refresh can only drop resources, never
+			// add them, and downstream data sources may fail against torn-down upstreams.
+			hasResourcesPre, err := s.hasStateResources(&component, terraformVars)
 			if err != nil {
 				return err
 			}
-			terraformVars["TF_VAR_operation"] = "destroy"
+			if !hasResourcesPre {
+				componentSkipped = true
+				return nil
+			}
 
-			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-			if _, err := s.shims.Stat(backendOverridePath); err == nil {
-				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
+			// Tolerate refresh failures for non-empty-state components. A transient refresh
+			// issue (network blip, credential rotation, provider API hiccup) must not make a
+			// live component undestroyable. The pre-refresh check confirmed state is non-empty,
+			// so we know there is something to destroy; fall through to `terraform destroy
+			// -refresh=true` and let terraform's own refresh have a second shot. Persistent
+			// refresh problems will then surface from destroy itself with a more actionable
+			// error than the refresh step would have. The warning is emitted to stderr so the
+			// operator can correlate a later destroy failure with the upstream refresh hiccup
+			// — without it, a recurring credential or connectivity issue is invisible until
+			// destroy errors out, and a successful fallback leaves no trace at all.
+			refreshFailed := false
+			if err := s.refreshComponentState(&component, terraformVars, terraformArgs); err != nil {
+				refreshFailed = true
+				fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
+			}
+
+			// Skip the post-refresh empty-state check when refresh failed — the state we would
+			// be reading is the pre-refresh snapshot we already classified as non-empty, so the
+			// check would be redundant; if refresh succeeded but reconciliation dropped every
+			// resource, we still want the skip path.
+			if !refreshFailed {
+				hasResources, err := s.hasStateResources(&component, terraformVars)
+				if err != nil {
+					return err
+				}
+				if !hasResources {
+					componentSkipped = true
+					return nil
+				}
 			}
 
 			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-			refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
-			refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-			refreshEnv := selectTerraformCommandEnv(terraformVars, true)
-			_, _ = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...)
 
-			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
-			planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
-			planEnv := selectTerraformCommandEnv(terraformVars, true)
-			if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Planning terraform destroy for %s", component.Path), terraformCommand, planEnv, planArgs...); err != nil {
-				return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
+			// -refresh=false on the happy path because refreshComponentState already ran;
+			// -refresh=true on the fallback path so terraform retries refresh inside destroy.
+			destroyRefreshFlag := "-refresh=false"
+			if refreshFailed {
+				destroyRefreshFlag = "-refresh=true"
 			}
-
-			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy"}
+			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 			destroyEnv := selectTerraformCommandEnv(terraformVars, true)
-			if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Destroying terraform for %s", component.Path), terraformCommand, destroyEnv, destroyArgs...); err != nil {
+			output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...)
+			if err != nil {
+				if trimmed := strings.TrimSpace(output); trimmed != "" {
+					fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
+				}
 				return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 			}
 			return nil
 		}); err != nil {
-			return err
+			return skipped, err
+		}
+		if componentSkipped {
+			skipped = append(skipped, component.GetID())
 		}
 	}
 
-	return nil
-}
-
-// planComponents runs terraform init and plan for every enabled component in the blueprint.
-// When jsonMode is true, -json and -no-color are appended to the plan args so that output
-// is machine-readable JSON lines; otherwise human-readable output is streamed. Stops on
-// the first error. Returns an error if blueprint is nil or any component's init or plan fails.
-func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, jsonMode bool) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-
-	projectRoot := s.runtime.ProjectRoot
-	if projectRoot == "" {
-		return fmt.Errorf("error getting project root: project root is empty")
-	}
-
-	components := s.resolveTerraformComponents(blueprint, projectRoot)
-
-	for i := range components {
-		component := &components[i]
-
-		fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+component.Path))
-
-		terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
-		if err != nil {
-			return err
-		}
-		terraformVars["TF_VAR_operation"] = "apply"
-
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
-			cleanup()
-			return err
-		}
-
-		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
-		if jsonMode {
-			planArgs = append(planArgs, "-json", "-no-color")
-		}
-		planArgs = append(planArgs, terraformArgs.PlanArgs...)
-		planEnv := selectTerraformCommandEnv(terraformVars, true)
-		planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
-		cleanup()
-		if err != nil {
-			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
-		}
-		if planOutput != "" {
-			fmt.Fprint(os.Stdout, planOutput)
-		}
-	}
-
-	return nil
-}
-
-// PlanAll runs terraform init and plan for every enabled component in the blueprint,
-// streaming output directly to stdout. Stops on the first error. Returns an error if
-// blueprint is nil or any component's init or plan step fails.
-func (s *TerraformStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
-	return s.planComponents(blueprint, false)
-}
-
-// PlanAllJSON runs terraform init and plan -json for every enabled component in the blueprint,
-// streaming machine-readable JSON lines to stdout. Stops on the first error. Returns an error
-// if blueprint is nil or any component's init or plan step fails.
-func (s *TerraformStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
-	return s.planComponents(blueprint, true)
+	return skipped, nil
 }
 
 // Plan runs terraform init and plan for a single component identified by componentID.
@@ -475,6 +541,13 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 	return nil
 }
 
+// PlanAll runs terraform init and plan for every enabled component in the blueprint,
+// streaming output directly to stdout. Stops on the first error. Returns an error if
+// blueprint is nil or any component's init or plan step fails.
+func (s *TerraformStack) PlanAll(blueprint *blueprintv1alpha1.Blueprint) error {
+	return s.planComponents(blueprint, false)
+}
+
 // PlanJSON runs terraform init and plan -json for a single component identified by componentID,
 // streaming machine-readable JSON lines to stdout. Returns an error if the component is not
 // found, the directory does not exist, or any terraform operation fails.
@@ -510,6 +583,141 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 	}
 
 	return nil
+}
+
+// PlanAllJSON runs terraform init and plan -json for every enabled component in the blueprint,
+// streaming machine-readable JSON lines to stdout. Stops on the first error. Returns an error
+// if blueprint is nil or any component's init or plan step fails.
+func (s *TerraformStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error {
+	return s.planComponents(blueprint, true)
+}
+
+// Apply runs terraform init, plan, and apply for a single component identified by componentID.
+// It resolves the component from the blueprint, sets up the environment, and executes
+// init, plan, then apply in sequence. Returns an error if the component is not found,
+// the directory does not exist, or any terraform operation fails.
+func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if componentID == "" {
+		return fmt.Errorf("component ID not provided")
+	}
+
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	terraformVars["TF_VAR_operation"] = "apply"
+
+	return tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+			return err
+		}
+
+		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+		planArgs = append(planArgs, terraformArgs.PlanArgs...)
+		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
+			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
+		}
+
+		applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
+		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
+		applyEnv := selectTerraformCommandEnv(terraformVars, false)
+		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
+			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
+		}
+		_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
+
+		return nil
+	})
+}
+
+// Destroy tears down a single component idempotently: init → pre-refresh state check →
+// refresh → post-refresh state check → destroy, skipping the rest when state is empty at
+// either check. Returns (true, nil) when skipped, (false, nil) on success, (false, err) on
+// failure. Destroy-mode config (S3 force_destroy, etc.) is honored via TF_VAR_operation;
+// no prep-apply is run because that could recreate resources refresh just dropped.
+//
+// The whole sequence is wrapped in tui.WithProgress("Destroying <path>") so the visible
+// label matches the bulk DestroyAll loop body — mixing this method into the per-component
+// destroy dance (which calls bulk DestroyAll for non-backend components and this method
+// for backend) would otherwise produce inconsistent "Destroying X" / "Destroying terraform
+// for X" lines side by side. The terraform destroy exec runs silently inside the spinner
+// for the same reason: the bulk loop is silent, so single-component Destroy must be too.
+func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	if blueprint == nil {
+		return false, fmt.Errorf("blueprint not provided")
+	}
+	if componentID == "" {
+		return false, fmt.Errorf("component ID not provided")
+	}
+
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return false, err
+	}
+	defer cleanup()
+
+	terraformVars["TF_VAR_operation"] = "destroy"
+
+	skipped := false
+	if err := tui.WithProgress(fmt.Sprintf("Destroying %s", component.Path), func() error {
+		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+			return err
+		}
+
+		hasResourcesPre, err := s.hasStateResources(component, terraformVars)
+		if err != nil {
+			return err
+		}
+		if !hasResourcesPre {
+			skipped = true
+			return nil
+		}
+
+		refreshFailed := false
+		if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
+			refreshFailed = true
+			fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
+		}
+
+		if !refreshFailed {
+			hasResources, err := s.hasStateResources(component, terraformVars)
+			if err != nil {
+				return err
+			}
+			if !hasResources {
+				skipped = true
+				return nil
+			}
+		}
+
+		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+		destroyRefreshFlag := "-refresh=false"
+		if refreshFailed {
+			destroyRefreshFlag = "-refresh=true"
+		}
+		destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
+		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
+		destroyEnv := selectTerraformCommandEnv(terraformVars, true)
+
+		output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...)
+		if err != nil {
+			if trimmed := strings.TrimSpace(output); trimmed != "" {
+				fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
+			}
+			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
+		}
+		return nil
+	}); err != nil {
+		return false, err
+	}
+
+	return skipped, nil
 }
 
 // PlanSummary runs terraform init and plan for every enabled component in the blueprint,
@@ -568,99 +776,139 @@ func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Bluep
 	return s.planOneTerraformSummary(component)
 }
 
-// Apply runs terraform init, plan, and apply for a single component identified by componentID.
-// It resolves the component from the blueprint, sets up the environment, and executes
-// init, plan, then apply in sequence. Returns an error if the component is not found,
-// the directory does not exist, or any terraform operation fails.
-func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// migrateOneComponent runs `terraform init -migrate-state -force-copy` for a single
+// component, registering any generated backend_override.tf for cleanup via
+// backendOverridePaths. Returns (false, nil) when the component's directory does not
+// exist (so callers can decide whether absence is an error or a skip), (true, nil) on
+// success, and (false, err) on any other failure. Shared by MigrateState (which
+// tolerates missing dirs by collecting skipped IDs) and MigrateComponentState (which
+// treats a missing dir as an error because the caller is asking for a specific
+// component to be migrated).
+func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.TerraformComponent, backendOverridePaths *[]string) (bool, error) {
+	if _, statErr := s.shims.Stat(component.FullPath); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error checking component directory %s: %w", component.FullPath, statErr)
+	}
+
+	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+	if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+		*backendOverridePaths = append(*backendOverridePaths, backendOverridePath)
+	}
+	if err != nil {
+		return false, err
+	}
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, "-migrate-state", "-force-copy"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// hasResources reports whether this module or any descendant contains a resource in state.
+func (m tfStateModule) hasResources() bool {
+	if len(m.Resources) > 0 {
+		return true
+	}
+	for _, child := range m.ChildModules {
+		if child.hasResources() {
+			return true
+		}
+	}
+	return false
+}
+
+// planComponents runs terraform init and plan for every enabled component in the blueprint.
+// When jsonMode is true, -json and -no-color are appended to the plan args so that output
+// is machine-readable JSON lines; otherwise human-readable output is streamed. Stops on
+// the first error. Returns an error if blueprint is nil or any component's init or plan fails.
+func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, jsonMode bool) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
-	if componentID == "" {
-		return fmt.Errorf("component ID not provided")
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return fmt.Errorf("error getting project root: project root is empty")
 	}
 
-	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	terraformVars["TF_VAR_operation"] = "apply"
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
-	return tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
+	for i := range components {
+		component := &components[i]
+
+		fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+component.Path))
+
+		terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+		if err != nil {
+			return err
+		}
+		terraformVars["TF_VAR_operation"] = "apply"
+
 		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+			cleanup()
 			return err
 		}
 
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+		if jsonMode {
+			planArgs = append(planArgs, "-json", "-no-color")
+		}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
 		planEnv := selectTerraformCommandEnv(terraformVars, true)
-		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
+		planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
+		cleanup()
+		if err != nil {
 			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		}
-
-		applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
-		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
-		applyEnv := selectTerraformCommandEnv(terraformVars, false)
-		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
-			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
+		if planOutput != "" {
+			fmt.Fprint(os.Stdout, planOutput)
 		}
-		_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
-
-		return nil
-	})
-}
-
-// Destroy runs terraform init, plan -destroy, and destroy for a single component identified by componentID.
-// Returns an error if the blueprint is nil, the component is not found, or any terraform operation fails.
-func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	if componentID == "" {
-		return fmt.Errorf("component ID not provided")
-	}
-
-	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	terraformVars["TF_VAR_operation"] = "destroy"
-
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
-		return err
-	}
-
-	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-
-	refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
-	refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-	_, _ = s.runtime.Shell.ExecSilentWithEnv(terraformCommand,
-		selectTerraformCommandEnv(terraformVars, true), refreshArgs...)
-
-	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
-	planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
-	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand,
-		selectTerraformCommandEnv(terraformVars, true), planArgs...); err != nil {
-		return fmt.Errorf("error running terraform plan destroy for %s: %w", component.Path, err)
-	}
-
-	destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy"}
-	destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
-	if _, err := s.runtime.Shell.ExecProgressWithEnv(
-		fmt.Sprintf("Destroying terraform for %s", component.Path),
-		terraformCommand, selectTerraformCommandEnv(terraformVars, true), destroyArgs...); err != nil {
-		return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 	}
 
 	return nil
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
+// refreshComponentState runs `terraform refresh` to reconcile state with cloud reality.
+// Errors are returned to the caller. Destroy callers tolerate refresh failures for non-
+// empty-state components by falling through to `terraform destroy -refresh=true`; see
+// Destroy / DestroyAll for the rationale.
+func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) error {
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
+	refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
+	refreshEnv := selectTerraformCommandEnv(terraformVars, true)
+	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...); err != nil {
+		return fmt.Errorf("error refreshing terraform state for %s: %w", component.Path, err)
+	}
+	return nil
+}
+
+// hasStateResources reports whether the component's state contains any resources at any
+// depth in the module tree. Used to short-circuit destroy on already-destroyed components.
+func (s *TerraformStack) hasStateResources(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string) (bool, error) {
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	stateShowArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "show", "-json"}
+	stateJSON, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, selectTerraformCommandEnv(terraformVars, true), stateShowArgs...)
+	if err != nil {
+		return false, fmt.Errorf("error reading terraform state JSON for %s: %w", component.Path, err)
+	}
+	var state tfState
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		return false, fmt.Errorf("error parsing terraform state JSON for %s: %w", component.Path, err)
+	}
+	if state.Values == nil {
+		return false, nil
+	}
+	return state.Values.RootModule.hasResources(), nil
+}
 
 // resolveTerraformComponents resolves terraform components from the blueprint by resolving sources and paths.
 // Components with Enabled set to false are excluded from the returned list.
@@ -791,17 +1039,22 @@ func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.Terraf
 		return nil, nil, func() {}, fmt.Errorf("directory %s does not exist", component.FullPath)
 	}
 
+	removeBackendOverride := func() {
+		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
+		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
+			_ = s.shims.Remove(backendOverridePath)
+		}
+	}
+
 	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
 	if err != nil {
+		removeBackendOverride()
 		return nil, nil, func() {}, err
 	}
 
 	cleanup := func() {
 		_ = s.shims.Chdir(currentDir)
-		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
-		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
-			_ = s.shims.Remove(backendOverridePath)
-		}
+		removeBackendOverride()
 	}
 
 	return terraformVars, terraformArgs, cleanup, nil
@@ -878,6 +1131,24 @@ func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.T
 	return terraformVars, terraformArgs, nil
 }
 
+// getTerraformEnv returns the terraform environment printer, checking the runtime if not set on the stack.
+func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
+	if s.terraformEnv != nil {
+		return s.terraformEnv
+	}
+	if s.runtime.EnvPrinters.TerraformEnv != nil {
+		if terraformEnv, ok := s.runtime.EnvPrinters.TerraformEnv.(*envvars.TerraformEnvPrinter); ok {
+			s.terraformEnv = terraformEnv
+			return terraformEnv
+		}
+	}
+	return nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
 // parseTerraformPlanCounts extracts add/change/destroy counts from terraform plan stdout.
 // Returns noChanges=true when terraform reports no infrastructure changes.
 // Unrecognised output returns all zeros with noChanges=false.
@@ -937,20 +1208,6 @@ func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bo
 		}
 	}
 	return selected
-}
-
-// getTerraformEnv returns the terraform environment printer, checking the runtime if not set on the stack.
-func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
-	if s.terraformEnv != nil {
-		return s.terraformEnv
-	}
-	if s.runtime.EnvPrinters.TerraformEnv != nil {
-		if terraformEnv, ok := s.runtime.EnvPrinters.TerraformEnv.(*envvars.TerraformEnvPrinter); ok {
-			s.terraformEnv = terraformEnv
-			return terraformEnv
-		}
-	}
-	return nil
 }
 
 // =============================================================================
