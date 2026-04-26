@@ -455,17 +455,11 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 			t.Error("DestroyAll must not run after MigrateState skips components on the kubernetes path")
 		}
 		msg := err.Error()
-		// The skipped IDs must appear by name so the operator can investigate which
-		// component dirs went missing — without them the operator gets a generic
-		// "skipped components" message and no diagnostic foothold.
 		for _, id := range []string{"vpc", "iam"} {
 			if !strings.Contains(msg, id) {
 				t.Errorf("Expected error to name skipped component %q, got %v", id, err)
 			}
 		}
-		// The orphaned-resources framing is the load-bearing piece of the message —
-		// asserting it locks in the explanation that distinguishes this hard-stop
-		// from a routine "skipped" warning.
 		if !strings.Contains(msg, "orphan") {
 			t.Errorf("Expected error to explain the orphaned-resources risk, got %v", err)
 		}

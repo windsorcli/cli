@@ -484,7 +484,11 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 			destroyEnv := selectTerraformCommandEnv(terraformVars, true)
-			if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...); err != nil {
+			output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...)
+			if err != nil {
+				if trimmed := strings.TrimSpace(output); trimmed != "" {
+					fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
+				}
 				return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 			}
 			return nil
@@ -675,11 +679,6 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 			return nil
 		}
 
-		// Tolerate refresh failures for non-empty-state components — see DestroyAll for the
-		// detailed rationale. Falling through to `terraform destroy -refresh=true` keeps a
-		// live component destroyable when refresh hits a transient issue. The stderr warning
-		// gives the operator visibility into the failure so a subsequent destroy error can
-		// be correlated with the upstream refresh hiccup.
 		refreshFailed := false
 		if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
 			refreshFailed = true
@@ -705,7 +704,12 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
 		destroyEnv := selectTerraformCommandEnv(terraformVars, true)
-		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...); err != nil {
+
+		output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...)
+		if err != nil {
+			if trimmed := strings.TrimSpace(output); trimmed != "" {
+				fmt.Fprintf(s.warningWriter, "terraform destroy output for %s:\n%s\n", component.Path, trimmed)
+			}
 			return fmt.Errorf("error running terraform destroy for %s: %w", component.Path, err)
 		}
 		return nil

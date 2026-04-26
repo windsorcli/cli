@@ -108,11 +108,6 @@ func TestValidateComposedBlueprint(t *testing.T) {
 		if !strings.Contains(msg, "2 terraform components match as backend") {
 			t.Errorf("Expected error to name duplicate count, got %v", err)
 		}
-		// The reserved-name preface is shared by both error branches; assert it appears
-		// here too so that removing reservedNameNote from just the duplicate-branch
-		// fmt.Errorf would be caught. Without this, the const could silently drop from
-		// one branch (Go does not error on unused consts) and the duplicate path would
-		// regress to the pre-fix confusing message.
 		if !strings.Contains(msg, "basename") {
 			t.Errorf("Expected duplicate-branch error to include reserved-name note (basename), got %v", err)
 		}

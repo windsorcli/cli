@@ -47,12 +47,6 @@ func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
 		}
 	}
 
-	// Reserved-name preface used by both error messages below. The basename match
-	// (path.Base(GetID()) == "backend") means a non-state component like
-	// "services/backend" or "api/backend" can also trip these errors — without naming
-	// the convention up front, an operator with such a component sees a message about
-	// "remote state store" and can't tell why their unrelated component is being flagged.
-	// Naming the matched IDs in the message makes the false-positive case obvious.
 	const reservedNameNote = "Windsor treats any terraform component whose path or name basename is \"backend\" as the remote-state bootstrap. If a flagged component serves a different purpose (e.g. an application backend service), rename it so its basename is not \"backend\"."
 
 	switch len(backendIndices) {

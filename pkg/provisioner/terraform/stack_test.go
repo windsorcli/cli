@@ -1116,8 +1116,14 @@ func TestStack_DestroyAll(t *testing.T) {
 	t.Run("ErrorRunningTerraformDestroy", func(t *testing.T) {
 		// DestroyAll runs every terraform subcommand via ExecSilentWithEnv so the outer
 		// "Destroying <path>" progress span is the only label the user sees. state list
-		// is seeded non-empty so the idempotency short-circuit does not fire.
+		// is seeded non-empty so the idempotency short-circuit does not fire. The mock
+		// returns a recognizable terraform diagnostic alongside the error to verify it
+		// is surfaced via warningWriter rather than discarded.
 		stack, mocks := setup(t)
+		var captured strings.Builder
+		stack.warningWriter = &captured
+
+		const tfDiagnostic = "Error: deleting S3 Bucket (terraform-state-x): operation error S3: BucketNotEmpty"
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
 				if len(args) == 3 {
@@ -1126,7 +1132,7 @@ func TestStack_DestroyAll(t *testing.T) {
 				return `{"resource_changes":[{"change":{"actions":["update"]}}]}`, nil
 			}
 			if command == "terraform" && len(args) > 0 && strings.HasPrefix(args[0], "-chdir=") && len(args) > 1 && args[1] == "destroy" {
-				return "", fmt.Errorf("mock error running terraform destroy")
+				return tfDiagnostic, fmt.Errorf("mock error running terraform destroy")
 			}
 			return "", nil
 		}
@@ -1139,6 +1145,10 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
+		}
+		warningOutput := captured.String()
+		if !strings.Contains(warningOutput, tfDiagnostic) {
+			t.Errorf("Expected terraform diagnostic %q to be surfaced via warningWriter, got %q", tfDiagnostic, warningOutput)
 		}
 	})
 
@@ -2505,13 +2515,17 @@ func TestStack_Destroy(t *testing.T) {
 
 	t.Run("ErrorRunningTerraformDestroy", func(t *testing.T) {
 		// Given a stack whose shell fails on terraform destroy. The single Destroy
-		// method now uses ExecSilentWithEnv inside a tui.WithProgress wrapper to
-		// mirror the bulk DestroyAll loop body — both produce the same "Destroying
-		// X" label and silent inner exec, so the mock hooks ExecSilentWithEnv.
+		// method uses ExecSilentWithEnv inside a tui.WithProgress wrapper to mirror
+		// the bulk DestroyAll loop body. The mock returns a recognizable terraform
+		// diagnostic alongside the error to verify it is surfaced via warningWriter.
 		stack, mocks := setup(t)
+		var captured strings.Builder
+		stack.warningWriter = &captured
+
+		const tfDiagnostic = "Error: deleting EC2 Instance (i-abc123): InvalidInstanceID.NotFound"
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
-				return "", fmt.Errorf("mock error running terraform destroy")
+				return tfDiagnostic, fmt.Errorf("mock error running terraform destroy")
 			}
 			if command == "terraform" && len(args) > 2 && args[1] == "show" && args[2] == "-json" {
 				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
@@ -2529,6 +2543,10 @@ func TestStack_Destroy(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error running terraform destroy for") {
 			t.Fatalf("Expected error to contain %q, got %q", "error running terraform destroy for", err.Error())
+		}
+		warningOutput := captured.String()
+		if !strings.Contains(warningOutput, tfDiagnostic) {
+			t.Errorf("Expected terraform diagnostic %q to be surfaced via warningWriter, got %q", tfDiagnostic, warningOutput)
 		}
 	})
 
