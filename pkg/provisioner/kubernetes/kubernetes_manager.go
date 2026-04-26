@@ -18,10 +18,10 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/tui"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
+	"github.com/windsorcli/cli/pkg/tui"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -799,8 +799,8 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		}
 	}
 
-	for i := len(blueprint.Kustomizations) - 1; i >= 0; i-- {
-		kustomization := blueprint.Kustomizations[i]
+	eligible := make([]blueprintv1alpha1.Kustomization, 0, len(blueprint.Kustomizations))
+	for _, kustomization := range blueprint.Kustomizations {
 		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
 			continue
 		}
@@ -808,6 +808,17 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		if destroy != nil && !*destroy {
 			continue
 		}
+		eligible = append(eligible, kustomization)
+	}
+	ordered, err := reverseTopologicalKustomizations(eligible)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not compute reverse-topological destroy order (%v); falling back to reverse-array order\n", err)
+		ordered = make([]blueprintv1alpha1.Kustomization, len(eligible))
+		for i, kustomization := range eligible {
+			ordered[len(eligible)-1-i] = kustomization
+		}
+	}
+	for _, kustomization := range ordered {
 		if errs := k.deleteKustomizationWithCleanup(kustomization, blueprint, namespace, defaultSourceName); len(errs) > 0 {
 			errors = append(errors, errs...)
 		}
@@ -1098,8 +1109,15 @@ waitLoop:
 	}
 	tui.Done()
 
-	for i := len(kustomizations) - 1; i >= 0; i-- {
-		kustomization := kustomizations[i]
+	ordered, err := reverseTopologicalKustomizations(kustomizations)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not compute reverse-topological destroy-only order (%v); falling back to reverse-array order\n", err)
+		ordered = make([]blueprintv1alpha1.Kustomization, len(kustomizations))
+		for i, kustomization := range kustomizations {
+			ordered[len(kustomizations)-1-i] = kustomization
+		}
+	}
+	for _, kustomization := range ordered {
 		tui.Start(fmt.Sprintf("Deleting destroy-only kustomization %s", kustomization.Name))
 
 		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
@@ -1558,4 +1576,85 @@ func isNotFoundError(err error) bool {
 		strings.Contains(errMsg, "the server could not find the requested resource") ||
 		strings.Contains(errMsg, "\" not found")) &&
 		!strings.Contains(errMsg, "namespace not found")
+}
+
+// reverseTopologicalKustomizations returns the input slice reordered so that
+// each kustomization appears before any kustomization it depends on — destroy
+// order. Apply order places dependencies first and dependents last; destroy
+// order is the reverse, so consumers prune before their providers do. By the
+// time a dependency's kustomization is deleted, every kustomization that
+// referenced its outputs is already gone, which lets controllers shut down
+// without orphaning anyone.
+//
+// Determinism: independent kustomizations (no dependency relation) appear in
+// destroy-output in the reverse of their input-slice order. A blueprint
+// already authored or sorted in topological order therefore produces the
+// same destroy walk as a naive slice-reverse, making this helper a strict
+// superset of the slice-reverse loops it replaces.
+//
+// Missing dependencies — a name in DependsOn that does not match any
+// kustomization in the input — are silently treated as no-edge. The destroy
+// walk does not block on something it does not own; this matches the
+// semantics of the apply-side dependency walk.
+//
+// Returns an error if a dependency cycle is detected. Cycles are normally
+// rejected at blueprint validation; the check here is defensive so a destroy
+// walk over a malformed blueprint cannot recurse infinitely.
+func reverseTopologicalKustomizations(ks []blueprintv1alpha1.Kustomization) ([]blueprintv1alpha1.Kustomization, error) {
+	if len(ks) == 0 {
+		return []blueprintv1alpha1.Kustomization{}, nil
+	}
+	if len(ks) == 1 {
+		out := make([]blueprintv1alpha1.Kustomization, 1)
+		out[0] = ks[0]
+		return out, nil
+	}
+
+	nameToIndex := make(map[string]int, len(ks))
+	for i := range ks {
+		nameToIndex[ks[i].Name] = i
+	}
+
+	forward := make([]int, 0, len(ks))
+	visited := make(map[int]bool, len(ks))
+	visiting := make(map[int]bool, len(ks))
+
+	var visit func(idx int) error
+	visit = func(idx int) error {
+		if visiting[idx] {
+			return fmt.Errorf("dependency cycle detected involving kustomization %q", ks[idx].Name)
+		}
+		if visited[idx] {
+			return nil
+		}
+		visiting[idx] = true
+		for _, dep := range ks[idx].DependsOn {
+			depIdx, ok := nameToIndex[dep]
+			if !ok {
+				continue
+			}
+			if err := visit(depIdx); err != nil {
+				visiting[idx] = false
+				return err
+			}
+		}
+		visiting[idx] = false
+		visited[idx] = true
+		forward = append(forward, idx)
+		return nil
+	}
+
+	for i := range ks {
+		if !visited[i] {
+			if err := visit(i); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	out := make([]blueprintv1alpha1.Kustomization, len(ks))
+	for i, idx := range forward {
+		out[len(forward)-1-i] = ks[idx]
+	}
+	return out, nil
 }
