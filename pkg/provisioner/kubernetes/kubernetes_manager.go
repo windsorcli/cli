@@ -1634,7 +1634,6 @@ func reverseTopologicalKustomizations(ks []blueprintv1alpha1.Kustomization) ([]b
 				continue
 			}
 			if err := visit(depIdx); err != nil {
-				visiting[idx] = false
 				return err
 			}
 		}
