@@ -190,11 +190,6 @@ var bootstrapCmd = &cobra.Command{
 		// the IDs so the operator can investigate rather than leave state half-migrated.
 		skipped, err := proj.Provisioner.MigrateState(proj.Composer.BlueprintHandler.Generate())
 		if err != nil {
-			// A partial skip list before the hard error is diagnostic gold — it tells the
-			// operator "these components were already missing, then this one failed," which
-			// narrows the investigation from "why did migration fail?" to "what happened to
-			// those specific dirs between Up and MigrateState?" Attach the skip list to the
-			// surfaced error when present instead of dropping it on the floor.
 			if len(skipped) > 0 {
 				return fmt.Errorf("%w (skipped components before failure: %s)", err, strings.Join(skipped, ", "))
 			}

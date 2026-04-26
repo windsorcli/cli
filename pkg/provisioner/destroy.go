@@ -67,8 +67,6 @@ func (i *Provisioner) DestroyTerraformComponentWithBackendLifecycle(blueprint *b
 		return i.Destroy(blueprint, componentID)
 	}
 
-	// Set is in-memory only; restore-failure is a stale in-process value, not a
-	// persisted-config corruption — see runFullCycleDestroyAll for the full note.
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
 		return false, fmt.Errorf("failed to override backend for backend-component destroy: %w", err)
 	}
@@ -160,8 +158,6 @@ func (i *Provisioner) runPerComponentDestroyAll(blueprint *blueprintv1alpha1.Blu
 		return skipped, bulkErr
 	}
 
-	// Set is in-memory only; restore-failure is a stale in-process value, not a
-	// persisted-config corruption — see runFullCycleDestroyAll for the full note.
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
 		return skipped, fmt.Errorf("failed to override backend for backend-component destroy: %w", err)
 	}
