@@ -10,6 +10,7 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/workstation"
 )
 
@@ -17,13 +18,14 @@ import (
 // It coordinates context, provisioner, composer, and workstation managers
 // to provide a unified interface for project initialization and management.
 type Project struct {
-	Runtime       *runtime.Runtime
-	configHandler config.ConfigHandler
-	contextName   string
-	projectRoot   string
-	Provisioner   *provisioner.Provisioner
-	Composer      *composer.Composer
-	Workstation   *workstation.Workstation
+	Runtime           *runtime.Runtime
+	configHandler     config.ConfigHandler
+	contextName       string
+	projectRoot       string
+	Provisioner       *provisioner.Provisioner
+	Composer          *composer.Composer
+	Workstation       *workstation.Workstation
+	toolRequirements  *tools.Requirements
 }
 
 // NewProject creates and initializes a new Project instance with all required managers.
@@ -107,6 +109,15 @@ func NewProject(contextName string, opts ...*Project) *Project {
 	}
 }
 
+// SetToolRequirements narrows which tool families Initialize will check on this project.
+// When unset, Initialize defaults to AllRequirements — the historical "check everything"
+// behavior. Commands whose codepath is statically known (e.g. `windsor down` only stops
+// the workstation, never invokes terraform) call this with a narrower set so the operator
+// is not blocked on installing tools they will not actually use.
+func (p *Project) SetToolRequirements(reqs tools.Requirements) {
+	p.toolRequirements = &reqs
+}
+
 // Configure resolves project configuration including defaults, file loading, migration, and override processing.
 // Loads project environment variables and returns an error if resolution or environment loading fails.
 func (p *Project) Configure(flagOverrides map[string]any) error {
@@ -176,7 +187,11 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 		return fmt.Errorf("failed to generate infrastructure: %w", err)
 	}
 
-	if err := p.Runtime.PrepareTools(); err != nil {
+	reqs := tools.AllRequirements()
+	if p.toolRequirements != nil {
+		reqs = *p.toolRequirements
+	}
+	if err := p.Runtime.PrepareToolsFor(reqs); err != nil {
 		return err
 	}
 

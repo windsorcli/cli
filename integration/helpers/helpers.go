@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -146,6 +147,22 @@ func CopyFixtureOnly(t *testing.T, name string) (workDir string, env []string) {
 	}
 	env = envForHome(t.TempDir())
 	return workDir, env
+}
+
+// MinimalPATHEnv returns env with any PATH entry replaced by a minimal PATH (/usr/bin:/bin).
+// Use this when a test asserts that a tool the host might happen to have installed (docker,
+// terraform, sops, etc.) is treated as missing — without stripping PATH the assertion would
+// pass on a clean CI runner and silently fail on a developer's laptop. The returned slice
+// is independent of the input.
+func MinimalPATHEnv(env []string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "PATH=/usr/bin:/bin")
 }
 
 // PrepareFixture copies the named fixture into a temp dir, runs windsor init with a temp

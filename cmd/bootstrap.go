@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -135,6 +136,10 @@ var bootstrapCmd = &cobra.Command{
 			return err
 		}
 
+		// Bootstrap stands up everything end-to-end: terraform apply, MigrateState, install,
+		// and wait. Every tool family may be exercised, so request the full set up front and
+		// let CheckAuth (called below) validate cloud credentials separately.
+		proj.SetToolRequirements(tools.AllRequirements())
 		if err := proj.Initialize(false, blueprintURL...); err != nil {
 			return err
 		}

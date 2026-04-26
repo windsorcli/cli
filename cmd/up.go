@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 var (
@@ -59,6 +60,11 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
+		// `windsor up` brings up the workstation: it starts the container runtime, applies
+		// terraform-driven workstation infrastructure, dereferences any 1Password / SOPS-backed
+		// values, and (for azure contexts) authenticates to AKS. Request the full set so any
+		// of those tools are validated up front.
+		proj.SetToolRequirements(tools.AllRequirements())
 		if err := proj.Initialize(false, blueprintURL...); err != nil {
 			return err
 		}

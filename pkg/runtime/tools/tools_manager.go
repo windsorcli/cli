@@ -28,8 +28,36 @@ type ToolsManager interface {
 	WriteManifest() error
 	Install() error
 	Check() error
+	CheckRequirements(reqs Requirements) error
 	CheckAuth() error
 	GetTerraformCommand() string
+}
+
+// Requirements is the set of tool families a single command's codepath will actually exercise.
+// Each field is opt-in: a command requests only what it will run, and the corresponding check
+// still respects the configHandler gates (e.g. Docker=true only triggers a docker check when
+// docker.enabled is set or workstation.runtime is a docker-family driver). Over-requesting is
+// safe — checks no-op when the underlying config gate is off; under-requesting is the bug to
+// avoid because it lets a stale tool slip through to the actual command.
+type Requirements struct {
+	Docker    bool
+	Colima    bool
+	Terraform bool
+	Secrets   bool
+	Kubelogin bool
+}
+
+// AllRequirements returns a Requirements with every field true. Used by `windsor check` (the
+// explicit "verify my whole setup" command) and as the default for code paths that must
+// preserve historical Check() behavior.
+func AllRequirements() Requirements {
+	return Requirements{
+		Docker:    true,
+		Colima:    true,
+		Terraform: true,
+		Secrets:   true,
+		Kubelogin: true,
+	}
 }
 
 // BaseToolsManager is the base implementation of the ToolsManager interface.
@@ -91,51 +119,66 @@ func (t *BaseToolsManager) Install() error {
 	return nil
 }
 
-// Check verifies required tools are installed.
+// Check verifies every tool that may be required for any windsor codepath. Equivalent to
+// CheckRequirements(AllRequirements()) and exists for backward compatibility with the
+// explicit "check everything" command (`windsor check`) and any caller that has not been
+// migrated to declare per-command requirements.
 func (t *BaseToolsManager) Check() error {
+	return t.CheckRequirements(AllRequirements())
+}
+
+// CheckRequirements runs only the checks the caller has opted into via reqs, AND that the
+// configHandler still gates on. The two-layer test (command-level need × project-level
+// config) means an over-broad request from the command side is harmless — `windsor up` can
+// safely request Terraform=true even on a context where terraform.enabled is false, because
+// the config gate skips the actual binary check. Under-requesting is the failure mode worth
+// guarding against: a missed Requirements field lets a stale tool reach the actual run.
+//
+// AWS tool verification lives on CheckAuth, not here. CheckRequirements fires from many
+// command paths including `windsor init` / `windsor env` — at those points the operator has
+// no obligation to have the aws CLI installed OR to be authed. Both cloud-CLI presence and
+// credential resolution belong to CheckAuth, which runs from bootstrap and from
+// `windsor check`.
+func (t *BaseToolsManager) CheckRequirements(reqs Requirements) error {
 	rt := t.configHandler.GetString("workstation.runtime")
 	dockerEnabled := t.configHandler.GetBool("docker.enabled", false)
 	needsDocker := dockerEnabled || rt == "colima" || rt == "docker-desktop" || rt == "docker"
-	if needsDocker {
+	if reqs.Docker && needsDocker {
 		if err := t.checkDocker(); err != nil {
-			return fmt.Errorf("docker check failed: %v", err)
+			return err
 		}
 	}
 
-	if t.configHandler.GetBool("terraform.enabled") {
+	if reqs.Terraform && t.configHandler.GetBool("terraform.enabled") {
 		if err := t.checkTerraform(); err != nil {
-			return fmt.Errorf("terraform check failed: %v", err)
+			return err
 		}
 	}
 
-	if rt == "colima" {
+	if reqs.Colima && rt == "colima" {
 		if err := t.checkColima(); err != nil {
-			return fmt.Errorf("colima check failed: %v", err)
+			return err
 		}
 	}
 
-	if vaults := t.configHandler.Get("secrets.onepassword.vaults"); vaults != nil {
-		if err := t.checkOnePassword(); err != nil {
-			return fmt.Errorf("1password check failed: %v", err)
+	if reqs.Secrets {
+		if vaults := t.configHandler.Get("secrets.onepassword.vaults"); vaults != nil {
+			if err := t.checkOnePassword(); err != nil {
+				return err
+			}
+		}
+		if t.configHandler.GetBool("secrets.sops.enabled", false) {
+			if err := t.checkSops(); err != nil {
+				return err
+			}
 		}
 	}
 
-	if t.configHandler.GetBool("secrets.sops.enabled", false) {
-		if err := t.checkSops(); err != nil {
-			return fmt.Errorf("sops check failed: %v", err)
-		}
-	}
-
-	if t.configHandler.GetBool("azure.enabled") {
+	if reqs.Kubelogin && t.configHandler.GetBool("azure.enabled") {
 		if err := t.checkKubelogin(); err != nil {
-			return fmt.Errorf("kubelogin check failed: %v", err)
+			return err
 		}
 	}
-	// AWS tool verification lives on CheckAuth, not here. Check() fires from every command
-	// path including `windsor init` / `windsor env` — at those points the operator has no
-	// obligation to have the aws CLI installed OR to be authed. Both cloud-CLI presence and
-	// credential resolution belong to CheckAuth, which runs only from bootstrap/up/apply and
-	// from `windsor check`.
 	return nil
 }
 
@@ -147,7 +190,7 @@ func (t *BaseToolsManager) Check() error {
 // verifies the docker CLI version meets the minimum. Docker Compose is not required.
 func (t *BaseToolsManager) checkDocker() error {
 	if _, err := execLookPath("docker"); err != nil {
-		return fmt.Errorf("docker is not available in the PATH")
+		return missingToolError("docker")
 	}
 
 	workstationRuntime := t.configHandler.GetString("workstation.runtime")
@@ -156,11 +199,11 @@ func (t *BaseToolsManager) checkDocker() error {
 	if !isColimaMode {
 		output, err := t.shell.ExecSilentWithTimeout("docker", []string{"--version"}, 5*time.Second)
 		if err != nil {
-			return fmt.Errorf("docker version check failed: %v", err)
+			return fmt.Errorf("docker --version failed: %v", err)
 		}
 		dockerVersion := extractVersion(output)
 		if dockerVersion != "" && compareVersion(dockerVersion, constants.MinimumVersionDocker) < 0 {
-			return fmt.Errorf("docker version %s is below the minimum required version %s", dockerVersion, constants.MinimumVersionDocker)
+			return outdatedToolError("docker", dockerVersion)
 		}
 	}
 
@@ -172,7 +215,7 @@ func (t *BaseToolsManager) checkDocker() error {
 // Returns nil if both are found and meet the minimum version requirements, else an error indicating either is not available or outdated.
 func (t *BaseToolsManager) checkColima() error {
 	if _, err := execLookPath("colima"); err != nil {
-		return fmt.Errorf("colima is not available in the PATH")
+		return missingToolError("colima")
 	}
 	output, err := t.shell.ExecSilentWithTimeout("colima", []string{"version"}, 5*time.Second)
 	if err != nil {
@@ -183,11 +226,11 @@ func (t *BaseToolsManager) checkColima() error {
 		return fmt.Errorf("failed to extract colima version")
 	}
 	if compareVersion(colimaVersion, constants.MinimumVersionColima) < 0 {
-		return fmt.Errorf("colima version %s is below the minimum required version %s", colimaVersion, constants.MinimumVersionColima)
+		return outdatedToolError("colima", colimaVersion)
 	}
 
 	if _, err := execLookPath("limactl"); err != nil {
-		return fmt.Errorf("limactl is not available in the PATH")
+		return missingToolError("limactl")
 	}
 	output, err = t.shell.ExecSilentWithTimeout("limactl", []string{"--version"}, 5*time.Second)
 	if err != nil {
@@ -202,7 +245,7 @@ func (t *BaseToolsManager) checkColima() error {
 		minLima = constants.MinimumVersionLimaIncus
 	}
 	if compareVersion(limactlVersion, minLima) < 0 {
-		return fmt.Errorf("limactl version %s is below the minimum required version %s (use same PATH as in core repo or upgrade limactl)", limactlVersion, minLima)
+		return outdatedToolError("limactl", limactlVersion)
 	}
 
 	return nil
@@ -277,7 +320,7 @@ func (t *BaseToolsManager) detectTerraformDriver() string {
 func (t *BaseToolsManager) checkTerraform() error {
 	command := t.GetTerraformCommand()
 	if _, err := execLookPath(command); err != nil {
-		return fmt.Errorf("%s is not available in the PATH", command)
+		return missingToolError(command)
 	}
 	output, err := t.shell.ExecSilentWithTimeout(command, []string{"version"}, 5*time.Second)
 	if err != nil {
@@ -288,7 +331,7 @@ func (t *BaseToolsManager) checkTerraform() error {
 		return fmt.Errorf("failed to extract %s version", command)
 	}
 	if compareVersion(terraformVersion, constants.MinimumVersionTerraform) < 0 {
-		return fmt.Errorf("%s version %s is below the minimum required version %s", command, terraformVersion, constants.MinimumVersionTerraform)
+		return outdatedToolError(command, terraformVersion)
 	}
 
 	return nil
@@ -299,12 +342,12 @@ func (t *BaseToolsManager) checkTerraform() error {
 // Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
 func (t *BaseToolsManager) checkOnePassword() error {
 	if _, err := execLookPath("op"); err != nil {
-		return fmt.Errorf("1Password CLI is not available in the PATH")
+		return missingToolError("op")
 	}
 
 	out, err := t.shell.ExecSilentWithTimeout("op", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("1Password CLI is not available in the PATH: %v", err)
+		return fmt.Errorf("1Password CLI --version failed: %v", err)
 	}
 
 	version := extractVersion(out)
@@ -313,7 +356,7 @@ func (t *BaseToolsManager) checkOnePassword() error {
 	}
 
 	if compareVersion(version, constants.MinimumVersion1Password) < 0 {
-		return fmt.Errorf("1Password CLI version %s is below the minimum required version %s", version, constants.MinimumVersion1Password)
+		return outdatedToolError("op", version)
 	}
 
 	return nil
@@ -324,12 +367,12 @@ func (t *BaseToolsManager) checkOnePassword() error {
 // Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
 func (t *BaseToolsManager) checkSops() error {
 	if _, err := execLookPath("sops"); err != nil {
-		return fmt.Errorf("SOPS CLI is not available in the PATH")
+		return missingToolError("sops")
 	}
 
 	out, err := t.shell.ExecSilentWithTimeout("sops", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("SOPS CLI is not available in the PATH: %v", err)
+		return fmt.Errorf("sops --version failed: %v", err)
 	}
 
 	version := extractVersion(out)
@@ -338,7 +381,7 @@ func (t *BaseToolsManager) checkSops() error {
 	}
 
 	if compareVersion(version, constants.MinimumVersionSOPS) < 0 {
-		return fmt.Errorf("SOPS CLI version %s is below the minimum required version %s", version, constants.MinimumVersionSOPS)
+		return outdatedToolError("sops", version)
 	}
 
 	return nil
@@ -350,12 +393,12 @@ func (t *BaseToolsManager) checkSops() error {
 // Returns nil if found and meets the minimum version requirement, else an error indicating it is not available or outdated.
 func (t *BaseToolsManager) checkKubelogin() error {
 	if _, err := execLookPath("kubelogin"); err != nil {
-		return fmt.Errorf("kubelogin is not available in the PATH")
+		return missingToolError("kubelogin")
 	}
 
 	out, err := t.shell.ExecSilentWithTimeout("kubelogin", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("kubelogin is not available in the PATH: %v", err)
+		return fmt.Errorf("kubelogin --version failed: %v", err)
 	}
 
 	version := extractVersion(out)
@@ -364,7 +407,7 @@ func (t *BaseToolsManager) checkKubelogin() error {
 	}
 
 	if compareVersion(version, constants.MinimumVersionKubelogin) < 0 {
-		return fmt.Errorf("kubelogin version %s is below the minimum required version %s", version, constants.MinimumVersionKubelogin)
+		return outdatedToolError("kubelogin", version)
 	}
 
 	validationRules := []struct {
@@ -519,7 +562,7 @@ func hasAmbientAWSCredentials() bool {
 // single-error exit point.
 func (t *BaseToolsManager) checkAWSBinary() error {
 	if _, err := execLookPath("aws"); err != nil {
-		return fmt.Errorf("aws CLI is not available in the PATH; install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
+		return missingToolError("aws")
 	}
 
 	out, err := t.shell.ExecSilentWithTimeout("aws", []string{"--version"}, 5*time.Second)
@@ -531,7 +574,7 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 		return fmt.Errorf("failed to extract aws CLI version")
 	}
 	if compareVersion(version, constants.MinimumVersionAWS) < 0 {
-		return fmt.Errorf("aws CLI version %s is below the minimum required version %s", version, constants.MinimumVersionAWS)
+		return outdatedToolError("aws", version)
 	}
 
 	return nil

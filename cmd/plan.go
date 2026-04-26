@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/tui"
 )
 
@@ -26,7 +27,10 @@ var planCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `plan` (no args, or with a component name) can dispatch to terraform plan and/or
+		// flux diff depending on what the blueprint contains. Both are read-only but exercise
+		// terraform + cluster API + secrets, so request the full read-side surface.
+		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
 		}
@@ -104,7 +108,8 @@ var planTerraformCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `plan terraform` only invokes terraform; cluster/k8s tools are not used.
+		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
 			return err
 		}
@@ -165,7 +170,8 @@ var planKustomizeCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `plan kustomize` runs flux diff against the cluster; terraform/docker are not used.
+		proj, err := prepareProject(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
 		}

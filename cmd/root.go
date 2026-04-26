@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/tui"
 )
 
@@ -79,14 +80,19 @@ func configureProject(cmd *cobra.Command) (*project.Project, error) {
 }
 
 // prepareProject creates and fully initializes a project for the given command. It delegates
-// setup through Configure to configureProject, then runs Initialize. Commands that need
-// additional steps between Configure and Initialize (e.g. ValidateContextValues) should not
-// use this helper — call configureProject directly instead.
-func prepareProject(cmd *cobra.Command) (*project.Project, error) {
+// setup through Configure to configureProject, then runs Initialize against the supplied tool
+// requirements. Each caller declares only what tools its codepath will actually exercise so
+// commands like `down` (which only needs the container runtime) don't trip checks for
+// terraform / 1password / sops they will never invoke. Pass tools.AllRequirements() when the
+// codepath depends on the blueprint and isn't statically known. Commands that need additional
+// steps between Configure and Initialize (e.g. ValidateContextValues) should not use this
+// helper — call configureProject directly instead.
+func prepareProject(cmd *cobra.Command, reqs tools.Requirements) (*project.Project, error) {
 	proj, err := configureProject(cmd)
 	if err != nil {
 		return nil, err
 	}
+	proj.SetToolRequirements(reqs)
 	if err := proj.Initialize(false); err != nil {
 		return nil, err
 	}

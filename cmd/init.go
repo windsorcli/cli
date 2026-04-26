@@ -11,6 +11,7 @@ import (
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 // =============================================================================
@@ -152,6 +153,17 @@ var initCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// `windsor init` writes config files and generates infrastructure stubs locally; it
+		// does not run terraform, start a workstation, or talk to a cluster — so docker /
+		// colima / terraform / kubelogin are deliberately NOT requested here, letting a
+		// fresh-machine init succeed before those tools are installed. Secrets is requested
+		// because Project.Initialize always calls LoadEnvironment, which shells out to
+		// sops / op when the context has those backends enabled (e.g. `init --reset` against
+		// an existing sops-enabled context); without this, the operator would get a raw
+		// "sops: command not found" instead of the registry-formatted hint. The config gates
+		// inside CheckRequirements ensure contexts that haven't enabled either backend still
+		// skip the actual binary check.
+		proj.SetToolRequirements(tools.Requirements{Secrets: true})
 		if err := proj.Initialize(initReset, blueprintURL...); err != nil {
 			return err
 		}

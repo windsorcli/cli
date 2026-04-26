@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 var destroyConfirm string
@@ -50,7 +51,12 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `destroy` (no args, or with a component name that may live in either layer) can
+		// dispatch to terraform or kustomize destroy paths depending on blueprint contents.
+		// Since the layer choice is data-driven we can't statically narrow tool requirements
+		// here without risking an under-request, so request AllRequirements() and lean on the
+		// per-tool config gates.
+		proj, err := prepareProject(cmd, tools.AllRequirements())
 		if err != nil {
 			return err
 		}
@@ -105,7 +111,8 @@ var destroyTerraformCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `destroy terraform` only invokes terraform; kustomize/k8s/docker tools are not used.
+		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
 			return err
 		}
@@ -144,7 +151,8 @@ var destroyKustomizeCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `destroy kustomize` only talks to the cluster API; terraform/docker tools are not used.
+		proj, err := prepareProject(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
 		}

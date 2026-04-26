@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 var applyWaitFlag bool // Wait for kustomization resources to be ready after applying
@@ -16,7 +17,11 @@ var applyCmd = &cobra.Command{
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `windsor apply` runs whatever is in the blueprint — terraform components and Flux
+		// kustomizations both — so the tool surface is not statically narrowable. Request
+		// AllRequirements() and let the per-tool config gates inside CheckRequirements decide
+		// what actually runs (e.g. azure.enabled controls kubelogin).
+		proj, err := prepareProject(cmd, tools.AllRequirements())
 		if err != nil {
 			return err
 		}
@@ -58,7 +63,10 @@ var applyTerraformCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		componentID := args[0]
 
-		proj, err := prepareProject(cmd)
+		// `apply terraform <project>` only invokes terraform. Secrets backends are required
+		// because terraform can dereference 1Password / SOPS-encrypted values during plan/apply;
+		// docker, colima, and kubelogin are not exercised by this codepath.
+		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
 			return err
 		}
@@ -79,7 +87,9 @@ var applyKustomizeCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		proj, err := prepareProject(cmd)
+		// `apply kustomize` only talks to the cluster API and dereferences secrets; it does not
+		// invoke terraform or the local container runtime.
+		proj, err := prepareProject(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
 		}

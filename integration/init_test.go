@@ -305,3 +305,21 @@ func TestInit_InvalidValuesDoNotBlockShowCommand(t *testing.T) {
 		t.Fatal("expected blueprint output to be non-empty")
 	}
 }
+
+// TestInit_DoesNotRequireDocker_EvenWhenDockerEnabled pins the lazy-tool-check contract
+// for `windsor init`: scaffolding config and writing infrastructure stubs is local-only,
+// so init must succeed against a minimal PATH (no docker / colima / terraform / etc.) even
+// when the resolved config enables docker via --docker. A regression that re-eagerly checks
+// docker would block init on a fresh machine before the operator has had a chance to install
+// anything — defeating the whole purpose of `init`.
+func TestInit_DoesNotRequireDocker_EvenWhenDockerEnabled(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	stripped := helpers.MinimalPATHEnv(env)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--docker"}, stripped)
+	if err != nil {
+		t.Fatalf("init local --docker should not require docker on PATH, but failed: %v\nstderr: %s", err, stderr)
+	}
+}

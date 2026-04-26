@@ -95,3 +95,36 @@ func TestApply_AcceptsWaitFlag(t *testing.T) {
 	}
 	_ = err // may fail due to infrastructure not being available; flag must be accepted
 }
+
+// TestApplyTerraform_MissingBinary_ShowsActionableError verifies the registry-formatted
+// missing-tool error reaches the user end-to-end: when an `apply terraform` preflight
+// fails because terraform is not on PATH, stderr must include the vendor download URL
+// and the matching aqua package so the operator has a copy-pasteable next step. init
+// runs with --set terraform.enabled=true so the preflight check actually fires (without
+// that gate, the provisioner would shell out directly and surface a raw exec error
+// instead of the formatted one).
+func TestApplyTerraform_MissingBinary_ShowsActionableError(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "terraform.enabled=true"}, env); err != nil {
+		t.Fatalf("init local --set terraform.enabled=true: %v\nstderr: %s", err, stderr)
+	}
+
+	stripped := append(helpers.MinimalPATHEnv(env), "WINDSOR_CONTEXT=local")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"apply", "terraform", "null"}, stripped)
+	if err == nil {
+		t.Fatal("expected apply terraform to fail when terraform is not on PATH, but it succeeded")
+	}
+	out := string(stderr)
+	if !strings.Contains(out, "not found on PATH") {
+		t.Errorf("expected stderr to mention 'not found on PATH', got: %s", out)
+	}
+	if !strings.Contains(out, "Download:") {
+		t.Errorf("expected stderr to include a 'Download:' install hint, got: %s", out)
+	}
+	if !strings.Contains(out, "aqua g -i") {
+		t.Errorf("expected stderr to include an 'aqua g -i' install hint, got: %s", out)
+	}
+}

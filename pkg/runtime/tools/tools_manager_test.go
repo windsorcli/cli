@@ -347,8 +347,8 @@ func TestToolsManager_Check(t *testing.T) {
 			return originalExecLookPath(name)
 		}
 		err := toolsManager.Check()
-		// Then an error indicating docker check failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "docker check failed") {
+		// Then an error indicating docker is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "Docker") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected Check to fail when docker is enabled but not available, but got: %v", err)
 		}
 	})
@@ -365,8 +365,8 @@ func TestToolsManager_Check(t *testing.T) {
 			return originalExecLookPath(name)
 		}
 		err := toolsManager.Check()
-		// Then an error indicating terraform check failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "terraform check failed") {
+		// Then an error indicating terraform is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "Terraform") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected Check to fail when terraform is enabled but not available, but got: %v", err)
 		}
 	})
@@ -383,8 +383,8 @@ func TestToolsManager_Check(t *testing.T) {
 			return originalExecLookPath(name)
 		}
 		err := toolsManager.Check()
-		// Then an error indicating colima check failed should be returned
-		if err == nil || !strings.Contains(err.Error(), "colima check failed") {
+		// Then an error indicating colima is missing should be returned
+		if err == nil || !strings.Contains(err.Error(), "Colima") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected Check to fail when colima is enabled but not available, but got: %v", err)
 		}
 	})
@@ -420,11 +420,11 @@ contexts:
 			return originalExecSilent(name, args...)
 		}
 		err := toolsManager.Check()
-		// Then an error indicating 1Password check failed should be returned
+		// Then an error indicating 1Password CLI is missing should be returned
 		if err == nil {
 			t.Error("Expected error when 1Password is enabled but not available")
-		} else if !strings.Contains(err.Error(), "1password check failed: 1Password CLI is not available in the PATH") {
-			t.Errorf("Expected error to contain '1password check failed: 1Password CLI is not available in the PATH', got: %v", err)
+		} else if !strings.Contains(err.Error(), "1Password CLI") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected error to indicate 1Password CLI is missing, got: %v", err)
 		}
 	})
 
@@ -453,11 +453,11 @@ contexts:
 			return originalExecSilent(name, args...)
 		}
 		err := toolsManager.Check()
-		// Then an error indicating SOPS check failed should be returned
+		// Then an error indicating SOPS is missing should be returned
 		if err == nil {
 			t.Error("Expected error when SOPS is enabled but not available")
-		} else if !strings.Contains(err.Error(), "sops check failed: SOPS CLI is not available in the PATH") {
-			t.Errorf("Expected error to contain 'sops check failed: SOPS CLI is not available in the PATH', got: %v", err)
+		} else if !strings.Contains(err.Error(), "SOPS") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected error to indicate SOPS is missing, got: %v", err)
 		}
 	})
 
@@ -522,8 +522,199 @@ contexts:
 		// Then an error should be returned for the first failing tool
 		if err == nil {
 			t.Error("Expected error when multiple tools fail checks")
-		} else if !strings.Contains(err.Error(), "docker check failed") {
-			t.Errorf("Expected error to contain 'docker check failed', got: %v", err)
+		} else if !strings.Contains(err.Error(), "Docker") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected error to indicate Docker is missing, got: %v", err)
+		}
+	})
+}
+
+// TestToolsManager_CheckRequirements asserts the per-command requirement gate: if a command
+// did NOT request a tool family, the corresponding check must not run even when the project
+// config would otherwise enable it. The opposite — requesting a family that the config does
+// not enable — is also a no-op (config gate wins). This test pins the contract Phase 5 (per
+// command Requirements) is built on; weakening it would silently re-introduce the eager-check
+// behavior the registry/Requirements split was meant to fix.
+func TestToolsManager_CheckRequirements(t *testing.T) {
+	setup := func(t *testing.T, configStr string) (*Mocks, *BaseToolsManager) {
+		t.Helper()
+		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		return mocks, toolsManager
+	}
+
+	// configWithEverythingEnabled turns on every tool family the manager knows about so a
+	// permissive Requirements set would have many ways to fail. Each sub-test then asserts
+	// that the narrow Requirements still passes even though the underlying tools are absent.
+	configWithEverythingEnabled := `
+contexts:
+  test:
+    docker:
+      enabled: true
+    terraform:
+      enabled: true
+    secrets:
+      sops:
+        enabled: true
+      onepassword:
+        vaults:
+          v1:
+            name: V1
+            url: example.1password.com
+    azure:
+      enabled: true
+`
+
+	t.Run("EmptyRequirementsSkipsAllChecks", func(t *testing.T) {
+		// Given a config where every tool family is enabled and execLookPath fails for
+		// EVERY tool we'd otherwise check
+		_, toolsManager := setup(t, configWithEverythingEnabled)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			return "", exec.ErrNotFound
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckRequirements runs with an empty Requirements set
+		err := toolsManager.CheckRequirements(Requirements{})
+
+		// Then no check fires and the call succeeds — this is the `windsor init` shape:
+		// it has not committed to running any tool yet, so absent tools must not block it.
+		if err != nil {
+			t.Errorf("Expected empty Requirements to skip all checks, got: %v", err)
+		}
+	})
+
+	t.Run("TerraformOnlyDoesNotCheckDocker", func(t *testing.T) {
+		// Given docker is enabled in config but terraform alone is requested
+		_, toolsManager := setup(t, configWithEverythingEnabled)
+		dockerLookedUp := false
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "docker" {
+				dockerLookedUp = true
+			}
+			if name == "terraform" || name == "tofu" {
+				return "/usr/bin/" + name, nil
+			}
+			return "", exec.ErrNotFound
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckRequirements runs with only Terraform requested
+		_ = toolsManager.CheckRequirements(Requirements{Terraform: true})
+
+		// Then the docker lookup was never invoked. This is the `apply terraform <project>`
+		// shape — terraform is the only binary that subcommand will exercise.
+		if dockerLookedUp {
+			t.Error("Expected docker to NOT be looked up when only Terraform is requested")
+		}
+	})
+
+	t.Run("DockerOnlyDoesNotCheckTerraform", func(t *testing.T) {
+		// Given terraform is enabled in config but docker alone is requested
+		_, toolsManager := setup(t, configWithEverythingEnabled)
+		terraformLookedUp := false
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "terraform" || name == "tofu" {
+				terraformLookedUp = true
+			}
+			if name == "docker" {
+				return "/usr/bin/docker", nil
+			}
+			return "", exec.ErrNotFound
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckRequirements runs with only Docker requested
+		_ = toolsManager.CheckRequirements(Requirements{Docker: true})
+
+		// Then terraform/tofu was never looked up. This is the `windsor down` shape —
+		// stopping the workstation needs the container runtime, not terraform.
+		if terraformLookedUp {
+			t.Error("Expected terraform/tofu to NOT be looked up when only Docker is requested")
+		}
+	})
+
+	t.Run("SecretsRequestedChecksBothSopsAndOnePassword", func(t *testing.T) {
+		// Given both sops and 1password are enabled in config and Secrets is requested
+		_, toolsManager := setup(t, configWithEverythingEnabled)
+		sawSops := false
+		sawOp := false
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			switch name {
+			case "sops":
+				sawSops = true
+			case "op":
+				sawOp = true
+			}
+			return "/usr/bin/" + name, nil
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckRequirements runs with Secrets requested
+		_ = toolsManager.CheckRequirements(Requirements{Secrets: true})
+
+		// Then both secrets backends were probed
+		if !sawSops {
+			t.Error("Expected sops to be looked up when Secrets is requested")
+		}
+		if !sawOp {
+			t.Error("Expected op to be looked up when Secrets is requested")
+		}
+	})
+
+	t.Run("OverRequestIsHarmlessWhenConfigGateOff", func(t *testing.T) {
+		// Given a context with every tool-config gate explicitly off (workstation.runtime
+		// pinned to "none" so the docker-needsDocker side-channel is also off)
+		mocks, toolsManager := setup(t, defaultConfig)
+		mocks.ConfigHandler.Set("docker.enabled", false)
+		mocks.ConfigHandler.Set("terraform.enabled", false)
+		mocks.ConfigHandler.Set("secrets.sops.enabled", false)
+		mocks.ConfigHandler.Set("azure.enabled", false)
+		mocks.ConfigHandler.Set("workstation.runtime", "none")
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			return "", exec.ErrNotFound
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckRequirements runs with EVERY family requested
+		err := toolsManager.CheckRequirements(AllRequirements())
+
+		// Then it succeeds because the config gates skip every actual binary check. This
+		// is the safety property that lets bootstrap/up/check pass AllRequirements() without
+		// caring which specific tools the project has opted into.
+		if err != nil {
+			t.Errorf("Expected AllRequirements with no enabled tools to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("CheckEqualsCheckRequirementsAll", func(t *testing.T) {
+		// Given the docker-enabled config + a docker-missing PATH
+		mocks, toolsManager := setup(t, defaultConfig)
+		mocks.ConfigHandler.Set("docker.enabled", true)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "docker" {
+				return "", exec.ErrNotFound
+			}
+			return originalExecLookPath(name)
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When Check() is called and CheckRequirements(AllRequirements()) is called
+		errCheck := toolsManager.Check()
+		errAll := toolsManager.CheckRequirements(AllRequirements())
+
+		// Then both fail with the same docker-missing error — Check() is the AllRequirements
+		// alias, so any divergence is a regression.
+		if (errCheck == nil) != (errAll == nil) {
+			t.Fatalf("Check vs CheckRequirements(All) disagreed on success/failure: %v vs %v", errCheck, errAll)
+		}
+		if errCheck != nil && errCheck.Error() != errAll.Error() {
+			t.Errorf("Check vs CheckRequirements(All) returned different errors:\n  Check: %v\n  All:   %v", errCheck, errAll)
 		}
 	})
 }
@@ -559,7 +750,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		err := toolsManager.checkDocker()
 		// Then an error indicating docker is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "docker is not available in the PATH") {
+		if err == nil || !strings.Contains(err.Error(), "Docker") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected docker not available error, got %v", err)
 		}
 	})
@@ -575,7 +766,7 @@ func TestToolsManager_checkDocker(t *testing.T) {
 		}
 		err := toolsManager.checkDocker()
 		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "docker version 1.0.0 is below the minimum required version") {
+		if err == nil || !strings.Contains(err.Error(), "Docker 1.0.0 is below the minimum required version") {
 			t.Errorf("Expected docker version too low error, got %v", err)
 		}
 	})
@@ -664,7 +855,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 		}
 		err := toolsManager.checkColima()
 		// Then an error indicating colima is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "colima is not available in the PATH") {
+		if err == nil || !strings.Contains(err.Error(), "Colima") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected colima not available error, got %v", err)
 		}
 	})
@@ -702,7 +893,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 		}
 		err := toolsManager.checkColima()
 		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "colima version 0.5.0 is below the minimum required version") {
+		if err == nil || !strings.Contains(err.Error(), "Colima 0.5.0 is below the minimum required version") {
 			t.Errorf("Expected colima version too low error, got %v", err)
 		}
 	})
@@ -725,7 +916,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 		}
 		err := toolsManager.checkColima()
 		// Then an error indicating limactl is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "limactl is not available in the PATH") {
+		if err == nil || !strings.Contains(err.Error(), "Lima") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected limactl not available error, got %v", err)
 		}
 	})
@@ -763,7 +954,7 @@ func TestToolsManager_checkColima(t *testing.T) {
 		}
 		err := toolsManager.checkColima()
 		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "limactl version 0.5.0 is below the minimum required version") {
+		if err == nil || !strings.Contains(err.Error(), "Lima 0.5.0 is below the minimum required version") {
 			t.Errorf("Expected limactl version too low error, got %v", err)
 		}
 	})
@@ -805,7 +996,7 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 		// When checking terraform version
 		err := toolsManager.checkTerraform()
 		// Then an error indicating terraform or tofu is not available should be returned
-		if err == nil || (!strings.Contains(err.Error(), "terraform is not available in the PATH") && !strings.Contains(err.Error(), "tofu is not available in the PATH")) {
+		if err == nil || ((!strings.Contains(err.Error(), "Terraform") && !strings.Contains(err.Error(), "OpenTofu")) || !strings.Contains(err.Error(), "not found on PATH")) {
 			t.Errorf("Expected terraform or tofu not available error, got %v", err)
 		}
 	})
@@ -839,7 +1030,7 @@ func TestToolsManager_checkTerraform(t *testing.T) {
 		// When checking terraform version
 		err := toolsManager.checkTerraform()
 		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "terraform version 0.1.0 is below the minimum required version") {
+		if err == nil || !strings.Contains(err.Error(), "Terraform 0.1.0 is below the minimum required version") {
 			t.Errorf("Expected terraform version too low error, got %v", err)
 		}
 	})
@@ -877,8 +1068,8 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 		// When checking 1Password CLI version
 		err := toolsManager.checkOnePassword()
 		// Then an error indicating CLI is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "1Password CLI is not available in the PATH") {
-			t.Errorf("Expected 1Password CLI is not available in the PATH error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "1Password CLI") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected 1Password CLI not found error, got %v", err)
 		}
 	})
 
@@ -893,9 +1084,9 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 		}
 		// When checking 1Password CLI version
 		err := toolsManager.checkOnePassword()
-		// Then an error indicating CLI is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "1Password CLI is not available in the PATH") {
-			t.Errorf("Expected 1Password CLI is not available in the PATH error, got %v", err)
+		// Then an error indicating the --version invocation failed should be returned
+		if err == nil || !strings.Contains(err.Error(), "1Password CLI --version failed") {
+			t.Errorf("Expected 1Password CLI --version failed error, got %v", err)
 		}
 	})
 
@@ -927,7 +1118,7 @@ func TestToolsManager_checkOnePassword(t *testing.T) {
 		// When checking 1Password CLI version
 		err := toolsManager.checkOnePassword()
 		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "1Password CLI version 1.0.0 is below the minimum required version") {
+		if err == nil || !strings.Contains(err.Error(), "1Password CLI 1.0.0 is below the minimum required version") {
 			t.Errorf("Expected 1Password CLI version too low error, got %v", err)
 		}
 	})
@@ -969,8 +1160,8 @@ func TestToolsManager_checkSops(t *testing.T) {
 		// When checking SOPS CLI version
 		err := toolsManager.checkSops()
 		// Then an error indicating CLI is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "SOPS CLI is not available in the PATH") {
-			t.Errorf("Expected SOPS CLI is not available in the PATH error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "SOPS") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected SOPS not found error, got %v", err)
 		}
 	})
 
@@ -985,9 +1176,9 @@ func TestToolsManager_checkSops(t *testing.T) {
 		}
 		// When checking SOPS CLI version
 		err := toolsManager.checkSops()
-		// Then an error indicating CLI is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "SOPS CLI is not available in the PATH") {
-			t.Errorf("Expected SOPS CLI is not available in the PATH error, got %v", err)
+		// Then an error indicating the --version invocation failed should be returned
+		if err == nil || !strings.Contains(err.Error(), "sops --version failed") {
+			t.Errorf("Expected sops --version failed error, got %v", err)
 		}
 	})
 
@@ -1020,8 +1211,8 @@ func TestToolsManager_checkSops(t *testing.T) {
 		// When checking SOPS CLI version
 		err := toolsManager.checkSops()
 		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "SOPS CLI version 1.0.0 is below the minimum required version") {
-			t.Errorf("Expected SOPS CLI version too low error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "SOPS 1.0.0 is below the minimum required version") {
+			t.Errorf("Expected SOPS version too low error, got %v", err)
 		}
 	})
 }
@@ -1072,7 +1263,7 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 		// When checking kubelogin version
 		err := toolsManager.checkKubelogin()
 		// Then an error indicating kubelogin is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "kubelogin is not available in the PATH") {
+		if err == nil || !strings.Contains(err.Error(), "kubelogin") || !strings.Contains(err.Error(), "not found on PATH") {
 			t.Errorf("Expected kubelogin not available error, got %v", err)
 		}
 	})
@@ -1120,7 +1311,7 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 		// When checking kubelogin version
 		err := toolsManager.checkKubelogin()
 		// Then an error indicating version is too low should be returned
-		if err == nil || !strings.Contains(err.Error(), "kubelogin version 0.1.0 is below the minimum required version") {
+		if err == nil || !strings.Contains(err.Error(), "kubelogin 0.1.0 is below the minimum required version") {
 			t.Errorf("Expected kubelogin version too low error, got %v", err)
 		}
 	})
@@ -1143,9 +1334,9 @@ func TestToolsManager_checkKubelogin(t *testing.T) {
 		}
 		// When checking kubelogin version
 		err := toolsManager.checkKubelogin()
-		// Then an error indicating kubelogin is not available should be returned
-		if err == nil || !strings.Contains(err.Error(), "kubelogin is not available in the PATH") {
-			t.Errorf("Expected kubelogin is not available in the PATH error, got %v", err)
+		// Then an error indicating the --version invocation failed should be returned
+		if err == nil || !strings.Contains(err.Error(), "kubelogin --version failed") {
+			t.Errorf("Expected kubelogin --version failed error, got %v", err)
 		}
 	})
 
@@ -1346,12 +1537,12 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 		}
 		// When checking aws
 		err := toolsManager.checkAWSBinary()
-		// Then error mentions not in PATH and points to vendor install URL
+		// Then error mentions not on PATH and points to vendor install URL
 		if err == nil {
 			t.Fatal("Expected error when aws is not in PATH")
 		}
-		if !strings.Contains(err.Error(), "aws CLI is not available in the PATH") {
-			t.Errorf("Expected 'not available in the PATH' in error, got: %v", err)
+		if !strings.Contains(err.Error(), "AWS CLI") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected 'AWS CLI ... not found on PATH' in error, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html") {
 			t.Errorf("Expected vendor install URL in error, got: %v", err)
@@ -1500,8 +1691,8 @@ contexts:
 		if err == nil {
 			t.Fatal("Expected error when aws CLI is missing")
 		}
-		if !strings.Contains(err.Error(), "aws CLI is not available in the PATH") {
-			t.Errorf("Expected 'not available in the PATH' error, got: %v", err)
+		if !strings.Contains(err.Error(), "AWS CLI") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected 'AWS CLI ... not found on PATH' error, got: %v", err)
 		}
 	})
 

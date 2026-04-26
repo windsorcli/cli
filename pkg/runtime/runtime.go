@@ -322,11 +322,19 @@ func (rt *Runtime) GetAliases() map[string]string {
 	return result
 }
 
-// CheckTools performs tool version checking using the tools manager.
-// It validates that all required tools are installed and meet minimum version requirements.
-// The tools manager must be initialized before calling this method. Returns an error if
-// the tools manager is not available or if tool checking fails.
+// CheckTools performs tool version checking using the tools manager against the full
+// AllRequirements set. Equivalent to CheckToolsFor(tools.AllRequirements()) and exists for
+// backward compatibility plus the explicit "verify everything" command (`windsor check`).
+// New callers should declare per-command requirements via CheckToolsFor.
 func (rt *Runtime) CheckTools() error {
+	return rt.CheckToolsFor(tools.AllRequirements())
+}
+
+// CheckToolsFor verifies only the tool families the caller has opted into via reqs. Each
+// check still respects the project's config gates (e.g. requesting Docker on a non-docker
+// context is a no-op), so over-requesting is safe — it simply runs more no-op checks. The
+// tools manager must be initialized before calling this method.
+func (rt *Runtime) CheckToolsFor(reqs tools.Requirements) error {
 	if rt.ToolsManager == nil {
 		rt.initializeToolsManager()
 		if rt.ToolsManager == nil {
@@ -334,7 +342,7 @@ func (rt *Runtime) CheckTools() error {
 		}
 	}
 
-	if err := rt.ToolsManager.Check(); err != nil {
+	if err := rt.ToolsManager.CheckRequirements(reqs); err != nil {
 		return fmt.Errorf("error checking tools: %w", err)
 	}
 
@@ -592,11 +600,18 @@ func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	return rt.ConfigHandler.SaveConfig(overwrite...)
 }
 
-// PrepareTools checks and installs required tools using the tools manager.
-// It first checks that all required tools are installed and meet version requirements,
-// then installs any missing or outdated tools. The tools manager must be available.
-// Returns an error if the tools manager is not available or if checking or installation fails.
+// PrepareTools checks and installs every tool family. Equivalent to PrepareToolsFor with
+// AllRequirements; preserved for backward compatibility. New callers should narrow their
+// requirements via PrepareToolsFor so commands like `windsor init` don't trip checks they
+// won't actually exercise.
 func (rt *Runtime) PrepareTools() error {
+	return rt.PrepareToolsFor(tools.AllRequirements())
+}
+
+// PrepareToolsFor checks the tool families requested via reqs and then installs any that
+// are missing or outdated. Each check still respects the project's config gates so
+// requesting more than a command actually needs is safe. The tools manager must be available.
+func (rt *Runtime) PrepareToolsFor(reqs tools.Requirements) error {
 	if rt.ToolsManager == nil {
 		rt.initializeToolsManager()
 		if rt.ToolsManager == nil {
@@ -604,7 +619,7 @@ func (rt *Runtime) PrepareTools() error {
 		}
 	}
 
-	if err := rt.ToolsManager.Check(); err != nil {
+	if err := rt.ToolsManager.CheckRequirements(reqs); err != nil {
 		return fmt.Errorf("error checking tools: %w", err)
 	}
 	if err := rt.ToolsManager.Install(); err != nil {
