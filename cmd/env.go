@@ -78,6 +78,11 @@ var envCmd = &cobra.Command{
 		if rt.ConfigHandler.GetBool("terraform.enabled", true) {
 			if rt.TerraformProvider.IsInTerraformProject() {
 				comp := composer.NewComposer(rt)
+				// env sources environment variables for the operator's shell on every prompt;
+				// it must not block when an existing deployment has a structurally invalid
+				// blueprint (e.g. backend at the wrong index). Validation runs at deploy time
+				// via the init/bootstrap/up paths.
+				comp.BlueprintHandler.SetSkipValidation(true)
 				if err := comp.BlueprintHandler.LoadBlueprint(); err != nil {
 					if hook || !verboseVal {
 						return nil

@@ -57,13 +57,13 @@ func TestMockStack_DestroyAll(t *testing.T) {
 	t.Run("WithFuncSet", func(t *testing.T) {
 		// Given a new MockStack with a custom DestroyAllFunc that returns an error
 		mock := NewMockStack()
-		mock.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint) error {
-			return mockDownErr
+		mock.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+			return nil, mockDownErr
 		}
 
 		// When Down is called
 		blueprint := &blueprintv1alpha1.Blueprint{}
-		err := mock.DestroyAll(blueprint)
+		_, err := mock.DestroyAll(blueprint)
 
 		// Then the custom error should be returned
 		if err != mockDownErr {
@@ -77,7 +77,7 @@ func TestMockStack_DestroyAll(t *testing.T) {
 
 		// When Down is called
 		blueprint := &blueprintv1alpha1.Blueprint{}
-		err := mock.DestroyAll(blueprint)
+		_, err := mock.DestroyAll(blueprint)
 
 		// Then no error should be returned
 		if err != nil {
