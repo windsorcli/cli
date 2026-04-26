@@ -262,6 +262,137 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("OverridesBackendToLocalThenMigratesAfterApply", func(t *testing.T) {
+		// Given a project with a kubernetes-configured backend and all provisioner steps mocked
+		mocks := setupBootstrapTest(t)
+
+		// Track the ordered sequence of backend writes, Up calls, and MigrateState calls to
+		// verify bootstrap overrides to "local" before Up and restores + migrates after.
+		var timeline []string
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				timeline = append(timeline, fmt.Sprintf("set=%v", value))
+			}
+			return nil
+		}
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			timeline = append(timeline, "up")
+			return nil
+		}
+		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+			timeline = append(timeline, "migrate")
+			return nil, nil
+		}
+
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		err := cmd.Execute()
+
+		// Then the sequence is: override to local, run Up, restore to kubernetes, migrate
+		// state. A trailing "set=kubernetes" is expected from the deferred safety restore
+		// that guards against panics or future code paths that might persist config while
+		// the override is active — the defer fires idempotently on normal exit.
+		if err != nil {
+			t.Fatalf("Expected success, got %v", err)
+		}
+		expected := []string{"set=local", "up", "set=kubernetes", "migrate", "set=kubernetes"}
+		if len(timeline) != len(expected) {
+			t.Fatalf("Expected timeline %v, got %v", expected, timeline)
+		}
+		for i, step := range expected {
+			if timeline[i] != step {
+				t.Errorf("Expected timeline[%d]=%q, got %q (full: %v)", i, step, timeline[i], timeline)
+			}
+		}
+	})
+
+	t.Run("FailsWhenMigrateStateReportsSkippedComponents", func(t *testing.T) {
+		// Given bootstrap runs Up → MigrateState and a component dir has been removed
+		// between those two steps (a nearly-impossible race, but the failure mode we
+		// care about). MigrateState silently skipping would leave state on local disk
+		// while the restored config points at the remote backend — subsequent windsor
+		// apply runs would hit an inconsistent state. Bootstrap must fail loudly with
+		// the offending component IDs so the operator can investigate instead of
+		// discovering the partial migration later.
+		mocks := setupBootstrapTest(t)
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			return nil
+		}
+		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return []string{"network", "cluster"}, nil
+		}
+
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatal("Expected bootstrap to fail when MigrateState reports skipped components, got nil")
+		}
+		if !strings.Contains(err.Error(), "skipped components") {
+			t.Errorf("Expected error to mention skipped components, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "network") || !strings.Contains(err.Error(), "cluster") {
+			t.Errorf("Expected error to name the skipped components (network, cluster), got: %v", err)
+		}
+	})
+
+	t.Run("FailsWhenMigrateStateErrorsAfterSkippingComponents", func(t *testing.T) {
+		// Given MigrateState skips some components and then fails on a later one — the
+		// provisioner returns both the partial skip list and the error. The operator
+		// debugging the failure needs to see BOTH facts ("network was missing before we
+		// even got there, THEN cluster blew up") to narrow the investigation from
+		// "why did migration fail?" to "what removed network's dir between Up and now?"
+		mocks := setupBootstrapTest(t)
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+			return nil
+		}
+		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return []string{"network"}, fmt.Errorf("terraform init failed for cluster")
+		}
+
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatal("Expected bootstrap to fail when MigrateState errors, got nil")
+		}
+		// Then the surfaced error carries both the underlying failure AND the name of the
+		// component that was skipped beforehand — dropping the skip list would strand the
+		// operator with only half the diagnostic picture.
+		if !strings.Contains(err.Error(), "terraform init failed for cluster") {
+			t.Errorf("Expected underlying error in surfaced message, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "network") {
+			t.Errorf("Expected skipped component 'network' in surfaced message, got: %v", err)
+		}
+	})
+
 	t.Run("SuccessWithContextArg", func(t *testing.T) {
 		// Given a config handler that records SetContext calls
 		mocks := setupBootstrapTest(t)

@@ -20,8 +20,9 @@ var downCmd = &cobra.Command{
 		// LoadEnvironment, which shells out to sops / op when those backends are configured;
 		// without this, a sops-enabled context with sops missing on PATH would surface a raw
 		// exec error instead of the registry-formatted install hint. Config gates skip the
-		// actual binary check for contexts that haven't enabled either backend.
-		proj, err := prepareProject(cmd, tools.Requirements{Docker: true, Colima: true, Secrets: true})
+		// actual binary check for contexts that haven't enabled either backend. Skip-validation
+		// tolerates a deployed-but-misordered blueprint so teardown stays runnable.
+		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Docker: true, Colima: true, Secrets: true})
 		if err != nil {
 			return err
 		}

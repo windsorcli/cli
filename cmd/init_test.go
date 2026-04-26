@@ -505,7 +505,12 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("PlatformFlagLoadsDefaultBlueprintWhenTemplateRootExists", func(t *testing.T) {
+	t.Run("PlatformFlagDoesNotInjectBlueprintWhenTemplateRootExists", func(t *testing.T) {
+		// Given a local template directory, --platform must not auto-inject the
+		// default OCI blueprint URL — the local template is authoritative, and
+		// layering the OCI source on top produces duplicate template/core
+		// entries in repos like windsorcli/core where the two are effectively
+		// the same blueprint.
 		mocks := setupInitTest(t)
 		if err := os.MkdirAll(mocks.Runtime.TemplateRoot, 0755); err != nil {
 			t.Fatalf("failed to create template root: %v", err)
@@ -529,11 +534,8 @@ func TestInitCmd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected success, got error: %v", err)
 		}
-		if len(loadBlueprintArgs) != 1 {
-			t.Fatalf("Expected one blueprint URL, got %d (%v)", len(loadBlueprintArgs), loadBlueprintArgs)
-		}
-		if loadBlueprintArgs[0] != constants.GetEffectiveBlueprintURL() {
-			t.Errorf("Expected blueprint URL %q, got %q", constants.GetEffectiveBlueprintURL(), loadBlueprintArgs[0])
+		if len(loadBlueprintArgs) != 0 {
+			t.Fatalf("Expected no blueprint URL to be injected when template exists, got %d (%v)", len(loadBlueprintArgs), loadBlueprintArgs)
 		}
 	})
 

@@ -10,36 +10,11 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
+// =============================================================================
+// Destroy Commands
+// =============================================================================
+
 var destroyConfirm string
-
-// confirmDestroy prompts the user to type confirmValue to proceed with a destructive operation.
-// It prints a description of what will be destroyed and the expected confirmation token.
-// Returns nil if the user types the correct value, or an error if input does not match or cannot be read.
-func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) error {
-	fmt.Fprintf(w, "%s\n", description)
-	fmt.Fprintf(w, "Type %q to confirm: ", confirmValue)
-	scanner := bufio.NewScanner(r)
-	if !scanner.Scan() {
-		return fmt.Errorf("confirmation aborted")
-	}
-	if strings.TrimSpace(scanner.Text()) != confirmValue {
-		return fmt.Errorf("confirmation failed: input did not match %q", confirmValue)
-	}
-	return nil
-}
-
-// resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
-// match expected exactly; otherwise the user is prompted interactively. This mirrors the prompt
-// in both directions so scripted callers cannot accidentally destroy the wrong target.
-func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected string) error {
-	if destroyConfirm != "" {
-		if destroyConfirm != expected {
-			return fmt.Errorf("confirmation failed: --confirm did not match %q", expected)
-		}
-		return nil
-	}
-	return confirmDestroy(r, w, description, expected)
-}
 
 var destroyCmd = &cobra.Command{
 	Use:   "destroy [component]",
@@ -53,10 +28,10 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// `destroy` (no args, or with a component name that may live in either layer) can
 		// dispatch to terraform or kustomize destroy paths depending on blueprint contents.
-		// Since the layer choice is data-driven we can't statically narrow tool requirements
-		// here without risking an under-request, so request AllRequirements() and lean on the
-		// per-tool config gates.
-		proj, err := prepareProject(cmd, tools.AllRequirements())
+		// Layer choice is data-driven so requirements can't be statically narrowed; request
+		// AllRequirements() and lean on the per-tool config gates. Skip-validation tolerates a
+		// deployed-but-misordered blueprint so the operator can still tear down a broken setup.
+		proj, err := prepareProjectSkipValidation(cmd, tools.AllRequirements())
 		if err != nil {
 			return err
 		}
@@ -72,7 +47,9 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			if err := proj.Provisioner.DestroyAll(blueprint); err != nil {
+			skipped, err := proj.Provisioner.DestroyAllWithBackendLifecycle(blueprint, false)
+			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+			if err != nil {
 				return fmt.Errorf("error destroying all components: %w", err)
 			}
 			return nil
@@ -104,8 +81,12 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			}
 		}
 		if inTerraform {
-			if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
+			skipped, err := proj.Provisioner.DestroyTerraformComponentWithBackendLifecycle(blueprint, componentID)
+			if err != nil {
 				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+			}
+			if skipped {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
 			}
 		}
 
@@ -122,7 +103,9 @@ var destroyTerraformCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// `destroy terraform` only invokes terraform; kustomize/k8s/docker tools are not used.
-		proj, err := prepareProject(cmd, tools.Requirements{Terraform: true, Secrets: true})
+		// Skip-validation tolerates a deployed-but-misordered blueprint so teardown can run
+		// against a setup the validator would otherwise reject.
+		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Terraform: true, Secrets: true})
 		if err != nil {
 			return err
 		}
@@ -138,7 +121,9 @@ var destroyTerraformCmd = &cobra.Command{
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			if err := proj.Provisioner.DestroyAllTerraform(blueprint); err != nil {
+			skipped, err := proj.Provisioner.DestroyAllWithBackendLifecycle(blueprint, true)
+			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+			if err != nil {
 				return fmt.Errorf("error destroying all terraform: %w", err)
 			}
 			return nil
@@ -152,8 +137,12 @@ var destroyTerraformCmd = &cobra.Command{
 		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
-		if err := proj.Provisioner.Destroy(blueprint, componentID); err != nil {
+		skipped, err := proj.Provisioner.DestroyTerraformComponentWithBackendLifecycle(blueprint, componentID)
+		if err != nil {
 			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+		}
+		if skipped {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
 		}
 		return nil
 	},
@@ -168,7 +157,8 @@ var destroyKustomizeCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// `destroy kustomize` only talks to the cluster API; terraform/docker tools are not used.
-		proj, err := prepareProject(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
+		// Skip-validation tolerates a deployed-but-misordered blueprint.
+		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
 		if err != nil {
 			return err
 		}
@@ -197,6 +187,52 @@ var destroyKustomizeCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// confirmDestroy prompts the user to type confirmValue to proceed with a destructive operation.
+// It prints a description of what will be destroyed and the expected confirmation token.
+// Returns nil if the user types the correct value, or an error if input does not match or cannot be read.
+func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) error {
+	fmt.Fprintf(w, "%s\n", description)
+	fmt.Fprintf(w, "Type %q to confirm: ", confirmValue)
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		return fmt.Errorf("confirmation aborted")
+	}
+	if strings.TrimSpace(scanner.Text()) != confirmValue {
+		return fmt.Errorf("confirmation failed: input did not match %q", confirmValue)
+	}
+	return nil
+}
+
+// reportSkippedDestroyComponents prints a one-line summary to w naming any terraform
+// components whose destroy was skipped because their state was empty (never applied, fully
+// torn down already, or upstream destroy collapsed their cloud objects out from under them).
+// Called after DestroyAll/DestroyAllTerraform regardless of whether the operation overall
+// succeeded — the skip list is paired with the returned error so an operator sees both
+// "these were no-ops" and "this one failed" in the same output. No-op when skipped is empty.
+func reportSkippedDestroyComponents(w io.Writer, skipped []string) {
+	if len(skipped) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Skipped (empty state, nothing to destroy): %s\n", strings.Join(skipped, ", "))
+}
+
+// resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must
+// match expected exactly; otherwise the user is prompted interactively. This mirrors the prompt
+// in both directions so scripted callers cannot accidentally destroy the wrong target.
+func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected string) error {
+	if destroyConfirm != "" {
+		if destroyConfirm != expected {
+			return fmt.Errorf("confirmation failed: --confirm did not match %q", expected)
+		}
+		return nil
+	}
+	return confirmDestroy(r, w, description, expected)
 }
 
 // init registers destroy subcommands and the --confirm flag. --confirm must exactly match the

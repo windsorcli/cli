@@ -91,8 +91,8 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint) error { return nil }
-	mockTerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error { return nil }
+	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+	mockTerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
@@ -409,9 +409,9 @@ func TestDestroyCmd(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		destroyAllCalled := false
-		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint) error {
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
 			destroyAllCalled = true
-			return nil
+			return nil, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -437,9 +437,9 @@ func TestDestroyCmd(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		destroyCalled := false
-		mocks.TerraformStack.DestroyFunc = func(*blueprintv1alpha1.Blueprint, string) error {
+		mocks.TerraformStack.DestroyFunc = func(*blueprintv1alpha1.Blueprint, string) (bool, error) {
 			destroyCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -631,8 +631,8 @@ func TestDestroyTerraformCmd(t *testing.T) {
 
 	t.Run("ErrorDestroyFails", func(t *testing.T) {
 		mocks := setupDestroyTest(t)
-		mocks.TerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
-			return fmt.Errorf("terraform destroy failed")
+		mocks.TerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+			return false, fmt.Errorf("terraform destroy failed")
 		}
 		proj := newDestroyProject(mocks)
 

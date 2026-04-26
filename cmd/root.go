@@ -86,12 +86,33 @@ func configureProject(cmd *cobra.Command) (*project.Project, error) {
 // terraform / 1password / sops they will never invoke. Pass tools.AllRequirements() when the
 // codepath depends on the blueprint and isn't statically known. Commands that need additional
 // steps between Configure and Initialize (e.g. ValidateContextValues) should not use this
-// helper — call configureProject directly instead.
+// helper — call configureProject directly instead. Teardown/read commands that must tolerate
+// a deployed-but-misordered blueprint should use prepareProjectSkipValidation instead.
 func prepareProject(cmd *cobra.Command, reqs tools.Requirements) (*project.Project, error) {
 	proj, err := configureProject(cmd)
 	if err != nil {
 		return nil, err
 	}
+	proj.SetToolRequirements(reqs)
+	if err := proj.Initialize(false); err != nil {
+		return nil, err
+	}
+	return proj, nil
+}
+
+// prepareProjectSkipValidation is prepareProject with blueprint structural validation
+// disabled. Used by teardown/read commands (destroy, down, env) that must operate against a
+// deployed blueprint whose structure may not satisfy the validator's invariants — otherwise
+// an operator with a misordered backend component cannot run windsor destroy to clean up.
+// The skip is explicit at the call site so a future write/deploy command using this helper
+// would have to consciously opt out of validation rather than inheriting the behavior from a
+// generic prepareProject. Tool requirements are still honoured per-command via reqs.
+func prepareProjectSkipValidation(cmd *cobra.Command, reqs tools.Requirements) (*project.Project, error) {
+	proj, err := configureProject(cmd)
+	if err != nil {
+		return nil, err
+	}
+	proj.Composer.BlueprintHandler.SetSkipValidation(true)
 	proj.SetToolRequirements(reqs)
 	if err := proj.Initialize(false); err != nil {
 		return nil, err
@@ -106,8 +127,7 @@ func prepareProject(cmd *cobra.Command, reqs tools.Requirements) (*project.Proje
 // work. CheckAuth itself is platform-aware: AWS today, with azure/gcp wired in alongside as
 // they're added. Call sites that do NOT run terraform (down, env, init, kustomize-only
 // subcommands) must not call this — there is no obligation to be authed for those paths.
-// Bootstrap calls CheckAuth directly because it runs Initialize itself before its first
-// apply pass.
+// Bootstrap routes through this helper too so the calm-output pattern is uniform.
 //
 // On failure: prints CheckAuth's hint to stderr verbatim (the per-platform hint already
 // names the action and ends in a copy-pasteable remediation command), silences cobra's

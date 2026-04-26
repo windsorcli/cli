@@ -5,6 +5,7 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"path"
 	"reflect"
 	"slices"
 	"strings"
@@ -433,6 +434,19 @@ func (t *TerraformComponent) GetID() string {
 		return t.Name
 	}
 	return t.Path
+}
+
+// IsBackend reports whether this component is the remote-state backend bootstrap component
+// — the one whose apply must run first so subsequent components can use the remote state
+// store it provisions. Match is on the basename of GetID() rather than the full identifier
+// so blueprints that organize components under a subdirectory (e.g. path: "terraform/backend",
+// path: "infra/backend") are recognized correctly. Without the basename match, nested
+// declarations would silently bypass both ValidateComposedBlueprint's ordering check and the
+// provisioner's symmetric-destroy path, leaving operators with no migration on bootstrap and
+// no special handling on destroy. Always uses forward slashes (path.Base, not filepath.Base)
+// because blueprint identifiers are slash-delimited regardless of the host OS.
+func (t *TerraformComponent) IsBackend() bool {
+	return path.Base(t.GetID()) == "backend"
 }
 
 // DeepCopy creates a deep copy of the TerraformComponent object.

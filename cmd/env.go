@@ -78,6 +78,7 @@ var envCmd = &cobra.Command{
 		if rt.ConfigHandler.GetBool("terraform.enabled", true) {
 			if rt.TerraformProvider.IsInTerraformProject() {
 				comp := composer.NewComposer(rt)
+				comp.BlueprintHandler.SetSkipValidation(true)
 				if err := comp.BlueprintHandler.LoadBlueprint(); err != nil {
 					if hook || !verboseVal {
 						return nil

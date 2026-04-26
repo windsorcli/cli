@@ -47,8 +47,8 @@ func setupDownTest(t *testing.T, opts ...*SetupOptions) *DownMocks {
 	}
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.DestroyFunc = func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-		return nil
+	mockTerraformStack.DestroyFunc = func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+		return false, nil
 	}
 
 	comp := composer.NewComposer(baseMocks.Runtime)

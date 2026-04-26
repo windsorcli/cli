@@ -323,3 +323,139 @@ func TestInit_DoesNotRequireDocker_EvenWhenDockerEnabled(t *testing.T) {
 		t.Fatalf("init local --docker should not require docker on PATH, but failed: %v\nstderr: %s", err, stderr)
 	}
 }
+
+// TestInit_RejectsBlueprintWithMisorderedBackendComponent confirms that a blueprint
+// with the "backend" terraform component placed at any index other than 0 is
+// rejected at blueprint-load time, before any infrastructure work runs. The
+// rejection uses the calm-output pattern: the wrapped message is printed
+// verbatim, names the offending position, and cobra's "Error:" prefix is
+// suppressed so the output reads as guidance rather than a panic.
+func TestInit_RejectsBlueprintWithMisorderedBackendComponent(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-misordered")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err == nil {
+		t.Fatalf("expected init to fail for misordered backend, got success\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if !strings.Contains(combined, "backend") {
+		t.Errorf("expected validation error to name the backend component, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "first item") {
+		t.Errorf("expected validation error to call out the ordering rule, got:\n%s", combined)
+	}
+	// The fixture lists `null` then `backend`, so backend is at 1-based YAML position 2.
+	if !strings.Contains(combined, "position 2") {
+		t.Errorf("expected validation error to name 1-based position 2, got:\n%s", combined)
+	}
+}
+
+// TestInit_AcceptsBlueprintWithBackendAtIndexZero confirms that a blueprint with
+// the backend component at index 0 passes validation. Regression guard against
+// the validation rule firing too eagerly — it must reject misordering, not the
+// canonical layout.
+func TestInit_AcceptsBlueprintWithBackendAtIndexZero(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("expected init to succeed for backend-at-index-0 fixture, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+}
+
+// TestInit_PlatformAwsDefaultsBackendTypeToS3 confirms that running with
+// --platform aws (and a --set to force a SaveConfig write) results in
+// terraform.backend.type=s3 being persisted to values.yaml. The default is
+// injected by applyWorkstationFlagOverrides; persistence is what makes it
+// durable across subsequent invocations. Mirrors the existing
+// TestBootstrap_PersistsSetValues pattern: tolerate downstream failures, assert
+// on the persisted file.
+func TestInit_PlatformAwsDefaultsBackendTypeToS3(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "aws-test", "--platform", "aws", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Logf("init exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "aws-test", "values.yaml")
+	data, readErr := os.ReadFile(valuesPath)
+	if readErr != nil {
+		t.Fatalf("expected values.yaml at %s, got %v\nstdout: %s\nstderr: %s", valuesPath, readErr, stdout, stderr)
+	}
+	body := string(data)
+	if !strings.Contains(body, "terraform:") || !strings.Contains(body, "type: s3") {
+		t.Errorf("expected terraform.backend.type=s3 persisted for --platform aws, got values.yaml:\n%s", body)
+	}
+}
+
+// TestInit_PlatformAzureDefaultsBackendTypeToAzurerm mirrors the AWS test for the
+// azure platform, ensuring symmetric default coverage and guarding against
+// regressions where one platform default is removed without the other.
+func TestInit_PlatformAzureDefaultsBackendTypeToAzurerm(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "azure-test", "--platform", "azure", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Logf("init exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "azure-test", "values.yaml")
+	data, readErr := os.ReadFile(valuesPath)
+	if readErr != nil {
+		t.Fatalf("expected values.yaml at %s, got %v\nstdout: %s\nstderr: %s", valuesPath, readErr, stdout, stderr)
+	}
+	body := string(data)
+	if !strings.Contains(body, "terraform:") || !strings.Contains(body, "type: azurerm") {
+		t.Errorf("expected terraform.backend.type=azurerm persisted for --platform azure, got values.yaml:\n%s", body)
+	}
+}
+
+// TestInit_PlatformMetalDefaultsBackendTypeToKubernetes confirms that platforms
+// where the cluster is the natural state store (metal, docker, incus) default
+// terraform.backend.type to "kubernetes". Each component's state lives as a
+// Secret in the cluster it manages, so no external bucket is required — the
+// cluster IS the backend. Mirrors the AWS/Azure persistence assertions.
+func TestInit_PlatformMetalDefaultsBackendTypeToKubernetes(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "metal-test", "--platform", "metal", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Logf("init exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "metal-test", "values.yaml")
+	data, readErr := os.ReadFile(valuesPath)
+	if readErr != nil {
+		t.Fatalf("expected values.yaml at %s, got %v\nstdout: %s\nstderr: %s", valuesPath, readErr, stdout, stderr)
+	}
+	body := string(data)
+	if !strings.Contains(body, "terraform:") || !strings.Contains(body, "type: kubernetes") {
+		t.Errorf("expected terraform.backend.type=kubernetes persisted for --platform metal, got values.yaml:\n%s", body)
+	}
+}
+
+// TestInit_UnmappedPlatformDoesNotDefaultBackendType confirms that platforms
+// outside the supported default mapping (currently gcp, pending GCS schema work)
+// leave terraform.backend.type unset in values.yaml — operators must configure
+// backend type explicitly. Out-of-band setups (operator-managed buckets,
+// alternative state stores) must continue to work without our defaults silently
+// overriding the user's choice.
+func TestInit_UnmappedPlatformDoesNotDefaultBackendType(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "gcp-test", "--platform", "gcp", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Logf("init exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "gcp-test", "values.yaml")
+	data, readErr := os.ReadFile(valuesPath)
+	if readErr != nil {
+		t.Fatalf("expected values.yaml at %s, got %v\nstdout: %s\nstderr: %s", valuesPath, readErr, stdout, stderr)
+	}
+	body := string(data)
+	if strings.Contains(body, "type: s3") || strings.Contains(body, "type: azurerm") || strings.Contains(body, "type: kubernetes") {
+		t.Errorf("expected no platform-default backend type for --platform gcp, got values.yaml:\n%s", body)
+	}
+}
