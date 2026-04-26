@@ -151,14 +151,15 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 }
 
 // SetSkipValidation toggles structural-invariant validation in LoadBlueprint. Default is
-// false (validate). Teardown/read commands (destroy, down, env, show, apply, plan) call
-// this with true so an operator with a deployed-but-misordered blueprint can still tear
-// down or inspect — without this escape hatch, the validator would block the only commands
-// that could resolve the situation. Write/deploy commands (init, bootstrap, up) leave it
-// false so structural mistakes surface at the moment they are introduced. Provisioner's
-// destroy paths iterate components independent of blueprint position
-// (findBackendComponentID + symmetric-destroy), so skipping validation does not produce a
-// wrong destroy order.
+// false (validate). Teardown commands (destroy, down, env) call this with true so an
+// operator with a deployed-but-misordered blueprint can still tear down or inspect —
+// without this escape hatch, the validator would block the only commands that could
+// resolve the situation. Write/deploy commands (init, bootstrap, up, apply, plan) leave it
+// false so structural mistakes surface at the moment they are introduced. (show tolerates
+// validation failure via a separate mechanism in getBlueprint that captures the error and
+// continues, rather than skipping validation outright.) Provisioner's destroy paths
+// iterate components independent of blueprint position (findBackendComponentID +
+// symmetric-destroy), so skipping validation does not produce a wrong destroy order.
 func (h *BaseBlueprintHandler) SetSkipValidation(skip bool) {
 	h.skipValidation = skip
 }
