@@ -3685,6 +3685,54 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("AbortsRemainingDeletionsOnFirstFailure", func(t *testing.T) {
+		// Pins the contract that DeleteBlueprint aborts on the first per-Kustomization
+		// failure rather than continuing the walk. Continuing would tear down upstream
+		// controllers needed to lift cloud-side finalizers on the stuck object,
+		// turning a recoverable stuck-Kustomization into a cascade of orphaned cloud
+		// resources. A regression that reintroduced accumulate-and-continue would
+		// fail this test by issuing a second DeleteResource call.
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var deleteCalls []string
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleteCalls = append(deleteCalls, name)
+			return fmt.Errorf("delete error")
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		// Two independent kustomizations (no dependsOn between them). Reverse-topo
+		// will tie-break by reverse input order, so first-deleted is "second-kust"
+		// and "first-kust" should not be attempted after the abort.
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{
+				Name: "test-blueprint",
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "first-kust"},
+				{Name: "second-kust"},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if len(deleteCalls) != 1 {
+			t.Errorf("Expected exactly 1 delete call (abort on first failure), got %d: %v", len(deleteCalls), deleteCalls)
+		}
+		if len(deleteCalls) >= 1 && deleteCalls[0] != "second-kust" {
+			t.Errorf("Expected first attempted delete to be 'second-kust' (reverse-topo order), got %s", deleteCalls[0])
+		}
+		if !strings.Contains(err.Error(), "second-kust") {
+			t.Errorf("Expected error to name the failing kustomization 'second-kust', got %v", err)
+		}
+	})
+
 	t.Run("DestroyOnlyKustomizationHasCommonMetadataLabels", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
