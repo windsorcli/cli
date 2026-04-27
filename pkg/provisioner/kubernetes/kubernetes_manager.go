@@ -1319,28 +1319,14 @@ func orderForDestroy(ks []blueprintv1alpha1.Kustomization, label string) []bluep
 	return ordered
 }
 
-// reverseTopologicalKustomizations returns the input slice reordered so that
-// each kustomization appears before any kustomization it depends on — destroy
-// order. Apply order places dependencies first and dependents last; destroy
-// order is the reverse, so consumers prune before their providers do. By the
-// time a dependency's kustomization is deleted, every kustomization that
-// referenced its outputs is already gone, which lets controllers shut down
-// without orphaning anyone.
-//
-// Determinism: independent kustomizations (no dependency relation) appear in
-// destroy-output in the reverse of their input-slice order. A blueprint
-// already authored or sorted in topological order therefore produces the
-// same destroy walk as a naive slice-reverse, making this helper a strict
-// superset of the slice-reverse loops it replaces.
-//
-// Missing dependencies — a name in DependsOn that does not match any
-// kustomization in the input — are silently treated as no-edge. The destroy
-// walk does not block on something it does not own; this matches the
-// semantics of the apply-side dependency walk.
-//
-// Returns an error if a dependency cycle is detected. Cycles are normally
-// rejected at blueprint validation; the check here is defensive so a destroy
-// walk over a malformed blueprint cannot recurse infinitely.
+// reverseTopologicalKustomizations returns ks in destroy order — each kustomization
+// before its DependsOn entries. Independent nodes tie-break by reverse input order,
+// so a topo-sorted input produces the same walk as a naive slice-reverse. Missing
+// dependencies (a DependsOn name not in ks) are treated as no-edge, matching the
+// apply-side walk. Returns an error on cycles across two or more nodes; a single-
+// node input short-circuits before cycle detection, so a self-loop on a lone
+// kustomization is not flagged — do not rely on this function to validate a
+// single-entry slice.
 func reverseTopologicalKustomizations(ks []blueprintv1alpha1.Kustomization) ([]blueprintv1alpha1.Kustomization, error) {
 	if len(ks) == 0 {
 		return []blueprintv1alpha1.Kustomization{}, nil
