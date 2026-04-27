@@ -6,6 +6,7 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -18,15 +19,14 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/constants"
-	"github.com/windsorcli/cli/pkg/tui"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	runtimegit "github.com/windsorcli/cli/pkg/runtime/git"
+	"github.com/windsorcli/cli/pkg/tui"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // =============================================================================
@@ -42,8 +42,6 @@ type KubernetesManager interface {
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error
 	GetHelmReleasesForKustomization(name, namespace string) ([]helmv2.HelmRelease, error)
-	SuspendKustomization(name, namespace string) error
-	SuspendHelmRelease(name, namespace string) error
 	ApplyGitRepository(repo *sourcev1.GitRepository) error
 	ApplyOCIRepository(repo *sourcev1.OCIRepository) error
 	CheckGitRepositoryStatus() error
@@ -131,6 +129,19 @@ func (k *BaseKubernetesManager) ApplyKustomization(kustomization kustomizev1.Kus
 // DeleteKustomization removes a Kustomization resource using background deletion.
 // Background deletion allows the kustomization to enter "Terminating" state while its
 // children are deleted in the background. The method waits for the deletion to complete.
+//
+// On timeout (Flux's WaitForTermination has not lifted its finalizer within
+// kustomizationReconcileTimeout), the method returns an error rather than stripping
+// finalizers. The timeout almost always means an inventory item is stuck on a
+// cloud-controller finalizer (CSI external-attacher, aws-load-balancer-controller's
+// service.k8s.aws/resources, cert-manager) — stripping the Kustomization's own
+// finalizer at that point reaps the Kustomization from etcd but leaves the inventory
+// items orphaned in their namespace, where the controller that should lift their
+// finalizers may already be torn down. The orphan then blocks namespace termination
+// and (worse) lets terraform proceed to destroy the cluster while cloud resources
+// (LBs, EBS volumes, DNS records) leak. Returning an error here surfaces the stuck
+// state so the operator can re-deploy the controller, let it finish cleanup, and
+// re-run destroy — vs. silently masking the failure.
 func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
@@ -163,12 +174,7 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 		time.Sleep(k.kustomizationWaitPollInterval)
 	}
 
-	// Kustomization is stuck in Terminating — strip finalizers to unblock deletion.
-	patch := []byte(`{"metadata":{"finalizers":[]}}`)
-	if _, err := k.client.PatchResource(context.Background(), gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{FieldManager: "windsor-cli"}); err != nil && !isNotFoundError(err) {
-		return fmt.Errorf("timeout waiting for kustomization %s to be deleted, and failed to remove finalizers: %w", name, err)
-	}
-	return nil
+	return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted; an inventory item is likely stuck on a cloud-controller finalizer — inspect with `kubectl get kustomization %s -n %s -o yaml` (status.conditions, status.inventory) and `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` to find the stuck object", namespace, name, name, namespace)
 }
 
 // WaitForKustomizations waits for kustomizations to be ready, calculating the timeout
@@ -372,79 +378,6 @@ func (k *BaseKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 	}
 
 	return helmReleases, nil
-}
-
-// SuspendKustomization applies a JSON merge patch to set spec.suspend=true on the specified Kustomization.
-func (k *BaseKubernetesManager) SuspendKustomization(name, namespace string) error {
-	gvr := schema.GroupVersionResource{
-		Group:    "kustomize.toolkit.fluxcd.io",
-		Version:  "v1",
-		Resource: "kustomizations",
-	}
-
-	patch := []byte(`{"spec":{"suspend":true}}`)
-	_, err := k.client.PatchResource(context.Background(), gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
-		FieldManager: "windsor-cli",
-	})
-
-	return err
-}
-
-// SuspendHelmRelease applies a JSON merge patch to set spec.suspend=true on the specified HelmRelease.
-func (k *BaseKubernetesManager) SuspendHelmRelease(name, namespace string) error {
-	gvr := schema.GroupVersionResource{
-		Group:    "helm.toolkit.fluxcd.io",
-		Version:  "v2",
-		Resource: "helmreleases",
-	}
-
-	patch := []byte(`{"spec":{"suspend":true}}`)
-	_, err := k.client.PatchResource(context.Background(), gvr, namespace, name, types.MergePatchType, patch, metav1.PatchOptions{
-		FieldManager: "windsor-cli",
-	})
-
-	return err
-}
-
-// getKustomizationsToDelete returns a list of regular kustomization names that should be suspended and deleted.
-// Excludes destroy-only kustomizations since they need to reconcile during deletion to perform cleanup work.
-func (k *BaseKubernetesManager) getKustomizationsToDelete(blueprint *blueprintv1alpha1.Blueprint) []string {
-	var names []string
-	for _, kustomization := range blueprint.Kustomizations {
-		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
-			continue
-		}
-		destroy := kustomization.Destroy.ToBool()
-		if destroy != nil && !*destroy {
-			continue
-		}
-		names = append(names, kustomization.Name)
-	}
-	return names
-}
-
-// suspendKustomizations suspends all specified kustomizations in reverse order to respect dependencies.
-// Returns a slice of errors encountered during suspension; errors are non-fatal and accumulated.
-func (k *BaseKubernetesManager) suspendKustomizations(names []string, namespace string) []error {
-	var errors []error
-
-	tui.Start("Suspending kustomizations")
-
-	for i := len(names) - 1; i >= 0; i-- {
-		if err := k.SuspendKustomization(names[i], namespace); err != nil {
-			if !isNotFoundError(err) {
-				errors = append(errors, fmt.Errorf("failed to suspend kustomization %s: %w", names[i], err))
-			}
-		}
-	}
-
-	if len(errors) > 0 {
-		tui.Fail()
-	} else {
-		tui.Done()
-	}
-
-	return errors
 }
 
 // ApplyGitRepository creates or updates a GitRepository resource using SSA
@@ -757,30 +690,40 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 	return nil
 }
 
-// DeleteBlueprint deletes all kustomizations defined in the given blueprint in the specified namespace.
-// All kustomizations to be deleted are suspended first to prevent reconciliation during deletion.
-// Destroy-only kustomizations are applied first (in dependency order), waited for, then deleted.
-// Regular kustomizations are then deleted in reverse dependency order. For each regular kustomization
-// with cleanup steps defined, cleanup kustomizations are applied and waited for before deletion.
-// Errors are accumulated and reported at the end; the function continues attempts even after encountering failures.
+// DeleteBlueprint tears the blueprint down in two phases:
+//
+//  1. Destroy-only kustomizations: apply, wait ready, delete in reverse-topological
+//     order. These are blueprint entries that exist only at destroy time for bespoke
+//     teardown work (e.g. backups, snapshots, last-mile state exports). Any errors
+//     from this phase are joined and returned immediately — the destroy walk does
+//     not start until the destroy hooks succeed.
+//
+//  2. Regular kustomizations in reverse-topological order. Each Kustomization carries
+//     spec.deletionPolicy=WaitForTermination (set at apply time by ToFluxKustomization),
+//     so DELETE blocks until every managed resource is fully gone from etcd. The chain
+//     for cloud resources is:
+//
+//         K8s DELETE → controller's finalizer holds the object in etcd
+//         → controller calls cloud API to release external state
+//         → finalizer lifts → object NotFound
+//         → WaitForTermination satisfied
+//
+//     This is what makes CSI volumes, LB Services, Ingresses, and cert-manager
+//     Certificates clean up cloud-side without the orchestrator ever calling a
+//     cloud API. external-dns is the one outlier — it has no finalizer; the DNS
+//     record is removed on its next reconcile after the K8s object disappears.
+//
+//     Phase 2 aborts on the first per-Kustomization failure (typically an inventory
+//     item stuck on a cloud-controller finalizer). Continuing the walk would tear
+//     down upstream controllers (lb-base, dns, pki-base) still needed to lift those
+//     finalizers, turning a recoverable stuck-Kustomization into a cascade of
+//     orphaned cloud resources. Re-running destroy after the operator restores the
+//     controller picks up where it left off — already-deleted Kustomizations
+//     short-circuit to NotFound on retry.
 func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	defaultSourceName := blueprint.Metadata.Name
-	var errors []error
 
-	if k.hasCleanupOperations(blueprint) {
-		if err := k.deployCleanupSemaphore(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to deploy cleanup semaphore: %w", err))
-		}
-	}
-
-	kustomizationsToDelete := k.getKustomizationsToDelete(blueprint)
-	if len(kustomizationsToDelete) > 0 {
-		if errs := k.suspendKustomizations(kustomizationsToDelete, namespace); len(errs) > 0 {
-			errors = append(errors, errs...)
-		}
-	}
-
-	destroyOnlyKustomizations := []blueprintv1alpha1.Kustomization{}
+	destroyOnly := []blueprintv1alpha1.Kustomization{}
 	for _, kustomization := range blueprint.Kustomizations {
 		if kustomization.DestroyOnly == nil || !*kustomization.DestroyOnly {
 			continue
@@ -789,18 +732,16 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		if destroy != nil && !*destroy {
 			continue
 		}
-		destroyOnlyKustomizations = append(destroyOnlyKustomizations, kustomization)
+		destroyOnly = append(destroyOnly, kustomization)
 	}
-
-	if len(destroyOnlyKustomizations) > 0 {
-		if errs := k.processDestroyOnlyKustomizations(destroyOnlyKustomizations, blueprint, namespace, defaultSourceName); len(errs) > 0 {
-			errors = append(errors, errs...)
-			return fmt.Errorf("cleanup failed with %d error(s): %v", len(errors), errors[0])
+	if len(destroyOnly) > 0 {
+		if errs := k.processDestroyOnlyKustomizations(destroyOnly, blueprint, namespace, defaultSourceName); len(errs) > 0 {
+			return fmt.Errorf("destroy-only hooks failed: %w", errors.Join(errs...))
 		}
 	}
 
-	for i := len(blueprint.Kustomizations) - 1; i >= 0; i-- {
-		kustomization := blueprint.Kustomizations[i]
+	eligible := make([]blueprintv1alpha1.Kustomization, 0, len(blueprint.Kustomizations))
+	for _, kustomization := range blueprint.Kustomizations {
 		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
 			continue
 		}
@@ -808,181 +749,18 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		if destroy != nil && !*destroy {
 			continue
 		}
-		if errs := k.deleteKustomizationWithCleanup(kustomization, blueprint, namespace, defaultSourceName); len(errs) > 0 {
-			errors = append(errors, errs...)
-		}
+		eligible = append(eligible, kustomization)
 	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("deletion completed with %d error(s): %v", len(errors), errors[0])
-	}
-
-	return nil
-}
-
-// deleteKustomizationWithCleanup handles the deletion of a single kustomization, including cleanup steps if defined.
-// Returns a slice of errors encountered during deletion, which may be empty if no errors occurred.
-func (k *BaseKubernetesManager) deleteKustomizationWithCleanup(kustomization blueprintv1alpha1.Kustomization, blueprint *blueprintv1alpha1.Blueprint, namespace, defaultSourceName string) []error {
-	mode := k.gitopsMode()
-	var errors []error
-
-	if len(kustomization.Cleanup) > 0 {
-		sourceName := kustomization.Source
-		if sourceName == "" {
-			sourceName = defaultSourceName
-		}
-		if sourceName == "template" && !blueprintv1alpha1.HasRemoteTemplateSource(blueprint.Sources) {
-			sourceName = defaultSourceName
-		}
-
-		sourceKind := "GitRepository"
-		for _, source := range blueprint.Sources {
-			if source.Name == sourceName && strings.HasPrefix(source.Url, "oci://") {
-				sourceKind = "OCIRepository"
-				break
-			}
-		}
-
-		basePath := kustomization.Path
-		if basePath == "" {
-			basePath = "kustomize"
-		} else {
-			basePath = strings.ReplaceAll(basePath, "\\", "/")
-			if basePath != "kustomize" && !strings.HasPrefix(basePath, "kustomize/") {
-				basePath = "kustomize/" + basePath
-			}
-		}
-
-		cleanupKustomizationName := fmt.Sprintf("%s-cleanup", kustomization.Name)
-		cleanupPath := basePath + "/cleanup"
-
-		timeout := metav1.Duration{Duration: 30 * time.Minute}
-		if kustomization.Timeout != nil && kustomization.Timeout.Duration != 0 {
-			timeout = metav1.Duration{Duration: kustomization.Timeout.Duration}
-		}
-
-		interval := metav1.Duration{Duration: constants.FluxKustomizationInterval(mode)}
-		if kustomization.Interval != nil && kustomization.Interval.Duration != 0 {
-			interval = metav1.Duration{Duration: kustomization.Interval.Duration}
-		}
-
-		retryInterval := metav1.Duration{Duration: constants.DefaultFluxKustomizationRetryInterval}
-		if kustomization.RetryInterval != nil && kustomization.RetryInterval.Duration != 0 {
-			retryInterval = metav1.Duration{Duration: kustomization.RetryInterval.Duration}
-		}
-
-		wait := true
-		force := true
-
-		cleanupKustomization := kustomizev1.Kustomization{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Kustomization",
-				APIVersion: "kustomize.toolkit.fluxcd.io/v1",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      cleanupKustomizationName,
-				Namespace: namespace,
-			},
-			Spec: kustomizev1.KustomizationSpec{
-				SourceRef: kustomizev1.CrossNamespaceSourceReference{
-					Kind: sourceKind,
-					Name: sourceName,
-				},
-				Path:          cleanupPath,
-				Interval:      interval,
-				RetryInterval: &retryInterval,
-				Timeout:       &timeout,
-				Wait:          wait,
-				Force:         force,
-				Prune:         true,
-				Components:    kustomization.Cleanup,
-			},
-		}
-
-		if len(kustomization.Substitutions) > 0 || len(blueprint.ConfigMaps) > 0 {
-			cleanupKustomization.Spec.PostBuild = &kustomizev1.PostBuild{
-				SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
-			}
-			if len(kustomization.Substitutions) > 0 {
-				cleanupKustomization.Spec.PostBuild.SubstituteFrom = append(cleanupKustomization.Spec.PostBuild.SubstituteFrom, kustomizev1.SubstituteReference{
-					Kind:     "ConfigMap",
-					Name:     fmt.Sprintf("values-%s", kustomization.Name),
-					Optional: false,
-				})
-			}
-			for configMapName := range blueprint.ConfigMaps {
-				cleanupKustomization.Spec.PostBuild.SubstituteFrom = append(cleanupKustomization.Spec.PostBuild.SubstituteFrom, kustomizev1.SubstituteReference{
-					Kind:     "ConfigMap",
-					Name:     configMapName,
-					Optional: false,
-				})
-			}
-		}
-
-		tui.Start(fmt.Sprintf("Applying cleanup kustomization for %s", kustomization.Name))
-
-		if err := k.ApplyKustomization(cleanupKustomization); err != nil {
+	for _, kustomization := range orderForDestroy(eligible, "destroy") {
+		tui.Start(fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
+		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
 			tui.Fail()
-			errors = append(errors, fmt.Errorf("failed to apply cleanup kustomization %s: %w", cleanupKustomizationName, err))
-		} else {
-			waitTimeout := time.After(k.kustomizationReconcileTimeout)
-			ticker := time.NewTicker(k.kustomizationWaitPollInterval)
-			cleanupReady := false
-			cleanupStatusCheckFailed := false
-
-		cleanupLoop:
-			for !cleanupReady {
-				select {
-				case <-waitTimeout:
-					break cleanupLoop
-				case <-ticker.C:
-					status, err := k.GetKustomizationStatus([]string{cleanupKustomizationName})
-					if err != nil {
-						errors = append(errors, fmt.Errorf("cleanup kustomization %s failed: %w", cleanupKustomizationName, err))
-						cleanupStatusCheckFailed = true
-						break cleanupLoop
-					}
-					if status[cleanupKustomizationName] {
-						cleanupReady = true
-					}
-				}
-			}
-			ticker.Stop()
-
-			if !cleanupReady {
-				tui.Fail()
-				if !cleanupStatusCheckFailed {
-					errors = append(errors, fmt.Errorf("cleanup kustomization %s did not become ready within timeout - cleanup may not have completed", cleanupKustomizationName))
-				}
-				if deleteErr := k.DeleteKustomization(cleanupKustomizationName, namespace); deleteErr != nil {
-					errors = append(errors, fmt.Errorf("failed to delete failed cleanup kustomization %s: %w", cleanupKustomizationName, deleteErr))
-				}
-				return errors
-			}
-			tui.Done()
-
-			tui.Start(fmt.Sprintf("Deleting cleanup kustomization %s", cleanupKustomizationName))
-
-			if err := k.DeleteKustomization(cleanupKustomizationName, namespace); err != nil {
-				tui.Fail()
-				errors = append(errors, fmt.Errorf("failed to delete cleanup kustomization %s: %w", cleanupKustomizationName, err))
-			} else {
-				tui.Done()
-			}
+			return fmt.Errorf("destroy aborted: failed to delete kustomization %q: %w (further deletions skipped to avoid cascading orphans)", kustomization.Name, err)
 		}
-	}
-
-	tui.Start(fmt.Sprintf("Deleting kustomization %s", kustomization.Name))
-
-	if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
-		tui.Fail()
-		errors = append(errors, fmt.Errorf("failed to delete kustomization %s: %w", kustomization.Name, err))
-		fmt.Fprintf(os.Stderr, "Warning: failed to delete kustomization %s: %v\n", kustomization.Name, err)
-	} else {
 		tui.Done()
 	}
 
-	return errors
+	return nil
 }
 
 // processDestroyOnlyKustomizations applies all destroy-only kustomizations, waits for all to become ready, then deletes all.
@@ -1098,9 +876,8 @@ waitLoop:
 	}
 	tui.Done()
 
-	for i := len(kustomizations) - 1; i >= 0; i-- {
-		kustomization := kustomizations[i]
-		tui.Start(fmt.Sprintf("Deleting destroy-only kustomization %s", kustomization.Name))
+	for _, kustomization := range orderForDestroy(kustomizations, "destroy-only") {
+		tui.Start(fmt.Sprintf("Destroying destroy-only kustomization %s", kustomization.Name))
 
 		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
 			tui.Fail()
@@ -1144,42 +921,6 @@ func (k *BaseKubernetesManager) applyWithRetry(gvr schema.GroupVersionResource, 
 
 	_, err = k.client.ApplyResource(gvr, obj, opts)
 	return err
-}
-
-// hasCleanupOperations checks if any kustomization in the blueprint has destroy-only or cleanup operations.
-func (k *BaseKubernetesManager) hasCleanupOperations(blueprint *blueprintv1alpha1.Blueprint) bool {
-	for _, kustomization := range blueprint.Kustomizations {
-		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
-			destroy := kustomization.Destroy.ToBool()
-			if destroy == nil || *destroy {
-				return true
-			}
-		}
-		if len(kustomization.Cleanup) > 0 {
-			destroy := kustomization.Destroy.ToBool()
-			if destroy == nil || *destroy {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// deployCleanupSemaphore creates the cleanup namespace and authorization semaphore ConfigMap.
-func (k *BaseKubernetesManager) deployCleanupSemaphore() error {
-	if err := k.CreateNamespace(constants.DefaultCleanupNamespace); err != nil {
-		return fmt.Errorf("failed to create cleanup namespace: %w", err)
-	}
-
-	semaphoreData := map[string]string{
-		"authorized": "true",
-		"timestamp":  time.Now().Format(time.RFC3339),
-	}
-	if err := k.ApplyConfigMap(constants.DefaultCleanupSemaphoreName, constants.DefaultCleanupNamespace, semaphoreData); err != nil {
-		return fmt.Errorf("failed to create cleanup semaphore: %w", err)
-	}
-
-	return nil
 }
 
 // getHelmRelease gets a HelmRelease by name and namespace
@@ -1558,4 +1299,88 @@ func isNotFoundError(err error) bool {
 		strings.Contains(errMsg, "the server could not find the requested resource") ||
 		strings.Contains(errMsg, "\" not found")) &&
 		!strings.Contains(errMsg, "namespace not found")
+}
+
+// orderForDestroy returns the input slice ordered for destroy: reverse-topological
+// when reverseTopologicalKustomizations succeeds, falling back to reverse-array
+// order on cycle-detection error (with a stderr warning). Cycles are normally
+// rejected by blueprint validation; the fallback is defensive so a malformed
+// blueprint can still be torn down. The label is interpolated into the warning
+// message to distinguish destroy contexts (e.g. "destroy" vs "destroy-only").
+func orderForDestroy(ks []blueprintv1alpha1.Kustomization, label string) []blueprintv1alpha1.Kustomization {
+	ordered, err := reverseTopologicalKustomizations(ks)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not compute reverse-topological %s order (%v); falling back to reverse-array order\n", label, err)
+		ordered = make([]blueprintv1alpha1.Kustomization, len(ks))
+		for i, kustomization := range ks {
+			ordered[len(ks)-1-i] = kustomization
+		}
+	}
+	return ordered
+}
+
+// reverseTopologicalKustomizations returns ks in destroy order — each kustomization
+// before its DependsOn entries. Independent nodes tie-break by reverse input order,
+// so a topo-sorted input produces the same walk as a naive slice-reverse. Missing
+// dependencies (a DependsOn name not in ks) are treated as no-edge, matching the
+// apply-side walk. Returns an error on cycles across two or more nodes; a single-
+// node input short-circuits before cycle detection, so a self-loop on a lone
+// kustomization is not flagged — do not rely on this function to validate a
+// single-entry slice.
+func reverseTopologicalKustomizations(ks []blueprintv1alpha1.Kustomization) ([]blueprintv1alpha1.Kustomization, error) {
+	if len(ks) == 0 {
+		return []blueprintv1alpha1.Kustomization{}, nil
+	}
+	if len(ks) == 1 {
+		out := make([]blueprintv1alpha1.Kustomization, 1)
+		out[0] = ks[0]
+		return out, nil
+	}
+
+	nameToIndex := make(map[string]int, len(ks))
+	for i := range ks {
+		nameToIndex[ks[i].Name] = i
+	}
+
+	forward := make([]int, 0, len(ks))
+	visited := make(map[int]bool, len(ks))
+	visiting := make(map[int]bool, len(ks))
+
+	var visit func(idx int) error
+	visit = func(idx int) error {
+		if visiting[idx] {
+			return fmt.Errorf("dependency cycle detected involving kustomization %q", ks[idx].Name)
+		}
+		if visited[idx] {
+			return nil
+		}
+		visiting[idx] = true
+		for _, dep := range ks[idx].DependsOn {
+			depIdx, ok := nameToIndex[dep]
+			if !ok {
+				continue
+			}
+			if err := visit(depIdx); err != nil {
+				return err
+			}
+		}
+		visiting[idx] = false
+		visited[idx] = true
+		forward = append(forward, idx)
+		return nil
+	}
+
+	for i := range ks {
+		if !visited[i] {
+			if err := visit(i); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	out := make([]blueprintv1alpha1.Kustomization, len(ks))
+	for i, idx := range forward {
+		out[len(forward)-1-i] = ks[idx]
+	}
+	return out, nil
 }

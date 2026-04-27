@@ -1445,8 +1445,7 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		blueprint := createTestBlueprint()
 		blueprint.Kustomizations = []blueprintv1alpha1.Kustomization{
 			{
-				Name:    "test-kustomization",
-				Cleanup: []string{"cleanup/path"},
+				Name: "test-kustomization",
 			},
 		}
 

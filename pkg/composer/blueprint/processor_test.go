@@ -2366,13 +2366,13 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		entries := map[string]*blueprintv1alpha1.ConditionalKustomization{
 			"app": {
 				Strategy:      "remove",
-				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": ""}, DependsOn: []string{"dep1"}, Components: []string{"comp1"}, Cleanup: []string{"cleanup1"}},
+				Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key1": ""}, DependsOn: []string{"dep1"}, Components: []string{"comp1"}},
 			},
 		}
 
 		// When updating with remove strategy
 		new := &blueprintv1alpha1.ConditionalKustomization{
-			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": ""}, DependsOn: []string{"dep2"}, Components: []string{"comp2"}, Cleanup: []string{"cleanup2"}},
+			Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Substitutions: map[string]string{"key2": ""}, DependsOn: []string{"dep2"}, Components: []string{"comp2"}},
 		}
 		err := processor.updateKustomizationEntry("app", new, "remove", entries, nil)
 
@@ -2406,13 +2406,6 @@ func TestProcessor_updateKustomizationEntry(t *testing.T) {
 		}
 		if !contains(comps, "comp2") {
 			t.Error("Expected comp2 to be in removal list")
-		}
-		cleanup := entries["app"].Cleanup
-		if !contains(cleanup, "cleanup1") {
-			t.Error("Expected cleanup1 to be in removal list")
-		}
-		if !contains(cleanup, "cleanup2") {
-			t.Error("Expected cleanup2 to be in removal list")
 		}
 	})
 
@@ -3517,49 +3510,6 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 		if comps[2] != "comp2" {
 			t.Errorf("Expected third component to be 'comp2', got '%s'", comps[2])
-		}
-	})
-
-	t.Run("EvaluatesCleanupInKustomizations", func(t *testing.T) {
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{
-				"resource": "old-service",
-			}, nil
-		}
-
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "with-cleanup"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{
-						Kustomization: blueprintv1alpha1.Kustomization{
-							Name:    "app",
-							Path:    "apps/app",
-							Cleanup: []string{"${resource}", "static-cleanup"},
-						},
-					},
-				},
-			},
-		}
-
-		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
-
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		cleanup := target.Kustomizations[0].Cleanup
-		if len(cleanup) != 2 {
-			t.Fatalf("Expected 2 cleanup resources, got %d", len(cleanup))
-		}
-		if cleanup[0] != "old-service" {
-			t.Errorf("Expected first cleanup to be 'old-service', got '%s'", cleanup[0])
-		}
-		if cleanup[1] != "static-cleanup" {
-			t.Errorf("Expected second cleanup to be 'static-cleanup', got '%s'", cleanup[1])
 		}
 	})
 

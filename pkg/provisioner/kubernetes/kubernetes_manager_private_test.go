@@ -733,3 +733,280 @@ func TestBaseKubernetesManager_calculateTotalWaitTime(t *testing.T) {
 		}
 	})
 }
+
+func TestReverseTopologicalKustomizations(t *testing.T) {
+	t.Run("ReturnsEmptyForEmptyInput", func(t *testing.T) {
+		// Given an empty input slice
+		input := []blueprintv1alpha1.Kustomization{}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then no error is returned and the output is also empty
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(out) != 0 {
+			t.Errorf("expected empty output, got %d entries", len(out))
+		}
+	})
+
+	t.Run("ReturnsSingleNodeUnchanged", func(t *testing.T) {
+		// Given a single kustomization with no dependencies
+		input := []blueprintv1alpha1.Kustomization{{Name: "only"}}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then the single node is returned unchanged
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(out) != 1 || out[0].Name != "only" {
+			t.Errorf("expected [only], got %v", kustomizationNames(out))
+		}
+	})
+
+	t.Run("ReversesIndependentNodesByInputOrder", func(t *testing.T) {
+		// Given three independent kustomizations with no dependency relation
+		input := []blueprintv1alpha1.Kustomization{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then the output is the input reversed, matching naive slice-reverse
+		// — preserves backward compatibility for blueprints already authored
+		// in topological order.
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := kustomizationNames(out)
+		want := []string{"c", "b", "a"}
+		if !equalStringSlice(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("PutsDependentBeforeDependencyWhenInputAlreadyTopological", func(t *testing.T) {
+		// Given input in apply order: dependency b first, dependent a second
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "b"},
+			{Name: "a", DependsOn: []string{"b"}},
+		}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then a (the dependent) destroys first, then b
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := kustomizationNames(out)
+		want := []string{"a", "b"}
+		if !equalStringSlice(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("PutsDependentBeforeDependencyWhenInputOutOfOrder", func(t *testing.T) {
+		// Given input in non-topological order: dependent a first, dependency b second
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "a", DependsOn: []string{"b"}},
+			{Name: "b"},
+		}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then a still destroys before b, regardless of input ordering
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := kustomizationNames(out)
+		want := []string{"a", "b"}
+		if !equalStringSlice(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("OrdersDiamondDestroyDependentsFirst", func(t *testing.T) {
+		// Given a diamond DAG:
+		//   d ← b ← a
+		//   d ← c ← a
+		// Apply order is d → b,c → a; destroy order is a → b,c → d.
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "d"},
+			{Name: "b", DependsOn: []string{"d"}},
+			{Name: "c", DependsOn: []string{"d"}},
+			{Name: "a", DependsOn: []string{"b", "c"}},
+		}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then a destroys first, then b and c (in input order's reverse), then d
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := kustomizationNames(out)
+		// Independent siblings (b, c) appear in reverse input order: c then b.
+		want := []string{"a", "c", "b", "d"}
+		if !equalStringSlice(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("HandlesDisconnectedComponents", func(t *testing.T) {
+		// Given two disconnected dependency graphs:
+		//   y ← x   (chain 1)
+		//   q ← p   (chain 2)
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "y"},
+			{Name: "x", DependsOn: []string{"y"}},
+			{Name: "q"},
+			{Name: "p", DependsOn: []string{"q"}},
+		}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then each chain's dependent precedes its dependency, and the chains
+		// appear in reverse of input order.
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := kustomizationNames(out)
+		// Forward DFS visits y, then x (already y), then q, then p (already q)
+		// → forward order [y, x, q, p]; reverse → [p, q, x, y].
+		want := []string{"p", "q", "x", "y"}
+		if !equalStringSlice(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("IgnoresMissingDependencyName", func(t *testing.T) {
+		// Given a kustomization that depends on a name not present in the slice
+		// — e.g. a destroy-only kustomization referencing a regular one that
+		// was filtered out before this call.
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "a", DependsOn: []string{"missing"}},
+			{Name: "b"},
+		}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then the missing dep is silently ignored and the slice is reversed
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := kustomizationNames(out)
+		want := []string{"b", "a"}
+		if !equalStringSlice(got, want) {
+			t.Errorf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("DetectsTwoNodeCycle", func(t *testing.T) {
+		// Given a two-node cycle: a depends on b, b depends on a
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "a", DependsOn: []string{"b"}},
+			{Name: "b", DependsOn: []string{"a"}},
+		}
+
+		// When computing reverse-topological order
+		_, err := reverseTopologicalKustomizations(input)
+
+		// Then an error is returned mentioning a kustomization in the cycle
+		if err == nil {
+			t.Fatalf("expected cycle error, got nil")
+		}
+		if !strings.Contains(err.Error(), "cycle") {
+			t.Errorf("expected error mentioning cycle, got %q", err.Error())
+		}
+	})
+
+	t.Run("DetectsSelfLoopOnSingleNodeAsNoOp", func(t *testing.T) {
+		// Given a single kustomization that depends on itself, the single-
+		// node fast path returns it unchanged. A self-loop on a single node
+		// does not change destroy correctness — there is nothing else to
+		// order against — so the short-circuit is intentional.
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "a", DependsOn: []string{"a"}},
+		}
+
+		// When computing reverse-topological order
+		out, err := reverseTopologicalKustomizations(input)
+
+		// Then the node is returned without a cycle error
+		if err != nil {
+			t.Fatalf("unexpected error on single self-loop: %v", err)
+		}
+		if len(out) != 1 || out[0].Name != "a" {
+			t.Errorf("expected [a], got %v", kustomizationNames(out))
+		}
+	})
+
+	t.Run("DetectsLargerCycle", func(t *testing.T) {
+		// Given a three-node cycle: a → b → c → a
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "a", DependsOn: []string{"b"}},
+			{Name: "b", DependsOn: []string{"c"}},
+			{Name: "c", DependsOn: []string{"a"}},
+		}
+
+		// When computing reverse-topological order
+		_, err := reverseTopologicalKustomizations(input)
+
+		// Then an error is returned
+		if err == nil {
+			t.Fatalf("expected cycle error, got nil")
+		}
+		if !strings.Contains(err.Error(), "cycle") {
+			t.Errorf("expected error mentioning cycle, got %q", err.Error())
+		}
+	})
+
+	t.Run("DoesNotMutateInput", func(t *testing.T) {
+		// Given an input slice
+		input := []blueprintv1alpha1.Kustomization{
+			{Name: "b"},
+			{Name: "a", DependsOn: []string{"b"}},
+		}
+		inputNames := kustomizationNames(input)
+
+		// When computing reverse-topological order
+		_, err := reverseTopologicalKustomizations(input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then the input slice is unchanged in order and identity
+		gotNames := kustomizationNames(input)
+		if !equalStringSlice(gotNames, inputNames) {
+			t.Errorf("input mutated: was %v, now %v", inputNames, gotNames)
+		}
+	})
+}
+
+// kustomizationNames returns the Name field from each kustomization, in slice order.
+func kustomizationNames(ks []blueprintv1alpha1.Kustomization) []string {
+	out := make([]string, len(ks))
+	for i, k := range ks {
+		out[i] = k.Name
+	}
+	return out
+}
+
+// equalStringSlice reports whether two string slices have identical contents in order.
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

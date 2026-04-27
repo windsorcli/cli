@@ -5,6 +5,7 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"os"
 	"path"
 	"reflect"
 	"slices"
@@ -539,9 +540,6 @@ type Kustomization struct {
 	// Components to include in the kustomization.
 	Components []string `yaml:"components,omitempty"`
 
-	// Cleanup lists resources to clean up after the kustomization is applied.
-	Cleanup []string `yaml:"cleanup,omitempty"`
-
 	// Destroy determines if the kustomization should be destroyed during down operations.
 	// Defaults to true if not specified.
 	// Supports expressions in facets: use "${cluster.destroy ?? true}" for dynamic values.
@@ -839,12 +837,6 @@ func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 				})
 			}
 
-			if len(removal.Cleanup) > 0 {
-				existing.Cleanup = slices.DeleteFunc(existing.Cleanup, func(cleanup string) bool {
-					return slices.Contains(removal.Cleanup, cleanup)
-				})
-			}
-
 			if len(removal.Patches) > 0 {
 				existing.Patches = slices.DeleteFunc(existing.Patches, func(patch BlueprintPatch) bool {
 					for _, removalPatch := range removal.Patches {
@@ -869,6 +861,33 @@ func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 			return b.sortKustomize()
 		}
 	}
+	return nil
+}
+
+// UnmarshalYAML probes the input for the deprecated `cleanup` field — present in
+// older blueprints, removed in this release — and emits a warning to stderr so
+// operators see the breakage rather than silently losing per-kustomization
+// teardown behavior. Old blueprints still load (the field is just dropped); the
+// warning points users at the migration path. Field parsing then proceeds via a
+// type alias so this method does not recurse and DurationString / BoolExpression
+// fields still hit their own UnmarshalYAML.
+func (k *Kustomization) UnmarshalYAML(unmarshal func(any) error) error {
+	var raw map[string]any
+	if err := unmarshal(&raw); err == nil {
+		if c, ok := raw["cleanup"]; ok {
+			if list, isList := c.([]any); isList && len(list) > 0 {
+				name, _ := raw["name"].(string)
+				fmt.Fprintf(os.Stderr, "warning: kustomization %q declares deprecated `cleanup` field — this is now a no-op; use `destroyOnly: true` for destroy-time hooks (backups, snapshots, last-mile state exports)\n", name)
+			}
+		}
+	}
+
+	type alias Kustomization
+	var aux alias
+	if err := unmarshal(&aux); err != nil {
+		return err
+	}
+	*k = Kustomization(aux)
 	return nil
 }
 
@@ -900,7 +919,6 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Force:               k.Force,
 		Prune:               k.Prune,
 		Components:          slices.Clone(k.Components),
-		Cleanup:             slices.Clone(k.Cleanup),
 		Destroy:             destroyCopy,
 		DestroyOnly:         k.DestroyOnly,
 		Enabled:             enabledCopy,

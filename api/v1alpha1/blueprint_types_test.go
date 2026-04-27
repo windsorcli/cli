@@ -1,7 +1,10 @@
 package v1alpha1
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -1882,36 +1885,6 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 		}
 	})
 
-	t.Run("RemovesCleanupFromExistingKustomization", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
-				{
-					Name:    "ingress",
-					Cleanup: []string{"old-resource", "another-resource", "keep_cleanup"},
-				},
-			},
-		}
-
-		removal := Kustomization{
-			Name:    "ingress",
-			Cleanup: []string{"old-resource", "another-resource"},
-		}
-
-		err := base.RemoveKustomization(removal)
-
-		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
-
-		kustomization := base.Kustomizations[0]
-		if len(kustomization.Cleanup) != 1 {
-			t.Errorf("Expected 1 cleanup remaining, got %d: %v", len(kustomization.Cleanup), kustomization.Cleanup)
-		}
-		if kustomization.Cleanup[0] != "keep_cleanup" {
-			t.Errorf("Expected 'keep_cleanup' to remain, got %v", kustomization.Cleanup)
-		}
-	})
-
 	t.Run("RemovesPatchesByPath", func(t *testing.T) {
 		base := &Blueprint{
 			Kustomizations: []Kustomization{
@@ -2887,7 +2860,6 @@ func TestKustomization_DeepCopy(t *testing.T) {
 			Force:         &force,
 			Prune:         &prune,
 			Components:    []string{"comp1", "comp2"},
-			Cleanup:       []string{"cleanup1"},
 			Destroy:       boolExprPtr(destroy),
 			DestroyOnly:   &destroyOnly,
 			Substitutions: map[string]string{"key1": "value1", "key2": "value2"},
@@ -2939,12 +2911,6 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		}
 		if copy.Components[0] != "comp1" || copy.Components[1] != "comp2" {
 			t.Errorf("Expected components ['comp1', 'comp2'], got %v", copy.Components)
-		}
-		if len(copy.Cleanup) != 1 {
-			t.Errorf("Expected 1 cleanup, got %d", len(copy.Cleanup))
-		}
-		if copy.Cleanup[0] != "cleanup1" {
-			t.Errorf("Expected cleanup ['cleanup1'], got %v", copy.Cleanup)
 		}
 		destroyVal := copy.Destroy.ToBool()
 		if destroyVal == nil || *destroyVal != false {
@@ -3009,9 +2975,6 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		}
 		if len(copy.Components) != 0 {
 			t.Errorf("Expected empty components, got %v", copy.Components)
-		}
-		if len(copy.Cleanup) != 0 {
-			t.Errorf("Expected empty cleanup, got %v", copy.Cleanup)
 		}
 		if len(copy.Substitutions) != 0 {
 			t.Errorf("Expected empty substitutions, got %v", copy.Substitutions)
@@ -4053,6 +4016,105 @@ func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
 		got := DeepMergeMaps(base, overlay)
 		if got["key"] != "" {
 			t.Errorf("Expected empty overlay to be applied when base value is nil, got %v", got["key"])
+		}
+	})
+}
+
+func TestKustomization_UnmarshalYAML_DeprecatedCleanupField(t *testing.T) {
+	// captureStderr swaps os.Stderr with a pipe for the duration of fn, returning
+	// whatever was written. Used to assert deprecation warnings without coupling
+	// to a logger.
+	captureStderr := func(t *testing.T, fn func()) string {
+		t.Helper()
+		old := os.Stderr
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		os.Stderr = w
+		defer func() { os.Stderr = old }()
+
+		fn()
+
+		_ = w.Close()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		return buf.String()
+	}
+
+	t.Run("WarnsAndContinuesOnDeprecatedCleanupField", func(t *testing.T) {
+		// Given a blueprint that uses the now-removed `cleanup:` field
+		yamlData := []byte(`name: legacy-kustomization
+path: legacy/path
+cleanup:
+  - old-resource
+  - another-resource
+`)
+
+		var k Kustomization
+		stderr := captureStderr(t, func() {
+			if err := yaml.Unmarshal(yamlData, &k); err != nil {
+				t.Fatalf("Expected unmarshal to succeed (deprecated field is best-effort warned, not errored), got %v", err)
+			}
+		})
+
+		// Then unmarshal still produces a usable Kustomization (other fields parse)
+		if k.Name != "legacy-kustomization" {
+			t.Errorf("Expected Name 'legacy-kustomization', got %q", k.Name)
+		}
+		if k.Path != "legacy/path" {
+			t.Errorf("Expected Path 'legacy/path', got %q", k.Path)
+		}
+
+		// And the deprecation warning was emitted to stderr naming the kustomization
+		if !strings.Contains(stderr, "deprecated `cleanup` field") {
+			t.Errorf("Expected stderr to contain deprecation warning, got %q", stderr)
+		}
+		if !strings.Contains(stderr, "legacy-kustomization") {
+			t.Errorf("Expected stderr to name the kustomization, got %q", stderr)
+		}
+		if !strings.Contains(stderr, "destroyOnly") {
+			t.Errorf("Expected stderr to point at the migration path (destroyOnly), got %q", stderr)
+		}
+	})
+
+	t.Run("DoesNotWarnWhenCleanupAbsent", func(t *testing.T) {
+		// Given a Kustomization without the deprecated field
+		yamlData := []byte(`name: modern-kustomization
+path: modern/path
+`)
+
+		var k Kustomization
+		stderr := captureStderr(t, func() {
+			if err := yaml.Unmarshal(yamlData, &k); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+		})
+
+		// Then no warning is emitted
+		if stderr != "" {
+			t.Errorf("Expected no stderr output for blueprint without cleanup field, got %q", stderr)
+		}
+	})
+
+	t.Run("DoesNotWarnWhenCleanupIsEmpty", func(t *testing.T) {
+		// Given a Kustomization with an explicit empty cleanup list — no behavior
+		// to lose, so no warning. Avoids spamming users who had `cleanup: []`
+		// shimmed in by tooling or template expressions evaluating to empty.
+		yamlData := []byte(`name: modern-kustomization
+path: modern/path
+cleanup: []
+`)
+
+		var k Kustomization
+		stderr := captureStderr(t, func() {
+			if err := yaml.Unmarshal(yamlData, &k); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+		})
+
+		if stderr != "" {
+			t.Errorf("Expected no stderr output for empty cleanup list, got %q", stderr)
 		}
 	})
 }
