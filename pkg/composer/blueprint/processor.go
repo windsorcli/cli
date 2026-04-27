@@ -869,13 +869,6 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			}
 			processed.Components = evaluated
 		}
-		if len(processed.Cleanup) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.Cleanup, facet.Path, facetScope)
-			if err != nil {
-				return fmt.Errorf("error evaluating cleanup for kustomization '%s': %w", processed.Name, err)
-			}
-			processed.Cleanup = evaluated
-		}
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
 			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
@@ -1387,7 +1380,7 @@ func (p *BaseBlueprintProcessor) accumulateTerraformRemovals(existing, new bluep
 // accumulateKustomizationRemovals combines removal specifications from two kustomizations when
 // both have "remove" strategy. It preserves ID fields (Name) which are used to match the
 // kustomization but are never removed. It accumulates removal specifications only for fields that
-// RemoveKustomization actually removes: DependsOn, Components, Cleanup (string slices), Patches
+// RemoveKustomization actually removes: DependsOn, Components (string slices), Patches
 // (BlueprintPatch slice), and Substitutions (map keys). The result contains a union of all fields
 // that should be removed from either kustomization. If the kustomization doesn't exist in the target
 // blueprint when removals are applied, RemoveKustomization will perform a no-op, which is the
@@ -1399,7 +1392,6 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 
 	accumulated.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
 	accumulated.Components = accumulateStringSlice(existing.Components, new.Components)
-	accumulated.Cleanup = accumulateStringSlice(existing.Cleanup, new.Cleanup)
 	accumulated.Patches = append(accumulated.Patches, existing.Patches...)
 	accumulated.Patches = append(accumulated.Patches, new.Patches...)
 	accumulated.Substitutions = accumulateMapKeys(existing.Substitutions, new.Substitutions)

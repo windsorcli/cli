@@ -1882,36 +1882,6 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 		}
 	})
 
-	t.Run("RemovesCleanupFromExistingKustomization", func(t *testing.T) {
-		base := &Blueprint{
-			Kustomizations: []Kustomization{
-				{
-					Name:    "ingress",
-					Cleanup: []string{"old-resource", "another-resource", "keep_cleanup"},
-				},
-			},
-		}
-
-		removal := Kustomization{
-			Name:    "ingress",
-			Cleanup: []string{"old-resource", "another-resource"},
-		}
-
-		err := base.RemoveKustomization(removal)
-
-		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
-
-		kustomization := base.Kustomizations[0]
-		if len(kustomization.Cleanup) != 1 {
-			t.Errorf("Expected 1 cleanup remaining, got %d: %v", len(kustomization.Cleanup), kustomization.Cleanup)
-		}
-		if kustomization.Cleanup[0] != "keep_cleanup" {
-			t.Errorf("Expected 'keep_cleanup' to remain, got %v", kustomization.Cleanup)
-		}
-	})
-
 	t.Run("RemovesPatchesByPath", func(t *testing.T) {
 		base := &Blueprint{
 			Kustomizations: []Kustomization{
@@ -2887,7 +2857,6 @@ func TestKustomization_DeepCopy(t *testing.T) {
 			Force:         &force,
 			Prune:         &prune,
 			Components:    []string{"comp1", "comp2"},
-			Cleanup:       []string{"cleanup1"},
 			Destroy:       boolExprPtr(destroy),
 			DestroyOnly:   &destroyOnly,
 			Substitutions: map[string]string{"key1": "value1", "key2": "value2"},
@@ -2939,12 +2908,6 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		}
 		if copy.Components[0] != "comp1" || copy.Components[1] != "comp2" {
 			t.Errorf("Expected components ['comp1', 'comp2'], got %v", copy.Components)
-		}
-		if len(copy.Cleanup) != 1 {
-			t.Errorf("Expected 1 cleanup, got %d", len(copy.Cleanup))
-		}
-		if copy.Cleanup[0] != "cleanup1" {
-			t.Errorf("Expected cleanup ['cleanup1'], got %v", copy.Cleanup)
 		}
 		destroyVal := copy.Destroy.ToBool()
 		if destroyVal == nil || *destroyVal != false {
@@ -3009,9 +2972,6 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		}
 		if len(copy.Components) != 0 {
 			t.Errorf("Expected empty components, got %v", copy.Components)
-		}
-		if len(copy.Cleanup) != 0 {
-			t.Errorf("Expected empty cleanup, got %v", copy.Cleanup)
 		}
 		if len(copy.Substitutions) != 0 {
 			t.Errorf("Expected empty substitutions, got %v", copy.Substitutions)
