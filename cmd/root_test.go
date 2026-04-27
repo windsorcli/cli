@@ -564,6 +564,7 @@ func TestCommandPreflight(t *testing.T) {
 		noCache = true
 		cmd := &cobra.Command{Use: "test"}
 		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
 
 		// When running preflight
 		if err := commandPreflight(cmd, []string{}); err != nil {
@@ -594,6 +595,7 @@ func TestCommandPreflight(t *testing.T) {
 		noCache = false
 		cmd := &cobra.Command{Use: "test"}
 		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
 
 		// When running preflight
 		if err := commandPreflight(cmd, []string{}); err != nil {
