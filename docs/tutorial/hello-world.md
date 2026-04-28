@@ -258,13 +258,13 @@ The `path: hello-world` references the `kustomize/hello-world/` directory in you
 
 ## Deploy to your cluster
 
-Deploy the hello-world application to your local cluster:
+Apply only the new kustomization to your cluster:
 
 ```bash
-windsor install
+windsor apply kustomize hello-world --wait
 ```
 
-This will apply the Kustomization resource to your cluster. Flux will process the kustomization and deploy your application.
+This applies the `hello-world` Kustomization resource to the cluster. Flux processes it and deploys your application; `--wait` blocks until it reports ready.
 
 ## Validate your resources
 

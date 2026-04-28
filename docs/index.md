@@ -1,6 +1,6 @@
 ---
-title: "Unified Cloud Development"
-description: "Replicate cloud environments on your local machine and improve your cloud-native development workflow with Windsor CLI."
+title: "Windsor CLI"
+description: "Compose blueprints, run terraform, deploy via Flux, and manage local workstation environments."
 ---
 <div align="center">
   <h1>Windsor Command Line Interface</h1>
@@ -10,53 +10,48 @@ description: "Replicate cloud environments on your local machine and improve you
   </p>
 
   <p>
-    <img src="https://img.shields.io/github/v/release/windsorcli/cli" alt="GitHub release (latest by date)">
-    <img src="https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml" alt="GitHub Workflow Status">
+    <img src="https://img.shields.io/github/v/release/windsorcli/cli" alt="GitHub release">
+    <img src="https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml" alt="CI status">
   </p>
 
   <hr>
 </div>
-## Purpose
 
-The Windsor CLI is designed to streamline the cloud-native developer experience. Built in Go, it runs seamlessly on Linux, macOS, and Windows.
+## What it is
 
-Windsor addresses several challenges common when building and running software platforms by integrating various tools into a cohesive workflow:
+Windsor is a CLI for cloud-native development workflows. It runs on Linux, macOS, and Windows, written in Go.
 
-- **Complete Local Cloud**: Simulates complete cloud-native infrastructure locally using virtualization drivers (currently supports Docker Desktop & Colima).
-- **Support Services**: Push and pull containers to local image registries, and browse your local services at `*.local.test` domains.
-- **Livereload GitOps**: Reflects your source via a local git repository, enabling you to work with GitOps tooling locally.
-- **Contextual Workflow**: Code once, deploy-to-many with an elegant contextual workflow, dynamically reconfiguring your toolchain as you target different deployment environments.
+A Windsor project is a directory of contexts. Each context describes one deployment target — `local`, `staging`, `prod`, anything you want — and pairs a blueprint (terraform components + Flux kustomizations) with the configuration values that drive it. Windsor composes the blueprint, runs the right tools in the right order, and gets out of the way.
 
-## Quick Start
+## The core loop
 
-- **[Setup and Installation](install.md)**
-- **[Quick Start](quick-start.md)**
+| Phase | Command |
+|-------|---------|
+| Scaffold a context | [`windsor init`](reference/commands/init.md) |
+| Bring up a workstation | [`windsor up`](reference/commands/up.md) |
+| Apply infrastructure | [`windsor apply`](reference/commands/apply.md) |
+| Inspect | [`windsor plan`](reference/commands/plan.md) / [`show`](reference/commands/show.md) / [`explain`](reference/commands/explain.md) |
+| Tear down | [`windsor destroy`](reference/commands/destroy.md) / [`down`](reference/commands/down.md) |
 
-## Supported Tools
+See the [Lifecycle guide](guides/lifecycle.md) for how the phases fit together.
 
-The following tools are supported by the Windsor CLI:
+## Get started
 
-- [**Docker**](https://github.com/docker/docker-ce)
-- [**Kubernetes**](https://github.com/kubernetes/kubernetes)
-- [**AWS**](https://github.com/aws/aws-cli)
-- [**Terraform**](https://github.com/hashicorp/terraform)
-- [**SOPS**](https://github.com/mozilla/sops)
-- [**1Password**](https://developer.1password.com/docs/cli/)
-- [**Localstack**](https://github.com/localstack/localstack)
-- [**Colima**](https://github.com/abiosoft/colima)
-- [**Talos Linux**](https://github.com/siderolabs/talos)
+- [Installation](install.md)
+- [Quick Start](quick-start.md) — local cluster in ~10 minutes
+- [Hello, World!](tutorial/hello-world.md) — deploy a real app
+
+## Tools Windsor drives
+
+Docker · Kubernetes · Terraform · FluxCD · Talos Linux · Colima · AWS · SOPS · 1Password · Localstack
 
 ## Contributing
 
-Contributions are welcome! To get started, fork the repository, create a new branch, make your changes, and submit a pull request. Ensure your code follows our standards and includes tests. Thank you for your contributions!
+Fork the repo, create a branch, open a PR. Code must follow the project style and include tests. Issues and questions are welcome on [GitHub](https://github.com/windsorcli/cli).
 
 ## License
 
-Windsor CLI is licensed under the Mozilla Public License Version 2.0. See the [LICENSE](LICENSE) file for more details.
-
-## Contact Information
-
-If you have any questions or need further assistance, please feel free to open an issue on our GitHub repository.
+Mozilla Public License 2.0. See [LICENSE](LICENSE).
 
 <div>
   {{ next_footer('Installation', './install/index.html') }}
@@ -64,6 +59,6 @@ If you have any questions or need further assistance, please feel free to open a
 
 <script>
   document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = './install/index.html'; 
+    window.location.href = './install/index.html';
   });
 </script>

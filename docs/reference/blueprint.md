@@ -183,9 +183,8 @@ kustomize:
 | `force`       | `*bool`             | Force apply the kustomization.                   |
 | `prune`       | `*bool`             | Enable garbage collection of resources that are no longer present in the source. |
 | `components`  | `[]string`          | Components to include in the kustomization.      |
-| `cleanup`     | `[]string`          | Components to include in a cleanup kustomization that runs before this kustomization is deleted. The cleanup kustomization uses the path `<kustomization-path>/cleanup` with these as components. |
-| `destroy`     | `*bool`             | Determines if the kustomization should be destroyed during down operations. Defaults to true if not specified. |
-| `destroyOnly` | `*bool`             | Indicates that this kustomization should only run during destroy operations. When true, the kustomization is skipped during apply/up operations and only executed during destroy. Destroy-only kustomizations run before regular kustomizations during destroy, in normal dependency order. |
+| `destroy`     | `*bool`             | Whether the kustomization should be removed during destroy. Defaults to `true`. |
+| `destroyOnly` | `*bool`             | When `true`, the kustomization is skipped during apply and runs only during destroy. Destroy-only kustomizations run in normal dependency order. |
 | `substitutions` | `map[string]string` | Values for post-build variable replacement, collected and stored in ConfigMaps for use by Flux postBuild substitution. All values are converted to strings. These are used for generating ConfigMaps and are not written to the final context blueprint.yaml. |
 
 #### Patches
@@ -193,7 +192,7 @@ kustomize:
 Patches are provided via Facets, not directly in blueprint definitions. See the [Facets Reference](facets.md#kustomization-patches) for details on how to define patches in facets.
 
 ## Cluster Variables
-When running `windsor install`, Kubernetes resources are applied. These resources include a configmap that introduces [post-build variables](https://fluxcd.io/flux/components/kustomize/kustomizations/#post-build-variable-substitution) into the Kubernetes manifests. These variables are outlined as follows:
+When `windsor apply` (or `windsor up` for workstation contexts) installs the blueprint, a ConfigMap of [post-build substitution variables](https://fluxcd.io/flux/components/kustomize/kustomizations/#post-build-variable-substitution) is created. The variables are referenced from every Kustomization's `postBuild.substituteFrom`:
 
 | Key                     | Description                                                        |
 |-------------------------|--------------------------------------------------------------------|
