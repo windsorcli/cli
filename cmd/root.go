@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
@@ -12,6 +13,11 @@ import (
 
 // verbose is a flag for verbose output
 var verbose bool
+
+// noCache is a flag for bypassing the OCI artifact cache. When true, every
+// command's preflight sets NO_CACHE=true so ArtifactBuilder.Pull skips the
+// disk cache and re-downloads (and atomically overwrites) the cached entry.
+var noCache bool
 
 // Define a custom type for context keys
 type contextKey string
@@ -47,6 +53,10 @@ var rootCmd = &cobra.Command{
 func init() {
 	// Define the --verbose flag
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+	// Define the --no-cache flag. Persistent so every command (up, apply, plan, init,
+	// bootstrap, bundle, ...) inherits it; the effect is plumbed via the NO_CACHE env
+	// var that ArtifactBuilder.Pull already honors.
+	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Bypass the OCI artifact cache and force re-download of remote sources")
 }
 
 // commandPreflight orchestrates global CLI preflight checks and context initialization for all commands.
@@ -156,7 +166,13 @@ func silenceErrorsOnAncestors(cmd *cobra.Command) {
 }
 
 // setupGlobalContext injects global flags and context values into the command's context.
-// It sets the verbose flag in the context if enabled.
+// It sets the verbose flag in the context if enabled, and propagates --no-cache to the
+// NO_CACHE environment variable that ArtifactBuilder.Pull reads — since the artifact
+// layer is already wired to honor NO_CACHE (see pkg/composer/artifact/artifact.go),
+// setting the env var is the smallest-blast-radius path that works for every command
+// without threading a flag through the project/runtime/composer construction chain.
+// An explicit --no-cache always wins; a pre-existing NO_CACHE in the environment is
+// preserved when the flag is not set.
 func setupGlobalContext(cmd *cobra.Command) error {
 	ctx := cmd.Root().Context()
 	if ctx == nil {
@@ -164,6 +180,11 @@ func setupGlobalContext(cmd *cobra.Command) error {
 	}
 	if verbose {
 		ctx = context.WithValue(ctx, "verbose", true)
+	}
+	if noCache {
+		if err := os.Setenv("NO_CACHE", "true"); err != nil {
+			return fmt.Errorf("failed to set NO_CACHE environment variable: %w", err)
+		}
 	}
 	cmd.SetContext(ctx)
 	tui.Init(verbose)

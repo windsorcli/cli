@@ -369,6 +369,19 @@ func TestRootCmd(t *testing.T) {
 			t.Errorf("Expected flag usage to be 'Enable verbose output', got %s", verboseFlag.Usage)
 		}
 
+		// And the command should have the --no-cache flag (persistent so all subcommands inherit)
+		noCacheFlag := cmd.PersistentFlags().Lookup("no-cache")
+		if noCacheFlag == nil {
+			t.Error("Expected no-cache flag to be defined")
+			return
+		}
+		if noCacheFlag.Name != "no-cache" {
+			t.Errorf("Expected flag name to be 'no-cache', got %s", noCacheFlag.Name)
+		}
+		if noCacheFlag.Shorthand != "" {
+			t.Errorf("Expected no shorthand for no-cache, got %q", noCacheFlag.Shorthand)
+		}
+
 		// Clear any previously set arguments to ensure we're testing the root command without subcommands
 		rootCmd.SetArgs([]string{})
 
@@ -431,10 +444,13 @@ func TestExecute(t *testing.T) {
 }
 
 func TestCommandPreflight(t *testing.T) {
-	// Cleanup: reset rootCmd context after all subtests complete
+	// Cleanup: reset rootCmd context and globals after all subtests complete.
+	// noCache is reset alongside verbose because both are package-level flag
+	// vars that leak across subtests if not cleared.
 	t.Cleanup(func() {
 		rootCmd.SetContext(context.Background())
 		verbose = false
+		noCache = false
 	})
 
 	// Set up mocks for all tests
@@ -527,6 +543,69 @@ func TestCommandPreflight(t *testing.T) {
 		// Then no error should occur (setupGlobalContext doesn't return errors currently)
 		if err != nil {
 			t.Errorf("Expected no error for preflight, got: %v", err)
+		}
+	})
+
+	t.Run("SetsNoCacheEnvWhenFlagTrue", func(t *testing.T) {
+		// Given the --no-cache flag is set, and NO_CACHE is unset in the environment,
+		// preflight must propagate the flag to NO_CACHE=true so ArtifactBuilder.Pull
+		// (which only reads the env var, not the flag) bypasses the disk cache.
+		original, hadOriginal := os.LookupEnv("NO_CACHE")
+		os.Unsetenv("NO_CACHE")
+		t.Cleanup(func() {
+			noCache = false
+			if hadOriginal {
+				os.Setenv("NO_CACHE", original)
+			} else {
+				os.Unsetenv("NO_CACHE")
+			}
+		})
+
+		noCache = true
+		cmd := &cobra.Command{Use: "test"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		if err := commandPreflight(cmd, []string{}); err != nil {
+			t.Fatalf("Expected no error for preflight, got: %v", err)
+		}
+
+		// Then NO_CACHE should be set to "true" so the artifact layer bypasses the cache
+		if got := os.Getenv("NO_CACHE"); got != "true" {
+			t.Errorf("Expected NO_CACHE=true after --no-cache preflight, got %q", got)
+		}
+	})
+
+	t.Run("DoesNotTouchNoCacheEnvWhenFlagFalse", func(t *testing.T) {
+		// Given --no-cache is NOT set but the operator already exported NO_CACHE in their
+		// shell, preflight must not clobber it. The flag is purely additive: explicit
+		// flag wins, but a quiet preflight leaves the operator's environment alone.
+		original, hadOriginal := os.LookupEnv("NO_CACHE")
+		os.Setenv("NO_CACHE", "preexisting")
+		t.Cleanup(func() {
+			noCache = false
+			if hadOriginal {
+				os.Setenv("NO_CACHE", original)
+			} else {
+				os.Unsetenv("NO_CACHE")
+			}
+		})
+
+		noCache = false
+		cmd := &cobra.Command{Use: "test"}
+		rootCmd.AddCommand(cmd)
+		t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+
+		// When running preflight
+		if err := commandPreflight(cmd, []string{}); err != nil {
+			t.Fatalf("Expected no error for preflight, got: %v", err)
+		}
+
+		// Then NO_CACHE should be untouched — preflight has no business overwriting an
+		// operator-supplied value when the flag is off
+		if got := os.Getenv("NO_CACHE"); got != "preexisting" {
+			t.Errorf("Expected NO_CACHE preserved at %q, got %q", "preexisting", got)
 		}
 	})
 }
