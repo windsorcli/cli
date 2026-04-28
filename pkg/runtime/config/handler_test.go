@@ -1150,9 +1150,13 @@ func TestConfigHandler_Clean(t *testing.T) {
 		configRoot := filepath.Join(tmpDir, "contexts", "test-context")
 		os.MkdirAll(configRoot, 0755)
 
-		kubeDir := filepath.Join(configRoot, ".kube")
-		os.MkdirAll(kubeDir, 0755)
-		os.WriteFile(filepath.Join(kubeDir, "config"), []byte("test"), 0644)
+		// Seed every per-provider state dir Clean must wipe; a dropped entry trips here.
+		dirsToSeed := []string{".kube", ".talos", ".omni", ".aws", ".azure", ".gcp"}
+		for _, dir := range dirsToSeed {
+			path := filepath.Join(configRoot, dir)
+			os.MkdirAll(path, 0755)
+			os.WriteFile(filepath.Join(path, "marker"), []byte("test"), 0644)
+		}
 
 		err := handler.Clean()
 
@@ -1160,8 +1164,11 @@ func TestConfigHandler_Clean(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		if _, err := os.Stat(kubeDir); !os.IsNotExist(err) {
-			t.Error("Expected .kube directory to be removed")
+		for _, dir := range dirsToSeed {
+			path := filepath.Join(configRoot, dir)
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("Expected %s directory to be removed", dir)
+			}
 		}
 	})
 

@@ -44,7 +44,10 @@ func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *
 // Public Methods
 // =============================================================================
 
-// GetEnvVars retrieves the environment variables for the Azure environment.
+// GetEnvVars returns Azure env vars. AZURE_CONFIG_DIR is always set so `az login`
+// writes tokens into the context folder; AZURE_CORE_LOGIN_EXPERIENCE_V2=false
+// suppresses the interactive subscription picker. ARM_* vars require the matching
+// azure config field to be set.
 func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 
@@ -54,23 +57,28 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	}
 
 	azureConfigDir := filepath.Join(configRoot, ".azure")
+	envVars["AZURE_CONFIG_DIR"] = filepath.ToSlash(azureConfigDir)
+	envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "false"
 
-	// Get the current context configuration
-	config := e.configHandler.GetConfig()
-	if config != nil && config.Azure != nil {
-		envVars["AZURE_CONFIG_DIR"] = filepath.ToSlash(azureConfigDir)
-		envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "false"
-
-		if config.Azure.SubscriptionID != nil {
-			envVars["ARM_SUBSCRIPTION_ID"] = *config.Azure.SubscriptionID
+	contextConfigData := e.configHandler.GetConfig()
+	if contextConfigData != nil && contextConfigData.Azure != nil {
+		if contextConfigData.Azure.SubscriptionID != nil {
+			envVars["ARM_SUBSCRIPTION_ID"] = *contextConfigData.Azure.SubscriptionID
 		}
-		if config.Azure.TenantID != nil {
-			envVars["ARM_TENANT_ID"] = *config.Azure.TenantID
+		if contextConfigData.Azure.TenantID != nil {
+			envVars["ARM_TENANT_ID"] = *contextConfigData.Azure.TenantID
 		}
-		if config.Azure.Environment != nil {
-			envVars["ARM_ENVIRONMENT"] = *config.Azure.Environment
+		if contextConfigData.Azure.Environment != nil {
+			envVars["ARM_ENVIRONMENT"] = *contextConfigData.Azure.Environment
 		}
 	}
 
 	return envVars, nil
 }
+
+// =============================================================================
+// Interface Compliance
+// =============================================================================
+
+// Ensure AzureEnvPrinter implements the EnvPrinter interface
+var _ EnvPrinter = (*AzureEnvPrinter)(nil)

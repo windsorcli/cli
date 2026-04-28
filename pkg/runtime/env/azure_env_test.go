@@ -126,8 +126,8 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
-	t.Run("MissingConfiguration", func(t *testing.T) {
-		// Given a printer with no Azure configuration
+	t.Run("EmitsConfigPathsWhenAzureBlockAbsent", func(t *testing.T) {
+		// Given a context with no azure block populated
 		baseMocks := setupEnvMocks(t)
 		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
@@ -147,12 +147,20 @@ contexts:
 		// When GetEnvVars is called
 		envVars, err := printer.GetEnvVars()
 
-		// Then no error should be returned and environment variables should be empty
+		// Then AZURE_CONFIG_DIR and AZURE_CORE_LOGIN_EXPERIENCE_V2 still emit; ARM_* are absent
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if len(envVars) != 0 {
-			t.Errorf("Expected empty environment variables, got %v", envVars)
+		if !strings.HasSuffix(envVars["AZURE_CONFIG_DIR"], filepath.ToSlash("/.azure")) {
+			t.Errorf("AZURE_CONFIG_DIR = %q, want path ending with /.azure", envVars["AZURE_CONFIG_DIR"])
+		}
+		if envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"] != "false" {
+			t.Errorf("AZURE_CORE_LOGIN_EXPERIENCE_V2 = %q, want %q", envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"], "false")
+		}
+		for _, key := range []string{"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID", "ARM_ENVIRONMENT"} {
+			if v, ok := envVars[key]; ok {
+				t.Errorf("expected %s to be absent, got %q", key, v)
+			}
 		}
 	})
 }

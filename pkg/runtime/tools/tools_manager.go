@@ -442,6 +442,11 @@ func (t *BaseToolsManager) CheckAuth() error {
 			return err
 		}
 	}
+	if t.azureEnabled() {
+		if err := t.checkAzureAuth(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -609,6 +614,145 @@ func awsEnvPrefix(configRoot string) string {
 		filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
 		filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
 	)
+}
+
+// azureEnabled mirrors awsEnabled — true when platform=azure or an azure block is present.
+// Note: azure.enabled is not consulted here; that flag gates kubelogin, not auth preflight.
+func (t *BaseToolsManager) azureEnabled() bool {
+	platform := t.configHandler.GetString("platform")
+	if platform == "" {
+		platform = t.configHandler.GetString("provider")
+	}
+	if platform == "azure" {
+		return true
+	}
+	cfg := t.configHandler.GetConfig()
+	return cfg != nil && cfg.Azure != nil
+}
+
+// checkAzureAuth runs `az account show` against the context-scoped AZURE_CONFIG_DIR.
+// Skips entirely under ambient creds (defers to the azurerm SDK) — unlike `aws sts`,
+// `az account show` only reads its local token cache and would false-positive against
+// a CI host that has SDK env vars set but never ran `az login`.
+// The az error is discarded in favour of azureAuthHint to keep the actionable line visible.
+func (t *BaseToolsManager) checkAzureAuth() error {
+	if hasAmbientAzureCredentials() {
+		return nil
+	}
+	if err := t.checkAzureBinary(); err != nil {
+		return err
+	}
+	env, err := t.azureContextEnv()
+	if err != nil {
+		return fmt.Errorf("cannot resolve context-scoped Azure env for credential check: %w", err)
+	}
+	if _, err := t.shell.ExecSilentWithEnvAndTimeout("az", env, []string{"account", "show"}, 10*time.Second); err != nil {
+		return fmt.Errorf("%s", t.azureAuthHint())
+	}
+	return nil
+}
+
+// azureContextEnv returns env pointing az at the context's .azure/ dir.
+func (t *BaseToolsManager) azureContextEnv() (map[string]string, error) {
+	configRoot, err := t.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, err
+	}
+	azureConfigDir := filepath.Join(configRoot, ".azure")
+	return map[string]string{
+		"AZURE_CONFIG_DIR":               filepath.ToSlash(azureConfigDir),
+		"AZURE_CORE_LOGIN_EXPERIENCE_V2": "false",
+	}, nil
+}
+
+// hasAmbientAzureCredentials detects Workload Identity or SPN secret env. IMDS
+// (Managed Identity) is not covered — no env signal, same blind spot as AWS IMDS.
+func hasAmbientAzureCredentials() bool {
+	clientID := os.Getenv("AZURE_CLIENT_ID")
+	tenantID := os.Getenv("AZURE_TENANT_ID")
+	if clientID == "" || tenantID == "" {
+		return false
+	}
+	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+		return true
+	}
+	if os.Getenv("AZURE_CLIENT_SECRET") != "" {
+		return true
+	}
+	return false
+}
+
+// checkAzureBinary verifies the az CLI is available in PATH and meets the minimum version.
+func (t *BaseToolsManager) checkAzureBinary() error {
+	if _, err := execLookPath("az"); err != nil {
+		return missingToolError("az")
+	}
+
+	out, err := t.shell.ExecSilentWithTimeout("az", []string{"--version"}, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("az --version failed: %v", err)
+	}
+	version := extractVersion(out)
+	if version == "" {
+		return fmt.Errorf("failed to extract az CLI version")
+	}
+	if compareVersion(version, constants.MinimumVersionAzure) < 0 {
+		return outdatedToolError("az", version)
+	}
+
+	return nil
+}
+
+// azureAuthHint returns an actionable `az login` command, pinned to tenant_id when set,
+// chained with `az account set` when subscription_id is set, prefixed with AZURE_CONFIG_DIR=
+// when the process env doesn't already point at the context.
+func (t *BaseToolsManager) azureAuthHint() string {
+	ctx := t.configHandler.GetContext()
+	tenantID := ""
+	subscriptionID := ""
+	cfg := t.configHandler.GetConfig()
+	if cfg != nil && cfg.Azure != nil {
+		if cfg.Azure.TenantID != nil {
+			tenantID = *cfg.Azure.TenantID
+		}
+		if cfg.Azure.SubscriptionID != nil {
+			subscriptionID = *cfg.Azure.SubscriptionID
+		}
+	}
+
+	loginCmd := "az login"
+	if tenantID != "" {
+		loginCmd = fmt.Sprintf("az login --tenant %s", tenantID)
+	}
+
+	prefix := ""
+	if configRoot, err := t.configHandler.GetConfigRoot(); err == nil && configRoot != "" {
+		if !azureEnvPointsAtContext(filepath.Join(configRoot, ".azure")) {
+			prefix = azureEnvPrefix(configRoot)
+		}
+	}
+
+	suffix := ""
+	if subscriptionID != "" {
+		suffix = fmt.Sprintf(" && %saz account set --subscription %s", prefix, subscriptionID)
+	}
+
+	return fmt.Sprintf("Azure credentials for context %q did not resolve. Run:\n  %s%s%s", ctx, prefix, loginCmd, suffix)
+}
+
+// azureEnvPointsAtContext reports whether AZURE_CONFIG_DIR resolves to the given path.
+func azureEnvPointsAtContext(azureConfigDir string) bool {
+	cd := os.Getenv("AZURE_CONFIG_DIR")
+	if cd == "" {
+		return false
+	}
+	return filepath.ToSlash(cd) == filepath.ToSlash(azureConfigDir)
+}
+
+// azureEnvPrefix returns the `AZURE_CONFIG_DIR="..." ` prefix for paste-safe hints.
+func azureEnvPrefix(configRoot string) string {
+	azureConfigDir := filepath.Join(configRoot, ".azure")
+	return fmt.Sprintf("AZURE_CONFIG_DIR=%q ", filepath.ToSlash(azureConfigDir))
 }
 
 // detectAWSProfileState classifies the named profile in the AWS config INI at path. Missing

@@ -174,6 +174,106 @@ func TestKubeEnvPrinter_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("AADLoginMethodSetWhenAzureAks", func(t *testing.T) {
+		// Given platform=azure (cluster.driver auto-derives to aks)
+		printer, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("platform", "azure"); err != nil {
+			t.Fatalf("Failed to set platform: %v", err)
+		}
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "")
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then AAD_LOGIN_METHOD is exported so kubelogin overrides the kubeconfig's
+		// embedded --login devicecode at runtime
+		if envVars["AAD_LOGIN_METHOD"] != "azurecli" {
+			t.Errorf("Expected AAD_LOGIN_METHOD=azurecli, got %q", envVars["AAD_LOGIN_METHOD"])
+		}
+	})
+
+	t.Run("AADLoginMethodAbsentWhenPlatformNotAzure", func(t *testing.T) {
+		// Given platform=aws
+		printer, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("platform", "aws"); err != nil {
+			t.Fatalf("Failed to set platform: %v", err)
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then AAD_LOGIN_METHOD is absent
+		if _, ok := envVars["AAD_LOGIN_METHOD"]; ok {
+			t.Errorf("Expected AAD_LOGIN_METHOD to be absent for non-azure platform, got %q", envVars["AAD_LOGIN_METHOD"])
+		}
+	})
+
+	t.Run("AADLoginMethodAbsentWhenAzureNonAks", func(t *testing.T) {
+		// Given platform=azure but cluster.driver pinned to talos (azure VMs, not AKS)
+		printer, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("platform", "azure"); err != nil {
+			t.Fatalf("Failed to set platform: %v", err)
+		}
+		if err := mocks.ConfigHandler.Set("cluster.driver", "talos"); err != nil {
+			t.Fatalf("Failed to set cluster.driver: %v", err)
+		}
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if _, ok := envVars["AAD_LOGIN_METHOD"]; ok {
+			t.Errorf("Expected AAD_LOGIN_METHOD to be absent for azure+talos, got %q", envVars["AAD_LOGIN_METHOD"])
+		}
+	})
+
+	t.Run("AADLoginMethodIsWorkloadIdentityUnderGitHubActionsOidc", func(t *testing.T) {
+		// Given AKS gate + GH Actions OIDC env
+		printer, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("platform", "azure"); err != nil {
+			t.Fatalf("Failed to set platform: %v", err)
+		}
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ghs_oidc_token")
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://example.com/?api-version=2.0")
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if envVars["AAD_LOGIN_METHOD"] != "workloadidentity" {
+			t.Errorf("Expected AAD_LOGIN_METHOD=workloadidentity under GH Actions OIDC, got %q", envVars["AAD_LOGIN_METHOD"])
+		}
+	})
+
+	t.Run("AADLoginMethodFallsBackToAzureCliWhenFederatedTokenPathStale", func(t *testing.T) {
+		// Given AZURE_FEDERATED_TOKEN_FILE set but the path doesn't exist
+		printer, mocks := setup(t)
+		if err := mocks.ConfigHandler.Set("platform", "azure"); err != nil {
+			t.Fatalf("Failed to set platform: %v", err)
+		}
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/tmp/never-existed")
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then falls back to azurecli — workloadidentity here would emit a guaranteed-failing exec
+		if envVars["AAD_LOGIN_METHOD"] != "azurecli" {
+			t.Errorf("Expected azurecli fallback when federated token path is missing, got %q", envVars["AAD_LOGIN_METHOD"])
+		}
+	})
+
 	t.Run("SuccessWithVolumes", func(t *testing.T) {
 		// Given a KubeEnvPrinter with valid configuration
 		printer, _ := setup(t)

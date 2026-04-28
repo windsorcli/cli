@@ -77,6 +77,13 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars["FLUX_SYSTEM_NAMESPACE"] = e.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 	e.SetManagedEnv("FLUX_SYSTEM_NAMESPACE")
 
+	// AAD_LOGIN_METHOD overrides the kubelogin --login flag embedded in the AKS
+	// kubeconfig (defaults to "devicecode", fails non-interactively).
+	if e.aksGateActive() {
+		envVars["AAD_LOGIN_METHOD"] = e.detectKubeloginMode()
+		e.SetManagedEnv("AAD_LOGIN_METHOD")
+	}
+
 	projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
 	if projectRoot == "" {
 		return envVars, nil
@@ -166,6 +173,43 @@ func (e *KubeEnvPrinter) GetEnvVars() (map[string]string, error) {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// aksGateActive reports whether platform=azure and cluster.driver=aks. Reads
+// the effective values map first because cluster.driver is auto-derived from
+// platform via applyPlatformDerivedDefaults and never lands in stored config.
+func (e *KubeEnvPrinter) aksGateActive() bool {
+	if e.configHandler.GetString("platform") != "azure" {
+		return false
+	}
+	clusterDriver := ""
+	if values, err := e.configHandler.GetContextValues(); err == nil {
+		if cluster, ok := values["cluster"].(map[string]any); ok {
+			if d, ok := cluster["driver"].(string); ok {
+				clusterDriver = d
+			}
+		}
+	}
+	if clusterDriver == "" {
+		clusterDriver = e.configHandler.GetString("cluster.driver", "")
+	}
+	return clusterDriver == "aks"
+}
+
+// detectKubeloginMode returns workloadidentity for GH Actions OIDC or AKS
+// Workload Identity (real token file), azurecli otherwise. A stale federated
+// token file path falls back rather than emitting a guaranteed-failing command.
+func (e *KubeEnvPrinter) detectKubeloginMode() string {
+	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") != "" &&
+		os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") != "" {
+		return "workloadidentity"
+	}
+	if tokenFile := os.Getenv("AZURE_FEDERATED_TOKEN_FILE"); tokenFile != "" {
+		if _, err := e.shims.Stat(tokenFile); err == nil {
+			return "workloadidentity"
+		}
+	}
+	return "azurecli"
+}
 
 // sanitizeEnvVar converts a string to uppercase, trims whitespace, and replaces invalid characters with underscores.
 func sanitizeEnvVar(input string) string {

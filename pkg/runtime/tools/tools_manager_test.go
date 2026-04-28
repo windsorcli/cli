@@ -1636,6 +1636,12 @@ func TestToolsManager_CheckAuth(t *testing.T) {
 		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
 		t.Setenv("AWS_ACCESS_KEY_ID", "")
 		t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+		// Same for Azure ambient-cred env vars
+		t.Setenv("AZURE_CLIENT_ID", "")
+		t.Setenv("AZURE_TENANT_ID", "")
+		t.Setenv("AZURE_CLIENT_SECRET", "")
+		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "")
+		t.Setenv("AZURE_CONFIG_DIR", "")
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
@@ -2319,6 +2325,410 @@ contexts:
 		}
 		if err == nil {
 			t.Error("Expected CheckAuth to surface the credential failure")
+		}
+	})
+
+	// azBinaryMock wires execLookPath + ExecSilentWithTimeoutFunc("az --version") so
+	// CheckAuth reaches the `az account show` step. Mirrors awsBinaryMock.
+	azBinaryMock := func(t *testing.T, mocks *Mocks) {
+		t.Helper()
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "az" {
+				return "/usr/bin/az", nil
+			}
+			return originalExecLookPath(name)
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			if command == "az" && len(args) == 1 && args[0] == "--version" {
+				return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
+			}
+			return "", fmt.Errorf("command not mocked: %s %v", command, args)
+		}
+	}
+
+	t.Run("AzurePlatformWithAzCliMissing", func(t *testing.T) {
+		// Given platform: azure and the az CLI is not in PATH
+		_, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			if name == "az" {
+				return "", exec.ErrNotFound
+			}
+			return originalExecLookPath(name)
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the missing-binary error surfaces — the binary check is part of CheckAuth so
+		// bootstrap/up preflights catch a missing CLI before they try to resolve credentials
+		if err == nil {
+			t.Fatal("Expected error when az CLI is missing")
+		}
+		if !strings.Contains(err.Error(), "az") || !strings.Contains(err.Error(), "not found on PATH") {
+			t.Errorf("Expected 'az ... not found on PATH' error, got: %v", err)
+		}
+	})
+
+	t.Run("AzurePlatformWithValidCredentials", func(t *testing.T) {
+		// Given platform: azure, the az CLI is installed at the minimum version, and
+		// `az account show` succeeds
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "az" && len(args) == 2 && args[0] == "account" && args[1] == "show" {
+				return `{"id":"sub-1","tenantId":"tenant-1"}`, nil
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then it succeeds
+		if err != nil {
+			t.Errorf("Expected CheckAuth to succeed when az account show resolves, got %v", err)
+		}
+	})
+
+	t.Run("AzurePlatformWithAccountShowFailure", func(t *testing.T) {
+		// Given platform: azure, the az CLI is installed, but credentials cannot be resolved
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("Please run 'az login' to setup account.")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the surfaced error contains the actionable hint — not the raw az stderr noise
+		if err == nil {
+			t.Fatal("Expected error when az account show fails")
+		}
+		if !strings.Contains(err.Error(), "az login") {
+			t.Errorf("Expected 'az login' remediation hint in error, got: %v", err)
+		}
+		// The raw shell-exec wrapper text and az stderr must not leak into the surfaced error
+		if strings.Contains(err.Error(), "command execution failed") {
+			t.Errorf("Expected raw shell-exec error text to be suppressed, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "Please run 'az login' to setup account") {
+			t.Errorf("Expected raw az stderr to be suppressed, got: %v", err)
+		}
+	})
+
+	t.Run("AzurePlatformInjectsContextEnvForAccountShow", func(t *testing.T) {
+		// Given platform: azure and the az CLI is installed
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "az" && len(args) == 2 && args[0] == "account" && args[1] == "show" {
+				capturedEnv = env
+				return `{"id":"sub-1"}`, nil
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed, got %v", err)
+		}
+		// Then `az account show` received AZURE_CONFIG_DIR pointing at the context-scoped
+		// .azure/ so it resolves against the context's token cache rather than ~/.azure
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("GetConfigRoot failed: %v", err)
+		}
+		wantDir := filepath.ToSlash(filepath.Join(configRoot, ".azure"))
+		if capturedEnv["AZURE_CONFIG_DIR"] != wantDir {
+			t.Errorf("AZURE_CONFIG_DIR = %q, want %q", capturedEnv["AZURE_CONFIG_DIR"], wantDir)
+		}
+		if capturedEnv["AZURE_CORE_LOGIN_EXPERIENCE_V2"] != "false" {
+			t.Errorf("AZURE_CORE_LOGIN_EXPERIENCE_V2 = %q, want %q", capturedEnv["AZURE_CORE_LOGIN_EXPERIENCE_V2"], "false")
+		}
+	})
+
+	t.Run("AzurePlatformAccountShowHintPrefixesEnvWhenShellNotSourced", func(t *testing.T) {
+		// Given account show fails and AZURE_CONFIG_DIR is not in the process env
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("AADSTS70043: The refresh token has expired")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the hint prepends AZURE_CONFIG_DIR= so the suggested az login lands in the context
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when account show errors")
+		}
+		if !strings.Contains(err.Error(), "AZURE_CONFIG_DIR=") {
+			t.Errorf("Expected AZURE_CONFIG_DIR= prefix when shell env is not sourced, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "az login") {
+			t.Errorf("Expected az login hint, got: %v", err)
+		}
+	})
+
+	t.Run("AzurePlatformAccountShowHintDropsEnvPrefixWhenShellIsSourced", func(t *testing.T) {
+		// Given account show fails and AZURE_CONFIG_DIR already points at the context
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("GetConfigRoot failed: %v", err)
+		}
+		t.Setenv("AZURE_CONFIG_DIR", filepath.ToSlash(filepath.Join(configRoot, ".azure")))
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("AADSTS70043: refresh token has expired")
+		}
+		// When CheckAuth runs
+		err = toolsManager.CheckAuth()
+		// Then the hint emits bare `az login` — prefix would be noise since the shell already has it
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when account show errors")
+		}
+		if !strings.Contains(err.Error(), "az login") {
+			t.Errorf("Expected az login hint, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "AZURE_CONFIG_DIR=") {
+			t.Errorf("Hint should omit AZURE_CONFIG_DIR= prefix when shell env already points at context, got: %v", err)
+		}
+	})
+
+	t.Run("AzureHintIncludesTenantWhenSet", func(t *testing.T) {
+		// Given an azure block with tenant_id set and account show fails
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+    azure:
+      tenant_id: 11111111-2222-3333-4444-555555555555
+`)
+		azBinaryMock(t, mocks)
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("not logged in")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the hint pins az login to the configured tenant
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail")
+		}
+		if !strings.Contains(err.Error(), "az login --tenant 11111111-2222-3333-4444-555555555555") {
+			t.Errorf("Expected --tenant in hint, got: %v", err)
+		}
+	})
+
+	t.Run("AzureHintIncludesSubscriptionFollowupWhenSet", func(t *testing.T) {
+		// Given an azure block with subscription_id set and account show fails
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+    azure:
+      subscription_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+`)
+		azBinaryMock(t, mocks)
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			return "", fmt.Errorf("not logged in")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the hint chains `az account set --subscription`
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail")
+		}
+		if !strings.Contains(err.Error(), "az account set --subscription aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee") {
+			t.Errorf("Expected az account set follow-up, got: %v", err)
+		}
+	})
+
+	t.Run("AzurePlatformWorkloadIdentitySkipsCheckWhenAzMissing", func(t *testing.T) {
+		// Given Workload Identity env exported but no az CLI (lean CI image)
+		_, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		t.Setenv("AZURE_CLIENT_ID", "client-1")
+		t.Setenv("AZURE_TENANT_ID", "tenant-1")
+		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/var/run/secrets/azure/tokens/azure-identity-token")
+		originalExecLookPath := execLookPath
+		execLookPath = func(name string) (string, error) {
+			return "", exec.ErrNotFound
+		}
+		t.Cleanup(func() { execLookPath = originalExecLookPath })
+
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then CheckAuth is a no-op — defers to the azurerm SDK at apply time
+		if err != nil {
+			t.Errorf("Expected CheckAuth to be a no-op under Workload Identity without az CLI, got %v", err)
+		}
+	})
+
+	t.Run("AzurePlatformWorkloadIdentitySkipsCheckEntirely", func(t *testing.T) {
+		// Given Workload Identity env is exported and az IS installed
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		t.Setenv("AZURE_CLIENT_ID", "client-1")
+		t.Setenv("AZURE_TENANT_ID", "tenant-1")
+		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "/var/run/secrets/azure/tokens/azure-identity-token")
+		accountShowCalled := false
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "az" && len(args) >= 1 && args[0] == "account" {
+				accountShowCalled = true
+			}
+			return `{"id":"sub-1"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed under Workload Identity, got %v", err)
+		}
+		// Then account show is never invoked — `az` doesn't honor the federated env vars and
+		// would false-positive against a host that hasn't run `az login --federated-token`
+		if accountShowCalled {
+			t.Error("Expected account show to be skipped under ambient WI credentials")
+		}
+	})
+
+	t.Run("AzurePlatformSpnSecretSkipsCheckEntirely", func(t *testing.T) {
+		// Given classic SPN env (CLIENT_ID + TENANT_ID + CLIENT_SECRET)
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		t.Setenv("AZURE_CLIENT_ID", "client-1")
+		t.Setenv("AZURE_TENANT_ID", "tenant-1")
+		t.Setenv("AZURE_CLIENT_SECRET", "spn-secret")
+		accountShowCalled := false
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "az" && len(args) >= 1 && args[0] == "account" {
+				accountShowCalled = true
+			}
+			return `{"id":"sub-1"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed under SPN secret, got %v", err)
+		}
+		// Then account show is never invoked — same reasoning as Workload Identity
+		if accountShowCalled {
+			t.Error("Expected account show to be skipped under ambient SPN credentials")
+		}
+	})
+
+	t.Run("AzurePartialAmbientCredentialsStillInject", func(t *testing.T) {
+		// Given only AZURE_CLIENT_ID — incomplete, not a working native chain
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		t.Setenv("AZURE_CLIENT_ID", "client-1")
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			return `{"id":"sub-1"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed, got %v", err)
+		}
+		// Then context env is still injected — guard requires the full chain to skip
+		if capturedEnv == nil {
+			t.Fatal("Expected context env injection when ambient credentials are incomplete")
+		}
+		if capturedEnv["AZURE_CONFIG_DIR"] == "" {
+			t.Errorf("Expected AZURE_CONFIG_DIR to be set, got %v", capturedEnv)
+		}
+	})
+
+	t.Run("AzureConfigBlockTriggersAuthCheck", func(t *testing.T) {
+		// Given the context has an azure block (no platform set) and creds are invalid
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    azure:
+      subscription_id: sub-1
+`)
+		azBinaryMock(t, mocks)
+		accountShowCalled := false
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			if command == "az" && len(args) == 2 && args[0] == "account" && args[1] == "show" {
+				accountShowCalled = true
+				return "", fmt.Errorf("not logged in")
+			}
+			return "", fmt.Errorf("command not mocked")
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then account show was invoked and the error surfaced (azure block alone gates auth)
+		if !accountShowCalled {
+			t.Error("Expected az account show to be invoked when azure block is present")
+		}
+		if err == nil {
+			t.Error("Expected CheckAuth to surface the credential failure")
+		}
+	})
+
+	t.Run("AzurePlatformConfigRootFailureSurfacesError", func(t *testing.T) {
+		// Given GetProjectRoot fails so context-scoped Azure env can't be computed
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: azure
+`)
+		azBinaryMock(t, mocks)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("project root not found")
+		}
+		accountShowCalled := false
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			accountShowCalled = true
+			return "", nil
+		}
+		// When CheckAuth runs
+		err := toolsManager.CheckAuth()
+		// Then the configRoot-resolution failure surfaces and account show is never invoked
+		if err == nil {
+			t.Fatal("Expected CheckAuth to fail when configRoot cannot be resolved")
+		}
+		if !strings.Contains(err.Error(), "context-scoped Azure env") {
+			t.Errorf("Expected context-scoped Azure env error, got: %v", err)
+		}
+		if accountShowCalled {
+			t.Error("account show must not be invoked when the context-scoped env is unresolvable")
 		}
 	})
 }

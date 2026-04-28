@@ -2483,18 +2483,12 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		}
 	})
 
-	t.Run("InitializesAzureEnvWhenEnabled", func(t *testing.T) {
-		// Given a runtime with Azure enabled
+	t.Run("InitializesAzureEnvWhenAzureConfigPresent", func(t *testing.T) {
+		// Given a runtime with an Azure config block (azure.enabled flag is not required)
 		mocks := setupRuntimeMocks(t)
 		rt := mocks.Runtime
 
 		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
-			if key == "azure.enabled" {
-				return true
-			}
-			return false
-		}
 		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
 			return &v1alpha1.Context{
 				Azure: &azurev1alpha1.AzureConfig{},
@@ -2504,10 +2498,31 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 		// When initializeEnvPrinters is called
 		rt.initializeEnvPrinters()
 
-		// Then Azure env printer should be initialized
-
+		// Then Azure env printer should be initialized from the config block alone
 		if rt.EnvPrinters.AzureEnv == nil {
 			t.Error("Expected AzureEnv to be initialized")
+		}
+	})
+
+	t.Run("InitializesAzureEnvWhenPlatformIsAzure", func(t *testing.T) {
+		// Given a runtime with platform=azure and no azure block
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "platform" {
+				return "azure"
+			}
+			return ""
+		}
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then Azure env printer should be initialized from the platform signal alone
+		if rt.EnvPrinters.AzureEnv == nil {
+			t.Error("Expected AzureEnv to be initialized when platform=azure")
 		}
 	})
 
