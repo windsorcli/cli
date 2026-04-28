@@ -87,7 +87,10 @@ func (i *Provisioner) runFullCycleDestroyAll(blueprint *blueprintv1alpha1.Bluepr
 		}
 		return destroyErr
 	})
-	return skipped, err
+	if err != nil {
+		return nil, err
+	}
+	return skipped, nil
 }
 
 // runPerComponentDestroyAll is the destroy mirror of bootstrap's per-component
