@@ -158,7 +158,7 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 // false so structural mistakes surface at the moment they are introduced. (show tolerates
 // validation failure via a separate mechanism in getBlueprint that captures the error and
 // continues, rather than skipping validation outright.) Provisioner's destroy paths
-// iterate components independent of blueprint position (findBackendComponentID +
+// iterate components independent of blueprint position (Blueprint.BackendComponentID +
 // symmetric-destroy), so skipping validation does not produce a wrong destroy order.
 func (h *BaseBlueprintHandler) SetSkipValidation(skip bool) {
 	h.skipValidation = skip

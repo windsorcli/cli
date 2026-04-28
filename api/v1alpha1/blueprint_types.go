@@ -586,6 +586,19 @@ type SubstituteReference struct {
 // Public Methods
 // =============================================================================
 
+// BackendComponentID returns the ID of the terraform component matching IsBackend(), or "".
+func (b *Blueprint) BackendComponentID() string {
+	if b == nil {
+		return ""
+	}
+	for i := range b.TerraformComponents {
+		if b.TerraformComponents[i].IsBackend() {
+			return b.TerraformComponents[i].GetID()
+		}
+	}
+	return ""
+}
+
 // DeepCopy creates a deep copy of the Blueprint object.
 func (b *Blueprint) DeepCopy() *Blueprint {
 	if b == nil {

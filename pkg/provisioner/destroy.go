@@ -2,7 +2,6 @@ package provisioner
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -12,34 +11,25 @@ import (
 // Public Methods
 // =============================================================================
 
-// DestroyAllWithBackendLifecycle dispatches bulk destroy on terraform.backend.type:
+// Teardown dispatches bulk destroy on terraform.backend.type:
 //
-//   - kubernetes  → full-cycle: pin backend.type=local, MigrateState pulls every
+//   - kubernetes → full-cycle: pin backend.type=local, MigrateState pulls every
 //     component's state from the cluster's Secrets to local files, then DestroyAll
-//     tears everything down in reverse dependency order against the local state
-//     (which is critical because the cluster itself is going away). Mirror image
-//     of bootstrap's full-cycle path on the destroy side.
-//
+//     tears everything down against the local state. Mirror of bootstrap's
+//     full-cycle on the destroy side.
 //   - s3 / azurerm → per-component dance: destroy non-backend components FIRST
-//     against the live remote backend (init reads remote, destroy writes remote),
-//     then pin backend.type=local, migrate the backend component's state from
-//     remote to local, destroy the backend component last. Avoids the wasteful
-//     "migrate everything to local first" pattern for backends where every
-//     non-backend component's state is independent of the backend bucket.
-//
+//     against the live remote backend, then pin backend.type=local, migrate the
+//     backend component's state from remote to local, destroy the backend last.
 //   - local / unset → direct DestroyAll, no migration.
 //
-// terraformOnly=true skips the kustomize uninstall that DestroyAll normally runs
-// first. Returns the IDs of components skipped because their state was empty
-// alongside any error, mirroring DestroyAll's contract.
-func (i *Provisioner) DestroyAllWithBackendLifecycle(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
-	originalBackend := i.configHandler.GetString("terraform.backend.type", "local")
-
-	switch originalBackend {
+// terraformOnly=true skips the kustomize uninstall. Returns the IDs of components
+// skipped because their state was empty alongside any error.
+func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
+	switch i.configHandler.GetString("terraform.backend.type", "local") {
 	case "kubernetes":
-		return i.runFullCycleDestroyAll(blueprint, terraformOnly, originalBackend)
+		return i.runFullCycleDestroyAll(blueprint, terraformOnly)
 	case "s3", "azurerm":
-		return i.runPerComponentDestroyAll(blueprint, terraformOnly, originalBackend)
+		return i.runPerComponentDestroyAll(blueprint, terraformOnly)
 	default:
 		if terraformOnly {
 			return i.DestroyAllTerraform(blueprint)
@@ -48,37 +38,19 @@ func (i *Provisioner) DestroyAllWithBackendLifecycle(blueprint *blueprintv1alpha
 	}
 }
 
-// DestroyTerraformComponentWithBackendLifecycle destroys a single terraform
-// component. The kubernetes path is intentionally simple: direct destroy with
-// kubeconfig already in env from a prior `windsor up` — operators destroying
-// individual components don't need the full-cycle dance because the cluster is
-// still alive and serving Secrets. For s3/azurerm, the backend component
-// special-case applies: migrate its state to local first, then destroy. All
-// other backends/components fall through to a direct destroy. Returns the same
-// (skipped, err) tuple as Destroy.
-func (i *Provisioner) DestroyTerraformComponentWithBackendLifecycle(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-	originalBackend := i.configHandler.GetString("terraform.backend.type", "local")
-	if originalBackend != "s3" && originalBackend != "azurerm" {
-		return i.Destroy(blueprint, componentID)
+// TeardownComponent destroys a single terraform component. Targeting the backend
+// component itself is refused for any remote backend (kubernetes, s3, azurerm) —
+// the backend's storage hosts state for every other component, so destroying it
+// in isolation would orphan their state. Full-cycle `windsor destroy` is the
+// only safe path; it migrates state to local first.
+func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	backendID := blueprint.BackendComponentID()
+
+	if backendType != "local" && backendID != "" && componentID == backendID {
+		return false, fmt.Errorf("cannot destroy the %s backend component %q in isolation: its storage holds terraform state for every other component, so destroying it directly would orphan their state. Run `windsor destroy` (no arguments) for the full-cycle teardown that migrates state to local first", backendType, componentID)
 	}
 
-	backendID := findBackendComponentID(blueprint)
-	if componentID != backendID {
-		return i.Destroy(blueprint, componentID)
-	}
-
-	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
-		return false, fmt.Errorf("failed to override backend for backend-component destroy: %w", err)
-	}
-	defer func() {
-		if err := i.configHandler.Set("terraform.backend.type", originalBackend); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after destroy: %v\n", originalBackend, err)
-		}
-	}()
-
-	if err := i.MigrateComponentState(blueprint, componentID); err != nil {
-		return false, err
-	}
 	return i.Destroy(blueprint, componentID)
 }
 
@@ -91,54 +63,45 @@ func (i *Provisioner) DestroyTerraformComponentWithBackendLifecycle(blueprint *b
 // teardown, so every component's state must move to local before any destroy
 // runs — otherwise destroy-in-progress would race with the cluster's Secret
 // store evaporating. After migration, DestroyAll iterates components in reverse
-// against the local state. The deferred restore guards exit paths between the
-// override and any panic; restoring twice is idempotent.
-//
-// Note on Set/restore: configHandler.Set is in-memory only (see config.Set's
-// docstring — persistence requires SaveConfig, which we never call here). The
-// override and the deferred restore both mutate the in-process map, never
-// values.yaml on disk. If the deferred restore fails the worst case is a
-// stale in-memory backend.type=local for the remainder of this process; the
-// next windsor invocation reads the unchanged on-disk config and behaves
-// correctly. The stderr warning surfaces the unusual case for the operator.
-func (i *Provisioner) runFullCycleDestroyAll(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, originalBackend string) ([]string, error) {
-	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
-		return nil, fmt.Errorf("failed to override backend for destroy: %w", err)
-	}
-	defer func() {
-		if err := i.configHandler.Set("terraform.backend.type", originalBackend); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after destroy: %v\n", originalBackend, err)
+// against the local state.
+func (i *Provisioner) runFullCycleDestroyAll(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
+	var skipped []string
+	err := i.withBackendOverride("destroy", func() error {
+		var migErr error
+		skipped, migErr = i.MigrateState(blueprint)
+		if migErr != nil {
+			if len(skipped) > 0 {
+				return fmt.Errorf("failed to migrate state to local before destroy: %w (skipped components before failure: %s)", migErr, strings.Join(skipped, ", "))
+			}
+			return fmt.Errorf("failed to migrate state to local before destroy: %w", migErr)
 		}
-	}()
-
-	skipped, err := i.MigrateState(blueprint)
-	if err != nil {
 		if len(skipped) > 0 {
-			return nil, fmt.Errorf("failed to migrate state to local before destroy: %w (skipped components before failure: %s)", err, strings.Join(skipped, ", "))
+			return fmt.Errorf("kubernetes full-cycle destroy aborted: state migration skipped components whose directories were missing (%s); their state may still live on the cluster's Secret store, which is about to be destroyed — running destroy now would orphan the underlying cloud resources. Restore the missing component directories and re-run, or destroy them individually first", strings.Join(skipped, ", "))
 		}
-		return nil, fmt.Errorf("failed to migrate state to local before destroy: %w", err)
-	}
-	if len(skipped) > 0 {
-		return nil, fmt.Errorf("kubernetes full-cycle destroy aborted: state migration skipped components whose directories were missing (%s); their state may still live on the cluster's Secret store, which is about to be destroyed — running destroy now would orphan the underlying cloud resources. Restore the missing component directories and re-run, or destroy them individually first", strings.Join(skipped, ", "))
-	}
 
-	if terraformOnly {
-		return i.DestroyAllTerraform(blueprint)
+		var destroyErr error
+		if terraformOnly {
+			skipped, destroyErr = i.DestroyAllTerraform(blueprint)
+		} else {
+			skipped, destroyErr = i.DestroyAll(blueprint)
+		}
+		return destroyErr
+	})
+	if err != nil {
+		return nil, err
 	}
-	return i.DestroyAll(blueprint)
+	return skipped, nil
 }
 
 // runPerComponentDestroyAll is the destroy mirror of bootstrap's per-component
 // path. When the blueprint declares a "backend" terraform component and the
 // configured backend is s3/azurerm, non-backend components are destroyed first
-// against the live remote backend (their state is independent of any one
-// component, the bucket still exists), then backend.type flips to local, the
-// backend component's state is migrated from remote to local, and the backend
-// component is destroyed last. Without a backend component the call collapses
-// to a direct DestroyAll — out-of-band bucket setups stay on remote state
-// through teardown.
-func (i *Provisioner) runPerComponentDestroyAll(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, originalBackend string) ([]string, error) {
-	backendID := findBackendComponentID(blueprint)
+// against the live remote backend, then backend.type flips to local, the backend
+// component's state is migrated from remote to local, and the backend component
+// is destroyed last. Without a backend component the call collapses to a direct
+// DestroyAll — out-of-band bucket setups stay on remote state through teardown.
+func (i *Provisioner) runPerComponentDestroyAll(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
+	backendID := blueprint.BackendComponentID()
 
 	if backendID == "" {
 		if terraformOnly {
@@ -158,45 +121,18 @@ func (i *Provisioner) runPerComponentDestroyAll(blueprint *blueprintv1alpha1.Blu
 		return skipped, bulkErr
 	}
 
-	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
-		return skipped, fmt.Errorf("failed to override backend for backend-component destroy: %w", err)
-	}
-	defer func() {
-		if err := i.configHandler.Set("terraform.backend.type", originalBackend); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to restore terraform.backend.type to %q after destroy: %v\n", originalBackend, err)
+	err := i.withBackendOverride("backend-component destroy", func() error {
+		if err := i.MigrateComponentState(blueprint, backendID); err != nil {
+			return err
 		}
-	}()
-
-	if err := i.MigrateComponentState(blueprint, backendID); err != nil {
-		return skipped, err
-	}
-	backendSkipped, err := i.Destroy(blueprint, backendID)
-	if err != nil {
-		return skipped, err
-	}
-	if backendSkipped {
-		skipped = append(skipped, backendID)
-	}
-	return skipped, nil
-}
-
-// findBackendComponentID returns the ID of the terraform component that bootstraps the
-// remote state backend, or "" if no such component is declared. The backend component is
-// identified by TerraformComponent.IsBackend() (basename of GetID() == "backend"), which
-// is the same convention enforced by blueprint.ValidateComposedBlueprint — keeping the
-// two in lock-step via the shared helper guarantees the validator's view and the
-// destroy lookup cannot drift apart. Out-of-band buckets (no backend component in the
-// blueprint) return "" and let callers collapse to a direct destroy without the
-// migration dance.
-func findBackendComponentID(blueprint *blueprintv1alpha1.Blueprint) string {
-	if blueprint == nil {
-		return ""
-	}
-	for i := range blueprint.TerraformComponents {
-		c := blueprint.TerraformComponents[i]
-		if c.IsBackend() {
-			return c.GetID()
+		backendSkipped, err := i.Destroy(blueprint, backendID)
+		if err != nil {
+			return err
 		}
-	}
-	return ""
+		if backendSkipped {
+			skipped = append(skipped, backendID)
+		}
+		return nil
+	})
+	return skipped, err
 }

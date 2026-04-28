@@ -170,50 +170,8 @@ var bootstrapCmd = &cobra.Command{
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
-		// Temporarily pin the backend to local for the first-run apply pass. The configured
-		// value is captured first and restored via defer so any panic or early error still
-		// unwinds the in-memory override — guarding against future code in this RunE that
-		// might persist config while the override is active. SaveConfig was called above
-		// with the real backend, so values.yaml on disk is unaffected by this override.
-		ch := proj.Runtime.ConfigHandler
-		originalBackend := ch.GetString("terraform.backend.type", "local")
-		if err := ch.Set("terraform.backend.type", "local"); err != nil {
-			return fmt.Errorf("failed to override backend for bootstrap apply: %w", err)
-		}
-		defer func() {
-			_ = ch.Set("terraform.backend.type", originalBackend)
-		}()
-
-		if _, err := proj.Up(); err != nil {
+		if _, err := proj.Bootstrap(); err != nil {
 			return err
-		}
-
-		// Restore the configured backend before migration so MigrateState reads the real
-		// config. The deferred restore above remains a safety net for any exit path below.
-		// MigrateState is a no-op per component when state is already on the configured
-		// backend, so re-runs (e.g. re-bootstrapping after success) stay safe.
-		if err := ch.Set("terraform.backend.type", originalBackend); err != nil {
-			return fmt.Errorf("failed to restore backend after bootstrap apply: %w", err)
-		}
-		// Intentionally pass the freshly-generated blueprint without a nil guard. If Generate
-		// returns nil here, that's an anomaly (proj.Up just succeeded against a blueprint a
-		// few lines up) and MigrateState's own nil check will surface it as a loud error
-		// rather than silently skipping migration — a skipped migration would leave state on
-		// local disk while the on-disk config points at the real remote backend, a genuinely
-		// wrong outcome that subsequent `windsor apply` runs would discover inconsistently.
-		// Any skipped components at this point also indicate an anomaly: Up errors on missing
-		// dirs, so if it returned nil all dirs should exist. A non-empty skip list means
-		// something removed a component dir between Up and MigrateState — fail loudly with
-		// the IDs so the operator can investigate rather than leave state half-migrated.
-		skipped, err := proj.Provisioner.MigrateState(proj.Composer.BlueprintHandler.Generate())
-		if err != nil {
-			if len(skipped) > 0 {
-				return fmt.Errorf("%w (skipped components before failure: %s)", err, strings.Join(skipped, ", "))
-			}
-			return err
-		}
-		if len(skipped) > 0 {
-			return fmt.Errorf("bootstrap state migration skipped components whose directories were missing after Up: %s", strings.Join(skipped, ", "))
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.GenerateResolved()
