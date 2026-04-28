@@ -47,7 +47,7 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			skipped, err := proj.Provisioner.DestroyAllWithBackendLifecycle(blueprint, false)
+			skipped, err := proj.Provisioner.Teardown(blueprint, false)
 			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
 			if err != nil {
 				return fmt.Errorf("error destroying all components: %w", err)
@@ -81,7 +81,7 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			}
 		}
 		if inTerraform {
-			skipped, err := proj.Provisioner.DestroyTerraformComponentWithBackendLifecycle(blueprint, componentID)
+			skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
 			if err != nil {
 				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 			}
@@ -121,7 +121,7 @@ var destroyTerraformCmd = &cobra.Command{
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			skipped, err := proj.Provisioner.DestroyAllWithBackendLifecycle(blueprint, true)
+			skipped, err := proj.Provisioner.Teardown(blueprint, true)
 			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
 			if err != nil {
 				return fmt.Errorf("error destroying all terraform: %w", err)
@@ -137,7 +137,7 @@ var destroyTerraformCmd = &cobra.Command{
 		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
-		skipped, err := proj.Provisioner.DestroyTerraformComponentWithBackendLifecycle(blueprint, componentID)
+		skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
 		if err != nil {
 			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 		}

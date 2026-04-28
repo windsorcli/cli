@@ -14,6 +14,10 @@ import (
 	"github.com/windsorcli/cli/pkg/workstation"
 )
 
+// =============================================================================
+// Types
+// =============================================================================
+
 // Project orchestrates the setup and initialization of a Windsor project.
 // It coordinates context, provisioner, composer, and workstation managers
 // to provide a unified interface for project initialization and management.
@@ -27,6 +31,10 @@ type Project struct {
 	Workstation       *workstation.Workstation
 	toolRequirements  *tools.Requirements
 }
+
+// =============================================================================
+// Constructor
+// =============================================================================
 
 // NewProject creates and initializes a new Project instance with all required managers.
 // It sets up the execution context, creates provisioner and composer, and creates the
@@ -108,6 +116,10 @@ func NewProject(contextName string, opts ...*Project) *Project {
 		Workstation:   ws,
 	}
 }
+
+// =============================================================================
+// Public Methods
+// =============================================================================
 
 // SetToolRequirements narrows which tool families Initialize will check on this project.
 // When unset, Initialize defaults to AllRequirements — the historical "check everything"
@@ -208,30 +220,15 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 // later configure can use cached credentials; if DNS address comes from Terraform, a prompt may occur later.
 // Returns an error if any step fails.
 func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
-	p.EnsureWorkstation()
-	blueprint := p.Composer.BlueprintHandler.Generate()
-	var onApply func(string) error
-	if p.Workstation != nil {
-		p.Workstation.PrepareForUp(blueprint)
-		if err := p.Workstation.Up(); err != nil {
-			return nil, fmt.Errorf("error starting workstation: %w", err)
-		}
-		if err := p.Workstation.EnsureNetworkPrivilege(); err != nil {
-			return nil, err
-		}
-		onApply = p.Workstation.MakeApplyHook()
-		if postApply := p.Workstation.MakePostApplyHook(); postApply != nil {
-			p.Provisioner.OnTerraformPostApply(postApply)
-		}
-	}
-	if onApply != nil {
-		if err := p.Provisioner.Up(blueprint, onApply); err != nil {
-			return nil, fmt.Errorf("error starting infrastructure: %w", err)
-		}
-	} else if err := p.Provisioner.Up(blueprint); err != nil {
-		return nil, fmt.Errorf("error starting infrastructure: %w", err)
-	}
-	return blueprint, nil
+	return p.runApply(p.Provisioner.Up)
+}
+
+// Bootstrap is Up's first-run sibling: workstation prep runs first (so the
+// backend component's apply has a live cluster on docker/colima/incus), then
+// the provisioner pins backend.type=local for one Up pass and migrates state
+// to the configured remote backend at the end.
+func (p *Project) Bootstrap() (*blueprintv1alpha1.Blueprint, error) {
+	return p.runApply(p.Provisioner.Bootstrap)
 }
 
 // PerformCleanup removes context-specific artifacts: config state and
@@ -267,4 +264,47 @@ func (p *Project) PerformCleanup() error {
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// runApply runs workstation prep then dispatches to a Provisioner Up-style
+// method (Up or Bootstrap), wrapping any error as "error starting infrastructure".
+func (p *Project) runApply(fn func(*blueprintv1alpha1.Blueprint, ...func(string) error) error) (*blueprintv1alpha1.Blueprint, error) {
+	blueprint, onApply, err := p.prepareForApply()
+	if err != nil {
+		return nil, err
+	}
+	var hooks []func(string) error
+	if onApply != nil {
+		hooks = []func(string) error{onApply}
+	}
+	if err := fn(blueprint, hooks...); err != nil {
+		return nil, fmt.Errorf("error starting infrastructure: %w", err)
+	}
+	return blueprint, nil
+}
+
+// prepareForApply runs workstation lifecycle hooks before any terraform applies.
+// Shared by Up and Bootstrap.
+func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(string) error, error) {
+	p.EnsureWorkstation()
+	blueprint := p.Composer.BlueprintHandler.Generate()
+	if p.Workstation == nil {
+		return blueprint, nil, nil
+	}
+	p.Workstation.PrepareForUp(blueprint)
+	if err := p.Workstation.Up(); err != nil {
+		return nil, nil, fmt.Errorf("error starting workstation: %w", err)
+	}
+	if err := p.Workstation.EnsureNetworkPrivilege(); err != nil {
+		return nil, nil, err
+	}
+	onApply := p.Workstation.MakeApplyHook()
+	if postApply := p.Workstation.MakePostApplyHook(); postApply != nil {
+		p.Provisioner.OnTerraformPostApply(postApply)
+	}
+	return blueprint, onApply, nil
 }

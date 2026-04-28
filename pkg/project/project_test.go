@@ -1457,3 +1457,137 @@ func TestProject_Up(t *testing.T) {
 		}
 	})
 }
+
+func TestProject_Bootstrap(t *testing.T) {
+	// Two-phase dance details (override/Apply/restore/Migrate timeline, error
+	// surfacing from Apply or MigrateComponentState) are covered at the provisioner
+	// layer in TestProvisioner_Bootstrap. Tests here exercise what Project owns:
+	// workstation ordering before the provisioner call, and error wrapping.
+
+	t.Run("WorkstationStartsBeforeProvisionerUp", func(t *testing.T) {
+		// Regression guard: docker/colima/incus need the cluster up before any
+		// terraform apply runs (the kubernetes-backend storage lives in that cluster).
+		mocks := setupProjectMocks(t)
+
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(contextName string) bool { return true }
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			switch key {
+			case "terraform.backend.type":
+				return "kubernetes"
+			case "cluster.driver":
+				return "talos"
+			case "workstation.runtime":
+				return "colima"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			return false
+		}
+
+		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
+		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
+			return &v1alpha1.Blueprint{
+				TerraformComponents: []v1alpha1.TerraformComponent{
+					{Path: "backend"},
+					{Path: "workstation"},
+				},
+			}
+		}
+
+		var timeline []string
+
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+			timeline = append(timeline, "up")
+			return nil
+		}
+		mockStack.MigrateStateFunc = func(blueprint *v1alpha1.Blueprint) ([]string, error) {
+			timeline = append(timeline, "migrate")
+			return nil, nil
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+		if err := proj.Configure(nil); err != nil {
+			t.Fatalf("Configure: %v", err)
+		}
+		if proj.Workstation == nil {
+			t.Fatal("Expected Workstation created in dev mode")
+		}
+
+		mockVM := virt.NewMockVirt()
+		mockVM.WriteConfigFunc = func() error { return nil }
+		mockVM.UpFunc = func(verbose ...bool) error {
+			timeline = append(timeline, "workstation_up")
+			return nil
+		}
+		proj.Workstation.VirtualMachine = mockVM
+		proj.Workstation.ContainerRuntime = nil
+		proj.Workstation.NetworkManager = nil
+
+		if _, err := proj.Bootstrap(); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		var workstationIdx, upIdx = -1, -1
+		for i, step := range timeline {
+			if step == "workstation_up" && workstationIdx == -1 {
+				workstationIdx = i
+			}
+			if step == "up" && upIdx == -1 {
+				upIdx = i
+			}
+		}
+		if workstationIdx == -1 {
+			t.Fatalf("Expected Workstation.Up to run, timeline: %v", timeline)
+		}
+		if upIdx == -1 {
+			t.Fatalf("Expected provisioner Up to run, timeline: %v", timeline)
+		}
+		if workstationIdx >= upIdx {
+			t.Errorf("Expected workstation_up before provisioner up, got workstation_up at %d, up at %d (full: %v)", workstationIdx, upIdx, timeline)
+		}
+	})
+
+	t.Run("WrapsProvisionerErrorAsStartingInfrastructure", func(t *testing.T) {
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
+			if key == "terraform.enabled" {
+				return true
+			}
+			return false
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(_ *v1alpha1.Blueprint, _ ...func(id string) error) error {
+			return fmt.Errorf("terraform up failed")
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+
+		_, err := proj.Bootstrap()
+		if err == nil {
+			t.Fatal("Expected error when provisioner errors")
+		}
+		if !strings.Contains(err.Error(), "error starting infrastructure") {
+			t.Errorf("Expected error to be wrapped, got: %v", err)
+		}
+	})
+}
