@@ -13,10 +13,10 @@ import (
 )
 
 // =============================================================================
-// DestroyAllWithBackendLifecycle Tests
+// Teardown Tests
 // =============================================================================
 
-func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
+func TestProvisioner_Teardown(t *testing.T) {
 	t.Run("DestroysNonBackendThenMigratesAndDestroysBackend", func(t *testing.T) {
 		// Given a blueprint that declares both a "backend" and a non-backend
 		// terraform component, and the configured backend is non-local (s3), the
@@ -66,7 +66,7 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.DestroyAllWithBackendLifecycle(bp, true); err != nil {
+		if _, err := provisioner.Teardown(bp, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -135,7 +135,7 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.DestroyAllWithBackendLifecycle(bp, true)
+		_, err := provisioner.Teardown(bp, true)
 
 		if err == nil {
 			t.Fatal("Expected migration error to surface, got nil")
@@ -204,7 +204,7 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		defer func() { os.Stderr = origStderr }()
 
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		_, err := provisioner.DestroyAllWithBackendLifecycle(bp, true)
+		_, err := provisioner.Teardown(bp, true)
 
 		w.Close()
 		stderrBytes, _ := io.ReadAll(r)
@@ -264,7 +264,7 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.DestroyAllWithBackendLifecycle(bp, true); err != nil {
+		if _, err := provisioner.Teardown(bp, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -324,7 +324,7 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.DestroyAllWithBackendLifecycle(createTestBlueprint(), true); err != nil {
+		if _, err := provisioner.Teardown(createTestBlueprint(), true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -383,7 +383,7 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.DestroyAllWithBackendLifecycle(createTestBlueprint(), true)
+		_, err := provisioner.Teardown(createTestBlueprint(), true)
 
 		if err == nil {
 			t.Fatal("Expected migration error to surface, got nil")
@@ -446,7 +446,7 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.DestroyAllWithBackendLifecycle(createTestBlueprint(), true)
+		_, err := provisioner.Teardown(createTestBlueprint(), true)
 
 		if err == nil {
 			t.Fatal("Expected skip-list to surface as a hard error, got nil")
@@ -502,7 +502,7 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.DestroyAllWithBackendLifecycle(createTestBlueprint(), true); err != nil {
+		if _, err := provisioner.Teardown(createTestBlueprint(), true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !destroyAllCalled {
@@ -515,161 +515,147 @@ func TestProvisioner_DestroyAllWithBackendLifecycle(t *testing.T) {
 }
 
 // =============================================================================
-// DestroyTerraformComponentWithBackendLifecycle Tests
+// TeardownComponent Tests
 // =============================================================================
 
-func TestProvisioner_DestroyTerraformComponentWithBackendLifecycle(t *testing.T) {
-	t.Run("MigratesAndDestroysBackendComponentOnS3", func(t *testing.T) {
-		// Given the configured backend is s3 and the operator targets the backend
-		// component itself, its state must be migrated to local before destroy —
-		// destroying the bucket against the bucket's own remote state is a chicken-
-		// and-egg failure.
-		mocks := setupProvisionerMocks(t)
-		bp := &blueprintv1alpha1.Blueprint{
+func TestProvisioner_TeardownComponent(t *testing.T) {
+	bpWithBackend := func() *blueprintv1alpha1.Blueprint {
+		return &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
 				{Path: "cluster"},
 			},
 		}
-		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "s3"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		var ops []string
-		mockCH.SetFunc = func(key string, value any) error {
-			if key == "terraform.backend.type" {
-				ops = append(ops, fmt.Sprintf("set:%v", value))
-			}
-			return nil
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) error {
-			ops = append(ops, fmt.Sprintf("migrate:%s", componentID))
-			return nil
-		}
-		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-			ops = append(ops, fmt.Sprintf("destroy:%s", componentID))
-			return false, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+	}
 
-		if _, err := provisioner.DestroyTerraformComponentWithBackendLifecycle(bp, "backend"); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
+	t.Run("RefusesBackendComponentOnAnyRemoteBackend", func(t *testing.T) {
+		// Targeting the backend component on any remote backend would orphan
+		// state for every other component — the bucket/cluster is the state
+		// store. Refusal applies symmetrically to kubernetes, s3, and azurerm;
+		// operator must use full-cycle `windsor destroy`.
+		for _, backendType := range []string{"kubernetes", "s3", "azurerm"} {
+			t.Run(backendType, func(t *testing.T) {
+				mocks := setupProvisionerMocks(t)
+				mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+				mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+					if key == "terraform.backend.type" {
+						return backendType
+					}
+					if len(defaultValue) > 0 {
+						return defaultValue[0]
+					}
+					return ""
+				}
+				destroyCalled := false
+				mockStack := terraforminfra.NewMockStack()
+				mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+					destroyCalled = true
+					return false, nil
+				}
+				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		expected := []string{"set:local", "migrate:backend", "destroy:backend", "set:s3"}
-		if len(ops) != len(expected) {
-			t.Fatalf("Expected %d ops %v, got %d %v", len(expected), expected, len(ops), ops)
-		}
-		for i, want := range expected {
-			if ops[i] != want {
-				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
-			}
+				_, err := provisioner.TeardownComponent(bpWithBackend(), "backend")
+				if err == nil {
+					t.Fatal("Expected refusal error, got nil")
+				}
+				if !strings.Contains(err.Error(), "cannot destroy the "+backendType+" backend") {
+					t.Errorf("Expected refusal message naming %s, got: %v", backendType, err)
+				}
+				if !strings.Contains(err.Error(), "windsor destroy") {
+					t.Errorf("Expected error to point at full-cycle teardown, got: %v", err)
+				}
+				if destroyCalled {
+					t.Error("Expected Destroy NOT to be called when refusing")
+				}
+			})
 		}
 	})
 
-	t.Run("NonBackendComponentOnS3UsesDirectDestroy", func(t *testing.T) {
-		// Given the configured backend is s3 and the operator targets a non-
-		// backend component, destroy runs directly against the live remote backend
-		// — no migration needed, the bucket still exists.
-		mocks := setupProvisionerMocks(t)
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "backend"},
-				{Path: "cluster"},
-			},
-		}
-		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "s3"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		setCalled := false
-		mockCH.SetFunc = func(_ string, _ any) error {
-			setCalled = true
-			return nil
-		}
-		migrateCalled := false
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
-			migrateCalled = true
-			return nil
-		}
-		destroyCalled := false
-		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-			destroyCalled = true
-			if componentID != "cluster" {
-				t.Errorf("Expected destroy for cluster, got %s", componentID)
-			}
-			return false, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-
-		if _, err := provisioner.DestroyTerraformComponentWithBackendLifecycle(bp, "cluster"); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-
-		if !destroyCalled {
-			t.Error("Expected Destroy to be called")
-		}
-		if migrateCalled {
-			t.Error("Expected MigrateComponentState NOT to run for non-backend component on s3")
-		}
-		if setCalled {
-			t.Error("Expected backend.type Set to NOT be called for non-backend component on s3")
-		}
-	})
-
-	t.Run("KubernetesBackendUsesDirectDestroy", func(t *testing.T) {
-		// Given a kubernetes-configured backend, single-component destroy is a
-		// direct call — the cluster (and its Secret-backed state store) is still
-		// alive, and the full-cycle dance is reserved for bulk destroy when the
-		// cluster itself is going away.
+	t.Run("AllowsBackendComponentOnLocalBackend", func(t *testing.T) {
+		// Local backend has no shared bucket/cluster; destroying the "backend"
+		// component (whatever it is, since there is no remote storage tied to
+		// it) is just a plain destroy.
 		mocks := setupProvisionerMocks(t)
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
-				return "kubernetes"
+				return "local"
 			}
 			if len(defaultValue) > 0 {
 				return defaultValue[0]
 			}
 			return ""
 		}
-		setCalled := false
-		mockCH.SetFunc = func(_ string, _ any) error {
-			setCalled = true
-			return nil
-		}
-		mockStack := terraforminfra.NewMockStack()
 		destroyCalled := false
-		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 			destroyCalled = true
+			if componentID != "backend" {
+				t.Errorf("Expected destroy for backend, got %s", componentID)
+			}
 			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.DestroyTerraformComponentWithBackendLifecycle(createTestBlueprint(), "remote/path"); err != nil {
+		if _, err := provisioner.TeardownComponent(bpWithBackend(), "backend"); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if !destroyCalled {
-			t.Error("Expected direct Destroy on kubernetes path")
+			t.Error("Expected Destroy to be called on local backend")
 		}
-		if setCalled {
-			t.Error("Expected backend.type Set to NOT be called on kubernetes path for single-component destroy")
+	})
+
+	t.Run("NonBackendComponentUsesDirectDestroy", func(t *testing.T) {
+		// Non-backend components destroy directly regardless of backend type —
+		// the bucket/cluster still exists, no migration needed.
+		for _, backendType := range []string{"local", "kubernetes", "s3", "azurerm"} {
+			t.Run(backendType, func(t *testing.T) {
+				mocks := setupProvisionerMocks(t)
+				mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+				mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+					if key == "terraform.backend.type" {
+						return backendType
+					}
+					if len(defaultValue) > 0 {
+						return defaultValue[0]
+					}
+					return ""
+				}
+				setCalled := false
+				mockCH.SetFunc = func(_ string, _ any) error {
+					setCalled = true
+					return nil
+				}
+				migrateCalled := false
+				mockStack := terraforminfra.NewMockStack()
+				mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+					migrateCalled = true
+					return nil
+				}
+				destroyCalled := false
+				mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+					destroyCalled = true
+					if componentID != "cluster" {
+						t.Errorf("Expected destroy for cluster, got %s", componentID)
+					}
+					return false, nil
+				}
+				provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+				if _, err := provisioner.TeardownComponent(bpWithBackend(), "cluster"); err != nil {
+					t.Fatalf("Expected no error, got %v", err)
+				}
+				if !destroyCalled {
+					t.Error("Expected Destroy to be called")
+				}
+				if migrateCalled {
+					t.Error("Expected MigrateComponentState NOT to be called for non-backend component")
+				}
+				if setCalled {
+					t.Error("Expected backend.type Set NOT to be called for non-backend component")
+				}
+			})
 		}
 	})
 }

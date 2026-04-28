@@ -2825,6 +2825,52 @@ func TestTerraformComponent_IsBackend(t *testing.T) {
 	})
 }
 
+func TestBlueprint_BackendComponentID(t *testing.T) {
+	t.Run("ReturnsBackendIDWhenPresent", func(t *testing.T) {
+		bp := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{Path: "backend"},
+				{Path: "vpc"},
+				{Path: "cluster"},
+			},
+		}
+		if got := bp.BackendComponentID(); got != "backend" {
+			t.Errorf("Expected \"backend\", got %q", got)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenNoBackendComponent", func(t *testing.T) {
+		bp := &Blueprint{
+			TerraformComponents: []TerraformComponent{
+				{Path: "vpc"},
+				{Path: "cluster"},
+			},
+		}
+		if got := bp.BackendComponentID(); got != "" {
+			t.Errorf("Expected empty string, got %q", got)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenNilBlueprint", func(t *testing.T) {
+		var bp *Blueprint
+		if got := bp.BackendComponentID(); got != "" {
+			t.Errorf("Expected empty string, got %q", got)
+		}
+	})
+
+	t.Run("ResolvesNestedAndNamedBackend", func(t *testing.T) {
+		for _, c := range []TerraformComponent{
+			{Path: "terraform/backend"},
+			{Name: "backend", Path: "modules/s3-backend"},
+		} {
+			bp := &Blueprint{TerraformComponents: []TerraformComponent{{Path: "vpc"}, c}}
+			if got := bp.BackendComponentID(); got != c.GetID() {
+				t.Errorf("Expected %q for component %#v, got %q", c.GetID(), c, got)
+			}
+		}
+	})
+}
+
 func TestKustomization_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		interval := DurationString{Duration: 5 * time.Minute}
