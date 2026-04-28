@@ -235,56 +235,6 @@ func TestMockKubernetesManager_GetHelmReleasesForKustomization(t *testing.T) {
 	})
 }
 
-func TestMockKubernetesManager_SuspendKustomization(t *testing.T) {
-	setup := func(t *testing.T) *MockKubernetesManager {
-		t.Helper()
-		return NewMockKubernetesManager()
-	}
-	name, ns := "n", "ns"
-
-	t.Run("FuncSet", func(t *testing.T) {
-		manager := setup(t)
-		manager.SuspendKustomizationFunc = func(n, ns string) error { return fmt.Errorf("err") }
-		err := manager.SuspendKustomization(name, ns)
-		if err == nil || err.Error() != "err" {
-			t.Errorf("Expected error 'err', got %v", err)
-		}
-	})
-
-	t.Run("FuncNotSet", func(t *testing.T) {
-		manager := setup(t)
-		err := manager.SuspendKustomization(name, ns)
-		if err != nil {
-			t.Errorf("Expected nil, got %v", err)
-		}
-	})
-}
-
-func TestMockKubernetesManager_SuspendHelmRelease(t *testing.T) {
-	setup := func(t *testing.T) *MockKubernetesManager {
-		t.Helper()
-		return NewMockKubernetesManager()
-	}
-	name, ns := "n", "ns"
-
-	t.Run("FuncSet", func(t *testing.T) {
-		manager := setup(t)
-		manager.SuspendHelmReleaseFunc = func(n, ns string) error { return fmt.Errorf("err") }
-		err := manager.SuspendHelmRelease(name, ns)
-		if err == nil || err.Error() != "err" {
-			t.Errorf("Expected error 'err', got %v", err)
-		}
-	})
-
-	t.Run("FuncNotSet", func(t *testing.T) {
-		manager := setup(t)
-		err := manager.SuspendHelmRelease(name, ns)
-		if err != nil {
-			t.Errorf("Expected nil, got %v", err)
-		}
-	})
-}
-
 func TestMockKubernetesManager_ApplyGitRepository(t *testing.T) {
 	setup := func(t *testing.T) *MockKubernetesManager {
 		t.Helper()

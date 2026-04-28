@@ -539,9 +539,6 @@ type Kustomization struct {
 	// Components to include in the kustomization.
 	Components []string `yaml:"components,omitempty"`
 
-	// Cleanup lists resources to clean up after the kustomization is applied.
-	Cleanup []string `yaml:"cleanup,omitempty"`
-
 	// Destroy determines if the kustomization should be destroyed during down operations.
 	// Defaults to true if not specified.
 	// Supports expressions in facets: use "${cluster.destroy ?? true}" for dynamic values.
@@ -839,12 +836,6 @@ func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 				})
 			}
 
-			if len(removal.Cleanup) > 0 {
-				existing.Cleanup = slices.DeleteFunc(existing.Cleanup, func(cleanup string) bool {
-					return slices.Contains(removal.Cleanup, cleanup)
-				})
-			}
-
 			if len(removal.Patches) > 0 {
 				existing.Patches = slices.DeleteFunc(existing.Patches, func(patch BlueprintPatch) bool {
 					for _, removalPatch := range removal.Patches {
@@ -900,7 +891,6 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Force:               k.Force,
 		Prune:               k.Prune,
 		Components:          slices.Clone(k.Components),
-		Cleanup:             slices.Clone(k.Cleanup),
 		Destroy:             destroyCopy,
 		DestroyOnly:         k.DestroyOnly,
 		Enabled:             enabledCopy,

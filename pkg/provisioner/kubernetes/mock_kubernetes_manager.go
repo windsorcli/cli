@@ -27,8 +27,6 @@ type MockKubernetesManager struct {
 	DeleteNamespaceFunc                 func(name string) error
 	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
 	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]helmv2.HelmRelease, error)
-	SuspendKustomizationFunc            func(name, namespace string) error
-	SuspendHelmReleaseFunc              func(name, namespace string) error
 	ApplyGitRepositoryFunc              func(repo *sourcev1.GitRepository) error
 	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
 	CheckGitRepositoryStatusFunc        func() error
@@ -114,22 +112,6 @@ func (m *MockKubernetesManager) GetHelmReleasesForKustomization(name, namespace 
 		return m.GetHelmReleasesForKustomizationFunc(name, namespace)
 	}
 	return nil, nil
-}
-
-// SuspendKustomization implements KubernetesManager interface
-func (m *MockKubernetesManager) SuspendKustomization(name, namespace string) error {
-	if m.SuspendKustomizationFunc != nil {
-		return m.SuspendKustomizationFunc(name, namespace)
-	}
-	return nil
-}
-
-// SuspendHelmRelease implements KubernetesManager interface
-func (m *MockKubernetesManager) SuspendHelmRelease(name, namespace string) error {
-	if m.SuspendHelmReleaseFunc != nil {
-		return m.SuspendHelmReleaseFunc(name, namespace)
-	}
-	return nil
 }
 
 // ApplyGitRepository implements KubernetesManager interface

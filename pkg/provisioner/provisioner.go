@@ -372,7 +372,7 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 		return fmt.Errorf("kustomization %q not found in blueprint", componentID)
 	}
 
-	if err := tui.WithProgress(fmt.Sprintf("Deleting kustomization %s", componentID), func() error {
+	if err := tui.WithProgress(fmt.Sprintf("Destroying kustomization %s", componentID), func() error {
 		return i.KubernetesManager.DeleteKustomization(componentID, i.fluxNamespace())
 	}); err != nil {
 		return fmt.Errorf("failed to delete kustomization %s: %w", componentID, err)
@@ -733,9 +733,12 @@ func (i *Provisioner) Wait(blueprint *blueprintv1alpha1.Blueprint) error {
 }
 
 // Uninstall orchestrates the high-level kustomization teardown process from the blueprint.
-// It initializes the kubernetes manager and deletes all blueprint kustomizations, including
-// handling cleanup kustomizations. The blueprint must be provided as a parameter.
-// Returns an error if any step fails.
+// It initializes the kubernetes manager and deletes all blueprint kustomizations.
+// DeleteBlueprint emits its own per-Kustomization progress (Start/Done/Fail spinners),
+// so this method does not wrap the call in WithProgress — doing so would suppress the
+// inner per-Kustomization output and produce a single opaque "Removing blueprint
+// resources" line that hides the long per-Kustomization waits inherent to
+// WaitForTermination-driven teardown.
 func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -745,9 +748,7 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	if err := tui.WithProgress("Removing blueprint resources", func() error {
-		return i.KubernetesManager.DeleteBlueprint(blueprint, i.fluxNamespace())
-	}); err != nil {
+	if err := i.KubernetesManager.DeleteBlueprint(blueprint, i.fluxNamespace()); err != nil {
 		return fmt.Errorf("failed to delete blueprint: %w", err)
 	}
 
