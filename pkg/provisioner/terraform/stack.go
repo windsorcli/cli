@@ -795,11 +795,12 @@ func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Bluep
 
 // BackendReachable reports whether the configured remote backend's underlying
 // resource (s3 bucket, kubernetes secret, azurerm container, etc.) is reachable.
-// It runs `terraform init -backend=true -input=false` in a scratch directory
-// containing only a minimal main.tf that declares the configured backend, with
-// the same `-backend-config` args bootstrap will use. Init exits 0 only when
-// terraform can successfully connect to and read from the backend; init exits
-// non-zero when the backend resource doesn't exist.
+// It runs `terraform init -input=false` in a scratch directory containing only
+// a minimal main.tf that declares the configured backend, with the same
+// `-backend-config` args bootstrap will use. Backend init is terraform's
+// default, so no explicit `-backend=true` flag is needed. Init exits 0 only
+// when terraform can successfully connect to and read from the backend; init
+// exits non-zero when the backend resource doesn't exist.
 //
 // The probe is the deterministic signal that lets Bootstrap branch between the
 // fresh-install local-state path and the already-bootstrapped configured-backend
