@@ -60,6 +60,12 @@ type TerraformStack struct {
 // exists for the component in the configured backend — the component has never been
 // applied. Err is non-nil when the component's init or plan step failed; subsequent
 // layers may still be attempted.
+//
+// IsNew supersedes the count fields: when IsNew is true, terraform plan is not
+// executed (it would either misreport "all creates" or fail reading dependent
+// upstream state), so Add/Change/Destroy are zero and NoChanges is false. JSON
+// consumers detecting "pending work" must check IsNew alongside the counts —
+// `IsNew || Add+Change+Destroy > 0` rather than counts alone.
 type TerraformComponentPlan struct {
 	ComponentID string
 	Path        string

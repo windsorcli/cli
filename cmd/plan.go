@@ -309,6 +309,12 @@ func printPlanSummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPl
 }
 
 // printPlanSummaryJSON encodes the plan results as JSON to w.
+//
+// is_new supersedes the count fields: when is_new is true the component has no
+// state in the configured backend, terraform plan is not executed, and add/
+// change/destroy/no_changes are zero/false. Consumers detecting "pending work"
+// from this output must check is_new alongside the counts — using add+change+
+// destroy>0 alone will silently miss never-applied components.
 func printPlanSummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan) error {
 	type tfRow struct {
 		Component string `json:"component"`
