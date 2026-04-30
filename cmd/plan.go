@@ -251,8 +251,8 @@ func init() {
 func printPlanSummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan, hints []string, noColor bool) {
 	nameWidth := 20
 	for _, p := range tfPlans {
-		if len(p.ComponentID) > nameWidth {
-			nameWidth = len(p.ComponentID)
+		if n := len(terraformDisplayName(p)); n > nameWidth {
+			nameWidth = n
 		}
 	}
 	for _, p := range k8sPlans {
@@ -268,7 +268,7 @@ func printPlanSummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPl
 	if len(tfPlans) > 0 {
 		fmt.Fprintln(w, "\nTerraform")
 		for _, p := range tfPlans {
-			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, p.ComponentID, formatTerraformPlan(p, noColor))
+			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, terraformDisplayName(p), formatTerraformPlan(p, noColor))
 			if p.Err != nil {
 				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
 				for _, line := range lines[1:] {
@@ -312,10 +312,12 @@ func printPlanSummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPl
 func printPlanSummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan) error {
 	type tfRow struct {
 		Component string `json:"component"`
+		Path      string `json:"path,omitempty"`
 		Add       int    `json:"add"`
 		Change    int    `json:"change"`
 		Destroy   int    `json:"destroy"`
 		NoChanges bool   `json:"no_changes"`
+		IsNew     bool   `json:"is_new"`
 		Error     string `json:"error,omitempty"`
 	}
 	type k8sRow struct {
@@ -333,7 +335,15 @@ func printPlanSummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformCompone
 
 	out := output{}
 	for _, p := range tfPlans {
-		row := tfRow{Component: p.ComponentID, Add: p.Add, Change: p.Change, Destroy: p.Destroy, NoChanges: p.NoChanges}
+		row := tfRow{
+			Component: p.ComponentID,
+			Path:      p.Path,
+			Add:       p.Add,
+			Change:    p.Change,
+			Destroy:   p.Destroy,
+			NoChanges: p.NoChanges,
+			IsNew:     p.IsNew,
+		}
 		if p.Err != nil {
 			row.Error = p.Err.Error()
 		}
@@ -391,7 +401,20 @@ func truncateFirstLine(s string) string {
 	return s
 }
 
+// terraformDisplayName returns the identifier shown to the operator for a Terraform
+// component row. The blueprint Path (e.g., "cluster/aws-eks") locates the underlying
+// module and is more informative than the short ComponentID alias (e.g., "cluster"),
+// so it's preferred when set; ComponentID is used as the fallback.
+func terraformDisplayName(p terraforminfra.TerraformComponentPlan) string {
+	if p.Path != "" {
+		return p.Path
+	}
+	return p.ComponentID
+}
+
 // formatTerraformPlan returns a concise human-readable status string for one Terraform component.
+// IsNew (no state in the configured backend) renders as "(new)" without counts because plan was
+// not run.
 func formatTerraformPlan(p terraforminfra.TerraformComponentPlan, noColor bool) string {
 	if p.Err != nil {
 		msg := truncateFirstLine(p.Err.Error())
@@ -399,6 +422,12 @@ func formatTerraformPlan(p terraforminfra.TerraformComponentPlan, noColor bool) 
 			return fmt.Sprintf("(error: %s)", msg)
 		}
 		return fmt.Sprintf("\033[31m(error: %s)\033[0m", msg)
+	}
+	if p.IsNew {
+		if noColor {
+			return "(new)"
+		}
+		return "\033[36m(new)\033[0m"
 	}
 	if p.NoChanges || (p.Add == 0 && p.Change == 0 && p.Destroy == 0) {
 		return "(no changes)"
@@ -425,13 +454,15 @@ func formatKustomizePlan(p fluxinfra.KustomizePlan, noColor bool) string {
 		return "(existing)"
 	}
 	if p.IsNew {
-		if p.Added == 0 {
-			return "(new — empty)"
-		}
+		// The kustomize-build resource count for a brand-new kustomization is
+		// rarely the count actually applied (Flux may dedupe, skip, or reconcile
+		// asynchronously), and showing "+N resources" alongside terraform's bare
+		// "(new)" is visually inconsistent. Both layers report "(new)" for the
+		// same condition: nothing exists yet.
 		if noColor {
-			return fmt.Sprintf("+%d resources  (new)", p.Added)
+			return "(new)"
 		}
-		return fmt.Sprintf("\033[32m+%d resources\033[0m  (new)", p.Added)
+		return "\033[36m(new)\033[0m"
 	}
 	if p.Added == 0 && p.Removed == 0 {
 		return "(no changes)"

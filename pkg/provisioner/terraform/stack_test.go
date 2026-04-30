@@ -1571,6 +1571,9 @@ func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 		// Given a shell that returns a plan output with counts
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
 				return "Plan: 2 to add, 1 to change, 0 to destroy.\n", nil
 			}
@@ -3159,6 +3162,9 @@ func TestStack_PlanSummary(t *testing.T) {
 		// Given a shell that returns a terraform plan line with counts
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
 				return "Plan: 5 to add, 3 to change, 1 to destroy.\n", nil
 			}
@@ -3188,6 +3194,9 @@ func TestStack_PlanSummary(t *testing.T) {
 		// Given a shell that returns a "No changes." line
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
 				return "No changes. Infrastructure is up-to-date.\n", nil
 			}
@@ -3260,6 +3269,9 @@ func TestStack_PlanSummary(t *testing.T) {
 		// Given a shell that returns an error on terraform plan
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("plan failed")
 			}
@@ -3288,6 +3300,9 @@ func TestStack_PlanSummary(t *testing.T) {
 		// When PlanSummary is called, capture the env passed to terraform plan
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
 				capturedEnv = env
 			}
@@ -3302,6 +3317,94 @@ func TestStack_PlanSummary(t *testing.T) {
 		}
 		if capturedEnv["TF_VAR_operation"] != "apply" {
 			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
+		}
+	})
+
+	t.Run("MarksComponentNewWhenStateIsEmpty", func(t *testing.T) {
+		// `terraform show -json` returns "{}" when the configured backend has
+		// no state object for this component. The component has never been
+		// applied — IsNew is the truth and running plan would either show a
+		// misleading "all creates" or fail reading dependent layers via
+		// terraform_remote_state.
+		stack, mocks := setup(t)
+		var planCalled bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return "{}", nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				planCalled = true
+			}
+			return "", nil
+		}
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if !r.IsNew {
+				t.Errorf("expected IsNew=true for %q, got false", r.ComponentID)
+			}
+			if r.Err != nil {
+				t.Errorf("expected no error for %q, got %v", r.ComponentID, r.Err)
+			}
+		}
+		if planCalled {
+			t.Error("plan must not be invoked when state is empty")
+		}
+	})
+
+	t.Run("PropagatesStateProbeError", func(t *testing.T) {
+		// `terraform show -json` failures (e.g., transient backend connectivity
+		// or invalid credentials) are real errors — silently classifying as
+		// IsNew would hide them.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return "", fmt.Errorf("backend timeout")
+			}
+			return "", nil
+		}
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if r.Err == nil {
+				t.Errorf("expected state-probe error for %q, got nil", r.ComponentID)
+			}
+			if r.IsNew {
+				t.Errorf("expected IsNew=false for %q on state-probe failure, got true", r.ComponentID)
+			}
+		}
+	})
+
+	t.Run("PopulatesPathFromComponent", func(t *testing.T) {
+		// The blueprint Path (e.g., "cluster/aws-eks") locates the underlying
+		// module and is more informative than the short ComponentID alias for
+		// renderers. PlanSummary copies it into each result so callers don't
+		// need to re-resolve components.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return "{}", nil
+			}
+			return "", nil
+		}
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if r.Path == "" {
+				t.Errorf("expected Path to be populated for %q, got empty", r.ComponentID)
+			}
 		}
 	})
 }
