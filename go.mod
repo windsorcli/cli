@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/1password/onepassword-sdk-go v0.3.1
-	github.com/Masterminds/semver/v3 v3.4.0
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/abiosoft/colima v0.10.1
 	github.com/briandowns/spinner v1.23.2
 	github.com/expr-lang/expr v1.17.8
