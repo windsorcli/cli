@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -112,6 +113,7 @@ type Stack interface {
 	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	BackendReachable(blueprint *blueprintv1alpha1.Blueprint) bool
 }
 
 // =============================================================================
@@ -511,6 +513,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 		if componentSkipped {
 			skipped = append(skipped, component.GetID())
 		}
+		s.clearBackendPointer(terraformVars)
 	}
 
 	return skipped, nil
@@ -729,6 +732,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 	}); err != nil {
 		return false, err
 	}
+	s.clearBackendPointer(terraformVars)
 
 	return skipped, nil
 }
@@ -787,6 +791,66 @@ func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Bluep
 	}
 
 	return s.planOneTerraformSummary(component)
+}
+
+// BackendReachable reports whether the configured remote backend's underlying
+// resource (s3 bucket, kubernetes secret, azurerm container, etc.) is reachable.
+// It runs `terraform init -backend=true -input=false` in a scratch directory
+// containing only a minimal main.tf that declares the configured backend, with
+// the same `-backend-config` args bootstrap will use. Init exits 0 only when
+// terraform can successfully connect to and read from the backend; init exits
+// non-zero when the backend resource doesn't exist.
+//
+// The probe is the deterministic signal that lets Bootstrap branch between the
+// fresh-install local-state path and the already-bootstrapped configured-backend
+// path. It is idempotent and machine-agnostic — every operator with credentials
+// observes the same answer because the signal is the existence of the cloud
+// resource itself, not anything in the operator's local filesystem.
+//
+// Returns false when the blueprint has no backend component, when the configured
+// backend is local/none/empty (no remote resource to probe), or when any step of
+// the probe (scratch dir creation, args generation, file write, init exec) fails.
+func (s *TerraformStack) BackendReachable(blueprint *blueprintv1alpha1.Blueprint) bool {
+	if blueprint == nil {
+		return false
+	}
+	backendID := blueprint.BackendComponentID()
+	if backendID == "" {
+		return false
+	}
+	backendType := s.runtime.ConfigHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" || backendType == "none" {
+		return false
+	}
+
+	args, err := s.runtime.TerraformProvider.GenerateTerraformArgs(backendID, false)
+	if err != nil {
+		return false
+	}
+
+	scratchDir, err := s.shims.MkdirTemp("", "windsor-backend-probe-")
+	if err != nil {
+		return false
+	}
+	defer s.shims.RemoveAll(scratchDir)
+
+	mainTF := fmt.Sprintf("terraform {\n  backend %q {}\n}\n", backendType)
+	if err := s.shims.WriteFile(filepath.Join(scratchDir, "main.tf"), []byte(mainTF), 0644); err != nil {
+		return false
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	initArgs := []string{
+		fmt.Sprintf("-chdir=%s", scratchDir),
+		"init",
+		"-input=false",
+	}
+	initArgs = append(initArgs, args.InitArgs...)
+
+	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, nil, initArgs...); err != nil {
+		return false
+	}
+	return true
 }
 
 // =============================================================================
@@ -902,6 +966,37 @@ func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.Terr
 		return fmt.Errorf("error refreshing terraform state for %s: %w", component.Path, err)
 	}
 	return nil
+}
+
+// backendPointerPath returns the per-component backend pointer file path — the
+// JSON stub terraform writes to $TF_DATA_DIR/terraform.tfstate after init to
+// record which backend is currently in use. Returns empty when TF_DATA_DIR is
+// unset, signalling callers should skip pointer-related operations entirely.
+// Centralising the path here keeps clearBackendPointer and clearStaleBackendPointer
+// from drifting if terraform changes the pointer's filename or location.
+func (s *TerraformStack) backendPointerPath(terraformVars map[string]string) string {
+	tfDataDir := terraformVars["TF_DATA_DIR"]
+	if tfDataDir == "" {
+		return ""
+	}
+	return filepath.Join(tfDataDir, "terraform.tfstate")
+}
+
+// clearBackendPointer removes the per-component backend pointer file (the file
+// terraform writes to TF_DATA_DIR after init to record which backend is
+// currently in use). After destroy completes, the remote backend resource it
+// points at may itself have been torn down, leaving the pointer stale —
+// subsequent init then complains "backend changed" against a backend that no
+// longer exists. Removing only the pointer (terraform.tfstate inside
+// TF_DATA_DIR) leaves provider plugins, module cache, and lockfiles in place
+// so the next init is fast. Errors are ignored: cleanup is best-effort and a
+// failure here must not undo a successful destroy.
+func (s *TerraformStack) clearBackendPointer(terraformVars map[string]string) {
+	pointerPath := s.backendPointerPath(terraformVars)
+	if pointerPath == "" {
+		return
+	}
+	_ = s.shims.Remove(pointerPath)
 }
 
 // hasStateResources reports whether the component's state contains any resources at any
@@ -1130,7 +1225,18 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 // (e.g. "-migrate-state") immediately after the "init" subcommand and before the argument set
 // generated by the terraform provider. Returning a wrapped error keeps command-construction in
 // one place so the Up path and the MigrateState path can't drift.
+//
+// Before init runs, any backend pointer file (TF_DATA_DIR/terraform.tfstate) that records a
+// backend type different from the currently-configured one is removed — except on the
+// -migrate-state path, which intentionally compares old vs new and needs the pointer in
+// place. This cleans up after raw `terraform init` / `terraform test` runs that landed a
+// stale "current backend = local" pointer (via a committed backend_override.tf), so windsor
+// doesn't re-trigger terraform's "Prior to changing backends..." migration prompt and fail
+// when the new backend's resource doesn't exist yet.
 func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
+	if !slices.Contains(extraFlags, "-migrate-state") {
+		s.clearStaleBackendPointer(terraformVars)
+	}
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 	initArgs = append(initArgs, extraFlags...)
@@ -1141,6 +1247,52 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 	}
 	return nil
+}
+
+// clearStaleBackendPointer removes the per-component backend pointer file when it records a
+// backend type different from the one currently configured for windsor. The pointer is the
+// JSON file terraform writes to TF_DATA_DIR after init describing which backend is in use;
+// when it disagrees with the configured backend, terraform's next init treats the disagreement
+// as a migration request and demands `-migrate-state` or `-reconfigure`, which fails when the
+// new backend's resource doesn't exist yet (the chicken-and-egg windsor's bootstrap solves
+// via a separate path).
+//
+// Triggers for staleness:
+//   - The repo carries a committed backend_override.tf for `terraform test` against local
+//     state, then a fresh `terraform init` writes a "local" pointer that windsor sees on its
+//     next run with an s3-configured backend.
+//   - The operator changed terraform.backend.type in values.yaml between windsor runs.
+//
+// All paths boil down to "the pointer disagrees with what windsor will configure now," and
+// the right answer is to discard the pointer and let init set up the configured backend
+// fresh. State migration is owned by the explicit `-migrate-state` path (used by
+// MigrateState) — bypassed here because that caller passes the flag through extraFlags.
+//
+// Errors are best-effort: if the pointer can't be read or removed, init runs anyway and
+// surfaces the underlying issue. Unparseable pointer files are removed as well, since they
+// can only block init.
+func (s *TerraformStack) clearStaleBackendPointer(terraformVars map[string]string) {
+	pointerPath := s.backendPointerPath(terraformVars)
+	if pointerPath == "" {
+		return
+	}
+	data, err := s.shims.ReadFile(pointerPath)
+	if err != nil {
+		return
+	}
+	var pointer struct {
+		Backend struct {
+			Type string `json:"type"`
+		} `json:"backend"`
+	}
+	if err := json.Unmarshal(data, &pointer); err != nil {
+		_ = s.shims.Remove(pointerPath)
+		return
+	}
+	configuredBackend := s.runtime.ConfigHandler.GetString("terraform.backend.type", "local")
+	if pointer.Backend.Type != "" && pointer.Backend.Type != configuredBackend {
+		_ = s.shims.Remove(pointerPath)
+	}
 }
 
 // setupTerraformEnvironment computes Terraform-specific environment values and args for a component.

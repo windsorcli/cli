@@ -84,6 +84,37 @@ func TestBootstrap_PersistsSetValues(t *testing.T) {
 	}
 }
 
+// TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined verifies the global-mode
+// plan-confirm prompt: bootstrap run from a directory without a windsor.yaml falls
+// back to global mode, prints a plan, and prompts to apply. Empty stdin (non-
+// interactive without --yes) is treated as "no" and exits cleanly — the context
+// has already been configured by this point, so declining the apply is a valid
+// no-op rather than a failure exit.
+func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	env := []string{
+		"HOME=" + homeDir,
+		"USERPROFILE=" + homeDir,
+		"PATH=" + os.Getenv("PATH"),
+	}
+	stdout, stderr, err := helpers.RunCLI(workDir, []string{"bootstrap", "--platform", "metal"}, env)
+	if err != nil {
+		t.Fatalf("expected clean exit when plan-confirm is declined, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	if !strings.Contains(string(stderr), "Apply skipped") {
+		t.Errorf("expected stderr to mention apply was skipped, got: %s", stderr)
+	}
+	// Side effect: the global config dir must have been materialized as part of
+	// falling back to global mode, confirming the global-mode codepath was hit
+	// and the context was configured before the prompt fired.
+	globalDir := filepath.Join(homeDir, ".config", "windsor")
+	if _, statErr := os.Stat(globalDir); os.IsNotExist(statErr) {
+		t.Errorf("expected global config dir at %s, not found (global-mode fallback never triggered)", globalDir)
+	}
+}
+
 // TestBootstrap_WritesContextFileOnFirstRun verifies the positional context arg
 // persists to .windsor/context even when bootstrap later fails at the install
 // step. Users on other machines need this file to resolve the same context,

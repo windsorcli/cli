@@ -11,8 +11,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
+	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // =============================================================================
@@ -51,8 +53,8 @@ var (
 // (values.yaml) is never mutated during the override window.
 var bootstrapCmd = &cobra.Command{
 	Use:          "bootstrap [context]",
-	Short:        "Bootstrap a fresh Windsor environment end-to-end",
-	Long:         "Bootstrap a fresh Windsor environment: configure the project, apply terraform with local state first, migrate state to the configured remote backend, install the blueprint, and wait for kustomizations to be ready.",
+	Short:        "Bootstrap a fresh environment end-to-end",
+	Long:         "First-run setup for a context: applies Terraform, installs the Flux blueprint, and migrates state to the configured remote backend. Use `windsor apply` for everything after.",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -170,8 +172,20 @@ var bootstrapCmd = &cobra.Command{
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
-		if _, err := proj.Bootstrap(); err != nil {
+		var confirmFn provisioner.BootstrapConfirmFn
+		finishPlan := func(error) {}
+		if proj.Runtime.Global && !bootstrapYes {
+			confirmFn, finishPlan = makeBootstrapConfirmFn(cmd.InOrStdin(), os.Stderr)
+		}
+
+		_, applied, err := proj.Bootstrap(confirmFn)
+		finishPlan(err)
+		if err != nil {
 			return err
+		}
+		if !applied {
+			fmt.Fprintln(os.Stderr, "Apply skipped. The context is configured — re-run with --yes to apply.")
+			return nil
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.GenerateResolved()
@@ -188,6 +202,46 @@ var bootstrapCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// makeBootstrapConfirmFn builds the plan-confirm callback the provisioner calls
+// after generating the bootstrap plan summary, and returns a finish func that
+// must be called once Bootstrap returns. The pair manages a "Generating plan..."
+// spinner: started here, transitioned to Done from inside the confirm callback
+// when the plan succeeds, or transitioned to Fail by finish when Bootstrap
+// returns an error before the callback fires. finish is a no-op once the
+// spinner has been resolved, so it is always safe to call.
+//
+// Anything other than "y" or "yes" (case-insensitive) at the prompt returns
+// false — including empty input and EOF, so non-interactive callers must pass
+// --yes. Reserved for global mode by the caller; in local project mode the
+// operator has the directory-level cue and can run `windsor plan` separately.
+func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapConfirmFn, func(error)) {
+	tui.Start("Generating plan...")
+	resolved := false
+	confirmFn := func(summary *provisioner.PlanSummary) bool {
+		tui.Done()
+		resolved = true
+		noColor := os.Getenv("NO_COLOR") != ""
+		printPlanSummary(out, summary.Terraform, summary.Kustomize, summary.Hints, noColor)
+		fmt.Fprint(out, "Do you want to apply this now? [y/N]: ")
+		reader := bufio.NewReader(in)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		return answer == "y" || answer == "yes"
+	}
+	finish := func(err error) {
+		if resolved {
+			return
+		}
+		resolved = true
+		if err != nil {
+			tui.Fail()
+		} else {
+			tui.Done()
+		}
+	}
+	return confirmFn, finish
 }
 
 // confirmBootstrapIfContextExists prompts the user to confirm when the context's values.yaml
@@ -220,9 +274,9 @@ func confirmBootstrapIfContextExists(in io.Reader, configRoot, contextName strin
 }
 
 func init() {
-	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp]")
-	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Specify the blueprint (OCI reference) to use")
-	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false")
-	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip the confirmation prompt when re-bootstrapping an existing context")
+	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Target platform [none|metal|docker|aws|azure|gcp]")
+	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Blueprint OCI reference (oci://ghcr.io/org/repo:tag, ghcr.io/org/repo:tag, or org/repo:tag — host defaults to ghcr.io; tag is required)")
+	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false")
+	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip all confirmation prompts")
 	rootCmd.AddCommand(bootstrapCmd)
 }

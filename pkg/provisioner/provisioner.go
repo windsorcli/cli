@@ -2,7 +2,11 @@ package provisioner
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -382,19 +386,24 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 }
 
 // DestroyAll destroys all infrastructure components: first uninstalls all kustomizations,
-// then destroys all terraform components. excludeIDs are forwarded to the terraform destroy
-// pass so cmd-layer callers can peel off the backend component for the symmetric-destroy
-// flow (destroy non-backend against live remote state, then migrate-and-destroy backend
-// last). Returns the IDs of terraform components that were skipped because their state was
-// empty (never applied, already torn down) alongside any error from either step — paired
-// with the error so callers see what was no-op'd even when a later step fails. Returns an
-// error if either step fails.
+// then destroys all terraform components. The kustomization uninstall step is skipped
+// when no kubeconfig exists at the context-scoped path — the cluster is gone (or was
+// never bootstrapped past terraform), so trying to talk to its API would fail with a
+// stat error and abort the whole destroy. Skipping idempotently lets `windsor destroy`
+// run cleanly after the cluster's already been torn down by a prior partial destroy or
+// out-of-band action. excludeIDs are forwarded to the terraform destroy pass so
+// cmd-layer callers can peel off the backend component for the symmetric-destroy flow
+// (destroy non-backend against live remote state, then migrate-and-destroy backend
+// last). Returns the IDs of terraform components that were skipped because their state
+// was empty (never applied, already torn down) alongside any error from either step —
+// paired with the error so callers see what was no-op'd even when a later step fails.
+// Returns an error if either step fails.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
 	}
 
-	if i.KubernetesManager != nil {
+	if i.KubernetesManager != nil && i.kubeconfigPresent() {
 		if err := i.Uninstall(blueprint); err != nil {
 			return nil, err
 		}
@@ -1046,4 +1055,29 @@ func (i *Provisioner) ensureNotifier() error {
 // fluxNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
 func (i *Provisioner) fluxNamespace() string {
 	return i.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+}
+
+// kubeconfigPresent reports whether the context-scoped kubeconfig file exists on
+// disk. Used by destroy paths to decide whether to attempt kustomization deletion:
+// the cluster is gone (or was never bootstrapped past terraform) when the file is
+// missing, so trying to talk to its API would fail with a stat error and abort the
+// whole destroy. Treating it as a clean signal lets `windsor destroy` be idempotent
+// across partial-tear-down recoveries. Returns false when configRoot is empty —
+// without a config root we have no path to probe and the conservative answer is
+// "no cluster," which is consistent with the same scenarios that produce empty
+// configRoot (no context selected, no init).
+//
+// Only fs.ErrNotExist returns false. Permission errors and other stat failures
+// fall through as "present" so the subsequent Uninstall surfaces a clear error
+// rather than silently skipping kustomization cleanup and leaking finalizers
+// when terraform later yanks the cluster's underlying infra.
+func (i *Provisioner) kubeconfigPresent() bool {
+	if i.configRoot == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(i.configRoot, ".kube", "config"))
+	if err != nil && errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	return true
 }

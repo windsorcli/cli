@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -72,7 +74,18 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 	testOpts.ConfigHandler = mockConfigHandler
 	baseMocks := setupMocks(t, testOpts)
 	tmpDir := baseMocks.TmpDir
-	mockConfigHandler.GetConfigRootFunc = func() (string, error) { return tmpDir + "/contexts/test-context", nil }
+	configRoot := filepath.Join(tmpDir, "contexts", "test-context")
+	mockConfigHandler.GetConfigRootFunc = func() (string, error) { return configRoot, nil }
+
+	// Seed the kubeconfig so DestroyAll's kubeconfigPresent() probe returns true
+	// and existing tests that mock DeleteBlueprint behaviour exercise that path.
+	// Tests that need the cluster-gone path can clear the file before invoking.
+	if err := os.MkdirAll(filepath.Join(configRoot, ".kube"), 0755); err != nil {
+		t.Fatalf("failed to seed kubeconfig dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, ".kube", "config"), []byte("apiVersion: v1\nkind: Config\n"), 0644); err != nil {
+		t.Fatalf("failed to seed kubeconfig: %v", err)
+	}
 
 	baseMocks.Shell.CheckTrustedDirectoryFunc = func() error { return nil }
 

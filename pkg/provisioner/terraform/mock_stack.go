@@ -28,6 +28,7 @@ type MockStack struct {
 	DestroyFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	PlanSummaryFunc           func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummaryFunc  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	BackendReachableFunc      func(blueprint *blueprintv1alpha1.Blueprint) bool
 }
 
 // =============================================================================
@@ -144,6 +145,14 @@ func (m *MockStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint,
 		return m.PlanComponentSummaryFunc(blueprint, componentID)
 	}
 	return TerraformComponentPlan{ComponentID: componentID}
+}
+
+// BackendReachable is a mock implementation of the BackendReachable method.
+func (m *MockStack) BackendReachable(blueprint *blueprintv1alpha1.Blueprint) bool {
+	if m.BackendReachableFunc != nil {
+		return m.BackendReachableFunc(blueprint)
+	}
+	return false
 }
 
 // =============================================================================
