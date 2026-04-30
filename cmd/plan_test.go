@@ -536,3 +536,105 @@ func TestPlanKustomizeCmd(t *testing.T) {
 		}
 	})
 }
+
+func TestFormatTerraformPlan(t *testing.T) {
+	t.Run("RendersNewWhenIsNew", func(t *testing.T) {
+		// IsNew with no error renders as "(new)" — plan was not run because
+		// the component has no state in the configured backend.
+		got := formatTerraformPlan(terraforminfra.TerraformComponentPlan{
+			ComponentID: "vpc",
+			IsNew:       true,
+		}, true)
+		if got != "(new)" {
+			t.Errorf("expected (new), got %q", got)
+		}
+	})
+
+	t.Run("ErrorTakesPrecedenceOverIsNew", func(t *testing.T) {
+		// A non-nil Err always renders as the error — IsNew is only set when
+		// classification succeeds.
+		got := formatTerraformPlan(terraforminfra.TerraformComponentPlan{
+			ComponentID: "vpc",
+			IsNew:       true,
+			Err:         fmt.Errorf("boom"),
+		}, true)
+		if !strings.Contains(got, "boom") {
+			t.Errorf("expected error message to win, got %q", got)
+		}
+	})
+
+	t.Run("RendersCountsWhenStateExists", func(t *testing.T) {
+		// IsNew=false means plan ran and counts are authoritative — render them.
+		got := formatTerraformPlan(terraforminfra.TerraformComponentPlan{
+			ComponentID: "vpc",
+			Add:         3, Change: 1, Destroy: 2,
+		}, true)
+		if !strings.Contains(got, "+3") || !strings.Contains(got, "~1") || !strings.Contains(got, "-2") {
+			t.Errorf("expected +3 ~1 -2 in output, got %q", got)
+		}
+	})
+}
+
+func TestTerraformDisplayName(t *testing.T) {
+	t.Run("PrefersPathWhenSet", func(t *testing.T) {
+		// Path locates the underlying module; ComponentID is the short alias.
+		// Showing the path tells the operator which terraform module is being
+		// invoked (e.g., cluster/aws-eks vs cluster/gke).
+		got := terraformDisplayName(terraforminfra.TerraformComponentPlan{
+			ComponentID: "cluster",
+			Path:        "cluster/aws-eks",
+		})
+		if got != "cluster/aws-eks" {
+			t.Errorf("expected cluster/aws-eks, got %q", got)
+		}
+	})
+
+	t.Run("FallsBackToComponentIDWhenPathEmpty", func(t *testing.T) {
+		// Components without an explicit Path still need to render — the
+		// ComponentID (Name fallback) is the next best identifier.
+		got := terraformDisplayName(terraforminfra.TerraformComponentPlan{
+			ComponentID: "backend",
+		})
+		if got != "backend" {
+			t.Errorf("expected backend, got %q", got)
+		}
+	})
+}
+
+func TestFormatKustomizePlan_NewParity(t *testing.T) {
+	t.Run("NewKustomizationRendersBareNew", func(t *testing.T) {
+		// Kustomize-new used to render "+N resources  (new)" but the count is
+		// derived from `kustomize build` and rarely matches what Flux actually
+		// applies. Aligning with terraform's bare "(new)" keeps the table
+		// visually consistent across layers.
+		got := formatKustomizePlan(fluxinfra.KustomizePlan{
+			Name:  "policy-base",
+			IsNew: true,
+			Added: 3,
+		}, true)
+		if got != "(new)" {
+			t.Errorf("expected (new), got %q", got)
+		}
+	})
+}
+
+func TestPrintPlanSummaryJSON_TerraformFields(t *testing.T) {
+	t.Run("EmitsIsNewFlag", func(t *testing.T) {
+		// JSON consumers need to distinguish a "new" component (no state) from
+		// a real plan with counts. Check that the flag survives serialization.
+		var buf strings.Builder
+		err := printPlanSummaryJSON(&buf, []terraforminfra.TerraformComponentPlan{
+			{ComponentID: "vpc", IsNew: true},
+			{ComponentID: "ec2", Add: 5},
+		}, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		out := buf.String()
+		if !strings.Contains(out, `"is_new": true`) {
+			t.Errorf("expected is_new: true for vpc row, got %s", out)
+		}
+	})
+}
+

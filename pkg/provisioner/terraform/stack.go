@@ -52,15 +52,28 @@ type TerraformStack struct {
 }
 
 // TerraformComponentPlan holds the plan result for a single Terraform component.
-// Add, Change, and Destroy reflect terraform's "to add / to change / to destroy" counts.
-// NoChanges is true when terraform reports no changes. Err is non-nil when the
-// component's init or plan step failed; subsequent layers may still be attempted.
+// ComponentID is the unique identifier (Name when set, else Path). Path carries the
+// component's blueprint Path field (e.g., "cluster/aws-eks") so renderers can show
+// the underlying module location alongside or instead of the short ID. Add, Change,
+// and Destroy reflect terraform's "to add / to change / to destroy" counts.
+// NoChanges is true when terraform reports no changes. IsNew is true when no state
+// exists for the component in the configured backend — the component has never been
+// applied. Err is non-nil when the component's init or plan step failed; subsequent
+// layers may still be attempted.
+//
+// IsNew supersedes the count fields: when IsNew is true, terraform plan is not
+// executed (it would either misreport "all creates" or fail reading dependent
+// upstream state), so Add/Change/Destroy are zero and NoChanges is false. JSON
+// consumers detecting "pending work" must check IsNew alongside the counts —
+// `IsNew || Add+Change+Destroy > 0` rather than counts alone.
 type TerraformComponentPlan struct {
 	ComponentID string
+	Path        string
 	Add         int
 	Change      int
 	Destroy     int
 	NoChanges   bool
+	IsNew       bool
 	Err         error
 }
 
@@ -892,7 +905,9 @@ func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.Terr
 }
 
 // hasStateResources reports whether the component's state contains any resources at any
-// depth in the module tree. Used to short-circuit destroy on already-destroyed components.
+// depth in the module tree. Used by destroy to short-circuit already-destroyed components,
+// and by plan to classify never-applied components as IsNew (so plan is skipped rather than
+// running against empty state, which fails when dependent layers reference upstream state).
 func (s *TerraformStack) hasStateResources(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string) (bool, error) {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	stateShowArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "show", "-json"}
@@ -994,8 +1009,14 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 // planOneTerraformSummary runs terraform init and plan -no-color for a single component
 // and returns its structured result. It is shared by PlanSummary and PlanComponentSummary
 // to avoid duplicating the per-component setup, init, plan, and cleanup logic.
+//
+// Before running plan, hasStateResources is used to determine whether the configured
+// backend has any state recorded for this component. Empty state means the component
+// has never been applied — IsNew is set and plan is skipped, since plan would either
+// produce a misleading "all creates" picture or fail when `data "terraform_remote_state"`
+// references upstream layers that are also empty.
 func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
-	result := TerraformComponentPlan{ComponentID: component.GetID()}
+	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
 
 	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 	if err != nil {
@@ -1007,6 +1028,16 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 
 	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
 		result.Err = err
+		return result
+	}
+
+	hasState, err := s.hasStateResources(component, terraformVars)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	if !hasState {
+		result.IsNew = true
 		return result
 	}
 
