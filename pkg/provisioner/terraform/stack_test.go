@@ -3638,6 +3638,35 @@ func TestStack_PlanSummary(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("PopulatesPathFromComponent", func(t *testing.T) {
+		// The blueprint Path (e.g., "cluster/aws-eks") locates the underlying
+		// module and is more informative than the short ComponentID alias for
+		// renderers. PlanSummary copies it into each result so callers don't
+		// need to re-resolve components — verify on the non-empty-state path,
+		// where plan actually runs.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				return "Plan: 1 to add, 0 to change, 0 to destroy.\n", nil
+			}
+			return "", nil
+		}
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if r.Path == "" {
+				t.Errorf("expected Path to be populated for %q, got empty", r.ComponentID)
+			}
+		}
+	})
 }
 
 func TestParseTerraformPlanCounts(t *testing.T) {
