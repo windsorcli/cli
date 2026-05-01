@@ -3,6 +3,8 @@ package provisioner
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -107,10 +109,22 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 	clusterClient := cluster.NewMockClusterClient()
 	mockBlueprintHandler := blueprint.NewMockBlueprintHandler()
 
+	// Use a real temp dir for ConfigRoot and seed it with .kube/config so
+	// destroy paths' kubeconfigPresent() probe returns true by default — most
+	// tests assume the cluster is reachable. Tests that need the cluster-gone
+	// path override Runtime.ConfigRoot to a directory without the kubeconfig
+	// before constructing the provisioner.
+	configRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(configRoot, ".kube"), 0755); err != nil {
+		t.Fatalf("failed to seed kubeconfig dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, ".kube", "config"), []byte("apiVersion: v1\nkind: Config\n"), 0644); err != nil {
+		t.Fatalf("failed to seed kubeconfig: %v", err)
+	}
 	rt := &runtime.Runtime{
 		ContextName:   "test-context",
 		ProjectRoot:   "/test/project",
-		ConfigRoot:    "/test/project/contexts/test-context",
+		ConfigRoot:    configRoot,
 		TemplateRoot:  "/test/project/contexts/_template",
 		ConfigHandler: configHandler,
 		Shell:         mockShell,
@@ -1792,6 +1806,64 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "terraform down failed") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("SkipsUninstallWhenKubeconfigMissing", func(t *testing.T) {
+		// Cluster's already gone (or was never bootstrapped past terraform), so
+		// no kubeconfig exists at the context-scoped path. DestroyAll must skip
+		// kustomization deletion and proceed to terraform destroy directly —
+		// otherwise destroy aborts with "stat .kube/config: no such file" and
+		// the operator can't tear down the leftover terraform state.
+		mocks := setupProvisionerMocks(t)
+		// Override ConfigRoot to an empty temp dir without .kube/config.
+		mocks.Runtime.ConfigRoot = t.TempDir()
+
+		var uninstallCalled, terraformDestroyCalled bool
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			uninstallCalled = true
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+			terraformDestroyCalled = true
+			return nil, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		_, err := provisioner.DestroyAll(createTestBlueprint())
+		if err != nil {
+			t.Fatalf("expected no error when kubeconfig missing, got: %v", err)
+		}
+		if uninstallCalled {
+			t.Error("expected DeleteBlueprint to be skipped when kubeconfig is missing")
+		}
+		if !terraformDestroyCalled {
+			t.Error("expected terraform DestroyAll to still run when kubeconfig is missing")
+		}
+	})
+
+	t.Run("RunsUninstallWhenKubeconfigPresent", func(t *testing.T) {
+		// Sanity: with the default seeded kubeconfig in setupProvisionerMocks,
+		// DeleteBlueprint runs as the first step of DestroyAll. Pin the existing
+		// behaviour so a future regression in the gate is caught.
+		mocks := setupProvisionerMocks(t)
+		var uninstallCalled bool
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			uninstallCalled = true
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		if _, err := provisioner.DestroyAll(createTestBlueprint()); err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if !uninstallCalled {
+			t.Error("expected DeleteBlueprint to run when kubeconfig is present")
 		}
 	})
 }

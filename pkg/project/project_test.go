@@ -1537,7 +1537,7 @@ func TestProject_Bootstrap(t *testing.T) {
 		proj.Workstation.ContainerRuntime = nil
 		proj.Workstation.NetworkManager = nil
 
-		if _, err := proj.Bootstrap(); err != nil {
+		if _, _, err := proj.Bootstrap(nil); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1582,7 +1582,7 @@ func TestProject_Bootstrap(t *testing.T) {
 			Provisioner: prov,
 		})
 
-		_, err := proj.Bootstrap()
+		_, _, err := proj.Bootstrap(nil)
 		if err == nil {
 			t.Fatal("Expected error when provisioner errors")
 		}

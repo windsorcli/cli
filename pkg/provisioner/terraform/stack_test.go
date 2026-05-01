@@ -164,6 +164,9 @@ contexts:
 	shims.Remove = func(_ string) error {
 		return nil
 	}
+	shims.ReadFile = func(_ string) ([]byte, error) {
+		return nil, os.ErrNotExist
+	}
 
 	t.Cleanup(func() {
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
@@ -1596,7 +1599,9 @@ func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 			t.Errorf("expected add=2 change=1 destroy=0, got add=%d change=%d destroy=%d", result.Add, result.Change, result.Destroy)
 		}
 	})
+
 }
+
 
 // =============================================================================
 // Test Private Methods
@@ -3134,6 +3139,229 @@ func TestStack_Destroy(t *testing.T) {
 			t.Error("Expected destroy to run against survivors")
 		}
 	})
+
+	t.Run("ClearsBackendPointerAfterSuccessfulDestroy", func(t *testing.T) {
+		// After destroy completes, the backend metadata file inside TF_DATA_DIR
+		// must be removed so the next init doesn't try to talk to a remote
+		// backend the destroy may have just torn down. Only that one file —
+		// providers, modules, and lockfile stay so the next init is fast.
+		stack, mocks := setup(t)
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+		blueprint := createTestBlueprint()
+
+		_, err := stack.Destroy(blueprint, "local/path")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		var pointerRemoved bool
+		for _, p := range removed {
+			if strings.HasSuffix(p, "/terraform.tfstate") {
+				pointerRemoved = true
+				break
+			}
+		}
+		if !pointerRemoved {
+			t.Errorf("Expected the backend pointer (terraform.tfstate inside TF_DATA_DIR) to be removed, got removals: %v", removed)
+		}
+	})
+
+	t.Run("ClearsBackendPointerAfterEmptyStateSkip", func(t *testing.T) {
+		// When pre-refresh state is already empty, destroy is skipped — but the
+		// component still "completed destroy" semantically (nothing to do).
+		// The pointer must still be cleared so re-runs don't trip over a stale
+		// backend reference.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+		blueprint := createTestBlueprint()
+
+		skipped, err := stack.Destroy(blueprint, "local/path")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !skipped {
+			t.Fatal("Expected skipped=true on empty state")
+		}
+
+		var pointerRemoved bool
+		for _, p := range removed {
+			if strings.HasSuffix(p, "/terraform.tfstate") {
+				pointerRemoved = true
+				break
+			}
+		}
+		if !pointerRemoved {
+			t.Errorf("Expected backend pointer cleanup even on empty-state skip, got removals: %v", removed)
+		}
+	})
+
+	t.Run("DoesNotClearBackendPointerWhenDestroyFails", func(t *testing.T) {
+		// When destroy fails, the operator may want to retry — we must not
+		// strip the pointer file out from under them. Cleanup only fires after
+		// a successful (or no-op) destroy completes.
+		stack, mocks := setup(t)
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				return "", fmt.Errorf("AccessDenied: not authorized")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		_, err := stack.Destroy(blueprint, "local/path")
+		if err == nil {
+			t.Fatal("Expected destroy to fail")
+		}
+
+		for _, p := range removed {
+			if strings.HasSuffix(p, "/terraform.tfstate") {
+				t.Errorf("Backend pointer must not be cleared on destroy failure, got removals: %v", removed)
+			}
+		}
+	})
+}
+
+func TestTerraformStack_clearStaleBackendPointer(t *testing.T) {
+	setup := func(t *testing.T, configuredBackendType string) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t, &SetupOptions{ConfigStr: fmt.Sprintf(`
+contexts:
+  mock-context:
+    terraform:
+      backend:
+        type: %s`, configuredBackendType)})
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("RemovesPointerWhenBackendTypeMismatches", func(t *testing.T) {
+		// Repo carries a committed backend_override.tf for `terraform test` runs,
+		// so a raw `terraform init` lands a "current backend = local" pointer
+		// inside TF_DATA_DIR. Windsor's configured backend is now s3 — the
+		// pointer must be removed so the next init sets up s3 fresh, not
+		// triggering terraform's "Prior to changing backends" migration prompt
+		// against an s3 bucket that doesn't exist yet.
+		stack, mocks := setup(t, "s3")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{"backend":{"type":"local"}}`), nil
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{"TF_DATA_DIR": "/tmp/scratch/.terraform/cluster"})
+
+		if len(removed) != 1 || !strings.HasSuffix(removed[0], "/terraform.tfstate") {
+			t.Errorf("expected pointer file removal, got %v", removed)
+		}
+	})
+
+	t.Run("LeavesPointerInPlaceWhenTypesMatch", func(t *testing.T) {
+		// Pointer says s3, configured is s3 — no migration would be triggered.
+		// Leave the pointer alone so terraform's normal "I already initialized
+		// against this backend" fast path runs.
+		stack, mocks := setup(t, "s3")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{"backend":{"type":"s3"}}`), nil
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{"TF_DATA_DIR": "/tmp/scratch/.terraform/cluster"})
+
+		if len(removed) != 0 {
+			t.Errorf("expected no removal when types match, got %v", removed)
+		}
+	})
+
+	t.Run("NoOpWhenPointerMissing", func(t *testing.T) {
+		// Fresh init scenario: no pointer file exists yet. Function must
+		// silently no-op so terraform init runs normally.
+		stack, mocks := setup(t, "s3")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{"TF_DATA_DIR": "/tmp/scratch/.terraform/cluster"})
+
+		if len(removed) != 0 {
+			t.Errorf("expected no removal when pointer missing, got %v", removed)
+		}
+	})
+
+	t.Run("RemovesUnparseablePointer", func(t *testing.T) {
+		// A corrupted/truncated pointer file would block init either way.
+		// Removing it lets init regenerate cleanly.
+		stack, mocks := setup(t, "s3")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte("not json"), nil
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{"TF_DATA_DIR": "/tmp/scratch/.terraform/cluster"})
+
+		if len(removed) != 1 {
+			t.Errorf("expected unparseable pointer to be removed, got %v", removed)
+		}
+	})
+
+	t.Run("NoOpWhenTFDataDirEmpty", func(t *testing.T) {
+		// Belt-and-suspenders: if TF_DATA_DIR isn't set we have no path to
+		// resolve, must not attempt any I/O.
+		stack, mocks := setup(t, "s3")
+		var readCalled, removeCalled bool
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			readCalled = true
+			return nil, nil
+		}
+		mocks.Shims.Remove = func(path string) error {
+			removeCalled = true
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{})
+
+		if readCalled || removeCalled {
+			t.Errorf("expected no I/O when TF_DATA_DIR empty, got read=%v remove=%v", readCalled, removeCalled)
+		}
+	})
 }
 
 func TestStack_PlanSummary(t *testing.T) {
@@ -3322,11 +3550,13 @@ func TestStack_PlanSummary(t *testing.T) {
 
 	t.Run("MarksComponentNewWhenStateIsEmpty", func(t *testing.T) {
 		// `terraform show -json` returns "{}" when the configured backend has
-		// no state object for this component. The component has never been
-		// applied — IsNew is the truth and running plan would either show a
-		// misleading "all creates" or fail reading dependent layers via
-		// terraform_remote_state.
+		// no state object for this component. With no orphaned local
+		// terraform.tfstate either, the component has never been applied —
+		// IsNew is the truth and running plan would either show a misleading
+		// "all creates" or fail reading dependent layers via terraform_remote_state.
 		stack, mocks := setup(t)
+		// Shims default Stat returns (nil, nil) for unknown paths, but the local-
+		// state probe treats that as "doesn't exist" because FileInfo is nil.
 		var planCalled bool
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
@@ -3353,6 +3583,32 @@ func TestStack_PlanSummary(t *testing.T) {
 		}
 		if planCalled {
 			t.Error("plan must not be invoked when state is empty")
+		}
+	})
+
+	t.Run("PropagatesInitError", func(t *testing.T) {
+		// Init failure is a real error to surface — distinct from a fresh
+		// component with no state.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("init failed: invalid HCL")
+			}
+			return "", nil
+		}
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if r.Err == nil {
+				t.Errorf("expected init error for %q, got nil", r.ComponentID)
+			}
+			if r.IsNew {
+				t.Errorf("expected IsNew=false when init fails, got true for %q", r.ComponentID)
+			}
 		}
 	})
 
@@ -3387,11 +3643,15 @@ func TestStack_PlanSummary(t *testing.T) {
 		// The blueprint Path (e.g., "cluster/aws-eks") locates the underlying
 		// module and is more informative than the short ComponentID alias for
 		// renderers. PlanSummary copies it into each result so callers don't
-		// need to re-resolve components.
+		// need to re-resolve components — verify on the non-empty-state path,
+		// where plan actually runs.
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
-				return "{}", nil
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				return "Plan: 1 to add, 0 to change, 0 to destroy.\n", nil
 			}
 			return "", nil
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -51,8 +52,8 @@ var (
 // (values.yaml) is never mutated during the override window.
 var bootstrapCmd = &cobra.Command{
 	Use:          "bootstrap [context]",
-	Short:        "Bootstrap a fresh Windsor environment end-to-end",
-	Long:         "Bootstrap a fresh Windsor environment: configure the project, apply terraform with local state first, migrate state to the configured remote backend, install the blueprint, and wait for kustomizations to be ready.",
+	Short:        "Bootstrap a fresh environment end-to-end",
+	Long:         "First-run setup for a context: applies Terraform, installs the Flux blueprint, and migrates state to the configured remote backend. Use `windsor apply` for everything after.",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -170,8 +171,20 @@ var bootstrapCmd = &cobra.Command{
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
-		if _, err := proj.Bootstrap(); err != nil {
+		var confirmFn provisioner.BootstrapConfirmFn
+		finishPlan := func(error) {}
+		if proj.Runtime.Global && !bootstrapYes {
+			confirmFn, finishPlan = makeBootstrapConfirmFn(cmd.InOrStdin(), os.Stderr)
+		}
+
+		_, applied, err := proj.Bootstrap(confirmFn)
+		finishPlan(err)
+		if err != nil {
 			return err
+		}
+		if !applied {
+			fmt.Fprintln(os.Stderr, "Apply skipped. The context is configured — re-run with --yes to apply.")
+			return nil
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.GenerateResolved()
@@ -188,6 +201,87 @@ var bootstrapCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// makeBootstrapConfirmFn builds the confirm callback the provisioner calls
+// with a BootstrapSummary describing what bootstrap is about to apply. The
+// summary is sourced from the blueprint and config — no terraform invocation
+// — and is rendered for the operator before they confirm.
+//
+// The returned finish func must be called once Bootstrap returns; it is a
+// no-op when the prompt has already resolved.
+//
+// Anything other than "y" or "yes" (case-insensitive) at the prompt returns
+// false — including empty input and EOF, so non-interactive callers must pass
+// --yes. Reserved for global mode by the caller; in local project mode the
+// operator has the directory-level cue and can run `windsor plan` separately.
+func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapConfirmFn, func(error)) {
+	resolved := false
+	confirmFn := func(summary *provisioner.BootstrapSummary) bool {
+		resolved = true
+		printBootstrapSummary(out, summary)
+		fmt.Fprint(out, "Continue? [y/N]: ")
+		reader := bufio.NewReader(in)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		return answer == "y" || answer == "yes"
+	}
+	finish := func(err error) {
+		if resolved {
+			return
+		}
+		resolved = true
+	}
+	return confirmFn, finish
+}
+
+// printBootstrapSummary writes the bootstrap intent description to w. The
+// header block lists Context and Backend (just the type — no editorial about
+// what windsor does internally with state migration). The Terraform section
+// lists the path of each enabled component (falling back to ComponentID when
+// Path is empty). The Kustomize section lists names, one per line, in
+// blueprint order. No status column, no counts — this is intent, not diff.
+func printBootstrapSummary(w io.Writer, summary *provisioner.BootstrapSummary) {
+	headerWidth := 47
+	for _, e := range summary.Terraform {
+		if n := len(bootstrapTerraformDisplay(e)); n > headerWidth {
+			headerWidth = n
+		}
+	}
+	for _, name := range summary.Kustomize {
+		if len(name) > headerWidth {
+			headerWidth = len(name)
+		}
+	}
+	sep := strings.Repeat("═", headerWidth)
+	fmt.Fprintf(w, "\nWindsor Bootstrap Summary\n%s\n", sep)
+	fmt.Fprintf(w, "Context  %s\n", summary.ContextName)
+	fmt.Fprintf(w, "Backend  %s\n", summary.BackendType)
+
+	if len(summary.Terraform) > 0 {
+		fmt.Fprintln(w, "\nTerraform")
+		for _, e := range summary.Terraform {
+			fmt.Fprintf(w, "  %s\n", bootstrapTerraformDisplay(e))
+		}
+	}
+	if len(summary.Kustomize) > 0 {
+		fmt.Fprintln(w, "\nKustomize")
+		for _, name := range summary.Kustomize {
+			fmt.Fprintf(w, "  %s\n", name)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+// bootstrapTerraformDisplay returns the path-or-ID identifier shown for a
+// Terraform component row in the bootstrap summary. Mirrors the display rule
+// used by `windsor plan`: prefer Path (informative module location like
+// "cluster/aws-eks"), fall back to ComponentID.
+func bootstrapTerraformDisplay(e provisioner.BootstrapTerraformEntry) string {
+	if e.Path != "" {
+		return e.Path
+	}
+	return e.ComponentID
 }
 
 // confirmBootstrapIfContextExists prompts the user to confirm when the context's values.yaml
@@ -220,9 +314,9 @@ func confirmBootstrapIfContextExists(in io.Reader, configRoot, contextName strin
 }
 
 func init() {
-	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp]")
-	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Specify the blueprint (OCI reference) to use")
-	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false")
-	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip the confirmation prompt when re-bootstrapping an existing context")
+	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Target platform [none|metal|docker|aws|azure|gcp]")
+	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Blueprint OCI reference (oci://ghcr.io/org/repo:tag, ghcr.io/org/repo:tag, or org/repo:tag — host defaults to ghcr.io; tag is required)")
+	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false")
+	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip all confirmation prompts")
 	rootCmd.AddCommand(bootstrapCmd)
 }
