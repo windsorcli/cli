@@ -2290,6 +2290,81 @@ contexts:
 		}
 	})
 
+	t.Run("GlobalModeDefersStsToAmbientAWSConfigButKeepsProfile", func(t *testing.T) {
+		// Given platform: aws and the shell reports global mode (no windsor.yaml in
+		// the project tree — operator is invoking windsor outside of a project)
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+`)
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		awsBinaryMock(t)
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			return `{"Arn":"arn:aws:iam::123456789012:user/x"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed, got %v", err)
+		}
+		// Then AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE are NOT injected (the
+		// SDK resolves from the operator's ambient ~/.aws/), but AWS_PROFILE IS
+		// injected from the context name so sts checks the profile the context
+		// targets — without it sts would fall through to [default] and fail even
+		// when the right profile is logged in.
+		if _, ok := capturedEnv["AWS_CONFIG_FILE"]; ok {
+			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", capturedEnv["AWS_CONFIG_FILE"])
+		}
+		if _, ok := capturedEnv["AWS_SHARED_CREDENTIALS_FILE"]; ok {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", capturedEnv["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+		if capturedEnv["AWS_PROFILE"] != "test" {
+			t.Errorf("AWS_PROFILE = %q, want %q (context name fallback)", capturedEnv["AWS_PROFILE"], "test")
+		}
+	})
+
+	t.Run("GlobalModeWithExplicitProfileStillInjectsAWSProfile", func(t *testing.T) {
+		// Given platform: aws, global mode, and an explicit aws.profile override
+		mocks, toolsManager := setup(t, `
+contexts:
+  test:
+    platform: aws
+    aws:
+      profile: company-prod
+`)
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		awsBinaryMock(t)
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
+		}
+		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+			capturedEnv = env
+			return `{"Arn":"arn:aws:iam::123456789012:user/x"}`, nil
+		}
+		// When CheckAuth runs
+		if err := toolsManager.CheckAuth(); err != nil {
+			t.Fatalf("Expected CheckAuth to succeed, got %v", err)
+		}
+		// Then AWS_PROFILE is set (the operator explicitly asked for that profile,
+		// even in global mode) but config-file paths are NOT — sts resolves the
+		// profile against the ambient ~/.aws/config.
+		if capturedEnv["AWS_PROFILE"] != "company-prod" {
+			t.Errorf("AWS_PROFILE = %q, want %q", capturedEnv["AWS_PROFILE"], "company-prod")
+		}
+		if _, ok := capturedEnv["AWS_CONFIG_FILE"]; ok {
+			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", capturedEnv["AWS_CONFIG_FILE"])
+		}
+		if _, ok := capturedEnv["AWS_SHARED_CREDENTIALS_FILE"]; ok {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", capturedEnv["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+
 	t.Run("AWSConfigBlockTriggersAuthCheck", func(t *testing.T) {
 		// Given the context has an aws block (no platform set) and creds are invalid
 		mocks, toolsManager := setup(t, `
@@ -2323,7 +2398,106 @@ contexts:
 	})
 }
 
+func Test_awsContextEnv(t *testing.T) {
+	clearAmbientAWS := func(t *testing.T) {
+		t.Helper()
+		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
+		t.Setenv("AWS_ACCESS_KEY_ID", "")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+	}
+
+	t.Run("GlobalModeWithoutContextOrProfileReturnsNil", func(t *testing.T) {
+		// Given a tools manager in global mode with no aws.profile override AND no context
+		// name. This degenerate state is only reachable through a configHandler that
+		// returns "" from GetContext — the production handler always falls back to "local",
+		// so this path cannot be hit in production. The test pins the contract: when there
+		// is nothing to override, return (nil, nil) so the caller passes no env to STS
+		// and STS resolves against the ambient environment, the same effective behavior
+		// as when ambient SDK credentials are detected at the top of awsContextEnv.
+		clearAmbientAWS(t)
+		mockConfig := &config.MockConfigHandler{
+			GetContextFunc: func() string { return "" },
+		}
+		mockShell := sh.NewMockShell()
+		mockShell.IsGlobalFunc = func() bool { return true }
+		toolsManager := NewToolsManager(mockConfig, mockShell)
+
+		// When awsContextEnv is invoked
+		env, err := toolsManager.awsContextEnv()
+
+		// Then (nil, nil) is returned — STS gets no override
+		if err != nil {
+			t.Fatalf("awsContextEnv returned error: %v", err)
+		}
+		if env != nil {
+			t.Errorf("expected nil env when no profile and no context in global mode, got %v", env)
+		}
+	})
+
+	t.Run("GlobalModeFallsBackToContextNameWhenNoProfile", func(t *testing.T) {
+		// Given a tools manager in global mode with no aws.profile override but a non-empty
+		// context name — the production-reachable path, since configHandler.GetContext()
+		// falls back to "local" even when nothing else is set. This pins that the (nil, nil)
+		// degenerate branch is unreachable when GetContext() honors its "local" fallback,
+		// so AWS_PROFILE is always populated and STS does not silently drop to [default].
+		clearAmbientAWS(t)
+		mockConfig := &config.MockConfigHandler{
+			GetContextFunc: func() string { return "local" },
+		}
+		mockShell := sh.NewMockShell()
+		mockShell.IsGlobalFunc = func() bool { return true }
+		toolsManager := NewToolsManager(mockConfig, mockShell)
+
+		// When awsContextEnv is invoked
+		env, err := toolsManager.awsContextEnv()
+
+		// Then AWS_PROFILE is set from the context name and config-file paths are omitted
+		if err != nil {
+			t.Fatalf("awsContextEnv returned error: %v", err)
+		}
+		if got := env["AWS_PROFILE"]; got != "local" {
+			t.Errorf("AWS_PROFILE = %q, want %q", got, "local")
+		}
+		if _, ok := env["AWS_CONFIG_FILE"]; ok {
+			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", env["AWS_CONFIG_FILE"])
+		}
+		if _, ok := env["AWS_SHARED_CREDENTIALS_FILE"]; ok {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", env["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+}
+
 func Test_awsAuthHint(t *testing.T) {
+	t.Run("GlobalModeOmitsEnvPrefixAndReadsAmbientConfig", func(t *testing.T) {
+		// Given a toolsManager in global mode with an SSO profile in the ambient
+		// ~/.aws/config (which detectAWSProfileState reads via osReadFile)
+		mocks := setupMocks(t)
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		originalReadFile := osReadFile
+		osReadFile = func(name string) ([]byte, error) {
+			return []byte(`
+[profile test]
+sso_session = company
+sso_account_id = 123456789012
+`), nil
+		}
+		t.Cleanup(func() { osReadFile = originalReadFile })
+		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
+		// When awsAuthHint runs
+		hint := toolsManager.awsAuthHint()
+		// Then the hint suggests `aws sso login` against the operator's existing config
+		// (no AWS_CONFIG_FILE prefix), because in global mode windsor is deferring to
+		// the ambient ~/.aws/ rather than scoping config to a context directory.
+		if !strings.Contains(hint, "aws sso login --profile test") {
+			t.Errorf("Expected ambient SSO login hint in global mode, got: %q", hint)
+		}
+		if strings.Contains(hint, "AWS_CONFIG_FILE=") {
+			t.Errorf("Expected no AWS_CONFIG_FILE prefix in global mode, got: %q", hint)
+		}
+	})
+
 	t.Run("ConfigRootFailureOffersBothSSOAndAccessKeys", func(t *testing.T) {
 		// Given a toolsManager whose configHandler cannot resolve configRoot — the hint's
 		// defensive fallback branch. This is reached when CheckAuth ran through awsContextEnv
