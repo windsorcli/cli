@@ -946,8 +946,10 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	}
 
 	objectNamespace := namespace
-	if k.Namespace != "" {
+	sourceRefNamespace := ""
+	if k.Namespace != "" && k.Namespace != namespace {
 		objectNamespace = k.Namespace
+		sourceRefNamespace = namespace
 	}
 
 	sourceName := k.Source
@@ -1071,8 +1073,9 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		},
 		Spec: kustomizev1.KustomizationSpec{
 			SourceRef: kustomizev1.CrossNamespaceSourceReference{
-				Kind: sourceKind,
-				Name: sourceName,
+				Kind:      sourceKind,
+				Name:      sourceName,
+				Namespace: sourceRefNamespace,
 			},
 			Path:            path,
 			DependsOn:       dependsOn,

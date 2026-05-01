@@ -2606,6 +2606,30 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		if result.Spec.TargetNamespace != "" {
 			t.Errorf("Expected empty spec.targetNamespace, got '%s'", result.Spec.TargetNamespace)
 		}
+		// And spec.sourceRef.namespace is pinned to the gitops namespace so Flux
+		// resolves the source where it actually lives, not in the override namespace
+		// (an empty SourceRef.Namespace would default to the Kustomization's own
+		// namespace and produce a source-not-found reconcile error).
+		if result.Spec.SourceRef.Namespace != "default-ns" {
+			t.Errorf("Expected spec.sourceRef.namespace 'default-ns', got '%s'", result.Spec.SourceRef.Namespace)
+		}
+	})
+
+	t.Run("SourceRefNamespaceStaysEmptyWhenNamespaceNotOverridden", func(t *testing.T) {
+		// Given a kustomization that does not override its namespace
+		kustomization := &Kustomization{
+			Name: "test-kustomization",
+			Path: "test/path",
+		}
+
+		// When converted
+		result := kustomization.ToFluxKustomization("default-ns", "default-source", []Source{}, constants.GitopsModePull)
+
+		// Then SourceRef.Namespace is left empty so Flux defaults it to the
+		// Kustomization's own namespace, preserving prior serialized output.
+		if result.Spec.SourceRef.Namespace != "" {
+			t.Errorf("Expected empty spec.sourceRef.namespace, got '%s'", result.Spec.SourceRef.Namespace)
+		}
 	})
 
 	t.Run("DependsOnReferencesUseDefaultNamespaceEvenWhenNamespaceOverridden", func(t *testing.T) {
