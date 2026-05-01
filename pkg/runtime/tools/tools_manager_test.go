@@ -2398,6 +2398,77 @@ contexts:
 	})
 }
 
+func Test_awsContextEnv(t *testing.T) {
+	clearAmbientAWS := func(t *testing.T) {
+		t.Helper()
+		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
+		t.Setenv("AWS_ACCESS_KEY_ID", "")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+	}
+
+	t.Run("GlobalModeWithoutContextOrProfileReturnsNil", func(t *testing.T) {
+		// Given a tools manager in global mode with no aws.profile override AND no context
+		// name. This degenerate state is only reachable through a configHandler that
+		// returns "" from GetContext — the production handler always falls back to "local",
+		// so this path cannot be hit in production. The test pins the contract: when there
+		// is nothing to override, return (nil, nil) so the caller passes no env to STS
+		// and STS resolves against the ambient environment, the same effective behavior
+		// as when ambient SDK credentials are detected at the top of awsContextEnv.
+		clearAmbientAWS(t)
+		mockConfig := &config.MockConfigHandler{
+			GetContextFunc: func() string { return "" },
+		}
+		mockShell := sh.NewMockShell()
+		mockShell.IsGlobalFunc = func() bool { return true }
+		toolsManager := NewToolsManager(mockConfig, mockShell)
+
+		// When awsContextEnv is invoked
+		env, err := toolsManager.awsContextEnv()
+
+		// Then (nil, nil) is returned — STS gets no override
+		if err != nil {
+			t.Fatalf("awsContextEnv returned error: %v", err)
+		}
+		if env != nil {
+			t.Errorf("expected nil env when no profile and no context in global mode, got %v", env)
+		}
+	})
+
+	t.Run("GlobalModeFallsBackToContextNameWhenNoProfile", func(t *testing.T) {
+		// Given a tools manager in global mode with no aws.profile override but a non-empty
+		// context name — the production-reachable path, since configHandler.GetContext()
+		// falls back to "local" even when nothing else is set. This pins that the (nil, nil)
+		// degenerate branch is unreachable when GetContext() honors its "local" fallback,
+		// so AWS_PROFILE is always populated and STS does not silently drop to [default].
+		clearAmbientAWS(t)
+		mockConfig := &config.MockConfigHandler{
+			GetContextFunc: func() string { return "local" },
+		}
+		mockShell := sh.NewMockShell()
+		mockShell.IsGlobalFunc = func() bool { return true }
+		toolsManager := NewToolsManager(mockConfig, mockShell)
+
+		// When awsContextEnv is invoked
+		env, err := toolsManager.awsContextEnv()
+
+		// Then AWS_PROFILE is set from the context name and config-file paths are omitted
+		if err != nil {
+			t.Fatalf("awsContextEnv returned error: %v", err)
+		}
+		if got := env["AWS_PROFILE"]; got != "local" {
+			t.Errorf("AWS_PROFILE = %q, want %q", got, "local")
+		}
+		if _, ok := env["AWS_CONFIG_FILE"]; ok {
+			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", env["AWS_CONFIG_FILE"])
+		}
+		if _, ok := env["AWS_SHARED_CREDENTIALS_FILE"]; ok {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", env["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+}
+
 func Test_awsAuthHint(t *testing.T) {
 	t.Run("GlobalModeOmitsEnvPrefixAndReadsAmbientConfig", func(t *testing.T) {
 		// Given a toolsManager in global mode with an SSO profile in the ambient
