@@ -733,16 +733,14 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("GlobalModePlanConfirmProceedsOnYes", func(t *testing.T) {
-		// Given a global-mode runtime, the plan-and-confirm prompt fires before apply;
-		// answering "y" lets bootstrap continue and Bootstrap is invoked.
+	t.Run("GlobalModeSummaryConfirmProceedsOnYes", func(t *testing.T) {
+		// Given a global-mode runtime, the bootstrap summary + confirmation
+		// prompt fires before apply; answering "y" lets bootstrap continue
+		// and Up is invoked. The summary is built from blueprint + config —
+		// no terraform PlanSummary call is involved.
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
-		var planCalled, upCalled bool
-		mocks.TerraformStack.PlanSummaryFunc = func(_ *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			planCalled = true
-			return []terraforminfra.TerraformComponentPlan{{ComponentID: "vpc"}}
-		}
+		var upCalled bool
 		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
 			upCalled = true
 			return nil
@@ -760,20 +758,17 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected success on yes-confirm, got %v", err)
 		}
 
-		// Then plan ran first, then Up
-		if !planCalled {
-			t.Error("Expected PlanSummary to be called before apply")
-		}
+		// Then Up runs after the prompt is accepted
 		if !upCalled {
-			t.Error("Expected Up to be called after plan-confirm")
+			t.Error("Expected Up to be called after summary-confirm")
 		}
 	})
 
-	t.Run("GlobalModePlanConfirmExitsCleanlyOnNo", func(t *testing.T) {
-		// Given a global-mode runtime, declining the plan-confirm prompt exits
-		// cleanly (no error). The context has already been configured and saved
-		// before the prompt, so "no" is a valid no-op outcome — not a failure —
-		// and the operator can re-run with --yes later to apply.
+	t.Run("GlobalModeSummaryConfirmExitsCleanlyOnNo", func(t *testing.T) {
+		// Given a global-mode runtime, declining the summary-confirm prompt
+		// exits cleanly (no error). The context has already been configured
+		// and saved before the prompt, so "no" is a valid no-op outcome —
+		// not a failure — and the operator can re-run with --yes later to apply.
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled, installCalled bool
@@ -801,14 +796,14 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected clean exit on declined plan-confirm, got error: %v", err)
 		}
 		if upCalled {
-			t.Error("Up must not be called after a declined plan-confirm")
+			t.Error("Up must not be called after a declined summary-confirm")
 		}
 		if installCalled {
-			t.Error("Install must not be called after a declined plan-confirm")
+			t.Error("Install must not be called after a declined summary-confirm")
 		}
 	})
 
-	t.Run("GlobalModePlanConfirmExitsCleanlyOnEmptyStdin", func(t *testing.T) {
+	t.Run("GlobalModeSummaryConfirmExitsCleanlyOnEmptyStdin", func(t *testing.T) {
 		// Given a global-mode runtime and empty stdin (non-interactive without
 		// --yes), the prompt receives EOF and treats it as "no" — exit is clean
 		// rather than producing a non-zero failure.
@@ -835,20 +830,16 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected clean exit on EOF stdin, got error: %v", err)
 		}
 		if upCalled {
-			t.Error("Up must not be called when EOF declines plan-confirm")
+			t.Error("Up must not be called when EOF declines summary-confirm")
 		}
 	})
 
-	t.Run("GlobalModePlanConfirmSkippedWithYesFlag", func(t *testing.T) {
-		// Given a global-mode runtime and --yes, the plan-confirm prompt is
+	t.Run("GlobalModeSummaryConfirmSkippedWithYesFlag", func(t *testing.T) {
+		// Given a global-mode runtime and --yes, the summary-confirm prompt is
 		// suppressed and bootstrap proceeds straight to apply with no stdin needed.
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
-		var planCalled, upCalled bool
-		mocks.TerraformStack.PlanSummaryFunc = func(_ *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			planCalled = true
-			return nil
-		}
+		var upCalled bool
 		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
 			upCalled = true
 			return nil
@@ -866,23 +857,21 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected success with --yes, got %v", err)
 		}
 
-		// Then the plan never ran (skipped along with the prompt) and Up did
-		if planCalled {
-			t.Error("PlanSummary must not run when --yes is passed")
-		}
+		// Then Up still runs with --yes (apply isn't gated on stdin)
 		if !upCalled {
 			t.Error("Up must still run with --yes")
 		}
 	})
 
-	t.Run("LocalModeSkipsGlobalPlanConfirm", func(t *testing.T) {
-		// Given a local-project runtime (Global=false), the global-only plan-confirm
-		// step does not fire and bootstrap proceeds without prompting for plan review.
+	t.Run("LocalModeSkipsSummaryConfirm", func(t *testing.T) {
+		// Given a local-project runtime (Global=false), the global-only
+		// summary-confirm prompt does not fire and bootstrap proceeds without
+		// stdin.
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = false
-		var planCalled bool
-		mocks.TerraformStack.PlanSummaryFunc = func(_ *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			planCalled = true
+		var upCalled bool
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
 			return nil
 		}
 		proj := newBootstrapTestProject(mocks)
@@ -898,9 +887,9 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected success in local mode, got %v", err)
 		}
 
-		// Then the pre-apply plan was not generated
-		if planCalled {
-			t.Error("Plan-confirm must not fire in local-project mode")
+		// Then Up runs without any prompt
+		if !upCalled {
+			t.Error("Up must run in local-project mode")
 		}
 	})
 }

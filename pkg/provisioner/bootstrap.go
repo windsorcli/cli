@@ -12,36 +12,63 @@ import (
 // Types
 // =============================================================================
 
-// BootstrapConfirmFn receives the plan summary that Bootstrap is about to apply
-// and returns true to proceed with apply or false to skip cleanly. When nil is
-// passed to Bootstrap, the apply runs unconditionally (no plan generated).
-type BootstrapConfirmFn func(*PlanSummary) bool
+// BootstrapSummary describes the operator-visible intent of a bootstrap call:
+// which context, which backend type, which terraform components and
+// kustomizations are about to be applied. It is built directly from the
+// blueprint and config — no terraform invocation, no state probing, no diff
+// — so reruns and multi-machine invocations show the same content. The cmd
+// layer renders this for the operator's confirmation prompt.
+type BootstrapSummary struct {
+	ContextName string
+	BackendType string
+	Terraform   []BootstrapTerraformEntry
+	Kustomize   []string
+}
+
+// BootstrapTerraformEntry is a single row in the Terraform section of the
+// bootstrap summary. Path is the blueprint Path (e.g. "cluster/aws-eks") when
+// set; ComponentID is the unique identifier (Name when set, else Path) and is
+// used as the fallback when Path is empty.
+type BootstrapTerraformEntry struct {
+	ComponentID string
+	Path        string
+}
+
+// BootstrapConfirmFn receives the bootstrap summary and returns true to
+// proceed with apply or false to abort cleanly. Passing nil to Bootstrap
+// runs the apply unconditionally (no summary generated, no prompt).
+type BootstrapConfirmFn func(*BootstrapSummary) bool
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// Bootstrap branches deterministically on whether the configured remote backend
-// is reachable, then runs plan + confirm + apply through one shared code path.
+// Bootstrap brings up a context's infrastructure end-to-end. The path it takes
+// depends on what the blueprint and config declare, with no probing or state
+// detection of any kind:
 //
-//   - Already-bootstrapped (probe succeeds): the configured remote backend exists
-//     and contains real state. Bootstrap behaves like a regular up — plan and
-//     apply against the remote backend, no override, no migration.
-//   - Fresh (probe fails): no remote backend resource yet, or no backend
-//     component in the blueprint. Bootstrap pins terraform.backend.type=local
-//     for one apply pass that creates the backend infrastructure (and
-//     everything else) against local state, then migrates all component state
-//     to the configured remote backend.
+//   - When the blueprint declares a "backend" terraform component, Bootstrap
+//     pins terraform.backend.type=local in-memory for one Up pass that applies
+//     all components against local state, then migrates state to the
+//     configured remote backend via MigrateState. This is the path that
+//     resolves the chicken-and-egg of "the remote state store lives in
+//     infrastructure terraform must create first."
 //
-// The branch signal is the cloud resource itself (probed via terraform init in
-// a scratch directory), not any local-on-disk marker — so two operators on
-// different machines see the same answer for the same context. Bootstrap is
-// idempotent across machines and across re-runs.
+//   - When the blueprint has no backend component, Bootstrap calls Up
+//     directly against whatever backend is configured. This covers two
+//     scenarios with one branch: a local backend (no remote state at all)
+//     and an out-of-band remote backend (the bucket/secret/container was
+//     created externally and configured in windsor.yaml).
 //
-// When confirm is non-nil, the combined Terraform + Kustomize plan summary
-// passes through confirm before the apply runs. Returning false from confirm
-// aborts cleanly with applied=false. Per-component plan failures are recorded
-// as `(error: ...)` rows in the summary rather than aborting the whole plan.
+// Bootstrap does not try to detect whether a remote backend resource already
+// exists. Re-running bootstrap on an already-bootstrapped stack will fail at
+// apply time when the cloud rejects "create" against existing infra; the
+// confirmBootstrapIfContextExists prompt and the bootstrap summary both warn
+// before the apply happens.
+//
+// When confirm is non-nil, a BootstrapSummary built from the blueprint and
+// config is passed to confirm. Returning false aborts with applied=false and
+// no error.
 //
 // Any components whose state migration was skipped are returned in the error
 // so the operator sees what didn't migrate.
@@ -50,23 +77,24 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 		return false, fmt.Errorf("blueprint not provided")
 	}
 
-	if blueprint.BackendComponentID() == "" || i.backendReachable(blueprint) {
-		return i.runPlanThenApply(blueprint, confirm, onApply...)
+	if confirm != nil {
+		summary := i.bootstrapSummary(blueprint)
+		if !confirm(summary) {
+			return false, nil
+		}
 	}
 
-	var applied bool
-	if err := i.withBackendOverride("bootstrap", func() error {
-		ok, err := i.runPlanThenApply(blueprint, confirm, onApply...)
-		if err != nil {
-			return err
+	if blueprint.BackendComponentID() == "" {
+		if err := i.Up(blueprint, onApply...); err != nil {
+			return false, err
 		}
-		applied = ok
-		return nil
+		return true, nil
+	}
+
+	if err := i.withBackendOverride("bootstrap", func() error {
+		return i.Up(blueprint, onApply...)
 	}); err != nil {
 		return false, err
-	}
-	if !applied {
-		return false, nil
 	}
 
 	skipped, err := i.MigrateState(blueprint)
@@ -86,41 +114,32 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 // Private Helpers
 // =============================================================================
 
-// runPlanThenApply runs an optional plan + confirm cycle followed by Up. When
-// confirm is nil, Up runs unconditionally. When confirm is non-nil, the
-// combined Terraform + Kustomize plan summary is generated and passed to it;
-// returning false aborts cleanly with applied=false. Shared by both Bootstrap
-// branches (configured-backend and local-override) so plan, confirm, and apply
-// stay in lockstep.
-func (i *Provisioner) runPlanThenApply(blueprint *blueprintv1alpha1.Blueprint, confirm BootstrapConfirmFn, onApply ...func(id string) error) (bool, error) {
-	if confirm != nil {
-		summary, err := i.PlanAll(blueprint)
-		if err != nil {
-			return false, err
+// bootstrapSummary builds the operator-visible intent description from the
+// blueprint and config — no terraform invocation, no state probing. ContextName
+// comes from the runtime, BackendType from terraform.backend.type config (with
+// "local" as the default when unset), Terraform entries from the blueprint's
+// terraform components in declaration order (skipping disabled ones),
+// Kustomize entries from the blueprint's Kustomizations.
+func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *BootstrapSummary {
+	summary := &BootstrapSummary{
+		BackendType: i.configHandler.GetString("terraform.backend.type", "local"),
+	}
+	if i.runtime != nil {
+		summary.ContextName = i.runtime.ContextName
+	}
+	for _, c := range blueprint.TerraformComponents {
+		if c.Enabled != nil && !c.Enabled.IsEnabled() {
+			continue
 		}
-		if !confirm(summary) {
-			return false, nil
-		}
+		summary.Terraform = append(summary.Terraform, BootstrapTerraformEntry{
+			ComponentID: c.GetID(),
+			Path:        c.Path,
+		})
 	}
-	if err := i.Up(blueprint, onApply...); err != nil {
-		return false, err
+	for _, k := range blueprint.Kustomizations {
+		summary.Kustomize = append(summary.Kustomize, k.Name)
 	}
-	return true, nil
-}
-
-// backendReachable returns true when the configured remote backend's underlying
-// resource exists and is reachable, false otherwise. Returns false safely (no
-// panic) when the terraform stack cannot be initialised — Bootstrap then takes
-// the fresh-install local-override path, which sets up backend infrastructure
-// from scratch.
-func (i *Provisioner) backendReachable(blueprint *blueprintv1alpha1.Blueprint) bool {
-	if err := i.ensureTerraformStack(); err != nil {
-		return false
-	}
-	if i.TerraformStack == nil {
-		return false
-	}
-	return i.TerraformStack.BackendReachable(blueprint)
+	return summary
 }
 
 // withBackendOverride pins terraform.backend.type to "local" for the duration of

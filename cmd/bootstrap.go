@@ -14,7 +14,6 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
-	"github.com/windsorcli/cli/pkg/tui"
 )
 
 // =============================================================================
@@ -204,27 +203,24 @@ var bootstrapCmd = &cobra.Command{
 	},
 }
 
-// makeBootstrapConfirmFn builds the plan-confirm callback the provisioner calls
-// after generating the bootstrap plan summary, and returns a finish func that
-// must be called once Bootstrap returns. The pair manages a "Generating plan..."
-// spinner: started here, transitioned to Done from inside the confirm callback
-// when the plan succeeds, or transitioned to Fail by finish when Bootstrap
-// returns an error before the callback fires. finish is a no-op once the
-// spinner has been resolved, so it is always safe to call.
+// makeBootstrapConfirmFn builds the confirm callback the provisioner calls
+// with a BootstrapSummary describing what bootstrap is about to apply. The
+// summary is sourced from the blueprint and config — no terraform invocation
+// — and is rendered for the operator before they confirm.
+//
+// The returned finish func must be called once Bootstrap returns; it is a
+// no-op when the prompt has already resolved.
 //
 // Anything other than "y" or "yes" (case-insensitive) at the prompt returns
 // false — including empty input and EOF, so non-interactive callers must pass
 // --yes. Reserved for global mode by the caller; in local project mode the
 // operator has the directory-level cue and can run `windsor plan` separately.
 func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapConfirmFn, func(error)) {
-	tui.Start("Generating plan...")
 	resolved := false
-	confirmFn := func(summary *provisioner.PlanSummary) bool {
-		tui.Done()
+	confirmFn := func(summary *provisioner.BootstrapSummary) bool {
 		resolved = true
-		noColor := os.Getenv("NO_COLOR") != ""
-		printPlanSummary(out, summary.Terraform, summary.Kustomize, summary.Hints, noColor)
-		fmt.Fprint(out, "Do you want to apply this now? [y/N]: ")
+		printBootstrapSummary(out, summary)
+		fmt.Fprint(out, "Continue? [y/N]: ")
 		reader := bufio.NewReader(in)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
@@ -235,13 +231,57 @@ func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapC
 			return
 		}
 		resolved = true
-		if err != nil {
-			tui.Fail()
-		} else {
-			tui.Done()
-		}
 	}
 	return confirmFn, finish
+}
+
+// printBootstrapSummary writes the bootstrap intent description to w. The
+// header block lists Context and Backend (just the type — no editorial about
+// what windsor does internally with state migration). The Terraform section
+// lists the path of each enabled component (falling back to ComponentID when
+// Path is empty). The Kustomize section lists names, one per line, in
+// blueprint order. No status column, no counts — this is intent, not diff.
+func printBootstrapSummary(w io.Writer, summary *provisioner.BootstrapSummary) {
+	headerWidth := 47
+	for _, e := range summary.Terraform {
+		if n := len(bootstrapTerraformDisplay(e)); n > headerWidth {
+			headerWidth = n
+		}
+	}
+	for _, name := range summary.Kustomize {
+		if len(name) > headerWidth {
+			headerWidth = len(name)
+		}
+	}
+	sep := strings.Repeat("═", headerWidth)
+	fmt.Fprintf(w, "\nWindsor Bootstrap Summary\n%s\n", sep)
+	fmt.Fprintf(w, "Context  %s\n", summary.ContextName)
+	fmt.Fprintf(w, "Backend  %s\n", summary.BackendType)
+
+	if len(summary.Terraform) > 0 {
+		fmt.Fprintln(w, "\nTerraform")
+		for _, e := range summary.Terraform {
+			fmt.Fprintf(w, "  %s\n", bootstrapTerraformDisplay(e))
+		}
+	}
+	if len(summary.Kustomize) > 0 {
+		fmt.Fprintln(w, "\nKustomize")
+		for _, name := range summary.Kustomize {
+			fmt.Fprintf(w, "  %s\n", name)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+// bootstrapTerraformDisplay returns the path-or-ID identifier shown for a
+// Terraform component row in the bootstrap summary. Mirrors the display rule
+// used by `windsor plan`: prefer Path (informative module location like
+// "cluster/aws-eks"), fall back to ComponentID.
+func bootstrapTerraformDisplay(e provisioner.BootstrapTerraformEntry) string {
+	if e.Path != "" {
+		return e.Path
+	}
+	return e.ComponentID
 }
 
 // confirmBootstrapIfContextExists prompts the user to confirm when the context's values.yaml

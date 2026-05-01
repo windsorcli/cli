@@ -113,7 +113,6 @@ type Stack interface {
 	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
-	BackendReachable(blueprint *blueprintv1alpha1.Blueprint) bool
 }
 
 // =============================================================================
@@ -791,67 +790,6 @@ func (s *TerraformStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Bluep
 	}
 
 	return s.planOneTerraformSummary(component)
-}
-
-// BackendReachable reports whether the configured remote backend's underlying
-// resource (s3 bucket, kubernetes secret, azurerm container, etc.) is reachable.
-// It runs `terraform init -input=false` in a scratch directory containing only
-// a minimal main.tf that declares the configured backend, with the same
-// `-backend-config` args bootstrap will use. Backend init is terraform's
-// default, so no explicit `-backend=true` flag is needed. Init exits 0 only
-// when terraform can successfully connect to and read from the backend; init
-// exits non-zero when the backend resource doesn't exist.
-//
-// The probe is the deterministic signal that lets Bootstrap branch between the
-// fresh-install local-state path and the already-bootstrapped configured-backend
-// path. It is idempotent and machine-agnostic — every operator with credentials
-// observes the same answer because the signal is the existence of the cloud
-// resource itself, not anything in the operator's local filesystem.
-//
-// Returns false when the blueprint has no backend component, when the configured
-// backend is local/none/empty (no remote resource to probe), or when any step of
-// the probe (scratch dir creation, args generation, file write, init exec) fails.
-func (s *TerraformStack) BackendReachable(blueprint *blueprintv1alpha1.Blueprint) bool {
-	if blueprint == nil {
-		return false
-	}
-	backendID := blueprint.BackendComponentID()
-	if backendID == "" {
-		return false
-	}
-	backendType := s.runtime.ConfigHandler.GetString("terraform.backend.type", "local")
-	if backendType == "" || backendType == "local" || backendType == "none" {
-		return false
-	}
-
-	args, err := s.runtime.TerraformProvider.GenerateTerraformArgs(backendID, false)
-	if err != nil {
-		return false
-	}
-
-	scratchDir, err := s.shims.MkdirTemp("", "windsor-backend-probe-")
-	if err != nil {
-		return false
-	}
-	defer s.shims.RemoveAll(scratchDir)
-
-	mainTF := fmt.Sprintf("terraform {\n  backend %q {}\n}\n", backendType)
-	if err := s.shims.WriteFile(filepath.Join(scratchDir, "main.tf"), []byte(mainTF), 0644); err != nil {
-		return false
-	}
-
-	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-	initArgs := []string{
-		fmt.Sprintf("-chdir=%s", scratchDir),
-		"init",
-		"-input=false",
-	}
-	initArgs = append(initArgs, args.InitArgs...)
-
-	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, nil, initArgs...); err != nil {
-		return false
-	}
-	return true
 }
 
 // =============================================================================

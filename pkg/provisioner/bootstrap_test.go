@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
-	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
@@ -239,18 +238,22 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("ConfirmCallbackPlansBeforeApplyWithBackendOverride", func(t *testing.T) {
-		// Given a confirm callback, Bootstrap plans first under the same
-		// backend.type=local override the apply uses, calls confirm with the
-		// summary, then applies if confirm returns true. This guards the
-		// shared-override invariant: terraform init for the plan must not
-		// reach a remote backend that does not exist yet.
+	t.Run("ConfirmReceivesSummaryBeforeAnyMutation", func(t *testing.T) {
+		// The bootstrap summary is built from blueprint + config and passed to
+		// confirm BEFORE the override pin or any apply happens. No terraform
+		// plan, no PlanSummary call — the summary is intent only. This guards
+		// the contract: the operator sees what bootstrap will attempt before
+		// any state-touching work begins.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
 				{Path: "vpc"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "system-dns"},
+				{Name: "system-gitops"},
 			},
 		}
 
@@ -274,10 +277,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.PlanSummaryFunc = func(_ *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
 			ops = append(ops, "plan")
-			return []terraforminfra.TerraformComponentPlan{
-				{ComponentID: "backend", Add: 3},
-				{ComponentID: "vpc", Add: 1},
-			}
+			return nil
 		}
 		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
 			ops = append(ops, "up")
@@ -289,8 +289,8 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		var receivedSummary *PlanSummary
-		confirm := func(s *PlanSummary) bool {
+		var receivedSummary *BootstrapSummary
+		confirm := func(s *BootstrapSummary) bool {
 			ops = append(ops, "confirm")
 			receivedSummary = s
 			return true
@@ -304,7 +304,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			t.Fatal("Expected applied=true when confirm returned true")
 		}
 
-		expected := []string{"set:local", "plan", "confirm", "up", "set:s3", "migrate"}
+		// confirm must run BEFORE any mutation — the override pin and apply
+		// follow it, MigrateState last. PlanSummary must NOT be called.
+		expected := []string{"confirm", "set:local", "up", "set:s3", "migrate"}
 		if len(ops) != len(expected) {
 			t.Fatalf("Expected ops %v, got %v", expected, ops)
 		}
@@ -313,15 +315,24 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
 			}
 		}
-		if receivedSummary == nil || len(receivedSummary.Terraform) != 2 {
-			t.Errorf("expected confirm to receive summary with 2 terraform plans, got %#v", receivedSummary)
+		if receivedSummary == nil {
+			t.Fatal("expected confirm to receive a summary")
+		}
+		if receivedSummary.BackendType != "s3" {
+			t.Errorf("expected BackendType=s3, got %q", receivedSummary.BackendType)
+		}
+		if len(receivedSummary.Terraform) != 2 {
+			t.Errorf("expected 2 terraform entries, got %d", len(receivedSummary.Terraform))
+		}
+		if len(receivedSummary.Kustomize) != 2 {
+			t.Errorf("expected 2 kustomize entries, got %d", len(receivedSummary.Kustomize))
 		}
 	})
 
-	t.Run("ConfirmDeclineSkipsApplyAndMigrate", func(t *testing.T) {
-		// Given a confirm callback that returns false, Bootstrap aborts cleanly
-		// after the plan: no Up, no MigrateState, applied=false. The backend
-		// override is still restored via defer.
+	t.Run("ConfirmDeclineSkipsAllWork", func(t *testing.T) {
+		// Given a confirm callback that returns false, Bootstrap aborts before
+		// touching backend.type, before Up, before MigrateState. applied=false,
+		// no error.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -348,10 +359,6 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.PlanSummaryFunc = func(_ *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			ops = append(ops, "plan")
-			return nil
-		}
 		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
 			ops = append(ops, "up")
 			return nil
@@ -362,7 +369,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, err := provisioner.Bootstrap(bp, func(_ *PlanSummary) bool { return false })
+		applied, err := provisioner.Bootstrap(bp, func(_ *BootstrapSummary) bool { return false })
 		if err != nil {
 			t.Fatalf("Expected no error on declined confirm, got %v", err)
 		}
@@ -370,79 +377,20 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			t.Error("Expected applied=false when confirm returned false")
 		}
 
-		expected := []string{"set:local", "plan", "set:s3"}
-		if len(ops) != len(expected) {
-			t.Fatalf("Expected ops %v, got %v", expected, ops)
-		}
-		for i, want := range expected {
-			if ops[i] != want {
-				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
-			}
+		// Decline must short-circuit before any mutation.
+		if len(ops) != 0 {
+			t.Errorf("Expected no ops on declined confirm, got %v", ops)
 		}
 	})
 
-	t.Run("AlreadyBootstrappedSkipsOverrideAndMigrate", func(t *testing.T) {
-		// Given the configured remote backend is reachable (BackendReachable
-		// returns true), Bootstrap takes the configured-backend path: no
-		// backend override, no MigrateState, just plan + apply against the
-		// real backend. This is the idempotent re-run case — state already
-		// lives in the configured backend, so we don't pretend to recreate
-		// from local empty state.
-		mocks := setupProvisionerMocks(t)
-		bp := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "backend"},
-				{Path: "cluster"},
-			},
-		}
-
-		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
-		var ops []string
-		mockCH.SetFunc = func(key string, value any) error {
-			if key == "terraform.backend.type" {
-				ops = append(ops, fmt.Sprintf("set:%v", value))
-			}
-			return nil
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.BackendReachableFunc = func(_ *blueprintv1alpha1.Blueprint) bool {
-			return true
-		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
-			ops = append(ops, "up")
-			return nil
-		}
-		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
-			ops = append(ops, "migrate")
-			return nil, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-
-		applied, err := provisioner.Bootstrap(bp, nil)
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !applied {
-			t.Fatal("Expected applied=true")
-		}
-
-		expected := []string{"up"}
-		if len(ops) != len(expected) {
-			t.Fatalf("Expected ops %v, got %v", expected, ops)
-		}
-		for i, want := range expected {
-			if ops[i] != want {
-				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
-			}
-		}
-	})
-
-	t.Run("FreshUsesLocalOverrideWhenBackendNotReachable", func(t *testing.T) {
-		// Given BackendReachable returns false (fresh install — no remote
-		// backend resource yet), Bootstrap takes the local-override path:
-		// pin terraform.backend.type=local, run Up against local state, then
-		// migrate state to the configured remote backend at the end.
+	t.Run("BootstrapAlwaysUsesLocalOverrideAndMigrates", func(t *testing.T) {
+		// When a backend component is declared, Bootstrap always pins
+		// terraform.backend.type=local for one Up pass against local state,
+		// then migrates state to the configured remote backend. This is the
+		// only path — there is no probe-based optimization. On a re-bootstrap
+		// the override path's apply will fail loudly when the cloud rejects
+		// "create" against existing infra; that's the operator's signal to
+		// run `windsor apply` instead.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -469,9 +417,6 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.BackendReachableFunc = func(_ *blueprintv1alpha1.Blueprint) bool {
-			return false
-		}
 		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
 			ops = append(ops, "up")
 			return nil
@@ -501,13 +446,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("ConfirmReceivesKustomizePlansAlongsideTerraform", func(t *testing.T) {
-		// The bootstrap plan summary must include Kustomize plans, not just
-		// Terraform — operators bootstrapping a re-deploy need to see what
-		// flux will reconcile after the terraform layer lands. On first-time
-		// bootstrap the kustomize layer plans against an empty cluster and
-		// shows "(new)" / errors per row, which is still more useful than
-		// hiding the layer entirely.
+	t.Run("BootstrapSummaryIncludesAllBlueprintLayers", func(t *testing.T) {
+		// The bootstrap summary lists Terraform and Kustomize entries directly
+		// from the blueprint — operators see exactly what is declared, not
+		// what some plan engine computes. No terraform invocation, no flux
+		// diff. Layer ordering follows blueprint declaration order.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -521,26 +464,15 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 
 		mockTerraformStack := terraforminfra.NewMockStack()
-		mockTerraformStack.PlanSummaryFunc = func(_ *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
-			return []terraforminfra.TerraformComponentPlan{{ComponentID: "vpc", Add: 1}}
-		}
 		mockTerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
 			return nil
 		}
-		mockFluxStack := fluxinfra.NewMockStack()
-		mockFluxStack.PlanSummaryFunc = func(_ *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, []string) {
-			return []fluxinfra.KustomizePlan{
-				{Name: "system-dns", IsNew: true},
-				{Name: "system-gitops", IsNew: true},
-			}, nil
-		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
 			TerraformStack: mockTerraformStack,
-			FluxStack:      mockFluxStack,
 		})
 
-		var receivedSummary *PlanSummary
-		confirm := func(s *PlanSummary) bool {
+		var receivedSummary *BootstrapSummary
+		confirm := func(s *BootstrapSummary) bool {
 			receivedSummary = s
 			return true
 		}
@@ -553,10 +485,13 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			t.Fatal("Expected confirm to receive a summary")
 		}
 		if len(receivedSummary.Terraform) != 1 {
-			t.Errorf("Expected 1 terraform plan, got %d", len(receivedSummary.Terraform))
+			t.Errorf("Expected 1 terraform entry, got %d", len(receivedSummary.Terraform))
+		}
+		if receivedSummary.Terraform[0].Path != "vpc" {
+			t.Errorf("Expected terraform path 'vpc', got %q", receivedSummary.Terraform[0].Path)
 		}
 		if len(receivedSummary.Kustomize) != 2 {
-			t.Errorf("Expected 2 kustomize plans, got %d", len(receivedSummary.Kustomize))
+			t.Errorf("Expected 2 kustomize entries, got %d", len(receivedSummary.Kustomize))
 		}
 	})
 }
