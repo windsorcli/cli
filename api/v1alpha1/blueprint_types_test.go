@@ -2587,6 +2587,68 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("NamespaceFieldOverridesDefault", func(t *testing.T) {
+		// Given a kustomization that pins its own namespace
+		kustomization := &Kustomization{
+			Name:      "test-kustomization",
+			Path:      "test/path",
+			Namespace: "custom-ns",
+		}
+
+		// When converted with a different default namespace
+		result := kustomization.ToFluxKustomization("default-ns", "default-source", []Source{}, constants.GitopsModePull)
+
+		// Then the rendered Kustomization lives in the per-kustomization namespace
+		if result.Namespace != "custom-ns" {
+			t.Errorf("Expected metadata.namespace 'custom-ns', got '%s'", result.Namespace)
+		}
+		// And spec.targetNamespace stays empty when not configured
+		if result.Spec.TargetNamespace != "" {
+			t.Errorf("Expected empty spec.targetNamespace, got '%s'", result.Spec.TargetNamespace)
+		}
+	})
+
+	t.Run("DependsOnReferencesUseDefaultNamespaceEvenWhenNamespaceOverridden", func(t *testing.T) {
+		// Given a kustomization that overrides its own namespace and has dependencies
+		kustomization := &Kustomization{
+			Name:      "test-kustomization",
+			Path:      "test/path",
+			Namespace: "custom-ns",
+			DependsOn: []string{"dep1"},
+		}
+
+		// When converted
+		result := kustomization.ToFluxKustomization("default-ns", "default-source", []Source{}, constants.GitopsModePull)
+
+		// Then DependsOn references resolve in the default namespace, not the override.
+		// Cross-namespace dependencies are not currently supported and would require a
+		// richer DependsOn schema; this guards against accidentally changing that contract.
+		if len(result.Spec.DependsOn) != 1 || result.Spec.DependsOn[0].Namespace != "default-ns" {
+			t.Errorf("Expected DependsOn[0] in default-ns, got %+v", result.Spec.DependsOn)
+		}
+	})
+
+	t.Run("TargetNamespacePopulatesSpec", func(t *testing.T) {
+		// Given a kustomization that asks Flux to rewrite reconciled resource namespaces
+		kustomization := &Kustomization{
+			Name:            "test-kustomization",
+			Path:            "test/path",
+			TargetNamespace: "workload-ns",
+		}
+
+		// When converted
+		result := kustomization.ToFluxKustomization("default-ns", "default-source", []Source{}, constants.GitopsModePull)
+
+		// Then spec.targetNamespace carries through to the Flux Kustomization
+		if result.Spec.TargetNamespace != "workload-ns" {
+			t.Errorf("Expected spec.targetNamespace 'workload-ns', got '%s'", result.Spec.TargetNamespace)
+		}
+		// And the Kustomization object itself stays in the default namespace
+		if result.Namespace != "default-ns" {
+			t.Errorf("Expected metadata.namespace 'default-ns', got '%s'", result.Namespace)
+		}
+	})
+
 	t.Run("PushModeUsesLongDefaultInterval", func(t *testing.T) {
 		// Given a kustomization with no explicit Interval (leans on the default)
 		kustomization := &Kustomization{Name: "k", Path: "p"}
@@ -2883,13 +2945,15 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		destroyOnly := true
 
 		kustomization := &Kustomization{
-			Name:          "test-kustomization",
-			Path:          "test/path",
-			Source:        "test-source",
-			DependsOn:     []string{"dep1", "dep2"},
-			Interval:      &interval,
-			RetryInterval: &retryInterval,
-			Timeout:       &timeout,
+			Name:            "test-kustomization",
+			Path:            "test/path",
+			Source:          "test-source",
+			Namespace:       "custom-ns",
+			TargetNamespace: "workload-ns",
+			DependsOn:       []string{"dep1", "dep2"},
+			Interval:        &interval,
+			RetryInterval:   &retryInterval,
+			Timeout:         &timeout,
 			Patches: []BlueprintPatch{
 				{
 					Patch: "test-patch",
@@ -2918,6 +2982,12 @@ func TestKustomization_DeepCopy(t *testing.T) {
 		}
 		if copy.Source != "test-source" {
 			t.Errorf("Expected source 'test-source', got '%s'", copy.Source)
+		}
+		if copy.Namespace != "custom-ns" {
+			t.Errorf("Expected namespace 'custom-ns', got '%s'", copy.Namespace)
+		}
+		if copy.TargetNamespace != "workload-ns" {
+			t.Errorf("Expected targetNamespace 'workload-ns', got '%s'", copy.TargetNamespace)
 		}
 		if len(copy.DependsOn) != 2 {
 			t.Errorf("Expected 2 dependencies, got %d", len(copy.DependsOn))
@@ -4062,4 +4132,3 @@ func TestDeepMergeMaps_EmptyOverlayDoesNotOverwritePopulated(t *testing.T) {
 		}
 	})
 }
-
