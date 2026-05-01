@@ -45,21 +45,27 @@ func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *
 // =============================================================================
 
 // GetEnvVars retrieves the environment variables for the Azure environment.
+// In global mode (no windsor.yaml in the project tree) AZURE_CONFIG_DIR is not
+// emitted so the az CLI defers to the operator's ambient ~/.azure config; the
+// project-level identifiers (ARM_SUBSCRIPTION_ID, ARM_TENANT_ID, ARM_ENVIRONMENT)
+// are still emitted because they describe which Azure account/tenant the
+// context targets, not whose credentials are used.
 func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
-
-	configRoot, err := e.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
-	}
-
-	azureConfigDir := filepath.Join(configRoot, ".azure")
+	global := e.shell.IsGlobal()
 
 	// Get the current context configuration
 	config := e.configHandler.GetConfig()
 	if config != nil && config.Azure != nil {
-		envVars["AZURE_CONFIG_DIR"] = filepath.ToSlash(azureConfigDir)
-		envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "false"
+		if !global {
+			configRoot, err := e.configHandler.GetConfigRoot()
+			if err != nil {
+				return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+			}
+			azureConfigDir := filepath.Join(configRoot, ".azure")
+			envVars["AZURE_CONFIG_DIR"] = filepath.ToSlash(azureConfigDir)
+			envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "false"
+		}
 
 		if config.Azure.SubscriptionID != nil {
 			envVars["ARM_SUBSCRIPTION_ID"] = *config.Azure.SubscriptionID

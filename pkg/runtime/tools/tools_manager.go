@@ -489,27 +489,36 @@ func (t *BaseToolsManager) checkAWSAuth() error {
 	return nil
 }
 
-// awsContextEnv returns env vars pointing the AWS CLI/SDK at the context-scoped .aws/ dir
-// and selecting the right profile. Returns (nil, nil) when ambient SDK credentials are
-// present — overriding AWS_PROFILE there would mask the native credential chain.
+// awsContextEnv returns env vars pointing the AWS CLI/SDK at the right profile (and in
+// project mode, the context-scoped .aws/ dir). Returns (nil, nil) when ambient SDK
+// credentials are present — overriding AWS_PROFILE there would mask the native credential
+// chain. In global mode AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE are not emitted so
+// the SDK resolves against the operator's ambient ~/.aws/, but AWS_PROFILE is still
+// emitted (from aws.profile if set, otherwise the context name) so sts checks the profile
+// the operator actually meant — without it sts would fall through to [default] and fail
+// even though the right profile is logged in.
 func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
 	if hasAmbientAWSCredentials() {
 		return nil, nil
 	}
-	configRoot, err := t.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, err
-	}
-	awsConfigDir := filepath.Join(configRoot, ".aws")
-	env := map[string]string{
-		"AWS_CONFIG_FILE":             filepath.ToSlash(filepath.Join(awsConfigDir, "config")),
-		"AWS_SHARED_CREDENTIALS_FILE": filepath.ToSlash(filepath.Join(awsConfigDir, "credentials")),
+	env := map[string]string{}
+	if !t.shell.IsGlobal() {
+		configRoot, err := t.configHandler.GetConfigRoot()
+		if err != nil {
+			return nil, err
+		}
+		awsConfigDir := filepath.Join(configRoot, ".aws")
+		env["AWS_CONFIG_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "config"))
+		env["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
 	}
 	cfg := t.configHandler.GetConfig()
 	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil && *cfg.AWS.AWSProfile != "" {
 		env["AWS_PROFILE"] = *cfg.AWS.AWSProfile
 	} else if ctx := t.configHandler.GetContext(); ctx != "" {
 		env["AWS_PROFILE"] = ctx
+	}
+	if len(env) == 0 {
+		return nil, nil
 	}
 	return env, nil
 }
@@ -556,9 +565,12 @@ func (t *BaseToolsManager) checkAWSBinary() error {
 }
 
 // awsAuthHint returns an actionable next-step message tailored to the context's AWS config
-// state (expired SSO, rejected keys, or no profile yet). When the process env doesn't already
-// point at the context's .aws/, the suggested command is prefixed with that env so credentials
-// land in the right place. The first-time-setup branch surfaces both SSO and access-key paths
+// state (expired SSO, rejected keys, or no profile yet). In project mode windsor scopes
+// AWS config to the context's .aws/, so when the process env doesn't already point there
+// the suggested command is prefixed with that env so credentials land in the right place.
+// In global mode windsor defers to the operator's ambient ~/.aws/ (or AWS_CONFIG_FILE
+// override), so no env prefix is suggested and profile-state detection reads from the
+// ambient config. The first-time-setup branch surfaces both SSO and access-key paths
 // because we can't tell which kind of operator reached it.
 func (t *BaseToolsManager) awsAuthHint() string {
 	ctx := t.configHandler.GetContext()
@@ -566,6 +578,17 @@ func (t *BaseToolsManager) awsAuthHint() string {
 	cfg := t.configHandler.GetConfig()
 	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil && *cfg.AWS.AWSProfile != "" {
 		profile = *cfg.AWS.AWSProfile
+	}
+	if t.shell.IsGlobal() {
+		state := detectAWSProfileState(ambientAWSConfigPath(), profile)
+		switch state {
+		case awsProfileSSO:
+			return fmt.Sprintf("AWS SSO session for %q has likely expired. Run:\n  aws sso login --profile %s", profile, profile)
+		case awsProfileKeys:
+			return fmt.Sprintf("AWS access keys for %q were rejected by STS. Verify or rotate with:\n  aws configure --profile %s", profile, profile)
+		default:
+			return fmt.Sprintf("No AWS credentials configured for profile %q yet. Run one of:\n  aws configure sso --profile %s   (SSO)\n  aws configure --profile %s       (access keys)", profile, profile, profile)
+		}
 	}
 	configRoot, err := t.configHandler.GetConfigRoot()
 	if err != nil || configRoot == "" {
@@ -586,6 +609,23 @@ func (t *BaseToolsManager) awsAuthHint() string {
 	default:
 		return fmt.Sprintf("No AWS credentials configured for context %q yet. Run one of:\n  %saws configure sso --profile %s   (SSO)\n  %saws configure --profile %s       (access keys)", ctx, prefix, profile, prefix, profile)
 	}
+}
+
+// ambientAWSConfigPath returns the path the AWS CLI would read for profile config when
+// no windsor-scoped overrides are in play: AWS_CONFIG_FILE if set, otherwise
+// $HOME/.aws/config. Used by the global-mode auth hint to inspect the user's existing
+// profile state. Returns "" if the home directory cannot be resolved and AWS_CONFIG_FILE
+// is unset, in which case profile-state detection falls through to the first-time-setup
+// branch — the right outcome when we genuinely can't tell what's there.
+func ambientAWSConfigPath() string {
+	if cf := os.Getenv("AWS_CONFIG_FILE"); cf != "" {
+		return cf
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".aws", "config")
 }
 
 // awsEnvPointsAtContext reports whether AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE both

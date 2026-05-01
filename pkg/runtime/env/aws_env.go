@@ -45,26 +45,39 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 // =============================================================================
 
 // GetEnvVars retrieves the environment variables for the AWS environment.
-// AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at the context's
-// .aws/config and .aws/credentials, even when those files do not yet exist, so
-// that `aws configure` (run inside a windsor-shell session) writes into the
-// context folder rather than contaminating the operator's global ~/.aws files.
-// Subsequent aws/terraform/SDK calls then read the same context-scoped files.
-// AWS_PROFILE defaults to the current context name so `aws configure sso` creates
-// a profile bound to the context; an explicit aws.profile in the context's aws
-// block overrides the default. AWS_REGION is emitted only when aws.region is set;
-// downstream tools otherwise fall back to the profile's own `region =` line.
+// In project mode AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at
+// the context's .aws/config and .aws/credentials, even when those files do not
+// yet exist, so that `aws configure` (run inside a windsor-shell session) writes
+// into the context folder rather than contaminating the operator's global ~/.aws
+// files. Subsequent aws/terraform/SDK calls then read the same context-scoped
+// files. AWS_PROFILE defaults to the current context name so `aws configure sso`
+// creates a profile bound to the context; an explicit aws.profile in the
+// context's aws block overrides the default. AWS_REGION is emitted only when
+// aws.region is set; downstream tools otherwise fall back to the profile's own
+// `region =` line.
+//
+// In global mode (no windsor.yaml in the project tree) windsor defers on file
+// locations — AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE are not emitted so
+// the AWS SDK resolves against the operator's ambient ~/.aws/. AWS_PROFILE is
+// still emitted (from aws.profile if set, otherwise the context name) so the
+// SDK checks the profile the context actually targets; without it, calls would
+// fall through to [default] even when the right profile is logged in. The
+// non-credential project parameters (region, endpoint, s3 hostname, mwaa
+// endpoint) flow through unchanged because they describe where windsor talks to
+// AWS, not whose credentials it uses.
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
+	global := e.shell.IsGlobal()
 
-	configRoot, err := e.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+	if !global {
+		configRoot, err := e.configHandler.GetConfigRoot()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+		}
+		awsConfigDir := filepath.Join(configRoot, ".aws")
+		envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "config"))
+		envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
 	}
-
-	awsConfigDir := filepath.Join(configRoot, ".aws")
-	envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "config"))
-	envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
 
 	contextConfigData := e.configHandler.GetConfig()
 	awsProfileOverride := ""

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/api/v1alpha1/azure"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -105,9 +107,16 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 
 	t.Run("GetConfigRootError", func(t *testing.T) {
 		// Given a printer with a config handler that fails to get config root
+		// AND an azure block in context config (so the config-root resolution path
+		// is exercised — without azure config, GetEnvVars short-circuits before
+		// touching the config root).
+		subID := "test-subscription"
 		mockConfigHandler := &config.MockConfigHandler{}
 		mockConfigHandler.GetConfigRootFunc = func() (string, error) {
 			return "", fmt.Errorf("error retrieving configuration root directory")
+		}
+		mockConfigHandler.GetConfigFunc = func() *v1alpha1.Context {
+			return &v1alpha1.Context{Azure: &azure.AzureConfig{SubscriptionID: &subID}}
 		}
 		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
 			ConfigHandler: mockConfigHandler,
@@ -123,6 +132,36 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error retrieving configuration root directory") {
 			t.Errorf("Expected error containing 'error retrieving configuration root directory', got %v", err)
+		}
+	})
+
+	t.Run("GlobalModeDefersToAmbientAzureConfig", func(t *testing.T) {
+		// Given an Azure-platform context running in global mode
+		printer, mocks := setup(t)
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then AZURE_CONFIG_DIR and AZURE_CORE_LOGIN_EXPERIENCE_V2 are NOT emitted —
+		// the az CLI defers to the operator's ambient ~/.azure config. The project-
+		// level identifiers (subscription, tenant, environment) still flow through
+		// because they describe which Azure account the context targets, not whose
+		// credentials are used.
+		if _, ok := envVars["AZURE_CONFIG_DIR"]; ok {
+			t.Errorf("AZURE_CONFIG_DIR should not be set in global mode, got %q", envVars["AZURE_CONFIG_DIR"])
+		}
+		if _, ok := envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"]; ok {
+			t.Errorf("AZURE_CORE_LOGIN_EXPERIENCE_V2 should not be set in global mode")
+		}
+		if got := envVars["ARM_SUBSCRIPTION_ID"]; got != "test-subscription" {
+			t.Errorf("ARM_SUBSCRIPTION_ID = %q, want %q", got, "test-subscription")
+		}
+		if got := envVars["ARM_TENANT_ID"]; got != "test-tenant" {
+			t.Errorf("ARM_TENANT_ID = %q, want %q", got, "test-tenant")
 		}
 	})
 
