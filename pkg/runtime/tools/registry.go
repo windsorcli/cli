@@ -40,7 +40,7 @@ var toolRegistry = map[string]toolInfo{
 	"docker": {
 		name:       "Docker",
 		minVersion: constants.MinimumVersionDocker,
-		download:   "https://www.docker.com/products/docker-desktop/",
+		download:   "https://docs.docker.com/engine/install/",
 	},
 	"colima": {
 		name:       "Colima",

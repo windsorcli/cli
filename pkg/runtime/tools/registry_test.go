@@ -73,7 +73,7 @@ func TestOutdatedToolError(t *testing.T) {
 
 		// Then both the found version and the minimum show up alongside the vendor install URL
 		msg := err.Error()
-		expected := []string{"Docker", "20.10.0", "23.0.0", "below the minimum required version", "https://www.docker.com/products/docker-desktop/"}
+		expected := []string{"Docker", "20.10.0", "23.0.0", "below the minimum required version", "https://docs.docker.com/engine/install/"}
 		for _, want := range expected {
 			if !strings.Contains(msg, want) {
 				t.Errorf("expected error to contain %q, got: %s", want, msg)
