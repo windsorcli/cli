@@ -10,21 +10,38 @@ import (
 // =============================================================================
 
 // TestMissingToolError pins the formatting contract: registered keys produce errors that
-// carry the display name, minimum version, vendor download URL, and aqua package; an
-// unregistered key falls back to a bare error so a programmer typo in a check* function
-// still produces a readable message instead of panicking.
+// carry the display name, minimum version, and vendor download URL; an unregistered key
+// falls back to a bare error so a programmer typo in a check* function still produces a
+// readable message instead of panicking.
 func TestMissingToolError(t *testing.T) {
-	t.Run("RegisteredKeyIncludesAllInstallHints", func(t *testing.T) {
+	t.Run("RegisteredKeyIncludesVendorInstallHint", func(t *testing.T) {
 		// Given a key that is in the registry
 		err := missingToolError("terraform")
 
-		// Then the error includes the display name, minimum version, download URL, and
-		// aqua package — the exact four pieces operators need to resolve the failure.
+		// Then the error includes the display name, minimum version, and vendor download URL
+		// — the exact pieces operators need to resolve the failure via the vendor's own
+		// install instructions (which encode platform-specific nuance we don't replicate).
 		msg := err.Error()
-		expected := []string{"Terraform", "1.7.0", "https://developer.hashicorp.com/terraform/install", "aqua g -i hashicorp/terraform", "not found on PATH"}
+		expected := []string{"Terraform", "1.7.0", "https://developer.hashicorp.com/terraform/install", "not found on PATH"}
 		for _, want := range expected {
 			if !strings.Contains(msg, want) {
 				t.Errorf("expected error to contain %q, got: %s", want, msg)
+			}
+		}
+	})
+
+	t.Run("RegisteredKeyOmitsThirdPartyPackageManagers", func(t *testing.T) {
+		// Given a key that is in the registry
+		err := missingToolError("terraform")
+
+		// Then the error must NOT mention third-party package managers (aqua, brew, etc.).
+		// Operators get the vendor's authoritative install page only — pointing at a
+		// distribution wrapper would put us on the hook for that wrapper's signing,
+		// version-staleness, and platform-coverage gaps.
+		msg := err.Error()
+		for _, banned := range []string{"aqua g -i", "brew install", "Or via aqua"} {
+			if strings.Contains(msg, banned) {
+				t.Errorf("expected error to OMIT %q, got: %s", banned, msg)
 			}
 		}
 	})
@@ -40,7 +57,7 @@ func TestMissingToolError(t *testing.T) {
 		if !strings.Contains(msg, "nonexistent-tool") {
 			t.Errorf("expected fallback to mention the key name, got: %s", msg)
 		}
-		if strings.Contains(msg, "Download:") || strings.Contains(msg, "aqua g -i") {
+		if strings.Contains(msg, "Install:") {
 			t.Errorf("expected fallback to OMIT install hints, got: %s", msg)
 		}
 	})
@@ -54,12 +71,17 @@ func TestOutdatedToolError(t *testing.T) {
 		// Given a registered key and a found version below minimum
 		err := outdatedToolError("docker", "20.10.0")
 
-		// Then both the found version and the minimum show up alongside install hints
+		// Then both the found version and the minimum show up alongside the vendor install URL
 		msg := err.Error()
-		expected := []string{"Docker", "20.10.0", "23.0.0", "below the minimum required version", "https://docs.docker.com/get-docker/", "aqua g -i docker/cli"}
+		expected := []string{"Docker", "20.10.0", "23.0.0", "below the minimum required version", "https://www.docker.com/products/docker-desktop/"}
 		for _, want := range expected {
 			if !strings.Contains(msg, want) {
 				t.Errorf("expected error to contain %q, got: %s", want, msg)
+			}
+		}
+		for _, banned := range []string{"aqua g -i", "Or via aqua"} {
+			if strings.Contains(msg, banned) {
+				t.Errorf("expected error to OMIT %q, got: %s", banned, msg)
 			}
 		}
 	})
@@ -84,7 +106,7 @@ func TestOutdatedToolError(t *testing.T) {
 		if !strings.Contains(msg, "ghost-tool") || !strings.Contains(msg, "0.0.1") {
 			t.Errorf("expected fallback to mention key + version, got: %s", msg)
 		}
-		if strings.Contains(msg, "Download:") || strings.Contains(msg, "aqua g -i") {
+		if strings.Contains(msg, "Install:") {
 			t.Errorf("expected fallback to OMIT install hints, got: %s", msg)
 		}
 	})

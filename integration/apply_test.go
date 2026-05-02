@@ -99,12 +99,13 @@ func TestApply_AcceptsWaitFlag(t *testing.T) {
 // TestApplyTerraform_MissingBinary_ShowsActionableError verifies the registry-formatted
 // missing-tool error reaches the user end-to-end: when an `apply terraform` preflight
 // fails because terraform is not on PATH, stderr must include the vendor download URL
-// and the matching aqua package so the operator has a copy-pasteable next step. init
-// runs with --set terraform.enabled=true so the preflight check actually fires (without
-// that gate, the provisioner would shell out directly and surface a raw exec error
-// instead of the formatted one). The "null" component arg is an arbitrary positional
-// placeholder — the preflight check fails inside Initialize before the command body
-// reads componentID, so no matching component needs to exist in the plan fixture.
+// so the operator has a copy-pasteable next step pointing at the authoritative install
+// instructions. init runs with --set terraform.enabled=true so the preflight check
+// actually fires (without that gate, the provisioner would shell out directly and surface
+// a raw exec error instead of the formatted one). The "null" component arg is an
+// arbitrary positional placeholder — the preflight check fails inside Initialize before
+// the command body reads componentID, so no matching component needs to exist in the plan
+// fixture.
 func TestApplyTerraform_MissingBinary_ShowsActionableError(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
@@ -123,10 +124,13 @@ func TestApplyTerraform_MissingBinary_ShowsActionableError(t *testing.T) {
 	if !strings.Contains(out, "not found on PATH") {
 		t.Errorf("expected stderr to mention 'not found on PATH', got: %s", out)
 	}
-	if !strings.Contains(out, "Download:") {
-		t.Errorf("expected stderr to include a 'Download:' install hint, got: %s", out)
+	if !strings.Contains(out, "Install:") {
+		t.Errorf("expected stderr to include an 'Install:' vendor URL hint, got: %s", out)
 	}
-	if !strings.Contains(out, "aqua g -i") {
-		t.Errorf("expected stderr to include an 'aqua g -i' install hint, got: %s", out)
+	if !strings.Contains(out, "developer.hashicorp.com") {
+		t.Errorf("expected stderr to include the vendor install URL, got: %s", out)
+	}
+	if strings.Contains(out, "aqua g -i") {
+		t.Errorf("expected stderr to OMIT third-party 'aqua g -i' hint, got: %s", out)
 	}
 }
