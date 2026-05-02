@@ -1,0 +1,15 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: consumer
+  description: Activates on aws provider; requires region, account, and dns domain.
+when: (provider ?? '') == 'aws'
+requires:
+  - paths:
+      - dns.domain
+  - paths:
+      - aws.region
+      - aws.account_id
+    message: |
+      AWS provider needs region and account_id set.
+      See https://docs.windsorcli.dev/aws for details.
