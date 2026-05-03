@@ -686,11 +686,33 @@ func (t *BaseToolsManager) checkAzureAuth() error {
 	if err != nil {
 		return fmt.Errorf("cannot resolve context-scoped Azure env for credential check: %w", err)
 	}
-	args := []string{"rest", "--method", "get", "--uri", "https://management.azure.com/tenants?api-version=2020-01-01", "--output", "none"}
+	cfg := t.configHandler.GetConfig()
+	azureEnv := ""
+	if cfg != nil && cfg.Azure != nil && cfg.Azure.Environment != nil {
+		azureEnv = *cfg.Azure.Environment
+	}
+	uri := fmt.Sprintf("https://%s/tenants?api-version=2020-01-01", armTenantEndpoint(azureEnv))
+	args := []string{"rest", "--method", "get", "--uri", uri, "--output", "none"}
 	if _, err := t.shell.ExecSilentWithEnvAndTimeout("az", env, args, 30*time.Second); err != nil {
 		return fmt.Errorf("%s", t.azureAuthHint())
 	}
 	return nil
+}
+
+// armTenantEndpoint maps an azure.environment value to its ARM host. Sovereign clouds
+// (usgovernment, china, german) have separate endpoints; az CLI does not rewrite explicit
+// --uri values, so the host must be selected up-front. Unknown/empty values default to public.
+func armTenantEndpoint(env string) string {
+	switch env {
+	case "usgovernment":
+		return "management.usgovcloudapi.net"
+	case "china":
+		return "management.chinacloudapi.cn"
+	case "german":
+		return "management.microsoftazure.de"
+	default:
+		return "management.azure.com"
+	}
 }
 
 // azureContextEnv returns env vars scoping the az CLI to the context's .azure/ dir.

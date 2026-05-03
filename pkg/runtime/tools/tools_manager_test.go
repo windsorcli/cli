@@ -2998,6 +2998,71 @@ contexts:
 			t.Errorf("AZURE_CONFIG_DIR should not be set in global mode, got %q", capturedEnv["AZURE_CONFIG_DIR"])
 		}
 	})
+
+	t.Run("AzureSovereignCloudRoutesProbeToSovereignEndpoint", func(t *testing.T) {
+		// Given azure.environment names a sovereign cloud, the probe URI must target
+		// that cloud's ARM host — az CLI does not rewrite explicit --uri values, so a
+		// hardcoded management.azure.com would hit the wrong endpoint and surface as a
+		// false auth failure for usgovernment / china tenants.
+		cases := []struct {
+			env  string
+			host string
+		}{
+			{"usgovernment", "management.usgovcloudapi.net"},
+			{"china", "management.chinacloudapi.cn"},
+			{"german", "management.microsoftazure.de"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.env, func(t *testing.T) {
+				mocks, toolsManager := setup(t, fmt.Sprintf(`
+contexts:
+  test:
+    platform: azure
+    azure:
+      tenant_id: 11111111-2222-3333-4444-555555555555
+      environment: %s
+`, tc.env))
+				azBinaryMock(t)
+				var restArgs []string
+				mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
+					return fmt.Sprintf("azure-cli                         %s\n", constants.MinimumVersionAzure), nil
+				}
+				mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
+					if command == "az" && len(args) >= 1 && args[0] == "rest" {
+						restArgs = args
+						return ``, nil
+					}
+					return "", fmt.Errorf("command not mocked: %v", args)
+				}
+				if err := toolsManager.CheckAuth(); err != nil {
+					t.Fatalf("Expected CheckAuth to succeed for env %q, got %v", tc.env, err)
+				}
+				wantURI := fmt.Sprintf("https://%s/tenants", tc.host)
+				if !strings.Contains(strings.Join(restArgs, " "), wantURI) {
+					t.Errorf("Expected probe URI to contain %q for env %q, got args: %v", wantURI, tc.env, restArgs)
+				}
+			})
+		}
+	})
+}
+
+func Test_armTenantEndpoint(t *testing.T) {
+	cases := []struct {
+		env  string
+		want string
+	}{
+		{"", "management.azure.com"},
+		{"public", "management.azure.com"},
+		{"usgovernment", "management.usgovcloudapi.net"},
+		{"china", "management.chinacloudapi.cn"},
+		{"german", "management.microsoftazure.de"},
+		{"unknown-cloud", "management.azure.com"},
+	}
+	for _, tc := range cases {
+		if got := armTenantEndpoint(tc.env); got != tc.want {
+			t.Errorf("armTenantEndpoint(%q) = %q, want %q", tc.env, got, tc.want)
+		}
+	}
 }
 
 func Test_azureAuthHint(t *testing.T) {
