@@ -641,9 +641,14 @@ func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 // enough config — a backend.tfvars file or a populated nested config block —
 // for `terraform init` to even attempt connecting. Local/empty backends are
 // always complete. Lets Bootstrap's probe distinguish "we don't know where
-// the remote is yet" (first-time bootstrap, the dance is the right path
-// without a confusing terraform-error dump) from "we know where it is but
-// can't reach it" (real warning, operator may want to abort).
+// the remote is yet" (first-time bootstrap) from "we know where it is but
+// can't reach it" (real warning).
+//
+// Default for unrecognized backend types is true: the predicate's job is to
+// catch the well-understood first-time-bootstrap case for the backends
+// Windsor knows about. For anything else (gcs, http, consul, remote, cos),
+// we don't know what's required — let the probe run and surface real init
+// failures via the warning path rather than silently disable detection.
 func (p *terraformProvider) BackendConfigComplete() bool {
 	backendType := p.configHandler.GetString("terraform.backend.type", "local")
 	if backendType == "" || backendType == "local" {
@@ -661,24 +666,24 @@ func (p *terraformProvider) BackendConfigComplete() bool {
 		}
 	}
 
-	cfg := p.configHandler.GetConfig().Terraform
-	if cfg == nil || cfg.Backend == nil {
-		return false
+	// Kubernetes uses the ambient kubeconfig; a nested config block is
+	// optional. Reachable from here even when cfg.Backend is nil.
+	if backendType == "kubernetes" {
+		return true
 	}
+
+	cfg := p.configHandler.GetConfig().Terraform
 	switch backendType {
 	case "azurerm":
-		return cfg.Backend.AzureRM != nil &&
+		return cfg != nil && cfg.Backend != nil && cfg.Backend.AzureRM != nil &&
 			cfg.Backend.AzureRM.StorageAccountName != nil &&
 			cfg.Backend.AzureRM.ContainerName != nil
 	case "s3":
-		return cfg.Backend.S3 != nil && cfg.Backend.S3.Bucket != nil
-	case "kubernetes":
-		// Kubernetes uses the ambient kubeconfig by default; an empty nested
-		// config block is normal. Treat as complete — if init fails, that's
-		// a real probe failure (cluster unreachable / auth) worth surfacing.
-		return true
+		return cfg != nil && cfg.Backend != nil && cfg.Backend.S3 != nil &&
+			cfg.Backend.S3.Bucket != nil
 	}
-	return false
+
+	return true
 }
 
 // =============================================================================

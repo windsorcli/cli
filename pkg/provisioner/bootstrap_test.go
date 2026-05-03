@@ -1218,8 +1218,8 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		stderrBytes, _ := io.ReadAll(r)
 		stderrOutput := string(stderrBytes)
 
-		if !strings.Contains(stderrOutput, "skipping bootstrap dance") {
-			t.Errorf("Expected stderr to mention skipping the dance, got: %q", stderrOutput)
+		if !strings.Contains(stderrOutput, "applying without pivot") {
+			t.Errorf("Expected stderr to mention applying without pivot, got: %q", stderrOutput)
 		}
 		if !strings.Contains(stderrOutput, `"backend"`) {
 			t.Errorf("Expected stderr to name the pivot, got: %q", stderrOutput)

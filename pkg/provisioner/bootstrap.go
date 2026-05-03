@@ -98,7 +98,7 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 			fmt.Fprintln(os.Stderr, "proceeding with local-then-migrate dance — abort with Ctrl-C if your backend already exists and this is a transient probe failure.")
 			pauseForProbeWarning(os.Stderr, probeErrorPause)
 		} else if hasRemote {
-			fmt.Fprintf(os.Stderr, "Probe found existing state for pivot %q in configured backend — skipping bootstrap dance, applying as a normal up.\n", pivotID)
+			fmt.Fprintf(os.Stderr, "Probe found existing state for pivot %q in configured backend — applying without pivot.\n", pivotID)
 			if err := i.Up(blueprint, onApply...); err != nil {
 				return false, err
 			}
