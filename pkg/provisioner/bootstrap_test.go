@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
@@ -987,7 +988,12 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// errors degrade safely by running the dance, where Phase 1 will
 		// surface a persistent issue with a cloud-side error. A stderr
 		// warning naming the underlying probe error gives the operator a
-		// chance to abort before the dance runs unnecessarily.
+		// chance to abort before the dance runs unnecessarily, plus a
+		// short countdown pause so the warning isn't drowned by terraform
+		// output. The pause is overridden to zero in tests.
+		oldPause := probeErrorPause
+		probeErrorPause = 0
+		defer func() { probeErrorPause = oldPause }()
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -1505,6 +1511,78 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			if ops[i] != want {
 				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
 			}
+		}
+	})
+
+	t.Run("ProbeErrorEmitsCountdownBeforeStartingDance", func(t *testing.T) {
+		// The probe-error path was silently followed by terraform init, so
+		// the warning could scroll out of view before the operator noticed.
+		// pauseForProbeWarning emits a per-second countdown line so the
+		// warning has a visible window. Test sets a 2-second pause and
+		// verifies both countdown lines appear on stderr.
+		oldPause := probeErrorPause
+		probeErrorPause = 2 * time.Second
+		defer func() { probeErrorPause = oldPause }()
+
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "azurerm"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+			return false, fmt.Errorf("auth timeout")
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			return nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return nil, nil
+		}
+
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+		start := time.Now()
+		_, err := provisioner.Bootstrap(bp, nil)
+		elapsed := time.Since(start)
+
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if elapsed < 2*time.Second {
+			t.Errorf("Expected at least 2s of pause, got %v", elapsed)
+		}
+		if !strings.Contains(stderrOutput, "proceeding in 2s") {
+			t.Errorf("Expected first countdown line, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "proceeding in 1s") {
+			t.Errorf("Expected second countdown line, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "Ctrl-C to abort") {
+			t.Errorf("Expected countdown to mention Ctrl-C abort, got: %q", stderrOutput)
 		}
 	})
 

@@ -3,9 +3,21 @@ package provisioner
 import (
 	"fmt"
 	"os"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
+
+// =============================================================================
+// Variables
+// =============================================================================
+
+// probeErrorPause is the window between Bootstrap printing its probe-failure
+// warning and the dance starting. Gives the operator a real chance to read
+// the warning and Ctrl-C before terraform init/plan output drowns it.
+// Package-level so tests can set it to zero; the live value is intentionally
+// short enough to feel responsive but long enough to register visually.
+var probeErrorPause = 5 * time.Second
 
 // =============================================================================
 // Types
@@ -101,6 +113,7 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 	hasRemote, probeErr := i.HasRemoteState(blueprint, pivotID)
 	if probeErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: probe of configured backend for pivot %q failed: %v — proceeding with local-then-migrate dance (correct on first-time bootstrap; abort with Ctrl-C if your backend already exists and this is a transient probe failure)\n", pivotID, probeErr)
+		pauseForProbeWarning(os.Stderr, probeErrorPause)
 	} else if hasRemote {
 		fmt.Fprintf(os.Stderr, "Probe found existing state for pivot %q in configured backend — skipping bootstrap dance, applying as a normal up.\n", pivotID)
 		if err := i.Up(blueprint, onApply...); err != nil {
@@ -169,6 +182,28 @@ func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *
 		summary.Kustomize = append(summary.Kustomize, k.Name)
 	}
 	return summary
+}
+
+// pauseForProbeWarning emits a one-second-cadence countdown to w after the
+// probe-failure warning so the operator has a visible window to Ctrl-C
+// before terraform init/plan output drowns the warning. When pause is zero
+// or negative (test mode) the function is a no-op so unit tests don't
+// idle for several seconds. Intentionally simple: no spinner, no goroutine,
+// just blocking sleep with a per-second tick to make the wait feel
+// intentional rather than hung.
+func pauseForProbeWarning(w *os.File, pause time.Duration) {
+	if pause <= 0 {
+		return
+	}
+	seconds := int(pause / time.Second)
+	if seconds < 1 {
+		time.Sleep(pause)
+		return
+	}
+	for remaining := seconds; remaining > 0; remaining-- {
+		fmt.Fprintf(w, "  proceeding in %ds (Ctrl-C to abort)...\n", remaining)
+		time.Sleep(time.Second)
+	}
 }
 
 // pivot returns the terraform component whose apply provisions the
