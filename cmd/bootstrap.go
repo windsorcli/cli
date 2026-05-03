@@ -187,7 +187,10 @@ var bootstrapCmd = &cobra.Command{
 			return nil
 		}
 
-		blueprint := proj.Composer.BlueprintHandler.GenerateResolved()
+		blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
+		if err != nil {
+			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
+		}
 
 		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)
