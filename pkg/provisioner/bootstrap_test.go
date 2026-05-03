@@ -1508,6 +1508,93 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
+	t.Run("RecoveryAbortsOnProbeFailureToAvoidSilentStateOverwrite", func(t *testing.T) {
+		// Recovery's reset-and-migrate uses terraform init -migrate-state
+		// -force-copy, which unconditionally overwrites the destination with
+		// the source. If HasRemoteState fails transiently (auth, network,
+		// missing storage) and recovery proceeds, the migrate would silently
+		// replace valid remote state with the local file — disastrous in an
+		// unattended pipeline. The fix is fail-by-default: probe error is a
+		// hard abort with the underlying error wrapped, no migrate runs, no
+		// state is touched. The operator resolves the underlying issue and
+		// retries.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "network"},
+			},
+		}
+
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "azurerm"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.HasLocalStateWithResourcesFunc = func(_ string) (bool, error) {
+			return true, nil
+		}
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+			return false, fmt.Errorf("auth timeout")
+		}
+		migrateCalled := false
+		mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			migrateCalled = true
+			return nil
+		}
+		initCalled := false
+		mockStack.InitComponentFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			initCalled = true
+			return nil
+		}
+		removeCalled := false
+		mockStack.RemoveLocalStateFunc = func(_ string) error {
+			removeCalled = true
+			return nil
+		}
+		upCalled := false
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		err := provisioner.Up(bp)
+		if err == nil {
+			t.Fatal("Expected Up to fail on recovery probe error, got nil")
+		}
+		if !strings.Contains(err.Error(), "auth timeout") {
+			t.Errorf("Expected error to wrap underlying probe error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "recovery sweep aborted") {
+			t.Errorf("Expected error to name the recovery sweep, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), `"network"`) {
+			t.Errorf("Expected error to name the affected component, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "force-copy") {
+			t.Errorf("Expected error to explain the data-loss hazard, got: %v", err)
+		}
+		if initCalled {
+			t.Error("InitComponent must not run when probe fails — abort before any state-touching operation")
+		}
+		if migrateCalled {
+			t.Error("MigrateComponentState must not run when probe fails — its -force-copy would overwrite remote with local")
+		}
+		if removeCalled {
+			t.Error("RemoveLocalState must not run when probe fails")
+		}
+		if upCalled {
+			t.Error("TerraformStack.Up must not run when recovery aborts")
+		}
+	})
+
 	t.Run("LocalStateRemovalFailureWarnsButDoesNotAbortBootstrap", func(t *testing.T) {
 		// If RemoveLocalState fails after a successful migrate, the bootstrap
 		// itself has already done the operationally meaningful work — pivot
