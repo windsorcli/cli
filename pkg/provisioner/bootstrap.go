@@ -212,7 +212,9 @@ func pivot(bp *blueprintv1alpha1.Blueprint, backendType string) *blueprintv1alph
 }
 
 // validatePivot returns an ordering error when the pivot is not the first
-// enabled terraform component.
+// enabled terraform component. Earlier components would either fail (backend
+// not yet provisioned) or land state in remote before the pivot applied,
+// corrupting the bootstrap sequence.
 func validatePivot(bp *blueprintv1alpha1.Blueprint, pivotID string) error {
 	for _, c := range bp.TerraformComponents {
 		if c.Enabled != nil && !c.Enabled.IsEnabled() {
