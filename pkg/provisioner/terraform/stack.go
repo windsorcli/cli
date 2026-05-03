@@ -55,11 +55,9 @@ type TerraformStack struct {
 	initCacheMu   sync.Mutex
 }
 
-// initCacheKey identifies a previously-completed `terraform init` invocation
-// for caching purposes. Three dimensions together determine whether a re-init
-// would be a no-op: the component, the configured backend type at init time,
-// and whether -migrate-state was used (a state migration is operationally
-// distinct from a plain init even when target backend matches).
+// initCacheKey identifies a previously-completed `terraform init`. Three
+// dimensions distinguish whether re-init is a no-op: component, configured
+// backend, migrate-state flag.
 type initCacheKey struct {
 	componentID  string
 	backendType  string
@@ -279,15 +277,8 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 }
 
 // HasRemoteState reports whether the named component has non-empty terraform
-// state in the currently-configured backend. Used by Bootstrap to detect that
-// a previous bootstrap completed and skip the local-then-migrate dance on
-// rerun. The probe runs init followed by `terraform show -json` against the
-// configured backend (so callers must invoke this BEFORE applying any
-// in-memory backend override). Any underlying failure — init refused because
-// the backend storage doesn't exist, network blip, auth rejected — is
-// returned to the caller; Bootstrap interprets errors as "remote state
-// unconfirmed, run the dance" so that probe failures degrade safely without
-// silently bypassing the dance.
+// state in the currently-configured backend. Runs init + `terraform show
+// -json`; callers must invoke before any in-memory backend override.
 func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
@@ -301,14 +292,8 @@ func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, 
 	return s.hasStateResources(component, terraformVars)
 }
 
-// InitComponent runs `terraform init` for the named component using the
-// currently-configured backend. No -migrate-state, no plan, no apply — just
-// the init step that sets up the backend, downloads providers, and writes
-// the per-component backend pointer file. Used by Bootstrap's recovery sweep
-// to reset a component's pointer to "local" before a follow-up migrate to
-// the configured remote backend, when a previous failed bootstrap left the
-// pointer recording the remote backend even though the actual state lives
-// in the local file.
+// InitComponent runs `terraform init` for one component using the currently-
+// configured backend; no -migrate-state, no plan, no apply.
 func (s *TerraformStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
@@ -318,15 +303,9 @@ func (s *TerraformStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, c
 	return s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...)
 }
 
-// HasLocalStateWithResources reports whether the per-component local
-// terraform state file at .tfstate/<componentID>/terraform.tfstate exists
-// and contains at least one resource entry. Used by Bootstrap's probe-hit
-// recovery sweep to detect components whose state is local-only because a
-// previous bootstrap was interrupted before migrating them. Reads the state
-// file directly as JSON — no terraform invocation — so the check is cheap
-// enough to run for every non-pivot component on the probe-hit path. Missing
-// files report (false, nil); parse failures and other I/O errors surface to
-// the caller.
+// HasLocalStateWithResources reports whether the per-component local state
+// file exists and contains at least one resource entry. Reads the file as
+// JSON; no terraform invocation. Missing files report (false, nil).
 func (s *TerraformStack) HasLocalStateWithResources(componentID string) (bool, error) {
 	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
 	if err != nil {
@@ -348,14 +327,9 @@ func (s *TerraformStack) HasLocalStateWithResources(componentID string) (bool, e
 	return len(state.Resources) > 0, nil
 }
 
-// RemoveLocalState removes the per-component local terraform state file at
-// .tfstate/<componentID>/terraform.tfstate (and its .backup sibling) under
-// the windsor scratch path. Used by Bootstrap after a successful local→remote
-// migration: deleting the now-stale local file makes a future rerun's
-// behavior deterministic — the probe is the source of truth, and there is no
-// leftover local state silently masking a missing remote backend. Missing
-// files are tolerated (returned as nil); other I/O errors surface to the
-// caller.
+// RemoveLocalState removes the per-component local state file (and its
+// .backup sibling) under the windsor scratch path. Missing files are
+// tolerated.
 func (s *TerraformStack) RemoveLocalState(componentID string) error {
 	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
 	if err != nil {
@@ -1270,26 +1244,13 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 	return component, terraformVars, terraformArgs, cleanup, nil
 }
 
-// runTerraformInit executes terraform init for the given component, inserting any extraFlags
-// (e.g. "-migrate-state") immediately after the "init" subcommand and before the argument set
-// generated by the terraform provider. Returning a wrapped error keeps command-construction in
-// one place so the Up path and the MigrateState path can't drift.
-//
-// Successful invocations are memoized per (componentID, configured backend, migrate-state
-// flag). Bootstrap and recovery paths often run init repeatedly for the same component during
-// a single CLI call — probe → recover-init → migrate → main Up loop — and the cached entries
-// short-circuit redundant terraform processes (each terraform init costs a process spawn,
-// provider verification, and lockfile checks even on a warm cache). Cache lifetime is the
-// process: a fresh CLI invocation starts empty. Failed inits are not cached so transient
-// failures don't poison subsequent attempts.
-//
-// Before init runs (cache miss only), any backend pointer file (TF_DATA_DIR/terraform.tfstate)
-// that records a backend type different from the currently-configured one is removed — except
-// on the -migrate-state path, which intentionally compares old vs new and needs the pointer
-// in place. This cleans up after raw `terraform init` / `terraform test` runs that landed a
-// stale "current backend = local" pointer (via a committed backend_override.tf), so windsor
-// doesn't re-trigger terraform's "Prior to changing backends..." migration prompt and fail
-// when the new backend's resource doesn't exist yet.
+// runTerraformInit executes terraform init for the given component, inserting
+// extraFlags after "init". Successful invocations are memoized per
+// (component, backend, migrate-state) for the process so repeated callers in
+// a single CLI run share one terraform invocation; failed inits aren't
+// cached. On cache miss without -migrate-state, clearStaleBackendPointer
+// drops a stale pointer file before init runs. Dedup assumes sequential
+// callers; parallel iteration would need per-key sync.Once.
 func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
 	migrateState := slices.Contains(extraFlags, "-migrate-state")
 	key := initCacheKey{

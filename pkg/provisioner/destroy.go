@@ -10,20 +10,11 @@ import (
 // Public Methods
 // =============================================================================
 
-// Teardown is the symmetric reverse of Bootstrap. It identifies the bootstrap
-// pivot — the terraform module whose apply provisions the storage backing the
-// configured remote backend — and runs the dance backwards:
-//
-//  1. DestroyAll(exclude=pivotID) against the live remote backend (the pivot,
-//     and the storage it created, are still healthy).
-//  2. Pin backend.type=local in-memory.
-//  3. MigrateComponentState(pivotID) from the remote backend to local files.
-//  4. Destroy(pivotID) against local state.
-//
-// When the blueprint has no pivot (local backend, or a remote backend whose
-// storage was provisioned out of band), Teardown collapses to a direct
-// DestroyAll. terraformOnly=true skips the kustomize uninstall. Returns the
-// IDs of components skipped because their state was empty alongside any error.
+// Teardown is Bootstrap reversed. With a pivot: destroy non-pivot components
+// against the live remote, pin local, migrate the pivot's state to local,
+// destroy the pivot. Without a pivot: plain DestroyAll. terraformOnly=true
+// skips the kustomize uninstall. Returns IDs of components skipped because
+// their state was empty alongside any error.
 func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	p := pivot(blueprint, backendType)
@@ -39,10 +30,9 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 }
 
 // TeardownComponent destroys a single terraform component. Targeting the
-// bootstrap pivot is refused for any non-local backend — its state hosts the
-// remote backend that every other component relies on, so destroying it in
-// isolation would orphan their state. Full-cycle `windsor destroy` is the
-// only safe path; it migrates the pivot's state to local first.
+// bootstrap pivot is refused for non-local backends — its state hosts the
+// remote backend other components rely on, so destroying it in isolation
+// would orphan their state. Use full-cycle `windsor destroy` instead.
 func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	if p := pivot(blueprint, backendType); p != nil && componentID == p.GetID() {
@@ -56,13 +46,10 @@ func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, 
 // Private Helpers
 // =============================================================================
 
-// runPivotDestroy is the symmetric reverse of bootstrap's per-pivot dance:
-// rest first, pivot last. Non-pivot components are destroyed against the live
-// remote backend (still healthy because the pivot — the module backing it —
-// has not been touched yet). Then backend.type flips to local, the pivot's
-// state migrates from remote to local, and the pivot is destroyed against
-// local state. The configured backend is restored on defer for any subsequent
-// operations in the same process.
+// runPivotDestroy is Bootstrap's per-pivot dance reversed: destroy non-pivot
+// components against the live remote first, then pin local, migrate the
+// pivot's state to local, and destroy the pivot. configHandler is restored
+// on defer.
 func (i *Provisioner) runPivotDestroy(blueprint *blueprintv1alpha1.Blueprint, pivotID string, terraformOnly bool) ([]string, error) {
 	var skipped []string
 	var bulkErr error

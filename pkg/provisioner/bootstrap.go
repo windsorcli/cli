@@ -13,11 +13,8 @@ import (
 // Variables
 // =============================================================================
 
-// probeErrorPause is the window between Bootstrap printing its probe-failure
-// warning and the dance starting. Gives the operator a real chance to read
-// the warning and Ctrl-C before terraform init/plan output drowns it.
-// Package-level so tests can set it to zero; the live value is intentionally
-// short enough to feel responsive but long enough to register visually.
+// probeErrorPause is the Ctrl-C window between Bootstrap's probe-failure
+// warning and the dance starting. Tests set it to zero.
 var probeErrorPause = 5 * time.Second
 
 // =============================================================================
@@ -55,36 +52,12 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // Public Methods
 // =============================================================================
 
-// Bootstrap brings up a context's infrastructure end-to-end. It identifies a
-// "pivot" component — the terraform module whose apply provisions the storage
-// backing the configured remote backend — then either runs a tight three-
-// phase dance or skips it based on whether the pivot already has state in the
-// remote backend:
-//
-//  1. Probe the configured remote backend for the pivot's state.
-//  2. Probe-hit (rerun): sweep non-pivot components for leftover local state
-//     from a previous interrupted bootstrap; migrate any local-only state to
-//     remote so the subsequent Up doesn't try to re-create cloud resources
-//     it can't see in remote state. Then run plain Up against the configured
-//     remote backend. This handles the common remediation pattern where a
-//     prior bootstrap migrated some components but failed before reaching
-//     others.
-//  3. Probe-miss (first bootstrap): apply the pivot against local state
-//     (backend.type pinned to "local" in-memory), migrate the pivot's state
-//     to the configured remote backend, discard the now-stale local file so
-//     future reruns rely on the probe rather than filesystem residue, then
-//     apply every other terraform component normally against the live remote
-//     backend.
-//
-// When the blueprint has no pivot (e.g. local backend, or a remote backend
-// whose storage was provisioned out of band), Bootstrap calls Up directly.
-// The pivot must be the first enabled terraform component; otherwise
-// validatePivot aborts before any apply touches state.
-//
-// When confirm is non-nil, a BootstrapSummary built from the blueprint and
-// config is passed to confirm. Returning false aborts with applied=false and
-// no error. Any components whose state migration was skipped are returned in
-// the error so the operator sees what didn't migrate.
+// Bootstrap brings up a context's infrastructure end-to-end. With a pivot,
+// probe-hit runs plain Up after a recovery sweep for half-migrated
+// components; probe-miss runs the local-then-migrate dance for the pivot,
+// then Up for the rest. With no pivot, Bootstrap calls Up directly.
+// validatePivot enforces pivot-first ordering. When confirm is non-nil it
+// runs first; returning false aborts with applied=false.
 func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm BootstrapConfirmFn, onApply ...func(id string) error) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -185,15 +158,9 @@ func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *
 	return summary
 }
 
-// pauseForProbeWarning emits a one-second-cadence countdown to w after the
-// probe-failure warning so the operator has a visible window to Ctrl-C
-// before terraform init/plan output drowns the warning. When pause is zero
-// or negative (test mode) the function is a no-op so unit tests don't
-// idle for several seconds. Intentionally simple: no spinner, no goroutine,
-// just blocking sleep with a per-second tick to make the wait feel
-// intentional rather than hung. w is io.Writer so callers can pass any
-// destination — production passes os.Stderr; tests can pass a bytes.Buffer
-// for direct capture without redirecting the global.
+// pauseForProbeWarning emits a per-second countdown to w so the operator has
+// a Ctrl-C window before terraform output drowns the warning. Pause <= 0 is
+// a no-op (test mode).
 func pauseForProbeWarning(w io.Writer, pause time.Duration) {
 	if pause <= 0 {
 		return
@@ -209,18 +176,12 @@ func pauseForProbeWarning(w io.Writer, pause time.Duration) {
 	}
 }
 
-// pivot returns the terraform component whose apply provisions the
-// storage backing the configured remote backend, or nil when no local-then-
-// migrate dance is needed. Detection rules:
-//
-//   - backendType == "" or "local": nil. No remote, no dance.
-//   - any IsBackend() component is present: that component. Operator-declared
-//     backend modules win regardless of backendType.
-//   - backendType == "kubernetes" with no IsBackend() component: the first
-//     enabled terraform component. The cluster module IS the backend; the
-//     operator's component order declares which one.
-//   - any other remote backendType with no IsBackend() component: nil. The
-//     storage was created out of band and terraform can use it directly.
+// pivot returns the terraform component whose apply provisions the storage
+// for the configured remote backend, or nil when no dance is needed.
+// Detection: local/empty backend → nil; any IsBackend() component → that
+// component (operator-declared wins); kubernetes with no IsBackend() →
+// first enabled component (cluster IS the backend); other remote with no
+// IsBackend() → nil (out-of-band setup).
 func pivot(bp *blueprintv1alpha1.Blueprint, backendType string) *blueprintv1alpha1.TerraformComponent {
 	if bp == nil {
 		return nil
@@ -251,10 +212,7 @@ func pivot(bp *blueprintv1alpha1.Blueprint, backendType string) *blueprintv1alph
 }
 
 // validatePivot returns an ordering error when the pivot is not the first
-// enabled terraform component. Phase-3 Up against the configured remote
-// backend depends on the pivot's state being live; any earlier component
-// would either fail (backend not yet provisioned) or pollute remote state
-// mid-bootstrap.
+// enabled terraform component.
 func validatePivot(bp *blueprintv1alpha1.Blueprint, pivotID string) error {
 	for _, c := range bp.TerraformComponents {
 		if c.Enabled != nil && !c.Enabled.IsEnabled() {
@@ -268,9 +226,8 @@ func validatePivot(bp *blueprintv1alpha1.Blueprint, pivotID string) error {
 	return fmt.Errorf("bootstrap: pivot component %q not found among enabled terraform components", pivotID)
 }
 
-// blueprintWithOnly returns a shallow copy of bp whose TerraformComponents
-// slice contains only the component matching id. Other blueprint fields
-// (Kustomizations, Sources, Repository, Metadata) are copied as-is.
+// blueprintWithOnly returns a shallow copy of bp with only the component
+// matching id in TerraformComponents.
 func blueprintWithOnly(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1alpha1.Blueprint {
 	cp := *bp
 	cp.TerraformComponents = nil
@@ -284,8 +241,7 @@ func blueprintWithOnly(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1a
 }
 
 // blueprintWithout returns a shallow copy of bp with the component matching
-// id removed from TerraformComponents. Order is preserved. Kustomizations
-// and other fields are copied as-is.
+// id removed from TerraformComponents. Order preserved.
 func blueprintWithout(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1alpha1.Blueprint {
 	cp := *bp
 	cp.TerraformComponents = make([]blueprintv1alpha1.TerraformComponent, 0, len(bp.TerraformComponents))
@@ -297,11 +253,9 @@ func blueprintWithout(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1al
 	return &cp
 }
 
-// withBackendOverride pins terraform.backend.type to "local" for the duration of
-// fn, restoring the previously-configured value via defer. opLabel appears in
-// the override-failed error and the stderr restore-warning. The Set is in-memory
-// only — values.yaml on disk is unaffected — so a stale local override after a
-// failed restore is bounded to the current process.
+// withBackendOverride pins terraform.backend.type to "local" for the duration
+// of fn, restoring the previously-configured value via defer. In-memory only;
+// values.yaml is unaffected. opLabel appears in override-failure messages.
 func (i *Provisioner) withBackendOverride(opLabel string, fn func() error) error {
 	original := i.configHandler.GetString("terraform.backend.type", "local")
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {

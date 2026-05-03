@@ -252,11 +252,9 @@ func (i *Provisioner) MigrateComponentState(blueprint *blueprintv1alpha1.Bluepri
 	return nil
 }
 
-// HasRemoteState reports whether the named component's terraform state is
-// non-empty in the currently-configured backend. Used by Bootstrap to detect
-// a previously-completed bootstrap and skip the local-then-migrate dance on
-// rerun. Caller must invoke this BEFORE applying any in-memory backend
-// override so the probe targets the configured remote, not local.
+// HasRemoteState reports whether the component has non-empty state in the
+// currently-configured backend. Call before any backend override so the
+// probe targets the configured remote.
 func (i *Provisioner) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -271,9 +269,7 @@ func (i *Provisioner) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, com
 }
 
 // InitComponent runs `terraform init` for one component using the currently-
-// configured backend, with no migrate or apply. Used by recovery to reset a
-// component's per-component backend pointer file under an in-memory local
-// override before a follow-up migrate moves state to the configured remote.
+// configured backend; no -migrate-state, no plan, no apply.
 func (i *Provisioner) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -287,10 +283,8 @@ func (i *Provisioner) InitComponent(blueprint *blueprintv1alpha1.Blueprint, comp
 	return i.TerraformStack.InitComponent(blueprint, componentID)
 }
 
-// HasLocalStateWithResources reports whether the per-component local state
-// file exists and contains at least one resource entry. Used by Bootstrap's
-// probe-hit recovery sweep to detect components whose state is local-only
-// because a previous bootstrap was interrupted before migrating them.
+// HasLocalStateWithResources reports whether the component's local state
+// file exists and contains at least one resource entry.
 func (i *Provisioner) HasLocalStateWithResources(componentID string) (bool, error) {
 	if err := i.ensureTerraformStack(); err != nil {
 		return false, err
@@ -301,10 +295,8 @@ func (i *Provisioner) HasLocalStateWithResources(componentID string) (bool, erro
 	return i.TerraformStack.HasLocalStateWithResources(componentID)
 }
 
-// RemoveLocalState removes the per-component local terraform state file. Used
-// by Bootstrap after a successful Phase-2 migrate so the local copy doesn't
-// silently mask a missing remote backend on a future rerun. Missing files are
-// tolerated.
+// RemoveLocalState removes the per-component local terraform state file.
+// Missing files are tolerated.
 func (i *Provisioner) RemoveLocalState(componentID string) error {
 	if err := i.ensureTerraformStack(); err != nil {
 		return err
@@ -1033,43 +1025,14 @@ func (i *Provisioner) Close() {
 // Private Methods
 // =============================================================================
 
-// recoverHalfMigratedComponents reconciles components whose state is local-
-// only because a previous bootstrap was interrupted before migrating them
-// (typical for legacy old-code reruns where the all-local-then-migrate
-// sequence partially completed, or for any context where local-state apply
-// happened but the migrate step never landed). For each component with
-// non-empty local state and no remote state, the recovery is a two-step
-// reset-and-migrate, run under a visible progress line so the operator sees
-// a one-time repair happening rather than a silent side effect of Up:
-//
-//  1. Under withBackendOverride("local"), run a plain init for the
-//     component. This rewrites the per-component backend pointer file to
-//     "local" so the subsequent migrate sees local as the source of truth
-//     — even when the pointer was previously left recording the remote
-//     backend (which would otherwise cause init -migrate-state to migrate
-//     remote→local and overwrite the local state file with empty content).
-//
-//  2. Exit the override (configured backend now reverts to the operator's
-//     remote choice), then call MigrateComponentState. terraform's
-//     init -migrate-state copies state from pointer (local) to config
-//     (remote). The local state file remains as a backup until step 3
-//     removes it.
-//
-//  3. Remove the now-stale local state file. Failures here emit a stderr
-//     warning but do not abort recovery — the migrate is the operationally
-//     meaningful step, and a leftover file is recoverable.
-//
-// Components whose local state file is missing or empty are skipped
-// cheaply (one file read each, no progress line) — the steady-state
-// invocation is silent. Once recovery has run successfully, the local
-// files are gone and subsequent Ups skip everything immediately.
-//
-// Local backends short-circuit the entire sweep: if backendType is
-// empty or "local", local IS the configured backend and there is
-// nothing to migrate to, so the function returns immediately without
-// probing any component. Skipping the sweep avoids the per-component
-// terraform init + show subprocess pair that would otherwise fire on
-// every windsor up against a local-backend context.
+// recoverHalfMigratedComponents migrates leftover local state to the
+// configured remote backend for components with local state but no remote
+// state — typical residue from an interrupted bootstrap. Per affected
+// component: init under local override (resets the pointer to local), exit
+// override, migrate local→remote, remove the local file. Local-backend
+// contexts short-circuit. Probe failures abort with the underlying error
+// rather than fall through; -force-copy would otherwise overwrite good
+// remote state with stale local content.
 func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	if backendType == "" || backendType == "local" {
