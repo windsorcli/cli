@@ -50,8 +50,10 @@ func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *
 // In project mode AZURE_CONFIG_DIR always points at the context's .azure dir,
 // matching how the AWS env printer scopes AWS_CONFIG_FILE — keeps `az login`
 // from contaminating the operator's global ~/.azure. In global mode it is not
-// emitted; ARM_SUBSCRIPTION_ID / ARM_TENANT_ID / ARM_ENVIRONMENT are emitted in
-// both modes because they describe which account/tenant the context targets.
+// emitted; ARM_SUBSCRIPTION_ID / ARM_TENANT_ID / ARM_ENVIRONMENT and
+// TF_VAR_kubelogin_mode are emitted in both modes — the ARM_* vars describe
+// the target account/tenant and TF_VAR_kubelogin_mode feeds terraform, which
+// runs from global shells too.
 func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()

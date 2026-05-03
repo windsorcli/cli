@@ -147,10 +147,10 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 		}
 
 		// Then AZURE_CONFIG_DIR and AZURE_CORE_LOGIN_EXPERIENCE_V2 are NOT emitted —
-		// the az CLI defers to the operator's ambient ~/.azure config. The project-
-		// level identifiers (subscription, tenant, environment) still flow through
-		// because they describe which Azure account the context targets, not whose
-		// credentials are used.
+		// the az CLI defers to the operator's ambient ~/.azure config. ARM_* and
+		// TF_VAR_kubelogin_mode still flow through: ARM_* describes which Azure
+		// account the context targets, and TF_VAR_kubelogin_mode feeds terraform
+		// (which runs from global shells too).
 		if _, ok := envVars["AZURE_CONFIG_DIR"]; ok {
 			t.Errorf("AZURE_CONFIG_DIR should not be set in global mode, got %q", envVars["AZURE_CONFIG_DIR"])
 		}
@@ -162,6 +162,9 @@ func TestAzureEnv_GetEnvVars(t *testing.T) {
 		}
 		if got := envVars["ARM_TENANT_ID"]; got != "test-tenant" {
 			t.Errorf("ARM_TENANT_ID = %q, want %q", got, "test-tenant")
+		}
+		if _, ok := envVars["TF_VAR_kubelogin_mode"]; !ok {
+			t.Error("TF_VAR_kubelogin_mode should be set in global mode (terraform runs from global shells)")
 		}
 	})
 
