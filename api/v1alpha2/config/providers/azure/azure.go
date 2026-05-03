@@ -11,6 +11,11 @@ type AzureConfig struct {
 
 	// Environment specifies the Azure cloud environment (e.g. "public", "usgovernment")
 	Environment *string `yaml:"environment,omitempty"`
+
+	// KubeloginMode overrides the kubelogin login mode for AAD-enabled AKS kubeconfigs.
+	// Empty (default) auto-detects from the active credential chain. Set to "msi" on
+	// managed-identity runners; other values match kubelogin's own modes.
+	KubeloginMode *string `yaml:"kubelogin_mode,omitempty"`
 }
 
 // Merge performs a deep merge of the current AzureConfig with another AzureConfig.
@@ -26,6 +31,9 @@ func (base *AzureConfig) Merge(overlay *AzureConfig) {
 	}
 	if overlay.Environment != nil {
 		base.Environment = overlay.Environment
+	}
+	if overlay.KubeloginMode != nil {
+		base.KubeloginMode = overlay.KubeloginMode
 	}
 }
 
@@ -47,6 +55,10 @@ func (c *AzureConfig) DeepCopy() *AzureConfig {
 	if c.Environment != nil {
 		environmentCopy := *c.Environment
 		copied.Environment = &environmentCopy
+	}
+	if c.KubeloginMode != nil {
+		kubeloginModeCopy := *c.KubeloginMode
+		copied.KubeloginMode = &kubeloginModeCopy
 	}
 
 	return copied

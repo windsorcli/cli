@@ -11,11 +11,13 @@ func TestAzureConfig_Merge(t *testing.T) {
 			SubscriptionID: stringPtr("old-sub"),
 			TenantID:       stringPtr("old-tenant"),
 			Environment:    stringPtr("old-env"),
+			KubeloginMode:  stringPtr("old-mode"),
 		}
 		overlay := &AzureConfig{
 			SubscriptionID: stringPtr("new-sub"),
 			TenantID:       stringPtr("new-tenant"),
 			Environment:    stringPtr("new-env"),
+			KubeloginMode:  stringPtr("msi"),
 		}
 
 		base.Merge(overlay)
@@ -29,6 +31,9 @@ func TestAzureConfig_Merge(t *testing.T) {
 		if base.Environment == nil || *base.Environment != "new-env" {
 			t.Errorf("Expected Environment to be 'new-env', got %v", base.Environment)
 		}
+		if base.KubeloginMode == nil || *base.KubeloginMode != "msi" {
+			t.Errorf("Expected KubeloginMode to be 'msi', got %v", base.KubeloginMode)
+		}
 	})
 
 	t.Run("MergePartialOverlay", func(t *testing.T) {
@@ -36,6 +41,7 @@ func TestAzureConfig_Merge(t *testing.T) {
 			SubscriptionID: stringPtr("old-sub"),
 			TenantID:       stringPtr("old-tenant"),
 			Environment:    stringPtr("old-env"),
+			KubeloginMode:  stringPtr("old-mode"),
 		}
 		overlay := &AzureConfig{
 			TenantID: stringPtr("new-tenant"),
@@ -52,6 +58,9 @@ func TestAzureConfig_Merge(t *testing.T) {
 		if base.Environment == nil || *base.Environment != "old-env" {
 			t.Errorf("Expected Environment to remain 'old-env', got %v", base.Environment)
 		}
+		if base.KubeloginMode == nil || *base.KubeloginMode != "old-mode" {
+			t.Errorf("Expected KubeloginMode to remain 'old-mode', got %v", base.KubeloginMode)
+		}
 	})
 
 	t.Run("MergeWithNilOverlay", func(t *testing.T) {
@@ -59,6 +68,7 @@ func TestAzureConfig_Merge(t *testing.T) {
 			SubscriptionID: stringPtr("old-sub"),
 			TenantID:       stringPtr("old-tenant"),
 			Environment:    stringPtr("old-env"),
+			KubeloginMode:  stringPtr("old-mode"),
 		}
 		original := base.DeepCopy()
 
@@ -73,6 +83,9 @@ func TestAzureConfig_Merge(t *testing.T) {
 		if base.Environment == nil || *base.Environment != *original.Environment {
 			t.Errorf("Expected Environment to remain unchanged")
 		}
+		if base.KubeloginMode == nil || *base.KubeloginMode != *original.KubeloginMode {
+			t.Errorf("Expected KubeloginMode to remain unchanged")
+		}
 	})
 }
 
@@ -83,6 +96,7 @@ func TestAzureConfig_Copy(t *testing.T) {
 			SubscriptionID: stringPtr("sub"),
 			TenantID:       stringPtr("tenant"),
 			Environment:    stringPtr("env"),
+			KubeloginMode:  stringPtr("msi"),
 		}
 
 		copy := original.DeepCopy()
@@ -101,6 +115,12 @@ func TestAzureConfig_Copy(t *testing.T) {
 		}
 		if copy.Environment == nil || *copy.Environment != *original.Environment {
 			t.Errorf("Expected Environment to be copied correctly")
+		}
+		if copy.KubeloginMode == nil || *copy.KubeloginMode != *original.KubeloginMode {
+			t.Errorf("Expected KubeloginMode to be copied correctly")
+		}
+		if copy.KubeloginMode == original.KubeloginMode {
+			t.Error("Expected KubeloginMode pointer to be a new allocation")
 		}
 	})
 
@@ -122,6 +142,9 @@ func TestAzureConfig_Copy(t *testing.T) {
 		}
 		if copy.Environment != nil {
 			t.Error("Expected Environment to be nil")
+		}
+		if copy.KubeloginMode != nil {
+			t.Error("Expected KubeloginMode to be nil")
 		}
 	})
 
