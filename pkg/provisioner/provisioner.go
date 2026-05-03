@@ -1039,7 +1039,8 @@ func (i *Provisioner) Close() {
 // sequence partially completed, or for any context where local-state apply
 // happened but the migrate step never landed). For each component with
 // non-empty local state and no remote state, the recovery is a two-step
-// reset-and-migrate:
+// reset-and-migrate, run under a visible progress line so the operator sees
+// a one-time repair happening rather than a silent side effect of Up:
 //
 //  1. Under withBackendOverride("local"), run a plain init for the
 //     component. This rewrites the per-component backend pointer file to
@@ -1059,11 +1060,12 @@ func (i *Provisioner) Close() {
 //     meaningful step, and a leftover file is recoverable.
 //
 // Components whose local state file is missing or empty are skipped
-// cheaply (one file read each). Components whose state is already in
-// remote are skipped after the remote probe. Steady-state cost is N file
-// reads per Up; once recovery has run successfully, the local files are
-// gone and subsequent Ups skip everything immediately.
+// cheaply (one file read each, no progress line) — the steady-state
+// invocation is silent. Once recovery has run successfully, the local
+// files are gone and subsequent Ups skip everything immediately.
 func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+
 	for _, c := range blueprint.TerraformComponents {
 		if c.Enabled != nil && !c.Enabled.IsEnabled() {
 			continue
@@ -1083,18 +1085,24 @@ func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1
 			continue
 		}
 
-		if err := i.withBackendOverride("local-recovery-init", func() error {
-			return i.InitComponent(blueprint, componentID)
+		message := fmt.Sprintf("Migrating leftover local state for %s → %s", componentID, backendType)
+		if err := tui.WithProgress(message, func() error {
+			if err := i.withBackendOverride("local-recovery-init", func() error {
+				return i.InitComponent(blueprint, componentID)
+			}); err != nil {
+				return fmt.Errorf("error resetting backend pointer: %w", err)
+			}
+
+			if err := i.MigrateComponentState(blueprint, componentID); err != nil {
+				return fmt.Errorf("error migrating local state: %w", err)
+			}
+
+			if err := i.RemoveLocalState(componentID); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after recovery migration: %v\n", componentID, err)
+			}
+			return nil
 		}); err != nil {
-			return fmt.Errorf("error resetting backend pointer for %s during recovery sweep: %w", componentID, err)
-		}
-
-		if err := i.MigrateComponentState(blueprint, componentID); err != nil {
-			return fmt.Errorf("error migrating leftover local state for %s during recovery sweep: %w", componentID, err)
-		}
-
-		if err := i.RemoveLocalState(componentID); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after recovery migration: %v\n", componentID, err)
+			return fmt.Errorf("recovery sweep failed for %s: %w", componentID, err)
 		}
 	}
 	return nil

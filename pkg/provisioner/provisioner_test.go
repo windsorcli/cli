@@ -20,6 +20,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	terraformruntime "github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
 // =============================================================================
@@ -122,13 +123,14 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 		t.Fatalf("failed to seed kubeconfig: %v", err)
 	}
 	rt := &runtime.Runtime{
-		ContextName:   "test-context",
-		ProjectRoot:   "/test/project",
-		ConfigRoot:    configRoot,
-		TemplateRoot:  "/test/project/contexts/_template",
-		ConfigHandler: configHandler,
-		Shell:         mockShell,
-		Evaluator:     evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/project/contexts/_template"),
+		ContextName:       "test-context",
+		ProjectRoot:       "/test/project",
+		ConfigRoot:        configRoot,
+		TemplateRoot:      "/test/project/contexts/_template",
+		ConfigHandler:     configHandler,
+		Shell:             mockShell,
+		Evaluator:         evaluator.NewExpressionEvaluator(configHandler, "/test/project", "/test/project/contexts/_template"),
+		TerraformProvider: &terraformruntime.MockTerraformProvider{},
 	}
 
 	terraformStack := terraforminfra.NewMockStack()
