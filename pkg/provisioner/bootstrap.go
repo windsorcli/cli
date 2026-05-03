@@ -2,6 +2,7 @@ package provisioner
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -190,8 +191,10 @@ func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *
 // or negative (test mode) the function is a no-op so unit tests don't
 // idle for several seconds. Intentionally simple: no spinner, no goroutine,
 // just blocking sleep with a per-second tick to make the wait feel
-// intentional rather than hung.
-func pauseForProbeWarning(w *os.File, pause time.Duration) {
+// intentional rather than hung. w is io.Writer so callers can pass any
+// destination — production passes os.Stderr; tests can pass a bytes.Buffer
+// for direct capture without redirecting the global.
+func pauseForProbeWarning(w io.Writer, pause time.Duration) {
 	if pause <= 0 {
 		return
 	}
