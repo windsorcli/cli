@@ -17,6 +17,7 @@ type MockTerraformProvider struct {
 	GetTerraformOutputsFunc     func(componentID string) (map[string]any, error)
 	CacheOutputsFunc            func(componentID string) error
 	GetTFDataDirFunc            func(componentID string) (string, error)
+	GetStatePathFunc            func(componentID string) (string, error)
 	GetEnvVarsFunc              func(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnvFunc        func(args []string) string
 	ClearCacheFunc              func()
@@ -104,6 +105,14 @@ func (m *MockTerraformProvider) CacheOutputs(componentID string) error {
 func (m *MockTerraformProvider) GetTFDataDir(componentID string) (string, error) {
 	if m.GetTFDataDirFunc != nil {
 		return m.GetTFDataDirFunc(componentID)
+	}
+	return "", nil
+}
+
+// GetStatePath implements TerraformProvider.
+func (m *MockTerraformProvider) GetStatePath(componentID string) (string, error) {
+	if m.GetStatePathFunc != nil {
+		return m.GetStatePathFunc(componentID)
 	}
 	return "", nil
 }

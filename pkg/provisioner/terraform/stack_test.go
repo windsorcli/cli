@@ -3364,6 +3364,125 @@ contexts:
 	})
 }
 
+func TestStack_InitCache(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("RepeatedInitsForSameKeyShortCircuit", func(t *testing.T) {
+		// Given two back-to-back HasRemoteState calls for the same component
+		// (same configured backend, no -migrate-state on either), the second
+		// call must reuse the cached init result and not invoke terraform a
+		// second time. terraform init is the expensive operation here — even
+		// on a warm provider cache it costs a process spawn and lockfile
+		// verification — so the cache halves overhead on probe-then-Up paths.
+		stack, mocks := setup(t)
+		bp := createTestBlueprint()
+
+		var initCalls int
+		var showCalls int
+		mocks.Shell.ExecSilentWithEnvFunc = func(_ string, _ map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && strings.HasPrefix(args[0], "-chdir=") {
+				switch args[1] {
+				case "init":
+					initCalls++
+				case "show":
+					showCalls++
+					return `{"values":{"root_module":{"resources":[{"address":"foo"}]}}}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err != nil {
+			t.Fatalf("first HasRemoteState: %v", err)
+		}
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err != nil {
+			t.Fatalf("second HasRemoteState: %v", err)
+		}
+
+		if initCalls != 1 {
+			t.Errorf("expected exactly 1 terraform init invocation across two HasRemoteState calls, got %d", initCalls)
+		}
+		if showCalls != 2 {
+			t.Errorf("expected 2 terraform show invocations (cache only memoizes init, not state queries), got %d", showCalls)
+		}
+	})
+
+	t.Run("DifferentComponentsDoNotShareCache", func(t *testing.T) {
+		// Cache key includes componentID, so probing two different components
+		// runs init twice — once per component. Verifies the cache doesn't
+		// over-collapse across distinct components.
+		stack, mocks := setup(t)
+		bp := createTestBlueprint()
+
+		var initCalls int
+		mocks.Shell.ExecSilentWithEnvFunc = func(_ string, _ map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && strings.HasPrefix(args[0], "-chdir=") {
+				switch args[1] {
+				case "init":
+					initCalls++
+				case "show":
+					return `{"values":{"root_module":{"resources":[]}}}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err != nil {
+			t.Fatalf("HasRemoteState remote/path: %v", err)
+		}
+		if _, err := stack.HasRemoteState(bp, "local/path"); err != nil {
+			t.Fatalf("HasRemoteState local/path: %v", err)
+		}
+
+		if initCalls != 2 {
+			t.Errorf("expected 2 inits across two distinct components, got %d", initCalls)
+		}
+	})
+
+	t.Run("FailedInitIsNotCached", func(t *testing.T) {
+		// A transient init failure must not poison the cache — subsequent
+		// retries need to actually re-invoke terraform. The cache only
+		// records successful inits.
+		stack, mocks := setup(t)
+		bp := createTestBlueprint()
+
+		var initCalls int
+		failNext := true
+		mocks.Shell.ExecSilentWithEnvFunc = func(_ string, _ map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && strings.HasPrefix(args[0], "-chdir=") {
+				switch args[1] {
+				case "init":
+					initCalls++
+					if failNext {
+						failNext = false
+						return "", fmt.Errorf("transient init failure")
+					}
+				case "show":
+					return `{"values":{"root_module":{"resources":[]}}}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err == nil {
+			t.Fatal("expected first HasRemoteState to fail on init")
+		}
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err != nil {
+			t.Fatalf("expected retry to succeed after transient failure: %v", err)
+		}
+
+		if initCalls != 2 {
+			t.Errorf("expected 2 inits (failure not cached), got %d", initCalls)
+		}
+	})
+}
+
 func TestStack_PlanSummary(t *testing.T) {
 	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
 		t.Helper()

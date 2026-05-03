@@ -86,7 +86,7 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 			}
 			if skipped {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
+				reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
 			}
 		}
 
@@ -142,7 +142,7 @@ var destroyTerraformCmd = &cobra.Command{
 			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 		}
 		if skipped {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
+			reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
 		}
 		return nil
 	},
@@ -209,17 +209,26 @@ func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) 
 	return nil
 }
 
-// reportSkippedDestroyComponents prints a one-line summary to w naming any terraform
-// components whose destroy was skipped because their state was empty (never applied, fully
-// torn down already, or upstream destroy collapsed their cloud objects out from under them).
-// Called after DestroyAll/DestroyAllTerraform regardless of whether the operation overall
-// succeeded — the skip list is paired with the returned error so an operator sees both
-// "these were no-ops" and "this one failed" in the same output. No-op when skipped is empty.
+// reportSkippedDestroyComponents prints a stderr warning naming any terraform
+// components whose destroy was skipped because their state was empty. Empty
+// state has two indistinguishable causes: the component was never applied
+// (legitimate skip) or the remote state was lost while cloud resources still
+// exist (silent orphan hazard — common with multi-machine config drift, manual
+// state deletion, or remote storage being wiped). The destroy can't tell the
+// two apart without comparing against the cloud, so the message names the
+// risk and points the operator at the cloud console. No-op when skipped is
+// empty.
 func reportSkippedDestroyComponents(w io.Writer, skipped []string) {
 	if len(skipped) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "Skipped (empty state, nothing to destroy): %s\n", strings.Join(skipped, ", "))
+	if len(skipped) == 1 {
+		fmt.Fprintf(w, "warning: component %q had empty state during destroy and was skipped\n", skipped[0])
+	} else {
+		fmt.Fprintf(w, "warning: %d components had empty state during destroy and were skipped: %s\n", len(skipped), strings.Join(skipped, ", "))
+	}
+	fmt.Fprintln(w, "   if previously bootstrapped, cloud resources may now be orphaned —")
+	fmt.Fprintln(w, "   verify in your cloud console; remediate with `terraform import` if needed.")
 }
 
 // resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must

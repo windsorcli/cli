@@ -120,8 +120,11 @@ func TestDestroyTerraform_SkipsComponentWithEmptyState(t *testing.T) {
 		t.Fatalf("destroy terraform on never-applied context: %v\nstderr: %s", err, stderr)
 	}
 	combined := string(stderr)
-	if !strings.Contains(combined, "Skipped (empty state, nothing to destroy)") {
-		t.Errorf("expected stderr to mention skipped components, got: %s", combined)
+	if !strings.Contains(combined, "had empty state during destroy") {
+		t.Errorf("expected stderr to mention components skipped due to empty state, got: %s", combined)
+	}
+	if !strings.Contains(combined, "may now be orphaned") {
+		t.Errorf("expected stderr to flag the orphan-resources hazard, got: %s", combined)
 	}
 	if !strings.Contains(combined, "null") {
 		t.Errorf("expected the null component to appear in the skip list, got: %s", combined)
@@ -154,8 +157,11 @@ func TestDestroyTerraform_LocalBackendSkipsMigrationDance(t *testing.T) {
 	if strings.Contains(combined, "Migrating terraform state") {
 		t.Errorf("expected no state migration for local-backend destroy, but migration progress line appeared:\n%s", combined)
 	}
-	if !strings.Contains(combined, "Skipped (empty state, nothing to destroy)") {
-		t.Errorf("expected stderr to mention skipped components, got:\n%s", combined)
+	if !strings.Contains(combined, "had empty state during destroy") {
+		t.Errorf("expected stderr to mention components skipped due to empty state, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "may now be orphaned") {
+		t.Errorf("expected stderr to flag the orphan-resources hazard, got:\n%s", combined)
 	}
 	if !strings.Contains(combined, "backend") {
 		t.Errorf("expected backend component in skip list, got:\n%s", combined)

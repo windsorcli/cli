@@ -183,6 +183,9 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 	if i.TerraformStack == nil {
 		return nil
 	}
+	if err := i.recoverHalfMigratedComponents(blueprint); err != nil {
+		return err
+	}
 	hooks := append([]func(id string) error{}, i.onTerraformApply...)
 	hooks = append(hooks, onApply...)
 	if len(i.onTerraformPostApply) > 0 {
@@ -247,6 +250,61 @@ func (i *Provisioner) MigrateComponentState(blueprint *blueprintv1alpha1.Bluepri
 		return fmt.Errorf("failed to migrate terraform state for %s: %w", componentID, err)
 	}
 	return nil
+}
+
+// HasRemoteState reports whether the component has non-empty state in the
+// currently-configured backend. Call before any backend override so the
+// probe targets the configured remote.
+func (i *Provisioner) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	if blueprint == nil {
+		return false, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return false, err
+	}
+	if i.TerraformStack == nil {
+		return false, fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.HasRemoteState(blueprint, componentID)
+}
+
+// InitComponent runs `terraform init` for one component using the currently-
+// configured backend; no -migrate-state, no plan, no apply.
+func (i *Provisioner) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.InitComponent(blueprint, componentID)
+}
+
+// HasLocalStateWithResources reports whether the component's local state
+// file exists and contains at least one resource entry.
+func (i *Provisioner) HasLocalStateWithResources(componentID string) (bool, error) {
+	if err := i.ensureTerraformStack(); err != nil {
+		return false, err
+	}
+	if i.TerraformStack == nil {
+		return false, fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.HasLocalStateWithResources(componentID)
+}
+
+// RemoveLocalState removes the per-component local terraform state file.
+// Missing files are tolerated.
+func (i *Provisioner) RemoveLocalState(componentID string) error {
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.RemoveLocalState(componentID)
 }
 
 // Down destroys the "workstation" terraform component if it is present in the blueprint, then returns.
@@ -966,6 +1024,65 @@ func (i *Provisioner) Close() {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// recoverHalfMigratedComponents migrates leftover local state to the
+// configured remote backend for components with local state but no remote
+// state — typical residue from an interrupted bootstrap. Per affected
+// component: init under local override (resets the pointer to local), exit
+// override, migrate local→remote, remove the local file. Local-backend
+// contexts short-circuit. Probe failures abort with the underlying error
+// rather than fall through; -force-copy would otherwise overwrite good
+// remote state with stale local content.
+func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" {
+		return nil
+	}
+
+	for _, c := range blueprint.TerraformComponents {
+		if c.Enabled != nil && !c.Enabled.IsEnabled() {
+			continue
+		}
+		componentID := c.GetID()
+
+		hasLocal, err := i.HasLocalStateWithResources(componentID)
+		if err != nil {
+			return fmt.Errorf("error inspecting local state for %s during recovery sweep: %w", componentID, err)
+		}
+		if !hasLocal {
+			continue
+		}
+
+		hasRemote, err := i.HasRemoteState(blueprint, componentID)
+		if err != nil {
+			return fmt.Errorf("recovery sweep aborted: could not probe configured backend for %q: %w. The reset-and-migrate path uses terraform init -migrate-state -force-copy which would unconditionally overwrite the destination, so a transient probe failure (auth, network, missing backend storage) must not be assumed-equivalent to \"no remote state\" — that assumption could silently replace valid remote state with the local file. Resolve the underlying probe failure (check credentials, connectivity, and backend storage availability) and retry", componentID, err)
+		}
+		if hasRemote {
+			continue
+		}
+
+		message := fmt.Sprintf("Migrating leftover local state for %s → %s", componentID, backendType)
+		if err := tui.WithProgress(message, func() error {
+			if err := i.withBackendOverride("local-recovery-init", func() error {
+				return i.InitComponent(blueprint, componentID)
+			}); err != nil {
+				return fmt.Errorf("error resetting backend pointer: %w", err)
+			}
+
+			if err := i.MigrateComponentState(blueprint, componentID); err != nil {
+				return fmt.Errorf("error migrating local state: %w", err)
+			}
+
+			if err := i.RemoveLocalState(componentID); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after recovery migration: %v\n", componentID, err)
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("recovery sweep failed for %s: %w", componentID, err)
+		}
+	}
+	return nil
+}
 
 // ensureClusterClient initializes ClusterClient from config if it is not already set.
 // It reads cluster.driver from the config handler and creates the appropriate client.

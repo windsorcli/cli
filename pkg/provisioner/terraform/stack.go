@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -50,6 +51,17 @@ type TerraformStack struct {
 	terraformEnv  *envvars.TerraformEnvPrinter
 	postApply     []func(id string) error
 	warningWriter io.Writer
+	initCache     map[initCacheKey]struct{}
+	initCacheMu   sync.Mutex
+}
+
+// initCacheKey identifies a previously-completed `terraform init`. Three
+// dimensions distinguish whether re-init is a no-op: component, configured
+// backend, migrate-state flag.
+type initCacheKey struct {
+	componentID  string
+	backendType  string
+	migrateState bool
 }
 
 // TerraformComponentPlan holds the plan result for a single Terraform component.
@@ -103,6 +115,10 @@ type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	HasLocalStateWithResources(componentID string) (bool, error)
+	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	RemoveLocalState(componentID string) error
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -257,6 +273,74 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 		}
 	}
 
+	return nil
+}
+
+// HasRemoteState reports whether the named component has non-empty terraform
+// state in the currently-configured backend. Runs init + `terraform show
+// -json`; callers must invoke before any in-memory backend override.
+func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return false, err
+	}
+	defer cleanup()
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		return false, err
+	}
+	return s.hasStateResources(component, terraformVars)
+}
+
+// InitComponent runs `terraform init` for one component using the currently-
+// configured backend; no -migrate-state, no plan, no apply.
+func (s *TerraformStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...)
+}
+
+// HasLocalStateWithResources reports whether the per-component local state
+// file exists and contains at least one resource entry. Reads the file as
+// JSON; no terraform invocation. Missing files report (false, nil).
+func (s *TerraformStack) HasLocalStateWithResources(componentID string) (bool, error) {
+	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
+	if err != nil {
+		return false, fmt.Errorf("error resolving local state path for %s: %w", componentID, err)
+	}
+	data, err := s.shims.ReadFile(statePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error reading local state file %s: %w", statePath, err)
+	}
+	var state struct {
+		Resources []json.RawMessage `json:"resources"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return false, fmt.Errorf("error parsing local state file %s: %w", statePath, err)
+	}
+	return len(state.Resources) > 0, nil
+}
+
+// RemoveLocalState removes the per-component local state file (and its
+// .backup sibling) under the windsor scratch path. Missing files are
+// tolerated.
+func (s *TerraformStack) RemoveLocalState(componentID string) error {
+	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
+	if err != nil {
+		return fmt.Errorf("error resolving local state path for %s: %w", componentID, err)
+	}
+	if err := s.shims.Remove(statePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error removing local state file %s: %w", statePath, err)
+	}
+	if err := s.shims.Remove(statePath + ".backup"); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error removing local state backup %s: %w", statePath, err)
+	}
 	return nil
 }
 
@@ -1160,20 +1244,28 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 	return component, terraformVars, terraformArgs, cleanup, nil
 }
 
-// runTerraformInit executes terraform init for the given component, inserting any extraFlags
-// (e.g. "-migrate-state") immediately after the "init" subcommand and before the argument set
-// generated by the terraform provider. Returning a wrapped error keeps command-construction in
-// one place so the Up path and the MigrateState path can't drift.
-//
-// Before init runs, any backend pointer file (TF_DATA_DIR/terraform.tfstate) that records a
-// backend type different from the currently-configured one is removed — except on the
-// -migrate-state path, which intentionally compares old vs new and needs the pointer in
-// place. This cleans up after raw `terraform init` / `terraform test` runs that landed a
-// stale "current backend = local" pointer (via a committed backend_override.tf), so windsor
-// doesn't re-trigger terraform's "Prior to changing backends..." migration prompt and fail
-// when the new backend's resource doesn't exist yet.
+// runTerraformInit executes terraform init for the given component, inserting
+// extraFlags after "init". Successful invocations are memoized per
+// (component, backend, migrate-state) for the process so repeated callers in
+// a single CLI run share one terraform invocation; failed inits aren't
+// cached. On cache miss without -migrate-state, clearStaleBackendPointer
+// drops a stale pointer file before init runs. Dedup assumes sequential
+// callers; parallel iteration would need per-key sync.Once.
 func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
-	if !slices.Contains(extraFlags, "-migrate-state") {
+	migrateState := slices.Contains(extraFlags, "-migrate-state")
+	key := initCacheKey{
+		componentID:  component.GetID(),
+		backendType:  s.runtime.ConfigHandler.GetString("terraform.backend.type", "local"),
+		migrateState: migrateState,
+	}
+	s.initCacheMu.Lock()
+	_, hit := s.initCache[key]
+	s.initCacheMu.Unlock()
+	if hit {
+		return nil
+	}
+
+	if !migrateState {
 		s.clearStaleBackendPointer(terraformVars)
 	}
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
@@ -1185,6 +1277,13 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	if err != nil {
 		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 	}
+
+	s.initCacheMu.Lock()
+	if s.initCache == nil {
+		s.initCache = make(map[initCacheKey]struct{})
+	}
+	s.initCache[key] = struct{}{}
+	s.initCacheMu.Unlock()
 	return nil
 }
 

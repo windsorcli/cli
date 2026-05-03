@@ -18,6 +18,10 @@ type MockStack struct {
 	UpFunc                    func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	MigrateStateFunc          func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentStateFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	HasRemoteStateFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	HasLocalStateWithResourcesFunc func(componentID string) (bool, error)
+	InitComponentFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	RemoveLocalStateFunc           func(componentID string) error
 	PostApplyFunc             func(fns ...func(id string) error)
 	DestroyAllFunc            func(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error)
 	PlanFunc                  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -63,6 +67,38 @@ func (m *MockStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]stri
 func (m *MockStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if m.MigrateComponentStateFunc != nil {
 		return m.MigrateComponentStateFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// HasRemoteState is a mock implementation of the HasRemoteState method.
+func (m *MockStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	if m.HasRemoteStateFunc != nil {
+		return m.HasRemoteStateFunc(blueprint, componentID)
+	}
+	return false, nil
+}
+
+// HasLocalStateWithResources is a mock implementation of the HasLocalStateWithResources method.
+func (m *MockStack) HasLocalStateWithResources(componentID string) (bool, error) {
+	if m.HasLocalStateWithResourcesFunc != nil {
+		return m.HasLocalStateWithResourcesFunc(componentID)
+	}
+	return false, nil
+}
+
+// InitComponent is a mock implementation of the InitComponent method.
+func (m *MockStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.InitComponentFunc != nil {
+		return m.InitComponentFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// RemoveLocalState is a mock implementation of the RemoveLocalState method.
+func (m *MockStack) RemoveLocalState(componentID string) error {
+	if m.RemoveLocalStateFunc != nil {
+		return m.RemoveLocalStateFunc(componentID)
 	}
 	return nil
 }

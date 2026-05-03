@@ -80,6 +80,7 @@ type TerraformProvider interface {
 	GetTerraformOutputs(componentID string) (map[string]any, error)
 	CacheOutputs(componentID string) error
 	GetTFDataDir(componentID string) (string, error)
+	GetStatePath(componentID string) (string, error)
 	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
@@ -610,6 +611,31 @@ func (p *terraformProvider) ClearCache() {
 	p.configScope = nil
 }
 
+// GetStatePath returns the path to the Terraform state file for the specified component ID.
+// The state file is stored in .tfstate/<componentID>/terraform.tfstate within the Windsor scratch path.
+// If a backend prefix is configured, it is included in the path to support multi-tenant or
+// multi-environment deployments where state files need to be namespaced.
+func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
+	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
+	if err != nil {
+		return "", fmt.Errorf("error getting windsor scratch path: %w", err)
+	}
+
+	component := p.GetTerraformComponent(componentID)
+	actualComponentID := componentID
+	if component != nil {
+		actualComponentID = component.GetID()
+	}
+
+	prefix := p.configHandler.GetString("terraform.backend.prefix", "")
+	path := filepath.Join(windsorScratchPath, ".tfstate")
+	if prefix != "" {
+		path = filepath.Join(path, prefix)
+	}
+	statePath := filepath.Join(path, actualComponentID, "terraform.tfstate")
+	return statePath, nil
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -731,31 +757,6 @@ func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformA
 	}
 
 	return envVars, nil
-}
-
-// getStatePath returns the path to the Terraform state file for the specified component ID.
-// The state file is stored in .tfstate/<componentID>/terraform.tfstate within the Windsor scratch path.
-// If a backend prefix is configured, it is included in the path to support multi-tenant or
-// multi-environment deployments where state files need to be namespaced.
-func (p *terraformProvider) getStatePath(componentID string) (string, error) {
-	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
-	if err != nil {
-		return "", fmt.Errorf("error getting windsor scratch path: %w", err)
-	}
-
-	component := p.GetTerraformComponent(componentID)
-	actualComponentID := componentID
-	if component != nil {
-		actualComponentID = component.GetID()
-	}
-
-	prefix := p.configHandler.GetString("terraform.backend.prefix", "")
-	path := filepath.Join(windsorScratchPath, ".tfstate")
-	if prefix != "" {
-		path = filepath.Join(path, prefix)
-	}
-	statePath := filepath.Join(path, actualComponentID, "terraform.tfstate")
-	return statePath, nil
 }
 
 // prepareTerraformContext prepares a terraformContext for a component with all necessary setup.
@@ -979,7 +980,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 	case "none":
 		return []string{}, nil
 	case "local":
-		statePath, err := p.getStatePath(projectPath)
+		statePath, err := p.GetStatePath(projectPath)
 		if err != nil {
 			return nil, fmt.Errorf("error getting state path: %w", err)
 		}
