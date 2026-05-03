@@ -1515,14 +1515,17 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("ProbeErrorEmitsCountdownBeforeStartingDance", func(t *testing.T) {
-		// The probe-error path was silently followed by terraform init, so
-		// the warning could scroll out of view before the operator noticed.
-		// pauseForProbeWarning emits a per-second countdown line so the
-		// warning has a visible window. Test sets a 2-second pause and
-		// verifies both countdown lines appear on stderr.
-		oldPause := probeErrorPause
+		// pauseForProbeWarning emits a per-second countdown so the warning
+		// isn't drowned by terraform output. Test overrides probeErrorSleep
+		// to a no-op so the loop runs at zero wall time but still emits the
+		// per-tick countdown lines, which is what the operator actually sees.
+		oldPause, oldSleep := probeErrorPause, probeErrorSleep
 		probeErrorPause = 2 * time.Second
-		defer func() { probeErrorPause = oldPause }()
+		probeErrorSleep = func(time.Duration) {}
+		defer func() {
+			probeErrorPause = oldPause
+			probeErrorSleep = oldSleep
+		}()
 
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
@@ -1561,9 +1564,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		defer func() { os.Stderr = origStderr }()
 
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		start := time.Now()
 		_, err := provisioner.Bootstrap(bp, nil)
-		elapsed := time.Since(start)
 
 		w.Close()
 		stderrBytes, _ := io.ReadAll(r)
@@ -1571,9 +1572,6 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
-		}
-		if elapsed < 2*time.Second {
-			t.Errorf("Expected at least 2s of pause, got %v", elapsed)
 		}
 		if !strings.Contains(stderrOutput, "proceeding in 2s") {
 			t.Errorf("Expected first countdown line, got: %q", stderrOutput)

@@ -17,6 +17,10 @@ import (
 // warning and the dance starting. Tests set it to zero.
 var probeErrorPause = 5 * time.Second
 
+// probeErrorSleep is the sleep used between countdown ticks; injectable so
+// tests can drive the loop without real wall time.
+var probeErrorSleep = time.Sleep
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -167,12 +171,12 @@ func pauseForProbeWarning(w io.Writer, pause time.Duration) {
 	}
 	seconds := int(pause / time.Second)
 	if seconds < 1 {
-		time.Sleep(pause)
+		probeErrorSleep(pause)
 		return
 	}
 	for remaining := seconds; remaining > 0; remaining-- {
 		fmt.Fprintf(w, "  proceeding in %ds (Ctrl-C to abort)...\n", remaining)
-		time.Sleep(time.Second)
+		probeErrorSleep(time.Second)
 	}
 }
 
