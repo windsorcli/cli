@@ -1063,8 +1063,18 @@ func (i *Provisioner) Close() {
 // cheaply (one file read each, no progress line) — the steady-state
 // invocation is silent. Once recovery has run successfully, the local
 // files are gone and subsequent Ups skip everything immediately.
+//
+// Local backends short-circuit the entire sweep: if backendType is
+// empty or "local", local IS the configured backend and there is
+// nothing to migrate to, so the function returns immediately without
+// probing any component. Skipping the sweep avoids the per-component
+// terraform init + show subprocess pair that would otherwise fire on
+// every windsor up against a local-backend context.
 func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" {
+		return nil
+	}
 
 	for _, c := range blueprint.TerraformComponents {
 		if c.Enabled != nil && !c.Enabled.IsEnabled() {

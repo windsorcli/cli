@@ -1586,6 +1586,59 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
+	t.Run("RecoverySweepShortCircuitsForLocalBackend", func(t *testing.T) {
+		// When the configured backend is "local" (or unset), local IS the
+		// configured backend — there is nothing to migrate to. Recovery
+		// sweep must short-circuit before iterating components so a local-
+		// backend windsor up doesn't spend a per-component terraform init
+		// + show subprocess pair on every invocation just to discover the
+		// no-op.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "vpc"},
+				{Path: "cluster"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		probeLocalCalled := false
+		probeRemoteCalled := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.HasLocalStateWithResourcesFunc = func(_ string) (bool, error) {
+			probeLocalCalled = true
+			return true, nil
+		}
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+			probeRemoteCalled = true
+			return true, nil
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		if err := provisioner.Up(bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if probeLocalCalled {
+			t.Error("HasLocalStateWithResources must not be called when backend is local — sweep should short-circuit")
+		}
+		if probeRemoteCalled {
+			t.Error("HasRemoteState must not be called when backend is local")
+		}
+	})
+
 	t.Run("RecoveryAbortsOnProbeFailureToAvoidSilentStateOverwrite", func(t *testing.T) {
 		// Recovery's reset-and-migrate uses terraform init -migrate-state
 		// -force-copy, which unconditionally overwrites the destination with
