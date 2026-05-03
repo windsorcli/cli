@@ -88,16 +88,22 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 		return false, err
 	}
 
-	hasRemote, probeErr := i.HasRemoteState(blueprint, pivotID)
-	if probeErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: probe of configured backend for pivot %q failed: %v — proceeding with local-then-migrate dance (correct on first-time bootstrap; abort with Ctrl-C if your backend already exists and this is a transient probe failure)\n", pivotID, probeErr)
-		pauseForProbeWarning(os.Stderr, probeErrorPause)
-	} else if hasRemote {
-		fmt.Fprintf(os.Stderr, "Probe found existing state for pivot %q in configured backend — skipping bootstrap dance, applying as a normal up.\n", pivotID)
-		if err := i.Up(blueprint, onApply...); err != nil {
-			return false, err
+	if i.runtime != nil && i.runtime.TerraformProvider != nil && !i.runtime.TerraformProvider.BackendConfigComplete() {
+		fmt.Fprintf(os.Stderr, "Probe: no backend config present for pivot %q yet — running first-time bootstrap dance.\n", pivotID)
+	} else {
+		hasRemote, probeErr := i.HasRemoteState(blueprint, pivotID)
+		if probeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: probe of configured backend for pivot %q failed:\n", pivotID)
+			fmt.Fprintf(os.Stderr, "%v\n\n", probeErr)
+			fmt.Fprintln(os.Stderr, "proceeding with local-then-migrate dance — abort with Ctrl-C if your backend already exists and this is a transient probe failure.")
+			pauseForProbeWarning(os.Stderr, probeErrorPause)
+		} else if hasRemote {
+			fmt.Fprintf(os.Stderr, "Probe found existing state for pivot %q in configured backend — applying without pivot.\n", pivotID)
+			if err := i.Up(blueprint, onApply...); err != nil {
+				return false, err
+			}
+			return true, nil
 		}
-		return true, nil
 	}
 
 	pivotOnly := blueprintWithOnly(blueprint, pivotID)

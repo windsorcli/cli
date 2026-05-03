@@ -81,6 +81,7 @@ type TerraformProvider interface {
 	CacheOutputs(componentID string) error
 	GetTFDataDir(componentID string) (string, error)
 	GetStatePath(componentID string) (string, error)
+	BackendConfigComplete() bool
 	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
@@ -634,6 +635,55 @@ func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 	}
 	statePath := filepath.Join(path, actualComponentID, "terraform.tfstate")
 	return statePath, nil
+}
+
+// BackendConfigComplete reports whether the configured remote backend has
+// enough config — a backend.tfvars file or a populated nested config block —
+// for `terraform init` to even attempt connecting. Local/empty backends are
+// always complete. Lets Bootstrap's probe distinguish "we don't know where
+// the remote is yet" (first-time bootstrap) from "we know where it is but
+// can't reach it" (real warning).
+//
+// Default for unrecognized backend types is true: the predicate's job is to
+// catch the well-understood first-time-bootstrap case for the backends
+// Windsor knows about. For anything else (gcs, http, consul, remote, cos),
+// we don't know what's required — let the probe run and surface real init
+// failures via the warning path rather than silently disable detection.
+func (p *terraformProvider) BackendConfigComplete() bool {
+	backendType := p.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" {
+		return true
+	}
+
+	if configRoot, err := p.configHandler.GetConfigRoot(); err == nil {
+		for _, candidate := range []string{
+			filepath.Join(configRoot, "backend.tfvars"),
+			filepath.Join(configRoot, "terraform", "backend.tfvars"),
+		} {
+			if _, err := p.Shims.Stat(candidate); err == nil {
+				return true
+			}
+		}
+	}
+
+	// Kubernetes uses the ambient kubeconfig; a nested config block is
+	// optional. Reachable from here even when cfg.Backend is nil.
+	if backendType == "kubernetes" {
+		return true
+	}
+
+	cfg := p.configHandler.GetConfig().Terraform
+	switch backendType {
+	case "azurerm":
+		return cfg != nil && cfg.Backend != nil && cfg.Backend.AzureRM != nil &&
+			cfg.Backend.AzureRM.StorageAccountName != nil &&
+			cfg.Backend.AzureRM.ContainerName != nil
+	case "s3":
+		return cfg != nil && cfg.Backend != nil && cfg.Backend.S3 != nil &&
+			cfg.Backend.S3.Bucket != nil
+	}
+
+	return true
 }
 
 // =============================================================================

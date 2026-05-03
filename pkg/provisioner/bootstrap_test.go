@@ -11,6 +11,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	terraformruntime "github.com/windsorcli/cli/pkg/runtime/terraform"
 )
 
 // =============================================================================
@@ -982,6 +983,84 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
+	t.Run("ProbeShortCircuitsWhenBackendConfigNotPresent", func(t *testing.T) {
+		// First-time bootstrap: no backend.tfvars file yet, no nested
+		// terraform.backend.azurerm config in values.yaml. terraform init
+		// against the configured remote would fail with "container_name:
+		// EOF" — terraform asking interactively for required fields. That
+		// failure isn't useful diagnostic noise; it's just the default state
+		// before the backend module's own apply produces the missing config.
+		// Bootstrap detects this via TerraformProvider.BackendConfigComplete
+		// and skips the probe entirely, emitting a single calm "running
+		// first-time bootstrap dance" line in place of the warning + wrapped
+		// terraform error + countdown.
+		mocks := setupProvisionerMocks(t)
+		mocks.Runtime.TerraformProvider.(*terraformruntime.MockTerraformProvider).BackendConfigCompleteFunc = func() bool { return false }
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "azurerm"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		probeFired := false
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+			probeFired = true
+			return false, nil
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			return nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return nil, nil
+		}
+
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		_, err := provisioner.Bootstrap(bp, nil)
+
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if probeFired {
+			t.Error("HasRemoteState must not be called when backend config is incomplete — short-circuit avoids the wasteful terraform init")
+		}
+		if !strings.Contains(stderrOutput, "no backend config present") {
+			t.Errorf("Expected calm short-circuit message, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, `"backend"`) {
+			t.Errorf("Expected stderr to name the pivot, got: %q", stderrOutput)
+		}
+		if strings.Contains(stderrOutput, "warning:") {
+			t.Errorf("Short-circuit must NOT use the warning marker — that's reserved for real probe failures with config present, got: %q", stderrOutput)
+		}
+		if strings.Contains(stderrOutput, "Ctrl-C") {
+			t.Errorf("Short-circuit must NOT include the Ctrl-C countdown — there's no probe failure to ask the operator about, got: %q", stderrOutput)
+		}
+	})
+
 	t.Run("ProbeErrorFallsThroughToDanceAndEmitsWarning", func(t *testing.T) {
 		// Given the probe errors (auth issue, network blip, missing remote
 		// backend storage), Bootstrap must NOT silently skip the dance —
@@ -1139,8 +1218,8 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		stderrBytes, _ := io.ReadAll(r)
 		stderrOutput := string(stderrBytes)
 
-		if !strings.Contains(stderrOutput, "skipping bootstrap dance") {
-			t.Errorf("Expected stderr to mention skipping the dance, got: %q", stderrOutput)
+		if !strings.Contains(stderrOutput, "applying without pivot") {
+			t.Errorf("Expected stderr to mention applying without pivot, got: %q", stderrOutput)
 		}
 		if !strings.Contains(stderrOutput, `"backend"`) {
 			t.Errorf("Expected stderr to name the pivot, got: %q", stderrOutput)
