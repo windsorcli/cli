@@ -1,10 +1,8 @@
 package azure
 
-// AzureConfig represents the Azure configuration
+// AzureConfig represents the Azure configuration. Azure integration activates whenever this
+// block is present in a context (or when platform is "azure"); no separate enabled flag.
 type AzureConfig struct {
-	// Enabled indicates whether Azure integration is enabled.
-	Enabled *bool `yaml:"enabled,omitempty"`
-
 	// SubscriptionID is the Azure subscription identifier
 	SubscriptionID *string `yaml:"subscription_id,omitempty"`
 
@@ -19,9 +17,6 @@ type AzureConfig struct {
 func (base *AzureConfig) Merge(overlay *AzureConfig) {
 	if overlay == nil {
 		return
-	}
-	if overlay.Enabled != nil {
-		base.Enabled = overlay.Enabled
 	}
 	if overlay.SubscriptionID != nil {
 		base.SubscriptionID = overlay.SubscriptionID
@@ -41,10 +36,6 @@ func (c *AzureConfig) DeepCopy() *AzureConfig {
 	}
 	copied := &AzureConfig{}
 
-	if c.Enabled != nil {
-		enabledCopy := *c.Enabled
-		copied.Enabled = &enabledCopy
-	}
 	if c.SubscriptionID != nil {
 		subscriptionCopy := *c.SubscriptionID
 		copied.SubscriptionID = &subscriptionCopy

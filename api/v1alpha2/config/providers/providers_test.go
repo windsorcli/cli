@@ -7,12 +7,15 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha2/config/providers/azure"
 )
 
-// awsProfileA and awsProfileB stand in for the two distinct states the merge/copy tests
-// previously expressed via aws.Enabled = true/false. The Enabled field has been removed; any
-// non-nil AWS field works as the "did the merge run" signal.
+// awsProfileA/B and azureTenantA/B stand in for the two distinct states the merge/copy tests
+// previously expressed via aws.Enabled / azure.Enabled = true/false. The Enabled fields have
+// been removed in both providers; any non-nil leaf field works as the "did the merge run"
+// signal — these tests use AWSProfile and TenantID since they're the most operator-visible.
 const (
-	awsProfileA = "profile-a"
-	awsProfileB = "profile-b"
+	awsProfileA  = "profile-a"
+	awsProfileB  = "profile-b"
+	azureTenantA = "tenant-a"
+	azureTenantB = "tenant-b"
 )
 
 // TestProvidersConfig_Merge tests the Merge method of ProvidersConfig
@@ -23,7 +26,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 		original := base.DeepCopy()
@@ -33,7 +36,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		if base.AWS == nil || *base.AWS.AWSProfile != *original.AWS.AWSProfile {
 			t.Errorf("Expected AWS config to remain unchanged")
 		}
-		if base.Azure == nil || *base.Azure.Enabled != *original.Azure.Enabled {
+		if base.Azure == nil || *base.Azure.TenantID != *original.Azure.TenantID {
 			t.Errorf("Expected Azure config to remain unchanged")
 		}
 	})
@@ -44,7 +47,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 		overlay := &ProvidersConfig{}
@@ -54,8 +57,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
 			t.Errorf("Expected AWS config to remain at profile %q", awsProfileA)
 		}
-		if base.Azure == nil || *base.Azure.Enabled {
-			t.Errorf("Expected Azure config to remain disabled")
+		if base.Azure == nil || *base.Azure.TenantID != azureTenantA {
+			t.Errorf("Expected Azure config to remain at tenant %q", azureTenantA)
 		}
 	})
 
@@ -65,7 +68,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 		overlay := &ProvidersConfig{
@@ -73,7 +76,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileB),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(true),
+				TenantID: stringPtr(azureTenantB),
 			},
 		}
 
@@ -82,8 +85,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileB {
 			t.Errorf("Expected AWS profile to be %q after merge, got %q", awsProfileB, *base.AWS.AWSProfile)
 		}
-		if base.Azure == nil || !*base.Azure.Enabled {
-			t.Errorf("Expected Azure config to be enabled after merge")
+		if base.Azure == nil || *base.Azure.TenantID != azureTenantB {
+			t.Errorf("Expected Azure tenant to be %q after merge, got %q", azureTenantB, *base.Azure.TenantID)
 		}
 	})
 
@@ -93,7 +96,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 		overlay := &ProvidersConfig{
@@ -107,8 +110,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileB {
 			t.Errorf("Expected AWS profile to be %q after merge", awsProfileB)
 		}
-		if base.Azure == nil || *base.Azure.Enabled {
-			t.Errorf("Expected Azure config to remain disabled")
+		if base.Azure == nil || *base.Azure.TenantID != azureTenantA {
+			t.Errorf("Expected Azure tenant to remain %q", azureTenantA)
 		}
 	})
 
@@ -118,12 +121,12 @@ func TestProvidersConfig_Merge(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 		overlay := &ProvidersConfig{
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(true),
+				TenantID: stringPtr(azureTenantB),
 			},
 		}
 
@@ -132,8 +135,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
 			t.Errorf("Expected AWS profile to remain %q", awsProfileA)
 		}
-		if base.Azure == nil || !*base.Azure.Enabled {
-			t.Errorf("Expected Azure config to be enabled after merge")
+		if base.Azure == nil || *base.Azure.TenantID != azureTenantB {
+			t.Errorf("Expected Azure tenant to be %q after merge", azureTenantB)
 		}
 	})
 
@@ -144,7 +147,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 
@@ -153,15 +156,15 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
 			t.Errorf("Expected AWS config to be initialized with profile %q", awsProfileA)
 		}
-		if base.Azure == nil || *base.Azure.Enabled {
-			t.Errorf("Expected Azure config to be initialized and disabled")
+		if base.Azure == nil || *base.Azure.TenantID != azureTenantA {
+			t.Errorf("Expected Azure config to be initialized with tenant %q", azureTenantA)
 		}
 	})
 
 	t.Run("MergeWithNilBaseAWS", func(t *testing.T) {
 		base := &ProvidersConfig{
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 		overlay := &ProvidersConfig{
@@ -175,8 +178,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
 			t.Errorf("Expected AWS config to be initialized with profile %q", awsProfileA)
 		}
-		if base.Azure == nil || *base.Azure.Enabled {
-			t.Errorf("Expected Azure config to remain disabled")
+		if base.Azure == nil || *base.Azure.TenantID != azureTenantA {
+			t.Errorf("Expected Azure tenant to remain %q", azureTenantA)
 		}
 	})
 
@@ -188,7 +191,7 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		}
 		overlay := &ProvidersConfig{
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 
@@ -197,8 +200,8 @@ func TestProvidersConfig_Merge(t *testing.T) {
 		if base.AWS == nil || *base.AWS.AWSProfile != awsProfileA {
 			t.Errorf("Expected AWS profile to remain %q", awsProfileA)
 		}
-		if base.Azure == nil || *base.Azure.Enabled {
-			t.Errorf("Expected Azure config to be initialized and disabled")
+		if base.Azure == nil || *base.Azure.TenantID != azureTenantA {
+			t.Errorf("Expected Azure config to be initialized with tenant %q", azureTenantA)
 		}
 	})
 }
@@ -235,7 +238,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 
@@ -250,7 +253,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 		if copied.AWS == nil || *copied.AWS.AWSProfile != *config.AWS.AWSProfile {
 			t.Errorf("Expected AWS config to be copied correctly")
 		}
-		if copied.Azure == nil || *copied.Azure.Enabled != *config.Azure.Enabled {
+		if copied.Azure == nil || *copied.Azure.TenantID != *config.Azure.TenantID {
 			t.Errorf("Expected Azure config to be copied correctly")
 		}
 	})
@@ -281,7 +284,7 @@ func TestProvidersConfig_Copy(t *testing.T) {
 				AWSProfile: stringPtr(awsProfileA),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled: boolPtr(false),
+				TenantID: stringPtr(azureTenantA),
 			},
 		}
 
@@ -289,12 +292,12 @@ func TestProvidersConfig_Copy(t *testing.T) {
 
 		// Modify original to verify independence
 		*config.AWS.AWSProfile = awsProfileB
-		*config.Azure.Enabled = true
+		*config.Azure.TenantID = azureTenantB
 
 		if *copied.AWS.AWSProfile != awsProfileA {
 			t.Error("Expected copied AWS config to remain independent")
 		}
-		if *copied.Azure.Enabled != false {
+		if *copied.Azure.TenantID != azureTenantA {
 			t.Error("Expected copied Azure config to remain independent")
 		}
 	})
@@ -318,10 +321,6 @@ func TestProvidersConfig_Copy(t *testing.T) {
 			t.Error("Expected Azure to be nil in copy")
 		}
 	})
-}
-
-func boolPtr(b bool) *bool {
-	return &b
 }
 
 func stringPtr(s string) *string {
