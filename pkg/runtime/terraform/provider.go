@@ -81,6 +81,7 @@ type TerraformProvider interface {
 	CacheOutputs(componentID string) error
 	GetTFDataDir(componentID string) (string, error)
 	GetStatePath(componentID string) (string, error)
+	BackendConfigComplete() bool
 	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
@@ -634,6 +635,50 @@ func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
 	}
 	statePath := filepath.Join(path, actualComponentID, "terraform.tfstate")
 	return statePath, nil
+}
+
+// BackendConfigComplete reports whether the configured remote backend has
+// enough config — a backend.tfvars file or a populated nested config block —
+// for `terraform init` to even attempt connecting. Local/empty backends are
+// always complete. Lets Bootstrap's probe distinguish "we don't know where
+// the remote is yet" (first-time bootstrap, the dance is the right path
+// without a confusing terraform-error dump) from "we know where it is but
+// can't reach it" (real warning, operator may want to abort).
+func (p *terraformProvider) BackendConfigComplete() bool {
+	backendType := p.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" {
+		return true
+	}
+
+	if configRoot, err := p.configHandler.GetConfigRoot(); err == nil {
+		for _, candidate := range []string{
+			filepath.Join(configRoot, "backend.tfvars"),
+			filepath.Join(configRoot, "terraform", "backend.tfvars"),
+		} {
+			if _, err := p.Shims.Stat(candidate); err == nil {
+				return true
+			}
+		}
+	}
+
+	cfg := p.configHandler.GetConfig().Terraform
+	if cfg == nil || cfg.Backend == nil {
+		return false
+	}
+	switch backendType {
+	case "azurerm":
+		return cfg.Backend.AzureRM != nil &&
+			cfg.Backend.AzureRM.StorageAccountName != nil &&
+			cfg.Backend.AzureRM.ContainerName != nil
+	case "s3":
+		return cfg.Backend.S3 != nil && cfg.Backend.S3.Bucket != nil
+	case "kubernetes":
+		// Kubernetes uses the ambient kubeconfig by default; an empty nested
+		// config block is normal. Treat as complete — if init fails, that's
+		// a real probe failure (cluster unreachable / auth) worth surfacing.
+		return true
+	}
+	return false
 }
 
 // =============================================================================
