@@ -103,6 +103,10 @@ type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	HasLocalStateWithResources(componentID string) (bool, error)
+	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	RemoveLocalState(componentID string) error
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -257,6 +261,98 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 		}
 	}
 
+	return nil
+}
+
+// HasRemoteState reports whether the named component has non-empty terraform
+// state in the currently-configured backend. Used by Bootstrap to detect that
+// a previous bootstrap completed and skip the local-then-migrate dance on
+// rerun. The probe runs init followed by `terraform show -json` against the
+// configured backend (so callers must invoke this BEFORE applying any
+// in-memory backend override). Any underlying failure — init refused because
+// the backend storage doesn't exist, network blip, auth rejected — is
+// returned to the caller; Bootstrap interprets errors as "remote state
+// unconfirmed, run the dance" so that probe failures degrade safely without
+// silently bypassing the dance.
+func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return false, err
+	}
+	defer cleanup()
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		return false, err
+	}
+	return s.hasStateResources(component, terraformVars)
+}
+
+// InitComponent runs `terraform init` for the named component using the
+// currently-configured backend. No -migrate-state, no plan, no apply — just
+// the init step that sets up the backend, downloads providers, and writes
+// the per-component backend pointer file. Used by Bootstrap's recovery sweep
+// to reset a component's pointer to "local" before a follow-up migrate to
+// the configured remote backend, when a previous failed bootstrap left the
+// pointer recording the remote backend even though the actual state lives
+// in the local file.
+func (s *TerraformStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...)
+}
+
+// HasLocalStateWithResources reports whether the per-component local
+// terraform state file at .tfstate/<componentID>/terraform.tfstate exists
+// and contains at least one resource entry. Used by Bootstrap's probe-hit
+// recovery sweep to detect components whose state is local-only because a
+// previous bootstrap was interrupted before migrating them. Reads the state
+// file directly as JSON — no terraform invocation — so the check is cheap
+// enough to run for every non-pivot component on the probe-hit path. Missing
+// files report (false, nil); parse failures and other I/O errors surface to
+// the caller.
+func (s *TerraformStack) HasLocalStateWithResources(componentID string) (bool, error) {
+	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
+	if err != nil {
+		return false, fmt.Errorf("error resolving local state path for %s: %w", componentID, err)
+	}
+	data, err := s.shims.ReadFile(statePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error reading local state file %s: %w", statePath, err)
+	}
+	var state struct {
+		Resources []json.RawMessage `json:"resources"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return false, fmt.Errorf("error parsing local state file %s: %w", statePath, err)
+	}
+	return len(state.Resources) > 0, nil
+}
+
+// RemoveLocalState removes the per-component local terraform state file at
+// .tfstate/<componentID>/terraform.tfstate (and its .backup sibling) under
+// the windsor scratch path. Used by Bootstrap after a successful local→remote
+// migration: deleting the now-stale local file makes a future rerun's
+// behavior deterministic — the probe is the source of truth, and there is no
+// leftover local state silently masking a missing remote backend. Missing
+// files are tolerated (returned as nil); other I/O errors surface to the
+// caller.
+func (s *TerraformStack) RemoveLocalState(componentID string) error {
+	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
+	if err != nil {
+		return fmt.Errorf("error resolving local state path for %s: %w", componentID, err)
+	}
+	if err := s.shims.Remove(statePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error removing local state file %s: %w", statePath, err)
+	}
+	if err := s.shims.Remove(statePath + ".backup"); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error removing local state backup %s: %w", statePath, err)
+	}
 	return nil
 }
 

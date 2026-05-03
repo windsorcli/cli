@@ -91,7 +91,7 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 		Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 	}
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
-	mockBlueprintHandler.GenerateResolvedFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+	mockBlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return testBlueprint, nil }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
 	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
@@ -273,7 +273,7 @@ func TestBootstrapCmd(t *testing.T) {
 			},
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return backendBlueprint }
-		mocks.BlueprintHandler.GenerateResolvedFunc = func() *blueprintv1alpha1.Blueprint { return backendBlueprint }
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return backendBlueprint, nil }
 
 		var timeline []string
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -312,7 +312,7 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected success, got %v", err)
 		}
 
-		expected := []string{"set=local", "up", "set=kubernetes", "migrate"}
+		expected := []string{"set=local", "up", "set=kubernetes", "migrate", "up"}
 		if len(timeline) != len(expected) {
 			t.Fatalf("Expected timeline %v, got %v", expected, timeline)
 		}
