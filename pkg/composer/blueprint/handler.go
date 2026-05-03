@@ -22,7 +22,7 @@ type BlueprintHandler interface {
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
-	GenerateResolved() *blueprintv1alpha1.Blueprint
+	GenerateResolved() (*blueprintv1alpha1.Blueprint, error)
 	Explain(path string) (*ExplainTrace, error)
 	GetDeferredPaths() map[string]bool
 }
@@ -229,16 +229,29 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 // is never mutated, so subsequent Generate() or GenerateResolved() calls start from the original
 // deferred expressions. Callers that only display the blueprint (e.g. windsor show) should use
 // Generate() instead to preserve deferred placeholders.
-func (h *BaseBlueprintHandler) GenerateResolved() *blueprintv1alpha1.Blueprint {
+//
+// Returns an error when a deferred substitution cannot be resolved (e.g. terraform_output()
+// references a missing key, or terraform itself errors during the lookup). The previous behavior
+// was to swallow these errors and leave the raw `${...}` source in the substitution map — which
+// then leaked into Flux ConfigMaps and downstream Helm renders, where the literal expression
+// text was treated as a config value (e.g. external-dns reading "${terraform_output('cluster',
+// 'tenant_id') ?? ''}" as the tenant ID and crashlooping with "invalid tenantID"). The contract
+// is now: an unresolved expression must never reach a ConfigMap. Operators see the failure at
+// blueprint-resolution time with the offending key + path called out by name, instead of via a
+// downstream pod crashloop minutes later.
+func (h *BaseBlueprintHandler) GenerateResolved() (*blueprintv1alpha1.Blueprint, error) {
 	bp := h.Generate()
 	if bp == nil {
-		return nil
+		return nil, nil
 	}
 	resolved := bp.DeepCopy()
 	h.composedBlueprint = resolved
-	h.resolveDeferredSubstitutions()
+	err := h.resolveDeferredSubstitutions()
 	h.composedBlueprint = bp
-	return resolved
+	if err != nil {
+		return nil, err
+	}
+	return resolved, nil
 }
 
 // GetDeferredPaths returns composed paths whose values were deferred during expression evaluation.
@@ -264,14 +277,21 @@ func (h *BaseBlueprintHandler) GetDeferredPaths() map[string]bool {
 // (after terraform apply). Only substitutions marked as deferred during composition are
 // re-evaluated; already-resolved substitutions are left untouched. Covers global substitutions,
 // blueprint-level ConfigMaps, and per-kustomization substitutions.
-func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() {
+//
+// Returns the first evaluation error encountered (with the substitution path named, e.g.
+// "kustomize.dns.substitutions.external_dns_tenant_id") so the operator sees exactly which
+// expression failed. Leaving an unresolved expression in place — the previous behavior — let
+// raw `${terraform_output(...)}` source text leak into Flux ConfigMaps; downstream Helm
+// renders then treated the literal expression as a config value. Failing here surfaces the
+// problem at blueprint-resolution time, before anything is written to the cluster.
+func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 	if h.runtime == nil || h.runtime.Evaluator == nil || h.composedBlueprint == nil {
-		return
+		return nil
 	}
 
 	deferred := h.GetDeferredPaths()
 	if len(deferred) == 0 {
-		return
+		return nil
 	}
 
 	bp := h.composedBlueprint
@@ -280,9 +300,11 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() {
 		if !deferred["substitutions."+key] {
 			continue
 		}
-		if str := h.resolveDeferred(value); str != nil {
-			bp.Substitutions[key] = *str
+		str, err := h.resolveDeferred(value)
+		if err != nil {
+			return fmt.Errorf("substitutions.%s: %w", key, err)
 		}
+		bp.Substitutions[key] = str
 	}
 
 	for name, configMap := range bp.ConfigMaps {
@@ -290,9 +312,11 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() {
 			if !deferred["configmaps."+name+"."+key] {
 				continue
 			}
-			if str := h.resolveDeferred(value); str != nil {
-				bp.ConfigMaps[name][key] = *str
+			str, err := h.resolveDeferred(value)
+			if err != nil {
+				return fmt.Errorf("configmaps.%s.%s: %w", name, key, err)
 			}
+			bp.ConfigMaps[name][key] = str
 		}
 	}
 
@@ -302,30 +326,38 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() {
 			if !deferred["kustomize."+k.Name+".substitutions."+key] {
 				continue
 			}
-			if str := h.resolveDeferred(value); str != nil {
-				k.Substitutions[key] = *str
+			str, err := h.resolveDeferred(value)
+			if err != nil {
+				return fmt.Errorf("kustomize.%s.substitutions.%s: %w", k.Name, key, err)
 			}
+			k.Substitutions[key] = str
 		}
 	}
+
+	return nil
 }
 
 // resolveDeferred evaluates a single expression with evaluateDeferred=true using the composed
-// scope. Returns a pointer to the resolved string, or nil if evaluation fails (leaving the
-// original value unchanged for the next Generate() call to retry).
-func (h *BaseBlueprintHandler) resolveDeferred(expr string) *string {
+// scope. Returns the resolved string on success, or an error when the expression cannot be
+// evaluated (e.g. terraform_output() references a missing module output, or terraform itself
+// errors). The previous behavior — swallowing the error and returning a sentinel that callers
+// interpreted as "leave the original raw expression in place" — is the bug that lets unresolved
+// `${terraform_output(...)}` text leak into ConfigMaps. Operators with a legitimately-optional
+// reference should write `?? <fallback>` in the expression itself; nil from the evaluator
+// (with no coalesce) renders as the empty string here, which is the operator's explicit choice
+// rather than a silent failure.
+func (h *BaseBlueprintHandler) resolveDeferred(expr string) (string, error) {
 	resolved, err := h.runtime.Evaluator.Evaluate(expr, "", h.composedScope, true)
 	if err != nil {
-		return nil
+		return "", err
 	}
-	var s string
 	if resolved == nil {
-		s = ""
-	} else if str, ok := resolved.(string); ok {
-		s = str
-	} else {
-		s = fmt.Sprintf("%v", resolved)
+		return "", nil
 	}
-	return &s
+	if str, ok := resolved.(string); ok {
+		return str, nil
+	}
+	return fmt.Sprintf("%v", resolved), nil
 }
 
 // deriveConfigMapDeferredPaths propagates deferred status to ConfigMap entries that inherited

@@ -20,7 +20,7 @@ var applyCmd = &cobra.Command{
 		// `windsor apply` runs whatever is in the blueprint — terraform components and Flux
 		// kustomizations both — so the tool surface is not statically narrowable. Request
 		// AllRequirements() and let the per-tool config gates inside CheckRequirements decide
-		// what actually runs (e.g. azure.enabled controls kubelogin).
+		// what actually runs (e.g. platform=="azure" or an azure: block triggers kubelogin).
 		proj, err := prepareProject(cmd, tools.AllRequirements())
 		if err != nil {
 			return err
@@ -41,7 +41,11 @@ var applyCmd = &cobra.Command{
 
 		// Re-generate with deferred substitutions resolved now that terraform
 		// outputs are available from the Up step above.
-		blueprint = proj.Composer.BlueprintHandler.GenerateResolved()
+		var resolveErr error
+		blueprint, resolveErr = proj.Composer.BlueprintHandler.GenerateResolved()
+		if resolveErr != nil {
+			return fmt.Errorf("error resolving blueprint substitutions: %w", resolveErr)
+		}
 
 		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 			return fmt.Errorf("error applying kustomize: %w", err)

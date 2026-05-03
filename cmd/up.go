@@ -93,8 +93,15 @@ var upCmd = &cobra.Command{
 		}
 
 		// Re-generate with deferred substitutions resolved now that terraform
-		// outputs are available from the Up step above.
-		blueprint := proj.Composer.BlueprintHandler.GenerateResolved()
+		// outputs are available from the Up step above. A failure here surfaces
+		// an unresolved expression by name (e.g. "kustomize.dns.substitutions.
+		// external_dns_tenant_id: terraform output 'tenant_id' for component
+		// cluster not found"), preventing the raw `${...}` source text from
+		// reaching Flux ConfigMaps and downstream Helm renders.
+		blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
+		if err != nil {
+			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
+		}
 
 		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 			return fmt.Errorf("error installing blueprint: %w", err)
