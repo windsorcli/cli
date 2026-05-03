@@ -795,13 +795,12 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 
 	t.Run("BootstrapAlwaysUsesLocalOverrideAndMigrates", func(t *testing.T) {
-		// When a backend component is declared, Bootstrap always pins
-		// terraform.backend.type=local for one Up pass against local state,
-		// then migrates state to the configured remote backend. This is the
-		// only path — there is no probe-based optimization. On a re-bootstrap
-		// the override path's apply will fail loudly when the cloud rejects
-		// "create" against existing infra; that's the operator's signal to
-		// run `windsor apply` instead.
+		// Probe-miss path: when HasRemoteState reports no existing pivot
+		// state in the configured backend (mock default of (false, nil)),
+		// Bootstrap pins terraform.backend.type=local for one Up pass
+		// against local state, then migrates state to the configured remote
+		// backend. The probe-hit path that skips this dance is covered
+		// separately by ProbeRemoteStateHitSkipsDanceAndRunsPlainUpOnFullBlueprint.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
