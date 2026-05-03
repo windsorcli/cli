@@ -120,7 +120,7 @@ func TestToolRegistry_KeysMatchCheckFunctions(t *testing.T) {
 	// Each entry is a binary name passed to execLookPath inside a check* function.
 	// "tofu" is included alongside "terraform" because GetTerraformCommand can return
 	// either depending on the configured driver; both must format errors identically.
-	expectedKeys := []string{"docker", "colima", "limactl", "terraform", "tofu", "op", "sops", "kubelogin", "aws"}
+	expectedKeys := []string{"docker", "colima", "limactl", "terraform", "tofu", "op", "sops", "kubelogin", "aws", "az"}
 	for _, key := range expectedKeys {
 		if _, ok := toolRegistry[key]; !ok {
 			t.Errorf("toolRegistry is missing %q — a check* function looks up this binary, so a missing entry would degrade its error to the bare fallback (no Download / aqua hints)", key)

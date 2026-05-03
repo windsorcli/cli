@@ -22,7 +22,6 @@ func TestConfig_Merge(t *testing.T) {
 				AWSEndpointURL: ptrString("https://base.aws.endpoint"),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled:        ptrBool(true),
 				SubscriptionID: ptrString("base-sub"),
 				TenantID:       ptrString("base-tenant"),
 				Environment:    ptrString("base-cloud"),
@@ -68,7 +67,6 @@ func TestConfig_Merge(t *testing.T) {
 				AWSEndpointURL: ptrString("https://overlay.aws.endpoint"),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled:        ptrBool(false),
 				SubscriptionID: ptrString("overlay-sub"),
 				TenantID:       ptrString("overlay-tenant"),
 				Environment:    ptrString("overlay-cloud"),
@@ -113,9 +111,6 @@ func TestConfig_Merge(t *testing.T) {
 
 		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://overlay.aws.endpoint" {
 			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
-		}
-		if base.Azure.Enabled == nil || *base.Azure.Enabled != false {
-			t.Errorf("Azure Enabled mismatch: expected false, got %v", *base.Azure.Enabled)
 		}
 		if base.Azure.SubscriptionID == nil || *base.Azure.SubscriptionID != "overlay-sub" {
 			t.Errorf("Azure SubscriptionID mismatch: expected 'overlay-sub', got '%s'", *base.Azure.SubscriptionID)
@@ -164,7 +159,6 @@ func TestConfig_Merge(t *testing.T) {
 				AWSEndpointURL: ptrString("https://base.aws.endpoint"),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled:        ptrBool(true),
 				SubscriptionID: ptrString("base-sub"),
 				TenantID:       ptrString("base-tenant"),
 				Environment:    ptrString("base-cloud"),
@@ -210,9 +204,6 @@ func TestConfig_Merge(t *testing.T) {
 
 		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://base.aws.endpoint" {
 			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://base.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
-		}
-		if base.Azure.Enabled == nil || *base.Azure.Enabled != true {
-			t.Errorf("Azure Enabled mismatch: expected true, got %v", *base.Azure.Enabled)
 		}
 		if base.Azure.SubscriptionID == nil || *base.Azure.SubscriptionID != "base-sub" {
 			t.Errorf("Azure SubscriptionID mismatch: expected 'base-sub', got '%s'", *base.Azure.SubscriptionID)
@@ -263,7 +254,6 @@ func TestConfig_Merge(t *testing.T) {
 				AWSEndpointURL: ptrString("https://overlay.aws.endpoint"),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled:        ptrBool(false),
 				SubscriptionID: ptrString("overlay-sub"),
 				TenantID:       ptrString("overlay-tenant"),
 				Environment:    ptrString("overlay-cloud"),
@@ -308,9 +298,6 @@ func TestConfig_Merge(t *testing.T) {
 
 		if base.AWS.AWSEndpointURL == nil || *base.AWS.AWSEndpointURL != "https://overlay.aws.endpoint" {
 			t.Errorf("AWS AWSEndpointURL mismatch: expected 'https://overlay.aws.endpoint', got '%s'", *base.AWS.AWSEndpointURL)
-		}
-		if base.Azure.Enabled == nil || *base.Azure.Enabled != false {
-			t.Errorf("Azure Enabled mismatch: expected false, got %v", *base.Azure.Enabled)
 		}
 		if base.Azure.SubscriptionID == nil || *base.Azure.SubscriptionID != "overlay-sub" {
 			t.Errorf("Azure SubscriptionID mismatch: expected 'overlay-sub', got '%s'", *base.Azure.SubscriptionID)
@@ -380,7 +367,6 @@ func TestConfig_Copy(t *testing.T) {
 				AWSEndpointURL: ptrString("https://original.aws.endpoint"),
 			},
 			Azure: &azure.AzureConfig{
-				Enabled:        ptrBool(true),
 				SubscriptionID: ptrString("original-sub"),
 				TenantID:       ptrString("original-tenant"),
 				Environment:    ptrString("original-cloud"),
@@ -426,9 +412,6 @@ func TestConfig_Copy(t *testing.T) {
 		}
 		if original.AWS.AWSEndpointURL == nil || copy.AWS.AWSEndpointURL == nil || *original.AWS.AWSEndpointURL != *copy.AWS.AWSEndpointURL {
 			t.Errorf("AWS AWSEndpointURL mismatch: expected %v, got %v", *original.AWS.AWSEndpointURL, *copy.AWS.AWSEndpointURL)
-		}
-		if original.Azure.Enabled == nil || copy.Azure.Enabled == nil || *original.Azure.Enabled != *copy.Azure.Enabled {
-			t.Errorf("Azure Enabled mismatch: expected %v, got %v", *original.Azure.Enabled, *copy.Azure.Enabled)
 		}
 		if original.Azure.SubscriptionID == nil || copy.Azure.SubscriptionID == nil || *original.Azure.SubscriptionID != *copy.Azure.SubscriptionID {
 			t.Errorf("Azure SubscriptionID mismatch: expected %v, got %v", *original.Azure.SubscriptionID, *copy.Azure.SubscriptionID)

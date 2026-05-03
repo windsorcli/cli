@@ -15,53 +15,50 @@ func TestAzureConfig(t *testing.T) {
 			{
 				name: "AllFields",
 				base: &AzureConfig{
-					Enabled:        boolPtr(false),
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
+					KubeloginMode:  stringPtr("azurecli"),
 				},
 				overlay: &AzureConfig{
-					Enabled:        boolPtr(true),
 					SubscriptionID: stringPtr("new-sub"),
 					TenantID:       stringPtr("new-tenant"),
 					Environment:    stringPtr("new-env"),
+					KubeloginMode:  stringPtr("workloadidentity"),
 				},
 				expected: &AzureConfig{
-					Enabled:        boolPtr(true),
 					SubscriptionID: stringPtr("new-sub"),
 					TenantID:       stringPtr("new-tenant"),
 					Environment:    stringPtr("new-env"),
+					KubeloginMode:  stringPtr("workloadidentity"),
 				},
 			},
 			{
 				name: "PartialOverlay",
 				base: &AzureConfig{
-					Enabled:        boolPtr(false),
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
 				},
 				overlay: &AzureConfig{
-					Enabled: boolPtr(true),
+					KubeloginMode: stringPtr("msi"),
 				},
 				expected: &AzureConfig{
-					Enabled:        boolPtr(true),
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
+					KubeloginMode:  stringPtr("msi"),
 				},
 			},
 			{
 				name: "NilOverlay",
 				base: &AzureConfig{
-					Enabled:        boolPtr(false),
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
 				},
 				overlay: nil,
 				expected: &AzureConfig{
-					Enabled:        boolPtr(false),
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
@@ -73,37 +70,10 @@ func TestAzureConfig(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				tt.base.Merge(tt.overlay)
 
-				if tt.base.Enabled == nil || tt.expected.Enabled == nil {
-					if tt.base.Enabled != tt.expected.Enabled {
-						t.Errorf("Expected Enabled to be %v, got %v", tt.expected.Enabled, tt.base.Enabled)
-					}
-				} else if *tt.base.Enabled != *tt.expected.Enabled {
-					t.Errorf("Expected Enabled to be %v, got %v", *tt.expected.Enabled, *tt.base.Enabled)
-				}
-
-				if tt.base.SubscriptionID == nil || tt.expected.SubscriptionID == nil {
-					if tt.base.SubscriptionID != tt.expected.SubscriptionID {
-						t.Errorf("Expected SubscriptionID to be %v, got %v", tt.expected.SubscriptionID, tt.base.SubscriptionID)
-					}
-				} else if *tt.base.SubscriptionID != *tt.expected.SubscriptionID {
-					t.Errorf("Expected SubscriptionID to be %v, got %v", *tt.expected.SubscriptionID, *tt.base.SubscriptionID)
-				}
-
-				if tt.base.TenantID == nil || tt.expected.TenantID == nil {
-					if tt.base.TenantID != tt.expected.TenantID {
-						t.Errorf("Expected TenantID to be %v, got %v", tt.expected.TenantID, tt.base.TenantID)
-					}
-				} else if *tt.base.TenantID != *tt.expected.TenantID {
-					t.Errorf("Expected TenantID to be %v, got %v", *tt.expected.TenantID, *tt.base.TenantID)
-				}
-
-				if tt.base.Environment == nil || tt.expected.Environment == nil {
-					if tt.base.Environment != tt.expected.Environment {
-						t.Errorf("Expected Environment to be %v, got %v", tt.expected.Environment, tt.base.Environment)
-					}
-				} else if *tt.base.Environment != *tt.expected.Environment {
-					t.Errorf("Expected Environment to be %v, got %v", *tt.expected.Environment, *tt.base.Environment)
-				}
+				assertStringPtrEq(t, "SubscriptionID", tt.base.SubscriptionID, tt.expected.SubscriptionID)
+				assertStringPtrEq(t, "TenantID", tt.base.TenantID, tt.expected.TenantID)
+				assertStringPtrEq(t, "Environment", tt.base.Environment, tt.expected.Environment)
+				assertStringPtrEq(t, "KubeloginMode", tt.base.KubeloginMode, tt.expected.KubeloginMode)
 			})
 		}
 	})
@@ -116,16 +86,16 @@ func TestAzureConfig(t *testing.T) {
 			{
 				name: "AllFields",
 				original: &AzureConfig{
-					Enabled:        boolPtr(true),
 					SubscriptionID: stringPtr("sub"),
 					TenantID:       stringPtr("tenant"),
 					Environment:    stringPtr("env"),
+					KubeloginMode:  stringPtr("azurecli"),
 				},
 			},
 			{
 				name: "SomeFields",
 				original: &AzureConfig{
-					Enabled: boolPtr(true),
+					KubeloginMode: stringPtr("workloadidentity"),
 				},
 			},
 			{
@@ -153,44 +123,33 @@ func TestAzureConfig(t *testing.T) {
 					t.Error("Expected copy to be a new instance")
 				}
 
-				if tt.original.Enabled == nil {
-					if copy.Enabled != nil {
-						t.Error("Expected Enabled to be nil")
-					}
-				} else if copy.Enabled == nil || *copy.Enabled != *tt.original.Enabled {
-					t.Errorf("Expected Enabled to be %v, got %v", tt.original.Enabled, copy.Enabled)
-				}
-
-				if tt.original.SubscriptionID == nil {
-					if copy.SubscriptionID != nil {
-						t.Error("Expected SubscriptionID to be nil")
-					}
-				} else if copy.SubscriptionID == nil || *copy.SubscriptionID != *tt.original.SubscriptionID {
-					t.Errorf("Expected SubscriptionID to be %v, got %v", tt.original.SubscriptionID, copy.SubscriptionID)
-				}
-
-				if tt.original.TenantID == nil {
-					if copy.TenantID != nil {
-						t.Error("Expected TenantID to be nil")
-					}
-				} else if copy.TenantID == nil || *copy.TenantID != *tt.original.TenantID {
-					t.Errorf("Expected TenantID to be %v, got %v", tt.original.TenantID, copy.TenantID)
-				}
-
-				if tt.original.Environment == nil {
-					if copy.Environment != nil {
-						t.Error("Expected Environment to be nil")
-					}
-				} else if copy.Environment == nil || *copy.Environment != *tt.original.Environment {
-					t.Errorf("Expected Environment to be %v, got %v", tt.original.Environment, copy.Environment)
-				}
+				assertStringPtrEq(t, "SubscriptionID", copy.SubscriptionID, tt.original.SubscriptionID)
+				assertStringPtrEq(t, "TenantID", copy.TenantID, tt.original.TenantID)
+				assertStringPtrEq(t, "Environment", copy.Environment, tt.original.Environment)
+				assertStringPtrEq(t, "KubeloginMode", copy.KubeloginMode, tt.original.KubeloginMode)
 			})
 		}
 	})
 }
 
-func boolPtr(b bool) *bool {
-	return &b
+func assertStringPtrEq(t *testing.T, name string, got, want *string) {
+	t.Helper()
+	if got == nil || want == nil {
+		if got != want {
+			t.Errorf("%s: got %v, want %v", name, deref(got), deref(want))
+		}
+		return
+	}
+	if *got != *want {
+		t.Errorf("%s: got %q, want %q", name, *got, *want)
+	}
+}
+
+func deref(s *string) any {
+	if s == nil {
+		return nil
+	}
+	return *s
 }
 
 func stringPtr(s string) *string {

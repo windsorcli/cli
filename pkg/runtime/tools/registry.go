@@ -82,6 +82,11 @@ var toolRegistry = map[string]toolInfo{
 		minVersion: constants.MinimumVersionAWS,
 		download:   "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html",
 	},
+	"az": {
+		name:       "Azure CLI",
+		minVersion: constants.MinimumVersionAzure,
+		download:   "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli",
+	},
 }
 
 // =============================================================================
