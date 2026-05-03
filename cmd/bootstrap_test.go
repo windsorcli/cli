@@ -387,7 +387,7 @@ func TestBootstrapCmd(t *testing.T) {
 			return nil
 		}
 		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
-			return []string{"network", "cluster"}, nil
+			return []string{"backend"}, nil
 		}
 
 		proj := newBootstrapTestProject(mocks)
@@ -399,13 +399,13 @@ func TestBootstrapCmd(t *testing.T) {
 
 		err := cmd.Execute()
 		if err == nil {
-			t.Fatal("Expected bootstrap to fail when MigrateState reports skipped components")
+			t.Fatal("Expected bootstrap to fail when MigrateState skips the pivot")
 		}
 		if !strings.Contains(err.Error(), "skipped") {
-			t.Errorf("Expected error to mention skipped components, got: %v", err)
+			t.Errorf("Expected error to mention skipped, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "network") || !strings.Contains(err.Error(), "cluster") {
-			t.Errorf("Expected error to name skipped components, got: %v", err)
+		if !strings.Contains(err.Error(), `"backend"`) {
+			t.Errorf("Expected error to name the pivot, got: %v", err)
 		}
 	})
 

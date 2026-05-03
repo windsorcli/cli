@@ -3,7 +3,6 @@ package provisioner
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
@@ -99,7 +98,11 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 		return false, err
 	}
 
-	if hasRemote, probeErr := i.HasRemoteState(blueprint, pivotID); probeErr == nil && hasRemote {
+	hasRemote, probeErr := i.HasRemoteState(blueprint, pivotID)
+	if probeErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: probe of configured backend for pivot %q failed: %v — proceeding with local-then-migrate dance (correct on first-time bootstrap; abort with Ctrl-C if your backend already exists and this is a transient probe failure)\n", pivotID, probeErr)
+	} else if hasRemote {
+		fmt.Fprintf(os.Stderr, "Probe found existing state for pivot %q in configured backend — skipping bootstrap dance, applying as a normal up.\n", pivotID)
 		if err := i.Up(blueprint, onApply...); err != nil {
 			return false, err
 		}
@@ -117,13 +120,10 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 
 	skipped, err := i.MigrateState(pivotOnly)
 	if err != nil {
-		if len(skipped) > 0 {
-			return false, fmt.Errorf("%w (skipped components before failure: %s)", err, strings.Join(skipped, ", "))
-		}
 		return false, err
 	}
 	if len(skipped) > 0 {
-		return false, fmt.Errorf("bootstrap state migration skipped components whose directories were missing after apply: %s", strings.Join(skipped, ", "))
+		return false, fmt.Errorf("bootstrap migration skipped pivot %q: component directory missing after apply", pivotID)
 	}
 
 	if err := i.RemoveLocalState(pivotID); err != nil {

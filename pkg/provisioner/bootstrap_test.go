@@ -592,10 +592,12 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("FailsWhenMigrateStateReportsSkippedComponents", func(t *testing.T) {
-		// MigrateState skipping silently would leave state on local while config
-		// points at remote. Bootstrap surfaces the offending IDs so the operator
-		// can investigate.
+	t.Run("FailsWhenMigrateStateReportsPivotSkipped", func(t *testing.T) {
+		// MigrateState skipping the pivot silently would leave its state on
+		// local while config points at remote. Bootstrap surfaces the pivot
+		// ID so the operator can investigate. The error message is single-
+		// component-aware: pivotOnly always has exactly one component, so the
+		// skip list at most names the pivot.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -619,19 +621,22 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
-			return []string{"network", "cluster"}, nil
+			return []string{"backend"}, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
 		_, err := provisioner.Bootstrap(bp, nil)
 		if err == nil {
-			t.Fatal("Expected bootstrap to fail when MigrateState reports skipped components")
+			t.Fatal("Expected bootstrap to fail when MigrateState skips the pivot")
 		}
 		if !strings.Contains(err.Error(), "skipped") {
-			t.Errorf("Expected error to mention skipped components, got: %v", err)
+			t.Errorf("Expected error to mention skipped, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "network") || !strings.Contains(err.Error(), "cluster") {
-			t.Errorf("Expected error to name the skipped components, got: %v", err)
+		if !strings.Contains(err.Error(), `"backend"`) {
+			t.Errorf("Expected error to name the pivot %q, got: %v", "backend", err)
+		}
+		if !strings.Contains(err.Error(), "directory missing") {
+			t.Errorf("Expected error to explain the missing-directory cause, got: %v", err)
 		}
 	})
 
@@ -977,11 +982,13 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("ProbeErrorFallsThroughToDance", func(t *testing.T) {
+	t.Run("ProbeErrorFallsThroughToDanceAndEmitsWarning", func(t *testing.T) {
 		// Given the probe errors (auth issue, network blip, missing remote
 		// backend storage), Bootstrap must NOT silently skip the dance —
 		// errors degrade safely by running the dance, where Phase 1 will
-		// surface a persistent issue with a cloud-side error.
+		// surface a persistent issue with a cloud-side error. A stderr
+		// warning naming the underlying probe error gives the operator a
+		// chance to abort before the dance runs unnecessarily.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
@@ -1025,9 +1032,23 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "remove-local")
 			return nil
 		}
+
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
 		applied, err := provisioner.Bootstrap(bp, nil)
+
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1043,6 +1064,81 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			if ops[i] != want {
 				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
 			}
+		}
+
+		// The visibility contract: the operator gets a stderr line naming
+		// the pivot, the underlying probe error, and what bootstrap is
+		// about to do anyway.
+		if !strings.Contains(stderrOutput, "warning") {
+			t.Errorf("Expected stderr warning marker, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, `"backend"`) {
+			t.Errorf("Expected stderr to name the pivot, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "backend bucket missing") {
+			t.Errorf("Expected stderr to include underlying probe error, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, "local-then-migrate") {
+			t.Errorf("Expected stderr to name the dance bootstrap is about to run, got: %q", stderrOutput)
+		}
+	})
+
+	t.Run("ProbeHitEmitsSkippingDanceLine", func(t *testing.T) {
+		// Given the probe finds existing pivot state in the configured
+		// backend, Bootstrap emits a visible stderr line announcing that the
+		// dance is being skipped before delegating to plain Up. Without this
+		// the operator can't tell whether they took the dance path or the
+		// rerun path on a successful bootstrap.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "azurerm"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.HasRemoteStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+			return true, nil
+		}
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			return nil
+		}
+
+		r, w, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			t.Fatalf("Pipe failed: %v", pipeErr)
+		}
+		origStderr := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = origStderr }()
+
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		if _, err := provisioner.Bootstrap(bp, nil); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		w.Close()
+		stderrBytes, _ := io.ReadAll(r)
+		stderrOutput := string(stderrBytes)
+
+		if !strings.Contains(stderrOutput, "skipping bootstrap dance") {
+			t.Errorf("Expected stderr to mention skipping the dance, got: %q", stderrOutput)
+		}
+		if !strings.Contains(stderrOutput, `"backend"`) {
+			t.Errorf("Expected stderr to name the pivot, got: %q", stderrOutput)
 		}
 	})
 

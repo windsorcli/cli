@@ -1081,7 +1081,9 @@ func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1
 		}
 
 		hasRemote, err := i.HasRemoteState(blueprint, componentID)
-		if err == nil && hasRemote {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: probe of configured backend for %q failed during recovery sweep: %v — assuming no remote state and proceeding with reset-and-migrate (abort with Ctrl-C if remote state should already exist for this component)\n", componentID, err)
+		} else if hasRemote {
 			continue
 		}
 
