@@ -396,7 +396,12 @@ func (s *FluxStack) planOneKustomizeDestroySummary(k blueprintv1alpha1.Kustomiza
 // "<Kind>/<name>" for cluster-scoped ones. Group is intentionally omitted from
 // the visible address — Kind is what operators recognise; group disambiguates
 // CRDs but at the cost of every line getting a noisy "apps." or "networking.
-// k8s.io." prefix. Same trade-off as the apply-side parser.
+// k8s.io." prefix. Same trade-off as the apply-side parser. Residual risk:
+// when a cluster carries two CRDs with the same Kind across different groups
+// (e.g., a vendor's Deployment alongside apps/Deployment), the rendered
+// addresses collide and the operator must consult the cluster directly to
+// distinguish them. Rare in practice, but worth knowing about when reviewing
+// a plan against a heavily-customised cluster.
 func inventoryAddress(e kubernetes.InventoryEntry) string {
 	if e.Namespace == "" {
 		return fmt.Sprintf("%s/%s", e.Kind, e.Name)
