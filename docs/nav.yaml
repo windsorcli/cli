@@ -6,7 +6,6 @@ nav:
     - 'Local Workstation': guides/local-workstation.md
     - 'Kustomize': guides/kustomize.md
     - 'Terraform': guides/terraform.md
-    - 'Sharing Blueprints': guides/sharing.md
     - 'Blueprint Testing': guides/testing.md
   - 'Tutorial':
     - 'Hello, World!': tutorial/hello-world.md

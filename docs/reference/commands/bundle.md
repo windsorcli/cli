@@ -34,7 +34,7 @@ windsor bundle -t myapp:v1.0.0 -o ./dist/
 
 ## See also
 
-- [Sharing guide](../../guides/sharing.md)
+- [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)
 - [Metadata reference](../metadata.md)
 - [`push`](push.md)
 - Source: [cmd/bundle.go](https://github.com/windsorcli/cli/blob/main/cmd/bundle.go)
