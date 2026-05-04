@@ -12,7 +12,7 @@ windsor plan kustomize [component] [flags]
 
 Preview pending changes across Terraform components and Flux kustomizations without applying them.
 
-- With no argument, prints a compact summary across all components.
+- With no argument, prints a compact summary across all components. Components that have never been applied show as `(new)` so you can distinguish first-time creates from updates.
 - With a component name, streams the full plan for every layer that contains that component.
 - Subcommands restrict to one layer.
 

@@ -31,10 +31,10 @@ Run terraform apply for a single component. Aliases: `tf`. The `<component>` arg
 ## apply kustomize
 
 ```sh
-windsor apply kustomize [name]
+windsor apply kustomize [name] [--wait]
 ```
 
-Apply a single Flux kustomization by name, or every kustomization when no argument is given. Inherits `--wait` from `apply`.
+Apply a single Flux kustomization by name, or every kustomization when no argument is given. Accepts its own `--wait` flag (`apply terraform` does not).
 
 ## Examples
 
