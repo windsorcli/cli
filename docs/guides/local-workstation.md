@@ -1,262 +1,295 @@
 ---
 title: "Local Workstation"
-description: "The Windsor CLI configures your local workstation to closely mimic production environments."
+description: "How Windsor runs a local Kubernetes cluster, DNS, registries, and a git mirror on your machine."
 ---
-# Local Workstation
-A significant feature of the Windsor CLI is its ability to configure your local workstation. Every attempt is made to configure this workstation to closely mimic true production workloads. While working with your local workstation, you can expect to have DNS, Docker registries, Kubernetes clusters, an AWS emulator (Localstack), and a local reflection of your repository available via a local git server.
+# Local workstation
 
-## Prerequisites
-To fully follow this guide, you should already have a local Windsor environment running, having followed through the [quick start tutorial](../quick-start.md). With the Windsor CLI installed, you can create your local environment by running:
+A workstation context runs a VM-backed Kubernetes cluster on your machine, with DNS, container registries, and a local git mirror configured to mimic production. Workstation contexts are the only place `windsor up` and `windsor down` apply — every other context (`staging`, `prod`, etc.) drives directly with `apply` / `destroy`.
 
-```
+`windsor init local` scaffolds a workstation context and `windsor up` brings it up:
+
+```sh
+git init
 windsor init local
-windsor up
+windsor up --wait
 ```
 
-More information about the local workstation follows.
+## Workstation configuration
 
-## Virtualization
-In order to simulate a disposable local environment across multiple OS's, a virtual machine is required. The Windsor project will continue to add support for common virtualization drivers.
+After `init`, two files describe the context:
 
-### Colima
-Presently, MacOS and Linux users may use [Colima](https://github.com/abiosoft/colima), which is itself a wrapper around [Lima](https://github.com/lima-vm/lima). This provides a friendly interface to native virtualization technologies such as Apple's hypervisor framework. With a full virtualization, you will be able to closely emulate a full production environment.
-
-### Docker Desktop
-Developers on Linux, MacOS, or Windows may use [Docker Desktop](https://docs.docker.com/desktop/). Not all services or features are supported on a lightweight containerized virtualization platform.
-
-### Feature Comparison
-
-| Feature                          | Full Virtualization (e.g., Colima) | Lightweight Container Virtualization (e.g., Docker Desktop) |
-|----------------------------------|------------------------------------|-------------------------------------------------------------|
-| **DNS**                    | DNS routes to service IPs    | DNS routes to localhost                              |
-| **Docker Registries**                  | Full support      | Full support              |
-| **Local Git**                  | Full support      | Full support              |
-| **Kubernetes Cluster**                  | Supported as containers & VMs (soon)      | Supported as containers              |
-| **Device Emulation**                   | Filesystem and block devices         | Filesystem only                          |
-| **Network Emulation**                   | Fully addressable IP range and Layer2 load balancing | Localhost with port-forwarding and nodeport     |
-
-## AWS
-If you use Amazon Web Services (AWS) as your cloud provider, Windsor can set up an instance of [Localstack](https://github.com/localstack/localstack), allowing emulation of many AWS services. To enable this, modify your `windsor.yaml` to include:
-
-```
-aws:
-  enabled: true
-  localstack:
-    enabled: true
+```yaml
+# contexts/local/values.yaml — user-authored
+dev: true
+dns:
+  domain: test
+id: w2g5rk7d
 ```
 
-This will enable Localstack, which will launch on running `windsor up`. The AWS API endpoint may then be reached at http://aws.test:4566.
+```yaml
+# .windsor/contexts/local/workstation.yaml — system-managed, ephemeral
+platform: docker
+workstation:
+  arch: arm64
+  dns:
+    address: 127.0.0.1
+  runtime: docker-desktop
+```
+
+`workstation.yaml` is system-managed — Windsor writes it during `init` / `up` based on `--vm-driver`, `--platform`, and the host architecture. Treat it as ephemeral; do not check it in. The file is regenerated whenever flags or platform change.
+
+Top-level keys:
+
+| Key | Meaning |
+|-----|---------|
+| `platform` | Workstation platform: `docker`, `metal`, `incus`, `aws`, `azure`, `gcp`, `none`. Drives backend defaults and which terraform components are picked. |
+| `workstation.runtime` | VM/container runtime: `docker-desktop`, `colima`, `docker` (host docker). |
+| `workstation.arch` | VM architecture (`arm64` or `amd64`); inferred from host `GOARCH` when unset. |
+| `workstation.address` | VM IP, set by Windsor after VM boot. |
+| `workstation.dns.address` | DNS service IP that the host resolver should be pointed at. |
+
+## Anatomy of a workstation
+
+```mermaid
+flowchart TB
+    subgraph Host["Host machine"]
+        Shell["Shell + windsor hook<br/>(env injected each prompt)"]
+        CLIs["windsor · kubectl · docker · terraform"]
+        FS[("Project filesystem<br/>contexts/local/ · .windsor/")]
+        Resolver["Host DNS resolver<br/>*.test → dns.test"]
+    end
+
+    subgraph Docker["Docker daemon — windsor-local bridge · 10.5.0.0/16"]
+        direction TB
+        subgraph Support["Docker support services (containers)"]
+            direction LR
+            DNS["dns.test · 10.5.0.3<br/>CoreDNS for *.test"]
+            Reg["Registry mirrors<br/>registry.test · gcr.test · ghcr.test<br/>quay.test · registry-1.docker.test · registry.k8s.test"]
+            Git["git.test · 10.5.0.6<br/>git-livereload (mirrors project)"]
+        end
+        subgraph Talos["controlplane-1.test · 10.5.0.2<br/>Talos container (privileged)"]
+            subgraph K8s["Kubernetes (running on Talos)"]
+                direction LR
+                Flux["Flux"]
+                Apps["Workloads installed by Flux<br/>kyverno · openebs · ingress<br/>cert-manager · in-cluster CoreDNS<br/>BookInfo demo"]
+            end
+        end
+    end
+
+    Shell --> CLIs
+    CLIs -.->|DOCKER_HOST| Docker
+    CLIs -.->|KUBECONFIG → :6443| Talos
+    Resolver -.->|UDP/53| DNS
+    Flux -.->|polls| Git
+    Git -.->|webhook on commit| Flux
+    FS -.->|bind-mount| Git
+```
+
+The Docker daemon is on the host with `docker-desktop` / `docker`, and inside the Lima VM with `colima` / `colima-incus`. Either way, every container — support services and Talos alike — joins the `windsor-local` bridge, so they address each other on `10.5.0.x`.
+
+Key flows:
+
+- The shell hook re-evaluates `windsor env` each prompt, exporting `KUBECONFIG`, `DOCKER_HOST`, `TALOSCONFIG`, `REGISTRY_URL`, etc., so plain `kubectl` and `docker` commands target the workstation.
+- `dns.test` (CoreDNS, on the docker network) resolves `*.test` names. The host resolver is pointed at it by `windsor configure network`. Pods inside Kubernetes have a separate cluster-scoped CoreDNS for service DNS.
+- `git-livereload` runs as a docker container, not in the cluster. It mirrors your working tree onto an HTTP git server at `git.test` and pings the Flux webhook on each change. Flux reconciles from `git.test`.
+- `${project_root}/.volumes` bind-mounts onto the Talos container, so PVCs surface as host directories under your project.
+
+## VM drivers
+
+| Driver | Platform | When to use |
+|--------|----------|-------------|
+| `docker-desktop` | macOS / Linux / Windows | Lightest setup; no separate VM. Some networking features fall back to host port-forwarding. |
+| `docker` | Linux | Use the host's docker daemon directly. |
+| `colima` | macOS / Linux | Full VM via Lima. Required for Layer-2 load balancing, full IP-range networking, block-device emulation. |
+| `colima-incus` | macOS / Linux | Same as `colima`, but provisions Incus inside the VM for cluster-of-VMs workloads. Requires `limactl` ≥ 2.0.3. |
+
+Pick at init time:
+
+```sh
+windsor init local --vm-driver=colima
+windsor init local --vm-driver=docker-desktop
+windsor init local --vm-driver=colima-incus
+```
+
+`--vm-driver` writes `workstation.runtime` (with `colima-incus` aliased to `colima` plus `platform: incus`). When `--platform` isn't provided, Windsor infers it from the driver: `colima` and `docker-desktop` → `docker`; `colima-incus` → `incus`.
+
+### Feature comparison
+
+| Feature | Full virtualization (`colima`, `colima-incus`) | Light virtualization (`docker-desktop`, `docker`) |
+|---------|------------------------------------------------|---------------------------------------------------|
+| DNS | resolves to in-cluster service IPs | resolves to `127.0.0.1` with port-forwarding |
+| Kubernetes cluster | container or VM nodes | container nodes only |
+| Network emulation | full IP range, Layer-2 load balancing | `localhost` with port-forwarding and NodePort |
+| Device emulation | filesystem and block devices | filesystem only |
+
+## Cluster topology
+
+Windsor runs Kubernetes via [Talos](https://github.com/siderolabs/talos). Configure the cluster in `contexts/<name>/values.yaml`:
+
+```yaml
+cluster:
+  driver: talos
+  controlplanes:
+    count: 1
+    cpu: 4
+    memory: 4
+  workers:
+    count: 1
+    cpu: 4
+    memory: 8
+    hostports:
+    - 80:30080/tcp
+    - 443:30443/tcp
+    volumes:
+    - ${project_root}/.volumes:/var/mnt/local
+```
+
+When fields are unset, Windsor derives sensible defaults. The default topology is **single-node**: one schedulable controlplane and zero workers, where the controlplane runs both control-plane and workload pods.
+
+| Topology | Default `cpu` | Default `memory` (GB) |
+|----------|---------------|------------------------|
+| Single schedulable controlplane (workers count 0) | 8 | 12 |
+| Dedicated controlplane (workers count > 0) | 4 | 4 |
+| Worker | 4 | 8 |
+
+`controlplanes.schedulable` is automatically `true` when `workers.count == 0` and `controlplanes.count == 1`.
+
+`hostports` are container-to-host port mappings (only applied for `docker-desktop` and `docker`). `volumes` are bind-mounts on the worker filesystem — typically used to expose `${project_root}/.volumes/` to the cluster as PVC storage.
+
+### VM rightsizing
+
+For Colima, the VM size is derived from cluster topology rather than fixed:
+
+```
+cpu    = (controlplanes.count × controlplanes.cpu) + (workers.count × workers.cpu) + 1
+memory = (controlplanes.count × controlplanes.memory) + (workers.count × workers.memory) + 3 GB
+```
+
+The `+1 / +3` overhead covers the Ubuntu base and Docker services running inside the VM. Floors of 2 vCPU and 4 GB always apply. If the calculated size exceeds the host's physical resources minus a 4 GB reserve, Windsor warns and you can tune individual node values in `values.yaml` or pass `--vm-cpu` / `--vm-memory` to `init`.
+
+When `cluster.driver` is unset, Windsor falls back to half of the host's CPU and memory.
 
 ## DNS
-The Windsor CLI configures your local DNS resolver to route requests to services running on the local cloud. The CLI configures the resolver for a reserved local domain (defaults to `test`) at a local CoreDNS container. This setup allows routing to development services (http://aws.test, http://git.test, etc) as well as services running in the local cluster.
 
-The `.test` domain is reserved by the Internet Assigned Numbers Authority (IANA) for testing purposes. It is ideal for a local development or CI/CD pipeline. If you would like to change it, you may do so in the `windsor.yaml` file:
+The local DNS resolver routes the configured domain (default: `test`) to a CoreDNS instance running in the cluster. Services like `http://aws.test`, `http://git.test`, `http://registry.test`, and any in-cluster service DNS resolve through it.
 
-```
+```yaml
+# contexts/local/values.yaml
 dns:
-  enabled: true
-  name: local # used to be "test"
+  domain: test       # IANA-reserved for testing
 ```
 
-### Testing DNS Configuration
+`.test` is reserved by IANA for testing and is the recommended choice. Override `dns.domain` if you must.
 
-To verify your DNS setup, follow the instructions for your operating system:
+### configure network
 
-=== "Windows"
-    1. Open Command Prompt.
-    2. Run the following command:
-       ```powershell
-       nslookup registry.test dns.test
-       ```
-    3. You should see an output similar to:
-       ```plaintext
-       Name:    registry.test
-       Address: 127.0.0.1
-       ```
+`windsor configure network` wires the host's resolver and routes for the active workstation. It runs automatically after the workstation Terraform component applies during `up`, but you can re-run it manually if DNS or routing drifts:
 
-=== "Linux"
-    1. Open Terminal.
-    2. Run the following command:
-       ```bash
-       dig @dns.test registry.test
-       ```
-    3. If running natively on Linux or with a full virtualization, expect:
-       ```plaintext
-       ;; ANSWER SECTION:
-       registry.test.          3600    IN      A       10.5.0.3
-       ```
-
-=== "MacOS"
-    1. Open Terminal.
-    2. Run the following command:
-       ```bash
-       dig @dns.test registry.test
-       ```
-    3. You should see an output similar to:
-       ```plaintext
-       ;; ANSWER SECTION:
-       registry.test.          3600    IN      A       127.0.0.1
-       ```
-
-Note: The IP address `127.0.0.1` is expected when using Docker Desktop, while `10.5.0.3` is expected for full virtualization setups.
-
-## Registries
-The local workstation provides several Docker registries run as local containerized services. The following table outlines these and their purpose:
-
-| Registry               | Local Endpoint                     | Purpose                                      |
-|------------------------|------------------------------------|----------------------------------------------|
-| Google Container Registry (gcr.io) | http://gcr.test:5000        | Mirror for Google Container Registry         |
-| GitHub Container Registry (ghcr.io) | http://ghcr.test:5000       | Mirror for GitHub Container Registry         |
-| Quay Container Registry (quay.io) | http://quay.test:5000       | Mirror for Quay Container Registry           |
-| Docker Hub (registry-1.docker.io) | http://registry-1.docker.test:5000 | Mirror for Docker Hub                        |
-| Kubernetes Official Registry (registry.k8s.io) | http://registry.k8s.test:5000 | Mirror for Kubernetes official registry      |
-| Local Generic Registry (registry.test) | http://registry.test:5000 | Generic local registry                       |
-
-To configure a mirror, add the following configuration:
-
+```sh
+windsor configure network --dns-address=10.5.0.10
 ```
+
+`--dns-address` is the DNS service IP — typically taken from the workstation Terraform component's outputs. Run from the project root; the trusted-folder gate applies.
+
+### Verifying DNS
+
+```sh
+# Full virtualization → in-cluster IP
+dig @dns.test registry.test
+# ;; ANSWER SECTION:
+# registry.test.   3600   IN  A  10.5.0.3
+
+# Docker Desktop → loopback
+dig @dns.test registry.test
+# ;; ANSWER SECTION:
+# registry.test.   3600   IN  A  127.0.0.1
+```
+
+## Container registries
+
+The workstation runs pull-through mirrors for major public registries plus a local generic registry:
+
+| Registry | Endpoint | Purpose |
+|----------|----------|---------|
+| `gcr.io` mirror | `http://gcr.test:5000` | Google Container Registry |
+| `ghcr.io` mirror | `http://ghcr.test:5000` | GitHub Container Registry |
+| `quay.io` mirror | `http://quay.test:5000` | Red Hat Quay |
+| Docker Hub mirror | `http://registry-1.docker.test:5000` | docker.io |
+| `registry.k8s.io` mirror | `http://registry.k8s.test:5000` | Kubernetes upstream |
+| Local | `http://registry.test:5000` | Generic local registry |
+
+Add private mirrors via `docker.registries`:
+
+```yaml
 docker:
   registries:
     1234567890.dkr.ecr.us-east-1.amazonaws.com:
       remote: https://1234567890.dkr.ecr.us-east-1.amazonaws.com
 ```
 
-The registry base URL is always available via the `REGISTRY_URL` environment variable.
+`REGISTRY_URL` in your shell points at the active local generic registry — use it directly:
 
-**Note:** When running Docker Desktop, only http://registry.test:5002 is available.
-
-These registries store their cache in the `.windsor/.docker-cache` folder. This cache is persisted, allowing faster load times as well as acting as a genuine registry mirror. The local registry is also accessible from the local Kubernetes cluster, allowing you to easily load locally developed images in to your Kubernetes environment.
-
-### Pushing to your local registry
-You can push images to your local registry. Assuming you have a Dockerfile in place,
-
-1. Build your Docker image:
-```bash
-docker build -t my-image:latest .
-```
-2. Tag the image for the local registry:
-```bash
+```sh
 docker tag my-image:latest ${REGISTRY_URL}/my-image:latest
-```
-3. Push the image to the local registry:
-```bash
 docker push ${REGISTRY_URL}/my-image:latest
 ```
 
-## Build ID Management
+Cache lives in `.windsor/.docker-cache` and is persisted across `up`/`down`. On Docker Desktop, only `http://registry.test:5002` is exposed (single mirror, port-forwarded).
 
-Windsor provides a `build-id` command for managing build identifiers used for artifact tagging in local development environments. Build IDs are stored persistently in the `.windsor/.build-id` file and are available as the `BUILD_ID` environment variable and postBuild variable in Kustomizations.
+## AWS Localstack
 
-### Usage
-
-```bash
-windsor build-id                    # Output current build ID
-windsor build-id --new              # Generate and output new build ID
-```
-
-### Build ID Format
-
-Build IDs follow the format `YYMMDD.RANDOM.#` where:
-- `YYMMDD` is the current date (year, month, day)
-- `RANDOM` is a random three-digit number for collision prevention
-- `#` is a sequential counter incremented for each build on the same day
-
-### Examples
-
-```bash
-# Get the current build ID
-windsor build-id
-
-# Generate a new build ID and use it for Docker tagging
-BUILD_ID=$(windsor build-id --new) && docker build -t myapp:$BUILD_ID .
-
-# Use build ID with local registry
-BUILD_ID=$(windsor build-id --new)
-docker build -t ${REGISTRY_URL}/myapp:$BUILD_ID .
-docker push ${REGISTRY_URL}/myapp:$BUILD_ID
-```
-
-The `BUILD_ID` is automatically included in:
-- Environment variables available to all processes
-- Post-build variables in Kustomizations for Flux variable substitution
-- Cluster variables accessible in Kubernetes manifests
-
-## Local GitOps
-A local GitOps workflow is provided by [git-livereload](https://github.com/windsorcli/git-livereload). When you save your files locally, they are updated within this container, and reflected as a new commit via [http://git.test](http://git.test). This feature is utilized by the internal gitops tooling ([Flux](https://github.com/fluxcd/flux2)), allowing you to persistently reflect your local Kubernetes manifests on to your local cluster.
-
-Flux supports a [webhook](https://fluxcd.io/flux/guides/webhook-receivers/) that allows for fast cluster state reconciliation. This mechanism is configured for you in your local environment. It can be triggered via a worker NodePort as follows:
- 
- ```bash
- curl -X POST http://worker-1.test:30292/hook/5dc88e45e809fb0872b749c0969067e2c1fd142e17aed07573fad20553cc0c59
- ```
-
- This is triggered on each refresh by the git-livereload service.
-
-Read more about configuring git livereload in the [reference](../reference/configuration.md#git) section.
-
-### Testing the local git repository
-For those running on a full virtualization option (Colima), the git server is accessible. You can test the local git repository as follows. It is assumed you ran `windsor up` in a folder called `my-project`. In a new folder, run:
-
-```
-git clone http://local@git.test/git/my-project
-```
-
-This should pull down the contents of your repository in to a new folder.
-
-## Kubernetes Cluster
-A container based Kubernetes cluster is run locally. Currently, Windsor supports clusters running [Sidero Talos](https://github.com/siderolabs/talos).
-
-You can configure the cluster's controlplanes and workers in the windsor.yaml as follows:
+Localstack provides a local AWS API. Enable it inside the `aws:` block:
 
 ```yaml
-cluster:
-  enabled: true
-  driver: talos
-  controlplanes:
-    count: 1
-    cpu: 2
-    memory: 2
-  workers:
-    count: 1
-    cpu: 4
-    memory: 4
-    hostports:
-    - 80:30080/tcp
-    - 443:30443/tcp
-    - 9292:30292/tcp
-    - 8053:30053/udp
-    volumes:
-    - ${project_root}/.volumes:/var/mnt/local
+aws:
+  region: us-east-2
+  localstack:
+    enabled: true
+    services:
+      - s3
+      - dynamodb
+      - sqs
 ```
 
-### Listing cluster nodes
-When Windsor bootstraps the local cluster, it places a kube config file at `contexts/local/.kube/config`. It also configures the `KUBECONFIG` path environment variable for you. To test that everything is configured as expected, list the Kubernetes nodes by running:
+When `up` is next run, Localstack starts and the AWS endpoint becomes available at `http://aws.test:4566`. `aws.endpoint_url` is automatically pointed at it for in-shell `aws` invocations (see [Environment Injection](environment-injection.md)).
 
-```
-kubectl get nodes
-```
+## Local git mirror
 
-You should see something like:
+When `dev: true`, Windsor runs [git-livereload](https://github.com/windsorcli/git-livereload). Saves to your local files surface as commits to `http://git.test/git/<project>`, which is what Flux subscribes to in the local context — so pushing to a remote isn't required for the local GitOps loop.
 
-```
-NAME             STATUS   ROLES           AGE     VERSION
-controlplane-1   Ready    control-plane   1m      v1.31.4
-worker-1         Ready    <none>          1m      v1.31.4
+A Flux webhook is also wired up so changes reconcile faster than the configured `interval`:
+
+```sh
+curl -X POST http://worker-1.test:30292/hook/<token>
 ```
 
-### Validating web ports
-By default, your initial environment comes installed with Istio's [BookInfo application](https://istio.io/latest/docs/examples/bookinfo/). You can check on the status of this deployment by running:
+git-livereload triggers it automatically after each filesystem change.
 
+## Build IDs
+
+Windsor maintains a build identifier for tagging artifacts during local development. Stored in `.windsor/.build-id`, exposed as `BUILD_ID` and as a Flux substitution variable.
+
+```sh
+windsor build-id            # current
+windsor build-id --new      # rotate
 ```
-kubectl get all -n demo-bookinfo
+
+Format: `YYMMDD.RRR.N` — date, three random digits for collision avoidance, and a same-day sequence counter.
+
+## Verifying
+
+```sh
+kubectl get nodes               # nodes Ready
+kubectl get kustomizations -A   # all Ready, no Pending
+windsor explain workstation.address    # VM address
+windsor show values             # effective context values
 ```
 
-In a web browser, visit both http://bookinfo.test:8080 and https://bookinfo.test:8443. If you're using a full virtualization option or have configured your `hostports` to use traditional web port mappings, you do not need the port designations and can connect over `:80` and `:443`.
+The default blueprint installs Istio's [BookInfo](https://istio.io/latest/docs/examples/bookinfo/) demo. Visit `http://bookinfo.test:8080` (or `:80` if hostports are mapped to the standard web ports).
 
-### Validating volumes
-Across all environments, you should see a set of common storage classes. These should include a `local` and a `single` storage class. You can see these by running:
+## See also
 
-```
-kubectl get storageclass
-``` 
-In your local development environment, these are both provided by [OpenEBS's dynamic-localpv-provisioner](https://github.com/openebs/dynamic-localpv-provisioner). To further validate, you should run through the [Hello World](../tutorial/hello-world.md) example and verify that you can see `.volumes/pvc-*`  folders mounted in to your project folder.
+- [Lifecycle](lifecycle.md) — `up` / `down` phase boundaries
+- [Environment Injection](environment-injection.md) — `DOCKER_HOST`, `KUBECONFIG`, `TALOSCONFIG`, `REGISTRY_URL`
+- [`configure`](../reference/commands/configure.md), [`up`](../reference/commands/up.md), [`down`](../reference/commands/down.md)
+- [Reference: Configuration](../reference/configuration.md) — full schema for `workstation`, `cluster`, `dns`, `docker`
