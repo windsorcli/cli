@@ -35,5 +35,5 @@ docker build -t myapp:$BUILD_ID .
 ## See also
 
 - [Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)
-- [Hello, World! tutorial](../../tutorial/hello-world.md)
+- [Hello, World! tutorial](https://www.windsorcli.dev/docs/tutorial/hello-world)
 - Source: [cmd/build_id.go](https://github.com/windsorcli/cli/blob/main/cmd/build_id.go)

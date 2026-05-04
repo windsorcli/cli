@@ -1,6 +1,4 @@
 nav:
-  - 'Tutorial':
-    - 'Hello, World!': tutorial/hello-world.md
   - 'Reference':
     - 'Blueprint': reference/blueprint.md
     - 'Configuration': reference/configuration.md
