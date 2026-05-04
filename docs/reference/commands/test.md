@@ -26,6 +26,6 @@ windsor test cluster-defaults
 
 ## See also
 
-- [Blueprint Testing guide](../../guides/testing.md)
+- [Blueprint testing](https://www.windsorcli.dev/docs/blueprints/testing)
 - [Testing reference](../testing.md)
 - Source: [cmd/test.go](https://github.com/windsorcli/cli/blob/main/cmd/test.go)
