@@ -215,3 +215,30 @@ terraform:
 		t.Errorf("destroy must skip structural validation; saw validator prose in output:\n%s", combined)
 	}
 }
+
+// TestDestroy_ShowsDestroyPlanBeforePromptOrConfirm verifies the operator-
+// facing payoff of this PR: a "Windsor Destroy Plan" preview appears in the
+// destroy output before the prompt fires (or, with --confirm supplied, before
+// the actual destroy). The plan fixture has no kustomizations, so we exercise
+// only the terraform side which works without a live cluster.
+func TestDestroy_ShowsDestroyPlanBeforePromptOrConfirm(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null"}, env)
+	if err != nil {
+		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
+	}
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"destroy", "--confirm=local", "terraform"}, env)
+	if err != nil {
+		t.Fatalf("destroy terraform: %v\nstderr: %s", err, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if !strings.Contains(combined, "Windsor Destroy Plan") {
+		t.Errorf("expected 'Windsor Destroy Plan' header in output, got:\n%s", combined)
+	}
+}

@@ -497,6 +497,80 @@ func TestDestroyCmd(t *testing.T) {
 			t.Error("CheckAuth must not be invoked for a kustomize-only component destroy")
 		}
 	})
+
+	t.Run("InvokesDestroyPlanBeforePrompt", func(t *testing.T) {
+		// The destroy preview must run before the confirmation prompt so the
+		// operator can see what will be torn down. Verify by ordering: the
+		// PlanDestroySummary call must happen, and it must happen before
+		// destroy-actual (DestroyAll) fires.
+		mocks := setupDestroyTest(t)
+		var planCalled, destroyCalled bool
+		var planBeforeDestroy bool
+		mocks.TerraformStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
+			planCalled = true
+			if !destroyCalled {
+				planBeforeDestroy = true
+			}
+			return nil
+		}
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+			destroyCalled = true
+			return nil, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !planCalled {
+			t.Error("expected PlanDestroySummary to be invoked before prompt")
+		}
+		if !planBeforeDestroy {
+			t.Error("expected PlanDestroySummary to fire BEFORE DestroyAll")
+		}
+	})
+
+	t.Run("DestroyPlanErrorAbortsBeforePrompt", func(t *testing.T) {
+		// A plan error means we don't have a truthful preview to show, and
+		// destroy itself can't proceed without the cluster (the most likely
+		// cause of a plan error). The flow must abort before either the prompt
+		// or the actual destroy fires.
+		mocks := setupDestroyTest(t)
+		var destroyCalled bool
+		// Force the flux destroy plan to error by stubbing the kubernetes
+		// manager — that path runs after the terraform stack init, making
+		// PlanDestroyAll fail. (Terraform side returns nil plan.)
+		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+			destroyCalled = true
+			return nil, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("expected plan error to abort destroy, got nil")
+		}
+		if !strings.Contains(err.Error(), "destroy plan") {
+			t.Errorf("expected error to mention destroy plan, got: %v", err)
+		}
+		if destroyCalled {
+			t.Error("DestroyAll must not run after a plan error")
+		}
+	})
 }
 
 func TestDestroyTerraformCmd(t *testing.T) {
