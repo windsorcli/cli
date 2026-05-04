@@ -64,17 +64,3 @@ The `PV_<NAMESPACE>_<NAME>` environment variables point to local paths on your h
 
 ### Terraform
 Windsor configures your `TF_CLI_ARGS_*` variables when you change in to a project under the `terraform/` folder. You can read more in depth about how Windsor works with Terraform in the [Terraform guide](terraform.md).
-
-
-<div>
-  {{ footer('Contexts', '../contexts/index.html', 'Kustomize', '../kustomize/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../contexts/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../kustomize/index.html'; 
-  });
-</script>

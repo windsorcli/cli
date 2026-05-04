@@ -107,20 +107,3 @@ If you are having difficulty with your secrets, you may export your secret to th
 
 ## Security Recommendations
 For more details about Windsor's use of secrets along with our recommendations for securely using secrets in your environment, see the section on [Securing Secrets](../security/secrets.md).
-
-<!-- Footer Start -->
-
-<div>
-  {{ footer('Terraform', '../terraform/index.html', 'Blueprint Templates', '../templates/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../terraform/index.html';
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../templates/index.html';
-  });
-</script>
-
-<!-- Footer End -->

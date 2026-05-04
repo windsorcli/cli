@@ -12,7 +12,7 @@ Print the value at the given dotted path and the contributions that produced it.
 
 ## Path forms
 
-| Path shape | Meaning |
+| Path pattern | Meaning |
 |------------|---------|
 | `terraform.<component>.inputs.<field>` | A terraform input value. |
 | `terraform.<component>.inputs.<field>.components` | The list of contributions for a list field. |

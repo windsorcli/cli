@@ -174,16 +174,3 @@ These patches are automatically discovered and applied when the blueprint is pro
 For more information on patch formats, see:
 - [Kubernetes Kustomize documentation](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/)
 - [RFC 6902 - JSON Patch](https://www.rfc-editor.org/rfc/rfc6902)
-
-<div>
-  {{ footer('Environment Injection', '../environment-injection/index.html', 'Terraform', '../terraform/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../environment-injection/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../terraform/index.html'; 
-  });
-</script>

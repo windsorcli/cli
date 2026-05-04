@@ -289,9 +289,9 @@ To verify the installation and check the version of the Windsor CLI, execute the
 windsor version
 ```
 
-## Shell Integration: Seamless Environment Management
+## Shell integration
 
-Windsor acts as an environment variable manager in your shell. It dynamically injects environment variables into your shell as you switch contexts and work on various components in your project.
+Windsor acts as an environment variable manager in your shell. It injects environment variables as you switch contexts and work on components in your project.
 
 You can add the `windsor hook` to various shells as follows:
 
@@ -313,16 +313,3 @@ You can add the `windsor hook` to various shells as follows:
     ```powershell
     Invoke-Expression (& windsor hook powershell)
     ```
-
-<div>
-  {{ footer('Home', '../index.html', 'Quick Start', '../quick-start/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../quick-start/index.html'; 
-  });
-</script>

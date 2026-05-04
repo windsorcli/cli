@@ -53,16 +53,3 @@ Regularly rotating your secrets is a critical practice for maintaining security.
 
 ### Avoid Extended Shell Sessions
 To minimize the risk of secret exposure, limit your shell sessions to specific tasks related to your project. Once you have completed your tasks, promptly close the shell session to reduce the chance of sensitive data being compromised. Dispose of shell sessions when they are no longer needed to maintain security.
-
-<div>
-  {{ footer('Trusted Folders', '../trusted-folders/index.html', 'Blueprint', '../../reference/blueprint/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../trusted-folders/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../reference/blueprint/index.html'; 
-  });
-</script>

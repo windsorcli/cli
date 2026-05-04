@@ -134,20 +134,3 @@ terraform init
 terraform plan
 terraform apply
 ```
-
-<!-- Footer Start -->
-
-<div>
-  {{ footer('Kustomize', '../kustomize/index.html', 'Secrets Management', '../secrets-management/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../kustomize/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../secrets-management/index.html'; 
-  });
-</script>
-
-<!-- Footer End -->

@@ -19,7 +19,7 @@ Use `explain` whenever you find yourself asking:
 
 Paths are dotted, addressing fields in the composed blueprint:
 
-| Path shape | Meaning |
+| Path pattern | Meaning |
 |------------|---------|
 | `terraform.<component>.inputs.<field>` | A terraform input value. |
 | `terraform.<component>.inputs.<field>.components` | The list of contributions for a list field. |

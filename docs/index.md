@@ -2,20 +2,12 @@
 title: "Windsor CLI"
 description: "Compose blueprints, run terraform, deploy via Flux, and manage local workstation environments."
 ---
-<div align="center">
-  <h1>Windsor Command Line Interface</h1>
+# Windsor Command Line Interface
 
-  <p>
-    <img src="img/windsor-logo.png" alt="Windsor CLI Logo" style="width: 50%; height: auto;">
-  </p>
+![Windsor CLI Logo](img/windsor-logo.png)
 
-  <p>
-    <img src="https://img.shields.io/github/v/release/windsorcli/cli" alt="GitHub release">
-    <img src="https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml" alt="CI status">
-  </p>
-
-  <hr>
-</div>
+[![GitHub release](https://img.shields.io/github/v/release/windsorcli/cli)](https://github.com/windsorcli/cli/releases)
+[![CI status](https://img.shields.io/github/actions/workflow/status/windsorcli/cli/ci.yaml)](https://github.com/windsorcli/cli/actions)
 
 ## What it is
 
@@ -52,13 +44,3 @@ Fork the repo, create a branch, open a PR. Code must follow the project style an
 ## License
 
 Mozilla Public License 2.0. See [LICENSE](LICENSE).
-
-<div>
-  {{ next_footer('Installation', './install/index.html') }}
-</div>
-
-<script>
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = './install/index.html';
-  });
-</script>

@@ -311,16 +311,3 @@ kubectl describe deployment hello-world -n hello-world
 Pay attention to the `image` field in the pod template. It should reference `${REGISTRY_URL}/hello-world:${BUILD_ID}`, which Flux will substitute with the actual registry URL and build ID values when applying the kustomization.
 
 The `REGISTRY_URL` and `BUILD_ID` variables are automatically provided by Windsor as post-build substitution variables, making it easy to reference locally built images in your Kubernetes manifests.
-
-<div>
-  {{ footer('Sharing Blueprints', '../../guides/sharing/index.html', 'Trusted Folders', '../../security/trusted-folders/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../guides/sharing/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../security/trusted-folders/index.html'; 
-  });
-</script>

@@ -301,16 +301,3 @@ kustomize:
   - bookinfo
   - bookinfo/ingress
 ```
-
-<div>
-  {{ footer('Securing Secrets', '../../security/secrets/index.html', 'Configuration', '../configuration/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../security/secrets/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../configuration/index.html'; 
-  });
-</script>

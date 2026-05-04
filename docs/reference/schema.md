@@ -124,16 +124,3 @@ properties:
     additionalProperties: false
 additionalProperties: false
 ```
-
-<div>
-  {{ footer('Facets', '../facets/index.html', 'Metadata', '../metadata/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../facets/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../metadata/index.html'; 
-  });
-</script>

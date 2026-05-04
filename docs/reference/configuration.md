@@ -355,16 +355,3 @@ contexts:
       forward:
       - 10.5.0.1:8053
 ```
-
-<div>
-  {{ footer('Blueprint', '../../reference/blueprint/index.html', 'Contexts', '../../reference/contexts/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../reference/blueprint/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../reference/contexts/index.html'; 
-  });
-</script>
