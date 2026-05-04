@@ -1578,7 +1578,13 @@ func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
 			}
 			if len(args) > 1 && args[1] == "plan" {
-				return "Plan: 2 to add, 1 to change, 0 to destroy.\n", nil
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.foo"},"action":"create"}}`,
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.bar"},"action":"create"}}`,
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_iam_role.app"},"action":"update"}}`,
+					`{"type":"change_summary","changes":{"add":2,"change":1,"remove":0}}`,
+					``,
+				}, "\n"), nil
 			}
 			return "", nil
 		}
@@ -1591,12 +1597,15 @@ func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 		// When PlanComponentSummary is called for the named component
 		result := stack.PlanComponentSummary(bp, "mycomp")
 
-		// Then counts are parsed from plan output
+		// Then counts are parsed from plan output and resources are populated
 		if result.Err != nil {
 			t.Fatalf("unexpected error: %v", result.Err)
 		}
 		if result.Add != 2 || result.Change != 1 || result.Destroy != 0 {
 			t.Errorf("expected add=2 change=1 destroy=0, got add=%d change=%d destroy=%d", result.Add, result.Change, result.Destroy)
+		}
+		if len(result.Resources) != 3 {
+			t.Errorf("expected 3 resources, got %d", len(result.Resources))
 		}
 	})
 
@@ -3513,7 +3522,11 @@ func TestStack_PlanSummary(t *testing.T) {
 				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
 			}
 			if len(args) > 1 && args[1] == "plan" {
-				return "Plan: 5 to add, 3 to change, 1 to destroy.\n", nil
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_s3_bucket.logs"},"action":"create"}}`,
+					`{"type":"change_summary","changes":{"add":5,"change":3,"remove":1}}`,
+					``,
+				}, "\n"), nil
 			}
 			return "", nil
 		}
@@ -3535,6 +3548,9 @@ func TestStack_PlanSummary(t *testing.T) {
 		if r.NoChanges {
 			t.Errorf("expected NoChanges=false")
 		}
+		if len(r.Resources) == 0 {
+			t.Errorf("expected resources to be populated")
+		}
 	})
 
 	t.Run("SetsNoChangesWhenTerraformReportsNoDiff", func(t *testing.T) {
@@ -3545,7 +3561,7 @@ func TestStack_PlanSummary(t *testing.T) {
 				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
 			}
 			if len(args) > 1 && args[1] == "plan" {
-				return "No changes. Infrastructure is up-to-date.\n", nil
+				return `{"type":"change_summary","changes":{"add":0,"change":0,"remove":0}}` + "\n", nil
 			}
 			return "", nil
 		}
@@ -3770,7 +3786,11 @@ func TestStack_PlanSummary(t *testing.T) {
 				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
 			}
 			if len(args) > 1 && args[1] == "plan" {
-				return "Plan: 1 to add, 0 to change, 0 to destroy.\n", nil
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.foo"},"action":"create"}}`,
+					`{"type":"change_summary","changes":{"add":1,"change":0,"remove":0}}`,
+					``,
+				}, "\n"), nil
 			}
 			return "", nil
 		}
@@ -3788,46 +3808,107 @@ func TestStack_PlanSummary(t *testing.T) {
 	})
 }
 
-func TestParseTerraformPlanCounts(t *testing.T) {
-	t.Run("ParsesAllThreeCounts", func(t *testing.T) {
-		// Given standard terraform plan output
-		output := "Plan: 5 to add, 3 to change, 1 to destroy.\n"
+func TestParseTerraformPlanJSON(t *testing.T) {
+	t.Run("ParsesCountsAndResourcesFromEventStream", func(t *testing.T) {
+		// Given a terraform plan -json event stream with summary + planned changes
+		output := strings.Join([]string{
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_s3_bucket.logs[0]"},"action":"create"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_iam_role.eks"},"action":"update"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_db_instance.primary"},"action":"replace"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_security_group.legacy"},"action":"delete"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.data.aws_caller_identity.current"},"action":"read"}}`,
+			`{"type":"change_summary","changes":{"add":2,"change":1,"remove":2}}`,
+			``,
+		}, "\n")
 
 		// When parsed
-		add, change, destroy, noChanges := parseTerraformPlanCounts(output)
+		add, change, destroy, noChanges, resources := parseTerraformPlanJSON(output)
 
-		// Then counts are set correctly
-		if add != 5 || change != 3 || destroy != 1 {
-			t.Errorf("expected +5 ~3 -1, got +%d ~%d -%d", add, change, destroy)
+		// Then counts come from change_summary and noChanges is false
+		if add != 2 || change != 1 || destroy != 2 {
+			t.Errorf("expected +2 ~1 -2, got +%d ~%d -%d", add, change, destroy)
 		}
 		if noChanges {
-			t.Error("expected noChanges=false")
+			t.Error("expected noChanges=false when counts are non-zero")
+		}
+		// And resources exclude the read action and strip the module.main. prefix
+		want := []ResourceChange{
+			{Address: "aws_s3_bucket.logs[0]", Action: ActionCreate},
+			{Address: "aws_iam_role.eks", Action: ActionUpdate},
+			{Address: "aws_db_instance.primary", Action: ActionReplace},
+			{Address: "aws_security_group.legacy", Action: ActionDelete},
+		}
+		if len(resources) != len(want) {
+			t.Fatalf("expected %d resources, got %d: %#v", len(want), len(resources), resources)
+		}
+		for i, r := range resources {
+			if r != want[i] {
+				t.Errorf("resource[%d]: expected %#v, got %#v", i, want[i], r)
+			}
 		}
 	})
 
-	t.Run("SetsNoChangesForNoChangesLine", func(t *testing.T) {
-		// Given "No changes." output
-		output := "No changes. Infrastructure is up-to-date.\n"
+	t.Run("SetsNoChangesWhenSummaryReportsZero", func(t *testing.T) {
+		// Given a stream with only an all-zero change_summary
+		output := `{"type":"change_summary","changes":{"add":0,"change":0,"remove":0}}` + "\n"
 
 		// When parsed
-		_, _, _, noChanges := parseTerraformPlanCounts(output)
+		add, change, destroy, noChanges, resources := parseTerraformPlanJSON(output)
 
-		// Then noChanges is true
+		// Then noChanges is true and the resource list is empty
 		if !noChanges {
 			t.Error("expected noChanges=true")
 		}
+		if add != 0 || change != 0 || destroy != 0 {
+			t.Errorf("expected zero counts, got +%d ~%d -%d", add, change, destroy)
+		}
+		if len(resources) != 0 {
+			t.Errorf("expected empty resources, got %#v", resources)
+		}
 	})
 
-	t.Run("LeavesCountsAtZeroForUnrecognisedOutput", func(t *testing.T) {
-		// Given unrecognised output
-		output := "Something unexpected happened.\n"
+	t.Run("DropsNoopAndUnknownActions", func(t *testing.T) {
+		// Given planned changes with noop and a made-up action
+		output := strings.Join([]string{
+			`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.foo"},"action":"noop"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.bar"},"action":"frobnicate"}}`,
+			``,
+		}, "\n")
 
 		// When parsed
-		add, change, destroy, noChanges := parseTerraformPlanCounts(output)
+		_, _, _, _, resources := parseTerraformPlanJSON(output)
 
-		// Then all values are zero/false
-		if add != 0 || change != 0 || destroy != 0 || noChanges {
-			t.Errorf("expected all zero/false, got add=%d change=%d destroy=%d noChanges=%v", add, change, destroy, noChanges)
+		// Then both are dropped
+		if len(resources) != 0 {
+			t.Errorf("expected no resources, got %#v", resources)
+		}
+	})
+
+	t.Run("IgnoresNonJSONLines", func(t *testing.T) {
+		// Given mixed text and JSON
+		output := "Initialising...\n" +
+			`{"type":"change_summary","changes":{"add":1,"change":0,"remove":0}}` + "\n" +
+			"trailing junk\n"
+
+		// When parsed
+		add, _, _, noChanges, _ := parseTerraformPlanJSON(output)
+
+		// Then the summary is still extracted and counts are non-zero
+		if add != 1 {
+			t.Errorf("expected add=1, got %d", add)
+		}
+		if noChanges {
+			t.Error("expected noChanges=false when add>0")
+		}
+	})
+
+	t.Run("LeavesNoChangesFalseForEmptyOutput", func(t *testing.T) {
+		// Given empty output (no events at all)
+		_, _, _, noChanges, _ := parseTerraformPlanJSON("")
+
+		// Then noChanges remains false — distinguishes "no output" from "no diff"
+		if noChanges {
+			t.Error("expected noChanges=false for empty output")
 		}
 	})
 }
