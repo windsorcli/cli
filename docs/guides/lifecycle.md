@@ -96,4 +96,4 @@ For non-workstation contexts, `destroy` is the whole story.
 
 - [`init`](../reference/commands/init.md), [`up`](../reference/commands/up.md), [`apply`](../reference/commands/apply.md), [`destroy`](../reference/commands/destroy.md), [`down`](../reference/commands/down.md)
 - [Local Workstation](local-workstation.md) — virtualization options and workstation-specific config
-- [Contexts](contexts.md) — multi-context workflows
+- [Contexts](https://www.windsorcli.dev/docs/cli/contexts) — multi-context workflows

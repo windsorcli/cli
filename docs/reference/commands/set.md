@@ -27,6 +27,6 @@ windsor get context     # → staging
 
 ## See also
 
-- [Contexts guide](../../guides/contexts.md), [Contexts reference](../contexts.md)
+- [Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)
 - [`init`](init.md), [`get`](get.md)
 - Source: [cmd/set.go](https://github.com/windsorcli/cli/blob/main/cmd/set.go)

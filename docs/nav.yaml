@@ -4,7 +4,6 @@ nav:
   - 'Quick Start': quick-start.md
   - 'Guides':
     - 'Lifecycle': guides/lifecycle.md
-    - 'Contexts': guides/contexts.md
     - 'Local Workstation': guides/local-workstation.md
     - 'Environment Injection': guides/environment-injection.md
     - 'Kustomize': guides/kustomize.md
