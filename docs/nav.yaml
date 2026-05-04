@@ -1,5 +1,4 @@
 nav:
-  - 'Home': index.md
   - 'Installation': install.md
   - 'Tutorial':
     - 'Hello, World!': tutorial/hello-world.md
