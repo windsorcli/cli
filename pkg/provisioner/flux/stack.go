@@ -68,7 +68,9 @@ type KustomizePlan struct {
 // Action enumerates the kinds of changes a kustomization plan can produce for a
 // single Kubernetes resource. ActionUnknown is reserved for inputs that don't
 // correspond to any operator-visible change (flux "unchanged"/"skipped" or
-// unrecognised verbs) and is dropped from rendered resource lists.
+// unrecognised verbs) and is dropped from rendered resource lists. Replacement
+// is intentionally absent: flux's SSA layer models replacements as a delete +
+// create pair rather than a single banner verb, so no input can map to it.
 type Action int
 
 const (
@@ -76,7 +78,6 @@ const (
 	ActionCreate
 	ActionUpdate
 	ActionDelete
-	ActionReplace
 )
 
 // ResourceChange identifies one Kubernetes resource changed by a kustomization

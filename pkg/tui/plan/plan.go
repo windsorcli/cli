@@ -370,8 +370,6 @@ func kustomizeResourceChanges(rs []fluxinfra.ResourceChange) []planResource {
 			a = planActionUpdate
 		case fluxinfra.ActionDelete:
 			a = planActionDelete
-		case fluxinfra.ActionReplace:
-			a = planActionReplace
 		default:
 			continue
 		}
@@ -485,7 +483,8 @@ func terraformActionString(a terraforminfra.Action) string {
 
 // kustomizeActionString renders a flux Action as a stable JSON string,
 // matching terraform's vocabulary so machine consumers can treat both layers
-// uniformly.
+// uniformly. Flux has no replace verb (its SSA layer expresses replacements
+// as a delete + create pair), so "replace" is not part of this mapping.
 func kustomizeActionString(a fluxinfra.Action) string {
 	switch a {
 	case fluxinfra.ActionCreate:
@@ -494,8 +493,6 @@ func kustomizeActionString(a fluxinfra.Action) string {
 		return "update"
 	case fluxinfra.ActionDelete:
 		return "delete"
-	case fluxinfra.ActionReplace:
-		return "replace"
 	default:
 		return "unknown"
 	}
