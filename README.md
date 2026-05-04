@@ -17,7 +17,7 @@ See [windsorcli.dev](https://windsorcli.dev) for documentation.
 | Homebrew (macOS, Linux) | `brew tap windsorcli/cli && brew install windsor` |
 | Chocolatey (Windows) | `choco install windsor` |
 
-Manual binary downloads and GPG verification: [install guide](docs/install.md).
+Manual binary downloads: [windsorcli.dev/docs/cli/installation](https://windsorcli.dev/docs/cli/installation).
 
 ```bash
 windsor version

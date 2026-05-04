@@ -30,6 +30,6 @@ windsor hook powershell | Out-String | Invoke-Expression
 
 ## See also
 
-- [Installation](../../install.md) — full shell-integration walkthrough
+- [Installation](https://www.windsorcli.dev/docs/cli/installation) — full shell-integration walkthrough
 - [`env`](env.md), [`exec`](exec.md)
 - Source: [cmd/hook.go](https://github.com/windsorcli/cli/blob/main/cmd/hook.go)
