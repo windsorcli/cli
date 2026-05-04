@@ -46,6 +46,6 @@ windsor check node-health --k8s-endpoint --ready
 
 ## See also
 
-- [Quick Start](../../quick-start.md)
+- [Getting started](https://www.windsorcli.dev/docs/cli/getting-started)
 - [`upgrade`](upgrade.md), [`up`](up.md)
 - Source: [cmd/check.go](https://github.com/windsorcli/cli/blob/main/cmd/check.go)

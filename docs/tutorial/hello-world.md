@@ -6,7 +6,7 @@ description: "Building a 'Hello, World!' page on a local cloud with the Windsor 
 
 This tutorial demonstrates building and deploying a simple "Hello, World!" web application to your local Windsor cluster. You'll learn how to build a container image, tag it using Windsor's build ID feature, push it to the local registry, and deploy it using a local Kustomize component.
 
-It is assumed you have already been through the [quick start](../quick-start.md). You have created a repository, and are able to access a local cluster. To verify this, run:
+It is assumed you have already been through [Getting started](https://www.windsorcli.dev/docs/cli/getting-started). You have created a repository, and are able to access a local cluster. To verify this, run:
 
 ```
 kubectl get nodes

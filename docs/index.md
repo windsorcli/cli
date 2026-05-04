@@ -30,7 +30,7 @@ See the [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle) for how
 ## Get started
 
 - [Installation](install.md)
-- [Quick Start](quick-start.md) — local cluster in ~10 minutes
+- [Getting started](https://www.windsorcli.dev/docs/cli/getting-started) — local cluster in ~10 minutes
 - [Hello, World!](tutorial/hello-world.md) — deploy a real app
 
 ## Tools Windsor drives

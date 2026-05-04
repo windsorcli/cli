@@ -1,7 +1,6 @@
 nav:
   - 'Home': index.md
   - 'Installation': install.md
-  - 'Quick Start': quick-start.md
   - 'Tutorial':
     - 'Hello, World!': tutorial/hello-world.md
   - 'Reference':
