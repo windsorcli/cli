@@ -1205,7 +1205,10 @@ func TestHandler_GenerateResolved(t *testing.T) {
 		}
 
 		// When calling GenerateResolved
-		resolved := handler.GenerateResolved()
+		resolved, err := handler.GenerateResolved()
+		if err != nil {
+			t.Fatalf("Expected no error for resolvable substitution, got %v", err)
+		}
 
 		// Then the returned blueprint is a separate object
 		if resolved == handler.composedBlueprint {
@@ -1224,11 +1227,63 @@ func TestHandler_GenerateResolved(t *testing.T) {
 		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
 
 		// When calling GenerateResolved
-		result := handler.GenerateResolved()
+		result, err := handler.GenerateResolved()
+		if err != nil {
+			t.Fatalf("Expected no error when no blueprint, got %v", err)
+		}
 
 		// Then should return nil
 		if result != nil {
 			t.Error("Expected nil when no blueprint")
+		}
+	})
+
+	t.Run("PropagatesEvaluatorErrorWithSubstitutionPath", func(t *testing.T) {
+		// Given a handler with a deferred substitution whose underlying expression errors
+		// during the deferred-resolution pass — e.g. a terraform_output() that references a
+		// missing module key, or a terraform shell failure. Previously the handler would
+		// swallow the error and leave the raw `${...}` source string in the substitution
+		// map, which then leaked into Flux ConfigMaps and downstream Helm renders. Now the
+		// error must surface here, named by its substitution path, so the operator sees the
+		// failure at blueprint-resolution time instead of via a downstream pod crashloop.
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
+			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
+				return nil, fmt.Errorf("terraform output 'tenant_id' for component cluster not found")
+			},
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name: "dns",
+					Substitutions: map[string]string{
+						"external_dns_tenant_id": "${terraform_output('cluster', 'tenant_id') ?? ''}",
+					},
+				},
+			},
+		}
+		handler.deferredPaths = map[string]bool{
+			"kustomize.dns.substitutions.external_dns_tenant_id": true,
+		}
+
+		// When calling GenerateResolved
+		resolved, err := handler.GenerateResolved()
+
+		// Then the error surfaces with the substitution path called out by name —
+		// "kustomize.dns.substitutions.external_dns_tenant_id" — so the operator can grep
+		// directly from the failure to the offending facet entry.
+		if err == nil {
+			t.Fatal("Expected GenerateResolved to surface the evaluator error, got nil")
+		}
+		if !strings.Contains(err.Error(), "kustomize.dns.substitutions.external_dns_tenant_id") {
+			t.Errorf("Expected error to name the substitution path, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "tenant_id") {
+			t.Errorf("Expected error to preserve the underlying evaluator message, got: %v", err)
+		}
+		if resolved != nil {
+			t.Error("Expected nil blueprint on resolve failure (no partial results to consume)")
 		}
 	})
 }

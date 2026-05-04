@@ -773,6 +773,215 @@ func TestFluxStack_PlanSummary(t *testing.T) {
 	})
 }
 
+func TestFluxStack_PlanDestroySummary(t *testing.T) {
+	t.Run("ReturnsNilForNilBlueprint", func(t *testing.T) {
+		m := setupFluxMocks(t)
+		s := newTestFluxStack(m)
+		got, err := s.PlanDestroySummary(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != nil {
+			t.Errorf("expected nil, got %#v", got)
+		}
+	})
+
+	t.Run("BuildsResourceListFromClusterInventory", func(t *testing.T) {
+		// Given a kubernetes manager that returns inventory entries for the
+		// kustomization
+		m := setupFluxMocks(t)
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			if name == "my-app" {
+				return []kubernetes.InventoryEntry{
+					{Namespace: "monitoring", Name: "grafana", Group: "apps", Kind: "Deployment"},
+					{Namespace: "monitoring", Name: "grafana-config", Group: "", Kind: "ConfigMap"},
+					{Namespace: "", Name: "admin", Group: "rbac.authorization.k8s.io", Kind: "ClusterRole"},
+				}, nil
+			}
+			return nil, nil
+		}
+		s := newTestFluxStack(m)
+
+		// When PlanDestroySummary runs against the test blueprint
+		results, err := s.PlanDestroySummary(testBlueprint())
+
+		// Then the eligible kustomizations are returned and resources are
+		// addressed in flux's banner format with action Delete
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// testBlueprint has my-app, infra-base, cleanup-only(destroyOnly).
+		// destroyOnly is filtered, so two results.
+		if len(results) != 2 {
+			t.Fatalf("expected 2 results, got %d: %#v", len(results), results)
+		}
+		var myApp KustomizePlan
+		for _, r := range results {
+			if r.Name == "my-app" {
+				myApp = r
+			}
+		}
+		if myApp.Name == "" {
+			t.Fatalf("expected my-app result, got %#v", results)
+		}
+		want := []ResourceChange{
+			{Address: "Deployment/monitoring/grafana", Action: ActionDelete},
+			{Address: "ConfigMap/monitoring/grafana-config", Action: ActionDelete},
+			{Address: "ClusterRole/admin", Action: ActionDelete},
+		}
+		if len(myApp.Resources) != len(want) {
+			t.Fatalf("expected %d resources, got %d: %#v", len(want), len(myApp.Resources), myApp.Resources)
+		}
+		for i, r := range myApp.Resources {
+			if r != want[i] {
+				t.Errorf("[%d] expected %#v, got %#v", i, want[i], r)
+			}
+		}
+		if myApp.Removed != len(want) {
+			t.Errorf("expected Removed=%d, got %d", len(want), myApp.Removed)
+		}
+	})
+
+	t.Run("MarksKustomizationNewWhenAbsentFromCluster", func(t *testing.T) {
+		// Given a kubernetes manager that returns nil entries (kustomization not
+		// present in the cluster)
+		m := setupFluxMocks(t)
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, nil
+		}
+		s := newTestFluxStack(m)
+
+		results, err := s.PlanDestroySummary(testBlueprint())
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for _, r := range results {
+			if !r.IsNew {
+				t.Errorf("expected IsNew=true for absent kustomization %q, got false", r.Name)
+			}
+			if len(r.Resources) != 0 {
+				t.Errorf("expected no resources for absent kustomization %q, got %#v", r.Name, r.Resources)
+			}
+		}
+	})
+
+	t.Run("PropagatesClusterErrorToCaller", func(t *testing.T) {
+		// Cluster unreachable: destroy can't proceed without it, so we error
+		// rather than return a misleading partial plan.
+		m := setupFluxMocks(t)
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		s := newTestFluxStack(m)
+
+		_, err := s.PlanDestroySummary(testBlueprint())
+
+		if err == nil {
+			t.Fatal("expected error from cluster failure, got nil")
+		}
+		if !strings.Contains(err.Error(), "connection refused") {
+			t.Errorf("expected cluster error to propagate, got %v", err)
+		}
+	})
+
+	t.Run("FiltersDestroyOnlyAndDestroyFalse", func(t *testing.T) {
+		// destroyOnly hooks and pinned destroy=false kustomizations are filtered
+		// to match DeleteBlueprint's eligibility gate.
+		m := setupFluxMocks(t)
+		var visited []string
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			visited = append(visited, name)
+			return []kubernetes.InventoryEntry{}, nil
+		}
+		falseVal := false
+		trueVal := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "t"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "regular"},
+				{Name: "pinned-off", Destroy: &blueprintv1alpha1.BoolExpression{Value: &falseVal}},
+				{Name: "hook-only", DestroyOnly: &trueVal},
+			},
+		}
+		s := newTestFluxStack(m)
+
+		_, err := s.PlanDestroySummary(bp)
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(visited) != 1 || visited[0] != "regular" {
+			t.Errorf("expected only 'regular' kustomization to be queried, got %v", visited)
+		}
+	})
+}
+
+func TestFluxStack_PlanDestroyComponentSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		m := setupFluxMocks(t)
+		s := newTestFluxStack(m)
+		got := s.PlanDestroyComponentSummary(nil, "x")
+		if got.Err == nil {
+			t.Error("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("ReturnsErrorForMissingKustomization", func(t *testing.T) {
+		m := setupFluxMocks(t)
+		s := newTestFluxStack(m)
+		got := s.PlanDestroyComponentSummary(testBlueprint(), "nonexistent")
+		if got.Err == nil || !strings.Contains(got.Err.Error(), "not found") {
+			t.Errorf("expected not-found error, got %v", got.Err)
+		}
+	})
+
+	t.Run("RejectsDestroyOnly", func(t *testing.T) {
+		// destroyOnly kustomizations are skipped by DeleteBlueprint, so
+		// previewing one would mislead.
+		m := setupFluxMocks(t)
+		s := newTestFluxStack(m)
+		got := s.PlanDestroyComponentSummary(testBlueprint(), "cleanup-only")
+		if got.Err == nil || !strings.Contains(got.Err.Error(), "destroyOnly") {
+			t.Errorf("expected destroyOnly error, got %v", got.Err)
+		}
+	})
+
+	t.Run("RejectsDestroyFalsePinned", func(t *testing.T) {
+		falseVal := false
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "pinned", Destroy: &blueprintv1alpha1.BoolExpression{Value: &falseVal}},
+			},
+		}
+		m := setupFluxMocks(t)
+		s := newTestFluxStack(m)
+		got := s.PlanDestroyComponentSummary(bp, "pinned")
+		if got.Err == nil || !strings.Contains(got.Err.Error(), "destroy=false") {
+			t.Errorf("expected destroy=false error, got %v", got.Err)
+		}
+	})
+
+	t.Run("ReturnsResourcesForNamedKustomization", func(t *testing.T) {
+		m := setupFluxMocks(t)
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return []kubernetes.InventoryEntry{
+				{Namespace: "monitoring", Name: "grafana", Group: "apps", Kind: "Deployment"},
+			}, nil
+		}
+		s := newTestFluxStack(m)
+
+		got := s.PlanDestroyComponentSummary(testBlueprint(), "my-app")
+
+		if got.Err != nil {
+			t.Fatalf("unexpected error: %v", got.Err)
+		}
+		if len(got.Resources) != 1 || got.Resources[0].Action != ActionDelete {
+			t.Errorf("expected one Delete resource, got %#v", got.Resources)
+		}
+	})
+}
+
 func TestCountDiffLines(t *testing.T) {
 	t.Run("CountsAddedAndRemovedLines", func(t *testing.T) {
 		// Given a unified diff with additions and removals
@@ -819,6 +1028,137 @@ func TestCountKustomizeResources(t *testing.T) {
 		// Then zero is returned
 		if n != 0 {
 			t.Errorf("expected 0, got %d", n)
+		}
+	})
+}
+
+func TestParseFluxDiffResources(t *testing.T) {
+	t.Run("ExtractsResourceBannersAndMapsVerbs", func(t *testing.T) {
+		// Given flux diff stdout containing the v2.3+ resource banners interleaved
+		// with unified-diff content (which must not leak into the resource list)
+		diff := strings.Join([]string{
+			"► Deployment/monitoring/grafana created",
+			"► ConfigMap/monitoring/grafana-config drifted",
+			"@@ -1,3 +1,4 @@",
+			"+    new: value",
+			"-    old: value",
+			"► Service/monitoring/legacy-exporter deleted",
+			"► Namespace/cluster-system unchanged",
+			"► CustomResourceDefinition/foos.example.com configured",
+			"",
+		}, "\n")
+
+		// When parsed
+		got := parseFluxDiffResources(diff)
+
+		// Then unchanged is dropped, configured maps to update, and order is preserved
+		want := []ResourceChange{
+			{Address: "Deployment/monitoring/grafana", Action: ActionCreate},
+			{Address: "ConfigMap/monitoring/grafana-config", Action: ActionUpdate},
+			{Address: "Service/monitoring/legacy-exporter", Action: ActionDelete},
+			{Address: "CustomResourceDefinition/foos.example.com", Action: ActionUpdate},
+		}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d resources, got %d: %#v", len(want), len(got), got)
+		}
+		for i, r := range got {
+			if r != want[i] {
+				t.Errorf("[%d] expected %#v, got %#v", i, want[i], r)
+			}
+		}
+	})
+
+	t.Run("HandlesClusterScopedResourcesWithoutNamespace", func(t *testing.T) {
+		// Given a banner for a cluster-scoped resource (Kind/Name without namespace)
+		diff := "► ClusterRole/admin created\n"
+
+		// When parsed
+		got := parseFluxDiffResources(diff)
+
+		// Then the kind/name token is captured verbatim
+		if len(got) != 1 {
+			t.Fatalf("expected 1 resource, got %d", len(got))
+		}
+		if got[0].Address != "ClusterRole/admin" || got[0].Action != ActionCreate {
+			t.Errorf("unexpected resource: %#v", got[0])
+		}
+	})
+
+	t.Run("ReturnsNilForNoBanners", func(t *testing.T) {
+		// Given output that contains diff lines but no banners
+		diff := "+ added\n- removed\n unchanged\n"
+
+		// When parsed
+		got := parseFluxDiffResources(diff)
+
+		// Then nothing is returned
+		if got != nil {
+			t.Errorf("expected nil, got %#v", got)
+		}
+	})
+}
+
+func TestParseKustomizeBuildResources(t *testing.T) {
+	t.Run("EmitsCreateForEachResource", func(t *testing.T) {
+		// Given a multi-document YAML stream rendered by kustomize build
+		yaml := strings.Join([]string{
+			"apiVersion: v1",
+			"kind: Namespace",
+			"metadata:",
+			"  name: monitoring",
+			"---",
+			"apiVersion: apps/v1",
+			"kind: Deployment",
+			"metadata:",
+			"  name: grafana",
+			"  namespace: monitoring",
+			"---",
+			"apiVersion: rbac.authorization.k8s.io/v1",
+			"kind: ClusterRole",
+			"metadata:",
+			"  name: grafana-reader",
+			"",
+		}, "\n")
+
+		// When parsed
+		got := parseKustomizeBuildResources(yaml)
+
+		// Then namespaced and cluster-scoped resources are addressed correctly
+		want := []ResourceChange{
+			{Address: "Namespace/monitoring", Action: ActionCreate},
+			{Address: "Deployment/monitoring/grafana", Action: ActionCreate},
+			{Address: "ClusterRole/grafana-reader", Action: ActionCreate},
+		}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d resources, got %d: %#v", len(want), len(got), got)
+		}
+		for i, r := range got {
+			if r != want[i] {
+				t.Errorf("[%d] expected %#v, got %#v", i, want[i], r)
+			}
+		}
+	})
+
+	t.Run("SkipsDocumentsMissingKindOrName", func(t *testing.T) {
+		// Given a stream with one well-formed doc and one that lacks metadata.name
+		yaml := strings.Join([]string{
+			"apiVersion: v1",
+			"kind: Namespace",
+			"metadata:",
+			"  name: foo",
+			"---",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata: {}",
+			"",
+		}, "\n")
+
+		// When parsed
+		got := parseKustomizeBuildResources(yaml)
+
+		// Then only the well-formed doc is included
+		if len(got) != 1 || got[0].Address != "Namespace/foo" {
+			t.Errorf("expected only Namespace/foo, got %#v", got)
 		}
 	})
 }

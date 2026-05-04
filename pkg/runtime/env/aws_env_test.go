@@ -198,6 +198,76 @@ contexts:
 		}
 	})
 
+	t.Run("GlobalModeDefersToAmbientAWSConfig", func(t *testing.T) {
+		// Given an AWS-platform context running in global mode (no project root —
+		// operator is invoking windsor outside of a windsor.yaml-anchored tree)
+		mocks := setupAwsEnvMocks(t)
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE are NOT emitted, so
+		// the AWS CLI/SDK fall through to the operator's ambient ~/.aws/. AWS_PROFILE
+		// is still emitted because aws.profile is set explicitly in the context — the
+		// user asked for that profile, even in global mode. Region/endpoint and the
+		// other project-level identifiers continue to flow through.
+		if _, ok := envVars["AWS_CONFIG_FILE"]; ok {
+			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", envVars["AWS_CONFIG_FILE"])
+		}
+		if _, ok := envVars["AWS_SHARED_CREDENTIALS_FILE"]; ok {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", envVars["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+		if got := envVars["AWS_PROFILE"]; got != "default" {
+			t.Errorf("AWS_PROFILE = %q, want %q (explicit aws.profile override)", got, "default")
+		}
+		if got := envVars["AWS_REGION"]; got != "us-west-2" {
+			t.Errorf("AWS_REGION = %q, want %q", got, "us-west-2")
+		}
+	})
+
+	t.Run("GlobalModeFallsBackToContextNameForAWSProfile", func(t *testing.T) {
+		// Given a context with no aws.profile override, running in global mode
+		mocks := setupAwsEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context: {}
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then AWS_PROFILE defaults to the context name so the AWS SDK resolves
+		// the right profile in the operator's ambient ~/.aws/config — without it,
+		// calls fall through to [default] even when the matching profile is logged
+		// in. AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE remain unset so the
+		// SDK uses the user-managed config locations.
+		if got := envVars["AWS_PROFILE"]; got != "test-context" {
+			t.Errorf("AWS_PROFILE = %q, want %q", got, "test-context")
+		}
+		if _, ok := envVars["AWS_CONFIG_FILE"]; ok {
+			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", envVars["AWS_CONFIG_FILE"])
+		}
+		if _, ok := envVars["AWS_SHARED_CREDENTIALS_FILE"]; ok {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", envVars["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+
 	t.Run("GetConfigRootError", func(t *testing.T) {
 		// Given a printer with a config handler that fails to get config root
 		mocks := setupAwsEnvMocks(t)

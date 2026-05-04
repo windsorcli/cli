@@ -4,10 +4,16 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/provisioner"
+	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
+	"github.com/windsorcli/cli/pkg/tui"
+	tuiplan "github.com/windsorcli/cli/pkg/tui/plan"
 )
 
 // =============================================================================
@@ -39,12 +45,25 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
+			// Auth must precede the plan: terraform plan -destroy and the live
+			// inventory query both need credentials, and a credential failure
+			// should surface before the operator is asked to confirm.
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
+			var summary *provisioner.DestroyPlanSummary
+			if err := tui.WithProgress("Generating destroy plan...", func() error {
+				var planErr error
+				summary, planErr = proj.Provisioner.PlanDestroyAll(blueprint)
+				return planErr
+			}); err != nil {
+				return fmt.Errorf("error generating destroy plan: %w", err)
+			}
+			tuiplan.DestroySummary(os.Stdout, summary.Terraform, summary.Kustomize, os.Getenv("NO_COLOR") != "")
+
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all infrastructure in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
-				return err
-			}
-			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
 			skipped, err := proj.Provisioner.Teardown(blueprint, false)
@@ -63,18 +82,42 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			return fmt.Errorf("component %q not found in blueprint", componentID)
 		}
 
-		desc := fmt.Sprintf("This will permanently destroy component %q across all layers.", componentID)
-		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
-			return err
-		}
-
-		// Gate auth before either teardown so a credential failure can't strand a both-layer
-		// component half-destroyed (kustomize gone, terraform state intact).
+		// Gate auth before plan (for any terraform leg) so credential failures
+		// surface before the prompt rather than between plan and confirm.
 		if inTerraform {
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
 		}
+
+		var tfResults []terraforminfra.TerraformComponentPlan
+		var k8sResults []fluxinfra.KustomizePlan
+		if err := tui.WithProgress("Generating destroy plan...", func() error {
+			if inTerraform {
+				result, err := proj.Provisioner.PlanDestroyTerraformComponentSummary(blueprint, componentID)
+				if err != nil {
+					return err
+				}
+				tfResults = []terraforminfra.TerraformComponentPlan{result}
+			}
+			if inKustomize {
+				result, err := proj.Provisioner.PlanDestroyKustomizeComponentSummary(blueprint, componentID)
+				if err != nil {
+					return err
+				}
+				k8sResults = []fluxinfra.KustomizePlan{result}
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("error generating destroy plan: %w", err)
+		}
+		tuiplan.DestroySummary(os.Stdout, tfResults, k8sResults, os.Getenv("NO_COLOR") != "")
+
+		desc := fmt.Sprintf("This will permanently destroy component %q across all layers.", componentID)
+		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
+			return err
+		}
+
 		if inKustomize {
 			if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
 				return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
@@ -86,7 +129,7 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 			}
 			if skipped {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
+				reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
 			}
 		}
 
@@ -113,12 +156,22 @@ var destroyTerraformCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
+			var summary *provisioner.DestroyPlanSummary
+			if err := tui.WithProgress("Generating destroy plan...", func() error {
+				var planErr error
+				summary, planErr = proj.Provisioner.PlanDestroyTerraformSummary(blueprint)
+				return planErr
+			}); err != nil {
+				return fmt.Errorf("error generating destroy plan: %w", err)
+			}
+			tuiplan.DestroySummary(os.Stdout, summary.Terraform, nil, os.Getenv("NO_COLOR") != "")
+
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all Terraform components in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
-				return err
-			}
-			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
 			skipped, err := proj.Provisioner.Teardown(blueprint, true)
@@ -130,11 +183,21 @@ var destroyTerraformCmd = &cobra.Command{
 		}
 
 		componentID := args[0]
-		desc := fmt.Sprintf("This will permanently destroy Terraform component %q.", componentID)
-		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
+		if err := requireCloudAuth(cmd, proj); err != nil {
 			return err
 		}
-		if err := requireCloudAuth(cmd, proj); err != nil {
+		var tfResult terraforminfra.TerraformComponentPlan
+		if err := tui.WithProgress("Generating destroy plan...", func() error {
+			var planErr error
+			tfResult, planErr = proj.Provisioner.PlanDestroyTerraformComponentSummary(blueprint, componentID)
+			return planErr
+		}); err != nil {
+			return fmt.Errorf("error generating destroy plan: %w", err)
+		}
+		tuiplan.DestroySummary(os.Stdout, []terraforminfra.TerraformComponentPlan{tfResult}, nil, os.Getenv("NO_COLOR") != "")
+
+		desc := fmt.Sprintf("This will permanently destroy Terraform component %q.", componentID)
+		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
 			return err
 		}
 		skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
@@ -142,7 +205,7 @@ var destroyTerraformCmd = &cobra.Command{
 			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
 		}
 		if skipped {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Component %q has empty state — nothing to destroy.\n", componentID)
+			reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
 		}
 		return nil
 	},
@@ -166,6 +229,16 @@ var destroyKustomizeCmd = &cobra.Command{
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
 		if len(args) == 0 {
+			var summary *provisioner.DestroyPlanSummary
+			if err := tui.WithProgress("Generating destroy plan...", func() error {
+				var planErr error
+				summary, planErr = proj.Provisioner.PlanDestroyKustomizeSummary(blueprint)
+				return planErr
+			}); err != nil {
+				return fmt.Errorf("error generating destroy plan: %w", err)
+			}
+			tuiplan.DestroySummary(os.Stdout, nil, summary.Kustomize, os.Getenv("NO_COLOR") != "")
+
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all Flux kustomizations in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
@@ -178,6 +251,16 @@ var destroyKustomizeCmd = &cobra.Command{
 		}
 
 		componentID := args[0]
+		var k8sResult fluxinfra.KustomizePlan
+		if err := tui.WithProgress("Generating destroy plan...", func() error {
+			var planErr error
+			k8sResult, planErr = proj.Provisioner.PlanDestroyKustomizeComponentSummary(blueprint, componentID)
+			return planErr
+		}); err != nil {
+			return fmt.Errorf("error generating destroy plan: %w", err)
+		}
+		tuiplan.DestroySummary(os.Stdout, nil, []fluxinfra.KustomizePlan{k8sResult}, os.Getenv("NO_COLOR") != "")
+
 		desc := fmt.Sprintf("This will permanently destroy Flux kustomization %q.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
 			return err
@@ -209,17 +292,26 @@ func confirmDestroy(r io.Reader, w io.Writer, description, confirmValue string) 
 	return nil
 }
 
-// reportSkippedDestroyComponents prints a one-line summary to w naming any terraform
-// components whose destroy was skipped because their state was empty (never applied, fully
-// torn down already, or upstream destroy collapsed their cloud objects out from under them).
-// Called after DestroyAll/DestroyAllTerraform regardless of whether the operation overall
-// succeeded — the skip list is paired with the returned error so an operator sees both
-// "these were no-ops" and "this one failed" in the same output. No-op when skipped is empty.
+// reportSkippedDestroyComponents prints a stderr warning naming any terraform
+// components whose destroy was skipped because their state was empty. Empty
+// state has two indistinguishable causes: the component was never applied
+// (legitimate skip) or the remote state was lost while cloud resources still
+// exist (silent orphan hazard — common with multi-machine config drift, manual
+// state deletion, or remote storage being wiped). The destroy can't tell the
+// two apart without comparing against the cloud, so the message names the
+// risk and points the operator at the cloud console. No-op when skipped is
+// empty.
 func reportSkippedDestroyComponents(w io.Writer, skipped []string) {
 	if len(skipped) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "Skipped (empty state, nothing to destroy): %s\n", strings.Join(skipped, ", "))
+	if len(skipped) == 1 {
+		fmt.Fprintf(w, "warning: component %q had empty state during destroy and was skipped\n", skipped[0])
+	} else {
+		fmt.Fprintf(w, "warning: %d components had empty state during destroy and were skipped: %s\n", len(skipped), strings.Join(skipped, ", "))
+	}
+	fmt.Fprintln(w, "   if previously bootstrapped, cloud resources may now be orphaned —")
+	fmt.Fprintln(w, "   verify in your cloud console; remediate with `terraform import` if needed.")
 }
 
 // resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must

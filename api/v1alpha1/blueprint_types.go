@@ -512,6 +512,15 @@ type Kustomization struct {
 	// Source of the kustomization.
 	Source string `yaml:"source,omitempty"`
 
+	// Namespace overrides the namespace where the Flux Kustomization object itself lives.
+	// When unset, the gitops namespace is used. DependsOn references always resolve in the
+	// gitops namespace, so cross-namespace dependencies are not currently supported.
+	Namespace string `yaml:"namespace,omitempty"`
+
+	// TargetNamespace populates spec.targetNamespace, instructing Flux to override the
+	// namespace of every resource reconciled by this kustomization.
+	TargetNamespace string `yaml:"targetNamespace,omitempty"`
+
 	// DependsOn lists dependencies of this kustomization.
 	DependsOn []string `yaml:"dependsOn,omitempty"`
 
@@ -892,28 +901,34 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 	}
 
 	return &Kustomization{
-		Name:                k.Name,
-		Path:                k.Path,
-		Source:              k.Source,
-		DependsOn:           slices.Clone(k.DependsOn),
-		Interval:            k.Interval,
-		RetryInterval:       k.RetryInterval,
-		Timeout:             k.Timeout,
-		Patches:             slices.Clone(k.Patches),
-		Wait:                k.Wait,
-		Force:               k.Force,
-		Prune:               k.Prune,
-		Components:          slices.Clone(k.Components),
-		Destroy:             destroyCopy,
-		DestroyOnly:         k.DestroyOnly,
-		Enabled:             enabledCopy,
-		Substitutions:       maps.Clone(k.Substitutions),
+		Name:            k.Name,
+		Path:            k.Path,
+		Source:          k.Source,
+		Namespace:       k.Namespace,
+		TargetNamespace: k.TargetNamespace,
+		DependsOn:       slices.Clone(k.DependsOn),
+		Interval:        k.Interval,
+		RetryInterval:   k.RetryInterval,
+		Timeout:         k.Timeout,
+		Patches:         slices.Clone(k.Patches),
+		Wait:            k.Wait,
+		Force:           k.Force,
+		Prune:           k.Prune,
+		Components:      slices.Clone(k.Components),
+		Destroy:         destroyCopy,
+		DestroyOnly:     k.DestroyOnly,
+		Enabled:         enabledCopy,
+		Substitutions:   maps.Clone(k.Substitutions),
 	}
 }
 
 // ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
-// It takes the namespace for the kustomization, the default source name to use if no source is specified,
+// It takes the default namespace for the kustomization (overridden per-kustomization
+// by k.Namespace when set), the default source name to use if no source is specified,
 // and the list of sources to determine the source kind (GitRepository or OCIRepository).
+// k.TargetNamespace is passed through to spec.targetNamespace so Flux rewrites the
+// namespace of every reconciled resource. DependsOn references are always resolved
+// in the default namespace.
 // The mode parameter selects the default Interval: pull mode uses the short
 // poll-friendly default; push mode uses a long fallback interval on the
 // assumption that Windsor triggers reconciliation via annotation. Blueprint-
@@ -928,6 +943,13 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 			Name:      dep,
 			Namespace: namespace,
 		}
+	}
+
+	objectNamespace := namespace
+	sourceRefNamespace := ""
+	if k.Namespace != "" && k.Namespace != namespace {
+		objectNamespace = k.Namespace
+		sourceRefNamespace = namespace
 	}
 
 	sourceName := k.Source
@@ -1047,25 +1069,27 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      k.Name,
-			Namespace: namespace,
+			Namespace: objectNamespace,
 		},
 		Spec: kustomizev1.KustomizationSpec{
 			SourceRef: kustomizev1.CrossNamespaceSourceReference{
-				Kind: sourceKind,
-				Name: sourceName,
+				Kind:      sourceKind,
+				Name:      sourceName,
+				Namespace: sourceRefNamespace,
 			},
-			Path:           path,
-			DependsOn:      dependsOn,
-			Interval:       interval,
-			RetryInterval:  &retryInterval,
-			Timeout:        &timeout,
-			Wait:           wait,
-			Force:          force,
-			Prune:          prune,
-			DeletionPolicy: deletionPolicy,
-			Patches:        patches,
-			Components:     k.Components,
-			PostBuild:      postBuild,
+			Path:            path,
+			DependsOn:       dependsOn,
+			Interval:        interval,
+			RetryInterval:   &retryInterval,
+			Timeout:         &timeout,
+			Wait:            wait,
+			Force:           force,
+			Prune:           prune,
+			DeletionPolicy:  deletionPolicy,
+			Patches:         patches,
+			Components:      k.Components,
+			PostBuild:       postBuild,
+			TargetNamespace: k.TargetNamespace,
 		},
 	}
 }
@@ -1189,6 +1213,12 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			}
 			if kustomization.Source != "" {
 				existing.Source = kustomization.Source
+			}
+			if kustomization.Namespace != "" {
+				existing.Namespace = kustomization.Namespace
+			}
+			if kustomization.TargetNamespace != "" {
+				existing.TargetNamespace = kustomization.TargetNamespace
 			}
 			if kustomization.Destroy != nil {
 				existing.Destroy = kustomization.Destroy

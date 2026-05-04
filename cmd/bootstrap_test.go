@@ -91,7 +91,7 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 		Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 	}
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
-	mockBlueprintHandler.GenerateResolvedFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
+	mockBlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return testBlueprint, nil }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
 	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
@@ -273,7 +273,7 @@ func TestBootstrapCmd(t *testing.T) {
 			},
 		}
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return backendBlueprint }
-		mocks.BlueprintHandler.GenerateResolvedFunc = func() *blueprintv1alpha1.Blueprint { return backendBlueprint }
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return backendBlueprint, nil }
 
 		var timeline []string
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
@@ -312,7 +312,7 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected success, got %v", err)
 		}
 
-		expected := []string{"set=local", "up", "set=kubernetes", "migrate"}
+		expected := []string{"set=local", "up", "set=kubernetes", "migrate", "up"}
 		if len(timeline) != len(expected) {
 			t.Fatalf("Expected timeline %v, got %v", expected, timeline)
 		}
@@ -387,7 +387,7 @@ func TestBootstrapCmd(t *testing.T) {
 			return nil
 		}
 		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
-			return []string{"network", "cluster"}, nil
+			return []string{"backend"}, nil
 		}
 
 		proj := newBootstrapTestProject(mocks)
@@ -399,13 +399,13 @@ func TestBootstrapCmd(t *testing.T) {
 
 		err := cmd.Execute()
 		if err == nil {
-			t.Fatal("Expected bootstrap to fail when MigrateState reports skipped components")
+			t.Fatal("Expected bootstrap to fail when MigrateState skips the pivot")
 		}
 		if !strings.Contains(err.Error(), "skipped") {
-			t.Errorf("Expected error to mention skipped components, got: %v", err)
+			t.Errorf("Expected error to mention skipped, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "network") || !strings.Contains(err.Error(), "cluster") {
-			t.Errorf("Expected error to name skipped components, got: %v", err)
+		if !strings.Contains(err.Error(), `"backend"`) {
+			t.Errorf("Expected error to name the pivot, got: %v", err)
 		}
 	})
 
@@ -730,6 +730,166 @@ func TestBootstrapCmd(t *testing.T) {
 		// When executing bootstrap with --yes
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected --yes to skip the prompt, got %v", err)
+		}
+	})
+
+	t.Run("GlobalModeSummaryConfirmProceedsOnYes", func(t *testing.T) {
+		// Given a global-mode runtime, the bootstrap summary + confirmation
+		// prompt fires before apply; answering "y" lets bootstrap continue
+		// and Up is invoked. The summary is built from blueprint + config —
+		// no terraform PlanSummary call is involved.
+		mocks := setupBootstrapTest(t)
+		mocks.Runtime.Global = true
+		var upCalled bool
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader("y\n"))
+
+		// When executing bootstrap
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success on yes-confirm, got %v", err)
+		}
+
+		// Then Up runs after the prompt is accepted
+		if !upCalled {
+			t.Error("Expected Up to be called after summary-confirm")
+		}
+	})
+
+	t.Run("GlobalModeSummaryConfirmExitsCleanlyOnNo", func(t *testing.T) {
+		// Given a global-mode runtime, declining the summary-confirm prompt
+		// exits cleanly (no error). The context has already been configured
+		// and saved before the prompt, so "no" is a valid no-op outcome —
+		// not a failure — and the operator can re-run with --yes later to apply.
+		mocks := setupBootstrapTest(t)
+		mocks.Runtime.Global = true
+		var upCalled, installCalled bool
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			installCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader("n\n"))
+
+		// When executing bootstrap with "n" on stdin
+		err := cmd.Execute()
+
+		// Then bootstrap exits cleanly with no error and apply/install never run
+		if err != nil {
+			t.Fatalf("Expected clean exit on declined plan-confirm, got error: %v", err)
+		}
+		if upCalled {
+			t.Error("Up must not be called after a declined summary-confirm")
+		}
+		if installCalled {
+			t.Error("Install must not be called after a declined summary-confirm")
+		}
+	})
+
+	t.Run("GlobalModeSummaryConfirmExitsCleanlyOnEmptyStdin", func(t *testing.T) {
+		// Given a global-mode runtime and empty stdin (non-interactive without
+		// --yes), the prompt receives EOF and treats it as "no" — exit is clean
+		// rather than producing a non-zero failure.
+		mocks := setupBootstrapTest(t)
+		mocks.Runtime.Global = true
+		var upCalled bool
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader(""))
+
+		// When executing bootstrap with empty stdin
+		err := cmd.Execute()
+
+		// Then bootstrap exits cleanly and apply never runs
+		if err != nil {
+			t.Fatalf("Expected clean exit on EOF stdin, got error: %v", err)
+		}
+		if upCalled {
+			t.Error("Up must not be called when EOF declines summary-confirm")
+		}
+	})
+
+	t.Run("GlobalModeSummaryConfirmSkippedWithYesFlag", func(t *testing.T) {
+		// Given a global-mode runtime and --yes, the summary-confirm prompt is
+		// suppressed and bootstrap proceeds straight to apply with no stdin needed.
+		mocks := setupBootstrapTest(t)
+		mocks.Runtime.Global = true
+		var upCalled bool
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+		// No stdin — --yes must skip both confirmation prompts.
+
+		// When executing bootstrap with --yes
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success with --yes, got %v", err)
+		}
+
+		// Then Up still runs with --yes (apply isn't gated on stdin)
+		if !upCalled {
+			t.Error("Up must still run with --yes")
+		}
+	})
+
+	t.Run("LocalModeSkipsSummaryConfirm", func(t *testing.T) {
+		// Given a local-project runtime (Global=false), the global-only
+		// summary-confirm prompt does not fire and bootstrap proceeds without
+		// stdin.
+		mocks := setupBootstrapTest(t)
+		mocks.Runtime.Global = false
+		var upCalled bool
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		// No stdin — local-mode bootstrap with no values.yaml has no prompts at all.
+
+		// When executing bootstrap
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success in local mode, got %v", err)
+		}
+
+		// Then Up runs without any prompt
+		if !upCalled {
+			t.Error("Up must run in local-project mode")
 		}
 	})
 }

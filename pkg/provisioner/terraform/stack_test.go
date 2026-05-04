@@ -164,6 +164,9 @@ contexts:
 	shims.Remove = func(_ string) error {
 		return nil
 	}
+	shims.ReadFile = func(_ string) ([]byte, error) {
+		return nil, os.ErrNotExist
+	}
 
 	t.Cleanup(func() {
 		os.Unsetenv("WINDSOR_PROJECT_ROOT")
@@ -1571,8 +1574,17 @@ func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 		// Given a shell that returns a plan output with counts
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
-				return "Plan: 2 to add, 1 to change, 0 to destroy.\n", nil
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.foo"},"action":"create"}}`,
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.bar"},"action":"create"}}`,
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_iam_role.app"},"action":"update"}}`,
+					`{"type":"change_summary","changes":{"add":2,"change":1,"remove":0}}`,
+					``,
+				}, "\n"), nil
 			}
 			return "", nil
 		}
@@ -1585,15 +1597,20 @@ func TestTerraformStack_PlanComponentSummary(t *testing.T) {
 		// When PlanComponentSummary is called for the named component
 		result := stack.PlanComponentSummary(bp, "mycomp")
 
-		// Then counts are parsed from plan output
+		// Then counts are parsed from plan output and resources are populated
 		if result.Err != nil {
 			t.Fatalf("unexpected error: %v", result.Err)
 		}
 		if result.Add != 2 || result.Change != 1 || result.Destroy != 0 {
 			t.Errorf("expected add=2 change=1 destroy=0, got add=%d change=%d destroy=%d", result.Add, result.Change, result.Destroy)
 		}
+		if len(result.Resources) != 3 {
+			t.Errorf("expected 3 resources, got %d", len(result.Resources))
+		}
 	})
+
 }
+
 
 // =============================================================================
 // Test Private Methods
@@ -3131,6 +3148,348 @@ func TestStack_Destroy(t *testing.T) {
 			t.Error("Expected destroy to run against survivors")
 		}
 	})
+
+	t.Run("ClearsBackendPointerAfterSuccessfulDestroy", func(t *testing.T) {
+		// After destroy completes, the backend metadata file inside TF_DATA_DIR
+		// must be removed so the next init doesn't try to talk to a remote
+		// backend the destroy may have just torn down. Only that one file —
+		// providers, modules, and lockfile stay so the next init is fast.
+		stack, mocks := setup(t)
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+		blueprint := createTestBlueprint()
+
+		_, err := stack.Destroy(blueprint, "local/path")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		var pointerRemoved bool
+		for _, p := range removed {
+			if strings.HasSuffix(p, "/terraform.tfstate") {
+				pointerRemoved = true
+				break
+			}
+		}
+		if !pointerRemoved {
+			t.Errorf("Expected the backend pointer (terraform.tfstate inside TF_DATA_DIR) to be removed, got removals: %v", removed)
+		}
+	})
+
+	t.Run("ClearsBackendPointerAfterEmptyStateSkip", func(t *testing.T) {
+		// When pre-refresh state is already empty, destroy is skipped — but the
+		// component still "completed destroy" semantically (nothing to do).
+		// The pointer must still be cleared so re-runs don't trip over a stale
+		// backend reference.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+		blueprint := createTestBlueprint()
+
+		skipped, err := stack.Destroy(blueprint, "local/path")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if !skipped {
+			t.Fatal("Expected skipped=true on empty state")
+		}
+
+		var pointerRemoved bool
+		for _, p := range removed {
+			if strings.HasSuffix(p, "/terraform.tfstate") {
+				pointerRemoved = true
+				break
+			}
+		}
+		if !pointerRemoved {
+			t.Errorf("Expected backend pointer cleanup even on empty-state skip, got removals: %v", removed)
+		}
+	})
+
+	t.Run("DoesNotClearBackendPointerWhenDestroyFails", func(t *testing.T) {
+		// When destroy fails, the operator may want to retry — we must not
+		// strip the pointer file out from under them. Cleanup only fires after
+		// a successful (or no-op) destroy completes.
+		stack, mocks := setup(t)
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				return "", fmt.Errorf("AccessDenied: not authorized")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		_, err := stack.Destroy(blueprint, "local/path")
+		if err == nil {
+			t.Fatal("Expected destroy to fail")
+		}
+
+		for _, p := range removed {
+			if strings.HasSuffix(p, "/terraform.tfstate") {
+				t.Errorf("Backend pointer must not be cleared on destroy failure, got removals: %v", removed)
+			}
+		}
+	})
+}
+
+func TestTerraformStack_clearStaleBackendPointer(t *testing.T) {
+	setup := func(t *testing.T, configuredBackendType string) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t, &SetupOptions{ConfigStr: fmt.Sprintf(`
+contexts:
+  mock-context:
+    terraform:
+      backend:
+        type: %s`, configuredBackendType)})
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("RemovesPointerWhenBackendTypeMismatches", func(t *testing.T) {
+		// Repo carries a committed backend_override.tf for `terraform test` runs,
+		// so a raw `terraform init` lands a "current backend = local" pointer
+		// inside TF_DATA_DIR. Windsor's configured backend is now s3 — the
+		// pointer must be removed so the next init sets up s3 fresh, not
+		// triggering terraform's "Prior to changing backends" migration prompt
+		// against an s3 bucket that doesn't exist yet.
+		stack, mocks := setup(t, "s3")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{"backend":{"type":"local"}}`), nil
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{"TF_DATA_DIR": "/tmp/scratch/.terraform/cluster"})
+
+		if len(removed) != 1 || !strings.HasSuffix(removed[0], "/terraform.tfstate") {
+			t.Errorf("expected pointer file removal, got %v", removed)
+		}
+	})
+
+	t.Run("LeavesPointerInPlaceWhenTypesMatch", func(t *testing.T) {
+		// Pointer says s3, configured is s3 — no migration would be triggered.
+		// Leave the pointer alone so terraform's normal "I already initialized
+		// against this backend" fast path runs.
+		stack, mocks := setup(t, "s3")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(`{"backend":{"type":"s3"}}`), nil
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{"TF_DATA_DIR": "/tmp/scratch/.terraform/cluster"})
+
+		if len(removed) != 0 {
+			t.Errorf("expected no removal when types match, got %v", removed)
+		}
+	})
+
+	t.Run("NoOpWhenPointerMissing", func(t *testing.T) {
+		// Fresh init scenario: no pointer file exists yet. Function must
+		// silently no-op so terraform init runs normally.
+		stack, mocks := setup(t, "s3")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{"TF_DATA_DIR": "/tmp/scratch/.terraform/cluster"})
+
+		if len(removed) != 0 {
+			t.Errorf("expected no removal when pointer missing, got %v", removed)
+		}
+	})
+
+	t.Run("RemovesUnparseablePointer", func(t *testing.T) {
+		// A corrupted/truncated pointer file would block init either way.
+		// Removing it lets init regenerate cleanly.
+		stack, mocks := setup(t, "s3")
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte("not json"), nil
+		}
+		var removed []string
+		mocks.Shims.Remove = func(path string) error {
+			removed = append(removed, filepath.ToSlash(path))
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{"TF_DATA_DIR": "/tmp/scratch/.terraform/cluster"})
+
+		if len(removed) != 1 {
+			t.Errorf("expected unparseable pointer to be removed, got %v", removed)
+		}
+	})
+
+	t.Run("NoOpWhenTFDataDirEmpty", func(t *testing.T) {
+		// Belt-and-suspenders: if TF_DATA_DIR isn't set we have no path to
+		// resolve, must not attempt any I/O.
+		stack, mocks := setup(t, "s3")
+		var readCalled, removeCalled bool
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			readCalled = true
+			return nil, nil
+		}
+		mocks.Shims.Remove = func(path string) error {
+			removeCalled = true
+			return nil
+		}
+
+		stack.clearStaleBackendPointer(map[string]string{})
+
+		if readCalled || removeCalled {
+			t.Errorf("expected no I/O when TF_DATA_DIR empty, got read=%v remove=%v", readCalled, removeCalled)
+		}
+	})
+}
+
+func TestStack_InitCache(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("RepeatedInitsForSameKeyShortCircuit", func(t *testing.T) {
+		// Given two back-to-back HasRemoteState calls for the same component
+		// (same configured backend, no -migrate-state on either), the second
+		// call must reuse the cached init result and not invoke terraform a
+		// second time. terraform init is the expensive operation here — even
+		// on a warm provider cache it costs a process spawn and lockfile
+		// verification — so the cache halves overhead on probe-then-Up paths.
+		stack, mocks := setup(t)
+		bp := createTestBlueprint()
+
+		var initCalls int
+		var showCalls int
+		mocks.Shell.ExecSilentWithEnvFunc = func(_ string, _ map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && strings.HasPrefix(args[0], "-chdir=") {
+				switch args[1] {
+				case "init":
+					initCalls++
+				case "show":
+					showCalls++
+					return `{"values":{"root_module":{"resources":[{"address":"foo"}]}}}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err != nil {
+			t.Fatalf("first HasRemoteState: %v", err)
+		}
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err != nil {
+			t.Fatalf("second HasRemoteState: %v", err)
+		}
+
+		if initCalls != 1 {
+			t.Errorf("expected exactly 1 terraform init invocation across two HasRemoteState calls, got %d", initCalls)
+		}
+		if showCalls != 2 {
+			t.Errorf("expected 2 terraform show invocations (cache only memoizes init, not state queries), got %d", showCalls)
+		}
+	})
+
+	t.Run("DifferentComponentsDoNotShareCache", func(t *testing.T) {
+		// Cache key includes componentID, so probing two different components
+		// runs init twice — once per component. Verifies the cache doesn't
+		// over-collapse across distinct components.
+		stack, mocks := setup(t)
+		bp := createTestBlueprint()
+
+		var initCalls int
+		mocks.Shell.ExecSilentWithEnvFunc = func(_ string, _ map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && strings.HasPrefix(args[0], "-chdir=") {
+				switch args[1] {
+				case "init":
+					initCalls++
+				case "show":
+					return `{"values":{"root_module":{"resources":[]}}}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err != nil {
+			t.Fatalf("HasRemoteState remote/path: %v", err)
+		}
+		if _, err := stack.HasRemoteState(bp, "local/path"); err != nil {
+			t.Fatalf("HasRemoteState local/path: %v", err)
+		}
+
+		if initCalls != 2 {
+			t.Errorf("expected 2 inits across two distinct components, got %d", initCalls)
+		}
+	})
+
+	t.Run("FailedInitIsNotCached", func(t *testing.T) {
+		// A transient init failure must not poison the cache — subsequent
+		// retries need to actually re-invoke terraform. The cache only
+		// records successful inits.
+		stack, mocks := setup(t)
+		bp := createTestBlueprint()
+
+		var initCalls int
+		failNext := true
+		mocks.Shell.ExecSilentWithEnvFunc = func(_ string, _ map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && strings.HasPrefix(args[0], "-chdir=") {
+				switch args[1] {
+				case "init":
+					initCalls++
+					if failNext {
+						failNext = false
+						return "", fmt.Errorf("transient init failure")
+					}
+				case "show":
+					return `{"values":{"root_module":{"resources":[]}}}`, nil
+				}
+			}
+			return "", nil
+		}
+
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err == nil {
+			t.Fatal("expected first HasRemoteState to fail on init")
+		}
+		if _, err := stack.HasRemoteState(bp, "remote/path"); err != nil {
+			t.Fatalf("expected retry to succeed after transient failure: %v", err)
+		}
+
+		if initCalls != 2 {
+			t.Errorf("expected 2 inits (failure not cached), got %d", initCalls)
+		}
+	})
 }
 
 func TestStack_PlanSummary(t *testing.T) {
@@ -3159,8 +3518,15 @@ func TestStack_PlanSummary(t *testing.T) {
 		// Given a shell that returns a terraform plan line with counts
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
-				return "Plan: 5 to add, 3 to change, 1 to destroy.\n", nil
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_s3_bucket.logs"},"action":"create"}}`,
+					`{"type":"change_summary","changes":{"add":5,"change":3,"remove":1}}`,
+					``,
+				}, "\n"), nil
 			}
 			return "", nil
 		}
@@ -3182,14 +3548,20 @@ func TestStack_PlanSummary(t *testing.T) {
 		if r.NoChanges {
 			t.Errorf("expected NoChanges=false")
 		}
+		if len(r.Resources) == 0 {
+			t.Errorf("expected resources to be populated")
+		}
 	})
 
 	t.Run("SetsNoChangesWhenTerraformReportsNoDiff", func(t *testing.T) {
 		// Given a shell that returns a "No changes." line
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
-				return "No changes. Infrastructure is up-to-date.\n", nil
+				return `{"type":"change_summary","changes":{"add":0,"change":0,"remove":0}}` + "\n", nil
 			}
 			return "", nil
 		}
@@ -3260,6 +3632,9 @@ func TestStack_PlanSummary(t *testing.T) {
 		// Given a shell that returns an error on terraform plan
 		stack, mocks := setup(t)
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("plan failed")
 			}
@@ -3288,6 +3663,9 @@ func TestStack_PlanSummary(t *testing.T) {
 		// When PlanSummary is called, capture the env passed to terraform plan
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
 			if len(args) > 1 && args[1] == "plan" {
 				capturedEnv = env
 			}
@@ -3304,48 +3682,445 @@ func TestStack_PlanSummary(t *testing.T) {
 			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
 		}
 	})
-}
 
-func TestParseTerraformPlanCounts(t *testing.T) {
-	t.Run("ParsesAllThreeCounts", func(t *testing.T) {
-		// Given standard terraform plan output
-		output := "Plan: 5 to add, 3 to change, 1 to destroy.\n"
-
-		// When parsed
-		add, change, destroy, noChanges := parseTerraformPlanCounts(output)
-
-		// Then counts are set correctly
-		if add != 5 || change != 3 || destroy != 1 {
-			t.Errorf("expected +5 ~3 -1, got +%d ~%d -%d", add, change, destroy)
+	t.Run("MarksComponentNewWhenStateIsEmpty", func(t *testing.T) {
+		// `terraform show -json` returns "{}" when the configured backend has
+		// no state object for this component. With no orphaned local
+		// terraform.tfstate either, the component has never been applied —
+		// IsNew is the truth and running plan would either show a misleading
+		// "all creates" or fail reading dependent layers via terraform_remote_state.
+		stack, mocks := setup(t)
+		// Shims default Stat returns (nil, nil) for unknown paths, but the local-
+		// state probe treats that as "doesn't exist" because FileInfo is nil.
+		var planCalled bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return "{}", nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				planCalled = true
+			}
+			return "", nil
 		}
-		if noChanges {
-			t.Error("expected noChanges=false")
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if !r.IsNew {
+				t.Errorf("expected IsNew=true for %q, got false", r.ComponentID)
+			}
+			if r.Err != nil {
+				t.Errorf("expected no error for %q, got %v", r.ComponentID, r.Err)
+			}
+		}
+		if planCalled {
+			t.Error("plan must not be invoked when state is empty")
 		}
 	})
 
-	t.Run("SetsNoChangesForNoChangesLine", func(t *testing.T) {
-		// Given "No changes." output
-		output := "No changes. Infrastructure is up-to-date.\n"
+	t.Run("PropagatesInitError", func(t *testing.T) {
+		// Init failure is a real error to surface — distinct from a fresh
+		// component with no state.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 1 && args[1] == "init" {
+				return "", fmt.Errorf("init failed: invalid HCL")
+			}
+			return "", nil
+		}
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if r.Err == nil {
+				t.Errorf("expected init error for %q, got nil", r.ComponentID)
+			}
+			if r.IsNew {
+				t.Errorf("expected IsNew=false when init fails, got true for %q", r.ComponentID)
+			}
+		}
+	})
+
+	t.Run("PropagatesStateProbeError", func(t *testing.T) {
+		// `terraform show -json` failures (e.g., transient backend connectivity
+		// or invalid credentials) are real errors — silently classifying as
+		// IsNew would hide them.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return "", fmt.Errorf("backend timeout")
+			}
+			return "", nil
+		}
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if r.Err == nil {
+				t.Errorf("expected state-probe error for %q, got nil", r.ComponentID)
+			}
+			if r.IsNew {
+				t.Errorf("expected IsNew=false for %q on state-probe failure, got true", r.ComponentID)
+			}
+		}
+	})
+
+	t.Run("PopulatesPathFromComponent", func(t *testing.T) {
+		// The blueprint Path (e.g., "cluster/aws-eks") locates the underlying
+		// module and is more informative than the short ComponentID alias for
+		// renderers. PlanSummary copies it into each result so callers don't
+		// need to re-resolve components — verify on the non-empty-state path,
+		// where plan actually runs.
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.foo"},"action":"create"}}`,
+					`{"type":"change_summary","changes":{"add":1,"change":0,"remove":0}}`,
+					``,
+				}, "\n"), nil
+			}
+			return "", nil
+		}
+
+		results := stack.PlanSummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if r.Path == "" {
+				t.Errorf("expected Path to be populated for %q, got empty", r.ComponentID)
+			}
+		}
+	})
+}
+
+func TestStack_PlanDestroySummary(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsNilForNilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+		if got := stack.PlanDestroySummary(nil); got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("InvokesPlanInDestroyModeAndCapturesResources", func(t *testing.T) {
+		// Given a shell that records the plan args and returns a destroy event
+		// stream (every planned_change action="delete")
+		stack, mocks := setup(t)
+		var capturedArgs []string
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				capturedArgs = append([]string{}, args...)
+				capturedEnv = env
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.logs"},"action":"delete"}}`,
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_iam_role.eks"},"action":"delete"}}`,
+					`{"type":"change_summary","changes":{"add":0,"change":0,"remove":2}}`,
+					``,
+				}, "\n"), nil
+			}
+			return "", nil
+		}
+
+		// When PlanDestroySummary runs
+		results := stack.PlanDestroySummary(createTestBlueprint())
+
+		// Then the plan command included -destroy and used destroy-mode env
+		var sawDestroyFlag bool
+		for _, a := range capturedArgs {
+			if a == "-destroy" {
+				sawDestroyFlag = true
+			}
+		}
+		if !sawDestroyFlag {
+			t.Errorf("expected -destroy flag in plan args, got %v", capturedArgs)
+		}
+		if capturedEnv["TF_VAR_operation"] != "destroy" {
+			t.Errorf("expected TF_VAR_operation=destroy, got %q", capturedEnv["TF_VAR_operation"])
+		}
+		// And resources came back tagged Delete
+		if len(results) == 0 {
+			t.Fatal("expected at least one result")
+		}
+		r := results[0]
+		if r.Destroy != 2 {
+			t.Errorf("expected destroy=2, got %d", r.Destroy)
+		}
+		if len(r.Resources) != 2 {
+			t.Fatalf("expected 2 resources, got %#v", r.Resources)
+		}
+		for _, rc := range r.Resources {
+			if rc.Action != ActionDelete {
+				t.Errorf("expected ActionDelete, got %v for %q", rc.Action, rc.Address)
+			}
+		}
+	})
+
+	t.Run("MarksComponentNewWhenStateIsEmpty", func(t *testing.T) {
+		// Given empty state (renderer will show "(no state)")
+		stack, mocks := setup(t)
+		var planCalled bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return "{}", nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				planCalled = true
+			}
+			return "", nil
+		}
+
+		results := stack.PlanDestroySummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if !r.IsNew {
+				t.Errorf("expected IsNew=true (no state to destroy) for %q, got false", r.ComponentID)
+			}
+		}
+		if planCalled {
+			t.Error("plan must not be invoked when state is empty")
+		}
+	})
+
+	t.Run("FiltersComponentsPinnedWithDestroyFalse", func(t *testing.T) {
+		// Given a blueprint with one component pinned destroy=false
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"x.y"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				return `{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}` + "\n", nil
+			}
+			return "", nil
+		}
+		falseVal := false
+		falseBool := &blueprintv1alpha1.BoolExpression{Value: &falseVal}
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "t"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "a", Destroy: falseBool},
+				{Path: "b"},
+			},
+		}
+
+		results := stack.PlanDestroySummary(bp)
+
+		// Then only the unpinned component shows up
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result (b only), got %d: %#v", len(results), results)
+		}
+		if results[0].Path != "b" {
+			t.Errorf("expected path=b, got %q", results[0].Path)
+		}
+	})
+}
+
+func TestStack_PlanDestroyComponentSummary(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+		if got := stack.PlanDestroyComponentSummary(nil, "x"); got.Err == nil {
+			t.Error("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("ReturnsErrorForMissingComponent", func(t *testing.T) {
+		stack, _ := setup(t)
+		got := stack.PlanDestroyComponentSummary(createTestBlueprint(), "nonexistent")
+		if got.Err == nil || !strings.Contains(got.Err.Error(), "not found") {
+			t.Errorf("expected not-found error, got %v", got.Err)
+		}
+	})
+
+	t.Run("ReturnsErrorForDestroyFalseComponent", func(t *testing.T) {
+		// A pinned-destroy=false component returns an error rather than running
+		// plan — Teardown would skip it, so producing a destroy plan would lie.
+		stack, _ := setup(t)
+		falseVal := false
+		falseBool := &blueprintv1alpha1.BoolExpression{Value: &falseVal}
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "pinned", Path: "a", Destroy: falseBool},
+			},
+		}
+		got := stack.PlanDestroyComponentSummary(bp, "pinned")
+		if got.Err == nil || !strings.Contains(got.Err.Error(), "destroy=false") {
+			t.Errorf("expected destroy=false error, got %v", got.Err)
+		}
+	})
+
+	t.Run("RunsForNamedComponent", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"x.y"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3.bucket"},"action":"delete"}}`,
+					`{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}`,
+					``,
+				}, "\n"), nil
+			}
+			return "", nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "mycomp", Path: "local/path"},
+			},
+		}
+
+		got := stack.PlanDestroyComponentSummary(bp, "mycomp")
+
+		if got.Err != nil {
+			t.Fatalf("unexpected error: %v", got.Err)
+		}
+		if got.Destroy != 1 {
+			t.Errorf("expected destroy=1, got %d", got.Destroy)
+		}
+		if len(got.Resources) != 1 || got.Resources[0].Action != ActionDelete {
+			t.Errorf("expected one Delete resource, got %#v", got.Resources)
+		}
+	})
+}
+
+func TestParseTerraformPlanJSON(t *testing.T) {
+	t.Run("ParsesCountsAndResourcesFromEventStream", func(t *testing.T) {
+		// Given a terraform plan -json event stream with summary + planned changes
+		output := strings.Join([]string{
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_s3_bucket.logs[0]"},"action":"create"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_iam_role.eks"},"action":"update"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_db_instance.primary"},"action":"replace"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_security_group.legacy"},"action":"delete"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.data.aws_caller_identity.current"},"action":"read"}}`,
+			`{"type":"change_summary","changes":{"add":2,"change":1,"remove":2}}`,
+			``,
+		}, "\n")
 
 		// When parsed
-		_, _, _, noChanges := parseTerraformPlanCounts(output)
+		add, change, destroy, noChanges, resources := parseTerraformPlanJSON(output)
 
-		// Then noChanges is true
+		// Then counts come from change_summary and noChanges is false
+		if add != 2 || change != 1 || destroy != 2 {
+			t.Errorf("expected +2 ~1 -2, got +%d ~%d -%d", add, change, destroy)
+		}
+		if noChanges {
+			t.Error("expected noChanges=false when counts are non-zero")
+		}
+		// And resources exclude the read action and strip the module.main. prefix
+		want := []ResourceChange{
+			{Address: "aws_s3_bucket.logs[0]", Action: ActionCreate},
+			{Address: "aws_iam_role.eks", Action: ActionUpdate},
+			{Address: "aws_db_instance.primary", Action: ActionReplace},
+			{Address: "aws_security_group.legacy", Action: ActionDelete},
+		}
+		if len(resources) != len(want) {
+			t.Fatalf("expected %d resources, got %d: %#v", len(want), len(resources), resources)
+		}
+		for i, r := range resources {
+			if r != want[i] {
+				t.Errorf("resource[%d]: expected %#v, got %#v", i, want[i], r)
+			}
+		}
+	})
+
+	t.Run("SetsNoChangesWhenSummaryReportsZero", func(t *testing.T) {
+		// Given a stream with only an all-zero change_summary
+		output := `{"type":"change_summary","changes":{"add":0,"change":0,"remove":0}}` + "\n"
+
+		// When parsed
+		add, change, destroy, noChanges, resources := parseTerraformPlanJSON(output)
+
+		// Then noChanges is true and the resource list is empty
 		if !noChanges {
 			t.Error("expected noChanges=true")
 		}
+		if add != 0 || change != 0 || destroy != 0 {
+			t.Errorf("expected zero counts, got +%d ~%d -%d", add, change, destroy)
+		}
+		if len(resources) != 0 {
+			t.Errorf("expected empty resources, got %#v", resources)
+		}
 	})
 
-	t.Run("LeavesCountsAtZeroForUnrecognisedOutput", func(t *testing.T) {
-		// Given unrecognised output
-		output := "Something unexpected happened.\n"
+	t.Run("DropsNoopAndUnknownActions", func(t *testing.T) {
+		// Given planned changes with noop and a made-up action
+		output := strings.Join([]string{
+			`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.foo"},"action":"noop"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.bar"},"action":"frobnicate"}}`,
+			``,
+		}, "\n")
 
 		// When parsed
-		add, change, destroy, noChanges := parseTerraformPlanCounts(output)
+		_, _, _, _, resources := parseTerraformPlanJSON(output)
 
-		// Then all values are zero/false
-		if add != 0 || change != 0 || destroy != 0 || noChanges {
-			t.Errorf("expected all zero/false, got add=%d change=%d destroy=%d noChanges=%v", add, change, destroy, noChanges)
+		// Then both are dropped
+		if len(resources) != 0 {
+			t.Errorf("expected no resources, got %#v", resources)
+		}
+	})
+
+	t.Run("IgnoresNonJSONLines", func(t *testing.T) {
+		// Given mixed text and JSON
+		output := "Initialising...\n" +
+			`{"type":"change_summary","changes":{"add":1,"change":0,"remove":0}}` + "\n" +
+			"trailing junk\n"
+
+		// When parsed
+		add, _, _, noChanges, _ := parseTerraformPlanJSON(output)
+
+		// Then the summary is still extracted and counts are non-zero
+		if add != 1 {
+			t.Errorf("expected add=1, got %d", add)
+		}
+		if noChanges {
+			t.Error("expected noChanges=false when add>0")
+		}
+	})
+
+	t.Run("LeavesNoChangesFalseForEmptyOutput", func(t *testing.T) {
+		// Given empty output (no events at all)
+		_, _, _, noChanges, _ := parseTerraformPlanJSON("")
+
+		// Then noChanges remains false — distinguishes "no output" from "no diff"
+		if noChanges {
+			t.Error("expected noChanges=false for empty output")
 		}
 	})
 }

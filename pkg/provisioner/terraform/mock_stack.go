@@ -18,6 +18,10 @@ type MockStack struct {
 	UpFunc                    func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	MigrateStateFunc          func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentStateFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	HasRemoteStateFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	HasLocalStateWithResourcesFunc func(componentID string) (bool, error)
+	InitComponentFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	RemoveLocalStateFunc           func(componentID string) error
 	PostApplyFunc             func(fns ...func(id string) error)
 	DestroyAllFunc            func(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error)
 	PlanFunc                  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -26,8 +30,10 @@ type MockStack struct {
 	PlanAllJSONFunc           func(blueprint *blueprintv1alpha1.Blueprint) error
 	ApplyFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	DestroyFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
-	PlanSummaryFunc           func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
-	PlanComponentSummaryFunc  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	PlanSummaryFunc                 func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanComponentSummaryFunc        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	PlanDestroySummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanDestroyComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
 
 // =============================================================================
@@ -63,6 +69,38 @@ func (m *MockStack) MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]stri
 func (m *MockStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if m.MigrateComponentStateFunc != nil {
 		return m.MigrateComponentStateFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// HasRemoteState is a mock implementation of the HasRemoteState method.
+func (m *MockStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	if m.HasRemoteStateFunc != nil {
+		return m.HasRemoteStateFunc(blueprint, componentID)
+	}
+	return false, nil
+}
+
+// HasLocalStateWithResources is a mock implementation of the HasLocalStateWithResources method.
+func (m *MockStack) HasLocalStateWithResources(componentID string) (bool, error) {
+	if m.HasLocalStateWithResourcesFunc != nil {
+		return m.HasLocalStateWithResourcesFunc(componentID)
+	}
+	return false, nil
+}
+
+// InitComponent is a mock implementation of the InitComponent method.
+func (m *MockStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if m.InitComponentFunc != nil {
+		return m.InitComponentFunc(blueprint, componentID)
+	}
+	return nil
+}
+
+// RemoveLocalState is a mock implementation of the RemoveLocalState method.
+func (m *MockStack) RemoveLocalState(componentID string) error {
+	if m.RemoveLocalStateFunc != nil {
+		return m.RemoveLocalStateFunc(componentID)
 	}
 	return nil
 }
@@ -142,6 +180,22 @@ func (m *MockStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []Terraf
 func (m *MockStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
 	if m.PlanComponentSummaryFunc != nil {
 		return m.PlanComponentSummaryFunc(blueprint, componentID)
+	}
+	return TerraformComponentPlan{ComponentID: componentID}
+}
+
+// PlanDestroySummary is a mock implementation of the PlanDestroySummary method.
+func (m *MockStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan {
+	if m.PlanDestroySummaryFunc != nil {
+		return m.PlanDestroySummaryFunc(blueprint)
+	}
+	return nil
+}
+
+// PlanDestroyComponentSummary is a mock implementation of the PlanDestroyComponentSummary method.
+func (m *MockStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
+	if m.PlanDestroyComponentSummaryFunc != nil {
+		return m.PlanDestroyComponentSummaryFunc(blueprint, componentID)
 	}
 	return TerraformComponentPlan{ComponentID: componentID}
 }

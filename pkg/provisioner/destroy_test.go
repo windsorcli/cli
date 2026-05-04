@@ -279,15 +279,21 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 	})
 
-	t.Run("KubernetesBackendRunsFullCycleDestroy", func(t *testing.T) {
-		// Given a kubernetes-configured backend, the destroy flow takes the full-
-		// cycle path: pin backend.type to local, MigrateState pulls every
-		// component's state from the cluster's Secrets to local files, DestroyAll
-		// tears everything down in reverse against local state, restore on defer.
-		// The per-component dance with excludeIDs must NOT fire — kubernetes can't
-		// peel the backend off because the cluster IS the backend, and once the
-		// cluster is going away every component's state has to be local already.
+	t.Run("KubernetesBackendUsesPivotDanceWithFirstComponent", func(t *testing.T) {
+		// Given a kubernetes-configured backend with no explicit IsBackend()
+		// module, the cluster module IS the backend. Teardown must mirror
+		// bootstrap's pivot dance reversed: destroy non-pivot components first
+		// against the live k8s API (cluster still healthy), then pin local,
+		// migrate the cluster's own state out, destroy the cluster last.
 		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/talos"},
+				{Path: "cni/cilium"},
+				{Path: "gitops/flux"},
+			},
+		}
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
@@ -307,28 +313,36 @@ func TestProvisioner_Teardown(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
-			ops = append(ops, "migrate-all")
-			return nil, nil
-		}
-		var seenExclude []string
 		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
-			seenExclude = excludeIDs
-			ops = append(ops, "destroyAll")
+			ops = append(ops, fmt.Sprintf("destroyAll:exclude=%v", excludeIDs))
 			return nil, nil
 		}
-		migrateComponentCalled := false
-		mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
-			migrateComponentCalled = true
+		mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) error {
+			ops = append(ops, fmt.Sprintf("migrate:%s", componentID))
 			return nil
+		}
+		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+			ops = append(ops, fmt.Sprintf("destroy:%s", componentID))
+			return false, nil
+		}
+		migrateAllCalled := false
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			migrateAllCalled = true
+			return nil, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(createTestBlueprint(), true); err != nil {
+		if _, err := provisioner.Teardown(bp, true); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		expected := []string{"set:local", "migrate-all", "destroyAll", "set:kubernetes"}
+		expected := []string{
+			"destroyAll:exclude=[cluster/talos]",
+			"set:local",
+			"migrate:cluster/talos",
+			"destroy:cluster/talos",
+			"set:kubernetes",
+		}
 		if len(ops) != len(expected) {
 			t.Fatalf("Expected %d ops %v, got %d %v", len(expected), expected, len(ops), ops)
 		}
@@ -337,22 +351,24 @@ func TestProvisioner_Teardown(t *testing.T) {
 				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
 			}
 		}
-		if len(seenExclude) != 0 {
-			t.Errorf("Expected no excludeIDs on the kubernetes path, got %v", seenExclude)
-		}
-		if migrateComponentCalled {
-			t.Error("Expected per-component MigrateComponentState NOT to be called on the kubernetes path")
+		if migrateAllCalled {
+			t.Error("Expected bulk MigrateState NOT to be called on the unified pivot path")
 		}
 	})
 
-	t.Run("KubernetesBackendMigrationFailureAbortsDestroy", func(t *testing.T) {
-		// Given the kubernetes full-cycle destroy's pre-destroy state migration
-		// fails (e.g. the cluster is unreachable or the kubernetes provider
-		// rejects auth), DestroyAll must not run — destroying against an
-		// inconsistent local state would partially tear down resources whose state
-		// terraform doesn't track. The configured backend must still be restored
-		// via defer for any subsequent operations in the same process.
+	t.Run("PivotMigrationFailureAbortsPivotDestroyOnKubernetes", func(t *testing.T) {
+		// Mirrors BackendMigrationFailureAbortsBackendDestroyAndRestoresBackend
+		// for the kubernetes-pivot case. Migration of the cluster's state from
+		// the cluster's k8s backend to local fails — the cluster destroy must
+		// not run, and the configured backend must restore via defer.
 		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/talos"},
+				{Path: "gitops/flux"},
+			},
+		}
 		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
 			if key == "terraform.backend.type" {
@@ -372,19 +388,22 @@ func TestProvisioner_Teardown(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+			ops = append(ops, "destroyAll")
+			return nil, nil
+		}
+		mockStack.MigrateComponentStateFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
 			ops = append(ops, "migrate-fail")
-			return nil, fmt.Errorf("cluster unreachable")
+			return fmt.Errorf("cluster unreachable")
 		}
 		destroyCalled := false
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
 			destroyCalled = true
-			return nil, nil
+			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(createTestBlueprint(), true)
-
+		_, err := provisioner.Teardown(bp, true)
 		if err == nil {
 			t.Fatal("Expected migration error to surface, got nil")
 		}
@@ -392,78 +411,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Errorf("Expected underlying migration cause in surfaced message, got %v", err)
 		}
 		if destroyCalled {
-			t.Error("DestroyAll must not run after MigrateState fails on the kubernetes path")
+			t.Error("Pivot Destroy must not run after MigrateComponentState fails")
 		}
-		expected := []string{"set:local", "migrate-fail", "set:kubernetes"}
-		if len(ops) != len(expected) {
-			t.Fatalf("Expected %d ops %v, got %d %v", len(expected), expected, len(ops), ops)
-		}
-		for i, want := range expected {
-			if ops[i] != want {
-				t.Errorf("op %d: got %q, want %q (full: %v)", i, ops[i], want, ops)
-			}
-		}
-	})
-
-	t.Run("KubernetesBackendMigrationSkipAbortsDestroy", func(t *testing.T) {
-		// Given the kubernetes full-cycle destroy's MigrateState reports a non-empty
-		// skip list with no error — i.e. one or more component directories were
-		// missing on disk and got skipped silently. Their state may still live on
-		// the cluster's kubernetes Secret store, which is about to be destroyed.
-		// DestroyAll must NOT proceed: doing so would mark those components as
-		// "empty state" and leave their cloud resources orphaned with no terraform
-		// record anywhere. The error must name the skipped component IDs so the
-		// operator can investigate, and the configured backend must still restore
-		// via defer for any subsequent operations in the same process.
-		mocks := setupProvisionerMocks(t)
-		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "kubernetes"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		var ops []string
-		mockCH.SetFunc = func(key string, value any) error {
-			if key == "terraform.backend.type" {
-				ops = append(ops, fmt.Sprintf("set:%v", value))
-			}
-			return nil
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
-			ops = append(ops, "migrate-skip")
-			return []string{"vpc", "iam"}, nil
-		}
-		destroyCalled := false
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
-			destroyCalled = true
-			return nil, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-
-		_, err := provisioner.Teardown(createTestBlueprint(), true)
-
-		if err == nil {
-			t.Fatal("Expected skip-list to surface as a hard error, got nil")
-		}
-		if destroyCalled {
-			t.Error("DestroyAll must not run after MigrateState skips components on the kubernetes path")
-		}
-		msg := err.Error()
-		for _, id := range []string{"vpc", "iam"} {
-			if !strings.Contains(msg, id) {
-				t.Errorf("Expected error to name skipped component %q, got %v", id, err)
-			}
-		}
-		if !strings.Contains(msg, "orphan") {
-			t.Errorf("Expected error to explain the orphaned-resources risk, got %v", err)
-		}
-		expected := []string{"set:local", "migrate-skip", "set:kubernetes"}
+		expected := []string{"destroyAll", "set:local", "migrate-fail", "set:kubernetes"}
 		if len(ops) != len(expected) {
 			t.Fatalf("Expected %d ops %v, got %d %v", len(expected), expected, len(ops), ops)
 		}
@@ -529,11 +479,12 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 		}
 	}
 
-	t.Run("RefusesBackendComponentOnAnyRemoteBackend", func(t *testing.T) {
-		// Targeting the backend component on any remote backend would orphan
-		// state for every other component — the bucket/cluster is the state
-		// store. Refusal applies symmetrically to kubernetes, s3, and azurerm;
-		// operator must use full-cycle `windsor destroy`.
+	t.Run("RefusesPivotComponentOnAnyRemoteBackend", func(t *testing.T) {
+		// Targeting the bootstrap pivot on any remote backend would orphan
+		// state for every other component — the storage backing the configured
+		// remote backend is what the pivot's state lives in. Refusal applies
+		// symmetrically across remote backend types; operator must use the
+		// full-cycle `windsor destroy`.
 		for _, backendType := range []string{"kubernetes", "s3", "azurerm"} {
 			t.Run(backendType, func(t *testing.T) {
 				mocks := setupProvisionerMocks(t)
@@ -559,8 +510,11 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 				if err == nil {
 					t.Fatal("Expected refusal error, got nil")
 				}
-				if !strings.Contains(err.Error(), "cannot destroy the "+backendType+" backend") {
-					t.Errorf("Expected refusal message naming %s, got: %v", backendType, err)
+				if !strings.Contains(err.Error(), "bootstrap pivot component") {
+					t.Errorf("Expected refusal message naming the pivot, got: %v", err)
+				}
+				if !strings.Contains(err.Error(), backendType) {
+					t.Errorf("Expected refusal message naming %s backend, got: %v", backendType, err)
 				}
 				if !strings.Contains(err.Error(), "windsor destroy") {
 					t.Errorf("Expected error to point at full-cycle teardown, got: %v", err)
@@ -569,6 +523,53 @@ func TestProvisioner_TeardownComponent(t *testing.T) {
 					t.Error("Expected Destroy NOT to be called when refusing")
 				}
 			})
+		}
+	})
+
+	t.Run("RefusesClusterPivotOnKubernetesWithoutExplicitBackendModule", func(t *testing.T) {
+		// Given backendType=kubernetes and no IsBackend() module, the cluster
+		// module IS the pivot. Targeting it directly would orphan state for
+		// every other component the same way targeting "backend" would on
+		// s3/azurerm — refusal must fire on this case too. This is the gap the
+		// old TeardownComponent (keyed on BackendComponentID alone) missed.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/talos"},
+				{Path: "gitops/flux"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		destroyCalled := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) (bool, error) {
+			destroyCalled = true
+			return false, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		_, err := provisioner.TeardownComponent(bp, "cluster/talos")
+		if err == nil {
+			t.Fatal("Expected refusal for direct destroy of cluster pivot, got nil")
+		}
+		if !strings.Contains(err.Error(), "cluster/talos") {
+			t.Errorf("Expected error to name cluster/talos, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "bootstrap pivot component") {
+			t.Errorf("Expected error to mention the pivot, got: %v", err)
+		}
+		if destroyCalled {
+			t.Error("Destroy must not run when refusing the pivot")
 		}
 	})
 

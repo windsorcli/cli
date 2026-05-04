@@ -1,10 +1,8 @@
 package azure
 
-// AzureConfig represents the Azure configuration
+// AzureConfig represents the Azure configuration. Azure integration activates whenever this
+// block is present in a context (or when platform is "azure"); no separate enabled flag.
 type AzureConfig struct {
-	// Enabled indicates whether Azure integration is enabled.
-	Enabled *bool `yaml:"enabled,omitempty"`
-
 	// SubscriptionID is the Azure subscription identifier
 	SubscriptionID *string `yaml:"subscription_id,omitempty"`
 
@@ -13,15 +11,17 @@ type AzureConfig struct {
 
 	// Environment specifies the Azure cloud environment (e.g. "public", "usgovernment")
 	Environment *string `yaml:"environment,omitempty"`
+
+	// KubeloginMode overrides the kubelogin login mode for AAD-enabled AKS kubeconfigs.
+	// Empty (default) auto-detects from the active credential chain. Set to "msi" on
+	// managed-identity runners; other values match kubelogin's own modes.
+	KubeloginMode *string `yaml:"kubelogin_mode,omitempty"`
 }
 
 // Merge performs a deep merge of the current AzureConfig with another AzureConfig.
 func (base *AzureConfig) Merge(overlay *AzureConfig) {
 	if overlay == nil {
 		return
-	}
-	if overlay.Enabled != nil {
-		base.Enabled = overlay.Enabled
 	}
 	if overlay.SubscriptionID != nil {
 		base.SubscriptionID = overlay.SubscriptionID
@@ -32,6 +32,9 @@ func (base *AzureConfig) Merge(overlay *AzureConfig) {
 	if overlay.Environment != nil {
 		base.Environment = overlay.Environment
 	}
+	if overlay.KubeloginMode != nil {
+		base.KubeloginMode = overlay.KubeloginMode
+	}
 }
 
 // Copy creates a deep copy of the AzureConfig object
@@ -40,9 +43,9 @@ func (c *AzureConfig) Copy() *AzureConfig {
 		return nil
 	}
 	return &AzureConfig{
-		Enabled:        c.Enabled,
 		SubscriptionID: c.SubscriptionID,
 		TenantID:       c.TenantID,
 		Environment:    c.Environment,
+		KubeloginMode:  c.KubeloginMode,
 	}
 }

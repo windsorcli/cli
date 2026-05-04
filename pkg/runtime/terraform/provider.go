@@ -80,6 +80,8 @@ type TerraformProvider interface {
 	GetTerraformOutputs(componentID string) (map[string]any, error)
 	CacheOutputs(componentID string) error
 	GetTFDataDir(componentID string) (string, error)
+	GetStatePath(componentID string) (string, error)
+	BackendConfigComplete() bool
 	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
@@ -610,6 +612,80 @@ func (p *terraformProvider) ClearCache() {
 	p.configScope = nil
 }
 
+// GetStatePath returns the path to the Terraform state file for the specified component ID.
+// The state file is stored in .tfstate/<componentID>/terraform.tfstate within the Windsor scratch path.
+// If a backend prefix is configured, it is included in the path to support multi-tenant or
+// multi-environment deployments where state files need to be namespaced.
+func (p *terraformProvider) GetStatePath(componentID string) (string, error) {
+	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
+	if err != nil {
+		return "", fmt.Errorf("error getting windsor scratch path: %w", err)
+	}
+
+	component := p.GetTerraformComponent(componentID)
+	actualComponentID := componentID
+	if component != nil {
+		actualComponentID = component.GetID()
+	}
+
+	prefix := p.configHandler.GetString("terraform.backend.prefix", "")
+	path := filepath.Join(windsorScratchPath, ".tfstate")
+	if prefix != "" {
+		path = filepath.Join(path, prefix)
+	}
+	statePath := filepath.Join(path, actualComponentID, "terraform.tfstate")
+	return statePath, nil
+}
+
+// BackendConfigComplete reports whether the configured remote backend has
+// enough config — a backend.tfvars file or a populated nested config block —
+// for `terraform init` to even attempt connecting. Local/empty backends are
+// always complete. Lets Bootstrap's probe distinguish "we don't know where
+// the remote is yet" (first-time bootstrap) from "we know where it is but
+// can't reach it" (real warning).
+//
+// Default for unrecognized backend types is true: the predicate's job is to
+// catch the well-understood first-time-bootstrap case for the backends
+// Windsor knows about. For anything else (gcs, http, consul, remote, cos),
+// we don't know what's required — let the probe run and surface real init
+// failures via the warning path rather than silently disable detection.
+func (p *terraformProvider) BackendConfigComplete() bool {
+	backendType := p.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" {
+		return true
+	}
+
+	if configRoot, err := p.configHandler.GetConfigRoot(); err == nil {
+		for _, candidate := range []string{
+			filepath.Join(configRoot, "backend.tfvars"),
+			filepath.Join(configRoot, "terraform", "backend.tfvars"),
+		} {
+			if _, err := p.Shims.Stat(candidate); err == nil {
+				return true
+			}
+		}
+	}
+
+	// Kubernetes uses the ambient kubeconfig; a nested config block is
+	// optional. Reachable from here even when cfg.Backend is nil.
+	if backendType == "kubernetes" {
+		return true
+	}
+
+	cfg := p.configHandler.GetConfig().Terraform
+	switch backendType {
+	case "azurerm":
+		return cfg != nil && cfg.Backend != nil && cfg.Backend.AzureRM != nil &&
+			cfg.Backend.AzureRM.StorageAccountName != nil &&
+			cfg.Backend.AzureRM.ContainerName != nil
+	case "s3":
+		return cfg != nil && cfg.Backend != nil && cfg.Backend.S3 != nil &&
+			cfg.Backend.S3.Bucket != nil
+	}
+
+	return true
+}
+
 // =============================================================================
 // Private Methods
 // =============================================================================
@@ -731,31 +807,6 @@ func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformA
 	}
 
 	return envVars, nil
-}
-
-// getStatePath returns the path to the Terraform state file for the specified component ID.
-// The state file is stored in .tfstate/<componentID>/terraform.tfstate within the Windsor scratch path.
-// If a backend prefix is configured, it is included in the path to support multi-tenant or
-// multi-environment deployments where state files need to be namespaced.
-func (p *terraformProvider) getStatePath(componentID string) (string, error) {
-	windsorScratchPath, err := p.configHandler.GetWindsorScratchPath()
-	if err != nil {
-		return "", fmt.Errorf("error getting windsor scratch path: %w", err)
-	}
-
-	component := p.GetTerraformComponent(componentID)
-	actualComponentID := componentID
-	if component != nil {
-		actualComponentID = component.GetID()
-	}
-
-	prefix := p.configHandler.GetString("terraform.backend.prefix", "")
-	path := filepath.Join(windsorScratchPath, ".tfstate")
-	if prefix != "" {
-		path = filepath.Join(path, prefix)
-	}
-	statePath := filepath.Join(path, actualComponentID, "terraform.tfstate")
-	return statePath, nil
 }
 
 // prepareTerraformContext prepares a terraformContext for a component with all necessary setup.
@@ -979,7 +1030,7 @@ func (p *terraformProvider) generateBackendConfigArgs(projectPath, configRoot st
 	case "none":
 		return []string{}, nil
 	case "local":
-		statePath, err := p.getStatePath(projectPath)
+		statePath, err := p.GetStatePath(projectPath)
 		if err != nil {
 			return nil, fmt.Errorf("error getting state path: %w", err)
 		}

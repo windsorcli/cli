@@ -259,6 +259,82 @@ contexts:
 		}
 	})
 
+	t.Run("GlobalModeDefersToAmbientGcloudConfig", func(t *testing.T) {
+		// Given a GCP context running in global mode
+		printer, mocks := setup(t)
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			return "", false
+		}
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+
+		mkdirCalled := false
+		mocks.Shims.MkdirAll = func(path string, perm os.FileMode) error {
+			mkdirCalled = true
+			return nil
+		}
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then CLOUDSDK_CONFIG and GOOGLE_APPLICATION_CREDENTIALS (the defaulted
+		// context-scoped service-account path) are NOT emitted, and no context-
+		// scoped gcloud directory is created. Project identifiers still flow.
+		if mkdirCalled {
+			t.Error("MkdirAll should not be called in global mode (no context-scoped dir to create)")
+		}
+		if _, ok := envVars["CLOUDSDK_CONFIG"]; ok {
+			t.Errorf("CLOUDSDK_CONFIG should not be set in global mode, got %q", envVars["CLOUDSDK_CONFIG"])
+		}
+		if _, ok := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; ok {
+			t.Errorf("GOOGLE_APPLICATION_CREDENTIALS should not be set in global mode without explicit credentials_path, got %q", envVars["GOOGLE_APPLICATION_CREDENTIALS"])
+		}
+		if got := envVars["GOOGLE_CLOUD_PROJECT"]; got != "test-project" {
+			t.Errorf("GOOGLE_CLOUD_PROJECT = %q, want %q", got, "test-project")
+		}
+		if got := envVars["GOOGLE_CLOUD_QUOTA_PROJECT"]; got != "billing-project" {
+			t.Errorf("GOOGLE_CLOUD_QUOTA_PROJECT = %q, want %q", got, "billing-project")
+		}
+	})
+
+	t.Run("GlobalModeHonorsExplicitCredentialsPath", func(t *testing.T) {
+		// Given a GCP context with an explicit credentials_path, running in global mode
+		mocks := setupGcpEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  test-context:
+    gcp:
+      enabled: true
+      project_id: "test-project"
+      credentials_path: "/explicit/sa.json"
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		mocks.Shims.LookupEnv = func(key string) (string, bool) { return "", false }
+		printer := NewGcpEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then GOOGLE_APPLICATION_CREDENTIALS reflects the explicit path — the user
+		// asked for that file specifically, so global mode honors it.
+		if got := envVars["GOOGLE_APPLICATION_CREDENTIALS"]; got != "/explicit/sa.json" {
+			t.Errorf("GOOGLE_APPLICATION_CREDENTIALS = %q, want %q", got, "/explicit/sa.json")
+		}
+		if _, ok := envVars["CLOUDSDK_CONFIG"]; ok {
+			t.Error("CLOUDSDK_CONFIG should still be unset in global mode even with explicit credentials_path")
+		}
+	})
+
 	t.Run("MissingConfiguration", func(t *testing.T) {
 		baseMocks := setupEnvMocks(t)
 		mocks := setupGcpEnvMocks(t, &EnvTestMocks{

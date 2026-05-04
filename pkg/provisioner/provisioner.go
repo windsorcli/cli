@@ -2,7 +2,11 @@ package provisioner
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -63,6 +67,19 @@ type PlanSummary struct {
 	Terraform []terraforminfra.TerraformComponentPlan
 	Kustomize []fluxinfra.KustomizePlan
 	Hints     []string
+}
+
+// DestroyPlanSummary holds aggregated destroy-plan results across all
+// infrastructure layers. The shape mirrors PlanSummary but without the Hints
+// field: destroy is gated on a working cluster (the kustomize layer queries
+// flux's live inventory), so a tooling-missing fallback is not part of the
+// destroy contract — fail fast instead. The TerraformComponentPlan and
+// KustomizePlan entries here come from the destroy-side producers; renderers
+// must use a destroy-aware formatter to translate IsNew correctly (apply-side
+// "(new)" becomes destroy-side "(no state)" / "(not deployed)").
+type DestroyPlanSummary struct {
+	Terraform []terraforminfra.TerraformComponentPlan
+	Kustomize []fluxinfra.KustomizePlan
 }
 
 // NodeHealthCheckOptions contains options for node health checking.
@@ -179,6 +196,9 @@ func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func
 	if i.TerraformStack == nil {
 		return nil
 	}
+	if err := i.recoverHalfMigratedComponents(blueprint); err != nil {
+		return err
+	}
 	hooks := append([]func(id string) error{}, i.onTerraformApply...)
 	hooks = append(hooks, onApply...)
 	if len(i.onTerraformPostApply) > 0 {
@@ -243,6 +263,61 @@ func (i *Provisioner) MigrateComponentState(blueprint *blueprintv1alpha1.Bluepri
 		return fmt.Errorf("failed to migrate terraform state for %s: %w", componentID, err)
 	}
 	return nil
+}
+
+// HasRemoteState reports whether the component has non-empty state in the
+// currently-configured backend. Call before any backend override so the
+// probe targets the configured remote.
+func (i *Provisioner) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	if blueprint == nil {
+		return false, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return false, err
+	}
+	if i.TerraformStack == nil {
+		return false, fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.HasRemoteState(blueprint, componentID)
+}
+
+// InitComponent runs `terraform init` for one component using the currently-
+// configured backend; no -migrate-state, no plan, no apply.
+func (i *Provisioner) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.InitComponent(blueprint, componentID)
+}
+
+// HasLocalStateWithResources reports whether the component's local state
+// file exists and contains at least one resource entry.
+func (i *Provisioner) HasLocalStateWithResources(componentID string) (bool, error) {
+	if err := i.ensureTerraformStack(); err != nil {
+		return false, err
+	}
+	if i.TerraformStack == nil {
+		return false, fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.HasLocalStateWithResources(componentID)
+}
+
+// RemoveLocalState removes the per-component local terraform state file.
+// Missing files are tolerated.
+func (i *Provisioner) RemoveLocalState(componentID string) error {
+	if err := i.ensureTerraformStack(); err != nil {
+		return err
+	}
+	if i.TerraformStack == nil {
+		return fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.RemoveLocalState(componentID)
 }
 
 // Down destroys the "workstation" terraform component if it is present in the blueprint, then returns.
@@ -382,19 +457,24 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 }
 
 // DestroyAll destroys all infrastructure components: first uninstalls all kustomizations,
-// then destroys all terraform components. excludeIDs are forwarded to the terraform destroy
-// pass so cmd-layer callers can peel off the backend component for the symmetric-destroy
-// flow (destroy non-backend against live remote state, then migrate-and-destroy backend
-// last). Returns the IDs of terraform components that were skipped because their state was
-// empty (never applied, already torn down) alongside any error from either step — paired
-// with the error so callers see what was no-op'd even when a later step fails. Returns an
-// error if either step fails.
+// then destroys all terraform components. The kustomization uninstall step is skipped
+// when no kubeconfig exists at the context-scoped path — the cluster is gone (or was
+// never bootstrapped past terraform), so trying to talk to its API would fail with a
+// stat error and abort the whole destroy. Skipping idempotently lets `windsor destroy`
+// run cleanly after the cluster's already been torn down by a prior partial destroy or
+// out-of-band action. excludeIDs are forwarded to the terraform destroy pass so
+// cmd-layer callers can peel off the backend component for the symmetric-destroy flow
+// (destroy non-backend against live remote state, then migrate-and-destroy backend
+// last). Returns the IDs of terraform components that were skipped because their state
+// was empty (never applied, already torn down) alongside any error from either step —
+// paired with the error so callers see what was no-op'd even when a later step fails.
+// Returns an error if either step fails.
 func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
 	if blueprint == nil {
 		return nil, fmt.Errorf("blueprint not provided")
 	}
 
-	if i.KubernetesManager != nil {
+	if i.KubernetesManager != nil && i.kubeconfigPresent() {
 		if err := i.Uninstall(blueprint); err != nil {
 			return nil, err
 		}
@@ -522,6 +602,36 @@ func (i *Provisioner) PlanKustomizeComponentSummary(blueprint *blueprintv1alpha1
 	return i.FluxStack.PlanComponentSummary(blueprint, name), nil
 }
 
+// PlanDestroyTerraformComponentSummary previews the destroy plan for a single
+// Terraform component. Returns an error if blueprint is nil, stack init fails,
+// or the component is pinned destroy=false (which Teardown would skip).
+func (i *Provisioner) PlanDestroyTerraformComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) (terraforminfra.TerraformComponentPlan, error) {
+	if blueprint == nil {
+		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return terraforminfra.TerraformComponentPlan{}, err
+	}
+	if i.TerraformStack == nil {
+		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.PlanDestroyComponentSummary(blueprint, componentID), nil
+}
+
+// PlanDestroyKustomizeComponentSummary previews the destroy plan for a single
+// Flux kustomization by querying its live inventory. Returns an error if
+// blueprint is nil, stack init fails, or the kustomization is destroyOnly /
+// pinned destroy=false (which DeleteBlueprint would skip).
+func (i *Provisioner) PlanDestroyKustomizeComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) (fluxinfra.KustomizePlan, error) {
+	if blueprint == nil {
+		return fluxinfra.KustomizePlan{}, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return fluxinfra.KustomizePlan{}, err
+	}
+	return i.FluxStack.PlanDestroyComponentSummary(blueprint, name), nil
+}
+
 // PlanTerraformSummary runs a best-effort summary plan across every Terraform
 // component in the blueprint without touching the Flux/Kustomize layer.
 // Returns an error only when blueprint is nil or stack initialisation fails.
@@ -584,6 +694,78 @@ func (i *Provisioner) PlanAll(blueprint *blueprintv1alpha1.Blueprint) (*PlanSumm
 		Terraform: tfSummary.Terraform,
 		Kustomize: k8sSummary.Kustomize,
 		Hints:     k8sSummary.Hints,
+	}, nil
+}
+
+// PlanDestroyTerraformSummary previews the destroy plan for every Terraform
+// component the blueprint would actually tear down (filtering destroy=false
+// pins). Mirrors PlanTerraformSummary but uses `terraform plan -destroy -json`
+// per component. Returns an error only when blueprint is nil or stack init
+// fails.
+func (i *Provisioner) PlanDestroyTerraformSummary(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	summary := &DestroyPlanSummary{}
+
+	if err := i.ensureTerraformStack(); err != nil {
+		return nil, err
+	}
+	if i.TerraformStack != nil {
+		summary.Terraform = i.TerraformStack.PlanDestroySummary(blueprint)
+	}
+
+	return summary, nil
+}
+
+// PlanDestroyKustomizeSummary previews the destroy plan for every eligible
+// Flux kustomization by querying live cluster inventory. Returns an error if
+// the cluster is unreachable — destroy itself cannot proceed without it, so a
+// blueprint-derived fallback would mislead. DestroyOnly hooks and destroy=
+// false pinned kustomizations are filtered to match DeleteBlueprint.
+func (i *Provisioner) PlanDestroyKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	summary := &DestroyPlanSummary{}
+
+	if err := i.ensureFluxStack(); err != nil {
+		return nil, err
+	}
+	results, err := i.FluxStack.PlanDestroySummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+	summary.Kustomize = results
+
+	return summary, nil
+}
+
+// PlanDestroyAll previews the destroy plan across both Terraform and Flux
+// layers. Initialises each stack as needed and aggregates the results into
+// a single DestroyPlanSummary for rendering. A cluster failure on the flux
+// side aborts the whole plan — destroy needs the cluster, so a partial plan
+// would be misleading.
+func (i *Provisioner) PlanDestroyAll(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	tfSummary, err := i.PlanDestroyTerraformSummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+
+	k8sSummary, err := i.PlanDestroyKustomizeSummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DestroyPlanSummary{
+		Terraform: tfSummary.Terraform,
+		Kustomize: k8sSummary.Kustomize,
 	}, nil
 }
 
@@ -958,6 +1140,65 @@ func (i *Provisioner) Close() {
 // Private Methods
 // =============================================================================
 
+// recoverHalfMigratedComponents migrates leftover local state to the
+// configured remote backend for components with local state but no remote
+// state — typical residue from an interrupted bootstrap. Per affected
+// component: init under local override (resets the pointer to local), exit
+// override, migrate local→remote, remove the local file. Local-backend
+// contexts short-circuit. Probe failures abort with the underlying error
+// rather than fall through; -force-copy would otherwise overwrite good
+// remote state with stale local content.
+func (i *Provisioner) recoverHalfMigratedComponents(blueprint *blueprintv1alpha1.Blueprint) error {
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "" || backendType == "local" {
+		return nil
+	}
+
+	for _, c := range blueprint.TerraformComponents {
+		if c.Enabled != nil && !c.Enabled.IsEnabled() {
+			continue
+		}
+		componentID := c.GetID()
+
+		hasLocal, err := i.HasLocalStateWithResources(componentID)
+		if err != nil {
+			return fmt.Errorf("error inspecting local state for %s during recovery sweep: %w", componentID, err)
+		}
+		if !hasLocal {
+			continue
+		}
+
+		hasRemote, err := i.HasRemoteState(blueprint, componentID)
+		if err != nil {
+			return fmt.Errorf("recovery sweep aborted: could not probe configured backend for %q: %w. The reset-and-migrate path uses terraform init -migrate-state -force-copy which would unconditionally overwrite the destination, so a transient probe failure (auth, network, missing backend storage) must not be assumed-equivalent to \"no remote state\" — that assumption could silently replace valid remote state with the local file. Resolve the underlying probe failure (check credentials, connectivity, and backend storage availability) and retry", componentID, err)
+		}
+		if hasRemote {
+			continue
+		}
+
+		message := fmt.Sprintf("Migrating leftover local state for %s → %s", componentID, backendType)
+		if err := tui.WithProgress(message, func() error {
+			if err := i.withBackendOverride("local-recovery-init", func() error {
+				return i.InitComponent(blueprint, componentID)
+			}); err != nil {
+				return fmt.Errorf("error resetting backend pointer: %w", err)
+			}
+
+			if err := i.MigrateComponentState(blueprint, componentID); err != nil {
+				return fmt.Errorf("error migrating local state: %w", err)
+			}
+
+			if err := i.RemoveLocalState(componentID); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after recovery migration: %v\n", componentID, err)
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("recovery sweep failed for %s: %w", componentID, err)
+		}
+	}
+	return nil
+}
+
 // ensureClusterClient initializes ClusterClient from config if it is not already set.
 // It reads cluster.driver from the config handler and creates the appropriate client.
 // Returns an error if no supported driver is configured.
@@ -1046,4 +1287,29 @@ func (i *Provisioner) ensureNotifier() error {
 // fluxNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
 func (i *Provisioner) fluxNamespace() string {
 	return i.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+}
+
+// kubeconfigPresent reports whether the context-scoped kubeconfig file exists on
+// disk. Used by destroy paths to decide whether to attempt kustomization deletion:
+// the cluster is gone (or was never bootstrapped past terraform) when the file is
+// missing, so trying to talk to its API would fail with a stat error and abort the
+// whole destroy. Treating it as a clean signal lets `windsor destroy` be idempotent
+// across partial-tear-down recoveries. Returns false when configRoot is empty —
+// without a config root we have no path to probe and the conservative answer is
+// "no cluster," which is consistent with the same scenarios that produce empty
+// configRoot (no context selected, no init).
+//
+// Only fs.ErrNotExist returns false. Permission errors and other stat failures
+// fall through as "present" so the subsequent Uninstall surfaces a clear error
+// rather than silently skipping kustomization cleanup and leaking finalizers
+// when terraform later yanks the cluster's underlying infra.
+func (i *Provisioner) kubeconfigPresent() bool {
+	if i.configRoot == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(i.configRoot, ".kube", "config"))
+	if err != nil && errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	return true
 }

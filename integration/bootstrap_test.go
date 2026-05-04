@@ -84,6 +84,77 @@ func TestBootstrap_PersistsSetValues(t *testing.T) {
 	}
 }
 
+// TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined verifies the global-mode
+// plan-confirm prompt: bootstrap run from a directory without a windsor.yaml falls
+// back to global mode, prints a plan, and prompts to apply. Empty stdin (non-
+// interactive without --yes) is treated as "no" and exits cleanly — the context
+// has already been configured by this point, so declining the apply is a valid
+// no-op rather than a failure exit.
+func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	env := []string{
+		"HOME=" + homeDir,
+		"USERPROFILE=" + homeDir,
+		"PATH=" + os.Getenv("PATH"),
+	}
+	stdout, stderr, err := helpers.RunCLI(workDir, []string{"bootstrap", "--platform", "metal"}, env)
+	if err != nil {
+		t.Fatalf("expected clean exit when plan-confirm is declined, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	if !strings.Contains(string(stderr), "Apply skipped") {
+		t.Errorf("expected stderr to mention apply was skipped, got: %s", stderr)
+	}
+	// Side effect: the global config dir must have been materialized as part of
+	// falling back to global mode, confirming the global-mode codepath was hit
+	// and the context was configured before the prompt fired.
+	globalDir := filepath.Join(homeDir, ".config", "windsor")
+	if _, statErr := os.Stat(globalDir); os.IsNotExist(statErr) {
+		t.Errorf("expected global config dir at %s, not found (global-mode fallback never triggered)", globalDir)
+	}
+}
+
+// TestBootstrap_DanceIsScopedToPivot exercises the new bootstrap flow end to
+// end against the backend-first fixture with a remote backend configured.
+// Phase 1 must apply only the pivot (backend) against local state, Phase 2
+// must attempt to migrate state to the configured remote, and Phase 3 (the
+// rest of the stack — here, the "null" module) must NOT run once migration
+// fails. The assertion proves the dance is scoped to the pivot rather than
+// the legacy "apply everything local then migrate everything" path that
+// surfaced as the cluster/azure-aks pointer-mismatch bug.
+func TestBootstrap_DanceIsScopedToPivot(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "terraform.backend.type=s3"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"bootstrap", "--yes"}, env)
+	if err == nil {
+		t.Fatalf("expected bootstrap to fail at migrate (no real s3), got success\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+
+	// Phase 1: only the pivot was applied locally. The "null" module belongs
+	// to Phase 3 and must not appear in Phase 1's apply output.
+	if !strings.Contains(combined, "Applying backend") {
+		t.Errorf("expected pivot apply line for backend, got:\n%s", combined)
+	}
+	// Phase 2 was reached.
+	if !strings.Contains(combined, "Migrating terraform state") {
+		t.Errorf("expected migrate phase to be reached, got:\n%s", combined)
+	}
+	// Phase 3 was NOT reached because migrate failed. "Applying null" is the
+	// signature of the legacy all-local-then-migrate path; its presence here
+	// would indicate the dance ran against the full stack instead of just
+	// the pivot.
+	if strings.Contains(combined, "Applying null") {
+		t.Errorf("Phase 3 must not run after migrate failure; saw 'Applying null':\n%s", combined)
+	}
+}
+
 // TestBootstrap_WritesContextFileOnFirstRun verifies the positional context arg
 // persists to .windsor/context even when bootstrap later fails at the install
 // step. Users on other machines need this file to resolve the same context,

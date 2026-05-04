@@ -14,7 +14,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -49,19 +51,80 @@ type TerraformStack struct {
 	terraformEnv  *envvars.TerraformEnvPrinter
 	postApply     []func(id string) error
 	warningWriter io.Writer
+	initCache     map[initCacheKey]struct{}
+	initCacheMu   sync.Mutex
+}
+
+// initCacheKey identifies a previously-completed `terraform init`. Three
+// dimensions distinguish whether re-init is a no-op: component, configured
+// backend, migrate-state flag.
+type initCacheKey struct {
+	componentID  string
+	backendType  string
+	migrateState bool
 }
 
 // TerraformComponentPlan holds the plan result for a single Terraform component.
-// Add, Change, and Destroy reflect terraform's "to add / to change / to destroy" counts.
-// NoChanges is true when terraform reports no changes. Err is non-nil when the
-// component's init or plan step failed; subsequent layers may still be attempted.
+// ComponentID is the unique identifier (Name when set, else Path). Path carries the
+// component's blueprint Path field (e.g., "cluster/aws-eks") so renderers can show
+// the underlying module location alongside or instead of the short ID. Add, Change,
+// and Destroy reflect terraform's "to add / to change / to destroy" counts.
+// NoChanges is true when terraform reports no changes. IsNew is true when no state
+// exists for the component in the configured backend — the component has never been
+// applied. Resources is the per-resource change list extracted from the plan output;
+// it is empty when IsNew is true, when the plan errored, or when terraform reports
+// no changes. Err is non-nil when the component's init or plan step failed;
+// subsequent layers may still be attempted.
+//
+// IsNew supersedes the count fields: when IsNew is true, terraform plan is not
+// executed (it would either misreport "all creates" or fail reading dependent
+// upstream state), so Add/Change/Destroy are zero and NoChanges is false. JSON
+// consumers detecting "pending work" must check IsNew alongside the counts —
+// `IsNew || Add+Change+Destroy > 0` rather than counts alone.
+//
+// IsNew has two operator-facing meanings depending on which producer populated
+// the struct, and the struct itself does not carry a mode flag — callers route
+// this disambiguation. Apply-side producers (PlanSummary,
+// PlanComponentSummary) set IsNew when the component has never been applied,
+// rendered as "(new)". Destroy-side producers (PlanDestroySummary,
+// PlanDestroyComponentSummary) set IsNew when there is no state to destroy,
+// rendered as "(no state)". Renderers must therefore route apply and destroy
+// results through distinct formatters — calling the apply-side formatter on a
+// destroy-side result would emit "(new)" for a component that has nothing to
+// tear down, which is misleading.
 type TerraformComponentPlan struct {
 	ComponentID string
+	Path        string
 	Add         int
 	Change      int
 	Destroy     int
 	NoChanges   bool
+	IsNew       bool
+	Resources   []ResourceChange
 	Err         error
+}
+
+// Action enumerates the kinds of changes a plan can produce for a single resource.
+// ActionUnknown is reserved for inputs that don't correspond to any operator-visible
+// change (terraform "noop"/"read" or unrecognised action strings) and is dropped
+// from rendered resource lists.
+type Action int
+
+const (
+	ActionUnknown Action = iota
+	ActionCreate
+	ActionUpdate
+	ActionDelete
+	ActionReplace
+)
+
+// ResourceChange identifies one resource changed by a plan along with its action.
+// Address is the terraform resource address with the leading "module.main." wrapper
+// stripped, since every Windsor component wraps its resources in a single module
+// and the prefix would otherwise be repeated noise on every line.
+type ResourceChange struct {
+	Address string
+	Action  Action
 }
 
 // tfStateModule is a node in the module tree emitted by `terraform show -json`. Windsor
@@ -89,6 +152,10 @@ type Stack interface {
 	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
 	MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
+	HasLocalStateWithResources(componentID string) (bool, error)
+	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
+	RemoveLocalState(componentID string) error
 	PostApply(fns ...func(id string) error)
 	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -99,6 +166,8 @@ type Stack interface {
 	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
 
 // =============================================================================
@@ -243,6 +312,74 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 		}
 	}
 
+	return nil
+}
+
+// HasRemoteState reports whether the named component has non-empty terraform
+// state in the currently-configured backend. Runs init + `terraform show
+// -json`; callers must invoke before any in-memory backend override.
+func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return false, err
+	}
+	defer cleanup()
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		return false, err
+	}
+	return s.hasStateResources(component, terraformVars)
+}
+
+// InitComponent runs `terraform init` for one component using the currently-
+// configured backend; no -migrate-state, no plan, no apply.
+func (s *TerraformStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...)
+}
+
+// HasLocalStateWithResources reports whether the per-component local state
+// file exists and contains at least one resource entry. Reads the file as
+// JSON; no terraform invocation. Missing files report (false, nil).
+func (s *TerraformStack) HasLocalStateWithResources(componentID string) (bool, error) {
+	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
+	if err != nil {
+		return false, fmt.Errorf("error resolving local state path for %s: %w", componentID, err)
+	}
+	data, err := s.shims.ReadFile(statePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error reading local state file %s: %w", statePath, err)
+	}
+	var state struct {
+		Resources []json.RawMessage `json:"resources"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return false, fmt.Errorf("error parsing local state file %s: %w", statePath, err)
+	}
+	return len(state.Resources) > 0, nil
+}
+
+// RemoveLocalState removes the per-component local state file (and its
+// .backup sibling) under the windsor scratch path. Missing files are
+// tolerated.
+func (s *TerraformStack) RemoveLocalState(componentID string) error {
+	statePath, err := s.runtime.TerraformProvider.GetStatePath(componentID)
+	if err != nil {
+		return fmt.Errorf("error resolving local state path for %s: %w", componentID, err)
+	}
+	if err := s.shims.Remove(statePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error removing local state file %s: %w", statePath, err)
+	}
+	if err := s.shims.Remove(statePath + ".backup"); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error removing local state backup %s: %w", statePath, err)
+	}
 	return nil
 }
 
@@ -498,6 +635,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 		if componentSkipped {
 			skipped = append(skipped, component.GetID())
 		}
+		s.clearBackendPointer(terraformVars)
 	}
 
 	return skipped, nil
@@ -716,6 +854,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 	}); err != nil {
 		return false, err
 	}
+	s.clearBackendPointer(terraformVars)
 
 	return skipped, nil
 }
@@ -740,6 +879,75 @@ func (s *TerraformStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []T
 		results = append(results, s.planOneTerraformSummary(&components[i]))
 	}
 	return results
+}
+
+// PlanDestroySummary runs terraform init and `plan -destroy` for every component
+// in the blueprint that is not pinned with Destroy=false, capturing the destroy
+// counts and the per-resource list rather than printing them. Components with
+// Destroy=false are filtered out so the rendered plan matches what Teardown
+// would actually destroy — including them would lie. As with PlanSummary,
+// errors are recorded per-component and the summary continues so callers
+// receive partial results for independent layers. Returns nil if blueprint is
+// nil or projectRoot is unset.
+func (s *TerraformStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan {
+	if blueprint == nil {
+		return nil
+	}
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return nil
+	}
+
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+	results := make([]TerraformComponentPlan, 0, len(components))
+	for i := range components {
+		if !componentDestroyEnabled(&components[i]) {
+			continue
+		}
+		results = append(results, s.planOneTerraformDestroySummary(&components[i]))
+	}
+	return results
+}
+
+// PlanDestroyComponentSummary runs terraform init and `plan -destroy` for a
+// single component and returns its structured plan result. If the component is
+// not found, a result with a non-nil Err is returned rather than an error, to
+// match PlanComponentSummary. A component pinned with Destroy=false also
+// returns Err — Teardown would skip it, so producing a destroy plan for it
+// would mislead the operator.
+func (s *TerraformStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
+	result := TerraformComponentPlan{ComponentID: componentID}
+
+	if blueprint == nil {
+		result.Err = fmt.Errorf("blueprint not provided")
+		return result
+	}
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		result.Err = fmt.Errorf("error getting project root: project root is empty")
+		return result
+	}
+
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+	var component *blueprintv1alpha1.TerraformComponent
+	for i := range components {
+		if components[i].GetID() == componentID {
+			component = &components[i]
+			break
+		}
+	}
+	if component == nil {
+		result.Err = fmt.Errorf("terraform component %q not found in blueprint", componentID)
+		return result
+	}
+	if !componentDestroyEnabled(component) {
+		result.Err = fmt.Errorf("terraform component %q is pinned with destroy=false", componentID)
+		return result
+	}
+
+	return s.planOneTerraformDestroySummary(component)
 }
 
 // PlanComponentSummary runs terraform init and plan for a single component and returns its
@@ -891,8 +1099,41 @@ func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.Terr
 	return nil
 }
 
+// backendPointerPath returns the per-component backend pointer file path — the
+// JSON stub terraform writes to $TF_DATA_DIR/terraform.tfstate after init to
+// record which backend is currently in use. Returns empty when TF_DATA_DIR is
+// unset, signalling callers should skip pointer-related operations entirely.
+// Centralising the path here keeps clearBackendPointer and clearStaleBackendPointer
+// from drifting if terraform changes the pointer's filename or location.
+func (s *TerraformStack) backendPointerPath(terraformVars map[string]string) string {
+	tfDataDir := terraformVars["TF_DATA_DIR"]
+	if tfDataDir == "" {
+		return ""
+	}
+	return filepath.Join(tfDataDir, "terraform.tfstate")
+}
+
+// clearBackendPointer removes the per-component backend pointer file (the file
+// terraform writes to TF_DATA_DIR after init to record which backend is
+// currently in use). After destroy completes, the remote backend resource it
+// points at may itself have been torn down, leaving the pointer stale —
+// subsequent init then complains "backend changed" against a backend that no
+// longer exists. Removing only the pointer (terraform.tfstate inside
+// TF_DATA_DIR) leaves provider plugins, module cache, and lockfiles in place
+// so the next init is fast. Errors are ignored: cleanup is best-effort and a
+// failure here must not undo a successful destroy.
+func (s *TerraformStack) clearBackendPointer(terraformVars map[string]string) {
+	pointerPath := s.backendPointerPath(terraformVars)
+	if pointerPath == "" {
+		return
+	}
+	_ = s.shims.Remove(pointerPath)
+}
+
 // hasStateResources reports whether the component's state contains any resources at any
-// depth in the module tree. Used to short-circuit destroy on already-destroyed components.
+// depth in the module tree. Used by destroy to short-circuit already-destroyed components,
+// and by plan to classify never-applied components as IsNew (so plan is skipped rather than
+// running against empty state, which fails when dependent layers reference upstream state).
 func (s *TerraformStack) hasStateResources(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string) (bool, error) {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	stateShowArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "show", "-json"}
@@ -994,8 +1235,14 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 // planOneTerraformSummary runs terraform init and plan -no-color for a single component
 // and returns its structured result. It is shared by PlanSummary and PlanComponentSummary
 // to avoid duplicating the per-component setup, init, plan, and cleanup logic.
+//
+// Before running plan, hasStateResources is used to determine whether the configured
+// backend has any state recorded for this component. Empty state means the component
+// has never been applied — IsNew is set and plan is skipped, since plan would either
+// produce a misleading "all creates" picture or fail when `data "terraform_remote_state"`
+// references upstream layers that are also empty.
 func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
-	result := TerraformComponentPlan{ComponentID: component.GetID()}
+	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
 
 	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 	if err != nil {
@@ -1010,9 +1257,21 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 		return result
 	}
 
+	hasState, err := s.hasStateResources(component, terraformVars)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	if !hasState {
+		result.IsNew = true
+		return result
+	}
+
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-	// -no-color keeps the output machine-parseable for parseTerraformPlanCounts.
-	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-no-color"}
+	// -json emits a machine-parseable event stream we use to extract both the
+	// summary counts and the per-resource change list in one invocation; -no-color
+	// is required by terraform alongside -json.
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
@@ -1021,8 +1280,77 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 		return result
 	}
 
-	result.Add, result.Change, result.Destroy, result.NoChanges = parseTerraformPlanCounts(planOutput)
+	result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
 	return result
+}
+
+// planOneTerraformDestroySummary computes the destroy plan for one component.
+// Mirrors planOneTerraformSummary but invokes `plan -destroy -json` and uses
+// terraform destroy-mode env (TF_VAR_operation=destroy + DestroyArgs) so the
+// rendered plan reflects what Teardown will actually do, including any
+// destroy-time-only provider config the component opts into.
+//
+// IsNew is repurposed for the destroy context: a component with no state has
+// nothing to destroy, so we set IsNew=true and skip plan. Callers MUST route
+// this output through a destroy-aware formatter that renders IsNew as
+// "(no state)" rather than "(new)". The TerraformComponentPlan struct does
+// not carry a mode flag, so passing a destroy-side result through the
+// apply-side formatter would emit "(new)" for a component that has nothing to
+// tear down — see the IsNew contract on TerraformComponentPlan for the full
+// disambiguation rule.
+func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
+	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
+
+	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	defer cleanup()
+	terraformVars["TF_VAR_operation"] = "destroy"
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		result.Err = err
+		return result
+	}
+
+	hasState, err := s.hasStateResources(component, terraformVars)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	if !hasState {
+		result.IsNew = true
+		return result
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-destroy", "-json", "-no-color"}
+	planArgs = append(planArgs, terraformArgs.DestroyArgs...)
+	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
+	if err != nil {
+		result.Err = fmt.Errorf("error running terraform plan -destroy for %s: %w", component.Path, err)
+		return result
+	}
+
+	result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
+	return result
+}
+
+// componentDestroyEnabled reports whether a component should be included in a
+// destroy plan. A component is included unless its Destroy field is set and
+// resolves to false; absent or true means "destroy normally." This mirrors the
+// gate inside DestroyAll so the planned set matches the executed set.
+func componentDestroyEnabled(component *blueprintv1alpha1.TerraformComponent) bool {
+	if component.Destroy == nil {
+		return true
+	}
+	d := component.Destroy.ToBool()
+	if d == nil {
+		return true
+	}
+	return *d
 }
 
 // prepareComponentEnv saves the current directory, validates the component's directory exists,
@@ -1095,11 +1423,30 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 	return component, terraformVars, terraformArgs, cleanup, nil
 }
 
-// runTerraformInit executes terraform init for the given component, inserting any extraFlags
-// (e.g. "-migrate-state") immediately after the "init" subcommand and before the argument set
-// generated by the terraform provider. Returning a wrapped error keeps command-construction in
-// one place so the Up path and the MigrateState path can't drift.
+// runTerraformInit executes terraform init for the given component, inserting
+// extraFlags after "init". Successful invocations are memoized per
+// (component, backend, migrate-state) for the process so repeated callers in
+// a single CLI run share one terraform invocation; failed inits aren't
+// cached. On cache miss without -migrate-state, clearStaleBackendPointer
+// drops a stale pointer file before init runs. Dedup assumes sequential
+// callers; parallel iteration would need per-key sync.Once.
 func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
+	migrateState := slices.Contains(extraFlags, "-migrate-state")
+	key := initCacheKey{
+		componentID:  component.GetID(),
+		backendType:  s.runtime.ConfigHandler.GetString("terraform.backend.type", "local"),
+		migrateState: migrateState,
+	}
+	s.initCacheMu.Lock()
+	_, hit := s.initCache[key]
+	s.initCacheMu.Unlock()
+	if hit {
+		return nil
+	}
+
+	if !migrateState {
+		s.clearStaleBackendPointer(terraformVars)
+	}
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 	initArgs = append(initArgs, extraFlags...)
@@ -1109,7 +1456,60 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	if err != nil {
 		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
 	}
+
+	s.initCacheMu.Lock()
+	if s.initCache == nil {
+		s.initCache = make(map[initCacheKey]struct{})
+	}
+	s.initCache[key] = struct{}{}
+	s.initCacheMu.Unlock()
 	return nil
+}
+
+// clearStaleBackendPointer removes the per-component backend pointer file when it records a
+// backend type different from the one currently configured for windsor. The pointer is the
+// JSON file terraform writes to TF_DATA_DIR after init describing which backend is in use;
+// when it disagrees with the configured backend, terraform's next init treats the disagreement
+// as a migration request and demands `-migrate-state` or `-reconfigure`, which fails when the
+// new backend's resource doesn't exist yet (the chicken-and-egg windsor's bootstrap solves
+// via a separate path).
+//
+// Triggers for staleness:
+//   - The repo carries a committed backend_override.tf for `terraform test` against local
+//     state, then a fresh `terraform init` writes a "local" pointer that windsor sees on its
+//     next run with an s3-configured backend.
+//   - The operator changed terraform.backend.type in values.yaml between windsor runs.
+//
+// All paths boil down to "the pointer disagrees with what windsor will configure now," and
+// the right answer is to discard the pointer and let init set up the configured backend
+// fresh. State migration is owned by the explicit `-migrate-state` path (used by
+// MigrateState) — bypassed here because that caller passes the flag through extraFlags.
+//
+// Errors are best-effort: if the pointer can't be read or removed, init runs anyway and
+// surfaces the underlying issue. Unparseable pointer files are removed as well, since they
+// can only block init.
+func (s *TerraformStack) clearStaleBackendPointer(terraformVars map[string]string) {
+	pointerPath := s.backendPointerPath(terraformVars)
+	if pointerPath == "" {
+		return
+	}
+	data, err := s.shims.ReadFile(pointerPath)
+	if err != nil {
+		return
+	}
+	var pointer struct {
+		Backend struct {
+			Type string `json:"type"`
+		} `json:"backend"`
+	}
+	if err := json.Unmarshal(data, &pointer); err != nil {
+		_ = s.shims.Remove(pointerPath)
+		return
+	}
+	configuredBackend := s.runtime.ConfigHandler.GetString("terraform.backend.type", "local")
+	if pointer.Backend.Type != "" && pointer.Backend.Type != configuredBackend {
+		_ = s.shims.Remove(pointerPath)
+	}
 }
 
 // setupTerraformEnvironment computes Terraform-specific environment values and args for a component.
@@ -1149,40 +1549,98 @@ func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
 // Helpers
 // =============================================================================
 
-// parseTerraformPlanCounts extracts add/change/destroy counts from terraform plan stdout.
-// Returns noChanges=true when terraform reports no infrastructure changes.
-// Unrecognised output returns all zeros with noChanges=false.
-func parseTerraformPlanCounts(output string) (add, change, destroy int, noChanges bool) {
+// parseTerraformPlanJSON parses the line-delimited JSON event stream emitted by
+// `terraform plan -json` and extracts both the summary counts and the per-resource
+// change list. Resources whose action maps to ActionUnknown (terraform "noop" /
+// "read" or unrecognised verbs) are dropped — they don't represent operator-
+// visible work. noChanges is true when a change_summary event was observed and
+// reported zero adds/changes/removes; absence of any change_summary is treated
+// as noChanges=false so callers can distinguish "no plan output produced" from
+// "plan said nothing changes". Lines that are blank, non-JSON, or fail to parse
+// are silently skipped, since terraform may emit non-event diagnostics.
+func parseTerraformPlanJSON(output string) (add, change, destroy int, noChanges bool, resources []ResourceChange) {
+	type changeSummary struct {
+		Add    int `json:"add"`
+		Change int `json:"change"`
+		Remove int `json:"remove"`
+	}
+	type resourceAddr struct {
+		Addr string `json:"addr"`
+	}
+	type planChange struct {
+		Resource resourceAddr `json:"resource"`
+		Action   string       `json:"action"`
+	}
+	type event struct {
+		Type    string         `json:"type"`
+		Changes *changeSummary `json:"changes,omitempty"`
+		Change  *planChange    `json:"change,omitempty"`
+	}
+
+	sawSummary := false
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "No changes.") {
-			return 0, 0, 0, true
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
 		}
-		if strings.HasPrefix(line, "Plan:") {
-			for _, segment := range strings.Split(line, ",") {
-				segment = strings.TrimSpace(strings.TrimSuffix(segment, "."))
-				var n int
-				if _, err := fmt.Sscanf(segment, "Plan: %d to add", &n); err == nil {
-					add = n
-					continue
-				}
-				if _, err := fmt.Sscanf(segment, "%d to add", &n); err == nil {
-					add = n
-					continue
-				}
-				if _, err := fmt.Sscanf(segment, "%d to change", &n); err == nil {
-					change = n
-					continue
-				}
-				if _, err := fmt.Sscanf(segment, "%d to destroy", &n); err == nil {
-					destroy = n
-					continue
-				}
+		var ev event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		switch ev.Type {
+		case "change_summary":
+			if ev.Changes == nil {
+				continue
 			}
-			return
+			add = ev.Changes.Add
+			change = ev.Changes.Change
+			destroy = ev.Changes.Remove
+			sawSummary = true
+		case "planned_change":
+			if ev.Change == nil {
+				continue
+			}
+			action := mapTerraformAction(ev.Change.Action)
+			if action == ActionUnknown {
+				continue
+			}
+			resources = append(resources, ResourceChange{
+				Address: stripModuleMain(ev.Change.Resource.Addr),
+				Action:  action,
+			})
 		}
 	}
+	if sawSummary && add == 0 && change == 0 && destroy == 0 {
+		noChanges = true
+	}
 	return
+}
+
+// mapTerraformAction maps a `terraform plan -json` change.action string to the
+// shared Action enum. "noop" and "read" return ActionUnknown so callers can
+// drop them from the rendered resource list. Replace variants vary across
+// terraform versions; all collapse to ActionReplace.
+func mapTerraformAction(s string) Action {
+	switch s {
+	case "create":
+		return ActionCreate
+	case "update":
+		return ActionUpdate
+	case "delete":
+		return ActionDelete
+	case "replace", "delete-then-create", "create-then-delete":
+		return ActionReplace
+	default:
+		return ActionUnknown
+	}
+}
+
+// stripModuleMain removes the leading "module.main." wrapper from a terraform
+// resource address. Every Windsor component wraps its resources in this single
+// module, so the prefix would otherwise be repeated noise on every rendered
+// line. Addresses that don't start with the wrapper are returned unchanged.
+func stripModuleMain(addr string) string {
+	return strings.TrimPrefix(addr, "module.main.")
 }
 
 // selectTerraformCommandEnv builds per-command env overrides without mutating process-wide environment.

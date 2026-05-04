@@ -7,8 +7,10 @@ package env
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
+	"github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
@@ -45,22 +47,29 @@ func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *
 // =============================================================================
 
 // GetEnvVars retrieves the environment variables for the Azure environment.
+// In project mode AZURE_CONFIG_DIR always points at the context's .azure dir,
+// matching how the AWS env printer scopes AWS_CONFIG_FILE — keeps `az login`
+// from contaminating the operator's global ~/.azure. In global mode it is not
+// emitted; ARM_SUBSCRIPTION_ID / ARM_TENANT_ID / ARM_ENVIRONMENT and
+// TF_VAR_kubelogin_mode are emitted in both modes — the ARM_* vars describe
+// the target account/tenant and TF_VAR_kubelogin_mode feeds terraform, which
+// runs from global shells too.
 func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
+	global := e.shell.IsGlobal()
 
-	configRoot, err := e.configHandler.GetConfigRoot()
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
-	}
-
-	azureConfigDir := filepath.Join(configRoot, ".azure")
-
-	// Get the current context configuration
-	config := e.configHandler.GetConfig()
-	if config != nil && config.Azure != nil {
+	if !global {
+		configRoot, err := e.configHandler.GetConfigRoot()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
+		}
+		azureConfigDir := filepath.Join(configRoot, ".azure")
 		envVars["AZURE_CONFIG_DIR"] = filepath.ToSlash(azureConfigDir)
 		envVars["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "false"
+	}
 
+	config := e.configHandler.GetConfig()
+	if config != nil && config.Azure != nil {
 		if config.Azure.SubscriptionID != nil {
 			envVars["ARM_SUBSCRIPTION_ID"] = *config.Azure.SubscriptionID
 		}
@@ -72,5 +81,27 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
+	envVars["TF_VAR_kubelogin_mode"] = e.resolveKubeloginMode(config)
+
 	return envVars, nil
+}
+
+// resolveKubeloginMode returns the kubelogin login mode for the AKS
+// kubeconfig, in precedence order: azure.kubelogin_mode (operator override,
+// the only path that handles managed-identity since MI has no env signal) →
+// AZURE_FEDERATED_TOKEN_FILE → workloadidentity → AZURE_CLIENT_SECRET /
+// AZURE_CLIENT_CERTIFICATE_PATH → spn → otherwise → azurecli.
+func (e *AzureEnvPrinter) resolveKubeloginMode(config *v1alpha1.Context) string {
+	if config != nil && config.Azure != nil && config.Azure.KubeloginMode != nil {
+		if v := *config.Azure.KubeloginMode; v != "" {
+			return v
+		}
+	}
+	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+		return "workloadidentity"
+	}
+	if os.Getenv("AZURE_CLIENT_SECRET") != "" || os.Getenv("AZURE_CLIENT_CERTIFICATE_PATH") != "" {
+		return "spn"
+	}
+	return "azurecli"
 }

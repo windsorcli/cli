@@ -226,9 +226,26 @@ func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
 // Bootstrap is Up's first-run sibling: workstation prep runs first (so the
 // backend component's apply has a live cluster on docker/colima/incus), then
 // the provisioner pins backend.type=local for one Up pass and migrates state
-// to the configured remote backend at the end.
-func (p *Project) Bootstrap() (*blueprintv1alpha1.Blueprint, error) {
-	return p.runApply(p.Provisioner.Bootstrap)
+// to the configured remote backend at the end. When confirm is non-nil, the
+// provisioner runs a combined Terraform + Kustomize plan summary inside the
+// same backend override and hands it to confirm; returning false aborts
+// cleanly with applied=false. Returns (blueprint, applied, error) — applied
+// is false when confirm declined; callers can use that to short-circuit
+// without surfacing an error.
+func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv1alpha1.Blueprint, bool, error) {
+	blueprint, onApply, err := p.prepareForApply()
+	if err != nil {
+		return nil, false, err
+	}
+	var hooks []func(string) error
+	if onApply != nil {
+		hooks = []func(string) error{onApply}
+	}
+	applied, err := p.Provisioner.Bootstrap(blueprint, confirm, hooks...)
+	if err != nil {
+		return nil, false, fmt.Errorf("error starting infrastructure: %w", err)
+	}
+	return blueprint, applied, nil
 }
 
 // PerformCleanup removes context-specific artifacts: config state and

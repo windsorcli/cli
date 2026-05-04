@@ -120,8 +120,11 @@ func TestDestroyTerraform_SkipsComponentWithEmptyState(t *testing.T) {
 		t.Fatalf("destroy terraform on never-applied context: %v\nstderr: %s", err, stderr)
 	}
 	combined := string(stderr)
-	if !strings.Contains(combined, "Skipped (empty state, nothing to destroy)") {
-		t.Errorf("expected stderr to mention skipped components, got: %s", combined)
+	if !strings.Contains(combined, "had empty state during destroy") {
+		t.Errorf("expected stderr to mention components skipped due to empty state, got: %s", combined)
+	}
+	if !strings.Contains(combined, "may now be orphaned") {
+		t.Errorf("expected stderr to flag the orphan-resources hazard, got: %s", combined)
 	}
 	if !strings.Contains(combined, "null") {
 		t.Errorf("expected the null component to appear in the skip list, got: %s", combined)
@@ -154,8 +157,11 @@ func TestDestroyTerraform_LocalBackendSkipsMigrationDance(t *testing.T) {
 	if strings.Contains(combined, "Migrating terraform state") {
 		t.Errorf("expected no state migration for local-backend destroy, but migration progress line appeared:\n%s", combined)
 	}
-	if !strings.Contains(combined, "Skipped (empty state, nothing to destroy)") {
-		t.Errorf("expected stderr to mention skipped components, got:\n%s", combined)
+	if !strings.Contains(combined, "had empty state during destroy") {
+		t.Errorf("expected stderr to mention components skipped due to empty state, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "may now be orphaned") {
+		t.Errorf("expected stderr to flag the orphan-resources hazard, got:\n%s", combined)
 	}
 	if !strings.Contains(combined, "backend") {
 		t.Errorf("expected backend component in skip list, got:\n%s", combined)
@@ -207,5 +213,32 @@ terraform:
 	// terraformComponents" or "currently at position".
 	if strings.Contains(combined, "first item in terraformComponents") || strings.Contains(combined, "currently at position") {
 		t.Errorf("destroy must skip structural validation; saw validator prose in output:\n%s", combined)
+	}
+}
+
+// TestDestroy_ShowsDestroyPlanBeforePromptOrConfirm verifies the operator-
+// facing payoff of this PR: a "Windsor Destroy Plan" preview appears in the
+// destroy output before the prompt fires (or, with --confirm supplied, before
+// the actual destroy). The plan fixture has no kustomizations, so we exercise
+// only the terraform side which works without a live cluster.
+func TestDestroy_ShowsDestroyPlanBeforePromptOrConfirm(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null"}, env)
+	if err != nil {
+		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
+	}
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"destroy", "--confirm=local", "terraform"}, env)
+	if err != nil {
+		t.Fatalf("destroy terraform: %v\nstderr: %s", err, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if !strings.Contains(combined, "Windsor Destroy Plan") {
+		t.Errorf("expected 'Windsor Destroy Plan' header in output, got:\n%s", combined)
 	}
 }

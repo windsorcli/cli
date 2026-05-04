@@ -17,6 +17,8 @@ type MockTerraformProvider struct {
 	GetTerraformOutputsFunc     func(componentID string) (map[string]any, error)
 	CacheOutputsFunc            func(componentID string) error
 	GetTFDataDirFunc            func(componentID string) (string, error)
+	GetStatePathFunc            func(componentID string) (string, error)
+	BackendConfigCompleteFunc   func() bool
 	GetEnvVarsFunc              func(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnvFunc        func(args []string) string
 	ClearCacheFunc              func()
@@ -106,6 +108,24 @@ func (m *MockTerraformProvider) GetTFDataDir(componentID string) (string, error)
 		return m.GetTFDataDirFunc(componentID)
 	}
 	return "", nil
+}
+
+// GetStatePath implements TerraformProvider.
+func (m *MockTerraformProvider) GetStatePath(componentID string) (string, error) {
+	if m.GetStatePathFunc != nil {
+		return m.GetStatePathFunc(componentID)
+	}
+	return "", nil
+}
+
+// BackendConfigComplete implements TerraformProvider. Default is true so most
+// tests exercise the probe path; tests for the no-config short-circuit set
+// BackendConfigCompleteFunc explicitly to return false.
+func (m *MockTerraformProvider) BackendConfigComplete() bool {
+	if m.BackendConfigCompleteFunc != nil {
+		return m.BackendConfigCompleteFunc()
+	}
+	return true
 }
 
 // GetEnvVars implements TerraformProvider.

@@ -15,12 +15,16 @@ import (
 
 // Shims provides mockable wrappers around system and runtime functions
 type Shims struct {
-	Stat     func(string) (os.FileInfo, error)
-	Chdir    func(string) error
-	Getwd    func() (string, error)
-	Setenv   func(string, string) error
-	Unsetenv func(string) error
-	Remove   func(string) error
+	Stat      func(string) (os.FileInfo, error)
+	Chdir     func(string) error
+	Getwd     func() (string, error)
+	Setenv    func(string, string) error
+	Unsetenv  func(string) error
+	Remove    func(string) error
+	MkdirTemp func(string, string) (string, error)
+	RemoveAll func(string) error
+	WriteFile func(string, []byte, os.FileMode) error
+	ReadFile  func(string) ([]byte, error)
 }
 
 // =============================================================================
@@ -30,11 +34,15 @@ type Shims struct {
 // NewShims creates a new Shims instance with default implementations
 func NewShims() *Shims {
 	return &Shims{
-		Stat:     os.Stat,
-		Chdir:    os.Chdir,
-		Getwd:    os.Getwd,
-		Setenv:   os.Setenv,
-		Unsetenv: os.Unsetenv,
-		Remove:   os.Remove,
+		Stat:      os.Stat,
+		Chdir:     os.Chdir,
+		Getwd:     os.Getwd,
+		Setenv:    os.Setenv,
+		Unsetenv:  os.Unsetenv,
+		Remove:    os.Remove,
+		MkdirTemp: os.MkdirTemp,
+		RemoveAll: os.RemoveAll,
+		WriteFile: os.WriteFile,
+		ReadFile:  os.ReadFile,
 	}
 }
