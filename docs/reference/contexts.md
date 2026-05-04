@@ -96,7 +96,7 @@ Used as the local file Terraform backend state. This is the default state until 
 
 ### `terraform/`
 
-Contains terraform variables as `.tfvars` files. These are automatically passed to corresponding terraform projects deployed in the current context. These are explicitly referenced in the `blueprint.yaml` file. See the [Terraform Guide](../guides/terraform.md) for more details.
+Contains terraform variables as `.tfvars` files. These are automatically passed to corresponding terraform projects deployed in the current context. These are explicitly referenced in the `blueprint.yaml` file. See the [Terraform guide](https://www.windsorcli.dev/docs/components/terraform) for more details.
 
 ## Context Management
 

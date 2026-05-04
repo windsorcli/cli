@@ -155,7 +155,7 @@ When the current directory is inside a generated Terraform module shim (`.windso
 - `TF_VAR_context`, `TF_VAR_context_id`, `TF_VAR_context_path`, `TF_VAR_project_root`, `TF_VAR_os_type`, `TF_VAR_operation`.
 - `TF_VAR_<input>` for each evaluated component input.
 
-See the [Terraform guide](../guides/terraform.md) for the full lifecycle.
+See the [Terraform guide](https://www.windsorcli.dev/docs/components/terraform) for the full lifecycle.
 
 ## See also
 
