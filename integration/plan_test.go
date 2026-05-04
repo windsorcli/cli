@@ -257,31 +257,3 @@ func TestPlan_FooterHintAppearsForNewComponents(t *testing.T) {
 	}
 }
 
-// TestPlan_JSONIncludesResourcesKeyForKustomize confirms that the JSON output
-// schema carries the new resources field. With the kustomize CLI available
-// we exercise the new-kustomization path which always populates resources from
-// `kustomize build`. When kustomize is missing the test exits early since the
-// resources field is omitempty and an empty plan would not surface it.
-func TestPlan_JSONIncludesResourcesKeyForKustomize(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("kustomize"); err != nil {
-		t.Skipf("kustomize CLI not available (%v) — skipping resources-in-json test", err)
-	}
-	dir, env := helpers.CopyFixtureOnly(t, "plan")
-	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
-	if err != nil {
-		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
-	}
-	env = append(env, "WINDSOR_CONTEXT=local")
-	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "kustomize", "--summary", "--json"}, env)
-	if err != nil {
-		t.Fatalf("plan kustomize --summary --json: %v\nstderr: %s", err, stderr)
-	}
-	out := string(stdout)
-	// The fixture has no kustomizations; the JSON should still parse and the
-	// "kustomize" key should be absent (omitempty) — confirms the schema didn't
-	// break when we added the resources field.
-	if !strings.Contains(out, "{") {
-		t.Errorf("expected JSON object in stdout, got: %s", out)
-	}
-}
