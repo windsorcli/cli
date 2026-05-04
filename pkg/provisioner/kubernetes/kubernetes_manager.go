@@ -47,10 +47,24 @@ type KubernetesManager interface {
 	CheckGitRepositoryStatus() error
 	GetKustomizationStatus(names []string) (map[string]bool, error)
 	KustomizationExists(name, namespace string) (bool, error)
+	GetKustomizationInventory(name, namespace string) ([]InventoryEntry, error)
 	WaitForKubernetesHealthy(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+}
+
+// InventoryEntry identifies one resource Flux is tracking for a Kustomization,
+// decoded from a single .status.inventory.entries[] record. The encoded form
+// flux writes is "<namespace>_<name>_<group>_<kind>"; namespace is empty for
+// cluster-scoped resources, group is empty for core API objects ("v1"). These
+// entries are exactly what flux deletes when a Kustomization is removed, so
+// they are the truthful source for "what will go away on destroy."
+type InventoryEntry struct {
+	Group     string
+	Kind      string
+	Namespace string
+	Name      string
 }
 
 // =============================================================================
@@ -553,6 +567,70 @@ func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (boo
 		return false, err
 	}
 	return true, nil
+}
+
+// GetKustomizationInventory returns the list of resources Flux is currently
+// tracking for the named Kustomization, decoded from its
+// .status.inventory.entries field. This is what flux uses to drive prune
+// behavior, so it is the authoritative source for "what will be deleted when
+// this Kustomization is removed." Returns (nil, nil) when the Kustomization
+// itself is absent (a destroy-plan caller should treat that as "not deployed"
+// rather than an error). Returns an empty slice when the Kustomization exists
+// but has no inventory yet (e.g., suspended, or never reconciled). Other API
+// errors and malformed inventory entries propagate.
+func (k *BaseKubernetesManager) GetKustomizationInventory(name, namespace string) ([]InventoryEntry, error) {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+	obj, err := k.client.GetResource(gvr, namespace, name)
+	if err != nil {
+		if isNotFoundError(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	rawEntries, found, err := unstructured.NestedSlice(obj.Object, "status", "inventory", "entries")
+	if err != nil {
+		return nil, fmt.Errorf("error reading inventory for kustomization %q in namespace %q: %w", name, namespace, err)
+	}
+	if !found {
+		return []InventoryEntry{}, nil
+	}
+	entries := make([]InventoryEntry, 0, len(rawEntries))
+	for _, raw := range rawEntries {
+		entryMap, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := entryMap["id"].(string)
+		entry, ok := decodeInventoryID(id)
+		if !ok {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// decodeInventoryID parses a flux inventory ID of the form
+// "<namespace>_<name>_<group>_<kind>" into an InventoryEntry. Namespace is
+// empty for cluster-scoped resources; group is empty for core API objects.
+// Returns (zero, false) when the ID does not have exactly four underscore-
+// separated fields — flux always emits four, so anything else is a malformed
+// entry we should drop rather than misrender.
+func decodeInventoryID(id string) (InventoryEntry, bool) {
+	parts := strings.SplitN(id, "_", 4)
+	if len(parts) != 4 {
+		return InventoryEntry{}, false
+	}
+	return InventoryEntry{
+		Namespace: parts[0],
+		Name:      parts[1],
+		Group:     parts[2],
+		Kind:      parts[3],
+	}, true
 }
 
 // WaitForKubernetesHealthy waits for the Kubernetes API to become healthy within the context deadline.
