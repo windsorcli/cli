@@ -6,9 +6,12 @@ description: "Reference for JSON Schema file structure and supported features"
 
 Blueprints can include a JSON Schema file (`_template/schema.yaml`) that defines the expected structure and default values for configuration.
 
-## Schema File Structure
+## Schema file structure
 
-The schema file must use the Windsor schema dialect. The schema is located at `_template/schema.yaml` in blueprint templates.
+The schema file lives at `contexts/_template/schema.yaml` in blueprint templates. The `$schema` field accepts either of:
+
+- `https://windsorcli.dev/schema/2026-02/schema` — the Windsor dialect (recommended).
+- `https://json-schema.org/draft/2020-12/schema` — accepted for compatibility. Only the subset of Draft 2020-12 documented below is validated.
 
 ```yaml
 $schema: https://windsorcli.dev/schema/2026-02/schema
@@ -83,20 +86,16 @@ The following JSON Schema Draft 2020-12 features are **not** supported:
 - **Conditional validation**: `if`, `then`, `else`
 - **Dependent schemas**: `dependentSchemas`, `dependentRequired`
 
-## Schema File Location
-
-The schema file must be located at `contexts/_template/schema.yaml` in your blueprint template directory.
-
 ## Example
 
 ```yaml
 $schema: https://windsorcli.dev/schema/2026-02/schema
 type: object
 properties:
-  provider:
+  platform:
     type: string
     default: "none"
-    enum: ["none", "metal", "docker", "aws", "azure", "gcp"]
+    enum: ["none", "metal", "docker", "incus", "aws", "azure", "gcp"]
   observability:
     type: object
     properties:
@@ -111,9 +110,10 @@ properties:
   cluster:
     type: object
     properties:
-      enabled:
-        type: boolean
-        default: true
+      driver:
+        type: string
+        default: "talos"
+        enum: ["talos"]
       workers:
         type: object
         properties:
