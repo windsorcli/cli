@@ -17,7 +17,7 @@ The variables include AWS, Kubernetes, Docker, Talos, and Terraform credentials 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--decrypt` | `false` | Decrypt secrets before exporting env vars. |
-| `--hook` | `false` | Suppress errors and decryption (used by the shell hook). |
+| `--hook` | `false` | Non-fatal mode: suppress warnings and exit `0` on errors so a misconfigured project never breaks the prompt. The shell hook installed by `windsor hook` invokes `windsor env --decrypt --hook` automatically. |
 
 ## Examples
 

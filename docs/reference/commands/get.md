@@ -13,11 +13,11 @@ Display Windsor resources. Currently supports listing contexts and printing the 
 
 ## get contexts
 
-List contexts in the project. Output is a tab-aligned table with columns `NAME`, `PROVIDER`, `BACKEND`, `CURRENT`. The current context is marked with `*`.
+List contexts in the project. Output is a tab-aligned table with columns `NAME`, `PROVIDER`, `BACKEND`, `CURRENT`. The current context is marked with `*`. The `PROVIDER` column shows the v0.9 `platform` value (column header retained for compatibility); `BACKEND` shows the configured `terraform.backend.type` or `<none>` when unset.
 
 ```
 NAME    PROVIDER  BACKEND  CURRENT
-local   docker    local    *
+local   docker    <none>   *
 prod    aws       s3
 ```
 
