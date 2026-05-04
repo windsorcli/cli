@@ -81,6 +81,17 @@ type initCacheKey struct {
 // upstream state), so Add/Change/Destroy are zero and NoChanges is false. JSON
 // consumers detecting "pending work" must check IsNew alongside the counts —
 // `IsNew || Add+Change+Destroy > 0` rather than counts alone.
+//
+// IsNew has two operator-facing meanings depending on which producer populated
+// the struct, and the struct itself does not carry a mode flag — callers route
+// this disambiguation. Apply-side producers (PlanSummary,
+// PlanComponentSummary) set IsNew when the component has never been applied,
+// rendered as "(new)". Destroy-side producers (PlanDestroySummary,
+// PlanDestroyComponentSummary) set IsNew when there is no state to destroy,
+// rendered as "(no state)". Renderers must therefore route apply and destroy
+// results through distinct formatters — calling the apply-side formatter on a
+// destroy-side result would emit "(new)" for a component that has nothing to
+// tear down, which is misleading.
 type TerraformComponentPlan struct {
 	ComponentID string
 	Path        string
@@ -1280,10 +1291,13 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 // destroy-time-only provider config the component opts into.
 //
 // IsNew is repurposed for the destroy context: a component with no state has
-// nothing to destroy, so we set IsNew=true and skip plan. Callers render this
-// as "(no state)" rather than "(new)" — same condition, different language —
-// to avoid running plan against an empty state which would emit a misleading
-// "all destroys" event stream or fail when reading dependent layers.
+// nothing to destroy, so we set IsNew=true and skip plan. Callers MUST route
+// this output through a destroy-aware formatter that renders IsNew as
+// "(no state)" rather than "(new)". The TerraformComponentPlan struct does
+// not carry a mode flag, so passing a destroy-side result through the
+// apply-side formatter would emit "(new)" for a component that has nothing to
+// tear down — see the IsNew contract on TerraformComponentPlan for the full
+// disambiguation rule.
 func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
 	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
 
