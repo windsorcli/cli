@@ -4,7 +4,6 @@ nav:
   - 'Quick Start': quick-start.md
   - 'Guides':
     - 'Local Workstation': guides/local-workstation.md
-    - 'Kustomize': guides/kustomize.md
     - 'Terraform': guides/terraform.md
   - 'Tutorial':
     - 'Hello, World!': tutorial/hello-world.md
