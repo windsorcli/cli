@@ -576,8 +576,13 @@ func (k *BaseKubernetesManager) KustomizationExists(name, namespace string) (boo
 // this Kustomization is removed." Returns (nil, nil) when the Kustomization
 // itself is absent (a destroy-plan caller should treat that as "not deployed"
 // rather than an error). Returns an empty slice when the Kustomization exists
-// but has no inventory yet (e.g., suspended, or never reconciled). Other API
-// errors and malformed inventory entries propagate.
+// but has no inventory yet (e.g., suspended, or never reconciled). API errors
+// reading the Kustomization or its inventory propagate. Individual entries
+// that fail to decode (malformed IDs, unexpected field shapes) are silently
+// dropped — flux always emits well-formed IDs, so this branch is rare in
+// practice, and resilience matters more than completeness here: failing the
+// whole destroy preview because of one corrupt entry would be worse than
+// rendering a slightly truncated list.
 func (k *BaseKubernetesManager) GetKustomizationInventory(name, namespace string) ([]InventoryEntry, error) {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
