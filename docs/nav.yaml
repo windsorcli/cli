@@ -3,7 +3,6 @@ nav:
   - 'Installation': install.md
   - 'Quick Start': quick-start.md
   - 'Guides':
-    - 'Lifecycle': guides/lifecycle.md
     - 'Local Workstation': guides/local-workstation.md
     - 'Kustomize': guides/kustomize.md
     - 'Terraform': guides/terraform.md
@@ -13,9 +12,6 @@ nav:
     - 'Explain': guides/explain.md
   - 'Tutorial':
     - 'Hello, World!': tutorial/hello-world.md
-  - 'Security':
-    - 'Trusted Folders': security/trusted-folders.md
-    - 'Securing Secrets': security/secrets.md
   - 'Reference':
     - 'Blueprint': reference/blueprint.md
     - 'Configuration': reference/configuration.md

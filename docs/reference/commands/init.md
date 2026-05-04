@@ -48,7 +48,7 @@ windsor init staging --platform=aws --aws-profile=staging
 
 ## See also
 
-- [Lifecycle guide](../../guides/lifecycle.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [Contexts reference](../contexts.md)
 - [`up`](up.md), [`apply`](apply.md), [`bootstrap`](bootstrap.md)
 - Source: [cmd/init.go](https://github.com/windsorcli/cli/blob/main/cmd/init.go)

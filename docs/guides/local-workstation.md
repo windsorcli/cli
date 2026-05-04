@@ -289,7 +289,7 @@ The default blueprint installs Istio's [BookInfo](https://istio.io/latest/docs/e
 
 ## See also
 
-- [Lifecycle](lifecycle.md) — `up` / `down` phase boundaries
+- [Lifecycle](https://www.windsorcli.dev/docs/cli/lifecycle) — `up` / `down` phase boundaries
 - [Environment reference](../reference/environment.md) — `DOCKER_HOST`, `KUBECONFIG`, `TALOSCONFIG`, `REGISTRY_URL`
 - [`configure`](../reference/commands/configure.md), [`up`](../reference/commands/up.md), [`down`](../reference/commands/down.md)
 - [Reference: Configuration](../reference/configuration.md) — full schema for `workstation`, `cluster`, `dns`, `docker`

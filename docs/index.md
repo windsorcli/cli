@@ -25,7 +25,7 @@ A Windsor project is a directory of contexts. Each context describes one deploym
 | Inspect | [`windsor plan`](reference/commands/plan.md) / [`show`](reference/commands/show.md) / [`explain`](reference/commands/explain.md) |
 | Tear down | [`windsor destroy`](reference/commands/destroy.md) / [`down`](reference/commands/down.md) |
 
-See the [Lifecycle guide](guides/lifecycle.md) for how the phases fit together.
+See the [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle) for how the phases fit together.
 
 ## Get started
 

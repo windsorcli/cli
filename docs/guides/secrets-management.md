@@ -106,4 +106,4 @@ If you are having difficulty with your secrets, you may export your secret to th
     ```
 
 ## Security Recommendations
-For more details about Windsor's use of secrets along with our recommendations for securely using secrets in your environment, see the section on [Securing Secrets](../security/secrets.md).
+For more details about Windsor's use of secrets along with our recommendations for securely using secrets in your environment, see [Securing secrets](https://www.windsorcli.dev/docs/cli/securing-secrets).

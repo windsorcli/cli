@@ -62,7 +62,7 @@ windsor show values
 
 ## See also
 
-- [Lifecycle guide](../../guides/lifecycle.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`explain`](explain.md), [`plan`](plan.md)
 - [Blueprint reference](../blueprint.md), [Configuration reference](../configuration.md)
 - Source: [cmd/show.go](https://github.com/windsorcli/cli/blob/main/cmd/show.go)

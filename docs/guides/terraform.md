@@ -175,7 +175,7 @@ This is workstation-context behavior only; non-workstation contexts skip the cal
 
 ## See also
 
-- [Lifecycle](lifecycle.md) — phase-by-phase command map
+- [Lifecycle](https://www.windsorcli.dev/docs/cli/lifecycle) — phase-by-phase command map
 - [Environment reference](../reference/environment.md) — full env table including cloud providers
 - [Local Workstation](local-workstation.md) — workstation-specific terraform components
 - [reference/blueprint.md](../reference/blueprint.md#terraformcomponent) — `TerraformComponent` schema

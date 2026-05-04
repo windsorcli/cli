@@ -57,6 +57,6 @@ windsor destroy terraform cluster --confirm=cluster
 
 ## See also
 
-- [Lifecycle guide](../../guides/lifecycle.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)
 - Source: [cmd/destroy.go](https://github.com/windsorcli/cli/blob/main/cmd/destroy.go)

@@ -27,6 +27,6 @@ windsor down
 
 ## See also
 
-- [Lifecycle guide](../../guides/lifecycle.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`up`](up.md), [`destroy`](destroy.md)
 - Source: [cmd/down.go](https://github.com/windsorcli/cli/blob/main/cmd/down.go)

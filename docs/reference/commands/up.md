@@ -33,7 +33,7 @@ windsor up --set cluster.workers.count=3
 
 ## See also
 
-- [Lifecycle guide](../../guides/lifecycle.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [Local Workstation guide](../../guides/local-workstation.md)
 - [`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)
 - Source: [cmd/up.go](https://github.com/windsorcli/cli/blob/main/cmd/up.go)
