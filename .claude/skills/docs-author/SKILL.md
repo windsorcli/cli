@@ -61,3 +61,5 @@ Use YAML frontmatter compatible with Astro content collections:
 ## Internal architecture note
 
 Ingest layout, pins, and Renovate expectations: [windsorcli.github.io `docs/plan.md` on GitHub](https://github.com/windsorcli/windsorcli.github.io/blob/main/docs/plan.md) (maintainer doc, not shipped to the public docs site; paths may evolve until `docs:vendor` lands—prefer the **public URL prefix** column when in doubt).
+
+To preview reference in the website repo against a **local** checkout: from `windsorcli.github.io`, run `npm run docs:vendor:local` (expects `../cli` and `../core`), then `npm run dev`.
