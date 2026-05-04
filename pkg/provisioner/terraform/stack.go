@@ -155,6 +155,8 @@ type Stack interface {
 	Destroy(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
 	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
 
 // =============================================================================
@@ -868,6 +870,75 @@ func (s *TerraformStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []T
 	return results
 }
 
+// PlanDestroySummary runs terraform init and `plan -destroy` for every component
+// in the blueprint that is not pinned with Destroy=false, capturing the destroy
+// counts and the per-resource list rather than printing them. Components with
+// Destroy=false are filtered out so the rendered plan matches what Teardown
+// would actually destroy — including them would lie. As with PlanSummary,
+// errors are recorded per-component and the summary continues so callers
+// receive partial results for independent layers. Returns nil if blueprint is
+// nil or projectRoot is unset.
+func (s *TerraformStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan {
+	if blueprint == nil {
+		return nil
+	}
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		return nil
+	}
+
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+	results := make([]TerraformComponentPlan, 0, len(components))
+	for i := range components {
+		if !componentDestroyEnabled(&components[i]) {
+			continue
+		}
+		results = append(results, s.planOneTerraformDestroySummary(&components[i]))
+	}
+	return results
+}
+
+// PlanDestroyComponentSummary runs terraform init and `plan -destroy` for a
+// single component and returns its structured plan result. If the component is
+// not found, a result with a non-nil Err is returned rather than an error, to
+// match PlanComponentSummary. A component pinned with Destroy=false also
+// returns Err — Teardown would skip it, so producing a destroy plan for it
+// would mislead the operator.
+func (s *TerraformStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
+	result := TerraformComponentPlan{ComponentID: componentID}
+
+	if blueprint == nil {
+		result.Err = fmt.Errorf("blueprint not provided")
+		return result
+	}
+
+	projectRoot := s.runtime.ProjectRoot
+	if projectRoot == "" {
+		result.Err = fmt.Errorf("error getting project root: project root is empty")
+		return result
+	}
+
+	components := s.resolveTerraformComponents(blueprint, projectRoot)
+	var component *blueprintv1alpha1.TerraformComponent
+	for i := range components {
+		if components[i].GetID() == componentID {
+			component = &components[i]
+			break
+		}
+	}
+	if component == nil {
+		result.Err = fmt.Errorf("terraform component %q not found in blueprint", componentID)
+		return result
+	}
+	if !componentDestroyEnabled(component) {
+		result.Err = fmt.Errorf("terraform component %q is pinned with destroy=false", componentID)
+		return result
+	}
+
+	return s.planOneTerraformDestroySummary(component)
+}
+
 // PlanComponentSummary runs terraform init and plan for a single component and returns its
 // structured plan result. It resolves only the requested component from the blueprint,
 // so no other components are initialised or planned. If the component is not found, a
@@ -1200,6 +1271,72 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 
 	result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
 	return result
+}
+
+// planOneTerraformDestroySummary computes the destroy plan for one component.
+// Mirrors planOneTerraformSummary but invokes `plan -destroy -json` and uses
+// terraform destroy-mode env (TF_VAR_operation=destroy + DestroyArgs) so the
+// rendered plan reflects what Teardown will actually do, including any
+// destroy-time-only provider config the component opts into.
+//
+// IsNew is repurposed for the destroy context: a component with no state has
+// nothing to destroy, so we set IsNew=true and skip plan. Callers render this
+// as "(no state)" rather than "(new)" — same condition, different language —
+// to avoid running plan against an empty state which would emit a misleading
+// "all destroys" event stream or fail when reading dependent layers.
+func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
+	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
+
+	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	defer cleanup()
+	terraformVars["TF_VAR_operation"] = "destroy"
+
+	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		result.Err = err
+		return result
+	}
+
+	hasState, err := s.hasStateResources(component, terraformVars)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	if !hasState {
+		result.IsNew = true
+		return result
+	}
+
+	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-destroy", "-json", "-no-color"}
+	planArgs = append(planArgs, terraformArgs.DestroyArgs...)
+	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
+	if err != nil {
+		result.Err = fmt.Errorf("error running terraform plan -destroy for %s: %w", component.Path, err)
+		return result
+	}
+
+	result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
+	return result
+}
+
+// componentDestroyEnabled reports whether a component should be included in a
+// destroy plan. A component is included unless its Destroy field is set and
+// resolves to false; absent or true means "destroy normally." This mirrors the
+// gate inside DestroyAll so the planned set matches the executed set.
+func componentDestroyEnabled(component *blueprintv1alpha1.TerraformComponent) bool {
+	if component.Destroy == nil {
+		return true
+	}
+	d := component.Destroy.ToBool()
+	if d == nil {
+		return true
+	}
+	return *d
 }
 
 // prepareComponentEnv saves the current directory, validates the component's directory exists,
