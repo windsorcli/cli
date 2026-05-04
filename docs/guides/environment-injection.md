@@ -1,66 +1,193 @@
 ---
 title: "Environment Injection"
-description: "Dynamically manage environment variables within a Windsor project using the Windsor CLI."
+description: "How Windsor manages environment variables across contexts, projects, and global mode."
 ---
-# Environment Injection
-A key feature of the Windsor CLI is its ability to contextually manage your environment while working within a Windsor project. You may have encountered similar tools, in particular [direnv](https://github.com/direnv/direnv), that make it possible to dynamically configure environment variables while you're inside a project folder. The `windsor hook` & `windsor env` system does the same, while continuing to manage your environment variables as you move throughout the subfolders within your project.
+# Environment injection
 
-## About the Mechanism
-You should have set up the hook during [installation](../install.md). If configured correctly, the hook causes `windsor env` to inject into your environment prior to loading each prompt. The `windsor env` command will only be activated while you are in a [trusted Windsor project](../security/trusted-folders.md). By managing your environment variables dynamically, the Windsor CLI is able to manage the behavior and context configuration of the tools in your toolchain as you switch contexts or move amongst your project folders.
+Windsor manages environment variables for the tools it drives — `kubectl`, `terraform`, the cloud-provider CLIs, container runtimes — so that switching contexts or moving between projects updates your shell automatically. Conceptually it is similar to [direnv](https://github.com/direnv/direnv), but the variables track the active Windsor context rather than the current directory.
 
-## Supported Tools
-Several tools are presently supported by Windsor's environment management system. The following outlines what to expect for each of these tools.
+## How it works
 
-### AWS CLI
-AWS integration activates whenever a context has `platform: aws` or an `aws:` block of any kind. There is no separate `enabled` flag — its presence is the signal.
+`windsor hook <shell>` emits a snippet you install into your `~/.zshrc`, `~/.bashrc`, or PowerShell profile (see [Installation](../install.md)). On every prompt, the hook calls `windsor env --hook` and the shell evaluates the output. The variables Windsor manages are listed in `WINDSOR_MANAGED_ENV`; on context switch the hook unsets stale variables before applying the new set.
 
-Inside a Windsor shell, `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` always point at the context's own `.aws/` directory, so `aws configure` and `aws configure sso` write into the context folder rather than the operator's global `~/.aws/`. This mirrors how Windsor scopes `KUBECONFIG` and `TALOSCONFIG` per context.
+`windsor env` only emits variables when the current directory is **trusted**. Trust is recorded in `~/.config/windsor/.trusted` and added by `windsor init`. If a project hasn't been trusted, `windsor env` exits silently.
 
-`AWS_PROFILE` defaults to **the context name** so that `aws configure sso --profile <context>` and `aws sso login --profile <context>` line up with what Windsor will export in subsequent shells. If your AWS profile names don't match Windsor context names (e.g. you keep `[profile company-prod]` globally but your context is `prod`), set `aws.profile` in the context to override:
+The `--hook` flag puts `env` in non-fatal mode: it suppresses warnings and exits 0 on errors so a misconfigured project never breaks your prompt. Run `windsor env` without `--hook` to see the full output and any errors.
 
-```yaml
-contexts:
-  prod:
-    aws:
-      profile: company-prod
+## Project mode and global mode
+
+Windsor finds the project root by walking up from the current directory looking for `windsor.yaml`. When found, the shell is in **project mode** and that directory is the project root.
+
+When no `windsor.yaml` is found in the tree, Windsor falls back to `~/.config/windsor` as the effective project root and runs in **global mode**. Global mode lets cloud-provider CLIs and `kubectl` operate against a Windsor-managed context from any directory.
+
+Some context-scoped variables are deliberately suppressed in global mode so Windsor doesn't override your operator-level config:
+
+| Variable / file | Project mode | Global mode |
+|---|---|---|
+| `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | scoped to context's `.aws/` | not emitted (defers to `~/.aws/`) |
+| `AZURE_CONFIG_DIR`, `AZURE_CORE_LOGIN_EXPERIENCE_V2` | scoped to context's `.azure/` | not emitted |
+| `CLOUDSDK_CONFIG`, `GOOGLE_APPLICATION_CREDENTIALS` (default path) | scoped to context's `.gcp/gcloud/` | not emitted (defers to ambient gcloud) |
+| `AWS_PROFILE`, `ARM_*`, `GOOGLE_CLOUD_PROJECT`, `TF_VAR_kubelogin_mode` | emitted | emitted |
+| `KUBECONFIG`, `TALOSCONFIG` | emitted | emitted |
+| `DOCKER_HOST`, `DOCKER_CONFIG` | emitted | not emitted (no workstation in global mode) |
+
+The principle: variables that describe **which** account/cluster/project the context targets flow in both modes. Variables that would redirect tools to context-local **credential or config files** flow only in project mode.
+
+## Sample output
+
+A fresh `windsor init local` in a project directory:
+
+```
+$ windsor env
+DOCKER_CONFIG=/Users/me/.config/windsor/docker
+DOCKER_HOST=unix:///Users/me/.docker/run/docker.sock
+FLUX_SYSTEM_NAMESPACE=system-gitops
+K8S_AUTH_KUBECONFIG=/path/to/project/contexts/local/.kube/config
+KUBECONFIG=/path/to/project/contexts/local/.kube/config
+KUBE_CONFIG_PATH=/path/to/project/contexts/local/.kube/config
+TALOSCONFIG=/path/to/project/contexts/local/.talos/config
+WINDSOR_CONTEXT=local
+WINDSOR_CONTEXT_ID=wrk3va8i
+WINDSOR_MANAGED_ALIAS=
+WINDSOR_MANAGED_ENV=DOCKER_HOST,DOCKER_CONFIG,KUBECONFIG,KUBE_CONFIG_PATH,K8S_AUTH_KUBECONFIG,FLUX_SYSTEM_NAMESPACE,TALOSCONFIG,WINDSOR_CONTEXT,WINDSOR_CONTEXT_ID,WINDSOR_PROJECT_ROOT,WINDSOR_SESSION_TOKEN,WINDSOR_MANAGED_ENV,WINDSOR_MANAGED_ALIAS
+WINDSOR_PROJECT_ROOT=/path/to/project
+WINDSOR_SESSION_TOKEN=ldC26Dp
 ```
 
-The following environment variables are set automatically, or can be configured in your `windsor.yaml` file:
+Cloud-provider variables appear when the corresponding config block is present. Terraform variables appear when the current directory is inside a generated Terraform module shim under `.windsor/contexts/<name>/terraform/<component>/`.
 
-| Variable                    | Default Value                                | Configuration                                      |
-|-----------------------------|----------------------------------------------|----------------------------------------------------|
-| AWS_CONFIG_FILE             | `contexts/<context-name>/.aws/config`        |                                                    |
-| AWS_SHARED_CREDENTIALS_FILE | `contexts/<context-name>/.aws/credentials`   |                                                    |
-| AWS_PROFILE                 | current context name                         | `contexts.<context-name>.aws.profile`              |
-| AWS_REGION                  | profile's own `region =` line                | `contexts.<context-name>.aws.region`               |
-| AWS_ENDPOINT_URL            | system default                               | `contexts.<context-name>.aws.endpoint_url`         |
-| S3_HOSTNAME                 | system default                               | `contexts.<context-name>.aws.s3_hostname`          |
-| MWAA_ENDPOINT               | system default                               | `contexts.<context-name>.aws.mwaa_endpoint`        |
+## Windsor core
 
-### Docker
-The Windsor CLI provides several functionalities to manage Docker environments effectively. It automatically sets the `DOCKER_HOST` environment variable based on the `workstation.runtime` configuration, ensuring compatibility with both Colima and Docker Desktop setups. The CLI also ensures the Docker configuration directory exists and writes necessary configuration files. Additionally, it adds the `DOCKER_CONFIG` environment variable pointing to the Docker configuration directory and manages aliases for Docker commands, such as `docker-compose`, if specific plugins are detected.
+Always emitted in both modes (subject to trust):
 
-Below is a table summarizing the driver configurations:
+| Variable | Description |
+|---|---|
+| `WINDSOR_CONTEXT` | Current context name. |
+| `WINDSOR_CONTEXT_ID` | Stable per-context identifier (set in `values.yaml`). |
+| `WINDSOR_PROJECT_ROOT` | Project root, or `~/.config/windsor` in global mode. |
+| `WINDSOR_SESSION_TOKEN` | Identifier for the current shell's reset state. |
+| `WINDSOR_MANAGED_ENV` | Comma-separated list of variables Windsor will unset on context switch. |
+| `WINDSOR_MANAGED_ALIAS` | Comma-separated list of aliases Windsor manages. |
+| `BUILD_ID` | Optional artifact build identifier (set when `windsor build-id` has been run). |
 
-| Driver                  | DOCKER_HOST Path                                                      |
-|-------------------------|-----------------------------------------------------------------------|
-| Colima                  | `unix://<home-directory>/.colima/windsor-<context-name>/docker.sock`  |
-| Docker Desktop | `unix://<home-directory>/.docker/run/docker.sock`                              |
-| Docker Desktop (Windows) | `npipe:////./pipe/docker_engine`                                     |
+## AWS
 
-These features ensure that your Docker environment is configured correctly and consistently, regardless of the underlying virtualization driver you are using.
+AWS integration activates when the context has `platform: aws` or any `aws:` block. Configuration in `contexts/<name>/values.yaml`:
 
-### Kubernetes
-The following Kubernetes related environment variables are set to the following paths:
+```yaml
+aws:
+  region: us-east-2
+  profile: company-prod      # default: context name
+  endpoint_url: ...           # optional
+```
 
-| Variable            | Configuration Path                          |
-|---------------------|---------------------------------------------|
-| KUBECONFIG          | `contexts/<context-name>/.kube/config`      |
-| KUBE_CONFIG_PATH    | `contexts/<context-name>/.kube/config`      |
-| TALOSCONFIG         | `contexts/<context-name>/.talos/config`     |
-| PV_<NAMESPACE>_<NAME> | `.volumes/pvc-*`                          |
+| Variable | Default | Configured by |
+|---|---|---|
+| `AWS_CONFIG_FILE` | `contexts/<name>/.aws/config` (project mode only) | — |
+| `AWS_SHARED_CREDENTIALS_FILE` | `contexts/<name>/.aws/credentials` (project mode only) | — |
+| `AWS_PROFILE` | context name | `aws.profile` |
+| `AWS_REGION` | profile's `region =` line | `aws.region` |
+| `AWS_ENDPOINT_URL` | system default | `aws.endpoint_url` |
+| `S3_HOSTNAME` | system default | `aws.s3_hostname` |
+| `MWAA_ENDPOINT` | system default | `aws.mwaa_endpoint` |
 
-The `PV_<NAMESPACE>_<NAME>` environment variables point to local paths on your host that correspond to persistent volume claims in the cluster.
+Pointing `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` at the context directory means `aws configure sso --profile <context>` writes into the context, not into the operator's `~/.aws/`. `AWS_PROFILE` defaults to the context name so the same profile names line up across `aws configure sso` and `aws sso login`.
 
-### Terraform
-Windsor configures your `TF_CLI_ARGS_*` variables when you change in to a project under the `terraform/` folder. You can read more in depth about how Windsor works with Terraform in the [Terraform guide](terraform.md).
+## Azure
+
+Azure integration activates when the context has `platform: azure` or any `azure:` block.
+
+```yaml
+azure:
+  subscription_id: 00000000-0000-0000-0000-000000000000
+  tenant_id: 11111111-1111-1111-1111-111111111111
+  environment: public           # public | usgovernment | china | german
+  kubelogin_mode: azurecli      # override only when needed
+```
+
+| Variable | Source | Notes |
+|---|---|---|
+| `AZURE_CONFIG_DIR` | `contexts/<name>/.azure/` | Project mode only. |
+| `AZURE_CORE_LOGIN_EXPERIENCE_V2` | `false` | Project mode only. Pins to V1 login UX. |
+| `ARM_SUBSCRIPTION_ID` | `azure.subscription_id` | Both modes. |
+| `ARM_TENANT_ID` | `azure.tenant_id` | Both modes. |
+| `ARM_ENVIRONMENT` | `azure.environment` | Both modes. |
+| `TF_VAR_kubelogin_mode` | resolved (see below) | Both modes. |
+
+`TF_VAR_kubelogin_mode` is resolved in this order:
+
+1. `azure.kubelogin_mode` if set in config (only path that handles managed identity, since MI has no env signal).
+2. `workloadidentity` if `AZURE_FEDERATED_TOKEN_FILE` is set.
+3. `spn` if `AZURE_CLIENT_SECRET` or `AZURE_CLIENT_CERTIFICATE_PATH` is set.
+4. `azurecli` otherwise (default for laptop development).
+
+## GCP
+
+GCP integration activates when the context has `platform: gcp` or any `gcp:` block.
+
+```yaml
+gcp:
+  project_id: my-project
+  quota_project: my-quota-project
+  credentials_path: /path/to/service-account.json   # optional
+```
+
+| Variable | Source | Notes |
+|---|---|---|
+| `CLOUDSDK_CONFIG` | `contexts/<name>/.gcp/gcloud/` | Project mode only. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `gcp.credentials_path` if set; else `contexts/<name>/.gcp/service-accounts/default.json` (project mode only when not set) | Skipped if already set in the parent shell. |
+| `GOOGLE_CLOUD_PROJECT` | `gcp.project_id` | Both modes. |
+| `GCLOUD_PROJECT` | `gcp.project_id` | Both modes. |
+| `GOOGLE_CLOUD_QUOTA_PROJECT` | `gcp.quota_project` | Both modes. |
+
+## Docker and virtualization
+
+`DOCKER_HOST` tracks the configured `workstation.runtime`:
+
+| Runtime | `DOCKER_HOST` |
+|---|---|
+| `colima` | `unix://$HOME/.colima/windsor-<context>/docker.sock` |
+| `docker-desktop` (macOS/Linux) | `unix://$HOME/.docker/run/docker.sock` |
+| `docker-desktop` (Windows) | `npipe:////./pipe/docker_engine` |
+| `docker` | `unix:///var/run/docker.sock` |
+
+`DOCKER_CONFIG` points at `~/.config/windsor/docker` so docker CLI logins are scoped per operator, not per context.
+
+| Variable | Description |
+|---|---|
+| `DOCKER_HOST` | See table above. |
+| `DOCKER_CONFIG` | `~/.config/windsor/docker`. |
+| `REGISTRY_URL` | Active workstation registry URL when registries are configured. |
+| `INCUS_SOCKET` | Path to the Incus socket when `platform: incus`. |
+
+## Kubernetes and Talos
+
+Workstation contexts and any context with a Flux blueprint emit:
+
+| Variable | Path |
+|---|---|
+| `KUBECONFIG` | `contexts/<name>/.kube/config` (or `~/.config/windsor/contexts/<name>/.kube/config` in global mode) |
+| `KUBE_CONFIG_PATH` | same as `KUBECONFIG` (Terraform's kubernetes provider reads this). |
+| `K8S_AUTH_KUBECONFIG` | same as `KUBECONFIG` (Ansible's k8s collection reads this). |
+| `FLUX_SYSTEM_NAMESPACE` | `gitops.namespace` config, default `system-gitops`. |
+| `TALOSCONFIG` | `contexts/<name>/.talos/config`. Project mode only. |
+| `OMNICONFIG` | Path to the Omni client config when configured. |
+| `PV_<NAMESPACE>_<NAME>` | Local filesystem path corresponding to a PVC of that name (workstation contexts with persistent volume mounts). |
+
+`PV_*` variables are populated by inspecting the cluster's PVC list and matching against `contexts/<name>/.volumes/pvc-*` directories. If the API isn't reachable, they're skipped silently.
+
+## Terraform
+
+When the current directory is inside a generated Terraform module shim, Windsor adds:
+
+- `TF_DATA_DIR` and `TF_CLI_ARGS_*` (init/plan/apply/refresh/import/destroy) targeting the right backend, plan file, and tfvars.
+- `TF_VAR_context`, `TF_VAR_context_id`, `TF_VAR_context_path`, `TF_VAR_project_root`, `TF_VAR_os_type`, `TF_VAR_operation`.
+- `TF_VAR_<input>` for each evaluated component input.
+
+See [Terraform](terraform.md) for the full lifecycle.
+
+## See also
+
+- [`windsor env`](../reference/commands/env.md), [`windsor hook`](../reference/commands/hook.md)
+- [Trusted Folders](../security/trusted-folders.md) — how Windsor decides a project is safe
+- [Local Workstation](local-workstation.md) — `workstation.runtime` and Docker socket selection
