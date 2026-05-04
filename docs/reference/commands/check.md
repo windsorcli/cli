@@ -13,7 +13,7 @@ Verify that required tools are installed at the expected versions and that cloud
 
 ## check
 
-Runs the standard preflight: tool version checks, plus `CheckAuth` for any platform configured for the current context (e.g. `aws sts get-caller-identity`). Fails fast if a required tool is missing or credentials are invalid.
+Runs the standard preflight in two passes: tool version checks for local CLIs (`terraform`, `kubectl`, `talosctl`, etc.), then a credential check for the platform configured on the current context (e.g. `aws sts get-caller-identity` for `platform: aws`). Fails fast if a required tool is missing at the wrong version or if credentials don't resolve.
 
 ## check node-health
 
