@@ -822,3 +822,134 @@ func TestCountKustomizeResources(t *testing.T) {
 		}
 	})
 }
+
+func TestParseFluxDiffResources(t *testing.T) {
+	t.Run("ExtractsResourceBannersAndMapsVerbs", func(t *testing.T) {
+		// Given flux diff stdout containing the v2.3+ resource banners interleaved
+		// with unified-diff content (which must not leak into the resource list)
+		diff := strings.Join([]string{
+			"► Deployment/monitoring/grafana created",
+			"► ConfigMap/monitoring/grafana-config drifted",
+			"@@ -1,3 +1,4 @@",
+			"+    new: value",
+			"-    old: value",
+			"► Service/monitoring/legacy-exporter deleted",
+			"► Namespace/cluster-system unchanged",
+			"► CustomResourceDefinition/foos.example.com configured",
+			"",
+		}, "\n")
+
+		// When parsed
+		got := parseFluxDiffResources(diff)
+
+		// Then unchanged is dropped, configured maps to update, and order is preserved
+		want := []ResourceChange{
+			{Address: "Deployment/monitoring/grafana", Action: ActionCreate},
+			{Address: "ConfigMap/monitoring/grafana-config", Action: ActionUpdate},
+			{Address: "Service/monitoring/legacy-exporter", Action: ActionDelete},
+			{Address: "CustomResourceDefinition/foos.example.com", Action: ActionUpdate},
+		}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d resources, got %d: %#v", len(want), len(got), got)
+		}
+		for i, r := range got {
+			if r != want[i] {
+				t.Errorf("[%d] expected %#v, got %#v", i, want[i], r)
+			}
+		}
+	})
+
+	t.Run("HandlesClusterScopedResourcesWithoutNamespace", func(t *testing.T) {
+		// Given a banner for a cluster-scoped resource (Kind/Name without namespace)
+		diff := "► ClusterRole/admin created\n"
+
+		// When parsed
+		got := parseFluxDiffResources(diff)
+
+		// Then the kind/name token is captured verbatim
+		if len(got) != 1 {
+			t.Fatalf("expected 1 resource, got %d", len(got))
+		}
+		if got[0].Address != "ClusterRole/admin" || got[0].Action != ActionCreate {
+			t.Errorf("unexpected resource: %#v", got[0])
+		}
+	})
+
+	t.Run("ReturnsNilForNoBanners", func(t *testing.T) {
+		// Given output that contains diff lines but no banners
+		diff := "+ added\n- removed\n unchanged\n"
+
+		// When parsed
+		got := parseFluxDiffResources(diff)
+
+		// Then nothing is returned
+		if got != nil {
+			t.Errorf("expected nil, got %#v", got)
+		}
+	})
+}
+
+func TestParseKustomizeBuildResources(t *testing.T) {
+	t.Run("EmitsCreateForEachResource", func(t *testing.T) {
+		// Given a multi-document YAML stream rendered by kustomize build
+		yaml := strings.Join([]string{
+			"apiVersion: v1",
+			"kind: Namespace",
+			"metadata:",
+			"  name: monitoring",
+			"---",
+			"apiVersion: apps/v1",
+			"kind: Deployment",
+			"metadata:",
+			"  name: grafana",
+			"  namespace: monitoring",
+			"---",
+			"apiVersion: rbac.authorization.k8s.io/v1",
+			"kind: ClusterRole",
+			"metadata:",
+			"  name: grafana-reader",
+			"",
+		}, "\n")
+
+		// When parsed
+		got := parseKustomizeBuildResources(yaml)
+
+		// Then namespaced and cluster-scoped resources are addressed correctly
+		want := []ResourceChange{
+			{Address: "Namespace/monitoring", Action: ActionCreate},
+			{Address: "Deployment/monitoring/grafana", Action: ActionCreate},
+			{Address: "ClusterRole/grafana-reader", Action: ActionCreate},
+		}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d resources, got %d: %#v", len(want), len(got), got)
+		}
+		for i, r := range got {
+			if r != want[i] {
+				t.Errorf("[%d] expected %#v, got %#v", i, want[i], r)
+			}
+		}
+	})
+
+	t.Run("SkipsDocumentsMissingKindOrName", func(t *testing.T) {
+		// Given a stream with one well-formed doc and one that lacks metadata.name
+		yaml := strings.Join([]string{
+			"apiVersion: v1",
+			"kind: Namespace",
+			"metadata:",
+			"  name: foo",
+			"---",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata: {}",
+			"",
+		}, "\n")
+
+		// When parsed
+		got := parseKustomizeBuildResources(yaml)
+
+		// Then only the well-formed doc is included
+		if len(got) != 1 || got[0].Address != "Namespace/foo" {
+			t.Errorf("expected only Namespace/foo, got %#v", got)
+		}
+	})
+}

@@ -71,8 +71,10 @@ type initCacheKey struct {
 // and Destroy reflect terraform's "to add / to change / to destroy" counts.
 // NoChanges is true when terraform reports no changes. IsNew is true when no state
 // exists for the component in the configured backend — the component has never been
-// applied. Err is non-nil when the component's init or plan step failed; subsequent
-// layers may still be attempted.
+// applied. Resources is the per-resource change list extracted from the plan output;
+// it is empty when IsNew is true, when the plan errored, or when terraform reports
+// no changes. Err is non-nil when the component's init or plan step failed;
+// subsequent layers may still be attempted.
 //
 // IsNew supersedes the count fields: when IsNew is true, terraform plan is not
 // executed (it would either misreport "all creates" or fail reading dependent
@@ -87,7 +89,31 @@ type TerraformComponentPlan struct {
 	Destroy     int
 	NoChanges   bool
 	IsNew       bool
+	Resources   []ResourceChange
 	Err         error
+}
+
+// Action enumerates the kinds of changes a plan can produce for a single resource.
+// ActionUnknown is reserved for inputs that don't correspond to any operator-visible
+// change (terraform "noop"/"read" or unrecognised action strings) and is dropped
+// from rendered resource lists.
+type Action int
+
+const (
+	ActionUnknown Action = iota
+	ActionCreate
+	ActionUpdate
+	ActionDelete
+	ActionReplace
+)
+
+// ResourceChange identifies one resource changed by a plan along with its action.
+// Address is the terraform resource address with the leading "module.main." wrapper
+// stripped, since every Windsor component wraps its resources in a single module
+// and the prefix would otherwise be repeated noise on every line.
+type ResourceChange struct {
+	Address string
+	Action  Action
 }
 
 // tfStateModule is a node in the module tree emitted by `terraform show -json`. Windsor
@@ -1160,8 +1186,10 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	}
 
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-	// -no-color keeps the output machine-parseable for parseTerraformPlanCounts.
-	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-no-color"}
+	// -json emits a machine-parseable event stream we use to extract both the
+	// summary counts and the per-resource change list in one invocation; -no-color
+	// is required by terraform alongside -json.
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
@@ -1170,7 +1198,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 		return result
 	}
 
-	result.Add, result.Change, result.Destroy, result.NoChanges = parseTerraformPlanCounts(planOutput)
+	result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
 	return result
 }
 
@@ -1370,40 +1398,98 @@ func (s *TerraformStack) getTerraformEnv() *envvars.TerraformEnvPrinter {
 // Helpers
 // =============================================================================
 
-// parseTerraformPlanCounts extracts add/change/destroy counts from terraform plan stdout.
-// Returns noChanges=true when terraform reports no infrastructure changes.
-// Unrecognised output returns all zeros with noChanges=false.
-func parseTerraformPlanCounts(output string) (add, change, destroy int, noChanges bool) {
+// parseTerraformPlanJSON parses the line-delimited JSON event stream emitted by
+// `terraform plan -json` and extracts both the summary counts and the per-resource
+// change list. Resources whose action maps to ActionUnknown (terraform "noop" /
+// "read" or unrecognised verbs) are dropped — they don't represent operator-
+// visible work. noChanges is true when a change_summary event was observed and
+// reported zero adds/changes/removes; absence of any change_summary is treated
+// as noChanges=false so callers can distinguish "no plan output produced" from
+// "plan said nothing changes". Lines that are blank, non-JSON, or fail to parse
+// are silently skipped, since terraform may emit non-event diagnostics.
+func parseTerraformPlanJSON(output string) (add, change, destroy int, noChanges bool, resources []ResourceChange) {
+	type changeSummary struct {
+		Add    int `json:"add"`
+		Change int `json:"change"`
+		Remove int `json:"remove"`
+	}
+	type resourceAddr struct {
+		Addr string `json:"addr"`
+	}
+	type planChange struct {
+		Resource resourceAddr `json:"resource"`
+		Action   string       `json:"action"`
+	}
+	type event struct {
+		Type    string         `json:"type"`
+		Changes *changeSummary `json:"changes,omitempty"`
+		Change  *planChange    `json:"change,omitempty"`
+	}
+
+	sawSummary := false
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "No changes.") {
-			return 0, 0, 0, true
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
 		}
-		if strings.HasPrefix(line, "Plan:") {
-			for _, segment := range strings.Split(line, ",") {
-				segment = strings.TrimSpace(strings.TrimSuffix(segment, "."))
-				var n int
-				if _, err := fmt.Sscanf(segment, "Plan: %d to add", &n); err == nil {
-					add = n
-					continue
-				}
-				if _, err := fmt.Sscanf(segment, "%d to add", &n); err == nil {
-					add = n
-					continue
-				}
-				if _, err := fmt.Sscanf(segment, "%d to change", &n); err == nil {
-					change = n
-					continue
-				}
-				if _, err := fmt.Sscanf(segment, "%d to destroy", &n); err == nil {
-					destroy = n
-					continue
-				}
+		var ev event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		switch ev.Type {
+		case "change_summary":
+			if ev.Changes == nil {
+				continue
 			}
-			return
+			add = ev.Changes.Add
+			change = ev.Changes.Change
+			destroy = ev.Changes.Remove
+			sawSummary = true
+		case "planned_change":
+			if ev.Change == nil {
+				continue
+			}
+			action := mapTerraformAction(ev.Change.Action)
+			if action == ActionUnknown {
+				continue
+			}
+			resources = append(resources, ResourceChange{
+				Address: stripModuleMain(ev.Change.Resource.Addr),
+				Action:  action,
+			})
 		}
 	}
+	if sawSummary && add == 0 && change == 0 && destroy == 0 {
+		noChanges = true
+	}
 	return
+}
+
+// mapTerraformAction maps a `terraform plan -json` change.action string to the
+// shared Action enum. "noop" and "read" return ActionUnknown so callers can
+// drop them from the rendered resource list. Replace variants vary across
+// terraform versions; all collapse to ActionReplace.
+func mapTerraformAction(s string) Action {
+	switch s {
+	case "create":
+		return ActionCreate
+	case "update":
+		return ActionUpdate
+	case "delete":
+		return ActionDelete
+	case "replace", "delete-then-create", "create-then-delete":
+		return ActionReplace
+	default:
+		return ActionUnknown
+	}
+}
+
+// stripModuleMain removes the leading "module.main." wrapper from a terraform
+// resource address. Every Windsor component wraps its resources in this single
+// module, so the prefix would otherwise be repeated noise on every rendered
+// line. Addresses that don't start with the wrapper are returned unchanged.
+func stripModuleMain(addr string) string {
+	return strings.TrimPrefix(addr, "module.main.")
 }
 
 // selectTerraformCommandEnv builds per-command env overrides without mutating process-wide environment.

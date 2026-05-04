@@ -1,11 +1,8 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -14,6 +11,7 @@ import (
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/tui"
+	tuiplan "github.com/windsorcli/cli/pkg/tui/plan"
 )
 
 var planNoColor bool
@@ -50,9 +48,9 @@ var planCmd = &cobra.Command{
 				return fmt.Errorf("error running plan: %w", err)
 			}
 			if planJSON {
-				return printPlanSummaryJSON(os.Stdout, summary.Terraform, summary.Kustomize)
+				return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, summary.Kustomize)
 			}
-			printPlanSummary(os.Stdout, summary.Terraform, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
+			tuiplan.Summary(os.Stdout, summary.Terraform, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
 			return nil
 		}
 
@@ -88,9 +86,9 @@ var planCmd = &cobra.Command{
 				k8sResults = []fluxinfra.KustomizePlan{result}
 			}
 			if planJSON {
-				return printPlanSummaryJSON(os.Stdout, tfResults, k8sResults)
+				return tuiplan.SummaryJSON(os.Stdout, tfResults, k8sResults)
 			}
-			printPlanSummary(os.Stdout, tfResults, k8sResults, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+			tuiplan.Summary(os.Stdout, tfResults, k8sResults, nil, planNoColor || os.Getenv("NO_COLOR") != "")
 			return nil
 		}
 
@@ -139,9 +137,9 @@ var planTerraformCmd = &cobra.Command{
 					return fmt.Errorf("error running plan: %w", err)
 				}
 				if planJSON {
-					return printPlanSummaryJSON(os.Stdout, summary.Terraform, nil)
+					return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, nil)
 				}
-				printPlanSummary(os.Stdout, summary.Terraform, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+				tuiplan.Summary(os.Stdout, summary.Terraform, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
 				return nil
 			}
 			return proj.Provisioner.PlanTerraformAll(blueprint)
@@ -161,9 +159,9 @@ var planTerraformCmd = &cobra.Command{
 				return fmt.Errorf("error running plan: %w", err)
 			}
 			if planJSON {
-				return printPlanSummaryJSON(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil)
+				return tuiplan.SummaryJSON(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil)
 			}
-			printPlanSummary(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+			tuiplan.Summary(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
 			return nil
 		}
 
@@ -201,9 +199,9 @@ var planKustomizeCmd = &cobra.Command{
 					return fmt.Errorf("error running plan: %w", err)
 				}
 				if planJSON {
-					return printPlanSummaryJSON(os.Stdout, nil, summary.Kustomize)
+					return tuiplan.SummaryJSON(os.Stdout, nil, summary.Kustomize)
 				}
-				printPlanSummary(os.Stdout, nil, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
+				tuiplan.Summary(os.Stdout, nil, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
 				return nil
 			}
 			return proj.Provisioner.PlanKustomizeAll(blueprint)
@@ -220,9 +218,9 @@ var planKustomizeCmd = &cobra.Command{
 				return fmt.Errorf("error running plan: %w", err)
 			}
 			if planJSON {
-				return printPlanSummaryJSON(os.Stdout, nil, []fluxinfra.KustomizePlan{result})
+				return tuiplan.SummaryJSON(os.Stdout, nil, []fluxinfra.KustomizePlan{result})
 			}
-			printPlanSummary(os.Stdout, nil, []fluxinfra.KustomizePlan{result}, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+			tuiplan.Summary(os.Stdout, nil, []fluxinfra.KustomizePlan{result}, nil, planNoColor || os.Getenv("NO_COLOR") != "")
 			return nil
 		}
 
@@ -241,131 +239,6 @@ func init() {
 	planCmd.AddCommand(planTerraformCmd)
 	planCmd.AddCommand(planKustomizeCmd)
 	rootCmd.AddCommand(planCmd)
-}
-
-// printPlanSummary writes the combined Terraform and Kustomize plan summary to w.
-// Component names are left-aligned in a column wide enough to fit the longest name.
-// Each row shows add/change/destroy counts for Terraform or added/removed for Kustomize,
-// with "(no changes)" when all counts are zero and "(error: ...)" when the plan failed.
-// Any upgrade hints are printed in a footnote block at the bottom when present.
-func printPlanSummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan, hints []string, noColor bool) {
-	nameWidth := 20
-	for _, p := range tfPlans {
-		if n := len(terraformDisplayName(p)); n > nameWidth {
-			nameWidth = n
-		}
-	}
-	for _, p := range k8sPlans {
-		if len(p.Name) > nameWidth {
-			nameWidth = len(p.Name)
-		}
-	}
-	nameWidth += 2
-
-	sep := strings.Repeat("═", nameWidth+26)
-	fmt.Fprintf(w, "\nWindsor Plan Summary\n%s\n", sep)
-
-	if len(tfPlans) > 0 {
-		fmt.Fprintln(w, "\nTerraform")
-		for _, p := range tfPlans {
-			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, terraformDisplayName(p), formatTerraformPlan(p, noColor))
-			if p.Err != nil {
-				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
-				for _, line := range lines[1:] {
-					fmt.Fprintf(w, "  %s  %s\n", strings.Repeat(" ", nameWidth), line)
-				}
-			}
-		}
-	}
-
-	if len(k8sPlans) > 0 {
-		fmt.Fprintln(w, "\nKustomize")
-		for _, p := range k8sPlans {
-			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, p.Name, formatKustomizePlan(p, noColor))
-			if p.Err != nil {
-				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
-				for _, line := range lines[1:] {
-					fmt.Fprintf(w, "  %s  %s\n", strings.Repeat(" ", nameWidth), line)
-				}
-			}
-		}
-	}
-
-	if len(tfPlans) == 0 && len(k8sPlans) == 0 {
-		fmt.Fprintln(w, "\n  (no components in blueprint)")
-	}
-
-	if len(hints) > 0 {
-		hintSep := strings.Repeat("─", nameWidth+26)
-		fmt.Fprintf(w, "\n%s\n", hintSep)
-		for _, h := range hints {
-			for _, line := range strings.Split(h, "\n") {
-				fmt.Fprintf(w, "  %s\n", line)
-			}
-		}
-	}
-
-	fmt.Fprintln(w)
-}
-
-// printPlanSummaryJSON encodes the plan results as JSON to w.
-//
-// is_new supersedes the count fields: when is_new is true the component has no
-// state in the configured backend, terraform plan is not executed, and add/
-// change/destroy/no_changes are zero/false. Consumers detecting "pending work"
-// from this output must check is_new alongside the counts — using add+change+
-// destroy>0 alone will silently miss never-applied components.
-func printPlanSummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan) error {
-	type tfRow struct {
-		Component string `json:"component"`
-		Path      string `json:"path,omitempty"`
-		Add       int    `json:"add"`
-		Change    int    `json:"change"`
-		Destroy   int    `json:"destroy"`
-		NoChanges bool   `json:"no_changes"`
-		IsNew     bool   `json:"is_new"`
-		Error     string `json:"error,omitempty"`
-	}
-	type k8sRow struct {
-		Name     string `json:"name"`
-		Added    int    `json:"added"`
-		Removed  int    `json:"removed"`
-		IsNew    bool   `json:"is_new"`
-		Degraded bool   `json:"degraded"`
-		Error    string `json:"error,omitempty"`
-	}
-	type output struct {
-		Terraform []tfRow  `json:"terraform,omitempty"`
-		Kustomize []k8sRow `json:"kustomize,omitempty"`
-	}
-
-	out := output{}
-	for _, p := range tfPlans {
-		row := tfRow{
-			Component: p.ComponentID,
-			Path:      p.Path,
-			Add:       p.Add,
-			Change:    p.Change,
-			Destroy:   p.Destroy,
-			NoChanges: p.NoChanges,
-			IsNew:     p.IsNew,
-		}
-		if p.Err != nil {
-			row.Error = p.Err.Error()
-		}
-		out.Terraform = append(out.Terraform, row)
-	}
-	for _, p := range k8sPlans {
-		row := k8sRow{Name: p.Name, Added: p.Added, Removed: p.Removed, IsNew: p.IsNew, Degraded: p.Degraded}
-		if p.Err != nil {
-			row.Error = p.Err.Error()
-		}
-		out.Kustomize = append(out.Kustomize, row)
-	}
-
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
 }
 
 // blueprintHasTerraformComponent reports whether the blueprint contains an enabled Terraform component with the given ID.
@@ -397,84 +270,4 @@ func blueprintHasKustomization(blueprint *blueprintv1alpha1.Blueprint, component
 		}
 	}
 	return false
-}
-
-// truncateFirstLine returns the first line of s, stripping any trailing content after \n or \r\n.
-func truncateFirstLine(s string) string {
-	if idx := strings.IndexByte(s, '\n'); idx != -1 {
-		return strings.TrimRight(s[:idx], "\r")
-	}
-	return s
-}
-
-// terraformDisplayName returns the identifier shown to the operator for a Terraform
-// component row. The blueprint Path (e.g., "cluster/aws-eks") locates the underlying
-// module and is more informative than the short ComponentID alias (e.g., "cluster"),
-// so it's preferred when set; ComponentID is used as the fallback.
-func terraformDisplayName(p terraforminfra.TerraformComponentPlan) string {
-	if p.Path != "" {
-		return p.Path
-	}
-	return p.ComponentID
-}
-
-// formatTerraformPlan returns a concise human-readable status string for one Terraform component.
-// IsNew (no state in the configured backend) renders as "(new)" without counts because plan was
-// not run.
-func formatTerraformPlan(p terraforminfra.TerraformComponentPlan, noColor bool) string {
-	if p.Err != nil {
-		msg := truncateFirstLine(p.Err.Error())
-		if noColor {
-			return fmt.Sprintf("(error: %s)", msg)
-		}
-		return fmt.Sprintf("\033[31m(error: %s)\033[0m", msg)
-	}
-	if p.IsNew {
-		if noColor {
-			return "(new)"
-		}
-		return "\033[36m(new)\033[0m"
-	}
-	if p.NoChanges || (p.Add == 0 && p.Change == 0 && p.Destroy == 0) {
-		return "(no changes)"
-	}
-	if noColor {
-		return fmt.Sprintf("+%d  ~%d  -%d", p.Add, p.Change, p.Destroy)
-	}
-	return fmt.Sprintf("\033[32m+%d\033[0m  \033[33m~%d\033[0m  \033[31m-%d\033[0m", p.Add, p.Change, p.Destroy)
-}
-
-// formatKustomizePlan returns a concise human-readable status string for one Kustomize component.
-func formatKustomizePlan(p fluxinfra.KustomizePlan, noColor bool) string {
-	if p.Err != nil {
-		msg := truncateFirstLine(p.Err.Error())
-		if noColor {
-			return fmt.Sprintf("(error: %s)", msg)
-		}
-		return fmt.Sprintf("\033[31m(error: %s)\033[0m", msg)
-	}
-	if p.Degraded {
-		if p.IsNew {
-			return "(new)"
-		}
-		return "(existing)"
-	}
-	if p.IsNew {
-		// The kustomize-build resource count for a brand-new kustomization is
-		// rarely the count actually applied (Flux may dedupe, skip, or reconcile
-		// asynchronously), and showing "+N resources" alongside terraform's bare
-		// "(new)" is visually inconsistent. Both layers report "(new)" for the
-		// same condition: nothing exists yet.
-		if noColor {
-			return "(new)"
-		}
-		return "\033[36m(new)\033[0m"
-	}
-	if p.Added == 0 && p.Removed == 0 {
-		return "(no changes)"
-	}
-	if noColor {
-		return fmt.Sprintf("+%d  -%d  lines", p.Added, p.Removed)
-	}
-	return fmt.Sprintf("\033[32m+%d\033[0m  \033[31m-%d\033[0m  lines", p.Added, p.Removed)
 }

@@ -50,15 +50,42 @@ type Stack interface {
 // For kustomizations that already exist in the cluster, Added and Removed count
 // diff lines from "flux diff". For new kustomizations (no cluster or not yet
 // deployed), Added counts rendered resources from "kustomize build" and IsNew
-// is true. Degraded is true when the required CLI tool was absent and no counts
-// could be produced. Err is non-nil when the component could not be planned.
+// is true. Resources is the per-resource change list extracted from flux diff
+// (existing kustomizations) or kustomize build (new kustomizations); it is empty
+// when Degraded is true or when the diff produced no parseable resource banners.
+// Degraded is true when the required CLI tool was absent and no counts could be
+// produced. Err is non-nil when the component could not be planned.
 type KustomizePlan struct {
-	Name     string
-	Added    int
-	Removed  int
-	IsNew    bool
-	Degraded bool
-	Err      error
+	Name      string
+	Added     int
+	Removed   int
+	IsNew     bool
+	Degraded  bool
+	Resources []ResourceChange
+	Err       error
+}
+
+// Action enumerates the kinds of changes a kustomization plan can produce for a
+// single Kubernetes resource. ActionUnknown is reserved for inputs that don't
+// correspond to any operator-visible change (flux "unchanged"/"skipped" or
+// unrecognised verbs) and is dropped from rendered resource lists.
+type Action int
+
+const (
+	ActionUnknown Action = iota
+	ActionCreate
+	ActionUpdate
+	ActionDelete
+	ActionReplace
+)
+
+// ResourceChange identifies one Kubernetes resource changed by a kustomization
+// plan along with its action. Address follows flux's own banner convention,
+// "<Kind>/<namespace>/<name>" for namespaced resources and "<Kind>/<name>" for
+// cluster-scoped ones.
+type ResourceChange struct {
+	Address string
+	Action  Action
 }
 
 // =============================================================================
@@ -340,6 +367,7 @@ func (s *FluxStack) planOneKustomizeSummary(blueprint *blueprintv1alpha1.Bluepri
 				result.Err = diffErr
 			} else {
 				result.Added, result.Removed = countDiffLines(stdout)
+				result.Resources = parseFluxDiffResources(stdout)
 			}
 		}
 	} else {
@@ -352,6 +380,7 @@ func (s *FluxStack) planOneKustomizeSummary(blueprint *blueprintv1alpha1.Bluepri
 				result.Err = buildErr
 			} else {
 				result.Added = countKustomizeResources(stdout)
+				result.Resources = parseKustomizeBuildResources(stdout)
 			}
 		}
 	}
@@ -643,6 +672,87 @@ func countKustomizeResources(yaml string) int {
 		}
 	}
 	return count
+}
+
+// parseFluxDiffResources extracts per-resource change banners from the stdout of
+// `flux diff kustomization`. Flux v2.3+ prefixes each affected resource with "►"
+// followed by "<Kind>/<namespace>/<name> <verb>" (or "<Kind>/<name> <verb>" for
+// cluster-scoped resources). Recognised verbs map to the shared Action enum:
+// "created"→Create, "drifted"/"configured"→Update, "deleted"→Delete. "unchanged"
+// and "skipped" yield ActionUnknown and are dropped, since they don't represent
+// pending work. Lines that don't match the banner pattern are ignored, so unified
+// diff content under each banner does not leak into the result.
+func parseFluxDiffResources(diff string) []ResourceChange {
+	var result []ResourceChange
+	for _, line := range strings.Split(diff, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "►") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "►"))
+		fields := strings.Fields(rest)
+		if len(fields) < 2 {
+			continue
+		}
+		identifier := fields[0]
+		verb := fields[len(fields)-1]
+		action := mapFluxAction(verb)
+		if action == ActionUnknown {
+			continue
+		}
+		result = append(result, ResourceChange{Address: identifier, Action: action})
+	}
+	return result
+}
+
+// parseKustomizeBuildResources extracts the kind/namespace/name of each rendered
+// resource in a kustomize build YAML stream. All resources are tagged
+// ActionCreate, since this parser is invoked only for kustomizations that do not
+// yet exist in the cluster — every rendered resource is net-new from the
+// operator's perspective. Documents missing kind or metadata.name are skipped
+// rather than returning an error: kustomize occasionally emits empty separator
+// documents and we don't want them to fail the whole summary.
+func parseKustomizeBuildResources(yamlStr string) []ResourceChange {
+	var result []ResourceChange
+	for _, raw := range yamlDocumentsToJSON(yamlStr) {
+		var doc struct {
+			Kind     string `json:"kind"`
+			Metadata struct {
+				Name      string `json:"name"`
+				Namespace string `json:"namespace"`
+			} `json:"metadata"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			continue
+		}
+		if doc.Kind == "" || doc.Metadata.Name == "" {
+			continue
+		}
+		var address string
+		if doc.Metadata.Namespace != "" {
+			address = fmt.Sprintf("%s/%s/%s", doc.Kind, doc.Metadata.Namespace, doc.Metadata.Name)
+		} else {
+			address = fmt.Sprintf("%s/%s", doc.Kind, doc.Metadata.Name)
+		}
+		result = append(result, ResourceChange{Address: address, Action: ActionCreate})
+	}
+	return result
+}
+
+// mapFluxAction maps the trailing verb in a flux diff resource banner to the
+// shared Action enum. Verbs flux emits but that don't represent a change
+// (unchanged, skipped) collapse to ActionUnknown so callers drop them.
+func mapFluxAction(verb string) Action {
+	switch verb {
+	case "created":
+		return ActionCreate
+	case "drifted", "configured":
+		return ActionUpdate
+	case "deleted":
+		return ActionDelete
+	default:
+		return ActionUnknown
+	}
 }
 
 // encodeKustomizationsJSON builds each kustomization in targets via kustomize build,

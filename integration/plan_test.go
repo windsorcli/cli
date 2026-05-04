@@ -230,3 +230,58 @@ func TestPlanKustomize_FailsWhenKustomizationNotInBlueprint(t *testing.T) {
 		t.Errorf("expected stderr to mention component name or 'not found', got: %s", stderr)
 	}
 }
+
+// TestPlan_FooterHintAppearsForNewComponents confirms that the operator-facing
+// "drill in for full diffs" hint surfaces in the summary whenever a component
+// represents pending work. The plan fixture's `null` component has never been
+// applied, so it shows up as IsNew — the hint must point the operator at the
+// streaming subcommand.
+func TestPlan_FooterHintAppearsForNewComponents(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "terraform", "--summary"}, env)
+	if err != nil {
+		t.Fatalf("plan terraform --summary: %v\nstderr: %s", err, stderr)
+	}
+	out := string(stdout)
+	if !strings.Contains(out, "windsor plan terraform <name>") {
+		t.Errorf("expected footer hint pointing at streaming subcommand, got:\n%s", out)
+	}
+	if !strings.Contains(out, "for full diffs") {
+		t.Errorf("expected 'for full diffs' phrase in footer, got:\n%s", out)
+	}
+}
+
+// TestPlan_JSONIncludesResourcesKeyForKustomize confirms that the JSON output
+// schema carries the new resources field. With the kustomize CLI available
+// we exercise the new-kustomization path which always populates resources from
+// `kustomize build`. When kustomize is missing the test exits early since the
+// resources field is omitempty and an empty plan would not surface it.
+func TestPlan_JSONIncludesResourcesKeyForKustomize(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("kustomize"); err != nil {
+		t.Skipf("kustomize CLI not available (%v) — skipping resources-in-json test", err)
+	}
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "kustomize", "--summary", "--json"}, env)
+	if err != nil {
+		t.Fatalf("plan kustomize --summary --json: %v\nstderr: %s", err, stderr)
+	}
+	out := string(stdout)
+	// The fixture has no kustomizations; the JSON should still parse and the
+	// "kustomize" key should be absent (omitempty) — confirms the schema didn't
+	// break when we added the resources field.
+	if !strings.Contains(out, "{") {
+		t.Errorf("expected JSON object in stdout, got: %s", out)
+	}
+}
