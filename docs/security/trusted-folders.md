@@ -51,5 +51,5 @@ Commands that do not inject environment variables — [`version`](../reference/c
 ## See also
 
 - [Securing Secrets](secrets.md)
-- [Environment Injection guide](../guides/environment-injection.md)
+- [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection), [Environment reference](../reference/environment.md)
 - [`init`](../reference/commands/init.md), [`env`](../reference/commands/env.md), [`hook`](../reference/commands/hook.md)

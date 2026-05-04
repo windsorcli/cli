@@ -34,6 +34,6 @@ windsor env
 
 ## See also
 
-- [Environment Injection guide](../../guides/environment-injection.md)
+- [Environment reference](../environment.md), [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection)
 - [`hook`](hook.md), [`exec`](exec.md)
 - Source: [cmd/env.go](https://github.com/windsorcli/cli/blob/main/cmd/env.go)

@@ -1,26 +1,16 @@
 ---
-title: "Environment Injection"
-description: "How Windsor manages environment variables across contexts, projects, and global mode."
+title: "Environment"
+description: "Catalog of environment variables Windsor manages, organized by tool."
 ---
-# Environment injection
+# Environment
 
-Windsor manages environment variables for the tools it drives — `kubectl`, `terraform`, the cloud-provider CLIs, container runtimes — so that switching contexts or moving between projects updates your shell automatically. Conceptually it is similar to [direnv](https://github.com/direnv/direnv), but the variables track the active Windsor context rather than the current directory.
-
-## How it works
-
-`windsor hook <shell>` emits a snippet you install into your `~/.zshrc`, `~/.bashrc`, or PowerShell profile (see [Installation](../install.md)). On every prompt, the hook calls `windsor env --hook` and the shell evaluates the output. The variables Windsor manages are listed in `WINDSOR_MANAGED_ENV`; on context switch the hook unsets stale variables before applying the new set.
-
-`windsor env` only emits variables when the current directory is **trusted**. Trust is recorded in `~/.config/windsor/.trusted` and added by `windsor init`. If a project hasn't been trusted, `windsor env` exits silently.
-
-The `--hook` flag puts `env` in non-fatal mode: it suppresses warnings and exits 0 on errors so a misconfigured project never breaks your prompt. Run `windsor env` without `--hook` to see the full output and any errors.
+Catalog of environment variables Windsor manages. Variables are emitted by `windsor env` whenever the current directory is trusted; the shell hook re-emits them on every prompt and updates `WINDSOR_MANAGED_ENV` so stale variables get unset on context switch. See [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection) for the conceptual overview.
 
 ## Project mode and global mode
 
-Windsor finds the project root by walking up from the current directory looking for `windsor.yaml`. When found, the shell is in **project mode** and that directory is the project root.
+Windsor walks up from the current directory looking for `windsor.yaml`. When found, the shell is in **project mode** and that directory is the project root. When no `windsor.yaml` is found, Windsor falls back to `~/.config/windsor` as the effective project root and runs in **global mode**.
 
-When no `windsor.yaml` is found in the tree, Windsor falls back to `~/.config/windsor` as the effective project root and runs in **global mode**. Global mode lets cloud-provider CLIs and `kubectl` operate against a Windsor-managed context from any directory.
-
-Some context-scoped variables are deliberately suppressed in global mode so Windsor doesn't override your operator-level config:
+Some context-scoped variables suppress in global mode so Windsor does not override operator-level configuration:
 
 | Variable / file | Project mode | Global mode |
 |---|---|---|
@@ -33,28 +23,9 @@ Some context-scoped variables are deliberately suppressed in global mode so Wind
 
 The principle: variables that describe **which** account/cluster/project the context targets flow in both modes. Variables that would redirect tools to context-local **credential or config files** flow only in project mode.
 
-## Sample output
+## --hook mode
 
-A fresh `windsor init local` in a project directory:
-
-```
-$ windsor env
-DOCKER_CONFIG=/Users/me/.config/windsor/docker
-DOCKER_HOST=unix:///Users/me/.docker/run/docker.sock
-FLUX_SYSTEM_NAMESPACE=system-gitops
-K8S_AUTH_KUBECONFIG=/path/to/project/contexts/local/.kube/config
-KUBECONFIG=/path/to/project/contexts/local/.kube/config
-KUBE_CONFIG_PATH=/path/to/project/contexts/local/.kube/config
-TALOSCONFIG=/path/to/project/contexts/local/.talos/config
-WINDSOR_CONTEXT=local
-WINDSOR_CONTEXT_ID=wrk3va8i
-WINDSOR_MANAGED_ALIAS=
-WINDSOR_MANAGED_ENV=DOCKER_HOST,DOCKER_CONFIG,KUBECONFIG,KUBE_CONFIG_PATH,K8S_AUTH_KUBECONFIG,FLUX_SYSTEM_NAMESPACE,TALOSCONFIG,WINDSOR_CONTEXT,WINDSOR_CONTEXT_ID,WINDSOR_PROJECT_ROOT,WINDSOR_SESSION_TOKEN,WINDSOR_MANAGED_ENV,WINDSOR_MANAGED_ALIAS
-WINDSOR_PROJECT_ROOT=/path/to/project
-WINDSOR_SESSION_TOKEN=ldC26Dp
-```
-
-Cloud-provider variables appear when the corresponding config block is present. Terraform variables appear when the current directory is inside a generated Terraform module shim under `.windsor/contexts/<name>/terraform/<component>/`.
+The `--hook` flag puts `env` in non-fatal mode: warnings are suppressed and errors exit 0 so a misconfigured project never breaks your prompt. Run `windsor env` without `--hook` to see the full output and any errors.
 
 ## Windsor core
 
@@ -72,7 +43,7 @@ Always emitted in both modes (subject to trust):
 
 ## AWS
 
-AWS integration activates when the context has `platform: aws` or any `aws:` block. Configuration in `contexts/<name>/values.yaml`:
+AWS integration activates when the context has `platform: aws` or any `aws:` block.
 
 ```yaml
 aws:
@@ -116,7 +87,7 @@ azure:
 
 `TF_VAR_kubelogin_mode` is resolved in this order:
 
-1. `azure.kubelogin_mode` if set in config (only path that handles managed identity, since MI has no env signal).
+1. `azure.kubelogin_mode` if set in config (the only path that handles managed identity, since MI has no env signal).
 2. `workloadidentity` if `AZURE_FEDERATED_TOKEN_FILE` is set.
 3. `spn` if `AZURE_CLIENT_SECRET` or `AZURE_CLIENT_CERTIFICATE_PATH` is set.
 4. `azurecli` otherwise (default for laptop development).
@@ -178,16 +149,16 @@ Workstation contexts and any context with a Flux blueprint emit:
 
 ## Terraform
 
-When the current directory is inside a generated Terraform module shim, Windsor adds:
+When the current directory is inside a generated Terraform module shim (`.windsor/contexts/<name>/terraform/<component>/`), Windsor adds:
 
 - `TF_DATA_DIR` and `TF_CLI_ARGS_*` (init/plan/apply/refresh/import/destroy) targeting the right backend, plan file, and tfvars.
 - `TF_VAR_context`, `TF_VAR_context_id`, `TF_VAR_context_path`, `TF_VAR_project_root`, `TF_VAR_os_type`, `TF_VAR_operation`.
 - `TF_VAR_<input>` for each evaluated component input.
 
-See [Terraform](terraform.md) for the full lifecycle.
+See the [Terraform guide](../guides/terraform.md) for the full lifecycle.
 
 ## See also
 
-- [`windsor env`](../reference/commands/env.md), [`windsor hook`](../reference/commands/hook.md)
-- [Trusted Folders](../security/trusted-folders.md) — how Windsor decides a project is safe
-- [Local Workstation](local-workstation.md) — `workstation.runtime` and Docker socket selection
+- [`windsor env`](commands/env.md), [`windsor hook`](commands/hook.md)
+- [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection) — conceptual overview
+- [Trusted Folders](https://www.windsorcli.dev/docs/cli/trusted-folders) — how Windsor decides a project is safe

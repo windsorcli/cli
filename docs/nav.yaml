@@ -5,7 +5,6 @@ nav:
   - 'Guides':
     - 'Lifecycle': guides/lifecycle.md
     - 'Local Workstation': guides/local-workstation.md
-    - 'Environment Injection': guides/environment-injection.md
     - 'Kustomize': guides/kustomize.md
     - 'Terraform': guides/terraform.md
     - 'Secrets Management': guides/secrets-management.md
@@ -21,6 +20,7 @@ nav:
     - 'Blueprint': reference/blueprint.md
     - 'Configuration': reference/configuration.md
     - 'Contexts': reference/contexts.md
+    - 'Environment': reference/environment.md
     - 'Facets': reference/facets.md
     - 'Schema': reference/schema.md
     - 'Metadata': reference/metadata.md

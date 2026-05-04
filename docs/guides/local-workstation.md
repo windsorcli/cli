@@ -251,7 +251,7 @@ aws:
       - sqs
 ```
 
-When `up` is next run, Localstack starts and the AWS endpoint becomes available at `http://aws.test:4566`. `aws.endpoint_url` is automatically pointed at it for in-shell `aws` invocations (see [Environment Injection](environment-injection.md)).
+When `up` is next run, Localstack starts and the AWS endpoint becomes available at `http://aws.test:4566`. `aws.endpoint_url` is automatically pointed at it for in-shell `aws` invocations (see [Environment reference](../reference/environment.md)).
 
 ## Local git mirror
 
@@ -290,6 +290,6 @@ The default blueprint installs Istio's [BookInfo](https://istio.io/latest/docs/e
 ## See also
 
 - [Lifecycle](lifecycle.md) — `up` / `down` phase boundaries
-- [Environment Injection](environment-injection.md) — `DOCKER_HOST`, `KUBECONFIG`, `TALOSCONFIG`, `REGISTRY_URL`
+- [Environment reference](../reference/environment.md) — `DOCKER_HOST`, `KUBECONFIG`, `TALOSCONFIG`, `REGISTRY_URL`
 - [`configure`](../reference/commands/configure.md), [`up`](../reference/commands/up.md), [`down`](../reference/commands/down.md)
 - [Reference: Configuration](../reference/configuration.md) — full schema for `workstation`, `cluster`, `dns`, `docker`

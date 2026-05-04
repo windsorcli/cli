@@ -92,7 +92,7 @@ The runtime injects these variables into Terraform invocations (visible in a `wi
 
 Per-component `TF_VAR_<input>` variables are also materialized from the component's evaluated `inputs:`.
 
-Cloud-provider variables (`AWS_*`, `ARM_*`, `GOOGLE_*`) are derived from the active context's `aws` / `azure` / `gcp` config blocks. See [Environment Injection](environment-injection.md).
+Cloud-provider variables (`AWS_*`, `ARM_*`, `GOOGLE_*`) are derived from the active context's `aws` / `azure` / `gcp` config blocks. See [Environment reference](../reference/environment.md).
 
 To inspect what Windsor exports for the current context:
 
@@ -176,6 +176,6 @@ This is workstation-context behavior only; non-workstation contexts skip the cal
 ## See also
 
 - [Lifecycle](lifecycle.md) — phase-by-phase command map
-- [Environment Injection](environment-injection.md) — full env table including cloud providers
+- [Environment reference](../reference/environment.md) — full env table including cloud providers
 - [Local Workstation](local-workstation.md) — workstation-specific terraform components
 - [reference/blueprint.md](../reference/blueprint.md#terraformcomponent) — `TerraformComponent` schema
