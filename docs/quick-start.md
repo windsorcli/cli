@@ -98,5 +98,5 @@ windsor down
 ## See also
 
 - [Lifecycle](https://www.windsorcli.dev/docs/cli/lifecycle) — how `init`, `up`, `apply`, `destroy`, `down` fit together
-- [Local Workstation](guides/local-workstation.md) — VM driver options, networking, registries
+- [Workstation overview](https://www.windsorcli.dev/docs/workstation/overview) — VM driver options, networking, registries
 - [Hello, World!](tutorial/hello-world.md) — deploy a real app onto the cluster

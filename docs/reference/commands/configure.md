@@ -32,6 +32,6 @@ windsor configure network --dns-address=10.5.0.2
 
 ## See also
 
-- [Local Workstation guide](../../guides/local-workstation.md)
+- [Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)
 - [`up`](up.md)
 - Source: [cmd/configure.go](https://github.com/windsorcli/cli/blob/main/cmd/configure.go)
