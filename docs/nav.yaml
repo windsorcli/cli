@@ -9,7 +9,6 @@ nav:
     - 'Secrets Management': guides/secrets-management.md
     - 'Sharing Blueprints': guides/sharing.md
     - 'Blueprint Testing': guides/testing.md
-    - 'Explain': guides/explain.md
   - 'Tutorial':
     - 'Hello, World!': tutorial/hello-world.md
   - 'Reference':
