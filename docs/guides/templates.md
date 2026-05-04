@@ -1,49 +1,35 @@
 ---
 title: "Blueprint Templates"
-description: "Understanding how blueprint templates work in Windsor"
+description: "How _template/ + facets compose context-specific blueprints."
 ---
-# Blueprint Templates
+# Blueprint templates
 
-The `contexts/_template/` directory contains blueprint template files that are shared across all contexts. This directory structure allows you to define reusable blueprint components, facets, and schemas that can be customized per-context.
+The `contexts/_template/` directory is the foundation for every context in the project. It pairs a base `blueprint.yaml` with a directory of **facets** — modular, conditional fragments that contribute terraform components, kustomizations, configuration values, and substitutions based on the active context's configuration.
 
-## Overview
+When a context is initialized, Windsor loads `_template/blueprint.yaml`, evaluates each facet against the context's values, and merges the results into a final composed blueprint. Run `windsor show blueprint` to see the result.
 
-Blueprint templates provide a way to:
-- Define reusable blueprint components shared across contexts
-- Use Facets for conditional blueprint composition
-- Validate configuration with JSON Schema
-- Specify CLI version compatibility requirements
-
-When a context is initialized, Windsor loads the base blueprint from `_template/blueprint.yaml` and processes Facets from `_template/facets/` to build the final blueprint for that context.
-
-## Directory Structure
+## Directory layout
 
 ```
 contexts/
 └── _template/
-    ├── blueprint.yaml      # Base blueprint definition
-    ├── schema.yaml         # JSON Schema for configuration validation (optional)
-    ├── metadata.yaml       # Blueprint metadata including CLI version compatibility (optional)
-    └── facets/            # Facet definitions (optional)
-        ├── aws.yaml
-        ├── observability.yaml
+    ├── blueprint.yaml      # base blueprint
+    ├── schema.yaml         # JSON Schema for values.yaml validation (optional)
+    ├── metadata.yaml       # CLI version requirement (optional)
+    └── facets/
+        ├── config-cluster.yaml
+        ├── platform-base.yaml
+        ├── platform-aws.yaml
+        ├── option-observability.yaml
+        ├── addon-bookinfo.yaml
         └── ...
 ```
 
-## Template Files
+Files at any depth under `facets/` are loaded.
 
-### blueprint.yaml
+## Base blueprint
 
-The base blueprint definition that serves as the foundation for all contexts. This file defines:
-
-- Repository configuration
-- Source definitions
-- Base Terraform components
-- Base Kustomizations
-
-When a context is initialized, this base blueprint is loaded and can be extended or overridden by context-specific configurations.
-
-Example:
+`_template/blueprint.yaml` is always loaded and merged in full. It defines repository, sources, and any unconditional terraform / kustomize components that all contexts share.
 
 ```yaml
 kind: Blueprint
@@ -51,10 +37,6 @@ apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: base
   description: Base blueprint for all contexts
-repository:
-  url: github.com/org/blueprints
-  ref:
-    branch: main
 sources:
   - name: core
     url: oci://ghcr.io/windsorcli/core:v0.5.0
@@ -67,27 +49,15 @@ kustomize:
     source: core
 ```
 
-### schema.yaml
+## Schema and metadata
 
-JSON Schema file that defines the expected structure and default values for configuration. The schema is used to:
-
-- Validate user configuration values from `windsor.yaml` and `values.yaml`
-- Provide default values for missing configuration keys
-- Ensure configuration consistency across contexts
-
-The schema file must use the Windsor schema dialect. Supported `$schema` values:
-- `https://windsorcli.dev/schema/2026-02/schema` - Windsor schema dialect (recommended)
-- `https://json-schema.org/draft/2020-12/schema` - JSON Schema Draft 2020-12 (compatibility)
-
-**Note:** Windsor implements a subset of JSON Schema Draft 2020-12. See [Schema Reference](../reference/schema.md) for supported features.
-
-Example:
+`_template/schema.yaml` validates the user's `values.yaml` and supplies defaults for missing keys:
 
 ```yaml
 $schema: https://windsorcli.dev/schema/2026-02/schema
 type: object
 properties:
-  provider:
+  platform:
     type: string
     default: "none"
     enum: ["none", "metal", "docker", "aws", "azure", "gcp"]
@@ -97,84 +67,163 @@ properties:
       enabled:
         type: boolean
         default: false
-      backend:
-        type: string
-        default: "quickwit"
-        enum: ["quickwit", "loki", "elasticsearch"]
     additionalProperties: false
 additionalProperties: false
 ```
 
-### metadata.yaml
+Windsor implements a subset of JSON Schema Draft 2020-12 — see [Schema Reference](../reference/schema.md). Both `https://windsorcli.dev/schema/2026-02/schema` and `https://json-schema.org/draft/2020-12/schema` are accepted as `$schema` values.
 
-Blueprint metadata including CLI version compatibility constraints:
+`_template/metadata.yaml` declares the CLI version required to load the blueprint:
 
 ```yaml
-cliVersion: ">=0.7.1"
+cliVersion: ">=0.9.0"
 ```
 
-This ensures that blueprints are only used with compatible CLI versions. Version constraints support:
+Constraint forms: `>=0.9.0`, `~0.9.0`, `>=0.9.0 <0.10.0`. Mismatches abort blueprint loading with a clear error.
 
-- `>=0.7.1` - Requires CLI version 0.7.1 or higher
-- `~0.7.0` - Requires CLI version compatible with 0.7.x
-- `>=0.7.0 <0.8.0` - Requires CLI version between 0.7.0 (inclusive) and 0.8.0 (exclusive)
+## Facets
 
-If the CLI version doesn't satisfy the constraint, blueprint loading will fail with an error.
+A facet is a YAML document that contributes to the composed blueprint when its `when` expression evaluates to true. Each facet can carry:
 
-### facets/
-
-Directory containing Facet definitions. Facets enable conditional blueprint composition based on configuration values.
-
-Facets are automatically loaded from:
-- `_template/facets/*.yaml` - Individual facet files
-- `_template/facets/**/*.yaml` - Nested facet directories
-
-Facets are processed by ordinal (ascending), then by name. When a facet does not set `ordinal` in YAML, it is derived from the facet filename: `config-*` 100, `provider-base`/`platform-base` 199, `provider-*`/`platform-*` 200, `options-*` 300, `addon-*`/`addons-*` 400. Higher ordinal means higher precedence when merging (addons override provider-base for same-name kustomize entries).
-
-Example facet:
+- `config:` — named config blocks injected into the expression scope.
+- `terraform:` — conditional terraform components.
+- `kustomize:` — conditional kustomizations.
+- `substitutions:` — common substitutions merged into `values-common`.
 
 ```yaml
 kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
-  name: aws-facet
-  description: AWS-specific infrastructure components
-when: provider == 'aws'
+  name: platform-aws
+  description: AWS platform components
+
+when: platform == 'aws'
+
+config:
+- name: cluster
+  value:
+    region: ${aws.region ?? "us-east-1"}
+
 terraform:
-  - path: network/vpc
-    source: core
-    inputs:
-      cidr: ${network.cidr_block ?? "10.0.0.0/16"}
-    strategy: merge
+- path: network/vpc
+  source: core
+  inputs:
+    cidr: ${network.cidr_block ?? "10.0.0.0/16"}
+  strategy: merge
+
+kustomize:
+- name: cert-manager
+  path: cert-manager
+  source: core
+  strategy: merge
+
+substitutions:
+  REGION: ${cluster.region}
 ```
 
-For detailed information about Facets, see the [Facets Reference](../reference/facets.md).
+The `when:` expression sees user values, resolved config blocks from earlier facets, and the injected `repository` block (`repository.name`, `repository.url`, `repository.ref.*`).
 
-## How Templates Work
+## Ordinals
 
-1. **Template Loading**: When a blueprint is loaded for a context, Windsor first loads files from `contexts/_template/`
-2. **Schema Validation**: The schema from `_template/schema.yaml` (if present) validates and provides defaults for configuration values from `windsor.yaml` and `values.yaml`
-3. **Facet Processing**: Facets from `_template/facets/` are evaluated against the context's configuration and merged into the base blueprint
-4. **Context Overrides**: Context-specific `blueprint.yaml` files can override or extend the base blueprint
+Facets are processed by **ordinal** (ascending), then by `metadata.name` for tiebreaks. Higher ordinal means higher precedence — later-processed facets win on conflict.
 
-## Blueprint Composition Order
+When a facet doesn't set `ordinal:` explicitly, the loader derives it from the file basename:
 
-When Windsor composes the final blueprint, it merges layers in this specific order:
+| Prefix | Ordinal |
+|--------|---------|
+| `config-*` | 100 |
+| `provider-base*` / `platform-base*` | 199 |
+| `provider-*` / `platform-*` | 200 |
+| `option-*` / `options-*` | 300 |
+| `addon-*` / `addons-*` | 400 |
+| anything else | 0 |
 
-1. **Deployed Sources** - OCI sources with `deploy: true` (or no `deploy` flag, which defaults to `true`) have their components merged directly into the result. Sources with `deploy: false` are not merged but remain available for component reference.
-2. **Base Template** - The `_template/blueprint.yaml` is always fully merged. This serves as the foundation layer and is never filtered or conditionally included.
-3. **User Blueprint** - Context-specific `blueprint.yaml` files override and extend the result. The user blueprint acts as an override layer without filtering - all components from previous layers are retained unless explicitly disabled.
+The intent: configuration blocks load first; platform base before platform-specific; options after platforms; addons last so they can override platform defaults.
 
-**Important Notes:**
-- The `_template/` directory is always included in full - there is no `deploy` flag for the base template
-- Only OCI sources (those with `oci://` URLs) can have their components merged. Non-OCI sources (Git URLs, etc.) remain in the Sources array for component reference but are not loaded as blueprints
-- The `deploy` flag on sources only applies to OCI sources. It defaults to `true` if not specified
-- Sources with `deploy: false` are "index-only" - their components aren't merged, but components can still reference them via `source: <name>`
+`ordinal:` can be set at four levels:
 
-## File Resolution
+| Level | Where | Effect |
+|-------|-------|--------|
+| Facet | top of facet | Default for everything in the facet. |
+| Config block | per `config:` entry | Overrides facet ordinal for this block. |
+| Terraform component | per `terraform:` entry | Overrides facet ordinal for this component. |
+| Kustomization | per `kustomize:` entry | Overrides facet ordinal for this kustomization. |
 
-Files referenced in facets (via `jsonnet()` or `file()` functions) are resolved relative to the facet file location within `_template/`:
+The legacy `priority:` field has been removed — use `ordinal:` everywhere.
 
-- Facet at `_template/facets/aws.yaml` can reference `_template/facets/config.jsonnet`
-- Use `../configs/config.jsonnet` for files in parent directories
-- Paths work with both local filesystem and in-memory template data (from OCI artifacts)
+## Strategies
+
+Each terraform component, kustomization, and config block declares a `strategy:` for how it merges with existing entries of the same name:
+
+| Strategy | Effect |
+|----------|--------|
+| `merge` *(default)* | Deep-merge fields onto matching existing entry. |
+| `replace` | Wholly replace the matching existing entry. |
+| `remove` | Strip non-index fields from the matching entry. Always applied last. |
+
+Components match by Path + Source. Kustomizations match by Name. Config blocks match by Name.
+
+When ordinals match, strategy precedence is `remove` > `replace` > `merge`.
+
+## Config blocks
+
+`config:` introduces values into the expression scope so terraform inputs and kustomize substitutions can reference them by name. Every entry has a required `value:` field — the canonical container for the block's payload — and is exposed at scope root under its `name`.
+
+```yaml
+config:
+- name: talos
+  value:
+    controlplanes:
+      cpu: ${cluster.controlplanes.cpu ?? 4}
+    image: factory.talos.dev/installer/${talos.image_id}:v1.12.2
+
+terraform:
+- path: cluster/talos
+  inputs:
+    cpu: ${talos.controlplanes.cpu}
+    image: ${talos.image}
+```
+
+When `value:` is a map, expressions reference `<name>.<key>`. When `value:` is a scalar or list, expressions reference `<name>` directly. The single `value:` field replaces the older convention of accepting arbitrary top-level keys; consolidating on `value` made the merge semantics unambiguous.
+
+Config-block expressions are evaluated **once per round, after all same-name blocks are merged**, so an expression always sees the final merged value for its block.
+
+## Substitutions and deferred values
+
+A facet's `substitutions:` is merged into the `values-common` ConfigMap that ships with every kustomization (see [Kustomize](kustomize.md#substitutions)).
+
+Substitution values may use expressions, including `terraform_output()` for cross-component output references. When an expression resolves at compose time, the result is materialized as a plain string. When an expression depends on a not-yet-applied component (`terraform_output("cluster", "endpoint")` before `cluster` has a state file), it is **deferred** and re-evaluated on the next compose pass.
+
+```yaml
+substitutions:
+  CLUSTER_ENDPOINT: ${terraform_output("cluster", "endpoint") ?? "https://localhost:6443"}
+  REGISTRY_HOST: ${docker.registry_url}
+```
+
+The `?? <fallback>` operator lets a deferred reference still produce a planable value before the upstream is applied, then resolve to the real output afterwards. See [Facets Reference](../reference/facets.md) for the full expression helper list.
+
+## Composition order
+
+When Windsor composes the final blueprint:
+
+1. **OCI sources with `deploy: true`** (the default for OCI sources) have their components merged. Sources with `deploy: false` are index-only — their components aren't merged but components elsewhere can reference them via `source: <name>`. Non-OCI sources (git URLs) are always index-only.
+2. **Base template** — `_template/blueprint.yaml` merges in full.
+3. **Facets** — processed in ordinal order, with strategies and `when` expressions applied.
+4. **User blueprint** — `contexts/<name>/blueprint.yaml` overrides without filtering. Anything from earlier layers stays unless the user blueprint's entry uses `enabled: false` or a remove strategy via a facet.
+
+## File resolution
+
+Files referenced from facets via `jsonnet()` or `file()` resolve relative to the facet file location. From `_template/facets/aws.yaml`:
+
+- `file("config.jsonnet")` → `_template/facets/config.jsonnet`
+- `file("../configs/config.jsonnet")` → `_template/configs/config.jsonnet`
+
+Paths work for both the local filesystem and in-memory template data unpacked from OCI artifacts.
+
+## See also
+
+- [Reference: Facets](../reference/facets.md) — full schema and expression helpers
+- [Reference: Blueprint](../reference/blueprint.md) — composed blueprint shape
+- [Sharing Blueprints](sharing.md) — packaging templates as OCI artifacts
+- [Kustomize](kustomize.md#substitutions) — how `substitutions` flow through to Flux
+- [Explain](explain.md) — `windsor explain <path>` traces a value back to the contributing facet
