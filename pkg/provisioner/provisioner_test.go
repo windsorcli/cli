@@ -3072,6 +3072,254 @@ func TestProvisioner_PlanAll(t *testing.T) {
 	})
 }
 
+func TestProvisioner_PlanDestroyTerraformSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanDestroyTerraformSummary(nil)
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+		if summary != nil {
+			t.Errorf("expected nil summary, got %v", summary)
+		}
+	})
+
+	t.Run("InvokesTerraformDestroyOnly", func(t *testing.T) {
+		// PlanDestroyTerraformSummary must not touch the flux side — its
+		// counterpart on the apply path is the same gate. Verify by failing the
+		// test if FluxStack.PlanDestroySummary is called.
+		mocks := setupProvisionerMocks(t)
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
+			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Destroy: 5}}
+		}
+		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
+			t.Fatal("FluxStack.PlanDestroySummary should not be called by PlanDestroyTerraformSummary")
+			return nil, nil
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanDestroyTerraformSummary(createTestBlueprint())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(summary.Terraform) != 1 || summary.Terraform[0].ComponentID != "cluster" {
+			t.Errorf("expected terraform destroy result for cluster, got %v", summary.Terraform)
+		}
+		if summary.Kustomize != nil {
+			t.Errorf("expected nil kustomize slice, got %v", summary.Kustomize)
+		}
+	})
+}
+
+func TestProvisioner_PlanDestroyKustomizeSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanDestroyKustomizeSummary(nil)
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+		if summary != nil {
+			t.Errorf("expected nil summary, got %v", summary)
+		}
+	})
+
+	t.Run("ReturnsKustomizeResultsOnly", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
+			t.Fatal("TerraformStack.PlanDestroySummary should not be called by PlanDestroyKustomizeSummary")
+			return nil
+		}
+		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
+			return []fluxinfra.KustomizePlan{{Name: "monitoring", Removed: 12}}, nil
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanDestroyKustomizeSummary(createTestBlueprint())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(summary.Kustomize) != 1 || summary.Kustomize[0].Name != "monitoring" {
+			t.Errorf("expected kustomize destroy result for monitoring, got %v", summary.Kustomize)
+		}
+	})
+
+	t.Run("PropagatesClusterErrorFromFluxStack", func(t *testing.T) {
+		// The flux destroy plan errors on cluster failure (truthful — fall-back
+		// would lie). The aggregator must propagate so the cmd layer can fail
+		// before prompting for destroy.
+		mocks := setupProvisionerMocks(t)
+		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanDestroyKustomizeSummary(createTestBlueprint())
+		if err == nil || !strings.Contains(err.Error(), "connection refused") {
+			t.Errorf("expected cluster error to propagate, got err=%v summary=%v", err, summary)
+		}
+	})
+}
+
+func TestProvisioner_PlanDestroyAll(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanDestroyAll(nil)
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+		if summary != nil {
+			t.Errorf("expected nil summary, got %v", summary)
+		}
+	})
+
+	t.Run("AggregatesBothLayers", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) []terraforminfra.TerraformComponentPlan {
+			return []terraforminfra.TerraformComponentPlan{{ComponentID: "cluster", Destroy: 7}}
+		}
+		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
+			return []fluxinfra.KustomizePlan{{Name: "monitoring", Removed: 12}}, nil
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanDestroyAll(createTestBlueprint())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(summary.Terraform) != 1 || summary.Terraform[0].ComponentID != "cluster" {
+			t.Errorf("expected terraform destroy result for cluster, got %v", summary.Terraform)
+		}
+		if len(summary.Kustomize) != 1 || summary.Kustomize[0].Name != "monitoring" {
+			t.Errorf("expected kustomize destroy result for monitoring, got %v", summary.Kustomize)
+		}
+	})
+
+	t.Run("AbortsOnClusterFailure", func(t *testing.T) {
+		// Flux returns error -> PlanDestroyAll must abort and return that error
+		// so the cmd layer doesn't prompt for destroy.
+		mocks := setupProvisionerMocks(t)
+		mocks.FluxStack.PlanDestroySummaryFunc = func(bp *blueprintv1alpha1.Blueprint) ([]fluxinfra.KustomizePlan, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		summary, err := p.PlanDestroyAll(createTestBlueprint())
+		if err == nil || !strings.Contains(err.Error(), "connection refused") {
+			t.Errorf("expected cluster error to propagate, got err=%v summary=%v", err, summary)
+		}
+	})
+}
+
+func TestProvisioner_PlanDestroyTerraformComponentSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack: mocks.TerraformStack,
+		})
+
+		_, err := p.PlanDestroyTerraformComponentSummary(nil, "x")
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("DelegatesToTerraformStack", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.TerraformStack.(*terraforminfra.MockStack).PlanDestroyComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, id string) terraforminfra.TerraformComponentPlan {
+			return terraforminfra.TerraformComponentPlan{ComponentID: id, Destroy: 4}
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack: mocks.TerraformStack,
+		})
+
+		got, err := p.PlanDestroyTerraformComponentSummary(createTestBlueprint(), "cluster")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.ComponentID != "cluster" || got.Destroy != 4 {
+			t.Errorf("expected delegated result, got %#v", got)
+		}
+	})
+}
+
+func TestProvisioner_PlanDestroyKustomizeComponentSummary(t *testing.T) {
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			FluxStack: mocks.FluxStack,
+		})
+
+		_, err := p.PlanDestroyKustomizeComponentSummary(nil, "x")
+		if err == nil {
+			t.Fatal("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("DelegatesToFluxStack", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		mocks.FluxStack.PlanDestroyComponentSummaryFunc = func(bp *blueprintv1alpha1.Blueprint, name string) fluxinfra.KustomizePlan {
+			return fluxinfra.KustomizePlan{Name: name, Removed: 8}
+		}
+		p := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			FluxStack: mocks.FluxStack,
+		})
+
+		got, err := p.PlanDestroyKustomizeComponentSummary(createTestBlueprint(), "monitoring")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Name != "monitoring" || got.Removed != 8 {
+			t.Errorf("expected delegated result, got %#v", got)
+		}
+	})
+}
+
 func TestVersionFromImage(t *testing.T) {
 	cases := []struct {
 		image    string

@@ -3808,6 +3808,218 @@ func TestStack_PlanSummary(t *testing.T) {
 	})
 }
 
+func TestStack_PlanDestroySummary(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsNilForNilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+		if got := stack.PlanDestroySummary(nil); got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("InvokesPlanInDestroyModeAndCapturesResources", func(t *testing.T) {
+		// Given a shell that records the plan args and returns a destroy event
+		// stream (every planned_change action="delete")
+		stack, mocks := setup(t)
+		var capturedArgs []string
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				capturedArgs = append([]string{}, args...)
+				capturedEnv = env
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3_bucket.logs"},"action":"delete"}}`,
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_iam_role.eks"},"action":"delete"}}`,
+					`{"type":"change_summary","changes":{"add":0,"change":0,"remove":2}}`,
+					``,
+				}, "\n"), nil
+			}
+			return "", nil
+		}
+
+		// When PlanDestroySummary runs
+		results := stack.PlanDestroySummary(createTestBlueprint())
+
+		// Then the plan command included -destroy and used destroy-mode env
+		var sawDestroyFlag bool
+		for _, a := range capturedArgs {
+			if a == "-destroy" {
+				sawDestroyFlag = true
+			}
+		}
+		if !sawDestroyFlag {
+			t.Errorf("expected -destroy flag in plan args, got %v", capturedArgs)
+		}
+		if capturedEnv["TF_VAR_operation"] != "destroy" {
+			t.Errorf("expected TF_VAR_operation=destroy, got %q", capturedEnv["TF_VAR_operation"])
+		}
+		// And resources came back tagged Delete
+		if len(results) == 0 {
+			t.Fatal("expected at least one result")
+		}
+		r := results[0]
+		if r.Destroy != 2 {
+			t.Errorf("expected destroy=2, got %d", r.Destroy)
+		}
+		if len(r.Resources) != 2 {
+			t.Fatalf("expected 2 resources, got %#v", r.Resources)
+		}
+		for _, rc := range r.Resources {
+			if rc.Action != ActionDelete {
+				t.Errorf("expected ActionDelete, got %v for %q", rc.Action, rc.Address)
+			}
+		}
+	})
+
+	t.Run("MarksComponentNewWhenStateIsEmpty", func(t *testing.T) {
+		// Given empty state (renderer will show "(no state)")
+		stack, mocks := setup(t)
+		var planCalled bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return "{}", nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				planCalled = true
+			}
+			return "", nil
+		}
+
+		results := stack.PlanDestroySummary(createTestBlueprint())
+
+		if len(results) == 0 {
+			t.Fatal("expected results")
+		}
+		for _, r := range results {
+			if !r.IsNew {
+				t.Errorf("expected IsNew=true (no state to destroy) for %q, got false", r.ComponentID)
+			}
+		}
+		if planCalled {
+			t.Error("plan must not be invoked when state is empty")
+		}
+	})
+
+	t.Run("FiltersComponentsPinnedWithDestroyFalse", func(t *testing.T) {
+		// Given a blueprint with one component pinned destroy=false
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"x.y"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				return `{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}` + "\n", nil
+			}
+			return "", nil
+		}
+		falseVal := false
+		falseBool := &blueprintv1alpha1.BoolExpression{Value: &falseVal}
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "t"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "a", Destroy: falseBool},
+				{Path: "b"},
+			},
+		}
+
+		results := stack.PlanDestroySummary(bp)
+
+		// Then only the unpinned component shows up
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result (b only), got %d: %#v", len(results), results)
+		}
+		if results[0].Path != "b" {
+			t.Errorf("expected path=b, got %q", results[0].Path)
+		}
+	})
+}
+
+func TestStack_PlanDestroyComponentSummary(t *testing.T) {
+	setup := func(t *testing.T) (*TerraformStack, *TerraformTestMocks) {
+		t.Helper()
+		mocks := setupWindsorStackMocks(t)
+		stack := NewStack(mocks.Runtime).(*TerraformStack)
+		stack.shims = mocks.Shims
+		return stack, mocks
+	}
+
+	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
+		stack, _ := setup(t)
+		if got := stack.PlanDestroyComponentSummary(nil, "x"); got.Err == nil {
+			t.Error("expected error for nil blueprint, got nil")
+		}
+	})
+
+	t.Run("ReturnsErrorForMissingComponent", func(t *testing.T) {
+		stack, _ := setup(t)
+		got := stack.PlanDestroyComponentSummary(createTestBlueprint(), "nonexistent")
+		if got.Err == nil || !strings.Contains(got.Err.Error(), "not found") {
+			t.Errorf("expected not-found error, got %v", got.Err)
+		}
+	})
+
+	t.Run("ReturnsErrorForDestroyFalseComponent", func(t *testing.T) {
+		// A pinned-destroy=false component returns an error rather than running
+		// plan — Teardown would skip it, so producing a destroy plan would lie.
+		stack, _ := setup(t)
+		falseVal := false
+		falseBool := &blueprintv1alpha1.BoolExpression{Value: &falseVal}
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "pinned", Path: "a", Destroy: falseBool},
+			},
+		}
+		got := stack.PlanDestroyComponentSummary(bp, "pinned")
+		if got.Err == nil || !strings.Contains(got.Err.Error(), "destroy=false") {
+			t.Errorf("expected destroy=false error, got %v", got.Err)
+		}
+	})
+
+	t.Run("RunsForNamedComponent", func(t *testing.T) {
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) > 2 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"x.y"}]}}}`, nil
+			}
+			if len(args) > 1 && args[1] == "plan" {
+				return strings.Join([]string{
+					`{"type":"planned_change","change":{"resource":{"addr":"aws_s3.bucket"},"action":"delete"}}`,
+					`{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}`,
+					``,
+				}, "\n"), nil
+			}
+			return "", nil
+		}
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Name: "mycomp", Path: "local/path"},
+			},
+		}
+
+		got := stack.PlanDestroyComponentSummary(bp, "mycomp")
+
+		if got.Err != nil {
+			t.Fatalf("unexpected error: %v", got.Err)
+		}
+		if got.Destroy != 1 {
+			t.Errorf("expected destroy=1, got %d", got.Destroy)
+		}
+		if len(got.Resources) != 1 || got.Resources[0].Action != ActionDelete {
+			t.Errorf("expected one Delete resource, got %#v", got.Resources)
+		}
+	})
+}
+
 func TestParseTerraformPlanJSON(t *testing.T) {
 	t.Run("ParsesCountsAndResourcesFromEventStream", func(t *testing.T) {
 		// Given a terraform plan -json event stream with summary + planned changes

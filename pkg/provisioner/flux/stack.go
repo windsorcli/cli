@@ -44,6 +44,8 @@ type Stack interface {
 	PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string)
 	PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan
+	PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, error)
+	PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan
 }
 
 // KustomizePlan holds the plan result for a single Flux kustomization.
@@ -276,6 +278,142 @@ func (s *FluxStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint,
 	namespace := s.gitopsNamespace()
 
 	return s.planOneKustomizeSummary(blueprint, k, namespace, fluxMissing, kustomizeMissing)
+}
+
+// PlanDestroySummary returns the per-kustomization preview of what
+// `windsor destroy` will tear down at the flux layer. Unlike PlanSummary,
+// this is sourced from the cluster's live state — specifically the
+// .status.inventory.entries on each Kustomization, which is exactly what flux
+// uses to drive prune behavior — rather than from `kustomize build` of the
+// blueprint. Showing blueprint-derived resources for a destroy preview would
+// lie when the cluster has drifted, so we read truth from the cluster.
+//
+// The kustomization set mirrors DeleteBlueprint's eligibility gate: regular
+// kustomizations only (DestroyOnly hooks are applied during destroy and are
+// not user-facing here), and any pinned with destroy=false are filtered out.
+// A kustomization that is absent from the cluster yields IsNew=true so the
+// renderer shows "(not deployed)". An error from the cluster propagates as
+// the function-level error, since destroy itself cannot proceed without
+// cluster connectivity — falling back would produce a misleading plan.
+func (s *FluxStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, error) {
+	if blueprint == nil {
+		return nil, nil
+	}
+
+	namespace := s.gitopsNamespace()
+
+	var results []KustomizePlan
+	for _, k := range blueprint.Kustomizations {
+		if !kustomizationDestroyEligible(k) {
+			continue
+		}
+		result, err := s.planOneKustomizeDestroySummary(k, namespace)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+// PlanDestroyComponentSummary returns the destroy preview for a single named
+// kustomization. A pinned destroy=false or DestroyOnly kustomization returns
+// Err — DeleteBlueprint would skip it, so producing a plan would mislead.
+func (s *FluxStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan {
+	result := KustomizePlan{Name: name}
+
+	if blueprint == nil {
+		result.Err = fmt.Errorf("blueprint not provided")
+		return result
+	}
+
+	k, ok := findKustomization(blueprint, name)
+	if !ok {
+		result.Err = fmt.Errorf("kustomization %q not found in blueprint", name)
+		return result
+	}
+	if k.DestroyOnly != nil && *k.DestroyOnly {
+		result.Err = fmt.Errorf("kustomization %q is destroyOnly; not eligible for direct destroy", name)
+		return result
+	}
+	if d := k.Destroy.ToBool(); d != nil && !*d {
+		result.Err = fmt.Errorf("kustomization %q is pinned with destroy=false", name)
+		return result
+	}
+
+	resolved, err := s.planOneKustomizeDestroySummary(k, s.gitopsNamespace())
+	if err != nil {
+		resolved.Err = err
+	}
+	return resolved
+}
+
+// kustomizationDestroyEligible mirrors the gate inside DeleteBlueprint so the
+// destroy-plan set matches the destroy-execute set. DestroyOnly kustomizations
+// are skipped (they're hooks applied during destroy, not user-visible
+// resources to preview), and any pinned destroy=false are skipped. The
+// explicit nil check on Destroy mirrors componentDestroyEnabled on the
+// terraform side: ToBool happens to handle a nil receiver today, but the
+// guard reads more clearly at the call site and survives future refactors of
+// ToBool without breakage.
+func kustomizationDestroyEligible(k blueprintv1alpha1.Kustomization) bool {
+	if k.DestroyOnly != nil && *k.DestroyOnly {
+		return false
+	}
+	if k.Destroy == nil {
+		return true
+	}
+	if d := k.Destroy.ToBool(); d != nil && !*d {
+		return false
+	}
+	return true
+}
+
+// planOneKustomizeDestroySummary computes the destroy preview for one
+// kustomization. Pulls flux's live inventory and tags every entry as Delete.
+// IsNew marks the not-deployed case so the renderer shows "(not deployed)" —
+// reusing the apply-side IsNew field rather than introducing a new flag.
+func (s *FluxStack) planOneKustomizeDestroySummary(k blueprintv1alpha1.Kustomization, namespace string) (KustomizePlan, error) {
+	result := KustomizePlan{Name: k.Name}
+
+	entries, err := s.kubernetesManager.GetKustomizationInventory(k.Name, namespace)
+	if err != nil {
+		return result, fmt.Errorf("error querying kustomization %q inventory: %w", k.Name, err)
+	}
+	if entries == nil {
+		// Kustomization not present in the cluster: nothing to destroy.
+		result.IsNew = true
+		return result, nil
+	}
+
+	resources := make([]ResourceChange, 0, len(entries))
+	for _, e := range entries {
+		resources = append(resources, ResourceChange{
+			Address: inventoryAddress(e),
+			Action:  ActionDelete,
+		})
+	}
+	result.Resources = resources
+	result.Removed = len(resources)
+	return result, nil
+}
+
+// inventoryAddress renders a Kubernetes inventory entry in flux's banner
+// convention: "<Kind>/<namespace>/<name>" for namespaced resources,
+// "<Kind>/<name>" for cluster-scoped ones. Group is intentionally omitted from
+// the visible address — Kind is what operators recognise; group disambiguates
+// CRDs but at the cost of every line getting a noisy "apps." or "networking.
+// k8s.io." prefix. Same trade-off as the apply-side parser. Residual risk:
+// when a cluster carries two CRDs with the same Kind across different groups
+// (e.g., a vendor's Deployment alongside apps/Deployment), the rendered
+// addresses collide and the operator must consult the cluster directly to
+// distinguish them. Rare in practice, but worth knowing about when reviewing
+// a plan against a heavily-customised cluster.
+func inventoryAddress(e kubernetes.InventoryEntry) string {
+	if e.Namespace == "" {
+		return fmt.Sprintf("%s/%s", e.Kind, e.Name)
+	}
+	return fmt.Sprintf("%s/%s/%s", e.Kind, e.Namespace, e.Name)
 }
 
 // PlanAllJSON runs kustomize build for every non-destroyOnly kustomization in the blueprint,

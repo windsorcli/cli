@@ -30,8 +30,10 @@ type MockStack struct {
 	PlanAllJSONFunc           func(blueprint *blueprintv1alpha1.Blueprint) error
 	ApplyFunc                 func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	DestroyFunc               func(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
-	PlanSummaryFunc           func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
-	PlanComponentSummaryFunc  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	PlanSummaryFunc                 func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanComponentSummaryFunc        func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
+	PlanDestroySummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan
+	PlanDestroyComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan
 }
 
 // =============================================================================
@@ -178,6 +180,22 @@ func (m *MockStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) []Terraf
 func (m *MockStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
 	if m.PlanComponentSummaryFunc != nil {
 		return m.PlanComponentSummaryFunc(blueprint, componentID)
+	}
+	return TerraformComponentPlan{ComponentID: componentID}
+}
+
+// PlanDestroySummary is a mock implementation of the PlanDestroySummary method.
+func (m *MockStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) []TerraformComponentPlan {
+	if m.PlanDestroySummaryFunc != nil {
+		return m.PlanDestroySummaryFunc(blueprint)
+	}
+	return nil
+}
+
+// PlanDestroyComponentSummary is a mock implementation of the PlanDestroyComponentSummary method.
+func (m *MockStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) TerraformComponentPlan {
+	if m.PlanDestroyComponentSummaryFunc != nil {
+		return m.PlanDestroyComponentSummaryFunc(blueprint, componentID)
 	}
 	return TerraformComponentPlan{ComponentID: componentID}
 }

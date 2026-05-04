@@ -31,6 +31,7 @@ type MockKubernetesManager struct {
 	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
 	CheckGitRepositoryStatusFunc        func() error
 	KustomizationExistsFunc             func(name, namespace string) (bool, error)
+	GetKustomizationInventoryFunc       func(name, namespace string) ([]InventoryEntry, error)
 	WaitForKubernetesHealthyFunc        func(ctx context.Context, endpoint string, outputFunc func(string), nodeNames ...string) error
 	GetNodeReadyStatusFunc              func(ctx context.Context, nodeNames []string) (map[string]bool, error)
 	ApplyBlueprintFunc                  func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
@@ -146,6 +147,14 @@ func (m *MockKubernetesManager) KustomizationExists(name, namespace string) (boo
 		return m.KustomizationExistsFunc(name, namespace)
 	}
 	return false, nil
+}
+
+// GetKustomizationInventory implements KubernetesManager interface
+func (m *MockKubernetesManager) GetKustomizationInventory(name, namespace string) ([]InventoryEntry, error) {
+	if m.GetKustomizationInventoryFunc != nil {
+		return m.GetKustomizationInventoryFunc(name, namespace)
+	}
+	return nil, nil
 }
 
 // WaitForKubernetesHealthy waits for the Kubernetes API endpoint to be healthy with polling and timeout

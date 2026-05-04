@@ -69,6 +69,19 @@ type PlanSummary struct {
 	Hints     []string
 }
 
+// DestroyPlanSummary holds aggregated destroy-plan results across all
+// infrastructure layers. The shape mirrors PlanSummary but without the Hints
+// field: destroy is gated on a working cluster (the kustomize layer queries
+// flux's live inventory), so a tooling-missing fallback is not part of the
+// destroy contract — fail fast instead. The TerraformComponentPlan and
+// KustomizePlan entries here come from the destroy-side producers; renderers
+// must use a destroy-aware formatter to translate IsNew correctly (apply-side
+// "(new)" becomes destroy-side "(no state)" / "(not deployed)").
+type DestroyPlanSummary struct {
+	Terraform []terraforminfra.TerraformComponentPlan
+	Kustomize []fluxinfra.KustomizePlan
+}
+
 // NodeHealthCheckOptions contains options for node health checking.
 type NodeHealthCheckOptions struct {
 	Nodes               []string
@@ -589,6 +602,36 @@ func (i *Provisioner) PlanKustomizeComponentSummary(blueprint *blueprintv1alpha1
 	return i.FluxStack.PlanComponentSummary(blueprint, name), nil
 }
 
+// PlanDestroyTerraformComponentSummary previews the destroy plan for a single
+// Terraform component. Returns an error if blueprint is nil, stack init fails,
+// or the component is pinned destroy=false (which Teardown would skip).
+func (i *Provisioner) PlanDestroyTerraformComponentSummary(blueprint *blueprintv1alpha1.Blueprint, componentID string) (terraforminfra.TerraformComponentPlan, error) {
+	if blueprint == nil {
+		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureTerraformStack(); err != nil {
+		return terraforminfra.TerraformComponentPlan{}, err
+	}
+	if i.TerraformStack == nil {
+		return terraforminfra.TerraformComponentPlan{}, fmt.Errorf("terraform is disabled")
+	}
+	return i.TerraformStack.PlanDestroyComponentSummary(blueprint, componentID), nil
+}
+
+// PlanDestroyKustomizeComponentSummary previews the destroy plan for a single
+// Flux kustomization by querying its live inventory. Returns an error if
+// blueprint is nil, stack init fails, or the kustomization is destroyOnly /
+// pinned destroy=false (which DeleteBlueprint would skip).
+func (i *Provisioner) PlanDestroyKustomizeComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) (fluxinfra.KustomizePlan, error) {
+	if blueprint == nil {
+		return fluxinfra.KustomizePlan{}, fmt.Errorf("blueprint not provided")
+	}
+	if err := i.ensureFluxStack(); err != nil {
+		return fluxinfra.KustomizePlan{}, err
+	}
+	return i.FluxStack.PlanDestroyComponentSummary(blueprint, name), nil
+}
+
 // PlanTerraformSummary runs a best-effort summary plan across every Terraform
 // component in the blueprint without touching the Flux/Kustomize layer.
 // Returns an error only when blueprint is nil or stack initialisation fails.
@@ -651,6 +694,78 @@ func (i *Provisioner) PlanAll(blueprint *blueprintv1alpha1.Blueprint) (*PlanSumm
 		Terraform: tfSummary.Terraform,
 		Kustomize: k8sSummary.Kustomize,
 		Hints:     k8sSummary.Hints,
+	}, nil
+}
+
+// PlanDestroyTerraformSummary previews the destroy plan for every Terraform
+// component the blueprint would actually tear down (filtering destroy=false
+// pins). Mirrors PlanTerraformSummary but uses `terraform plan -destroy -json`
+// per component. Returns an error only when blueprint is nil or stack init
+// fails.
+func (i *Provisioner) PlanDestroyTerraformSummary(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	summary := &DestroyPlanSummary{}
+
+	if err := i.ensureTerraformStack(); err != nil {
+		return nil, err
+	}
+	if i.TerraformStack != nil {
+		summary.Terraform = i.TerraformStack.PlanDestroySummary(blueprint)
+	}
+
+	return summary, nil
+}
+
+// PlanDestroyKustomizeSummary previews the destroy plan for every eligible
+// Flux kustomization by querying live cluster inventory. Returns an error if
+// the cluster is unreachable — destroy itself cannot proceed without it, so a
+// blueprint-derived fallback would mislead. DestroyOnly hooks and destroy=
+// false pinned kustomizations are filtered to match DeleteBlueprint.
+func (i *Provisioner) PlanDestroyKustomizeSummary(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	summary := &DestroyPlanSummary{}
+
+	if err := i.ensureFluxStack(); err != nil {
+		return nil, err
+	}
+	results, err := i.FluxStack.PlanDestroySummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+	summary.Kustomize = results
+
+	return summary, nil
+}
+
+// PlanDestroyAll previews the destroy plan across both Terraform and Flux
+// layers. Initialises each stack as needed and aggregates the results into
+// a single DestroyPlanSummary for rendering. A cluster failure on the flux
+// side aborts the whole plan — destroy needs the cluster, so a partial plan
+// would be misleading.
+func (i *Provisioner) PlanDestroyAll(blueprint *blueprintv1alpha1.Blueprint) (*DestroyPlanSummary, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+
+	tfSummary, err := i.PlanDestroyTerraformSummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+
+	k8sSummary, err := i.PlanDestroyKustomizeSummary(blueprint)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DestroyPlanSummary{
+		Terraform: tfSummary.Terraform,
+		Kustomize: k8sSummary.Kustomize,
 	}, nil
 }
 

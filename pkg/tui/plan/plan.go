@@ -506,3 +506,203 @@ func truncateFirstLine(s string) string {
 	}
 	return s
 }
+
+// =============================================================================
+// Destroy renderer
+// =============================================================================
+
+// DestroySummary writes a destroy-plan preview to w. The shape mirrors Summary
+// but with destroy-aware semantics: the header reads "Windsor Destroy Plan",
+// counts collapse to "-N" since every resource is a delete, and IsNew renders
+// as "(no state)" / "(not deployed)" instead of "(new)" — honoring the IsNew
+// dual-meaning contract documented on TerraformComponentPlan. The footer is
+// removed (no streaming-plan equivalent for destroy) and there is no hints
+// block (destroy is gated on a working cluster, so a tooling-missing fallback
+// is not part of the destroy contract). Callers prepend the "this will
+// permanently destroy..." confirmation language; this function only renders
+// the plan body.
+func DestroySummary(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan, noColor bool) {
+	nameWidth := 20
+	for _, p := range tfPlans {
+		if n := len(terraformDisplayName(p)); n > nameWidth {
+			nameWidth = n
+		}
+	}
+	for _, p := range k8sPlans {
+		if len(p.Name) > nameWidth {
+			nameWidth = len(p.Name)
+		}
+	}
+	nameWidth += 2
+
+	sep := strings.Repeat("═", nameWidth+26)
+	fmt.Fprintf(w, "\nWindsor Destroy Plan\n%s\n", sep)
+
+	if len(tfPlans) > 0 {
+		fmt.Fprintln(w, "\nTerraform")
+		for _, p := range tfPlans {
+			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, terraformDisplayName(p), formatTerraformDestroyPlan(p, noColor))
+			if p.Err != nil {
+				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
+				for _, line := range lines[1:] {
+					fmt.Fprintf(w, "  %s  %s\n", strings.Repeat(" ", nameWidth), line)
+				}
+			}
+			writeResourceList(w, terraformResourceChanges(p.Resources), noColor)
+		}
+	}
+
+	if len(k8sPlans) > 0 {
+		fmt.Fprintln(w, "\nKustomize")
+		for _, p := range k8sPlans {
+			fmt.Fprintf(w, "  %-*s  %s\n", nameWidth, p.Name, formatKustomizeDestroyPlan(p, noColor))
+			if p.Err != nil {
+				lines := strings.Split(strings.TrimSpace(p.Err.Error()), "\n")
+				for _, line := range lines[1:] {
+					fmt.Fprintf(w, "  %s  %s\n", strings.Repeat(" ", nameWidth), line)
+				}
+			}
+			writeResourceList(w, kustomizeResourceChanges(p.Resources), noColor)
+		}
+	}
+
+	if len(tfPlans) == 0 && len(k8sPlans) == 0 {
+		fmt.Fprintln(w, "\n  (no components in blueprint)")
+	}
+
+	fmt.Fprintln(w)
+}
+
+// DestroySummaryJSON encodes destroy-plan results as JSON to w. The schema
+// mirrors SummaryJSON but is_new is documented as carrying its destroy-side
+// meaning ("no state to destroy") so machine consumers can interpret correctly.
+// Action strings on resources are still create/update/delete/replace, but the
+// only value destroy plans actually emit is "delete".
+func DestroySummaryJSON(w io.Writer, tfPlans []terraforminfra.TerraformComponentPlan, k8sPlans []fluxinfra.KustomizePlan) error {
+	type resourceRow struct {
+		Address string `json:"address"`
+		Action  string `json:"action"`
+	}
+	type tfRow struct {
+		Component string        `json:"component"`
+		Path      string        `json:"path,omitempty"`
+		Destroy   int           `json:"destroy"`
+		NoChanges bool          `json:"no_changes"`
+		IsNew     bool          `json:"is_new"`
+		Resources []resourceRow `json:"resources,omitempty"`
+		Error     string        `json:"error,omitempty"`
+	}
+	type k8sRow struct {
+		Name      string        `json:"name"`
+		Removed   int           `json:"removed"`
+		IsNew     bool          `json:"is_new"`
+		Degraded  bool          `json:"degraded"`
+		Resources []resourceRow `json:"resources,omitempty"`
+		Error     string        `json:"error,omitempty"`
+	}
+	type output struct {
+		Terraform []tfRow  `json:"terraform,omitempty"`
+		Kustomize []k8sRow `json:"kustomize,omitempty"`
+	}
+
+	out := output{}
+	for _, p := range tfPlans {
+		row := tfRow{
+			Component: p.ComponentID,
+			Path:      p.Path,
+			Destroy:   p.Destroy,
+			NoChanges: p.NoChanges,
+			IsNew:     p.IsNew,
+		}
+		for _, r := range p.Resources {
+			row.Resources = append(row.Resources, resourceRow{Address: r.Address, Action: terraformActionString(r.Action)})
+		}
+		if p.Err != nil {
+			row.Error = p.Err.Error()
+		}
+		out.Terraform = append(out.Terraform, row)
+	}
+	for _, p := range k8sPlans {
+		row := k8sRow{Name: p.Name, Removed: p.Removed, IsNew: p.IsNew, Degraded: p.Degraded}
+		for _, r := range p.Resources {
+			row.Resources = append(row.Resources, resourceRow{Address: r.Address, Action: kustomizeActionString(r.Action)})
+		}
+		if p.Err != nil {
+			row.Error = p.Err.Error()
+		}
+		out.Kustomize = append(out.Kustomize, row)
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+// formatTerraformDestroyPlan returns the right-hand-side status string for one
+// Terraform component on the destroy path. IsNew here means "no state to
+// destroy" — distinct from the apply-side meaning of "never applied" — so it
+// renders as "(no state)" rather than "(new)". When Resources is populated,
+// the count is rendered as "-N" (every entry is a delete in destroy mode).
+// When Resources is empty but Destroy>0 (older code path without resource
+// enumeration), fall back to the raw count for honesty.
+func formatTerraformDestroyPlan(p terraforminfra.TerraformComponentPlan, noColor bool) string {
+	if p.Err != nil {
+		msg := truncateFirstLine(p.Err.Error())
+		if noColor {
+			return fmt.Sprintf("(error: %s)", msg)
+		}
+		return fmt.Sprintf("\033[31m(error: %s)\033[0m", msg)
+	}
+	if p.IsNew {
+		if noColor {
+			return "(no state)"
+		}
+		return "\033[36m(no state)\033[0m"
+	}
+	if len(p.Resources) > 0 {
+		return formatDestroyCount(len(terraformResourceChanges(p.Resources)), noColor)
+	}
+	if p.NoChanges || p.Destroy == 0 {
+		return "(nothing to destroy)"
+	}
+	return formatDestroyCount(p.Destroy, noColor)
+}
+
+// formatKustomizeDestroyPlan returns the right-hand-side status string for one
+// Flux kustomization on the destroy path. IsNew means "kustomization is not
+// present in the cluster" — the cluster-query equivalent of terraform's
+// "(no state)" — and renders as "(not deployed)". Resources populated implies
+// a "-N" count; absent resources with non-zero Removed falls back to the
+// inventory count.
+func formatKustomizeDestroyPlan(p fluxinfra.KustomizePlan, noColor bool) string {
+	if p.Err != nil {
+		msg := truncateFirstLine(p.Err.Error())
+		if noColor {
+			return fmt.Sprintf("(error: %s)", msg)
+		}
+		return fmt.Sprintf("\033[31m(error: %s)\033[0m", msg)
+	}
+	if p.IsNew {
+		if noColor {
+			return "(not deployed)"
+		}
+		return "\033[36m(not deployed)\033[0m"
+	}
+	if len(p.Resources) > 0 {
+		return formatDestroyCount(len(kustomizeResourceChanges(p.Resources)), noColor)
+	}
+	if p.Removed == 0 {
+		return "(nothing to destroy)"
+	}
+	return formatDestroyCount(p.Removed, noColor)
+}
+
+// formatDestroyCount renders the per-component "-N" count in red, matching the
+// resource-list symbol vocabulary. Distinct from formatRawCounts (apply path)
+// because destroy plans only ever have one bucket.
+func formatDestroyCount(n int, noColor bool) string {
+	if noColor {
+		return fmt.Sprintf("-%d", n)
+	}
+	return fmt.Sprintf("\033[31m-%d\033[0m", n)
+}

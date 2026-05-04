@@ -19,8 +19,10 @@ type MockStack struct {
 	PlanAllFunc              func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSONFunc             func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllJSONFunc          func(blueprint *blueprintv1alpha1.Blueprint) error
-	PlanSummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string)
-	PlanComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan
+	PlanSummaryFunc                 func(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, []string)
+	PlanComponentSummaryFunc        func(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan
+	PlanDestroySummaryFunc          func(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, error)
+	PlanDestroyComponentSummaryFunc func(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan
 }
 
 // =============================================================================
@@ -80,6 +82,22 @@ func (m *MockStack) PlanSummary(blueprint *blueprintv1alpha1.Blueprint) ([]Kusto
 func (m *MockStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan {
 	if m.PlanComponentSummaryFunc != nil {
 		return m.PlanComponentSummaryFunc(blueprint, name)
+	}
+	return KustomizePlan{Name: name}
+}
+
+// PlanDestroySummary is a mock implementation of the PlanDestroySummary method.
+func (m *MockStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, error) {
+	if m.PlanDestroySummaryFunc != nil {
+		return m.PlanDestroySummaryFunc(blueprint)
+	}
+	return nil, nil
+}
+
+// PlanDestroyComponentSummary is a mock implementation of the PlanDestroyComponentSummary method.
+func (m *MockStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blueprint, name string) KustomizePlan {
+	if m.PlanDestroyComponentSummaryFunc != nil {
+		return m.PlanDestroyComponentSummaryFunc(blueprint, name)
 	}
 	return KustomizePlan{Name: name}
 }
