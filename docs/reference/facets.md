@@ -16,7 +16,7 @@ apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: aws-facet
   description: AWS-specific infrastructure components
-when: provider == 'aws'
+when: platform == 'aws'
 terraform:
   - path: network/vpc
     source: core
@@ -79,7 +79,7 @@ Config blocks are evaluated in blueprint context only (no facet config in scope)
 ```yaml
 config:
   - name: talos
-    when: provider == 'incus' || provider == 'docker'
+    when: platform == 'incus' || platform == 'docker'
     controlplanes: ${cluster.controlplanes}
     workers: ${cluster.workers}
     patchVars:
@@ -97,41 +97,72 @@ terraform:
 
 Evaluation order: facets are processed by ordinal (ascending), then by name. First, each facet's config block **structure** (name, when, body keys) is merged into a global scope (same block name merges block bodies recursively); config body expressions are **not** evaluated yet. After all facets are merged, config body expressions are evaluated once in blueprint context (very late). Then terraform and kustomize components are collected; their inputs and substitutions can reference the evaluated `<name>.<key>` (e.g. `talos.controlplanes`).
 
-## Conditional Logic
+## Expressions
 
-Facets use the [Go expr library](https://github.com/expr-lang/expr) for expression evaluation. Expressions are evaluated against your configuration values from `windsor.yaml` and `values.yaml`.
+Windsor uses [expr-lang/expr](https://expr-lang.org/) for expression evaluation. Expressions appear in facet `when` clauses, in `inputs:` values, in kustomization `substitutions`, and in patch content. They are evaluated against the facet expression scope: the merged config (everything from `windsor.yaml` / `values.yaml`), facet `config:` blocks (exposed at scope root by name), and the injected `repository` block (`repository.name`, `repository.url`, `repository.ref.*`).
 
-### Expression Syntax
+### Syntax
 
-Expressions support:
+Expressions use `${...}` placeholders inside string fields, and bare expressions in `when:`. The full language definition is at [expr-lang.org/docs/language-definition](https://expr-lang.org/docs/language-definition). Common forms:
 
-- **Equality/inequality**: `==`, `!=`
-- **Logical operators**: `&&`, `||`
-- **Parentheses for grouping**: `(expression)`
-- **Nested object access**: `provider`, `cluster.driver`, `workstation.runtime`, `cluster.workers.count`
-- **String literals**: Use single quotes: `'aws'`, `'talos'`, `'local'`
-- **Boolean values**: `true`, `false`
-- **Numeric values**: `1`, `2.5`
+- **Equality**: `==`, `!=`
+- **Logical**: `&&`, `||`, `!`
+- **Arithmetic**: `+`, `-`, `*`, `/`, `%`
+- **String literals**: single quotes — `'aws'`, `'talos'`
+- **Booleans / numbers**: `true`, `false`, `1`, `2.5`
+- **Member access**: `cluster.driver`, `cluster.workers.count`
+- **Indexing**: `subnets[0].id`, `tags['env']`
 - **Null coalescing**: `value ?? default`
-- **Functions**: `values()`, `jsonnet()`, `file()`
-
-### Expression Examples
+- **Ternary**: `cond ? a : b`
+- **Helper calls**: `jsonnet("path")`, `terraform_output("comp", "key")`
 
 ```yaml
-# Simple equality check
-when: provider == 'aws'
-
-# Multiple conditions
-when: provider == 'aws' && cluster.driver == 'eks'
-
-# Nested property access
-when: cluster.driver == 'talos'
-
-# Complex logical expressions
+when: platform == 'aws'
+when: platform == 'aws' && cluster.driver == 'eks'
 when: cluster.driver == 'eks' || cluster.driver == 'aks'
-
-# Null coalescing
 when: observability.enabled ?? false
+```
+
+### Helpers
+
+Windsor registers these helpers on the expression engine.
+
+| Helper | Signature | Description |
+|--------|-----------|-------------|
+| `terraform_output(component, key)` | `(string, string) → any` | Read another Terraform component's output. **Deferred** until that component has been applied; returns `nil` until then so `?? <fallback>` can supply a plan-time value. The bare path syntax `${terraform.<x>.outputs.<y>}` is not supported — use this helper. |
+| `secret(provider, item, field)` | `(string, string, string) → string` | Resolve a secret from a configured provider (`sops`, 1Password `op`, etc.). Deferred — only evaluated when the surrounding flow demands a real value. Returns `<ERROR: ...>` on failure. |
+| `jsonnet(path)` | `(string) → any` | Evaluate a Jsonnet file relative to the facet's directory. Result is any JSON-compatible type — typically a map. |
+| `file(path)` | `(string) → string` | Read a file as a string, relative to the facet's directory. |
+| `yaml(content_or_path)` | `(string) → any` | Parse YAML. The argument is either inline YAML content or a path (relative to the facet) to a YAML file. |
+| `yaml(path, vars)` | `(string, any) → any` | Render a YAML template from a file with the given variables, then parse. |
+| `yamlString(value)` | `(any) → string` | Marshal a value to a YAML string. |
+| `yamlString(path, vars)` | `(string, any) → string` | Render a YAML template from a file with variables and return the rendered string (no parse). |
+| `jsonString(value)` | `(any) → string` | Marshal a value to a JSON string. |
+| `string(value)` | `(any) → string` | Coerce a value to a string (`nil` becomes `""`). |
+| `split(s, sep)` | `(string, string) → []string` | Split a string by separator. |
+| `cidrhost(cidr, hostnum)` | `(string, int) → string` | Return the IP at index `hostnum` within `cidr`. |
+| `cidrsubnet(cidr, newbits, netnum)` | `(string, int, int) → string` | Return a single subnet within `cidr`. |
+| `cidrsubnets(cidr, newbits...)` | `(string, ...int) → []string` | Return multiple subnets at once. |
+| `cidrnetmask(cidr)` | `(string) → string` | Return the netmask for `cidr`. |
+
+Paths passed to `file()`, `jsonnet()`, `yaml()`, and `yamlString()` resolve relative to the facet file location and work for both local templates and OCI artifacts.
+
+### Examples
+
+```yaml
+inputs:
+  cidr: ${network.cidr_block ?? "10.0.0.0/16"}
+  api_endpoint: ${terraform_output("cluster", "endpoint")}
+  mirrors: ${terraform_output("workstation", "registries") ?? {}}
+  config: ${jsonnet("talos-config.jsonnet")}
+  cert: ${file("certs/tls.crt")}
+  worker_patches: ${yaml("../patches/worker.yaml")}
+  cluster_id: "${context}-${string(cluster.id ?? 0)}"
+  vpc_subnets: ${cidrsubnets(network.cidr_block, 4, 4, 8)}
+
+substitutions:
+  CLUSTER_ENDPOINT: ${terraform_output("cluster", "endpoint") ?? "https://localhost:6443"}
+  DB_PASSWORD: ${secret("op", "db", "password")}
 ```
 
 ## ConditionalTerraformComponent
@@ -165,21 +196,21 @@ Extends `TerraformComponent` with conditional logic and merge strategy support.
 - All existing inputs, dependencies, and settings are discarded
 - If no matching component exists, the component is appended
 
-### Input Evaluation
+### Input evaluation
 
-Input values support:
+Input values are either literals or `${}` expressions. Plain strings, numbers, booleans, and structured values pass through as-is. Anything inside `${...}` is evaluated as an expression against the facet scope.
 
-- **Expressions**: Use `${}` syntax (e.g., `${cluster.workers.count}`, `${cluster.workers.count + 2}`)
-- **String literals**: Plain strings are treated as literals
-- **Other types**: Numbers, booleans, etc. are passed through as-is
+```yaml
+inputs:
+  count: 3
+  enable_https: true
+  endpoint: ${cluster.endpoint ?? "https://localhost:6443"}
+  workers: ${cluster.workers.count * 2}
+  config: ${jsonnet("config.jsonnet")}
+  output: ${terraform_output("network", "vpc_id")}
+```
 
-Expressions support:
-- Direct property access: `${provider}`
-- Nested access: `${cluster.workers.count}`
-- Arithmetic: `${cluster.workers.count * 2}`
-- Null coalescing: `${cluster.endpoint ?? "https://localhost:6443"}`
-- Functions: `${values(cluster.controlplanes.nodes)}`
-- File loading: `${jsonnet("config.jsonnet")}`, `${file("key.pem")}`
+See [Helpers](#helpers) above for the full helper catalog.
 
 ## ConditionalKustomization
 
@@ -305,10 +336,11 @@ Both functions resolve paths relative to the facet file location:
 - Use `../configs/config.jsonnet` for files in parent directories
 - Paths work with both local filesystem and in-memory template data (from archives)
 
-## Facet Loading
+## Facet loading
 
-Facets are automatically loaded from:
-- `_template/facets/*.yaml` - Individual facet files
-- `_template/facets/**/*.yaml` - Nested facet directories
+Facets are loaded automatically from:
 
-Facets are processed in alphabetical order by name, then merged into the base blueprint.
+- `_template/facets/*.yaml` — top-level facet files.
+- `_template/facets/**/*.yaml` — nested facet directories.
+
+Facets are processed by **ordinal** (ascending), then by `metadata.name` (tiebreak). Higher ordinal means higher precedence — later-processed facets win on conflict. See [Default ordinal from filename](#default-ordinal-from-filename) for the basename-derived defaults.
