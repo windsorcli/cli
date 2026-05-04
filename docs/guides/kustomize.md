@@ -134,7 +134,7 @@ kustomize:
 
 A manifest under `kustomize/my-app/` can then reference `${replicas}` and `${image_tag}` directly. Substitution values are converted to strings; complex types are JSON-encoded.
 
-`substitutions:` in the user-authored `blueprint.yaml` only accepts literal values. To produce dynamic substitutions — facet expressions, `terraform_output()` calls, anything resolved at compose time — declare them in a facet under `contexts/_template/facets/`; the composer evaluates them and merges the resulting plain-string values into the kustomization's `substitutions` map. See [Blueprint Templates](templates.md).
+`substitutions:` in the user-authored `blueprint.yaml` only accepts literal values. To produce dynamic substitutions — facet expressions, `terraform_output()` calls, anything resolved at compose time — declare them in a facet under `contexts/_template/facets/`; the composer evaluates them and merges the resulting plain-string values into the kustomization's `substitutions` map. See [Blueprint Templates](https://www.windsorcli.dev/docs/blueprints/templates) and [Facets](https://www.windsorcli.dev/docs/blueprints/facets).
 
 ## Context-specific patches
 
@@ -198,5 +198,5 @@ Sources and kustomizations both live in the gitops namespace (default `system-gi
 
 - [`apply`](../reference/commands/apply.md), [`destroy`](../reference/commands/destroy.md), [`plan`](../reference/commands/plan.md), [`show`](../reference/commands/show.md)
 - [reference/blueprint.md](../reference/blueprint.md#kustomization) — full Kustomization schema
-- [Blueprint Templates](templates.md) — facet-driven composition of kustomization fragments
+- [Blueprint Templates](https://www.windsorcli.dev/docs/blueprints/templates) — facet-driven composition of kustomization fragments
 - [Flux Kustomization docs](https://fluxcd.io/flux/components/kustomize/kustomizations/)

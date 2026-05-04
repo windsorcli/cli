@@ -10,7 +10,6 @@ nav:
     - 'Kustomize': guides/kustomize.md
     - 'Terraform': guides/terraform.md
     - 'Secrets Management': guides/secrets-management.md
-    - 'Blueprint Templates': guides/templates.md
     - 'Sharing Blueprints': guides/sharing.md
     - 'Blueprint Testing': guides/testing.md
     - 'Explain': guides/explain.md

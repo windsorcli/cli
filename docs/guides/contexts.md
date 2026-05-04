@@ -43,6 +43,6 @@ Additionally, the `WINDSOR_CONTEXT` environment variable is available to you.
 
 ## Blueprint Templates
 
-Contexts are generated from blueprint templates stored in `contexts/_template/`. These templates define reusable blueprint components, features, and schemas that are shared across all contexts. See the [Blueprint Templates](templates.md) guide for details on how templates work.
+Contexts are generated from blueprint templates stored in `contexts/_template/`. These templates define reusable blueprint components, features, and schemas that are shared across all contexts. See [Blueprint Templates](https://www.windsorcli.dev/docs/blueprints/templates) for details on how templates work.
 
 For detailed reference information about contexts, see the [Contexts Reference](../reference/contexts.md).
