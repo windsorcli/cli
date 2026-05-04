@@ -1,78 +1,48 @@
 ---
 title: "Terraform"
-description: "The Windsor CLI streamlines your workflow with Terraform assets by providing a context-aware environment."
+description: "How Windsor drives Terraform: components, generated tfvars, backend configuration, and the bootstrap workflow."
 ---
 # Terraform
-The Windsor CLI streamlines your workflow with Terraform assets by providing a context-aware environment. Once you've installed the Windsor CLI and the `windsor hook`, your setup should be automatically configured for Terraform.
 
-## Folder Structure
-To ensure compatibility with Windsor, your Terraform project should adhere to a specific folder structure. Below is a typical layout for Terraform assets in a Windsor project:
+Windsor invokes Terraform on your behalf. You declare components in `blueprint.yaml`, Windsor generates per-component shims, materializes a `terraform.tfvars` for each, sets the right `TF_*` environment variables, and runs `init`, `plan`, `apply`, and `destroy` against the right module in the right order.
+
+OpenTofu support is **experimental**. Set `terraform.driver: opentofu` in the root `windsor.yaml`, or let Windsor auto-detect from `$PATH` — it prefers `terraform`, falls back to `tofu`. Behavior may diverge from Terraform on edge cases; report issues you hit.
+
+## Folder layout
+
+Two trees matter. The first is your project source; the second is Windsor's working area.
 
 ```plaintext
+contexts/
+└── local/
+    ├── blueprint.yaml          # the only thing required after `windsor init`
+    ├── values.yaml             # context values consumed by facets
+    └── terraform/              # OPTIONAL: hand-authored .tfvars overrides
+        └── cluster/talos.tfvars
+terraform/
+└── database/postgres/
+    ├── main.tf
+    └── variables.tf
 .windsor/
 └── contexts/
     └── local/
-        ├── cluster/
-        │   └── talos/
-        │       ├── main.tf
-        │       └── variables.tf
-        └── gitops/
-            └── flux/
-                ├── main.tf
-                └── variables.tf
-contexts/
-└── local/
-    ├── .terraform/
-    │   └── ...
-    ├── .tf_state/
-    │   └── ...
-    ├── terraform/
-    │   ├── cluster/
-    │   │   └── talos.tfvars
-    │   ├── gitops/
-    │   │   └── flux.tfvars
-    │   └── database/
-    │       └── postgres.tfvars
-    └── blueprint.yaml
-terraform/
-└── database/
-    └── postgres/
-        ├── main.tf
-        └── variables.tf
+        ├── terraform/<component>/  # generated module shim + terraform.tfvars
+        │   ├── main.tf
+        │   ├── variables.tf
+        │   ├── outputs.tf
+        │   ├── backend_override.tf
+        │   └── terraform.tfvars
+        └── .terraform/<component>/ # provider plugins, modules, tfstate (local backend)
+            └── terraform.tfstate
 ```
 
-## Blueprint
-You can simplify infrastructure development by referencing Terraform modules in the `blueprint.yaml` file. For example, the default local blueprint includes:
+Modules under `terraform/` are local to the project; reference them with a `path:` and no `source:`. Modules pulled from blueprint sources (OCI artifacts or git repositories) are unpacked into `.windsor/contexts/<name>/terraform/<component>/` as shims.
 
-```yaml
-kind: Blueprint
-apiVersion: blueprints.windsorcli.dev/v1alpha1
-metadata:
-  name: local
-  description: This blueprint outlines resources in the local context
-repository:
-  url: http://git.test/git/tmp
-  ref:
-    branch: main
-  secretName: flux-system
-sources:
-- name: core
-  url: github.com/windsorcli/core
-  ref:
-    branch: main
-terraform:
-- source: core
-  path: cluster/talos
-- source: core
-  path: gitops/flux
-kustomize:
-- name: local
-  path: ""
-```
+`contexts/<name>/terraform/<component>.tfvars` is an optional user override. When present, Windsor consumes it instead of the generated tfvars.
 
-Modules like `cluster/talos` and `gitops/flux` are remote, with shims in `.windsor/contexts/<context>/cluster/talos` and `.windsor/contexts/<context>/gitops/flux`. Running `windsor up` applies these modules sequentially.
+## Declaring components
 
-Store your Terraform code in a `terraform/` folder within your project. To reference it in `blueprint.yaml`, add a section without a `source` field. For example, if your code is in `terraform/example/my-app`, add:
+Add a `terraform:` entry to `blueprint.yaml` for each module the context depends on:
 
 ```yaml
 terraform:
@@ -80,57 +50,132 @@ terraform:
   path: cluster/talos
 - source: core
   path: gitops/flux
-- path: example/my-app   # Add the path to your local Terraform module
+  dependsOn:
+    - cluster/talos
+- path: example/my-app          # local module under terraform/
+- name: backend                 # opt-in formal name (any unique slug)
+  source: core
+  path: aws/state
+  inputs:
+    bucket_name: ${cluster.name}-state
 ```
 
-Now, running `windsor up` will execute your module after the `gitops/flux` module.
+Components without a `source:` resolve to `terraform/<path>` in the project. Components with `source:` resolve into the named blueprint source. `inputs` accepts both literal values and `${...}` expressions evaluated at compose time. See [reference/blueprint.md](../reference/blueprint.md) for the full schema.
 
-## Workstation network callback
+## Lifecycle commands
 
-When your blueprint includes a Terraform component that represents the workstation (for example a component with path or name that yields id `workstation`), host/guest networking and DNS are deferred until after that component is applied. A hook runs after the workstation component applies; it configures host routes, guest networking, and DNS for the current platform (Colima, Docker, etc.) using the DNS address from Terraform output when available.
+| Command | Effect |
+|---------|--------|
+| `windsor plan terraform [component]` | `init` + `plan` for one component, or all if omitted. `--summary` prints a table; otherwise streams full output. New components show `(new)`. |
+| `windsor apply terraform <component>` | `init` + `plan` + `apply` for the named component. `<component>` is required. |
+| `windsor apply` | Apply every component in dependency order, then install the Flux blueprint. |
+| `windsor destroy terraform [component]` | Destroy one component, or all in reverse-topological order. `--confirm=<token>` skips the interactive prompt. |
+| `windsor up` / `windsor down` | Workstation contexts only. `up` drives Terraform + Flux for the workstation; `down` stops the VM. |
+| `windsor bootstrap` | First-run setup — see [Bootstrap](#bootstrap) below. |
 
-## Importing Resources
-The Windsor CLI offers a unique method for importing and using remote Terraform modules. Running `windsor init local` unpacks shims that reference basic modules from Windsor's [core blueprint](https://github.com/windsorcli/core), stored in `.windsor/contexts/<context>/`.
+When Windsor invokes Terraform from `apply`, it runs `terraform apply <plan-file>` against a saved plan, so Terraform never prompts and no `-auto-approve` is needed. When Windsor invokes Terraform from `destroy`, it passes `-auto-approve`; Windsor itself owns the confirmation gate (`--confirm` or interactive prompt) before that. If you run `terraform destroy` directly inside a `windsor env`-managed shell, Windsor leaves `TF_CLI_ARGS_destroy` empty so Terraform's own prompt fires.
 
-Think of the `contexts/<context>/` folder as the remote module counterpart to the local `terraform` folder. Variables for these modules are located in `.windsor/contexts/<context>/path/to/module/terraform.tfvars`.
+## Variables and environment
 
-## Terraform CLI Assistance
+Windsor materializes inputs to a generated `terraform.tfvars` next to each module shim and points Terraform at the right plan/apply/destroy args via `TF_CLI_ARGS_*`. You don't pass `-var-file` yourself.
 
-The Windsor CLI enhances your Terraform workflow by automatically managing environment-specific configurations. This is achieved through the use of context-specific `.tfvars` files, which allow your Terraform project files to remain environment-agnostic.
+The runtime injects these variables into Terraform invocations (visible in a `windsor env`-managed shell when your CWD is inside a terraform module dir):
 
-### Contextual Configuration
+| Variable | Meaning |
+|----------|---------|
+| `TF_VAR_context` | Current context name. |
+| `TF_VAR_context_id` | Stable context id. |
+| `TF_VAR_context_path` | Filesystem path to the current context. |
+| `TF_VAR_project_root` | Filesystem path to the project root. |
+| `TF_VAR_os_type` | `linux`, `darwin`, or `windows`. |
+| `TF_VAR_operation` | `apply` during apply/up/bootstrap; `destroy` during destroy/down. Useful for components that branch on lifecycle phase. |
 
-In your project, the `terraform/` directory houses your standard Terraform files, while the `contexts/<context-name>/terraform` directory contains `.tfvars` files that define specific environments. For example:
+Per-component `TF_VAR_<input>` variables are also materialized from the component's evaluated `inputs:`.
 
-- **Terraform Directory**: `terraform/database/postgres`
-- **Local Context Variables**: `contexts/local/terraform/database/postgres.tfvars`
+Cloud-provider variables (`AWS_*`, `ARM_*`, `GOOGLE_*`) are derived from the active context's `aws` / `azure` / `gcp` config blocks. See [Environment Injection](environment-injection.md).
 
-When you set a context using `windsor context set`, the Windsor CLI automatically includes the appropriate `.tfvars` files in your Terraform commands. This means running `terraform plan` in the `terraform/database/postgres` directory is equivalent to:
+To inspect what Windsor exports for the current context:
 
-```bash
-terraform plan --var-file path/to/contexts/local/terraform/database/postgres.tfvars
-```
-
-### Environment Variable Management
-
-The Windsor CLI simplifies the Terraform CLI experience by injecting `TF_CLI_ARGS_*` variables into your environment. These variables ensure that Terraform commands are executed with the correct context and configurations, making your workflow more efficient.
-
-Key functionalities include:
-
-- **Environment Variables Setup**: Automatically configures environment variables to ensure Terraform commands are executed with the correct context.
-- **Backend Configuration**: Dynamically creates configuration files for different storage backends (e.g., local, S3, Kubernetes)
-- **Alias Management**: Provides the ability to alias Terraform commands, such as using `tflocal` when Localstack is enabled.
-
-For more details on how these environment variables are managed, refer to the [Terraform documentation](https://developer.hashicorp.com/terraform/cli/config/environment-variables#tf_cli_args-and-tf_cli_args_name). To view all environment variables managed by the CLI, use:
-
-```bash
+```sh
 windsor env
 ```
 
-This setup allows for a streamlined workflow, typically requiring only:
+## Cross-component outputs
 
-```bash
-terraform init
-terraform plan
-terraform apply
+A component can read another component's outputs through the `terraform_output` expression helper inside facet expressions:
+
+```yaml
+terraform:
+- name: cluster
+  source: core
+  path: cluster/talos
+- name: app
+  path: example/my-app
+  dependsOn: [cluster]
+  inputs:
+    api_endpoint: ${terraform_output("cluster", "endpoint")}
+    mirrors: ${terraform_output("workstation", "registries") ?? {}}
 ```
+
+Windsor walks components in dependency order; when `terraform_output("cluster", "endpoint")` is evaluated for `app`, the `cluster` component's `terraform output -json` is read on the spot and the result becomes `TF_VAR_api_endpoint`. The `??` operator supplies a default when the upstream component has not been applied yet — this lets the dependent component still plan.
+
+The bare path syntax `${terraform.<other>.outputs.<key>}` does not exist — only the `terraform_output()` helper is supported, and only inside facet expressions.
+
+## Backend configuration
+
+Configure the state backend in the context's `windsor.yaml`:
+
+```yaml
+terraform:
+  backend:
+    type: s3              # local | s3 | kubernetes | azurerm
+    s3:
+      bucket: my-tf-state
+      key: contexts/staging
+      region: us-east-2
+```
+
+Windsor writes a `backend_override.tf` next to each generated module shim that points at the configured backend, so the underlying terraform module doesn't need a hard-coded `backend` block. State is keyed per-component, isolated within a single context.
+
+Default backend by `platform`, applied at `windsor init` / `windsor bootstrap` / `windsor up` time when no explicit backend is set:
+
+| Platform | Default backend |
+|----------|-----------------|
+| `aws` | `s3` |
+| `azure` | `azurerm` |
+| `metal`, `docker`, `incus` | `kubernetes` (each component's state is stored as a Secret in the cluster) |
+| `gcp`, `none`, unset | not defaulted (effectively `local`) |
+
+Override at init time with `--backend`, or via `--set terraform.backend.type=...` on `bootstrap`, or by editing `windsor.yaml` directly.
+
+## Bootstrap
+
+`windsor bootstrap` handles the chicken-and-egg case where the configured remote backend lives in infrastructure that Terraform itself must create — for example, an S3 bucket for state, or an Azure Storage account.
+
+When the blueprint declares a component named `backend`, bootstrap runs in two phases:
+
+1. **Phase 1.** Override `terraform.backend.type` to `local` in memory and apply only the `backend` component. This materializes the remote state store (bucket, table, etc.).
+2. **Phase 2.** Restore the configured backend type and `terraform init -migrate-state -force-copy` for the `backend` component, moving its state to remote. The on-disk `windsor.yaml` is never mutated.
+
+The next `apply` / `up` initializes the rest of the components directly against the configured remote backend with no migration needed — they have not been applied yet.
+
+When the blueprint has no `backend` component, bootstrap behaves like `apply --wait` against whatever backend is configured. It is also safe to run repeatedly; subsequent invocations detect the migrated backend and skip Phase 1.
+
+```sh
+windsor bootstrap                    # current context
+windsor bootstrap staging            # switch context, then bootstrap
+windsor bootstrap --platform aws --blueprint ghcr.io/org/blueprint:v1.2.0
+```
+
+## Workstation network callback
+
+When the blueprint includes a Terraform component that represents the workstation itself (component id `workstation`), host/guest networking and DNS are deferred until after that component applies. A hook then configures host routes, guest networking, and DNS for the active platform (Colima, Docker, etc.) using the DNS address from the component's outputs when available.
+
+This is workstation-context behavior only; non-workstation contexts skip the callback.
+
+## See also
+
+- [Lifecycle](lifecycle.md) — phase-by-phase command map
+- [Environment Injection](environment-injection.md) — full env table including cloud providers
+- [Local Workstation](local-workstation.md) — workstation-specific terraform components
+- [reference/blueprint.md](../reference/blueprint.md#terraformcomponent) — `TerraformComponent` schema
