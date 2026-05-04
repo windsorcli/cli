@@ -351,10 +351,17 @@ func (s *FluxStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blu
 // kustomizationDestroyEligible mirrors the gate inside DeleteBlueprint so the
 // destroy-plan set matches the destroy-execute set. DestroyOnly kustomizations
 // are skipped (they're hooks applied during destroy, not user-visible
-// resources to preview), and any pinned destroy=false are skipped.
+// resources to preview), and any pinned destroy=false are skipped. The
+// explicit nil check on Destroy mirrors componentDestroyEnabled on the
+// terraform side: ToBool happens to handle a nil receiver today, but the
+// guard reads more clearly at the call site and survives future refactors of
+// ToBool without breakage.
 func kustomizationDestroyEligible(k blueprintv1alpha1.Kustomization) bool {
 	if k.DestroyOnly != nil && *k.DestroyOnly {
 		return false
+	}
+	if k.Destroy == nil {
+		return true
 	}
 	if d := k.Destroy.ToBool(); d != nil && !*d {
 		return false
