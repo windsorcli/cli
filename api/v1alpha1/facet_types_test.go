@@ -128,6 +128,71 @@ func TestFacetDeepCopy(t *testing.T) {
 			t.Error("Deep copy failed: config block body nested map was not copied")
 		}
 	})
+
+	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
+		original := &Facet{
+			Metadata: Metadata{Name: "test-facet"},
+			Requires: []RequirementBlock{
+				{Paths: []string{"cluster.name", "dns.domain"}},
+				{
+					When:    "provider == 'aws'",
+					Paths:   []string{"aws.region"},
+					Message: "Set aws.region",
+				},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Requires) != len(original.Requires) {
+			t.Fatalf("Expected %d requirement blocks, got %d", len(original.Requires), len(copy.Requires))
+		}
+
+		original.Requires[0].Paths[0] = "modified"
+		if copy.Requires[0].Paths[0] == "modified" {
+			t.Error("Deep copy failed: requires paths slice was not copied")
+		}
+
+		original.Requires[1].Message = "modified"
+		if copy.Requires[1].Message == "modified" {
+			t.Error("Deep copy failed: requires message was not copied")
+		}
+	})
+}
+
+func TestRequirementBlockDeepCopy(t *testing.T) {
+	t.Run("ReturnsNilForNilBlock", func(t *testing.T) {
+		var r *RequirementBlock
+		result := r.DeepCopy()
+		if result != nil {
+			t.Errorf("Expected nil, got %v", result)
+		}
+	})
+
+	t.Run("CreatesDeepCopyOfRequirementBlock", func(t *testing.T) {
+		original := &RequirementBlock{
+			When:    "provider == 'aws'",
+			Paths:   []string{"aws.region", "aws.account_id"},
+			Message: "Set these in values.yaml",
+		}
+
+		copy := original.DeepCopy()
+
+		if copy.When != original.When {
+			t.Errorf("Expected When %q, got %q", original.When, copy.When)
+		}
+		if copy.Message != original.Message {
+			t.Errorf("Expected Message %q, got %q", original.Message, copy.Message)
+		}
+		if len(copy.Paths) != len(original.Paths) {
+			t.Fatalf("Expected %d paths, got %d", len(original.Paths), len(copy.Paths))
+		}
+
+		original.Paths[0] = "modified"
+		if copy.Paths[0] == "modified" {
+			t.Error("Deep copy failed: paths slice was not copied")
+		}
+	})
 }
 
 func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
@@ -377,6 +442,96 @@ controlplanes: ${cluster.controlplanes}
 		}
 		if block.Body != nil {
 			t.Error("Expected Body to be nil when unmarshal fails")
+		}
+	})
+
+	t.Run("FacetUnmarshalsRequires", func(t *testing.T) {
+		facetYAML := []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: requires-facet
+when: provider == 'aws'
+requires:
+  - paths:
+      - cluster.name
+      - dns.domain
+  - when: cluster.workers.count > 0
+    paths:
+      - aws.subnets.private
+  - when: observability.enabled
+    paths:
+      - observability.endpoint
+      - observability.token
+    message: |
+      Observability is enabled but its endpoint/token are not set.
+      See https://docs.windsorcli.dev/observability for setup details.
+`)
+		var facet Facet
+		err := yaml.Unmarshal(facetYAML, &facet)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal facet with requires: %v", err)
+		}
+		if len(facet.Requires) != 3 {
+			t.Fatalf("Expected 3 requirement blocks, got %d", len(facet.Requires))
+		}
+
+		first := facet.Requires[0]
+		if first.When != "" {
+			t.Errorf("Expected first block When empty, got %q", first.When)
+		}
+		if len(first.Paths) != 2 || first.Paths[0] != "cluster.name" || first.Paths[1] != "dns.domain" {
+			t.Errorf("Unexpected first block paths: %v", first.Paths)
+		}
+		if first.Message != "" {
+			t.Errorf("Expected first block Message empty, got %q", first.Message)
+		}
+
+		second := facet.Requires[1]
+		if second.When != "cluster.workers.count > 0" {
+			t.Errorf("Unexpected second block When: %q", second.When)
+		}
+		if len(second.Paths) != 1 || second.Paths[0] != "aws.subnets.private" {
+			t.Errorf("Unexpected second block paths: %v", second.Paths)
+		}
+
+		third := facet.Requires[2]
+		if third.When != "observability.enabled" {
+			t.Errorf("Unexpected third block When: %q", third.When)
+		}
+		if len(third.Paths) != 2 {
+			t.Fatalf("Expected 2 paths in third block, got %d", len(third.Paths))
+		}
+		if !strings.Contains(third.Message, "endpoint/token are not set") {
+			t.Errorf("Expected message to contain context, got %q", third.Message)
+		}
+	})
+
+	t.Run("FacetMarshalsRequires", func(t *testing.T) {
+		facet := Facet{
+			Kind:       "Facet",
+			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
+			Metadata:   Metadata{Name: "test"},
+			Requires: []RequirementBlock{
+				{Paths: []string{"cluster.name"}},
+				{When: "provider == 'aws'", Paths: []string{"aws.region"}, Message: "Set aws.region"},
+			},
+		}
+		out, err := yaml.Marshal(&facet)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		s := string(out)
+		if !strings.Contains(s, "requires:") {
+			t.Error("Expected marshaled YAML to contain requires:")
+		}
+		if !strings.Contains(s, "cluster.name") {
+			t.Error("Expected marshaled YAML to contain cluster.name path")
+		}
+		if !strings.Contains(s, "when: provider == 'aws'") {
+			t.Error("Expected marshaled YAML to contain when: provider == 'aws'")
+		}
+		if !strings.Contains(s, "Set aws.region") {
+			t.Error("Expected marshaled YAML to contain message text")
 		}
 	})
 

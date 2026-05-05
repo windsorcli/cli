@@ -44,6 +44,7 @@ kustomize:
 | `ordinal`   | `integer` (optional)              | Order in which this facet is applied relative to others. Higher ordinal = higher precedence when merging. When omitted, derived from the facet file basename (see [Default ordinal from filename](#default-ordinal-from-filename)). |
 | `when`      | `string`                          | Expression that determines if the facet should be applied. Evaluated against configuration values. If empty or evaluates to `true`, the facet is applied. |
 | `config`    | `[]ConfigBlock`                   | Named configuration blocks evaluated in blueprint context; referenced as `<name>.<key>` (e.g. `talos.controlplanes`) from terraform inputs and kustomize substitutions, same style as context (`cluster.*`, `network.*`). |
+| `requires`  | `[]RequirementBlock`              | Input requirement blocks. When the facet is active and a block's optional `when` holds, every path must resolve to a present, non-empty value. Unsatisfied paths are aggregated into a single user-facing error. See [Requires](#requires). |
 | `terraform` | `[]ConditionalTerraformComponent` | Terraform components to include when the facet matches.                  |
 | `kustomize` | `[]ConditionalKustomization`       | Kustomizations to include when the facet matches.                         |
 
@@ -96,6 +97,65 @@ terraform:
 ```
 
 Evaluation order: facets are processed by ordinal (ascending), then by name. First, each facet's config block **structure** (name, when, body keys) is merged into a global scope (same block name merges block bodies recursively); config body expressions are **not** evaluated yet. After all facets are merged, config body expressions are evaluated once in blueprint context (very late). Then terraform and kustomize components are collected; their inputs and substitutions can reference the evaluated `<name>.<key>` (e.g. `talos.controlplanes`).
+
+## Requires
+
+A facet can declare the inputs it needs via `requires`. Each entry is a **block** that scopes a set of `paths` under an optional `when` condition with an optional `message`. The check runs once the facet's own `when` is true; if any required path is missing, the facet is deferred and may be re-evaluated in a later round (so requirements satisfied by another facet's config block work naturally). After the convergence loop, every still-unsatisfied path across every active facet is collected into a single error.
+
+```yaml
+when: provider == 'aws'
+requires:
+  # Always required while this facet is active.
+  - paths:
+      - cluster.name
+      - dns.domain
+
+  # Conditionally required.
+  - when: cluster.workers.count > 0
+    paths:
+      - aws.subnets.private
+
+  # Conditionally required, with author-supplied context.
+  - when: observability.enabled
+    paths:
+      - observability.endpoint
+      - observability.token
+    message: |
+      Observability is enabled but its endpoint/token are not set.
+      See https://docs.windsorcli.dev/observability for setup details.
+```
+
+Block fields:
+
+| Field     | Type       | Required | Notes                                                                                       |
+|-----------|------------|----------|---------------------------------------------------------------------------------------------|
+| `when`    | `string`   | no       | Expression gating the block. Empty means always required while the parent facet is active.  |
+| `paths`   | `[]string` | yes      | Dotted scope keys (e.g. `aws.region`, `cluster.workers.count`).                              |
+| `message` | `string`   | no       | Optional context surfaced under the heading in the aggregated error.                         |
+
+A path is **satisfied** when it resolves to a non-nil, non-empty value. Empty string, empty slice, and empty map count as **missing**; `false` and `0` count as **present**. `requires` checks presence — *that the user has declared a value* — not truthiness. If you mean "only required when the feature is on," put that in the block's `when`.
+
+The aggregated error groups missing paths by their effective condition (the AND of facet `when` and block `when`) — never by facet — and never uses the word "facet" in user-facing output. Example output:
+
+```
+Required configuration is missing:
+
+  Required:
+    - cluster.name
+    - dns.domain
+
+  Because provider == 'aws':
+    - aws.region
+    - aws.account_id
+
+  Because observability.enabled:
+    Observability is enabled but its endpoint/token are not set.
+    See https://docs.windsorcli.dev/observability for setup details.
+      - observability.endpoint
+      - observability.token
+
+5 missing values. Set these in values.yaml and re-run.
+```
 
 ## Conditional Logic
 
