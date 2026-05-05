@@ -150,7 +150,7 @@ const DefaultAWSLocalstackProImage = "localstack/localstack-pro:4.14.0"
 const DefaultDNSImage = "coredns/coredns:1.14.3"
 
 // renovate: datasource=docker depName=registry
-const RegistryDefaultImage = "registry:3.1.0"
+const RegistryDefaultImage = "registry:3.1.1"
 
 const RegistryDefaultHostPort = 5001
 
