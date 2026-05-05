@@ -8,13 +8,14 @@ Blueprints can include a JSON Schema file (`_template/schema.yaml`) that defines
 
 ## Schema file structure
 
-The schema file lives at `contexts/_template/schema.yaml` in blueprint templates. The `$schema` field accepts either of:
+The schema file lives at `contexts/_template/schema.yaml` in blueprint templates. The `$schema` field accepts:
 
-- `https://windsorcli.dev/schema/2026-02/schema` — the Windsor dialect (recommended).
+- `https://windsorcli.dev/draft/2026-02/schema` — the Windsor dialect (recommended). Resolves to the published meta-schema.
+- `https://windsorcli.dev/schema/2026-02/schema` — alias accepted for backward compatibility.
 - `https://json-schema.org/draft/2020-12/schema` — accepted for compatibility. Only the subset of Draft 2020-12 documented below is validated.
 
 ```yaml
-$schema: https://windsorcli.dev/schema/2026-02/schema
+$schema: https://windsorcli.dev/draft/2026-02/schema
 type: object
 properties:
   # ... property definitions
@@ -89,7 +90,7 @@ The following JSON Schema Draft 2020-12 features are **not** supported:
 ## Example
 
 ```yaml
-$schema: https://windsorcli.dev/schema/2026-02/schema
+$schema: https://windsorcli.dev/draft/2026-02/schema
 type: object
 properties:
   platform:
