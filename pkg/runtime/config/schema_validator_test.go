@@ -57,6 +57,51 @@ additionalProperties: true
 		// Schema should be loaded (verified by successful execution)
 	})
 
+	t.Run("AcceptsDraftURL", func(t *testing.T) {
+		// Given a schema validator
+		mockShell := shell.NewMockShell()
+		validator := NewSchemaValidator(mockShell)
+
+		// And a schema file using the published meta-schema URL
+		schemaContent := `
+$schema: https://windsorcli.dev/draft/2026-02/schema
+title: Test Schema
+type: object
+`
+
+		validator.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(schemaContent), nil
+		}
+
+		// When loading the schema
+		err := validator.LoadSchema("/test/schema.yaml")
+
+		// Then it should succeed
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsStandardJSONSchemaURL", func(t *testing.T) {
+		mockShell := shell.NewMockShell()
+		validator := NewSchemaValidator(mockShell)
+
+		schemaContent := `
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Test Schema
+type: object
+`
+
+		validator.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(schemaContent), nil
+		}
+
+		err := validator.LoadSchema("/test/schema.yaml")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorInvalidSchemaVersion", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()
