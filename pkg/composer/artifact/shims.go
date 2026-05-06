@@ -92,7 +92,7 @@ func NewShims() *Shims {
 		YamlMarshal:       yaml.Marshal,
 		ReadAll:           io.ReadAll,
 		ParseReference:    func(ref string, opts ...name.Option) (name.Reference, error) { return name.ParseReference(ref) },
-		RemoteImage:       func(ref name.Reference, options ...remote.Option) (v1.Image, error) { return remote.Image(ref) },
+		RemoteImage:       func(ref name.Reference, options ...remote.Option) (v1.Image, error) { return remote.Image(ref, options...) },
 		ImageLayers:       func(img v1.Image) ([]v1.Layer, error) { return img.Layers() },
 		LayerUncompressed: func(layer v1.Layer) (io.ReadCloser, error) { return layer.Uncompressed() },
 		AppendLayers:      mutate.AppendLayers,

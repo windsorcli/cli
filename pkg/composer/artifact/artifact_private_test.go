@@ -1269,6 +1269,29 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 			t.Errorf("expected image layers error, got %v", err)
 		}
 	})
+
+	t.Run("PassesAuthKeychainOption", func(t *testing.T) {
+		// Given an ArtifactBuilder that captures the options passed to RemoteImage
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		var capturedOptions []remote.Option
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			capturedOptions = options
+			return nil, fmt.Errorf("stop here")
+		}
+
+		// When downloadOCIArtifact is called
+		_, _ = builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+
+		// Then exactly one option (the keychain auth option) should be forwarded so private registries authenticate
+		if len(capturedOptions) != 1 {
+			t.Fatalf("expected 1 remote option to be forwarded for keychain auth, got %d", len(capturedOptions))
+		}
+	})
 }
 
 func TestArtifactBuilder_findMatchingProcessor(t *testing.T) {

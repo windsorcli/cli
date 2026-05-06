@@ -1366,7 +1366,7 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 		return nil, fmt.Errorf("failed to parse reference %s: %w", ref, err)
 	}
 
-	img, err := a.shims.RemoteImage(parsedRef)
+	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image: %w", err)
 	}
