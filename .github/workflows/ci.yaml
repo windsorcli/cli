@@ -197,6 +197,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ github.sha }}
         run: |
+          shopt -s nullglob
+          artifacts=(dist/windsor_nightly_*.tar.gz dist/windsor_nightly_*.zip)
+          shopt -u nullglob
+
+          if [[ ${#artifacts[@]} -eq 0 ]]; then
+            echo "No nightly artifacts found in dist/" >&2
+            exit 1
+          fi
+
           gh release delete nightly --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
           gh release create nightly \
             --repo "$GITHUB_REPOSITORY" \
@@ -204,7 +213,7 @@ jobs:
             --target "$SHA" \
             --title "Nightly (latest main)" \
             --notes "Rolling build from \`main\` @ ${SHA:0:7}. Unstable — for users living on the edge." \
-            dist/windsor_nightly_*.tar.gz dist/windsor_nightly_*.zip dist/checksums.txt
+            "${artifacts[@]}" dist/checksums.txt
         shell: bash
 
   release:
