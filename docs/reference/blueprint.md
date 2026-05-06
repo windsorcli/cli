@@ -169,31 +169,33 @@ kustomize:
 ```
 
 
-| Field         | Type                | Description                                      |
-|---------------|---------------------|--------------------------------------------------|
-| `name`        | `string`            | Name of the kustomization.                       |
-| `path`        | `string`            | Path of the kustomization.                       |
-| `source`      | `string`            | Source of the kustomization.                     |
-| `dependsOn`   | `[]string`          | Dependencies of this kustomization.              |
-| `interval`    | `*metav1.Duration`  | Interval for applying the kustomization.         |
-| `retryInterval`| `*metav1.Duration` | Retry interval for a failed kustomization.       |
-| `timeout`     | `*metav1.Duration`  | Timeout for the kustomization to complete.       |
-| `patches`     | `[]BlueprintPatch` | Patches to apply to the kustomization. Supports both blueprint format (path) and Flux format (patch + target). |
-| `wait`        | `*bool`             | Wait for the kustomization to be fully applied.  |
-| `force`       | `*bool`             | Force apply the kustomization.                   |
-| `prune`       | `*bool`             | Enable garbage collection of resources that are no longer present in the source. |
-| `components`  | `[]string`          | Components to include in the kustomization.      |
-| `cleanup`     | `[]string`          | Components to include in a cleanup kustomization that runs before this kustomization is deleted. The cleanup kustomization uses the path `<kustomization-path>/cleanup` with these as components. |
-| `destroy`     | `*bool`             | Determines if the kustomization should be destroyed during down operations. Defaults to true if not specified. |
-| `destroyOnly` | `*bool`             | Indicates that this kustomization should only run during destroy operations. When true, the kustomization is skipped during apply/up operations and only executed during destroy. Destroy-only kustomizations run before regular kustomizations during destroy, in normal dependency order. |
-| `substitutions` | `map[string]string` | Values for post-build variable replacement, collected and stored in ConfigMaps for use by Flux postBuild substitution. All values are converted to strings. These are used for generating ConfigMaps and are not written to the final context blueprint.yaml. |
+| Field           | Type                  | Description                                      |
+|-----------------|-----------------------|--------------------------------------------------|
+| `name`          | `string`              | Name of the kustomization. Required.             |
+| `path`          | `string`              | Path of the kustomization within the source.     |
+| `source`        | `string`              | Source name; defaults to the blueprint's own repository. |
+| `namespace`     | `string`              | Override the namespace where the Flux `Kustomization` object itself lives. Defaults to the gitops namespace (`system-gitops`). Setting this breaks `dependsOn` references, which always resolve in the gitops namespace. |
+| `targetNamespace` | `string`            | Sets `spec.targetNamespace` so Flux rewrites every reconciled resource into that namespace. |
+| `dependsOn`     | `[]string`            | Names of other kustomizations this one depends on. |
+| `interval`      | `*metav1.Duration`    | Reconciliation interval.                         |
+| `retryInterval` | `*metav1.Duration`    | Retry interval after failed reconciliation.      |
+| `timeout`       | `*metav1.Duration`    | Timeout for the kustomization to complete.       |
+| `patches`       | `[]BlueprintPatch`    | Patches applied to the kustomization. Supports both blueprint format (path) and Flux format (patch + target). |
+| `wait`          | `*bool`               | Wait for the kustomization to be fully applied.  |
+| `force`         | `*bool`               | Force apply the kustomization.                   |
+| `prune`         | `*bool`               | Garbage-collect resources no longer in the source. |
+| `components`    | `[]string`            | Kustomize components to layer in.                |
+| `destroy`       | `*BoolExpression`     | Whether to remove the kustomization on destroy. Accepts a literal bool or a facet expression (`${cluster.destroy ?? true}`). Defaults to `true`. |
+| `destroyOnly`   | `*bool`               | Hook for teardown work — final backups, snapshot/archive jobs, deregistrations. Skipped during apply/up; only applied during destroy, in normal dependency order. |
+| `enabled`       | `*BoolExpression`     | Whether to include the kustomization at all. Accepts a literal bool or a facet expression. Defaults to `true`. |
+| `substitutions` | `map[string]string`   | Values for `postBuild.substitute`, materialized as a `values-<name>` ConfigMap. All values converted to strings; complex types JSON-encoded. Not written to the context's on-disk blueprint.yaml. |
 
 #### Patches
 
 Patches are provided via Facets, not directly in blueprint definitions. See the [Facets Reference](facets.md#kustomization-patches) for details on how to define patches in facets.
 
 ## Cluster Variables
-When running `windsor install`, Kubernetes resources are applied. These resources include a configmap that introduces [post-build variables](https://fluxcd.io/flux/components/kustomize/kustomizations/#post-build-variable-substitution) into the Kubernetes manifests. These variables are outlined as follows:
+When `windsor apply` (or `windsor up` for workstation contexts) installs the blueprint, a ConfigMap of [post-build substitution variables](https://fluxcd.io/flux/components/kustomize/kustomizations/#post-build-variable-substitution) is created. The variables are referenced from every Kustomization's `postBuild.substituteFrom`:
 
 | Key                     | Description                                                        |
 |-------------------------|--------------------------------------------------------------------|
@@ -302,16 +304,3 @@ kustomize:
   - bookinfo
   - bookinfo/ingress
 ```
-
-<div>
-  {{ footer('Securing Secrets', '../../security/secrets/index.html', 'Configuration', '../configuration/index.html') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../security/secrets/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../configuration/index.html'; 
-  });
-</script>

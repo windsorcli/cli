@@ -582,7 +582,8 @@ func (sv *SchemaValidator) validateSchemaStructure(schema map[string]any) error 
 	}
 
 	if schemaStr, ok := schemaVersion.(string); ok {
-		if schemaStr != "https://windsorcli.dev/schema/2026-02/schema" &&
+		if schemaStr != "https://windsorcli.dev/draft/2026-02/schema" &&
+			schemaStr != "https://windsorcli.dev/schema/2026-02/schema" &&
 			schemaStr != "https://json-schema.org/draft/2020-12/schema" {
 			return fmt.Errorf("unsupported schema version: %s", schemaStr)
 		}

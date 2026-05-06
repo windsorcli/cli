@@ -67,14 +67,3 @@ The metadata file should be placed at:
 2. **Use semantic versioning**: Follow semver for the `version` field
 3. **Set `cliVersion` constraints**: Protect users from incompatible CLI versions
 4. **Keep descriptions clear**: Help users understand what the blueprint does
-
-<div>
-  {{ footer('Schema', '../schema/index.html', '', '') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../schema/index.html'; 
-  });
-</script>
-
