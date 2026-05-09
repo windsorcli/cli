@@ -777,6 +777,88 @@ terraform:
 		}
 	})
 
+	t.Run("ReturnsNilWhenKeyAbsentFromPopulatedOutputs", func(t *testing.T) {
+		// Given a component whose outputs are populated but do not contain the requested key
+		// (e.g. partial-destroy state, or an output that was renamed/removed in the module)
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path
+    name: test-component`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				return `{"present_key": {"value": "v"}}`, nil
+			}
+			return "", nil
+		}
+
+		// When asking for a key that is not in the populated outputs
+		output, err := mocks.Provider.getOutput("test-component", "missing_key", `terraform_output("test-component", "missing_key")`, true)
+
+		// Then nil is returned without error so ?? fallback works uniformly
+		if err != nil {
+			t.Errorf("Expected no error for absent key with populated outputs, got: %v", err)
+		}
+		if output != nil {
+			t.Errorf("Expected nil output for absent key, got %v", output)
+		}
+
+		// And the populated outputs are still cached so the present key resolves
+		present, err := mocks.Provider.getOutput("test-component", "present_key", `terraform_output("test-component", "present_key")`, true)
+		if err != nil {
+			t.Fatalf("Expected no error for present key, got %v", err)
+		}
+		if present != "v" {
+			t.Errorf("Expected present_key to be 'v', got %v", present)
+		}
+	})
+
+	t.Run("CachesAbsentKeyToAvoidRepeatedTerraformInvocations", func(t *testing.T) {
+		// Given a blueprint with multiple ??-guarded references to the same absent key,
+		// the cached outputs from the first lookup should be authoritative — refetching
+		// cannot reveal a key that was not in the populated set.
+		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
+kind: Blueprint
+metadata:
+  name: test
+terraform:
+  - path: test/path
+    name: test-component`
+
+		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "local"})
+
+		outputCallCount := 0
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 2 && args[1] == "output" {
+				outputCallCount++
+				return `{"present_key": {"value": "v"}}`, nil
+			}
+			return "", nil
+		}
+
+		// When the same absent key is requested multiple times
+		for i := 0; i < 3; i++ {
+			output, err := mocks.Provider.getOutput("test-component", "missing_key", `terraform_output("test-component", "missing_key")`, true)
+			if err != nil {
+				t.Fatalf("Expected no error on lookup %d, got: %v", i, err)
+			}
+			if output != nil {
+				t.Errorf("Expected nil output on lookup %d, got %v", i, output)
+			}
+		}
+
+		// Then terraform output is only invoked once — subsequent absent-key lookups
+		// hit the cache and short-circuit instead of re-shelling the CLI.
+		if outputCallCount != 1 {
+			t.Errorf("Expected terraform output to be invoked once across 3 absent-key lookups, got %d invocations", outputCallCount)
+		}
+	})
+
 	t.Run("HandlesTerraformInitFallback", func(t *testing.T) {
 		// Given a provider with terraform output that fails initially
 		blueprintYAML := `apiVersion: blueprints.windsorcli.dev/v1alpha1
