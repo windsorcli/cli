@@ -262,6 +262,142 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 
+	t.Run("DerivesTalosDriverFromHypervPlatform", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.Set("platform", "hyperv"); err != nil {
+			t.Fatalf("Expected no error setting platform, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		clusterValues, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster map, got %T", values["cluster"])
+		}
+		if clusterValues["driver"] != "talos" {
+			t.Errorf("Expected cluster.driver=talos for hyperv, got %v", clusterValues["driver"])
+		}
+	})
+
+	t.Run("DerivesDriverFromProviderWhenPlatformUnset", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.Set("provider", "gcp"); err != nil {
+			t.Fatalf("Expected no error setting provider, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		clusterValues, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster map, got %T", values["cluster"])
+		}
+		if clusterValues["driver"] != "gke" {
+			t.Errorf("Expected cluster.driver=gke from provider fallback, got %v", clusterValues["driver"])
+		}
+		if values["platform"] != nil {
+			t.Errorf("Expected platform to remain unset (provider fallback should not pollute values), got %v", values["platform"])
+		}
+	})
+
+	t.Run("BlueprintAllOfDoesNotClobberEmbeddedDriverDerivation", func(t *testing.T) {
+		// Given a blueprint schema that declares its own allOf for unrelated cross-field
+		// validation (mirroring the real windsorcli/core schema, which requires `email`
+		// when `dns.public_domain` is set). The embedded platform→driver branches must
+		// survive the blueprint load so that platform: hyperv still derives talos.
+		handler, _ := setupPrivateTestHandler(t)
+		blueprintSchema := []byte(`$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+  email:
+    type: string
+  dns:
+    type: object
+    properties:
+      public_domain:
+        type: string
+allOf:
+  - if:
+      properties:
+        dns:
+          properties:
+            public_domain:
+              minLength: 1
+    then:
+      required: [email]
+additionalProperties: true
+`)
+		if err := handler.LoadSchemaFromBytes(blueprintSchema); err != nil {
+			t.Fatalf("Failed to load blueprint schema: %v", err)
+		}
+		if err := handler.Set("platform", "hyperv"); err != nil {
+			t.Fatalf("Expected no error setting platform, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		clusterValues, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster map, got %T", values["cluster"])
+		}
+		if clusterValues["driver"] != "talos" {
+			t.Errorf("Expected platform=hyperv to derive cluster.driver=talos even with blueprint allOf, got %v", clusterValues["driver"])
+		}
+	})
+
+	t.Run("BlueprintAllOfBranchesOverrideEmbeddedDriver", func(t *testing.T) {
+		// Given a handler whose blueprint schema redefines the platform=docker branch
+		handler, _ := setupPrivateTestHandler(t)
+		blueprintSchema := []byte(`$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+allOf:
+  - if:
+      properties:
+        platform:
+          const: docker
+    then:
+      properties:
+        cluster:
+          type: object
+          properties:
+            driver:
+              default: my-custom-driver
+additionalProperties: true
+`)
+		if err := handler.LoadSchemaFromBytes(blueprintSchema); err != nil {
+			t.Fatalf("Failed to load blueprint schema: %v", err)
+		}
+		if err := handler.Set("platform", "docker"); err != nil {
+			t.Fatalf("Expected no error setting platform, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		clusterValues, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster map, got %T", values["cluster"])
+		}
+		if clusterValues["driver"] != "my-custom-driver" {
+			t.Errorf("Expected blueprint conditional to win for docker, got %v", clusterValues["driver"])
+		}
+	})
+
 	t.Run("DoesNotOverrideExplicitDerivedTargets", func(t *testing.T) {
 		handler, _ := setupPrivateTestHandler(t)
 		if err := handler.Set("platform", "aws"); err != nil {

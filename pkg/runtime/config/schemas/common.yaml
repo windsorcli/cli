@@ -7,10 +7,18 @@ properties:
       - none
       - docker
       - incus
+      - hyperv
       - metal
+      - omni
       - aws
       - azure
       - gcp
+
+  cluster:
+    type: object
+    properties:
+      driver:
+        type: string
 
   workstation:
     type: object
@@ -62,3 +70,51 @@ properties:
             description: Forward DNS servers
         additionalProperties: false
     additionalProperties: false
+
+allOf:
+  # Platform → cluster.driver derivation. The CLI applies these as fallbacks: an
+  # explicit cluster.driver from a blueprint default or user config always wins.
+  - if:
+      properties:
+        platform:
+          enum: [docker, incus, hyperv, metal, omni]
+    then:
+      properties:
+        cluster:
+          type: object
+          properties:
+            driver:
+              default: talos
+  - if:
+      properties:
+        platform:
+          const: aws
+    then:
+      properties:
+        cluster:
+          type: object
+          properties:
+            driver:
+              default: eks
+  - if:
+      properties:
+        platform:
+          const: azure
+    then:
+      properties:
+        cluster:
+          type: object
+          properties:
+            driver:
+              default: aks
+  - if:
+      properties:
+        platform:
+          const: gcp
+    then:
+      properties:
+        cluster:
+          type: object
+          properties:
+            driver:
+              default: gke

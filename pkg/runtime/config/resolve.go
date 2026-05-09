@@ -37,7 +37,7 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 	}
 
 	result = c.deepMerge(result, c.data)
-	c.applyPlatformDerivedDefaults(result)
+	c.applySchemaConditionalDefaults(result)
 	c.applyWorkstationDefaults(result)
 	c.ensureClusterStructure(result)
 	c.applyClusterTopologyDefaults(result)
@@ -50,37 +50,51 @@ func (c *configHandler) GetContextValues() (map[string]any, error) {
 // Private Methods
 // =============================================================================
 
-// applyPlatformDerivedDefaults injects derived platform defaults into effective values without mutating stored config.
-func (c *configHandler) applyPlatformDerivedDefaults(values map[string]any) {
-	platform := ""
-	if p, ok := getValueByPathFromMap(values, parsePath("platform")).(string); ok {
-		platform = p
+// applySchemaConditionalDefaults reads platform-derived defaults (and any other conditional
+// defaults the schema declares via top-level allOf+if/then) and fills them into effective
+// values where missing. The platform→cluster.driver table lives in the embedded common.yaml
+// schema and may be extended or overridden by a blueprint's own allOf branches.
+// Provider falls back as the match key when platform is unset, preserving legacy v1alpha1
+// behavior without polluting the values map.
+func (c *configHandler) applySchemaConditionalDefaults(values map[string]any) {
+	if c.schemaValidator == nil {
+		return
 	}
-	if platform == "" {
-		if p, ok := getValueByPathFromMap(values, parsePath("provider")).(string); ok {
-			platform = p
+
+	matchValues := values
+	if _, hasPlatform := values["platform"]; !hasPlatform {
+		if provider, ok := values["provider"].(string); ok && provider != "" {
+			matchValues = make(map[string]any, len(values)+1)
+			for k, v := range values {
+				matchValues[k] = v
+			}
+			matchValues["platform"] = provider
 		}
 	}
 
-	switch platform {
-	case "docker", "incus", "metal", "omni":
-		c.setDerivedValueIfMissing(values, "cluster.driver", "talos")
-	case "aws":
-		c.setDerivedValueIfMissing(values, "cluster.driver", "eks")
-	case "azure":
-		c.setDerivedValueIfMissing(values, "cluster.driver", "aks")
-	case "gcp":
-		c.setDerivedValueIfMissing(values, "cluster.driver", "gke")
-	}
-}
-
-// setDerivedValueIfMissing writes a derived value only when the path is not already present.
-func (c *configHandler) setDerivedValueIfMissing(values map[string]any, path string, value any) {
-	pathKeys := parsePath(path)
-	if hasValueAtPath(values, pathKeys) {
+	defaults, err := c.schemaValidator.ConditionalDefaults(matchValues)
+	if err != nil || len(defaults) == 0 {
 		return
 	}
-	setValueInMap(values, pathKeys, value)
+	c.fillMissingFromDefaults(values, defaults)
+}
+
+// fillMissingFromDefaults recursively merges defaults into values where the corresponding
+// path is absent. Existing values always win; this is the resolver-side counterpart to the
+// schema's default-extraction semantics.
+func (c *configHandler) fillMissingFromDefaults(values, defaults map[string]any) {
+	for key, defValue := range defaults {
+		existing, exists := values[key]
+		if !exists {
+			values[key] = defValue
+			continue
+		}
+		existingMap, existingOK := existing.(map[string]any)
+		defMap, defOK := defValue.(map[string]any)
+		if existingOK && defOK {
+			c.fillMissingFromDefaults(existingMap, defMap)
+		}
+	}
 }
 
 // applyWorkstationDefaults materializes workstation defaults required by runtime consumers.

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"maps"
+	"reflect"
 
 	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -86,6 +87,30 @@ func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
 	return nil
 }
 
+// MergeSystemDefaults merges system-level schema defaults into the existing schema.
+// Unlike LoadSchemaFromBytes, the existing schema wins on conflicts; the system schema only
+// fills in fields the existing schema does not define. Use this for embedded fallback schemas
+// that should not override an authoritative source like a blueprint schema. If no schema is
+// loaded, the system schema becomes the schema.
+func (sv *SchemaValidator) MergeSystemDefaults(schemaContent []byte) error {
+	var newSchema map[string]any
+	if err := yaml.Unmarshal(schemaContent, &newSchema); err != nil {
+		return fmt.Errorf("failed to parse schema YAML: %w", err)
+	}
+
+	if err := sv.validateSchemaStructure(newSchema); err != nil {
+		return fmt.Errorf("invalid schema structure: %w", err)
+	}
+
+	if sv.Schema == nil {
+		sv.Schema = newSchema
+		return nil
+	}
+
+	sv.Schema = sv.mergeSchema(newSchema, sv.Schema)
+	return nil
+}
+
 // Validate validates user values against the loaded schema
 // Returns validation result with errors and defaults
 func (sv *SchemaValidator) Validate(values map[string]any) (*SchemaValidationResult, error) {
@@ -121,6 +146,109 @@ func (sv *SchemaValidator) GetSchemaDefaults() (map[string]any, error) {
 	}
 
 	return sv.extractDefaults(sv.Schema)
+}
+
+// ConditionalDefaults evaluates the schema's top-level allOf branches and returns the
+// combined defaults from any branch whose `if` schema matches the provided values. Each
+// branch must take the shape `{if: {...}, then: {...}}`; only top-level property matchers
+// of the form `if.properties.<key>.const` and `if.properties.<key>.enum` are evaluated.
+// This is the mechanism by which the embedded schema expresses platform-derived defaults
+// (e.g. platform: aws → cluster.driver: eks) without baking the table into Go code.
+// Returns an empty map when no schema is loaded or no branches match.
+func (sv *SchemaValidator) ConditionalDefaults(values map[string]any) (map[string]any, error) {
+	out := make(map[string]any)
+	if sv.Schema == nil {
+		return out, nil
+	}
+	branches, ok := sv.Schema["allOf"].([]any)
+	if !ok {
+		return out, nil
+	}
+	for _, branch := range branches {
+		branchMap, ok := branch.(map[string]any)
+		if !ok {
+			continue
+		}
+		ifSchema, hasIf := branchMap["if"].(map[string]any)
+		thenSchema, hasThen := branchMap["then"].(map[string]any)
+		if !hasIf || !hasThen {
+			continue
+		}
+		if !sv.matchesIfSchema(ifSchema, values) {
+			continue
+		}
+		thenDefaults, err := sv.extractDefaults(thenSchema)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract conditional defaults: %w", err)
+		}
+		out = sv.deepMergeMaps(out, thenDefaults)
+	}
+	return out, nil
+}
+
+// matchesIfSchema returns true when values satisfy the supported subset of an `if` schema.
+// Only `properties.<key>.const` and `properties.<key>.enum` matchers on top-level keys are
+// honored; any other shape (nested matchers, type assertions, allOf/oneOf in if) is treated
+// as non-matching to keep the evaluator predictable for the platform-mapping use case.
+func (sv *SchemaValidator) matchesIfSchema(ifSchema map[string]any, values map[string]any) bool {
+	props, ok := ifSchema["properties"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for key, raw := range props {
+		matcher, ok := raw.(map[string]any)
+		if !ok {
+			return false
+		}
+		actual, hasValue := values[key]
+		if !hasValue {
+			return false
+		}
+		if constVal, hasConst := matcher["const"]; hasConst {
+			if actual != constVal {
+				return false
+			}
+			continue
+		}
+		if enumRaw, hasEnum := matcher["enum"]; hasEnum {
+			enumList, ok := enumRaw.([]any)
+			if !ok {
+				return false
+			}
+			matched := false
+			for _, candidate := range enumList {
+				if actual == candidate {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return false
+			}
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// deepMergeMaps merges overlay into base recursively. Map-valued keys merge; scalars in
+// overlay replace base values. Used to combine defaults from multiple matching allOf branches.
+func (sv *SchemaValidator) deepMergeMaps(base, overlay map[string]any) map[string]any {
+	out := make(map[string]any, len(base))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		if existing, ok := out[k].(map[string]any); ok {
+			if incoming, ok := v.(map[string]any); ok {
+				out[k] = sv.deepMergeMaps(existing, incoming)
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // =============================================================================
@@ -428,12 +556,43 @@ func (sv *SchemaValidator) mergeSchema(base, overlay map[string]any) map[string]
 			merged[k] = sv.mergeRequired(base["required"], v)
 		case "items":
 			merged[k] = sv.mergeItemsSchema(base["items"], v)
+		case "allOf":
+			merged[k] = sv.mergeAllOf(base["allOf"], v)
 		default:
 			merged[k] = v
 		}
 	}
 
 	return merged
+}
+
+// mergeAllOf concatenates two `allOf` arrays so independent conditional branches from a base
+// schema (e.g. embedded platform→driver mappings) and an overlay schema (e.g. blueprint
+// cross-field validations) both remain in effect after merge. Branches that are structurally
+// identical are deduplicated, which keeps the result stable when applySystemSchemaPlugins
+// re-runs the embedded schema as defaults after a blueprint load.
+func (sv *SchemaValidator) mergeAllOf(base, overlay any) []any {
+	var combined []any
+	if baseSlice, ok := base.([]any); ok {
+		combined = append(combined, baseSlice...)
+	}
+	overlaySlice, ok := overlay.([]any)
+	if !ok {
+		return combined
+	}
+	for _, branch := range overlaySlice {
+		dup := false
+		for _, existing := range combined {
+			if reflect.DeepEqual(existing, branch) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			combined = append(combined, branch)
+		}
+	}
+	return combined
 }
 
 // mergeProperties merges two property maps, with overlay properties overriding base properties.

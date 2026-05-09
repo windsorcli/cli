@@ -364,6 +364,263 @@ additionalProperties: false
 	})
 }
 
+func TestSchemaValidator_MergeSystemDefaults(t *testing.T) {
+	t.Run("ExistingSchemaWinsOnConflict", func(t *testing.T) {
+		// Given a schema validator with an authoritative schema already loaded (e.g. blueprint)
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		blueprintSchema := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+    enum: [docker, incus, hyperv, metal]
+    default: docker
+additionalProperties: true
+`
+		if err := validator.LoadSchemaFromBytes([]byte(blueprintSchema)); err != nil {
+			t.Fatalf("Failed to load blueprint schema: %v", err)
+		}
+
+		// And a system defaults schema that defines a narrower platform enum
+		systemDefaults := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+    enum: [docker, incus, metal]
+    default: docker
+additionalProperties: true
+`
+
+		// When merging the system defaults
+		if err := validator.MergeSystemDefaults([]byte(systemDefaults)); err != nil {
+			t.Fatalf("Failed to merge system defaults: %v", err)
+		}
+
+		// Then the blueprint's enum (which includes hyperv) wins
+		result, err := validator.Validate(map[string]any{"platform": "hyperv"})
+		if err != nil {
+			t.Fatalf("Validation failed: %v", err)
+		}
+		if !result.Valid {
+			t.Errorf("Expected blueprint enum to win and accept 'hyperv', got errors: %v", result.Errors)
+		}
+	})
+
+	t.Run("FillsInMissingFields", func(t *testing.T) {
+		// Given a schema validator with a blueprint that omits workstation
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		blueprintSchema := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+    enum: [docker]
+additionalProperties: true
+`
+		if err := validator.LoadSchemaFromBytes([]byte(blueprintSchema)); err != nil {
+			t.Fatalf("Failed to load blueprint schema: %v", err)
+		}
+
+		// And a system defaults schema that adds a workstation property
+		systemDefaults := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  workstation:
+    type: object
+    properties:
+      runtime:
+        type: string
+        enum: [colima, docker]
+        default: colima
+additionalProperties: true
+`
+
+		// When merging the system defaults
+		if err := validator.MergeSystemDefaults([]byte(systemDefaults)); err != nil {
+			t.Fatalf("Failed to merge system defaults: %v", err)
+		}
+
+		// Then workstation is added from the system defaults and its default flows through
+		defaults, err := validator.GetSchemaDefaults()
+		if err != nil {
+			t.Fatalf("Failed to get defaults: %v", err)
+		}
+		workstation, ok := defaults["workstation"].(map[string]any)
+		if !ok {
+			t.Fatal("Expected workstation defaults to be filled in from system schema")
+		}
+		if workstation["runtime"] != "colima" {
+			t.Errorf("Expected workstation.runtime default 'colima', got %v", workstation["runtime"])
+		}
+	})
+
+	t.Run("LoadsAsBaseWhenNoSchemaPresent", func(t *testing.T) {
+		// Given a schema validator with no schema loaded
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		systemDefaults := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+    enum: [docker, incus]
+    default: docker
+additionalProperties: true
+`
+
+		// When merging system defaults
+		if err := validator.MergeSystemDefaults([]byte(systemDefaults)); err != nil {
+			t.Fatalf("Failed to merge system defaults: %v", err)
+		}
+
+		// Then the system schema becomes the active schema
+		defaults, err := validator.GetSchemaDefaults()
+		if err != nil {
+			t.Fatalf("Failed to get defaults: %v", err)
+		}
+		if defaults["platform"] != "docker" {
+			t.Errorf("Expected system schema to be loaded as base, got platform default %v", defaults["platform"])
+		}
+	})
+
+	t.Run("ReturnsErrorOnInvalidYAML", func(t *testing.T) {
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		err := validator.MergeSystemDefaults([]byte("invalid yaml [[["))
+		if err == nil {
+			t.Error("Expected error for invalid YAML, got nil")
+		}
+	})
+}
+
+func TestSchemaValidator_ConditionalDefaults(t *testing.T) {
+	conditionalSchema := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+  cluster:
+    type: object
+    properties:
+      driver:
+        type: string
+allOf:
+  - if:
+      properties:
+        platform:
+          enum: [docker, incus, metal]
+    then:
+      properties:
+        cluster:
+          type: object
+          properties:
+            driver:
+              default: talos
+  - if:
+      properties:
+        platform:
+          const: aws
+    then:
+      properties:
+        cluster:
+          type: object
+          properties:
+            driver:
+              default: eks
+additionalProperties: true
+`
+
+	t.Run("ReturnsDefaultsForMatchingConst", func(t *testing.T) {
+		validator := NewSchemaValidator(shell.NewMockShell())
+		if err := validator.LoadSchemaFromBytes([]byte(conditionalSchema)); err != nil {
+			t.Fatalf("Failed to load schema: %v", err)
+		}
+
+		got, err := validator.ConditionalDefaults(map[string]any{"platform": "aws"})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		cluster, ok := got["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster map in defaults, got %T", got["cluster"])
+		}
+		if cluster["driver"] != "eks" {
+			t.Errorf("Expected driver=eks for platform=aws, got %v", cluster["driver"])
+		}
+	})
+
+	t.Run("ReturnsDefaultsForMatchingEnumMember", func(t *testing.T) {
+		validator := NewSchemaValidator(shell.NewMockShell())
+		if err := validator.LoadSchemaFromBytes([]byte(conditionalSchema)); err != nil {
+			t.Fatalf("Failed to load schema: %v", err)
+		}
+
+		got, err := validator.ConditionalDefaults(map[string]any{"platform": "incus"})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		cluster, ok := got["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster map in defaults, got %T", got["cluster"])
+		}
+		if cluster["driver"] != "talos" {
+			t.Errorf("Expected driver=talos for platform=incus, got %v", cluster["driver"])
+		}
+	})
+
+	t.Run("ReturnsEmptyForNonMatchingPlatform", func(t *testing.T) {
+		validator := NewSchemaValidator(shell.NewMockShell())
+		if err := validator.LoadSchemaFromBytes([]byte(conditionalSchema)); err != nil {
+			t.Fatalf("Failed to load schema: %v", err)
+		}
+
+		got, err := validator.ConditionalDefaults(map[string]any{"platform": "azure"})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("Expected no defaults for unmatched platform, got %v", got)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenSchemaHasNoAllOf", func(t *testing.T) {
+		validator := NewSchemaValidator(shell.NewMockShell())
+		plainSchema := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+additionalProperties: true
+`
+		if err := validator.LoadSchemaFromBytes([]byte(plainSchema)); err != nil {
+			t.Fatalf("Failed to load schema: %v", err)
+		}
+
+		got, err := validator.ConditionalDefaults(map[string]any{"platform": "aws"})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("Expected empty defaults when no allOf present, got %v", got)
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenSchemaNotLoaded", func(t *testing.T) {
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		got, err := validator.ConditionalDefaults(map[string]any{"platform": "aws"})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("Expected empty defaults when no schema loaded, got %v", got)
+		}
+	})
+}
+
 func TestSchemaValidator_ExtractDefaults(t *testing.T) {
 	t.Run("SuccessSimpleDefaults", func(t *testing.T) {
 		// Given a schema validator with loaded schema
@@ -2797,6 +3054,112 @@ func TestSchemaValidator_mergeSchema(t *testing.T) {
 		// Then non-merged keywords should be overridden
 		if merged["additionalProperties"] != false {
 			t.Error("Expected additionalProperties to be overridden to false")
+		}
+	})
+
+	t.Run("ConcatenatesAllOfBranchesAcrossSchemas", func(t *testing.T) {
+		// Given a base schema with conditional defaults (e.g. embedded platform→driver)
+		// and an overlay schema with unrelated cross-field conditionals (e.g. blueprint
+		// requiring email when public_domain is set), both sets of branches must remain.
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		base := map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"allOf": []any{
+				map[string]any{
+					"if": map[string]any{
+						"properties": map[string]any{
+							"platform": map[string]any{"const": "aws"},
+						},
+					},
+					"then": map[string]any{
+						"properties": map[string]any{
+							"cluster": map[string]any{
+								"properties": map[string]any{
+									"driver": map[string]any{"default": "eks"},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		overlay := map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"allOf": []any{
+				map[string]any{
+					"if": map[string]any{
+						"properties": map[string]any{
+							"dns": map[string]any{
+								"properties": map[string]any{
+									"public_domain": map[string]any{"minLength": 1},
+								},
+							},
+						},
+					},
+					"then": map[string]any{
+						"required": []any{"email"},
+					},
+				},
+			},
+		}
+
+		merged := validator.mergeSchema(base, overlay)
+
+		mergedAllOf, ok := merged["allOf"].([]any)
+		if !ok {
+			t.Fatalf("Expected merged allOf to be a slice, got %T", merged["allOf"])
+		}
+		if len(mergedAllOf) != 2 {
+			t.Fatalf("Expected 2 allOf branches after merge, got %d", len(mergedAllOf))
+		}
+	})
+
+	t.Run("DeduplicatesIdenticalAllOfBranches", func(t *testing.T) {
+		// Given the same conditional branch present in both base and overlay (which happens
+		// when applySystemSchemaPlugins re-runs the embedded schema after a blueprint load),
+		// the merge must dedupe by structural equality so the branch isn't applied twice.
+		validator := NewSchemaValidator(shell.NewMockShell())
+
+		branch := map[string]any{
+			"if": map[string]any{
+				"properties": map[string]any{
+					"platform": map[string]any{"const": "aws"},
+				},
+			},
+			"then": map[string]any{
+				"properties": map[string]any{
+					"cluster": map[string]any{
+						"properties": map[string]any{
+							"driver": map[string]any{"default": "eks"},
+						},
+					},
+				},
+			},
+		}
+
+		base := map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"allOf":   []any{branch},
+		}
+		overlay := map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"type":    "object",
+			"allOf":   []any{branch},
+		}
+
+		merged := validator.mergeSchema(base, overlay)
+
+		mergedAllOf, ok := merged["allOf"].([]any)
+		if !ok {
+			t.Fatalf("Expected merged allOf to be a slice, got %T", merged["allOf"])
+		}
+		if len(mergedAllOf) != 1 {
+			t.Errorf("Expected dedup to leave 1 branch, got %d", len(mergedAllOf))
 		}
 	})
 }

@@ -107,6 +107,8 @@ func NewConfigHandler(shell shell.Shell) ConfigHandler {
 	handler.values = newValuesSource(handler.shims, handler.schemaValidator, handler.policy)
 	handler.typed = newTypedSource(handler.shims, handler.schemaValidator)
 
+	handler.applySystemSchemaPlugins()
+
 	return handler
 }
 
@@ -195,7 +197,7 @@ func (c *configHandler) LoadConfigForContext(contextName string) error {
 
 	hasLoadedFiles := false
 
-	if c.schemaValidator != nil && c.schemaValidator.Schema == nil {
+	if c.schemaValidator != nil {
 		schemaPath := filepath.Join(projectRoot, "contexts", "_template", "schema.yaml")
 		if _, err := c.shims.Stat(schemaPath); err == nil {
 			if err := c.LoadSchema(schemaPath); err != nil {
@@ -689,13 +691,14 @@ func (c *configHandler) deepMerge(base, overlay map[string]any) map[string]any {
 	return result
 }
 
-// applySystemSchemaPlugins applies system-level schema plugins to the loaded schema.
-// These plugins load schema definitions from embedded YAML files in schemas/ directory
-// and merge them into the loaded schema. System schemas define features like substitutions
-// that are always available regardless of the blueprint schema definition.
+// applySystemSchemaPlugins applies system-level schema defaults to the loaded schema.
+// These plugins load schema definitions from embedded YAML files in schemas/ directory and
+// merge them as defaults: anything an authoritative source (blueprint, API schemas) already
+// defines wins on conflict. This keeps the embedded schemas as a pre-bootstrap safety net
+// without overriding blueprints that define the same fields (e.g., a richer platform enum).
 // This method is extensible - add new schema.yaml files to schemas/ to include additional system schemas.
 func (c *configHandler) applySystemSchemaPlugins() {
-	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
+	if c.schemaValidator == nil {
 		return
 	}
 
@@ -715,7 +718,7 @@ func (c *configHandler) applySystemSchemaPlugins() {
 			continue
 		}
 
-		if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
+		if err := c.schemaValidator.MergeSystemDefaults(schemaContent); err != nil {
 			continue
 		}
 	}

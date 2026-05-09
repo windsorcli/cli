@@ -1412,6 +1412,33 @@ properties:
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
+
+	t.Run("BlueprintSchemaWinsOverEmbeddedDefaults", func(t *testing.T) {
+		// Given a handler and a blueprint schema that defines a richer platform enum than
+		// the embedded schemas/common.yaml fallback (which omits hyperv)
+		handler, _ := setupPrivateTestHandler(t)
+
+		blueprintSchema := []byte(`$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  platform:
+    type: string
+    enum: [docker, incus, hyperv, metal]
+    default: docker
+additionalProperties: true
+`)
+
+		// When loading the blueprint schema (which triggers applySystemSchemaPlugins)
+		if err := handler.LoadSchemaFromBytes(blueprintSchema); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then values that match the blueprint enum but not the embedded fallback should validate
+		handler.data = map[string]any{"platform": "hyperv"}
+		if err := handler.ValidateContextValues(); err != nil {
+			t.Errorf("Expected blueprint enum to win and accept 'hyperv', got: %v", err)
+		}
+	})
 }
 
 func TestConfigHandler_ValidateContextValues(t *testing.T) {
