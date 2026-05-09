@@ -182,7 +182,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{})
+		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
 		// When executing bootstrap
@@ -217,7 +217,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{})
+		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
 		// When executing bootstrap
@@ -252,7 +252,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{})
+		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
 		// When executing bootstrap
@@ -305,7 +305,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{})
+		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
 		if err := cmd.Execute(); err != nil {
@@ -347,7 +347,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{})
+		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
 		if err := cmd.Execute(); err != nil {
@@ -394,7 +394,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{})
+		cmd.SetArgs([]string{"--yes"})
 		cmd.SetContext(ctx)
 
 		err := cmd.Execute()
@@ -422,7 +422,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"staging"})
+		cmd.SetArgs([]string{"staging", "--yes"})
 		cmd.SetContext(ctx)
 
 		// When executing bootstrap with a positional context arg
@@ -449,7 +449,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--blueprint", "oci://example.com/test:v1"})
+		cmd.SetArgs([]string{"--blueprint", "oci://example.com/test:v1", "--yes"})
 		cmd.SetContext(ctx)
 
 		// When executing bootstrap with --blueprint
@@ -488,7 +488,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--set", "dns.enabled=false"})
+		cmd.SetArgs([]string{"--set", "dns.enabled=false", "--yes"})
 		cmd.SetContext(ctx)
 
 		// When executing bootstrap with --set
@@ -626,7 +626,9 @@ func TestBootstrapCmd(t *testing.T) {
 	})
 
 	t.Run("PromptsAndProceedsOnYes", func(t *testing.T) {
-		// Given a context whose values.yaml already exists (simulating prior configuration)
+		// Given a context whose values.yaml already exists (simulating prior configuration),
+		// the operator faces two prompts in sequence: the existing-context guard and the
+		// bootstrap summary. Sending "y" to each lets bootstrap proceed end-to-end.
 		mocks := setupBootstrapTest(t)
 		configRoot := mocks.TmpDir + "/contexts/test-context"
 		if err := os.MkdirAll(configRoot, 0755); err != nil {
@@ -641,9 +643,9 @@ func TestBootstrapCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		cmd.SetIn(strings.NewReader("y\n"))
+		cmd.SetIn(strings.NewReader("y\ny\n"))
 
-		// When executing bootstrap with "y" on stdin
+		// When executing bootstrap with "y" answers for both prompts
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("Expected success when user confirms with y, got %v", err)
 		}
@@ -863,10 +865,12 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("LocalModeSkipsSummaryConfirm", func(t *testing.T) {
-		// Given a local-project runtime (Global=false), the global-only
-		// summary-confirm prompt does not fire and bootstrap proceeds without
-		// stdin.
+	t.Run("LocalModeShowsSummaryConfirmAndProceedsOnYes", func(t *testing.T) {
+		// Given a local-project runtime (Global=false), the summary-confirm
+		// prompt fires before apply — the directory-level cue isn't enough
+		// to tell an operator which components are about to move when
+		// bootstrap re-applies on top of partial state. Answering "y" lets
+		// bootstrap continue and Up is invoked.
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = false
 		var upCalled bool
@@ -880,16 +884,45 @@ func TestBootstrapCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetArgs([]string{})
 		cmd.SetContext(ctx)
-		// No stdin — local-mode bootstrap with no values.yaml has no prompts at all.
+		cmd.SetIn(strings.NewReader("y\n"))
 
 		// When executing bootstrap
 		if err := cmd.Execute(); err != nil {
-			t.Fatalf("Expected success in local mode, got %v", err)
+			t.Fatalf("Expected success on yes-confirm, got %v", err)
 		}
 
-		// Then Up runs without any prompt
+		// Then Up runs after the prompt is accepted
 		if !upCalled {
-			t.Error("Up must run in local-project mode")
+			t.Error("Up must run in local-project mode after summary-confirm")
+		}
+	})
+
+	t.Run("LocalModeSummaryConfirmExitsCleanlyOnNo", func(t *testing.T) {
+		// Given a local-project runtime, declining the summary-confirm prompt
+		// exits cleanly with no error and apply does not run — same shape as
+		// the global-mode declined case.
+		mocks := setupBootstrapTest(t)
+		mocks.Runtime.Global = false
+		var upCalled bool
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader("n\n"))
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Fatalf("Expected clean exit on declined plan-confirm, got error: %v", err)
+		}
+		if upCalled {
+			t.Error("Up must not be called after a declined summary-confirm in local mode")
 		}
 	})
 }
