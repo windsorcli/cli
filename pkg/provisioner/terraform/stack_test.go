@@ -3851,14 +3851,22 @@ func TestStack_PlanDestroySummary(t *testing.T) {
 		results := stack.PlanDestroySummary(createTestBlueprint())
 
 		// Then the plan command included -destroy and used destroy-mode env
-		var sawDestroyFlag bool
+		var sawDestroyFlag, sawAutoApprove bool
 		for _, a := range capturedArgs {
 			if a == "-destroy" {
 				sawDestroyFlag = true
 			}
+			if a == "-auto-approve" {
+				sawAutoApprove = true
+			}
 		}
 		if !sawDestroyFlag {
 			t.Errorf("expected -destroy flag in plan args, got %v", capturedArgs)
+		}
+		// terraform plan rejects -auto-approve (apply/destroy flag); leaking it in
+		// from DestroyArgs caused every destroy plan to fail with exit status 1.
+		if sawAutoApprove {
+			t.Errorf("plan -destroy must not include -auto-approve, got args %v", capturedArgs)
 		}
 		if capturedEnv["TF_VAR_operation"] != "destroy" {
 			t.Errorf("expected TF_VAR_operation=destroy, got %q", capturedEnv["TF_VAR_operation"])
