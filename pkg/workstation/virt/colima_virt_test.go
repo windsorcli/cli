@@ -312,7 +312,7 @@ func TestColimaVirt_WriteConfig(t *testing.T) {
 		colimaVirt := NewColimaVirt(mocks.Runtime)
 		colimaVirt.setShims(mocks.Shims)
 
-		if err := mocks.ConfigHandler.Set("workstation.runtime", "other"); err != nil {
+		if err := mocks.ConfigHandler.Set("workstation.runtime", "docker"); err != nil {
 			t.Fatalf("Failed to set workstation.runtime: %v", err)
 		}
 
