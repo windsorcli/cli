@@ -292,9 +292,14 @@ func (s *FluxStack) PlanComponentSummary(blueprint *blueprintv1alpha1.Blueprint,
 // kustomizations only (DestroyOnly hooks are applied during destroy and are
 // not user-facing here), and any pinned with destroy=false are filtered out.
 // A kustomization that is absent from the cluster yields IsNew=true so the
-// renderer shows "(not deployed)". An error from the cluster propagates as
-// the function-level error, since destroy itself cannot proceed without
-// cluster connectivity — falling back would produce a misleading plan.
+// renderer shows "(not deployed)". A missing kubeconfig is treated the same
+// way: kustomizations are cluster-scoped resources, so "no cluster reachable"
+// implies "nothing deployed" by definition. This keeps `windsor destroy`
+// idempotent — after the cluster's terraform component tears down the
+// kubeconfig, a subsequent destroy can still plan and run terraform-only
+// teardown rather than failing to query a cluster that no longer exists.
+// Other cluster errors still propagate, since they can indicate transient
+// connectivity problems where falling back would produce a misleading plan.
 func (s *FluxStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) ([]KustomizePlan, error) {
 	if blueprint == nil {
 		return nil, nil
@@ -378,6 +383,14 @@ func (s *FluxStack) planOneKustomizeDestroySummary(k blueprintv1alpha1.Kustomiza
 
 	entries, err := s.kubernetesManager.GetKustomizationInventory(k.Name, namespace)
 	if err != nil {
+		// A missing kubeconfig means the cluster the kustomization would live on does
+		// not exist — typically right after `windsor destroy` tore down the cluster's
+		// terraform component. Treat as "not deployed" so subsequent destroy cycles
+		// can still produce a plan.
+		if errors.Is(err, os.ErrNotExist) {
+			result.IsNew = true
+			return result, nil
+		}
 		return result, fmt.Errorf("error querying kustomization %q inventory: %w", k.Name, err)
 	}
 	if entries == nil {
