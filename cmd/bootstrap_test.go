@@ -925,4 +925,34 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Error("Up must not be called after a declined summary-confirm in local mode")
 		}
 	})
+
+	t.Run("LocalModeSummaryConfirmExitsCleanlyOnEmptyStdin", func(t *testing.T) {
+		// Given a local-project runtime and empty stdin (non-interactive without
+		// --yes), the prompt receives EOF and treats it as "no" — exit is clean
+		// rather than producing a non-zero failure. Mirrors the global-mode case
+		// so the prompt-read loop is locked in for both modes.
+		mocks := setupBootstrapTest(t)
+		mocks.Runtime.Global = false
+		var upCalled bool
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{})
+		cmd.SetContext(ctx)
+		cmd.SetIn(strings.NewReader(""))
+
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Fatalf("Expected clean exit on EOF stdin, got error: %v", err)
+		}
+		if upCalled {
+			t.Error("Up must not be called when EOF declines summary-confirm in local mode")
+		}
+	})
 }
