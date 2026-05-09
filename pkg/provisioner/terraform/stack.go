@@ -1325,8 +1325,8 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	}
 
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-destroy", "-json", "-no-color"}
-	planArgs = append(planArgs, terraformArgs.DestroyArgs...)
+	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
+	planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
