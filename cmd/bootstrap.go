@@ -173,7 +173,7 @@ var bootstrapCmd = &cobra.Command{
 
 		var confirmFn provisioner.BootstrapConfirmFn
 		finishPlan := func(error) {}
-		if proj.Runtime.Global && !bootstrapYes {
+		if !bootstrapYes {
 			confirmFn, finishPlan = makeBootstrapConfirmFn(cmd.InOrStdin(), os.Stderr)
 		}
 
@@ -216,8 +216,10 @@ var bootstrapCmd = &cobra.Command{
 //
 // Anything other than "y" or "yes" (case-insensitive) at the prompt returns
 // false — including empty input and EOF, so non-interactive callers must pass
-// --yes. Reserved for global mode by the caller; in local project mode the
-// operator has the directory-level cue and can run `windsor plan` separately.
+// --yes. Fires in both global and local project modes; the directory-level
+// cue alone isn't enough to tell an operator which components and
+// kustomizations are about to move, especially when bootstrap re-applies on
+// top of partial state.
 func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapConfirmFn, func(error)) {
 	resolved := false
 	confirmFn := func(summary *provisioner.BootstrapSummary) bool {
