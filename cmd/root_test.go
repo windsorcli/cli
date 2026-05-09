@@ -50,7 +50,9 @@ type SetupOptions struct {
 }
 
 // suppressProcessStdout redirects os.Stdout to a pipe drained to io.Discard for the
-// duration of the test so that commands using fmt.Print do not pollute the terminal. Restores on t.Cleanup.
+// duration of the test so that commands using fmt.Print do not pollute the terminal.
+// The reader goroutine drains continuously — Windows pipe buffers are ~4KB, so deferring
+// the drain to t.Cleanup deadlocks any test that writes more than that. Restores on t.Cleanup.
 func suppressProcessStdout(t *testing.T) {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -59,15 +61,21 @@ func suppressProcessStdout(t *testing.T) {
 	}
 	orig := os.Stdout
 	os.Stdout = w
-	t.Cleanup(func() {
-		w.Close()
+	done := make(chan struct{})
+	go func() {
 		io.Copy(io.Discard, r)
+		close(done)
+	}()
+	t.Cleanup(func() {
 		os.Stdout = orig
+		w.Close()
+		<-done
 	})
 }
 
 // suppressProcessStderr redirects os.Stderr to a pipe drained to io.Discard for the
-// duration of the test so that command error and progress messages do not pollute the terminal. Restores on t.Cleanup.
+// duration of the test so that command error and progress messages do not pollute the
+// terminal. See suppressProcessStdout for why the drain runs in a goroutine. Restores on t.Cleanup.
 func suppressProcessStderr(t *testing.T) {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -76,10 +84,15 @@ func suppressProcessStderr(t *testing.T) {
 	}
 	orig := os.Stderr
 	os.Stderr = w
-	t.Cleanup(func() {
-		w.Close()
+	done := make(chan struct{})
+	go func() {
 		io.Copy(io.Discard, r)
+		close(done)
+	}()
+	t.Cleanup(func() {
 		os.Stderr = orig
+		w.Close()
+		<-done
 	})
 }
 
