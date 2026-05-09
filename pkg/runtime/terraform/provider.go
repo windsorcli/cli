@@ -737,6 +737,10 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 			p.mu.RUnlock()
 			return value, nil
 		}
+		// Component outputs are cached as a complete set, so an absent key here
+		// is authoritative — refetching cannot reveal it.
+		p.mu.RUnlock()
+		return nil, nil
 	}
 	p.mu.RUnlock()
 
