@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
@@ -88,29 +89,34 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		if _, err := proj.Up(); err != nil {
-			return err
-		}
-
-		// Re-generate with deferred substitutions resolved now that terraform
-		// outputs are available from the Up step above. A failure here surfaces
-		// an unresolved expression by name (e.g. "kustomize.dns.substitutions.
-		// external_dns_tenant_id: terraform output 'tenant_id' for component
-		// cluster not found"), preventing the raw `${...}` source text from
-		// reaching Flux ConfigMaps and downstream Helm renders.
-		blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
-		if err != nil {
-			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
-		}
-
-		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
-			return fmt.Errorf("error installing blueprint: %w", err)
-		}
-
-		if waitFlag {
-			if err := proj.Provisioner.Wait(blueprint); err != nil {
-				return fmt.Errorf("error waiting for kustomizations: %w", err)
+		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", func() error {
+			if _, err := proj.Up(); err != nil {
+				return err
 			}
+
+			// Re-generate with deferred substitutions resolved now that terraform
+			// outputs are available from the Up step above. A failure here surfaces
+			// an unresolved expression by name (e.g. "kustomize.dns.substitutions.
+			// external_dns_tenant_id: terraform output 'tenant_id' for component
+			// cluster not found"), preventing the raw `${...}` source text from
+			// reaching Flux ConfigMaps and downstream Helm renders.
+			blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
+			if err != nil {
+				return fmt.Errorf("error resolving blueprint substitutions: %w", err)
+			}
+
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
+				return fmt.Errorf("error installing blueprint: %w", err)
+			}
+
+			if waitFlag {
+				if err := proj.Provisioner.Wait(blueprint); err != nil {
+					return fmt.Errorf("error waiting for kustomizations: %w", err)
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 
 		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")

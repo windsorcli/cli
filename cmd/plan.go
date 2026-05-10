@@ -8,6 +8,7 @@ import (
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
+	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/tui"
@@ -39,19 +40,21 @@ var planCmd = &cobra.Command{
 			if err := requireCloudAuth(cmd, proj); err != nil {
 				return err
 			}
-			var summary *provisioner.PlanSummary
-			if err := tui.WithProgress("Generating plan...", func() error {
-				var planErr error
-				summary, planErr = proj.Provisioner.PlanAll(blueprint)
-				return planErr
-			}); err != nil {
-				return fmt.Errorf("error running plan: %w", err)
-			}
-			if planJSON {
-				return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, summary.Kustomize)
-			}
-			tuiplan.Summary(os.Stdout, summary.Terraform, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
-			return nil
+			return stacklock.With(cmd.Context(), proj.Runtime, "plan", func() error {
+				var summary *provisioner.PlanSummary
+				if err := tui.WithProgress("Generating plan...", func() error {
+					var planErr error
+					summary, planErr = proj.Provisioner.PlanAll(blueprint)
+					return planErr
+				}); err != nil {
+					return fmt.Errorf("error running plan: %w", err)
+				}
+				if planJSON {
+					return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, summary.Kustomize)
+				}
+				tuiplan.Summary(os.Stdout, summary.Terraform, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
+				return nil
+			})
 		}
 
 		componentID := args[0]
@@ -68,42 +71,55 @@ var planCmd = &cobra.Command{
 			}
 		}
 
-		if planSummary || planJSON {
-			var tfResults []terraforminfra.TerraformComponentPlan
-			var k8sResults []fluxinfra.KustomizePlan
+		// Lock only when terraform is involved; pure kustomize plans are read-only flux diffs
+		// against the cluster and must not block infra-mutating windsor operations.
+		runPlan := func(fn func() error) error {
 			if inTerraform {
-				result, err := proj.Provisioner.PlanTerraformComponentSummary(blueprint, componentID)
-				if err != nil {
-					return fmt.Errorf("error running plan: %w", err)
-				}
-				tfResults = []terraforminfra.TerraformComponentPlan{result}
+				return stacklock.With(cmd.Context(), proj.Runtime, "plan", fn)
 			}
-			if inKustomize {
-				result, err := proj.Provisioner.PlanKustomizeComponentSummary(blueprint, componentID)
-				if err != nil {
-					return fmt.Errorf("error running plan: %w", err)
-				}
-				k8sResults = []fluxinfra.KustomizePlan{result}
-			}
-			if planJSON {
-				return tuiplan.SummaryJSON(os.Stdout, tfResults, k8sResults)
-			}
-			tuiplan.Summary(os.Stdout, tfResults, k8sResults, nil, planNoColor || os.Getenv("NO_COLOR") != "")
-			return nil
+			return fn()
 		}
 
-		if inTerraform {
-			fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentID))
-			if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
-				return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
-			}
+		if planSummary || planJSON {
+			return runPlan(func() error {
+				var tfResults []terraforminfra.TerraformComponentPlan
+				var k8sResults []fluxinfra.KustomizePlan
+				if inTerraform {
+					result, err := proj.Provisioner.PlanTerraformComponentSummary(blueprint, componentID)
+					if err != nil {
+						return fmt.Errorf("error running plan: %w", err)
+					}
+					tfResults = []terraforminfra.TerraformComponentPlan{result}
+				}
+				if inKustomize {
+					result, err := proj.Provisioner.PlanKustomizeComponentSummary(blueprint, componentID)
+					if err != nil {
+						return fmt.Errorf("error running plan: %w", err)
+					}
+					k8sResults = []fluxinfra.KustomizePlan{result}
+				}
+				if planJSON {
+					return tuiplan.SummaryJSON(os.Stdout, tfResults, k8sResults)
+				}
+				tuiplan.Summary(os.Stdout, tfResults, k8sResults, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+				return nil
+			})
 		}
-		if inKustomize {
-			if err := proj.Provisioner.PlanKustomization(blueprint, componentID); err != nil {
-				return err
+
+		return runPlan(func() error {
+			if inTerraform {
+				fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentID))
+				if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
+					return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
+				}
 			}
-		}
-		return nil
+			if inKustomize {
+				if err := proj.Provisioner.PlanKustomization(blueprint, componentID); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 	},
 }
 
@@ -127,49 +143,51 @@ var planTerraformCmd = &cobra.Command{
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 
-		if len(args) == 0 {
+		return stacklock.With(cmd.Context(), proj.Runtime, "plan", func() error {
+			if len(args) == 0 {
+				if planJSON && !planSummary {
+					return proj.Provisioner.PlanTerraformAllJSON(blueprint)
+				}
+				if planSummary {
+					summary, err := proj.Provisioner.PlanTerraformSummary(blueprint)
+					if err != nil {
+						return fmt.Errorf("error running plan: %w", err)
+					}
+					if planJSON {
+						return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, nil)
+					}
+					tuiplan.Summary(os.Stdout, summary.Terraform, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+					return nil
+				}
+				return proj.Provisioner.PlanTerraformAll(blueprint)
+			}
+
+			componentID := args[0]
+
 			if planJSON && !planSummary {
-				return proj.Provisioner.PlanTerraformAllJSON(blueprint)
+				if err := proj.Provisioner.PlanTerraformJSON(blueprint, componentID); err != nil {
+					return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
+				}
+				return nil
 			}
 			if planSummary {
-				summary, err := proj.Provisioner.PlanTerraformSummary(blueprint)
+				result, err := proj.Provisioner.PlanTerraformComponentSummary(blueprint, componentID)
 				if err != nil {
 					return fmt.Errorf("error running plan: %w", err)
 				}
 				if planJSON {
-					return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, nil)
+					return tuiplan.SummaryJSON(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil)
 				}
-				tuiplan.Summary(os.Stdout, summary.Terraform, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
+				tuiplan.Summary(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
 				return nil
 			}
-			return proj.Provisioner.PlanTerraformAll(blueprint)
-		}
 
-		componentID := args[0]
-
-		if planJSON && !planSummary {
-			if err := proj.Provisioner.PlanTerraformJSON(blueprint, componentID); err != nil {
+			fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentID))
+			if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
 				return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
 			}
 			return nil
-		}
-		if planSummary {
-			result, err := proj.Provisioner.PlanTerraformComponentSummary(blueprint, componentID)
-			if err != nil {
-				return fmt.Errorf("error running plan: %w", err)
-			}
-			if planJSON {
-				return tuiplan.SummaryJSON(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil)
-			}
-			tuiplan.Summary(os.Stdout, []terraforminfra.TerraformComponentPlan{result}, nil, nil, planNoColor || os.Getenv("NO_COLOR") != "")
-			return nil
-		}
-
-		fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+componentID))
-		if err := proj.Provisioner.Plan(blueprint, componentID); err != nil {
-			return fmt.Errorf("error planning terraform for %s: %w", componentID, err)
-		}
-		return nil
+		})
 	},
 }
 
