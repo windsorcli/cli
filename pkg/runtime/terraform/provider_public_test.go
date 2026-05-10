@@ -2344,6 +2344,22 @@ func TestTerraformProvider_GenerateTerraformArgs_LockTimeout(t *testing.T) {
 		}
 	})
 
+	t.Run("RejectsMalformedTimeoutValue", func(t *testing.T) {
+		// Given a provider whose terraform.lock.timeout is unparseable
+		mocks := setupLockTimeoutMocks(t, "terraform.lock.timeout", "oops")
+
+		// When generating args
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
+
+		// Then an actionable windsor-level error surfaces (not a downstream terraform parse error)
+		if err == nil {
+			t.Fatal("expected error for malformed timeout, got nil")
+		}
+		if !strings.Contains(err.Error(), "terraform.lock.timeout") || !strings.Contains(err.Error(), "oops") {
+			t.Errorf("expected error to name the config key and the bad value, got %v", err)
+		}
+	})
+
 	t.Run("ApplyArgsKeepsTfPlanPathLast", func(t *testing.T) {
 		// Given the default config
 		mocks := setupLockTimeoutMocks(t, "", "")

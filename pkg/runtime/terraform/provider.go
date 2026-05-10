@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -328,8 +329,14 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 	// locks the backend during -migrate-state). Surfaces as a stack-level windsor
 	// config so a single value drives the whole project; defaults to 5m per §4.1
 	// of the terraform-lifecycle-hardening spike. Per-call override is intentionally
-	// not exposed — operators tune it once.
-	lockArg := fmt.Sprintf("-lock-timeout=%s", p.configHandler.GetString("terraform.lock.timeout", "5m"))
+	// not exposed — operators tune it once. Validate up front so a typo like
+	// `timeout: "oops"` produces a windsor error here instead of an opaque
+	// terraform parse failure mid-run.
+	lockTimeout := p.configHandler.GetString("terraform.lock.timeout", "5m")
+	if _, err := time.ParseDuration(lockTimeout); err != nil {
+		return nil, fmt.Errorf("invalid terraform.lock.timeout %q: %w", lockTimeout, err)
+	}
+	lockArg := fmt.Sprintf("-lock-timeout=%s", lockTimeout)
 	initArgs = append(initArgs, lockArg)
 	planArgs = append(planArgs, lockArg)
 	applyArgs = append(applyArgs, lockArg)
