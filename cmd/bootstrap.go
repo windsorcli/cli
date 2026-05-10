@@ -12,6 +12,7 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
@@ -177,27 +178,40 @@ var bootstrapCmd = &cobra.Command{
 			confirmFn, finishPlan = makeBootstrapConfirmFn(cmd.InOrStdin(), os.Stderr)
 		}
 
-		_, applied, err := proj.Bootstrap(confirmFn)
-		finishPlan(err)
-		if err != nil {
+		// The bootstrap confirm prompt fires from inside proj.Bootstrap, so the operator
+		// briefly holds the stack lock while answering. Acceptable today since bootstrap
+		// is rare; revisit if the prompt grows into a longer flow.
+		var applied bool
+		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", func() error {
+			_, ok, err := proj.Bootstrap(confirmFn)
+			finishPlan(err)
+			if err != nil {
+				return err
+			}
+			applied = ok
+			if !applied {
+				return nil
+			}
+
+			blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
+			if err != nil {
+				return fmt.Errorf("error resolving blueprint substitutions: %w", err)
+			}
+
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
+				return fmt.Errorf("error installing blueprint: %w", err)
+			}
+
+			if err := proj.Provisioner.Wait(blueprint); err != nil {
+				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
 		if !applied {
 			fmt.Fprintln(os.Stderr, "Apply skipped. The context is configured — re-run with --yes to apply.")
 			return nil
-		}
-
-		blueprint, err := proj.Composer.BlueprintHandler.GenerateResolved()
-		if err != nil {
-			return fmt.Errorf("error resolving blueprint substitutions: %w", err)
-		}
-
-		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
-			return fmt.Errorf("error installing blueprint: %w", err)
-		}
-
-		if err := proj.Provisioner.Wait(blueprint); err != nil {
-			return fmt.Errorf("error waiting for kustomizations: %w", err)
 		}
 
 		fmt.Fprintln(os.Stderr, "Windsor environment bootstrapped successfully.")
@@ -225,6 +239,7 @@ func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapC
 	confirmFn := func(summary *provisioner.BootstrapSummary) bool {
 		resolved = true
 		printBootstrapSummary(out, summary)
+		fmt.Fprintf(out, "Note: bootstrap holds the windsor stack lock during this prompt; concurrent windsor commands in this context will wait up to %s before failing.\n", stacklock.DefaultTimeout)
 		fmt.Fprint(out, "Continue? [y/N]: ")
 		reader := bufio.NewReader(in)
 		answer, _ := reader.ReadString('\n')

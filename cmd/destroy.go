@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
+	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/tui"
@@ -66,12 +67,14 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
-			skipped, err := proj.Provisioner.Teardown(blueprint, false)
-			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
-			if err != nil {
-				return fmt.Errorf("error destroying all components: %w", err)
-			}
-			return nil
+			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", func() error {
+				skipped, err := proj.Provisioner.Teardown(blueprint, false)
+				reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+				if err != nil {
+					return fmt.Errorf("error destroying all components: %w", err)
+				}
+				return nil
+			})
 		}
 
 		componentID := args[0]
@@ -118,22 +121,23 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			return err
 		}
 
-		if inKustomize {
-			if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
-				return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
+		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", func() error {
+			if inKustomize {
+				if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
+					return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
+				}
 			}
-		}
-		if inTerraform {
-			skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
-			if err != nil {
-				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+			if inTerraform {
+				skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
+				if err != nil {
+					return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+				}
+				if skipped {
+					reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
+				}
 			}
-			if skipped {
-				reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
-			}
-		}
-
-		return nil
+			return nil
+		})
 	},
 }
 
@@ -174,12 +178,14 @@ var destroyTerraformCmd = &cobra.Command{
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
-			skipped, err := proj.Provisioner.Teardown(blueprint, true)
-			reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
-			if err != nil {
-				return fmt.Errorf("error destroying all terraform: %w", err)
-			}
-			return nil
+			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", func() error {
+				skipped, err := proj.Provisioner.Teardown(blueprint, true)
+				reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+				if err != nil {
+					return fmt.Errorf("error destroying all terraform: %w", err)
+				}
+				return nil
+			})
 		}
 
 		componentID := args[0]
@@ -200,14 +206,16 @@ var destroyTerraformCmd = &cobra.Command{
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
 			return err
 		}
-		skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
-		if err != nil {
-			return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
-		}
-		if skipped {
-			reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
-		}
-		return nil
+		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", func() error {
+			skipped, err := proj.Provisioner.TeardownComponent(blueprint, componentID)
+			if err != nil {
+				return fmt.Errorf("error destroying terraform for %s: %w", componentID, err)
+			}
+			if skipped {
+				reportSkippedDestroyComponents(cmd.ErrOrStderr(), []string{componentID})
+			}
+			return nil
+		})
 	},
 }
 
@@ -244,10 +252,12 @@ var destroyKustomizeCmd = &cobra.Command{
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
 				return err
 			}
-			if err := proj.Provisioner.Uninstall(blueprint); err != nil {
-				return fmt.Errorf("error destroying all kustomizations: %w", err)
-			}
-			return nil
+			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", func() error {
+				if err := proj.Provisioner.Uninstall(blueprint); err != nil {
+					return fmt.Errorf("error destroying all kustomizations: %w", err)
+				}
+				return nil
+			})
 		}
 
 		componentID := args[0]
@@ -265,10 +275,12 @@ var destroyKustomizeCmd = &cobra.Command{
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
 			return err
 		}
-		if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
-			return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
-		}
-		return nil
+		return stacklock.With(cmd.Context(), proj.Runtime, "destroy", func() error {
+			if err := proj.Provisioner.DestroyKustomize(blueprint, componentID); err != nil {
+				return fmt.Errorf("error destroying kustomization %s: %w", componentID, err)
+			}
+			return nil
+		})
 	},
 }
 
