@@ -134,6 +134,8 @@ type AzureRMBackend struct {
 }
 
 // Merge performs a simple merge of the current TerraformConfig with another TerraformConfig.
+// Lock is merged field-by-field rather than swapped so that an overlay carrying `lock: {}`
+// (non-nil LockConfig with Timeout nil) does not silently blank out a base timeout.
 func (base *TerraformConfig) Merge(overlay *TerraformConfig) {
 	if overlay.Enabled != nil {
 		base.Enabled = overlay.Enabled
@@ -142,7 +144,12 @@ func (base *TerraformConfig) Merge(overlay *TerraformConfig) {
 		base.Backend = overlay.Backend
 	}
 	if overlay.Lock != nil {
-		base.Lock = overlay.Lock
+		if base.Lock == nil {
+			base.Lock = &LockConfig{}
+		}
+		if overlay.Lock.Timeout != nil {
+			base.Lock.Timeout = overlay.Lock.Timeout
+		}
 	}
 }
 

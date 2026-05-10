@@ -75,6 +75,50 @@ func TestTerraformConfig_Merge(t *testing.T) {
 			t.Fatalf("expected lock timeout 10m to survive, got %+v", base.Lock)
 		}
 	})
+
+	t.Run("MergeKeepsBaseTimeoutWhenOverlayLockHasNilTimeout", func(t *testing.T) {
+		// Given a base with a timeout and an overlay carrying lock: {} (non-nil
+		// LockConfig with Timeout still nil — the gap case from the review)
+		base := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("10m")}}
+		overlay := &TerraformConfig{Lock: &LockConfig{}}
+
+		// When merging
+		base.Merge(overlay)
+
+		// Then base's timeout survives — the field-level merge does not let a
+		// nil overlay field blank a real base value
+		if base.Lock == nil || base.Lock.Timeout == nil || *base.Lock.Timeout != "10m" {
+			t.Fatalf("expected lock timeout 10m to survive, got %+v", base.Lock)
+		}
+	})
+
+	t.Run("MergeOverlayTimeoutWinsWhenBothPresent", func(t *testing.T) {
+		// Given a base and overlay each carrying a timeout
+		base := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("10m")}}
+		overlay := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("30s")}}
+
+		// When merging
+		base.Merge(overlay)
+
+		// Then the overlay's timeout wins
+		if base.Lock == nil || base.Lock.Timeout == nil || *base.Lock.Timeout != "30s" {
+			t.Fatalf("expected overlay timeout 30s to win, got %+v", base.Lock)
+		}
+	})
+
+	t.Run("MergeInitialisesBaseLockWhenOnlyOverlayHasIt", func(t *testing.T) {
+		// Given a base with no lock and an overlay carrying a timeout
+		base := &TerraformConfig{}
+		overlay := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("45s")}}
+
+		// When merging
+		base.Merge(overlay)
+
+		// Then base.Lock is initialised with the overlay's timeout
+		if base.Lock == nil || base.Lock.Timeout == nil || *base.Lock.Timeout != "45s" {
+			t.Fatalf("expected base.Lock to be initialised with timeout 45s, got %+v", base.Lock)
+		}
+	})
 }
 
 func TestTerraformConfig_Copy(t *testing.T) {
