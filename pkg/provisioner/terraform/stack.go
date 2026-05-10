@@ -29,9 +29,14 @@ import (
 // =============================================================================
 
 // defaultInitFlags are passed to `terraform init` for normal apply/inspect operations.
-// MigrateState uses -migrate-state + -force-copy inline instead, since moving state must
-// not reinstall providers.
-var defaultInitFlags = []string{"-upgrade", "-force-copy"}
+// -force-copy is intentionally absent: it suppresses terraform's "yes, copy the state"
+// safety prompt, which is only desired when the operator has explicitly asked for state
+// migration. Apply/Up/Plan/Destroy paths inherit no migration intent, so leaving the
+// prompt available means an unintended migration (e.g. a backend pointer mismatch)
+// surfaces as a clear refusal rather than silently auto-copying state. MigrateState and
+// MigrateComponentState pass `-migrate-state -force-copy` explicitly when migration is
+// the requested operation; see migrateOneComponent.
+var defaultInitFlags = []string{"-upgrade"}
 
 // =============================================================================
 // Types
