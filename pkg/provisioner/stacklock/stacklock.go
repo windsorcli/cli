@@ -11,7 +11,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -40,10 +39,6 @@ var DefaultTimeout = 5 * time.Minute
 // Short enough to give the timeout reasonable precision, long enough to avoid
 // burning CPU under sustained contention.
 const acquireRetryInterval = 50 * time.Millisecond
-
-// lockFilePerm is the mode used when creating the lock-file body. 0o600 keeps
-// the operator identity in the body unreadable by other accounts on shared hosts.
-const lockFilePerm = 0o600
 
 // lockDirPerm is the mode used when creating the lock-file's parent directory.
 const lockDirPerm = 0o755
@@ -184,8 +179,10 @@ type localFlockLock struct {
 
 // Acquire takes the lock, retrying every acquireRetryInterval until it is held,
 // the timeout elapses, or ctx is cancelled. Cancellation returns ctx.Err();
-// timeout returns *LockBusyError with the holder's LockInfo when the body is
-// readable. On success the caller's LockInfo is written into the file body.
+// timeout returns *LockBusyError with Holder=nil — the local-flock backend does
+// not persist holder identity (the body-write would race with the flock on
+// Windows). Future backends with their own metadata stores can populate Holder.
+// info is accepted for interface stability but is ignored by this implementation.
 func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout time.Duration) (Release, error) {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -204,18 +201,13 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 			break
 		}
 		if time.Now().After(deadline) {
-			holder, _ := readLockBody(s.path)
-			return nil, &LockBusyError{Path: s.path, Holder: holder}
+			return nil, &LockBusyError{Path: s.path}
 		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(acquireRetryInterval):
 		}
-	}
-	if err := writeLockBody(s.path, info); err != nil {
-		_ = flk.Unlock()
-		return nil, err
 	}
 	s.flk = flk
 	return s.makeRelease(), nil
@@ -251,40 +243,6 @@ func (s *localFlockLock) makeRelease() Release {
 // =============================================================================
 // Helpers
 // =============================================================================
-
-// writeLockBody serialises info as JSON and truncates the lock file with the
-// result. The flock holder must already own the lock; callers that fail must
-// release the flock before returning.
-func writeLockBody(path string, info LockInfo) error {
-	body, err := json.Marshal(info)
-	if err != nil {
-		return fmt.Errorf("marshal lock info: %w", err)
-	}
-	if err := os.WriteFile(path, body, lockFilePerm); err != nil {
-		return fmt.Errorf("write lock body: %w", err)
-	}
-	return nil
-}
-
-// readLockBody returns the holder LockInfo when the file is present and valid.
-// Reads happen without holding the flock, so partial writes during a peer's
-// in-flight Acquire surface as parse errors — callers treat any non-nil error
-// as "unknown holder" and proceed.
-func readLockBody(path string) (*LockInfo, error) {
-	// #nosec G304 - path is built from rt.WindsorScratchPath inside With, never user input
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if len(body) == 0 {
-		return nil, errors.New("empty lock body")
-	}
-	var info LockInfo
-	if err := json.Unmarshal(body, &info); err != nil {
-		return nil, err
-	}
-	return &info, nil
-}
 
 // newLockID generates a 128-bit random ID rendered as 32 hex characters.
 // Used only to identify lock holders in audit messages; collision risk is negligible.

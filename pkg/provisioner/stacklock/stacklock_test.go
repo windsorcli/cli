@@ -144,14 +144,11 @@ func TestLocalFlockLock_Acquire(t *testing.T) {
 		}
 	})
 
-	t.Run("surfaces the holder LockInfo in the busy error when readable", func(t *testing.T) {
-		// Given a holder with distinctive fields
+	t.Run("returns a busy error with nil Holder for the local-flock backend", func(t *testing.T) {
+		// Given a held lock
 		path := filepath.Join(t.TempDir(), ".stacklock")
-		holderInfo := newTestLockInfo()
-		holderInfo.Who = "alice@laptop"
-		holderInfo.Operation = "destroy"
 		first := NewLocalFlockLock(path)
-		release1, err := first.Acquire(context.Background(), holderInfo, time.Second)
+		release1, err := first.Acquire(context.Background(), newTestLockInfo(), time.Second)
 		if err != nil {
 			t.Fatalf("first acquire: %v", err)
 		}
@@ -161,16 +158,17 @@ func TestLocalFlockLock_Acquire(t *testing.T) {
 		second := NewLocalFlockLock(path)
 		_, err = second.Acquire(context.Background(), newTestLockInfo(), 100*time.Millisecond)
 
-		// Then the busy error names the original holder
+		// Then a *LockBusyError surfaces with Path set and Holder nil
+		// (this backend does not persist holder identity into the lock file)
 		var busy *LockBusyError
 		if !errors.As(err, &busy) {
 			t.Fatalf("expected *LockBusyError, got %T: %v", err, err)
 		}
-		if busy.Holder == nil {
-			t.Fatal("expected busy.Holder to be populated")
+		if busy.Holder != nil {
+			t.Fatalf("expected nil Holder for local-flock backend, got %+v", busy.Holder)
 		}
-		if busy.Holder.Who != "alice@laptop" || busy.Holder.Operation != "destroy" {
-			t.Fatalf("holder mismatch: got %+v", busy.Holder)
+		if busy.Path != path {
+			t.Fatalf("expected Path %q, got %q", path, busy.Path)
 		}
 	})
 
@@ -248,26 +246,6 @@ func TestLocalFlockLock_Release(t *testing.T) {
 		if err := release(); err != nil {
 			t.Fatalf("second release: %v", err)
 		}
-	})
-}
-
-func TestLocalFlockLock_StaleLockFile(t *testing.T) {
-	t.Run("acquires when a lock file exists with a malformed body and no holder", func(t *testing.T) {
-		// Given a stale lock file with garbage contents and no flock holder
-		path := filepath.Join(t.TempDir(), ".stacklock")
-		if err := os.WriteFile(path, []byte("not json {{{"), 0o600); err != nil {
-			t.Fatalf("seed stale lock: %v", err)
-		}
-
-		// When acquiring
-		sl := NewLocalFlockLock(path)
-		release, err := sl.Acquire(context.Background(), newTestLockInfo(), time.Second)
-
-		// Then acquisition succeeds (the body is informational, not load-bearing)
-		if err != nil {
-			t.Fatalf("expected nil error, got %v", err)
-		}
-		t.Cleanup(func() { _ = release() })
 	})
 }
 
@@ -415,13 +393,10 @@ func TestWith(t *testing.T) {
 			return nil
 		})
 
-		// Then a LockBusyError surfaces and names the peer's operation
+		// Then a LockBusyError surfaces (Holder is nil for the local-flock backend)
 		var busy *LockBusyError
 		if !errors.As(err, &busy) {
 			t.Fatalf("expected *LockBusyError, got %T: %v", err, err)
-		}
-		if busy.Holder == nil || busy.Holder.Operation != "destroy" {
-			t.Fatalf("expected peer holder, got %+v", busy.Holder)
 		}
 	})
 }
