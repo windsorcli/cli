@@ -271,6 +271,7 @@ func writeLockBody(path string, info LockInfo) error {
 // in-flight Acquire surface as parse errors — callers treat any non-nil error
 // as "unknown holder" and proceed.
 func readLockBody(path string) (*LockInfo, error) {
+	// #nosec G304 - path is built from rt.WindsorScratchPath inside With, never user input
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
