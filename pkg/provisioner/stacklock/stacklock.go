@@ -8,23 +8,33 @@ package stacklock
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/gofrs/flock"
+
+	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/runtime"
 )
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-// DefaultTimeout is how long Acquire waits for a held lock before returning a LockBusyError.
-const DefaultTimeout = 5 * time.Minute
+// DefaultTimeout is the lock-wait timeout used by With and by Acquire when the
+// caller passes 0. Matches §7.4 of the terraform-lifecycle-hardening spike.
+// Declared as a var so tests can shorten it; production callers must not
+// reassign at runtime.
+var DefaultTimeout = 5 * time.Minute
 
 // acquireRetryInterval is the wait between TryLock attempts under contention.
 // Short enough to give the timeout reasonable precision, long enough to avoid
@@ -37,6 +47,9 @@ const lockFilePerm = 0o600
 
 // lockDirPerm is the mode used when creating the lock-file's parent directory.
 const lockDirPerm = 0o755
+
+// stackLockFilename is the basename written under WindsorScratchPath.
+const stackLockFilename = ".stacklock"
 
 // =============================================================================
 // Types
@@ -108,6 +121,47 @@ type StackLock interface {
 // network filesystems where flock semantics are unreliable (NFS) will degrade silently.
 func NewLocalFlockLock(lockPath string) StackLock {
 	return &localFlockLock{path: lockPath}
+}
+
+// =============================================================================
+// Public Methods
+// =============================================================================
+
+// With acquires an exclusive stack lock against the runtime's context and runs
+// fn while holding it. The lock is released on return — including on panic —
+// via deferred Release. operation labels what the caller is doing ("up",
+// "apply", "destroy", "bootstrap", "plan") so concurrent operators see the
+// holder's intent in busy-error messages.
+func With(ctx context.Context, rt *runtime.Runtime, operation string, fn func() error) error {
+	if rt == nil {
+		return errors.New("stacklock: runtime is required")
+	}
+	if rt.WindsorScratchPath == "" {
+		return errors.New("stacklock: scratch path is empty (Configure must run first)")
+	}
+	lock := NewLocalFlockLock(filepath.Join(rt.WindsorScratchPath, stackLockFilename))
+	release, err := lock.Acquire(ctx, NewInfo(rt, operation), DefaultTimeout)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+
+// NewInfo constructs the LockInfo persisted into the lock-file body for a given
+// runtime and operation label. The result is diagnostic only — Acquire writes it
+// into the body so the next contender's busy error can name the holder.
+func NewInfo(rt *runtime.Runtime, operation string) LockInfo {
+	return LockInfo{
+		ID:        newLockID(),
+		Operation: operation,
+		Mode:      Exclusive,
+		Who:       holderIdentity(),
+		Version:   constants.Version,
+		ProjectID: hashProjectRoot(rt.ProjectRoot),
+		Context:   rt.ContextName,
+		Created:   time.Now().UTC(),
+	}
 }
 
 // =============================================================================
@@ -229,4 +283,34 @@ func readLockBody(path string) (*LockInfo, error) {
 		return nil, err
 	}
 	return &info, nil
+}
+
+// newLockID generates a 128-bit random ID rendered as 32 hex characters.
+// Used only to identify lock holders in audit messages; collision risk is negligible.
+func newLockID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// holderIdentity returns "<user>@<host>" with safe fallbacks so the lock
+// always carries some identifier even on hosts where the lookups fail.
+func holderIdentity() string {
+	u := "unknown"
+	if usr, err := user.Current(); err == nil && usr.Username != "" {
+		u = usr.Username
+	}
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		h = "unknown"
+	}
+	return fmt.Sprintf("%s@%s", u, h)
+}
+
+// hashProjectRoot returns a stable short hash of the project root path so
+// LockInfo can identify the project without persisting absolute paths into
+// what may end up shared across teammates' machines.
+func hashProjectRoot(root string) string {
+	sum := sha256.Sum256([]byte(root))
+	return hex.EncodeToString(sum[:8])
 }
