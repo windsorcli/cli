@@ -1,16 +1,22 @@
 // The StackLock is a single-writer advisory lock scoped to one (projectRoot, contextName).
 // It provides a process-coordination point for windsor operations that mutate infrastructure,
 // preventing two concurrent invocations from interleaving before terraform's per-state lock
-// can engage. Phase 1 ships only the local flock-backed adapter; future phases add s3,
-// kubernetes, and azurerm backends behind the same interface.
+// can engage. The current implementation is a local flock-backed adapter; s3, kubernetes,
+// and azurerm backends slot in behind the same interface.
 
 package stacklock
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 // =============================================================================
@@ -20,12 +26,24 @@ import (
 // DefaultTimeout is how long Acquire waits for a held lock before returning a LockBusyError.
 const DefaultTimeout = 5 * time.Minute
 
+// acquireRetryInterval is the wait between TryLock attempts under contention.
+// Short enough to give the timeout reasonable precision, long enough to avoid
+// burning CPU under sustained contention.
+const acquireRetryInterval = 50 * time.Millisecond
+
+// lockFilePerm is the mode used when creating the lock-file body. 0o600 keeps
+// the operator identity in the body unreadable by other accounts on shared hosts.
+const lockFilePerm = 0o600
+
+// lockDirPerm is the mode used when creating the lock-file's parent directory.
+const lockDirPerm = 0o755
+
 // =============================================================================
 // Types
 // =============================================================================
 
 // Mode distinguishes writer (Exclusive) from reader (Shared) acquisition.
-// Phase 1 supports only Exclusive; Shared is reserved for the plan-side extension in Phase 4
+// Only Exclusive is supported today; Shared is reserved for read-only plan operations
 // (§7.3 of the terraform-lifecycle-hardening spike).
 type Mode int
 
@@ -86,34 +104,129 @@ type StackLock interface {
 // =============================================================================
 
 // NewLocalFlockLock returns a StackLock backed by a local advisory file lock at lockPath.
-// The lock file's parent directory is created on first Acquire. Phase 1 returns a stub
-// that fails every call with errNotImplemented; Phase 2 replaces with the real adapter.
+// The lock file's parent directory is created on first Acquire. Single-host coverage only;
+// network filesystems where flock semantics are unreliable (NFS) will degrade silently.
 func NewLocalFlockLock(lockPath string) StackLock {
-	return &localFlockLockStub{path: lockPath}
+	return &localFlockLock{path: lockPath}
 }
 
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// errNotImplemented is the placeholder returned by the Phase 1 stub constructor so that
-// the failing test suite drives Phase 2 implementation. Removed when the real adapter lands.
-var errNotImplemented = errors.New("stacklock: not implemented (phase 1 stub)")
+// errOperationNotSupported is returned by Inspect and ForceRelease, which are
+// reserved for the operator-facing `windsor stack lock --inspect`/`--force`
+// commands that are not yet wired up.
+var errOperationNotSupported = errors.New("stacklock: operation not supported")
 
-// localFlockLockStub satisfies StackLock for the contract baseline; every method returns
-// errNotImplemented. Replaced wholesale by localFlockLock in Phase 2.
-type localFlockLockStub struct {
-	path string
+// localFlockLock is the single-host implementation of StackLock. It serialises a
+// LockInfo into the lock-file body so peers can identify the holder, but the body
+// is informational only — correctness rides on flock(2) alone.
+type localFlockLock struct {
+	path        string
+	flk         *flock.Flock
+	releaseOnce sync.Once
 }
 
-func (s *localFlockLockStub) Acquire(ctx context.Context, info LockInfo, timeout time.Duration) (Release, error) {
-	return nil, errNotImplemented
+// Acquire takes the lock, retrying every acquireRetryInterval until it is held,
+// the timeout elapses, or ctx is cancelled. Cancellation returns ctx.Err();
+// timeout returns *LockBusyError with the holder's LockInfo when the body is
+// readable. On success the caller's LockInfo is written into the file body.
+func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout time.Duration) (Release, error) {
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), lockDirPerm); err != nil {
+		return nil, fmt.Errorf("create lock directory: %w", err)
+	}
+	flk := flock.New(s.path)
+	deadline := time.Now().Add(timeout)
+	for {
+		locked, err := flk.TryLock()
+		if err != nil {
+			return nil, fmt.Errorf("flock acquire: %w", err)
+		}
+		if locked {
+			break
+		}
+		if time.Now().After(deadline) {
+			holder, _ := readLockBody(s.path)
+			return nil, &LockBusyError{Path: s.path, Holder: holder}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(acquireRetryInterval):
+		}
+	}
+	if err := writeLockBody(s.path, info); err != nil {
+		_ = flk.Unlock()
+		return nil, err
+	}
+	s.flk = flk
+	return s.makeRelease(), nil
 }
 
-func (s *localFlockLockStub) Inspect(ctx context.Context) (*LockInfo, error) {
-	return nil, errNotImplemented
+// Inspect is reserved for the operator-facing `windsor stack lock --inspect`
+// command; the CLI entry point is not yet wired up.
+func (s *localFlockLock) Inspect(ctx context.Context) (*LockInfo, error) {
+	return nil, errOperationNotSupported
 }
 
-func (s *localFlockLockStub) ForceRelease(ctx context.Context, lockID string, reason string) error {
-	return errNotImplemented
+// ForceRelease is reserved for the operator-facing `windsor stack lock --force`
+// command; the CLI entry point is not yet wired up.
+func (s *localFlockLock) ForceRelease(ctx context.Context, lockID string, reason string) error {
+	return errOperationNotSupported
+}
+
+// makeRelease returns the closure handed back from Acquire. The unlock runs at
+// most once; callers may safely defer release in the same scope as a `defer
+// release()` even when an explicit release earlier in the path has already fired.
+func (s *localFlockLock) makeRelease() Release {
+	return func() error {
+		var firstErr error
+		s.releaseOnce.Do(func() {
+			if s.flk != nil {
+				firstErr = s.flk.Unlock()
+			}
+		})
+		return firstErr
+	}
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// writeLockBody serialises info as JSON and truncates the lock file with the
+// result. The flock holder must already own the lock; callers that fail must
+// release the flock before returning.
+func writeLockBody(path string, info LockInfo) error {
+	body, err := json.Marshal(info)
+	if err != nil {
+		return fmt.Errorf("marshal lock info: %w", err)
+	}
+	if err := os.WriteFile(path, body, lockFilePerm); err != nil {
+		return fmt.Errorf("write lock body: %w", err)
+	}
+	return nil
+}
+
+// readLockBody returns the holder LockInfo when the file is present and valid.
+// Reads happen without holding the flock, so partial writes during a peer's
+// in-flight Acquire surface as parse errors — callers treat any non-nil error
+// as "unknown holder" and proceed.
+func readLockBody(path string) (*LockInfo, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(body) == 0 {
+		return nil, errors.New("empty lock body")
+	}
+	var info LockInfo
+	if err := json.Unmarshal(body, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
 }
