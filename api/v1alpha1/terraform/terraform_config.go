@@ -153,14 +153,26 @@ func (base *TerraformConfig) Merge(overlay *TerraformConfig) {
 	}
 }
 
-// Copy creates a deep copy of the TerraformConfig object
+// Copy creates a copy of the TerraformConfig object. Lock is deep-copied
+// (struct + Timeout string pointer) because Merge mutates LockConfig in-place;
+// without the deep copy, a Copy()+Merge() chain would corrupt the original
+// through the shared *LockConfig pointer. Enabled and Backend remain shallow,
+// matching the existing convention — neither is mutated in-place by Merge.
 func (c *TerraformConfig) Copy() *TerraformConfig {
 	if c == nil {
 		return nil
 	}
-	return &TerraformConfig{
+	out := &TerraformConfig{
 		Enabled: c.Enabled,
 		Backend: c.Backend,
-		Lock:    c.Lock,
 	}
+	if c.Lock != nil {
+		lockCopy := *c.Lock
+		if c.Lock.Timeout != nil {
+			t := *c.Lock.Timeout
+			lockCopy.Timeout = &t
+		}
+		out.Lock = &lockCopy
+	}
+	return out
 }

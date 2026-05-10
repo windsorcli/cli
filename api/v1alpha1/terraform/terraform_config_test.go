@@ -181,6 +181,25 @@ func TestTerraformConfig_Copy(t *testing.T) {
 			t.Fatalf("expected lock timeout 2m on copy, got %+v", copied.Lock)
 		}
 	})
+
+	t.Run("CopyDeepCopiesLockSoMergeOnCopyDoesNotCorruptOriginal", func(t *testing.T) {
+		// Given a config that gets copied, then merged with an overlay
+		original := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("10m")}}
+		copied := original.Copy()
+		overlay := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("30s")}}
+
+		// When the merge runs against the copy
+		copied.Merge(overlay)
+
+		// Then the original's timeout is untouched (would be "30s" with a shared pointer)
+		if original.Lock == nil || original.Lock.Timeout == nil || *original.Lock.Timeout != "10m" {
+			t.Fatalf("original Lock.Timeout was mutated through the shared pointer; got %+v", original.Lock)
+		}
+		// And the copy carries the merged value
+		if copied.Lock == nil || copied.Lock.Timeout == nil || *copied.Lock.Timeout != "30s" {
+			t.Fatalf("copy did not pick up overlay timeout; got %+v", copied.Lock)
+		}
+	})
 }
 
 // Helper functions to create pointers for basic types
