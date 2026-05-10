@@ -220,7 +220,7 @@ func init() {
 	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "Specify the architecture for Colima")
 	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable Git Livereload")
-	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp]")
+	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp|hyperv]")
 	initCmd.Flags().StringVar(&initProvider, "provider", "", "Deprecated: use --platform instead")
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")

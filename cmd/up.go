@@ -147,7 +147,7 @@ func init() {
 	upCmd.Flags().BoolVar(&installFlag, "install", false, "")
 	_ = upCmd.Flags().MarkDeprecated("install", "the --install flag is no longer needed and will be removed in a future release")
 	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker)")
-	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp]")
+	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp|hyperv]")
 	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Specify the blueprint to use")
 	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false")
 	rootCmd.AddCommand(upCmd)

@@ -245,6 +245,26 @@ func TestConfigHandler_GetContextValues_Resolve(t *testing.T) {
 		}
 	})
 
+	t.Run("DerivesTalosDriverFromHypervPlatform", func(t *testing.T) {
+		handler, _ := setupPrivateTestHandler(t)
+		if err := handler.Set("platform", "hyperv"); err != nil {
+			t.Fatalf("Expected no error setting platform, got %v", err)
+		}
+
+		values, err := handler.GetContextValues()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		clusterValues, ok := values["cluster"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected cluster map, got %T", values["cluster"])
+		}
+		if clusterValues["driver"] != "talos" {
+			t.Errorf("Expected cluster.driver=talos, got %v", clusterValues["driver"])
+		}
+	})
+
 	t.Run("DerivesCloudDriverFromPlatform", func(t *testing.T) {
 		handler, _ := setupPrivateTestHandler(t)
 		if err := handler.Set("platform", "azure"); err != nil {
