@@ -692,12 +692,6 @@ func TestStack_Up(t *testing.T) {
 	})
 
 	t.Run("DoesNotPassForceCopyFlag", func(t *testing.T) {
-		// Up's init must not include -force-copy: the flag suppresses terraform's
-		// "yes, copy the state" safety prompt and belongs only on the explicit
-		// state-migration path (MigrateState / MigrateComponentState). Leaving the
-		// prompt available on apply-side init means an unintended migration (e.g. a
-		// backend pointer mismatch) surfaces as a clear refusal rather than silently
-		// auto-copying state.
 		stack, mocks := setup(t)
 		blueprint := createTestBlueprint()
 
