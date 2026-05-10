@@ -4430,3 +4430,114 @@ func TestParseTerraformPlanJSON(t *testing.T) {
 	})
 }
 
+func TestExtractPreventDestroyAddresses(t *testing.T) {
+	t.Run("ReturnsNilForEmptyOrNonDiagnosticOutput", func(t *testing.T) {
+		// Given an event stream with only planned_change and change_summary events
+		output := strings.Join([]string{
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_s3_bucket.x"},"action":"delete"}}`,
+			`{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}`,
+			``,
+		}, "\n")
+
+		// When extracting prevent_destroy addresses
+		got := extractPreventDestroyAddresses(output)
+
+		// Then none are reported
+		if got != nil {
+			t.Errorf("expected nil, got %#v", got)
+		}
+
+		// And empty output produces nil too
+		if extractPreventDestroyAddresses("") != nil {
+			t.Error("expected nil for empty output")
+		}
+	})
+
+	t.Run("ExtractsAddressesAndStripsModuleMainPrefix", func(t *testing.T) {
+		// Given a stream with two prevent_destroy diagnostics and other noise
+		output := strings.Join([]string{
+			`Initialising backend...`,
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Instance cannot be destroyed","address":"module.main.aws_db_instance.production"}}`,
+			`{"type":"planned_change","change":{"resource":{"addr":"module.main.aws_s3_bucket.audit"},"action":"delete"}}`,
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Instance cannot be destroyed","address":"module.main.aws_s3_bucket.audit"}}`,
+			`{"type":"change_summary","changes":{"add":0,"change":0,"remove":1}}`,
+			`trailing junk`,
+			``,
+		}, "\n")
+
+		// When extracting
+		got := extractPreventDestroyAddresses(output)
+
+		// Then both addresses are reported in order, module.main. prefix stripped
+		want := []string{"aws_db_instance.production", "aws_s3_bucket.audit"}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d addresses, got %d: %#v", len(want), len(got), got)
+		}
+		for i, addr := range got {
+			if addr != want[i] {
+				t.Errorf("addr[%d]: expected %q, got %q", i, want[i], addr)
+			}
+		}
+	})
+
+	t.Run("IgnoresNonPreventDestroyDiagnostics", func(t *testing.T) {
+		// Given diagnostics that aren't the prevent_destroy signal — wrong severity,
+		// wrong summary, or wrong type entirely
+		output := strings.Join([]string{
+			`{"type":"diagnostic","diagnostic":{"severity":"warning","summary":"Instance cannot be destroyed","address":"module.main.aws_db_instance.warn_only"}}`,
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Provider produced inconsistent result","address":"module.main.aws_iam_role.x"}}`,
+			`{"type":"some_other_event","diagnostic":{"severity":"error","summary":"Instance cannot be destroyed","address":"module.main.aws_s3_bucket.y"}}`,
+			``,
+		}, "\n")
+
+		// When extracting
+		got := extractPreventDestroyAddresses(output)
+
+		// Then none qualify
+		if got != nil {
+			t.Errorf("expected nil, got %#v", got)
+		}
+	})
+
+	t.Run("FallsBackToDetailWhenAddressFieldIsMissing", func(t *testing.T) {
+		// Given the diagnostic shape that real terraform emits — no `address` field
+		// but `detail` opens with "Resource <addr> has lifecycle.prevent_destroy set"
+		output := strings.Join([]string{
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Instance cannot be destroyed","detail":"Resource module.main.null_resource.guarded has lifecycle.prevent_destroy set, but the plan calls for this resource to be destroyed."}}`,
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Instance cannot be destroyed","detail":"Resource aws_db_instance.primary has lifecycle.prevent_destroy set."}}`,
+			``,
+		}, "\n")
+
+		// When extracting
+		got := extractPreventDestroyAddresses(output)
+
+		// Then both addresses are parsed out of the detail
+		want := []string{"null_resource.guarded", "aws_db_instance.primary"}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d addresses, got %d: %#v", len(want), len(got), got)
+		}
+		for i, addr := range got {
+			if addr != want[i] {
+				t.Errorf("addr[%d]: expected %q, got %q", i, want[i], addr)
+			}
+		}
+	})
+
+	t.Run("SkipsDiagnosticsWithNoExtractableAddress", func(t *testing.T) {
+		// Given a malformed diagnostic — no address, no parseable detail
+		output := strings.Join([]string{
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Instance cannot be destroyed","detail":"some unrelated message"}}`,
+			`{"type":"diagnostic","diagnostic":{"severity":"error","summary":"Instance cannot be destroyed"}}`,
+			``,
+		}, "\n")
+
+		// When extracting
+		got := extractPreventDestroyAddresses(output)
+
+		// Then nothing is reported — silent skip beats reporting empty strings
+		if got != nil {
+			t.Errorf("expected nil for unparseable diagnostics, got %#v", got)
+		}
+	})
+}
+

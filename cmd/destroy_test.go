@@ -206,6 +206,52 @@ func TestConfirmDestroy(t *testing.T) {
 	})
 }
 
+func TestWarnPreventDestroy(t *testing.T) {
+	t.Run("EmitsNothingWhenNoProtectedResources", func(t *testing.T) {
+		// Given plans with no protected addresses
+		plans := []terraforminfra.TerraformComponentPlan{
+			{ComponentID: "vpc", Destroy: 3},
+			{ComponentID: "cluster", Destroy: 5},
+		}
+		var buf strings.Builder
+
+		// When the warning runs
+		warnPreventDestroy(&buf, plans)
+
+		// Then stderr is silent — common path, no noise
+		if buf.Len() != 0 {
+			t.Errorf("expected no output, got %q", buf.String())
+		}
+	})
+
+	t.Run("ListsEveryProtectedAddressAcrossComponentsWithRemediation", func(t *testing.T) {
+		// Given multiple components, two of which report protected resources
+		plans := []terraforminfra.TerraformComponentPlan{
+			{ComponentID: "vpc", Destroy: 3},
+			{ComponentID: "data", Protected: []string{"aws_db_instance.production"}},
+			{ComponentID: "audit", Protected: []string{"aws_s3_bucket.logs", "aws_kms_key.audit"}},
+		}
+		var buf strings.Builder
+
+		// When the warning runs
+		warnPreventDestroy(&buf, plans)
+
+		// Then it names every address, the total count, and the remediation
+		out := buf.String()
+		if !strings.Contains(out, "3 resource(s)") {
+			t.Errorf("expected count '3 resource(s)' in output, got %q", out)
+		}
+		for _, addr := range []string{"aws_db_instance.production", "aws_s3_bucket.logs", "aws_kms_key.audit"} {
+			if !strings.Contains(out, addr) {
+				t.Errorf("expected address %q in output, got %q", addr, out)
+			}
+		}
+		if !strings.Contains(out, "remove the lifecycle block") {
+			t.Errorf("expected remediation in output, got %q", out)
+		}
+	})
+}
+
 // =============================================================================
 // Test Cases
 // =============================================================================

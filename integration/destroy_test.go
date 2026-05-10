@@ -242,3 +242,43 @@ func TestDestroy_ShowsDestroyPlanBeforePromptOrConfirm(t *testing.T) {
 		t.Errorf("expected 'Windsor Destroy Plan' header in output, got:\n%s", combined)
 	}
 }
+
+// TestDestroyTerraform_WarnsWhenPreventDestroySet covers the destroy-time
+// observability hook added for the terraform-lifecycle-hardening D1 finding.
+// A component with `lifecycle { prevent_destroy = true }` is applied, then
+// destroy is invoked: the wrapper surfaces a stderr warning naming the
+// protected addresses (so the operator knows what's coming), and terraform
+// itself enforces the lifecycle block. The wrapper deliberately does not
+// refuse — convergence-on-zero with visibility beats a wrapper-level gate
+// that just trades our error for terraform's.
+func TestDestroyTerraform_WarnsWhenPreventDestroySet(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "prevent-destroy")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "protected"}, env)
+	if err != nil {
+		t.Fatalf("apply terraform protected: %v\nstderr: %s", err, stderr)
+	}
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"destroy", "--confirm=protected", "terraform", "protected"}, env)
+	// terraform itself refuses the destroy, so the command exits non-zero.
+	if err == nil {
+		t.Fatalf("expected destroy to fail at the terraform layer, but it succeeded.\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	// The wrapper's warning surfaced ahead of terraform's enforcement so the
+	// operator sees the protected address before the underlying tool errors.
+	if !strings.Contains(combined, "terraform will refuse to destroy") {
+		t.Errorf("expected wrapper warning in output, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "null_resource.guarded") {
+		t.Errorf("expected protected resource address in output, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "remove the lifecycle block") {
+		t.Errorf("expected remediation hint in output, got:\n%s", combined)
+	}
+}
