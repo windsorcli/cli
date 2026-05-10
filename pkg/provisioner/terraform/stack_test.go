@@ -2606,6 +2606,30 @@ func TestStack_Apply(t *testing.T) {
 			t.Errorf("Expected stderr warning to mention refresh failure, got: %s", warnings.String())
 		}
 	})
+
+	t.Run("PropagatesStateCheckErrorBeforeRunningPlan", func(t *testing.T) {
+		// Given a stack whose hasStateResources fails (terraform show -json errors)
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return "", fmt.Errorf("simulated show -json failure")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When Apply runs
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then the state-check error propagates — Apply must not silently fall through
+		// to plan against an unknown state
+		if err == nil {
+			t.Fatal("Expected state-check error to propagate, got nil")
+		}
+		if !strings.Contains(err.Error(), "error reading terraform state JSON") {
+			t.Errorf("Expected error to mention terraform state JSON, got %v", err)
+		}
+	})
 }
 
 func TestStack_Destroy(t *testing.T) {
