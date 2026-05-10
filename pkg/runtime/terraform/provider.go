@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -324,6 +325,27 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 		}
 	}
 
+	// -lock-timeout applies to every state-mutating subcommand and to init (which
+	// locks the backend during -migrate-state). Surfaces as a stack-level windsor
+	// config so a single value drives the whole project; defaults to 5m per §4.1
+	// of the terraform-lifecycle-hardening spike. Per-call override is intentionally
+	// not exposed — operators tune it once. Validate up front so a typo like
+	// `timeout: "oops"` produces a windsor error here instead of an opaque
+	// terraform parse failure mid-run.
+	lockTimeout := p.configHandler.GetString("terraform.lock.timeout", "5m")
+	if _, err := time.ParseDuration(lockTimeout); err != nil {
+		return nil, fmt.Errorf("invalid terraform.lock.timeout %q: %w", lockTimeout, err)
+	}
+	lockArg := fmt.Sprintf("-lock-timeout=%s", lockTimeout)
+	initArgs = append(initArgs, lockArg)
+	planArgs = append(planArgs, lockArg)
+	applyArgs = append(applyArgs, lockArg)
+	refreshArgs = append(refreshArgs, lockArg)
+	planDestroyArgs = append(planDestroyArgs, lockArg)
+	destroyArgs = append(destroyArgs, lockArg)
+	importArgs := append([]string{}, varFileArgs...)
+	importArgs = append(importArgs, lockArg)
+
 	applyArgs = append(applyArgs, tfPlanPath)
 
 	return &TerraformArgs{
@@ -332,7 +354,7 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 		PlanArgs:        planArgs,
 		ApplyArgs:       applyArgs,
 		RefreshArgs:     refreshArgs,
-		ImportArgs:      varFileArgs,
+		ImportArgs:      importArgs,
 		DestroyArgs:     destroyArgs,
 		PlanDestroyArgs: planDestroyArgs,
 		BackendConfig:   strings.Join(backendConfigArgs, " "),
@@ -720,9 +742,9 @@ func (p *terraformProvider) registerTerraformOutputHelper(evaluator evaluator.Ex
 // If outputs for the component are requested for the first time, all outputs are fetched from Terraform
 // and cached for subsequent requests. Cached values are used for later accesses to avoid redundant retrievals.
 // When deferred is false, this function returns a DeferredError to signal that the expression should be preserved.
-// When deferred is true, it returns the actual output value if available, or nil if the component has no outputs
-// (enabling ?? fallback when component is not yet applied). Returns an error if the component has outputs but
-// the requested key is not found, enabling fail-fast detection of typos or misconfiguration.
+// When deferred is true, it returns the actual output value if available, or nil if the key is absent — whether
+// the component has no outputs at all or has outputs but not this key. Returning nil in both cases lets the
+// ?? operator fall back uniformly across unapplied and partial-destroy states.
 func (p *terraformProvider) getOutput(componentID, key string, expression string, deferred bool) (any, error) {
 	if !deferred {
 		return nil, &evaluator.DeferredError{
@@ -737,6 +759,10 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 			p.mu.RUnlock()
 			return value, nil
 		}
+		// Component outputs are cached as a complete set, so an absent key here
+		// is authoritative — refetching cannot reveal it.
+		p.mu.RUnlock()
+		return nil, nil
 	}
 	p.mu.RUnlock()
 
@@ -767,7 +793,7 @@ func (p *terraformProvider) getOutput(componentID, key string, expression string
 		return value, nil
 	}
 
-	return nil, fmt.Errorf("terraform output key '%s' not found for component '%s'", key, componentID)
+	return nil, nil
 }
 
 // getBaseEnvVarsForComponent returns the base environment variables for a Terraform component

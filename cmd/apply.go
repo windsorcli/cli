@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
@@ -35,29 +36,31 @@ var applyCmd = &cobra.Command{
 			return fmt.Errorf("blueprint is not available")
 		}
 
-		if err := proj.Provisioner.Up(blueprint); err != nil {
-			return fmt.Errorf("error applying terraform: %w", err)
-		}
-
-		// Re-generate with deferred substitutions resolved now that terraform
-		// outputs are available from the Up step above.
-		var resolveErr error
-		blueprint, resolveErr = proj.Composer.BlueprintHandler.GenerateResolved()
-		if resolveErr != nil {
-			return fmt.Errorf("error resolving blueprint substitutions: %w", resolveErr)
-		}
-
-		if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
-			return fmt.Errorf("error applying kustomize: %w", err)
-		}
-
-		if applyWaitFlag {
-			if err := proj.Provisioner.Wait(blueprint); err != nil {
-				return fmt.Errorf("error waiting for kustomizations: %w", err)
+		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
+			if err := proj.Provisioner.Up(blueprint); err != nil {
+				return fmt.Errorf("error applying terraform: %w", err)
 			}
-		}
 
-		return nil
+			// Re-generate with deferred substitutions resolved now that terraform
+			// outputs are available from the Up step above.
+			var resolveErr error
+			blueprint, resolveErr = proj.Composer.BlueprintHandler.GenerateResolved()
+			if resolveErr != nil {
+				return fmt.Errorf("error resolving blueprint substitutions: %w", resolveErr)
+			}
+
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
+				return fmt.Errorf("error applying kustomize: %w", err)
+			}
+
+			if applyWaitFlag {
+				if err := proj.Provisioner.Wait(blueprint); err != nil {
+					return fmt.Errorf("error waiting for kustomizations: %w", err)
+				}
+			}
+
+			return nil
+		})
 	},
 }
 
@@ -84,11 +87,12 @@ var applyTerraformCmd = &cobra.Command{
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
-		if err := proj.Provisioner.Apply(blueprint, componentID); err != nil {
-			return fmt.Errorf("error applying terraform for %s: %w", componentID, err)
-		}
-
-		return nil
+		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
+			if err := proj.Provisioner.Apply(blueprint, componentID); err != nil {
+				return fmt.Errorf("error applying terraform for %s: %w", componentID, err)
+			}
+			return nil
+		})
 	},
 }
 
@@ -112,34 +116,36 @@ var applyKustomizeCmd = &cobra.Command{
 		}
 		waitBlueprint := blueprint
 
-		if len(args) == 0 {
-			if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint); err != nil {
-				return fmt.Errorf("error applying kustomize: %w", err)
-			}
-		} else {
-			componentID := args[0]
-			if err := proj.Provisioner.ApplyKustomize(cmd.Context(), blueprint, componentID); err != nil {
-				return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
-			}
-			// Narrow the wait scope to only the kustomization that was applied.
-			for _, k := range blueprint.Kustomizations {
-				if k.Name == componentID {
-					kCopy := k
-					filtered := *blueprint
-					filtered.Kustomizations = []blueprintv1alpha1.Kustomization{kCopy}
-					waitBlueprint = &filtered
-					break
+		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
+			if len(args) == 0 {
+				if err := proj.Provisioner.ApplyKustomizeAll(cmd.Context(), blueprint); err != nil {
+					return fmt.Errorf("error applying kustomize: %w", err)
+				}
+			} else {
+				componentID := args[0]
+				if err := proj.Provisioner.ApplyKustomize(cmd.Context(), blueprint, componentID); err != nil {
+					return fmt.Errorf("error applying kustomize for %s: %w", componentID, err)
+				}
+				// Narrow the wait scope to only the kustomization that was applied.
+				for _, k := range blueprint.Kustomizations {
+					if k.Name == componentID {
+						kCopy := k
+						filtered := *blueprint
+						filtered.Kustomizations = []blueprintv1alpha1.Kustomization{kCopy}
+						waitBlueprint = &filtered
+						break
+					}
 				}
 			}
-		}
 
-		if applyWaitFlag {
-			if err := proj.Provisioner.Wait(waitBlueprint); err != nil {
-				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			if applyWaitFlag {
+				if err := proj.Provisioner.Wait(waitBlueprint); err != nil {
+					return fmt.Errorf("error waiting for kustomizations: %w", err)
+				}
 			}
-		}
 
-		return nil
+			return nil
+		})
 	},
 }
 

@@ -14,6 +14,7 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.26.0
 	github.com/fluxcd/source-controller/api v1.8.3
 	github.com/goccy/go-yaml v1.19.2
+	github.com/gofrs/flock v0.13.0
 	github.com/google/go-containerregistry v0.21.5
 	github.com/google/go-jsonnet v0.22.0
 	github.com/hashicorp/hcl/v2 v2.24.0
@@ -22,7 +23,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/zclconf/go-cty v1.18.1
-	golang.org/x/term v0.42.0
+	golang.org/x/term v0.43.0
 	k8s.io/api v0.36.0
 	k8s.io/apimachinery v0.36.0
 	k8s.io/client-go v0.36.0
@@ -120,7 +121,7 @@ require (
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.44.0 // indirect

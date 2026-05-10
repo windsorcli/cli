@@ -215,18 +215,22 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "project/path", "terraform.tfstate"))),
-			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s" -lock-timeout=5m`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "project/path", "terraform.tfstate"))),
+			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s" -lock-timeout=5m`,
 				filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars.json"))),
-			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan"))),
-			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_apply": fmt.Sprintf(`-lock-timeout=5m "%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan"))),
+			"TF_CLI_ARGS_refresh": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s" -lock-timeout=5m`,
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
-			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s" -lock-timeout=5m`,
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
+			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s" -lock-timeout=5m`,
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
@@ -580,18 +584,22 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		// And environment variables should be set correctly
 		expectedEnvVars := map[string]string{
 			"TF_DATA_DIR":      filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform/project/path")),
-			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate/project/path/terraform.tfstate"))),
-			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_init": fmt.Sprintf(`-backend=true -backend-config="path=%s" -lock-timeout=5m`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate/project/path/terraform.tfstate"))),
+			"TF_CLI_ARGS_plan": fmt.Sprintf(`-out="%s" -var-file="%s" -var-file="%s" -var-file="%s" -lock-timeout=5m`,
 				filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan")),
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform", "project/path.tfvars.json"))),
-			"TF_CLI_ARGS_apply": fmt.Sprintf(`"%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan"))),
-			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_apply": fmt.Sprintf(`-lock-timeout=5m "%s"`, filepath.ToSlash(filepath.Join(windsorScratchPath, ".terraform", "project/path", "terraform.tfplan"))),
+			"TF_CLI_ARGS_refresh": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s" -lock-timeout=5m`,
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
-			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s"`,
+			"TF_CLI_ARGS_import": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s" -lock-timeout=5m`,
+				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
+				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
+			"TF_CLI_ARGS_destroy": fmt.Sprintf(`-var-file="%s" -var-file="%s" -var-file="%s" -lock-timeout=5m`,
 				filepath.ToSlash(filepath.Join(projectRoot, ".windsor", "contexts", "local", "terraform", "project/path", "terraform.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars")),
 				filepath.ToSlash(filepath.Join(configRoot, "terraform/project/path.tfvars.json"))),
@@ -1356,13 +1364,14 @@ func TestTerraformProvider_GetEnvVars(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// And apply args should contain only the plan file path
-		if len(args.ApplyArgs) != 1 {
-			t.Errorf("Expected 1 apply arg, got %d: %v", len(args.ApplyArgs), args.ApplyArgs)
+		// And apply args should contain only the lock-timeout flag and the plan file path
+		if len(args.ApplyArgs) != 2 {
+			t.Errorf("Expected 2 apply args (lock-timeout + tfplan), got %d: %v", len(args.ApplyArgs), args.ApplyArgs)
 		}
 
 		// And destroy args should not contain auto-approve for regular injection
-		expectedDestroyArgs := []string{}
+		// (lock-timeout is the only flag carried)
+		expectedDestroyArgs := []string{"-lock-timeout=5m"}
 		if !reflect.DeepEqual(args.DestroyArgs, expectedDestroyArgs) {
 			t.Errorf("Expected destroy args %v, got %v", expectedDestroyArgs, args.DestroyArgs)
 		}

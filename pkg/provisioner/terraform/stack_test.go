@@ -6,6 +6,7 @@ package terraform
 // verifying error handling, mock interactions, and infrastructure state management.
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -229,6 +230,17 @@ func setupWindsorStackMocks(t *testing.T, opts ...*SetupOptions) *TerraformTestM
 	terraformEnv := envvars.NewTerraformEnvPrinter(mocks.Shell, mocks.ConfigHandler, mockToolsManager, mockTerraformProvider)
 	mocks.Runtime.EnvPrinters.TerraformEnv = terraformEnv
 
+	// Default `terraform show -json` to a valid empty-state response so Up/Apply's
+	// pre-plan hasStateResources check can parse the output and short-circuit refresh
+	// for tests that don't override (the §4.4 unified refresh policy added this call).
+	// Tests asserting the refresh-fires path override this to return non-empty state.
+	mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+		if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+			return `{"values":{"root_module":{"resources":[]}}}`, nil
+		}
+		return "", nil
+	}
+
 	return mocks
 }
 
@@ -368,6 +380,9 @@ func TestStack_Up(t *testing.T) {
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "terraform" && len(args) > 0 && strings.HasPrefix(args[0], "-chdir=") && len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("mock error running terraform plan")
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
 			}
 			return "", nil
 		}
@@ -525,6 +540,9 @@ func TestStack_Up(t *testing.T) {
 			if len(args) > 1 && args[1] == "plan" {
 				capturedEnv = env
 			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
 			return "", nil
 		}
 
@@ -539,6 +557,169 @@ func TestStack_Up(t *testing.T) {
 		}
 	})
 
+	t.Run("PassesRefreshFalseToPlanSinceRefreshFiresExplicitlyFirst", func(t *testing.T) {
+		// Given a stack and a blueprint
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When Up is called, capture the plan args
+		var capturedPlanArgs []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
+				capturedPlanArgs = args
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+
+		_ = stack.Up(blueprint)
+
+		// Then plan was called with -refresh=false (refresh ran explicitly before)
+		var sawRefreshFalse bool
+		for _, a := range capturedPlanArgs {
+			if a == "-refresh=false" {
+				sawRefreshFalse = true
+				break
+			}
+		}
+		if !sawRefreshFalse {
+			t.Errorf("Expected plan args to include -refresh=false, got %v", capturedPlanArgs)
+		}
+	})
+
+	t.Run("SkipsRefreshWhenStateIsEmpty", func(t *testing.T) {
+		// Given a stack whose state-show returns empty state
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var sawRefreshExec bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
+				sawRefreshExec = true
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+
+		// When Up runs
+		_ = stack.Up(blueprint)
+
+		// Then refresh was never invoked — empty state means nothing to reconcile
+		if sawRefreshExec {
+			t.Error("Expected refresh to be skipped when state is empty, but it was invoked")
+		}
+	})
+
+	t.Run("RefreshFiresWhenStateIsNonEmpty", func(t *testing.T) {
+		// Given a stack whose state-show returns a populated state
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var sawRefreshExec bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
+				sawRefreshExec = true
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+
+		// When Up runs
+		_ = stack.Up(blueprint)
+
+		// Then refresh was invoked because state is non-empty
+		if !sawRefreshExec {
+			t.Error("Expected refresh to be invoked when state is non-empty, but it was not")
+		}
+	})
+
+	t.Run("WarnsAndContinuesWhenRefreshFailsOnNonEmptyState", func(t *testing.T) {
+		// Given a stack with non-empty state and a refresh that fails
+		stack, mocks := setup(t)
+		warnings := &bytes.Buffer{}
+		stack.warningWriter = warnings
+
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
+				return "", fmt.Errorf("simulated refresh failure")
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When Up runs
+		err := stack.Up(blueprint)
+
+		// Then no error surfaces (warn-but-continue policy) and the warning names the failure
+		if err != nil {
+			t.Fatalf("Expected refresh failure on non-empty state to be tolerated, got %v", err)
+		}
+		if !strings.Contains(warnings.String(), "terraform refresh failed") {
+			t.Errorf("Expected stderr warning to mention refresh failure, got: %s", warnings.String())
+		}
+	})
+
+	t.Run("PropagatesStateCheckErrorBeforeRunningPlan", func(t *testing.T) {
+		// Given a stack whose hasStateResources fails (terraform show -json errors)
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return "", fmt.Errorf("simulated show -json failure")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When Up runs
+		err := stack.Up(blueprint)
+
+		// Then the state-check error propagates
+		if err == nil {
+			t.Fatal("Expected state-check error to propagate, got nil")
+		}
+		if !strings.Contains(err.Error(), "error reading terraform state JSON") {
+			t.Errorf("Expected error to mention terraform state JSON, got %v", err)
+		}
+	})
+
+	t.Run("DoesNotPassForceCopyFlag", func(t *testing.T) {
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var forceCopySeen bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				for _, a := range args {
+					if a == "-force-copy" {
+						forceCopySeen = true
+					}
+				}
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+
+		// When Up runs
+		if err := stack.Up(blueprint); err != nil {
+			t.Fatalf("Expected Up to succeed, got %v", err)
+		}
+
+		// Then no init invocation carried -force-copy
+		if forceCopySeen {
+			t.Error("Expected Up's init not to include -force-copy; the flag belongs only on the explicit state-migration path")
+		}
+	})
 }
 
 func TestStack_MigrateState(t *testing.T) {
@@ -2256,6 +2437,9 @@ func TestStack_Apply(t *testing.T) {
 			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
 				return "", fmt.Errorf("mock error running terraform plan")
 			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
 			return "", nil
 		}
 		blueprint := createTestBlueprint()
@@ -2350,6 +2534,9 @@ func TestStack_Apply(t *testing.T) {
 			if len(args) > 1 && args[1] == "plan" {
 				capturedEnv = env
 			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
 			return "", nil
 		}
 
@@ -2361,6 +2548,116 @@ func TestStack_Apply(t *testing.T) {
 		}
 		if capturedEnv["TF_VAR_operation"] != "apply" {
 			t.Errorf("Expected TF_VAR_operation to be %q, got %q", "apply", capturedEnv["TF_VAR_operation"])
+		}
+	})
+
+	t.Run("PassesRefreshFalseToPlanSinceRefreshFiresExplicitlyFirst", func(t *testing.T) {
+		// Given a stack and a single component
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		// When Apply is called, capture the plan args
+		var capturedPlanArgs []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "plan" {
+				capturedPlanArgs = args
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+
+		_ = stack.Apply(blueprint, "local/path")
+
+		// Then plan was called with -refresh=false (refresh ran explicitly before)
+		var sawRefreshFalse bool
+		for _, a := range capturedPlanArgs {
+			if a == "-refresh=false" {
+				sawRefreshFalse = true
+				break
+			}
+		}
+		if !sawRefreshFalse {
+			t.Errorf("Expected plan args to include -refresh=false, got %v", capturedPlanArgs)
+		}
+	})
+
+	t.Run("RefreshFiresWhenStateIsNonEmpty", func(t *testing.T) {
+		// Given a stack whose state-show returns a populated state
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var sawRefreshExec bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
+				sawRefreshExec = true
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+
+		// When Apply runs
+		_ = stack.Apply(blueprint, "local/path")
+
+		// Then refresh was invoked because state is non-empty
+		if !sawRefreshExec {
+			t.Error("Expected refresh to be invoked when state is non-empty, but it was not")
+		}
+	})
+
+	t.Run("WarnsAndContinuesWhenRefreshFailsOnNonEmptyState", func(t *testing.T) {
+		// Given a stack with non-empty state and a refresh that fails
+		stack, mocks := setup(t)
+		warnings := &bytes.Buffer{}
+		stack.warningWriter = warnings
+
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) > 1 && args[1] == "refresh" {
+				return "", fmt.Errorf("simulated refresh failure")
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When Apply runs
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then no error surfaces (warn-but-continue) and the warning names the failure
+		if err != nil {
+			t.Fatalf("Expected refresh failure on non-empty state to be tolerated, got %v", err)
+		}
+		if !strings.Contains(warnings.String(), "terraform refresh failed") {
+			t.Errorf("Expected stderr warning to mention refresh failure, got: %s", warnings.String())
+		}
+	})
+
+	t.Run("PropagatesStateCheckErrorBeforeRunningPlan", func(t *testing.T) {
+		// Given a stack whose hasStateResources fails (terraform show -json errors)
+		stack, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return "", fmt.Errorf("simulated show -json failure")
+			}
+			return "", nil
+		}
+		blueprint := createTestBlueprint()
+
+		// When Apply runs
+		err := stack.Apply(blueprint, "local/path")
+
+		// Then the state-check error propagates — Apply must not silently fall through
+		// to plan against an unknown state
+		if err == nil {
+			t.Fatal("Expected state-check error to propagate, got nil")
+		}
+		if !strings.Contains(err.Error(), "error reading terraform state JSON") {
+			t.Errorf("Expected error to mention terraform state JSON, got %v", err)
 		}
 	})
 }
@@ -3851,14 +4148,22 @@ func TestStack_PlanDestroySummary(t *testing.T) {
 		results := stack.PlanDestroySummary(createTestBlueprint())
 
 		// Then the plan command included -destroy and used destroy-mode env
-		var sawDestroyFlag bool
+		var sawDestroyFlag, sawAutoApprove bool
 		for _, a := range capturedArgs {
 			if a == "-destroy" {
 				sawDestroyFlag = true
 			}
+			if a == "-auto-approve" {
+				sawAutoApprove = true
+			}
 		}
 		if !sawDestroyFlag {
 			t.Errorf("expected -destroy flag in plan args, got %v", capturedArgs)
+		}
+		// terraform plan rejects -auto-approve (apply/destroy flag); leaking it in
+		// from DestroyArgs caused every destroy plan to fail with exit status 1.
+		if sawAutoApprove {
+			t.Errorf("plan -destroy must not include -auto-approve, got args %v", capturedArgs)
 		}
 		if capturedEnv["TF_VAR_operation"] != "destroy" {
 			t.Errorf("expected TF_VAR_operation=destroy, got %q", capturedEnv["TF_VAR_operation"])

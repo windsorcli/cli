@@ -885,6 +885,36 @@ func TestFluxStack_PlanDestroySummary(t *testing.T) {
 		}
 	})
 
+	t.Run("TreatsMissingKubeconfigAsNotDeployed", func(t *testing.T) {
+		// After `windsor destroy` tears down the cluster's terraform component,
+		// the kubeconfig is gone. Subsequent destroy cycles must still produce a
+		// plan rather than fail to query a cluster that no longer exists. The
+		// kustomizations are by definition not deployed (they live on the cluster
+		// that was just destroyed), so each result should be IsNew=true.
+		m := setupFluxMocks(t)
+		m.kubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
+			return nil, fmt.Errorf("stat /home/user/.kube/config: %w", os.ErrNotExist)
+		}
+		s := newTestFluxStack(m)
+
+		results, err := s.PlanDestroySummary(testBlueprint())
+
+		if err != nil {
+			t.Fatalf("expected nil error when kubeconfig is missing, got %v", err)
+		}
+		if len(results) == 0 {
+			t.Fatal("expected results for blueprint kustomizations, got none")
+		}
+		for _, r := range results {
+			if !r.IsNew {
+				t.Errorf("expected IsNew=true for kustomization %q when kubeconfig is missing, got false", r.Name)
+			}
+			if len(r.Resources) != 0 {
+				t.Errorf("expected no resources for kustomization %q, got %#v", r.Name, r.Resources)
+			}
+		}
+	})
+
 	t.Run("FiltersDestroyOnlyAndDestroyFalse", func(t *testing.T) {
 		// destroyOnly hooks and pinned destroy=false kustomizations are filtered
 		// to match DeleteBlueprint's eligibility gate.
