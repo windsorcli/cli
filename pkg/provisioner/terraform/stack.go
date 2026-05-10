@@ -1105,7 +1105,7 @@ func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.Ter
 		return nil
 	}
 	if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
-		fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; continuing with plan/apply (terraform will refresh again during plan): %v\n", component.Path, err)
+		fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; continuing with plan against the last-known state (plan runs with -refresh=false; any persistent state divergence will surface as a plan error): %v\n", component.Path, err)
 	}
 	return nil
 }
