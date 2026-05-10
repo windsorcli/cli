@@ -11,6 +11,7 @@ properties:
       - aws
       - azure
       - gcp
+      - hyperv
 
   workstation:
     type: object
