@@ -168,13 +168,12 @@ func NewInfo(rt *runtime.Runtime, operation string) LockInfo {
 // commands that are not yet wired up.
 var errOperationNotSupported = errors.New("stacklock: operation not supported")
 
-// localFlockLock is the single-host implementation of StackLock. It serialises a
-// LockInfo into the lock-file body so peers can identify the holder, but the body
-// is informational only — correctness rides on flock(2) alone.
+// localFlockLock is the single-host implementation of StackLock. The struct
+// itself owns no per-Acquire state — flk and the once-guard are scoped to each
+// Release closure so that a future caller reusing one instance across multiple
+// Acquires gets independent release semantics for each lock held.
 type localFlockLock struct {
-	path        string
-	flk         *flock.Flock
-	releaseOnce sync.Once
+	path string
 }
 
 // Acquire takes the lock, retrying every acquireRetryInterval until it is held,
@@ -209,8 +208,7 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 		case <-time.After(acquireRetryInterval):
 		}
 	}
-	s.flk = flk
-	return s.makeRelease(), nil
+	return makeRelease(flk), nil
 }
 
 // Inspect is reserved for the operator-facing `windsor stack lock --inspect`
@@ -225,18 +223,20 @@ func (s *localFlockLock) ForceRelease(ctx context.Context, lockID string, reason
 	return errOperationNotSupported
 }
 
-// makeRelease returns the closure handed back from Acquire. The unlock runs at
-// most once; callers may safely defer release in the same scope as a `defer
-// release()` even when an explicit release earlier in the path has already fired.
-func (s *localFlockLock) makeRelease() Release {
+// makeRelease returns the closure handed back from Acquire. flk and the once
+// guard are scoped to this Release, not to the localFlockLock receiver, so
+// reusing the same lock instance for a second Acquire produces an independent
+// Release that does not interfere with this one. The first call returns the
+// underlying Unlock result; subsequent calls return nil so callers may safely
+// defer release alongside an explicit earlier release without double-unlocking.
+func makeRelease(flk *flock.Flock) Release {
+	var once sync.Once
 	return func() error {
-		var firstErr error
-		s.releaseOnce.Do(func() {
-			if s.flk != nil {
-				firstErr = s.flk.Unlock()
-			}
+		var err error
+		once.Do(func() {
+			err = flk.Unlock()
 		})
-		return firstErr
+		return err
 	}
 }
 

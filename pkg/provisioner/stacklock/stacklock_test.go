@@ -228,6 +228,40 @@ func TestLocalFlockLock_Acquire(t *testing.T) {
 	})
 }
 
+func TestLocalFlockLock_ReusedInstance(t *testing.T) {
+	t.Run("produces independent Release closures across sequential Acquires", func(t *testing.T) {
+		// Given a single localFlockLock instance reused across two Acquires
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		sl := NewLocalFlockLock(path)
+
+		release1, err := sl.Acquire(context.Background(), newTestLockInfo(), time.Second)
+		if err != nil {
+			t.Fatalf("first acquire: %v", err)
+		}
+		if err := release1(); err != nil {
+			t.Fatalf("release1: %v", err)
+		}
+
+		release2, err := sl.Acquire(context.Background(), newTestLockInfo(), time.Second)
+		if err != nil {
+			t.Fatalf("second acquire: %v", err)
+		}
+		if err := release2(); err != nil {
+			t.Fatalf("release2: %v", err)
+		}
+
+		// When a third acquirer takes the same path
+		// Then it succeeds — proving release2 actually unlocked the second flock
+		// (would time out with LockBusyError if release2 had been a no-op)
+		other := NewLocalFlockLock(path)
+		release3, err := other.Acquire(context.Background(), newTestLockInfo(), 200*time.Millisecond)
+		if err != nil {
+			t.Fatalf("third acquire should succeed if release2 unlocked: %v", err)
+		}
+		t.Cleanup(func() { _ = release3() })
+	})
+}
+
 func TestLocalFlockLock_Release(t *testing.T) {
 	t.Run("is idempotent", func(t *testing.T) {
 		// Given an acquired lock
