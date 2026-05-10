@@ -14,6 +14,7 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.26.0
 	github.com/fluxcd/source-controller/api v1.8.3
 	github.com/goccy/go-yaml v1.19.2
+	github.com/gofrs/flock v0.13.0
 	github.com/google/go-containerregistry v0.21.5
 	github.com/google/go-jsonnet v0.22.0
 	github.com/hashicorp/hcl/v2 v2.24.0
@@ -72,7 +73,6 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.25.4 // indirect
 	github.com/go-test/deep v1.1.1 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
