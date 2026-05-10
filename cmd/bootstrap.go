@@ -239,6 +239,7 @@ func makeBootstrapConfirmFn(in io.Reader, out io.Writer) (provisioner.BootstrapC
 	confirmFn := func(summary *provisioner.BootstrapSummary) bool {
 		resolved = true
 		printBootstrapSummary(out, summary)
+		fmt.Fprintf(out, "Note: bootstrap holds the windsor stack lock during this prompt; concurrent windsor commands in this context will wait up to %s before failing.\n", stacklock.DefaultTimeout)
 		fmt.Fprint(out, "Continue? [y/N]: ")
 		reader := bufio.NewReader(in)
 		answer, _ := reader.ReadString('\n')
