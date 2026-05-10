@@ -5,6 +5,7 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"slices"
 )
 
 // =============================================================================
@@ -30,6 +31,22 @@ type ConfigBlock struct {
 	Ordinal *int `yaml:"ordinal,omitempty"`
 	// Body holds the canonical content as map[string]any{"value": <content>} for merge and evaluation. Not YAML-marshaled directly.
 	Body map[string]any `yaml:"-"`
+}
+
+// RequirementBlock declares a set of scope paths that must resolve to present,
+// non-empty values for the parent facet's activation to be well-formed. When is
+// optional and gates the block; if empty, the paths are required whenever the
+// parent facet is active. Message is optional context surfaced in the
+// aggregated error alongside the missing paths.
+type RequirementBlock struct {
+	// When is an expression gating this block. Empty means always required while the parent facet is active.
+	When string `yaml:"when,omitempty"`
+
+	// Paths are dotted scope keys whose values must be present and non-empty.
+	Paths []string `yaml:"paths"`
+
+	// Message is optional author-supplied context surfaced under this block's heading in the aggregated error.
+	Message string `yaml:"message,omitempty"`
 }
 
 // Facet represents a conditional blueprint fragment that can be merged into a base blueprint.
@@ -61,6 +78,11 @@ type Facet struct {
 	// Config is a list of named configuration blocks evaluated in blueprint context and exposed at scope root.
 	// Terraform inputs and kustomize substitutions reference <name>.<key> (e.g. talos.controlplanes), like context (cluster.*, network.*).
 	Config []ConfigBlock `yaml:"config,omitempty"`
+
+	// Requires lists input requirement blocks. When the facet is active and a block's optional When holds,
+	// every path must resolve to a present, non-empty value in the merged scope. Unsatisfied paths across
+	// every active facet are aggregated into a single user-facing error.
+	Requires []RequirementBlock `yaml:"requires,omitempty"`
 
 	// TerraformComponents are Terraform modules in the facet.
 	TerraformComponents []ConditionalTerraformComponent `yaml:"terraform,omitempty"`
@@ -178,6 +200,18 @@ func (c *ConfigBlock) MarshalYAML() (any, error) {
 	return out, nil
 }
 
+// DeepCopy creates a deep copy of the RequirementBlock object.
+func (r *RequirementBlock) DeepCopy() *RequirementBlock {
+	if r == nil {
+		return nil
+	}
+	return &RequirementBlock{
+		When:    r.When,
+		Paths:   slices.Clone(r.Paths),
+		Message: r.Message,
+	}
+}
+
 // DeepCopy creates a deep copy of the ConfigBlock object.
 func (c *ConfigBlock) DeepCopy() *ConfigBlock {
 	if c == nil {
@@ -217,6 +251,11 @@ func (f *Facet) DeepCopy() *Facet {
 		configCopy[i] = *block.DeepCopy()
 	}
 
+	requiresCopy := make([]RequirementBlock, len(f.Requires))
+	for i, block := range f.Requires {
+		requiresCopy[i] = *block.DeepCopy()
+	}
+
 	var ordinalCopy *int
 	if f.Ordinal != nil {
 		o := *f.Ordinal
@@ -231,6 +270,7 @@ func (f *Facet) DeepCopy() *Facet {
 		Ordinal:             ordinalCopy,
 		When:                f.When,
 		Config:              configCopy,
+		Requires:            requiresCopy,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,
 		Substitutions:       maps.Clone(f.Substitutions),

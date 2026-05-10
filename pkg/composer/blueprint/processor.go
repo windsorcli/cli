@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -54,6 +55,23 @@ type BaseBlueprintProcessor struct {
 	mu             sync.Mutex
 	deferredPaths  map[string]bool
 	extraScope     map[string]any
+}
+
+// requirementBlockMiss records the unsatisfied paths and the effective condition under which a
+// single requirement block applied during a ProcessFacets pass. Condition is the AND of the parent
+// facet's When and the block's When; an empty Condition means the paths were unconditionally
+// required. Message is the optional author-supplied context for this block.
+type requirementBlockMiss struct {
+	Condition string
+	Message   string
+	Paths     []string
+}
+
+// facetRequirementMisses aggregates a single facet's unsatisfied requirement blocks for the
+// final-round error report.
+type facetRequirementMisses struct {
+	FacetName string
+	Misses    []requirementBlockMiss
 }
 
 // =============================================================================
@@ -169,12 +187,14 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	var configBlockOrder []string
 	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
 	prevIncludedSet := make(map[string]bool)
+	pendingRequirements := make(map[string]facetRequirementMisses)
 	const maxFacetRounds = 10
 	for range make([]struct{}, maxFacetRounds) {
 		includedFacets = includedFacets[:0]
 		globalScope = nil
 		cfgEntries = nil
 		configBlockOrder = nil
+		pendingRequirements = make(map[string]facetRequirementMisses)
 		passScope := scope
 		if passScope == nil && contextScope != nil {
 			passScope = maps.Clone(contextScope)
@@ -188,6 +208,17 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				return nil, nil, err
 			}
 			if !shouldInclude {
+				continue
+			}
+			misses, err := p.evaluateRequirements(facet, passScope)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(misses) > 0 {
+				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{
+					FacetName: facet.Metadata.Name,
+					Misses:    misses,
+				}
 				continue
 			}
 			includedFacets = append(includedFacets, facet)
@@ -223,6 +254,10 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			}
 		}
 		prevIncludedSet = currSet
+	}
+
+	if len(pendingRequirements) > 0 {
+		return nil, nil, formatRequirementsError(pendingRequirements)
 	}
 
 	for _, facet := range includedFacets {
@@ -1574,6 +1609,49 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 	return &result, nil
 }
 
+// evaluateRequirements walks the facet's Requires blocks against scope and returns the unsatisfied
+// blocks. A block is skipped when its When evaluates to false; otherwise every path must resolve to
+// a present, non-empty value (nil/""/empty slice/empty map count as missing; false and 0 are
+// present). The returned slice is empty when all blocks are satisfied. An error is returned only
+// when a block's When fails to evaluate.
+func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Facet, scope map[string]any) ([]requirementBlockMiss, error) {
+	if len(facet.Requires) == 0 {
+		return nil, nil
+	}
+	var misses []requirementBlockMiss
+	for _, block := range facet.Requires {
+		if len(block.Paths) == 0 {
+			continue
+		}
+		applies := true
+		if block.When != "" {
+			ok, err := p.evaluateCondition(block.When, facet.Path, scope)
+			if err != nil {
+				return nil, fmt.Errorf("error evaluating requirement when '%s' in facet '%s': %w", block.When, facet.Metadata.Name, err)
+			}
+			applies = ok
+		}
+		if !applies {
+			continue
+		}
+		var missing []string
+		for _, path := range block.Paths {
+			if !isPresentAtPath(scope, path) {
+				missing = append(missing, path)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		misses = append(misses, requirementBlockMiss{
+			Condition: combineConditions(facet.When, block.When),
+			Message:   block.Message,
+			Paths:     missing,
+		})
+	}
+	return misses, nil
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -1812,6 +1890,146 @@ func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
 		result[k] = zero
 	}
 	return result
+}
+
+// lookupPath resolves a dotted-path key (e.g. "cluster.workers.count") in a nested scope. Returns
+// (value, true) when every segment is found; returns (nil, false) when any segment is missing or
+// when an intermediate segment is not a map.
+func lookupPath(scope map[string]any, path string) (any, bool) {
+	if path == "" {
+		return nil, false
+	}
+	segments := strings.Split(path, ".")
+	var current any = scope
+	for _, seg := range segments {
+		m, ok := asMapStringAny(current)
+		if !ok {
+			return nil, false
+		}
+		v, exists := m[seg]
+		if !exists {
+			return nil, false
+		}
+		current = v
+	}
+	return current, true
+}
+
+// isPresentAtPath reports whether the dotted path resolves to a non-nil, non-empty value in scope.
+// Empty string, empty slice, and empty map are treated as missing; false and 0 are present.
+func isPresentAtPath(scope map[string]any, path string) bool {
+	val, ok := lookupPath(scope, path)
+	if !ok || val == nil {
+		return false
+	}
+	if s, ok := val.(string); ok {
+		return s != ""
+	}
+	rv := reflect.ValueOf(val)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array:
+		return rv.Len() > 0
+	}
+	return true
+}
+
+// combineConditions joins facet-level and block-level when expressions into a single condition
+// string used as a grouping key in the aggregated requirements error. Empty parts are dropped;
+// both empty yields "", meaning the requirement was unconditional.
+func combineConditions(facetWhen, blockWhen string) string {
+	fw := strings.TrimSpace(facetWhen)
+	bw := strings.TrimSpace(blockWhen)
+	switch {
+	case fw == "" && bw == "":
+		return ""
+	case fw == "":
+		return bw
+	case bw == "":
+		return fw
+	default:
+		return fw + " && " + bw
+	}
+}
+
+// formatRequirementsError renders the user-facing aggregated error for unsatisfied facet
+// requirements. Missing paths are bucketed by (effective condition, message); same-key buckets
+// merge while preserving authoring order of paths. Buckets are emitted unconditional-first, then
+// alphabetically by condition. The word "facet" is intentionally absent from the rendered output.
+func formatRequirementsError(pending map[string]facetRequirementMisses) error {
+	type bucketKey struct {
+		Condition string
+		Message   string
+	}
+	type bucket struct {
+		Key   bucketKey
+		Paths []string
+	}
+	bucketIndex := make(map[bucketKey]int)
+	var buckets []*bucket
+
+	names := make([]string, 0, len(pending))
+	for name := range pending {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, miss := range pending[name].Misses {
+			key := bucketKey{Condition: miss.Condition, Message: miss.Message}
+			idx, exists := bucketIndex[key]
+			if !exists {
+				bucketIndex[key] = len(buckets)
+				buckets = append(buckets, &bucket{Key: key, Paths: slices.Clone(miss.Paths)})
+				continue
+			}
+			for _, p := range miss.Paths {
+				if !slices.Contains(buckets[idx].Paths, p) {
+					buckets[idx].Paths = append(buckets[idx].Paths, p)
+				}
+			}
+		}
+	}
+
+	sort.SliceStable(buckets, func(i, j int) bool {
+		ci, cj := buckets[i].Key.Condition, buckets[j].Key.Condition
+		if ci == "" && cj != "" {
+			return true
+		}
+		if cj == "" && ci != "" {
+			return false
+		}
+		return ci < cj
+	})
+
+	var b strings.Builder
+	b.WriteString("Required configuration is missing:\n\n")
+	total := 0
+	for _, bk := range buckets {
+		if bk.Key.Condition == "" {
+			b.WriteString("  Required:\n")
+		} else {
+			fmt.Fprintf(&b, "  Because %s:\n", bk.Key.Condition)
+		}
+		pathIndent := "    "
+		if bk.Key.Message != "" {
+			for _, line := range strings.Split(strings.TrimRight(bk.Key.Message, "\n"), "\n") {
+				b.WriteString("    ")
+				b.WriteString(line)
+				b.WriteByte('\n')
+			}
+			pathIndent = "      "
+		}
+		for _, p := range bk.Paths {
+			fmt.Fprintf(&b, "%s- %s\n", pathIndent, p)
+			total++
+		}
+		b.WriteByte('\n')
+	}
+	noun := "values"
+	if total == 1 {
+		noun = "value"
+	}
+	fmt.Fprintf(&b, "%d missing %s. Set these in values.yaml and re-run.", total, noun)
+	return fmt.Errorf("%s", b.String())
 }
 
 // =============================================================================

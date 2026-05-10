@@ -5172,3 +5172,353 @@ func TestEvaluateCondition_EvaluatesAgainstScope(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test Public Methods
+// =============================================================================
+
+func TestProcessor_ProcessFacets_Requires(t *testing.T) {
+	t.Run("SatisfiedByContextValues", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"cluster": map[string]any{"name": "mycluster"},
+				"dns":     map[string]any{"domain": "example.com"},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "consumer"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"cluster.name", "dns.domain"}},
+				},
+			},
+		}
+		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("Expected no error when requirements are satisfied, got %v", err)
+		}
+	})
+
+	t.Run("ConditionalBlockSkippedWhenFalse", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "docker"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "aws-only"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{When: "provider == 'aws'", Paths: []string{"aws.region"}},
+				},
+			},
+		}
+		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("Expected no error; aws block should be skipped, got %v", err)
+		}
+	})
+
+	t.Run("UnsatisfiedRequirementProducesAggregatedError", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "aws"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "provider-aws"},
+				When:     "provider == 'aws'",
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"aws.region", "aws.account_id"}},
+				},
+			},
+		}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err == nil {
+			t.Fatal("Expected error for unsatisfied requirements, got nil")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "Required configuration is missing") {
+			t.Errorf("Expected aggregated header, got: %s", msg)
+		}
+		if !strings.Contains(msg, "aws.region") || !strings.Contains(msg, "aws.account_id") {
+			t.Errorf("Expected both paths listed, got: %s", msg)
+		}
+		if !strings.Contains(msg, "Because provider == 'aws':") {
+			t.Errorf("Expected condition heading, got: %s", msg)
+		}
+		if strings.Contains(msg, "facet") {
+			t.Errorf("Expected error to not mention 'facet', got: %s", msg)
+		}
+	})
+
+	t.Run("EmptyValueIsTreatedAsMissing", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"dns":  map[string]any{"domain": ""},
+				"tags": []any{},
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "consumer"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"dns.domain", "tags"}},
+				},
+			},
+		}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err == nil {
+			t.Fatal("Expected error for empty values, got nil")
+		}
+		if !strings.Contains(err.Error(), "dns.domain") || !strings.Contains(err.Error(), "tags") {
+			t.Errorf("Expected both empty paths reported, got: %s", err.Error())
+		}
+	})
+
+	t.Run("FalseAndZeroAreTreatedAsPresent", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{
+				"feature":  map[string]any{"enabled": false},
+				"replicas": 0,
+			}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "consumer"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"feature.enabled", "replicas"}},
+				},
+			},
+		}
+		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("Expected false/0 to satisfy requirement, got error: %v", err)
+		}
+	})
+
+	t.Run("CrossFacetConfigBlockSatisfiesAfterDeferral", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "incus", "cluster": map[string]any{"name": "demo"}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "consumer"},
+				Ordinal:  intPtr(200),
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"talos.cluster_name"}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "config-talos"},
+				Ordinal:  intPtr(100),
+				When:     "provider == 'incus'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "talos", Body: map[string]any{"value": map[string]any{"cluster_name": "${cluster.name}"}}},
+				},
+			},
+		}
+		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("Expected requirement to be satisfied via config block in later round, got: %v", err)
+		}
+	})
+
+	t.Run("MessageRendersUnderConditionHeading", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"observability": map[string]any{"enabled": true}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "obs"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{
+						When:    "observability.enabled",
+						Paths:   []string{"observability.endpoint", "observability.token"},
+						Message: "See docs/observability for setup.",
+					},
+				},
+			},
+		}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "Because observability.enabled:") {
+			t.Errorf("Expected condition heading, got: %s", msg)
+		}
+		if !strings.Contains(msg, "See docs/observability for setup.") {
+			t.Errorf("Expected message text in error, got: %s", msg)
+		}
+		if !strings.Contains(msg, "observability.endpoint") || !strings.Contains(msg, "observability.token") {
+			t.Errorf("Expected both paths in error, got: %s", msg)
+		}
+	})
+
+	t.Run("AggregatesAcrossMultipleFacets", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "aws"}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "facet-a"},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"cluster.name"}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "facet-b"},
+				When:     "provider == 'aws'",
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"aws.region"}},
+				},
+			},
+		}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err == nil {
+			t.Fatal("Expected aggregated error, got nil")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "Required:") {
+			t.Errorf("Expected unconditional 'Required:' heading, got: %s", msg)
+		}
+		if !strings.Contains(msg, "Because provider == 'aws':") {
+			t.Errorf("Expected conditional heading, got: %s", msg)
+		}
+		if !strings.Contains(msg, "cluster.name") || !strings.Contains(msg, "aws.region") {
+			t.Errorf("Expected both paths, got: %s", msg)
+		}
+		if !strings.Contains(msg, "2 missing values") {
+			t.Errorf("Expected '2 missing values' summary, got: %s", msg)
+		}
+	})
+
+	t.Run("SelfReferenceNeverSatisfied", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"provider": "incus", "cluster": map[string]any{"name": "demo"}}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "self-referencing"},
+				When:     "provider == 'incus'",
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "self", Body: map[string]any{"value": map[string]any{"k": "${cluster.name}"}}},
+				},
+				Requires: []blueprintv1alpha1.RequirementBlock{
+					{Paths: []string{"self.k"}},
+				},
+			},
+		}
+		_, _, err := processor.ProcessFacets(target, facets)
+		if err == nil {
+			t.Fatal("Expected error for self-referenced requirement, got nil")
+		}
+		if !strings.Contains(err.Error(), "self.k") {
+			t.Errorf("Expected self.k path in error, got: %s", err.Error())
+		}
+	})
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+func TestFormatRequirementsError(t *testing.T) {
+	t.Run("UnconditionalBucketRendersFirst", func(t *testing.T) {
+		pending := map[string]facetRequirementMisses{
+			"a": {FacetName: "a", Misses: []requirementBlockMiss{
+				{Condition: "", Paths: []string{"cluster.name"}},
+			}},
+			"b": {FacetName: "b", Misses: []requirementBlockMiss{
+				{Condition: "provider == 'aws'", Paths: []string{"aws.region"}},
+			}},
+		}
+		msg := formatRequirementsError(pending).Error()
+		idxRequired := strings.Index(msg, "Required:")
+		idxBecause := strings.Index(msg, "Because provider == 'aws':")
+		if idxRequired < 0 || idxBecause < 0 {
+			t.Fatalf("Missing headings in: %s", msg)
+		}
+		if idxRequired > idxBecause {
+			t.Error("Expected 'Required:' to appear before conditional heading")
+		}
+	})
+
+	t.Run("MergesSameConditionAcrossFacets", func(t *testing.T) {
+		pending := map[string]facetRequirementMisses{
+			"a": {FacetName: "a", Misses: []requirementBlockMiss{
+				{Condition: "provider == 'aws'", Paths: []string{"aws.region"}},
+			}},
+			"b": {FacetName: "b", Misses: []requirementBlockMiss{
+				{Condition: "provider == 'aws'", Paths: []string{"aws.account_id"}},
+			}},
+		}
+		msg := formatRequirementsError(pending).Error()
+		if c := strings.Count(msg, "Because provider == 'aws':"); c != 1 {
+			t.Errorf("Expected one merged heading, got %d. Msg: %s", c, msg)
+		}
+		if !strings.Contains(msg, "aws.region") || !strings.Contains(msg, "aws.account_id") {
+			t.Error("Expected both paths under merged heading")
+		}
+	})
+
+	t.Run("MessageIndentedAboveDeeperPaths", func(t *testing.T) {
+		pending := map[string]facetRequirementMisses{
+			"obs": {FacetName: "obs", Misses: []requirementBlockMiss{
+				{Condition: "observability.enabled", Message: "See docs/obs.", Paths: []string{"observability.token"}},
+			}},
+		}
+		msg := formatRequirementsError(pending).Error()
+		if !strings.Contains(msg, "    See docs/obs.\n") {
+			t.Errorf("Expected message indented at 4 spaces, got: %s", msg)
+		}
+		if !strings.Contains(msg, "      - observability.token") {
+			t.Errorf("Expected path indented at 6 spaces under message, got: %s", msg)
+		}
+	})
+
+	t.Run("FooterUsesSingularForOneMissing", func(t *testing.T) {
+		pending := map[string]facetRequirementMisses{
+			"a": {FacetName: "a", Misses: []requirementBlockMiss{
+				{Paths: []string{"cluster.name"}},
+			}},
+		}
+		msg := formatRequirementsError(pending).Error()
+		if !strings.Contains(msg, "1 missing value.") {
+			t.Errorf("Expected singular footer, got: %s", msg)
+		}
+	})
+
+	t.Run("ErrorDoesNotMentionFacet", func(t *testing.T) {
+		pending := map[string]facetRequirementMisses{
+			"facet-name-here": {FacetName: "facet-name-here", Misses: []requirementBlockMiss{
+				{Paths: []string{"cluster.name"}},
+			}},
+		}
+		msg := formatRequirementsError(pending).Error()
+		if strings.Contains(msg, "facet") {
+			t.Errorf("Expected error not to mention 'facet', got: %s", msg)
+		}
+	})
+}
