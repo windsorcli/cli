@@ -2241,6 +2241,147 @@ terraform:
 	})
 }
 
+func TestTerraformProvider_GenerateTerraformArgs_LockTimeout(t *testing.T) {
+	// setupLockTimeoutMocks builds a provider with a minimal blueprint (single
+	// "test/path" terraform component, local backend) so GenerateTerraformArgs
+	// runs end-to-end. The GetString hook routes the named override key to the
+	// supplied value; everything else falls through to defaultValue or "".
+	setupLockTimeoutMocks := func(t *testing.T, lockKey string, lockValue string) *Mocks {
+		t.Helper()
+		mocks := setupMocks(t)
+		mocks.ConfigHandler.GetConfigRootFunc = func() (string, error) { return "/test/config", nil }
+		mocks.ConfigHandler.GetWindsorScratchPathFunc = func() (string, error) { return "/test/scratch", nil }
+		mocks.ConfigHandler.GetContextFunc = func() string { return "default" }
+		mocks.ConfigHandler.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if lockKey != "" && key == lockKey {
+				return lockValue
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mocks.Shell.GetProjectRootFunc = func() (string, error) { return "/test/project", nil }
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == filepath.Join("/test/config", "blueprint.yaml") {
+				return []byte("apiVersion: blueprints.windsorcli.dev/v1alpha1\nkind: Blueprint\nmetadata:\n  name: test\nterraform:\n  - path: test/path\n"), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Provider.Shims.Stat = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+		return mocks
+	}
+
+	containsLockTimeout := func(args []string, want string) bool {
+		for _, a := range args {
+			if a == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("DefaultsToFiveMinutesWhenNotConfigured", func(t *testing.T) {
+		// Given a provider with no terraform.lock.timeout override
+		mocks := setupLockTimeoutMocks(t, "", "")
+
+		// When generating args
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then -lock-timeout=5m surfaces in every state-mutating args set
+		want := "-lock-timeout=5m"
+		for _, set := range []struct {
+			name string
+			args []string
+		}{
+			{"InitArgs", args.InitArgs},
+			{"PlanArgs", args.PlanArgs},
+			{"ApplyArgs", args.ApplyArgs},
+			{"RefreshArgs", args.RefreshArgs},
+			{"DestroyArgs", args.DestroyArgs},
+			{"PlanDestroyArgs", args.PlanDestroyArgs},
+			{"ImportArgs", args.ImportArgs},
+		} {
+			if !containsLockTimeout(set.args, want) {
+				t.Errorf("expected %s to contain %q, got %v", set.name, want, set.args)
+			}
+		}
+	})
+
+	t.Run("HonoursConfiguredTimeout", func(t *testing.T) {
+		// Given a provider with terraform.lock.timeout overridden
+		mocks := setupLockTimeoutMocks(t, "terraform.lock.timeout", "30s")
+
+		// When generating args
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then -lock-timeout=30s surfaces in every state-mutating args set
+		want := "-lock-timeout=30s"
+		for _, set := range []struct {
+			name string
+			args []string
+		}{
+			{"InitArgs", args.InitArgs},
+			{"PlanArgs", args.PlanArgs},
+			{"ApplyArgs", args.ApplyArgs},
+			{"RefreshArgs", args.RefreshArgs},
+			{"DestroyArgs", args.DestroyArgs},
+			{"PlanDestroyArgs", args.PlanDestroyArgs},
+			{"ImportArgs", args.ImportArgs},
+		} {
+			if !containsLockTimeout(set.args, want) {
+				t.Errorf("expected %s to contain %q, got %v", set.name, want, set.args)
+			}
+		}
+	})
+
+	t.Run("RejectsMalformedTimeoutValue", func(t *testing.T) {
+		// Given a provider whose terraform.lock.timeout is unparseable
+		mocks := setupLockTimeoutMocks(t, "terraform.lock.timeout", "oops")
+
+		// When generating args
+		_, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
+
+		// Then an actionable windsor-level error surfaces (not a downstream terraform parse error)
+		if err == nil {
+			t.Fatal("expected error for malformed timeout, got nil")
+		}
+		if !strings.Contains(err.Error(), "terraform.lock.timeout") || !strings.Contains(err.Error(), "oops") {
+			t.Errorf("expected error to name the config key and the bad value, got %v", err)
+		}
+	})
+
+	t.Run("ApplyArgsKeepsTfPlanPathLast", func(t *testing.T) {
+		// Given the default config
+		mocks := setupLockTimeoutMocks(t, "", "")
+
+		// When generating args
+		args, err := mocks.Provider.GenerateTerraformArgs("test/path", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then ApplyArgs ends with the tfplan path positional, not the flag —
+		// terraform apply requires the plan-file argument to be last
+		if len(args.ApplyArgs) == 0 {
+			t.Fatal("ApplyArgs is empty")
+		}
+		last := args.ApplyArgs[len(args.ApplyArgs)-1]
+		if !strings.HasSuffix(last, "terraform.tfplan") {
+			t.Errorf("expected ApplyArgs to end with tfplan path, got %q (full %v)", last, args.ApplyArgs)
+		}
+	})
+}
+
 func TestTerraformProvider_FormatArgsForEnv(t *testing.T) {
 	t.Run("FormatsVarFileArgs", func(t *testing.T) {
 		// Given args with var-file

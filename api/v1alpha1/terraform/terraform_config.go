@@ -4,6 +4,14 @@ package terraform
 type TerraformConfig struct {
 	Enabled *bool          `yaml:"enabled,omitempty"`
 	Backend *BackendConfig `yaml:"backend,omitempty"`
+	Lock    *LockConfig    `yaml:"lock,omitempty"`
+}
+
+// LockConfig controls how terraform's per-state lock is acquired across init,
+// plan, apply, refresh, destroy, and import. Timeout is a Go duration string
+// such as "5m" or "30s"; the consumer applies a default when unset.
+type LockConfig struct {
+	Timeout *string `yaml:"timeout,omitempty"`
 }
 
 type BackendConfig struct {
@@ -126,6 +134,8 @@ type AzureRMBackend struct {
 }
 
 // Merge performs a simple merge of the current TerraformConfig with another TerraformConfig.
+// Lock is merged field-by-field rather than swapped so that an overlay carrying `lock: {}`
+// (non-nil LockConfig with Timeout nil) does not silently blank out a base timeout.
 func (base *TerraformConfig) Merge(overlay *TerraformConfig) {
 	if overlay.Enabled != nil {
 		base.Enabled = overlay.Enabled
@@ -133,15 +143,36 @@ func (base *TerraformConfig) Merge(overlay *TerraformConfig) {
 	if overlay.Backend != nil {
 		base.Backend = overlay.Backend
 	}
+	if overlay.Lock != nil {
+		if base.Lock == nil {
+			base.Lock = &LockConfig{}
+		}
+		if overlay.Lock.Timeout != nil {
+			base.Lock.Timeout = overlay.Lock.Timeout
+		}
+	}
 }
 
-// Copy creates a deep copy of the TerraformConfig object
+// Copy creates a copy of the TerraformConfig object. Lock is deep-copied
+// (struct + Timeout string pointer) because Merge mutates LockConfig in-place;
+// without the deep copy, a Copy()+Merge() chain would corrupt the original
+// through the shared *LockConfig pointer. Enabled and Backend remain shallow,
+// matching the existing convention — neither is mutated in-place by Merge.
 func (c *TerraformConfig) Copy() *TerraformConfig {
 	if c == nil {
 		return nil
 	}
-	return &TerraformConfig{
+	out := &TerraformConfig{
 		Enabled: c.Enabled,
 		Backend: c.Backend,
 	}
+	if c.Lock != nil {
+		lockCopy := *c.Lock
+		if c.Lock.Timeout != nil {
+			t := *c.Lock.Timeout
+			lockCopy.Timeout = &t
+		}
+		out.Lock = &lockCopy
+	}
+	return out
 }
