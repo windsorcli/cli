@@ -47,6 +47,34 @@ func TestTerraformConfig_Merge(t *testing.T) {
 			t.Errorf("Prefix mismatch: expected %v, got %v", "base-prefix", base.Backend.Prefix)
 		}
 	})
+
+	t.Run("MergePicksUpLockFromOverlay", func(t *testing.T) {
+		// Given a base with no lock and an overlay with one
+		base := &TerraformConfig{}
+		overlay := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("30s")}}
+
+		// When merging
+		base.Merge(overlay)
+
+		// Then the lock surfaces on base
+		if base.Lock == nil || base.Lock.Timeout == nil || *base.Lock.Timeout != "30s" {
+			t.Fatalf("expected lock timeout 30s, got %+v", base.Lock)
+		}
+	})
+
+	t.Run("MergeKeepsBaseLockWhenOverlayLockIsNil", func(t *testing.T) {
+		// Given a base with a lock and an overlay without one
+		base := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("10m")}}
+		overlay := &TerraformConfig{}
+
+		// When merging
+		base.Merge(overlay)
+
+		// Then base's lock is preserved
+		if base.Lock == nil || base.Lock.Timeout == nil || *base.Lock.Timeout != "10m" {
+			t.Fatalf("expected lock timeout 10m to survive, got %+v", base.Lock)
+		}
+	})
 }
 
 func TestTerraformConfig_Copy(t *testing.T) {
@@ -94,6 +122,19 @@ func TestTerraformConfig_Copy(t *testing.T) {
 		mockCopy := original.Copy()
 		if mockCopy != nil {
 			t.Errorf("Mock copy should be nil, got %v", mockCopy)
+		}
+	})
+
+	t.Run("CopyPreservesLock", func(t *testing.T) {
+		// Given a config with a lock timeout
+		original := &TerraformConfig{Lock: &LockConfig{Timeout: stringPtr("2m")}}
+
+		// When copying
+		copied := original.Copy()
+
+		// Then the lock is preserved
+		if copied.Lock == nil || copied.Lock.Timeout == nil || *copied.Lock.Timeout != "2m" {
+			t.Fatalf("expected lock timeout 2m on copy, got %+v", copied.Lock)
 		}
 	})
 }

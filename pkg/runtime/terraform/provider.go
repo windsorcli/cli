@@ -324,6 +324,21 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 		}
 	}
 
+	// -lock-timeout applies to every state-mutating subcommand and to init (which
+	// locks the backend during -migrate-state). Surfaces as a stack-level windsor
+	// config so a single value drives the whole project; defaults to 5m per §4.1
+	// of the terraform-lifecycle-hardening spike. Per-call override is intentionally
+	// not exposed — operators tune it once.
+	lockArg := fmt.Sprintf("-lock-timeout=%s", p.configHandler.GetString("terraform.lock.timeout", "5m"))
+	initArgs = append(initArgs, lockArg)
+	planArgs = append(planArgs, lockArg)
+	applyArgs = append(applyArgs, lockArg)
+	refreshArgs = append(refreshArgs, lockArg)
+	planDestroyArgs = append(planDestroyArgs, lockArg)
+	destroyArgs = append(destroyArgs, lockArg)
+	importArgs := append([]string{}, varFileArgs...)
+	importArgs = append(importArgs, lockArg)
+
 	applyArgs = append(applyArgs, tfPlanPath)
 
 	return &TerraformArgs{
@@ -332,7 +347,7 @@ func (p *terraformProvider) GenerateTerraformArgs(componentID string, interactiv
 		PlanArgs:        planArgs,
 		ApplyArgs:       applyArgs,
 		RefreshArgs:     refreshArgs,
-		ImportArgs:      varFileArgs,
+		ImportArgs:      importArgs,
 		DestroyArgs:     destroyArgs,
 		PlanDestroyArgs: planDestroyArgs,
 		BackendConfig:   strings.Join(backendConfigArgs, " "),
