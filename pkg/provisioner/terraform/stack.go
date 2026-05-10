@@ -269,13 +269,12 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 				return err
 			}
 
-			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-			refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
-			refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-			refreshEnv := selectTerraformCommandEnv(terraformVars, true)
-			_, _ = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...)
+			if err := s.refreshIfStateNonEmpty(&component, terraformVars, terraformArgs); err != nil {
+				return err
+			}
 
-			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
+			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false"}
 			planArgs = append(planArgs, terraformArgs.PlanArgs...)
 			planEnv := selectTerraformCommandEnv(terraformVars, true)
 			if _, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
@@ -754,8 +753,12 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 			return err
 		}
 
+		if err := s.refreshIfStateNonEmpty(component, terraformVars, terraformArgs); err != nil {
+			return err
+		}
+
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
-		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
+		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
 		planEnv := selectTerraformCommandEnv(terraformVars, true)
 		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
@@ -1081,6 +1084,29 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 		}
 	}
 
+	return nil
+}
+
+// refreshIfStateNonEmpty runs refresh only when the component's state contains resources,
+// matching the §4.4 unified refresh policy: if state is empty there is nothing to reconcile,
+// so refresh is skipped (and the subsequent plan will surface any deeper config issue with
+// a clearer error than refresh would). When state is non-empty and refresh fails, the error
+// is logged to s.warningWriter and swallowed — the caller's plan/apply will run anyway, and
+// any persistent problem will resurface there with a more actionable message. The state-check
+// itself failing is propagated; callers can't safely proceed without knowing whether state is
+// empty. Used by Up and Apply; Destroy retains its own refresh handling because its fallback
+// (-refresh=true on destroy) is destroy-specific.
+func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) error {
+	hasResources, err := s.hasStateResources(component, terraformVars)
+	if err != nil {
+		return err
+	}
+	if !hasResources {
+		return nil
+	}
+	if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
+		fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; continuing with plan/apply (terraform will refresh again during plan): %v\n", component.Path, err)
+	}
 	return nil
 }
 
