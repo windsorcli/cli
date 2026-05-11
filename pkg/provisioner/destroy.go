@@ -10,11 +10,15 @@ import (
 // Public Methods
 // =============================================================================
 
-// Teardown is Bootstrap reversed. With a pivot: destroy non-pivot components
-// against the live remote, pin local, migrate the pivot's state to local,
-// destroy the pivot. Without a pivot: plain DestroyAll. terraformOnly=true
-// skips the kustomize uninstall. Returns IDs of components skipped because
-// their state was empty alongside any error.
+// Teardown is Bootstrap reversed. With an external-backend pivot (IsBackend()
+// component, e.g. an S3 bucket the pivot provisions): destroy non-pivot
+// components against the live remote, pin local, migrate the pivot's state
+// to local, destroy the pivot. With a cluster-is-backend pivot (kubernetes
+// backend, no IsBackend() component — the cluster itself stores state for
+// every component): pin local, migrate every component's state out, then
+// destroy everything in reverse order against local. Without a pivot: plain
+// DestroyAll. terraformOnly=true skips the kustomize uninstall. Returns IDs
+// of components skipped because their state was empty alongside any error.
 func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	p := pivot(blueprint, backendType)
@@ -24,6 +28,10 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 			return i.DestroyAllTerraform(blueprint)
 		}
 		return i.DestroyAll(blueprint)
+	}
+
+	if backendType == "kubernetes" && !p.IsBackend() {
+		return i.runFullMigrationDestroy(blueprint, terraformOnly)
 	}
 
 	return i.runPivotDestroy(blueprint, p.GetID(), terraformOnly)
@@ -45,6 +53,31 @@ func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, 
 // =============================================================================
 // Private Helpers
 // =============================================================================
+
+// runFullMigrationDestroy is the kubernetes-as-backend teardown. Every
+// component's state lives inside the cluster the pivot provisions, so the
+// pivot dance (destroy non-pivot first, migrate pivot last) cannot work:
+// destroying any component that the cluster depends on kills the backend
+// for every remaining component. Instead, pin local up front, migrate
+// every component's state out of the cluster, and destroy everything in
+// reverse dependency order against local. configHandler is restored on
+// defer. Fails closed: if MigrateState errors, no destroy runs.
+func (i *Provisioner) runFullMigrationDestroy(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
+	var skipped []string
+	err := i.withBackendOverride("destroy", func() error {
+		if _, err := i.MigrateState(blueprint); err != nil {
+			return err
+		}
+		var bulkErr error
+		if terraformOnly {
+			skipped, bulkErr = i.DestroyAllTerraform(blueprint)
+		} else {
+			skipped, bulkErr = i.DestroyAll(blueprint)
+		}
+		return bulkErr
+	})
+	return skipped, err
+}
 
 // runPivotDestroy is Bootstrap's per-pivot dance reversed: destroy non-pivot
 // components against the live remote first, then pin local, migrate the
