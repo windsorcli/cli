@@ -120,42 +120,6 @@ func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *
 	return summary
 }
 
-// pivot returns the enabled terraform component that provisions remote-backend storage,
-// or nil when no dance is needed. Used by destroy paths and TeardownComponent's pivot
-// protection guard. Falls back to the first enabled component for kubernetes backends
-// when Blueprint.Backend is unset (legacy heuristic retained until destroy rewrites land).
-func pivot(bp *blueprintv1alpha1.Blueprint, backendType string) *blueprintv1alpha1.TerraformComponent {
-	if bp == nil {
-		return nil
-	}
-	if backendType == "" || backendType == "local" {
-		return nil
-	}
-	if backendID := bp.BackendComponentID(); backendID != "" {
-		for i := range bp.TerraformComponents {
-			c := &bp.TerraformComponents[i]
-			if c.GetID() != backendID {
-				continue
-			}
-			if c.Enabled != nil && !c.Enabled.IsEnabled() {
-				continue
-			}
-			return c
-		}
-	}
-	if backendType != "kubernetes" {
-		return nil
-	}
-	for i := range bp.TerraformComponents {
-		c := &bp.TerraformComponents[i]
-		if c.Enabled != nil && !c.Enabled.IsEnabled() {
-			continue
-		}
-		return c
-	}
-	return nil
-}
-
 // blueprintWithComponents returns a shallow copy of bp containing only the given
 // terraform components, in their order in the slice. Non-terraform fields are shared.
 func blueprintWithComponents(bp *blueprintv1alpha1.Blueprint, components []*blueprintv1alpha1.TerraformComponent) *blueprintv1alpha1.Blueprint {
