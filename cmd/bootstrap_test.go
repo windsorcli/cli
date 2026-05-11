@@ -266,6 +266,7 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 
 		backendBlueprint := &blueprintv1alpha1.Blueprint{
+			Backend:  "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -312,7 +313,10 @@ func TestBootstrapCmd(t *testing.T) {
 			t.Fatalf("Expected success, got %v", err)
 		}
 
-		expected := []string{"set=local", "up", "set=kubernetes", "migrate", "up"}
+		// Always-on tier pivot: Stage 1 pulls (migrate under local override) and
+		// applies; Stage 2 pushes (migrate after override restore); Stage 3 applies
+		// non-tier components.
+		expected := []string{"set=local", "migrate", "up", "set=kubernetes", "migrate", "up"}
 		if len(timeline) != len(expected) {
 			t.Fatalf("Expected timeline %v, got %v", expected, timeline)
 		}
@@ -368,6 +372,7 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 
 		backendBlueprint := &blueprintv1alpha1.Blueprint{
+			Backend:             "backend",
 			Metadata:            blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "backend"}},
 		}
@@ -404,7 +409,7 @@ func TestBootstrapCmd(t *testing.T) {
 		if !strings.Contains(err.Error(), "skipped") {
 			t.Errorf("Expected error to mention skipped, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), `"backend"`) {
+		if !strings.Contains(err.Error(), "backend") {
 			t.Errorf("Expected error to name the pivot, got: %v", err)
 		}
 	})

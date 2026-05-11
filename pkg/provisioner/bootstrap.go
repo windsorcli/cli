@@ -2,35 +2,16 @@ package provisioner
 
 import (
 	"fmt"
-	"io"
 	"os"
-	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
 
 // =============================================================================
-// Variables
-// =============================================================================
-
-// probeErrorPause is the Ctrl-C window between Bootstrap's probe-failure
-// warning and the dance starting. Tests set it to zero.
-var probeErrorPause = 5 * time.Second
-
-// probeErrorSleep is the sleep used between countdown ticks; injectable so
-// tests can drive the loop without real wall time.
-var probeErrorSleep = time.Sleep
-
-// =============================================================================
 // Types
 // =============================================================================
 
-// BootstrapSummary describes the operator-visible intent of a bootstrap call:
-// which context, which backend type, which terraform components and
-// kustomizations are about to be applied. It is built directly from the
-// blueprint and config — no terraform invocation, no state probing, no diff
-// — so reruns and multi-machine invocations show the same content. The cmd
-// layer renders this for the operator's confirmation prompt.
+// BootstrapSummary describes the operator-visible intent of a bootstrap call.
 type BootstrapSummary struct {
 	ContextName string
 	BackendType string
@@ -38,30 +19,25 @@ type BootstrapSummary struct {
 	Kustomize   []string
 }
 
-// BootstrapTerraformEntry is a single row in the Terraform section of the
-// bootstrap summary. Path is the blueprint Path (e.g. "cluster/aws-eks") when
-// set; ComponentID is the unique identifier (Name when set, else Path) and is
-// used as the fallback when Path is empty.
+// BootstrapTerraformEntry is a single row in the Terraform section of the bootstrap summary.
 type BootstrapTerraformEntry struct {
 	ComponentID string
 	Path        string
 }
 
-// BootstrapConfirmFn receives the bootstrap summary and returns true to
-// proceed with apply or false to abort cleanly. Passing nil to Bootstrap
-// runs the apply unconditionally (no summary generated, no prompt).
+// BootstrapConfirmFn receives the bootstrap summary and returns true to proceed.
 type BootstrapConfirmFn func(*BootstrapSummary) bool
 
 // =============================================================================
 // Public Methods
 // =============================================================================
 
-// Bootstrap brings up a context's infrastructure end-to-end. With a pivot,
-// probe-hit runs plain Up after a recovery sweep for half-migrated
-// components; probe-miss runs the local-then-migrate dance for the pivot,
-// then Up for the rest. With no pivot, Bootstrap calls Up directly.
-// validatePivot enforces pivot-first ordering. When confirm is non-nil it
-// runs first; returning false aborts with applied=false.
+// Bootstrap brings up a context's infrastructure end-to-end. For local or external backends
+// it forwards to Up. For an in-blueprint backend tier (Blueprint.Backend set) it always
+// pivots the tier: Stage 1 pins local, pulls any existing tier state from the configured
+// backend to local, applies the tier against local; Stage 2 pushes tier state to the
+// configured backend; Stage 3 applies non-tier components. The algorithm is idempotent —
+// every bootstrap runs the same flow regardless of whether the backend already exists.
 func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm BootstrapConfirmFn, onApply ...func(id string) error) (bool, error) {
 	if blueprint == nil {
 		return false, fmt.Errorf("blueprint not provided")
@@ -74,63 +50,44 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 	}
 
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	p := pivot(blueprint, backendType)
-
-	if p == nil {
+	tier := blueprint.BackendTier()
+	if backendType == "" || backendType == "local" || len(tier) == 0 {
 		if err := i.Up(blueprint, onApply...); err != nil {
 			return false, err
 		}
 		return true, nil
 	}
 
-	pivotID := p.GetID()
-	if err := validatePivot(blueprint, pivotID); err != nil {
-		return false, err
-	}
-
-	if i.runtime != nil && i.runtime.TerraformProvider != nil && !i.runtime.TerraformProvider.BackendConfigComplete() {
-		fmt.Fprintf(os.Stderr, "Probe: no backend config present for pivot %q yet — running first-time bootstrap dance.\n", pivotID)
-	} else {
-		hasRemote, probeErr := i.HasRemoteState(blueprint, pivotID)
-		if probeErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: probe of configured backend for pivot %q failed:\n", pivotID)
-			fmt.Fprintf(os.Stderr, "%v\n\n", probeErr)
-			fmt.Fprintln(os.Stderr, "proceeding with local-then-migrate dance — abort with Ctrl-C if your backend already exists and this is a transient probe failure.")
-			pauseForProbeWarning(os.Stderr, probeErrorPause)
-		} else if hasRemote {
-			fmt.Fprintf(os.Stderr, "Probe found existing state for pivot %q in configured backend — applying without pivot.\n", pivotID)
-			if err := i.Up(blueprint, onApply...); err != nil {
-				return false, err
-			}
-			return true, nil
-		}
-	}
-
-	pivotOnly := blueprintWithOnly(blueprint, pivotID)
-	rest := blueprintWithout(blueprint, pivotID)
+	tierBP := blueprintWithComponents(blueprint, tier)
+	nonTierBP := blueprintWithoutComponents(blueprint, tier)
 
 	if err := i.withBackendOverride("bootstrap", func() error {
-		return i.Up(pivotOnly, onApply...)
+		if _, err := i.MigrateState(tierBP); err != nil {
+			return err
+		}
+		return i.Up(tierBP, onApply...)
 	}); err != nil {
 		return false, err
 	}
 
-	skipped, err := i.MigrateState(pivotOnly)
+	skipped, err := i.MigrateState(tierBP)
 	if err != nil {
 		return false, err
 	}
 	if len(skipped) > 0 {
-		return false, fmt.Errorf("bootstrap migration skipped pivot %q: component directory missing after apply", pivotID)
+		return false, fmt.Errorf("bootstrap migration skipped tier components after a successful local apply: %v — their directories should have been materialised by Up", skipped)
 	}
 
-	if err := i.RemoveLocalState(pivotID); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for pivot %q after migration: %v\n", pivotID, err)
+	for _, c := range tier {
+		if err := i.RemoveLocalState(c.GetID()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to remove local state file for %q after migration: %v\n", c.GetID(), err)
+		}
 	}
 
-	if len(rest.TerraformComponents) == 0 {
+	if len(nonTierBP.TerraformComponents) == 0 {
 		return true, nil
 	}
-	if err := i.Up(rest, onApply...); err != nil {
+	if err := i.Up(nonTierBP, onApply...); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -140,12 +97,7 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 // Private Helpers
 // =============================================================================
 
-// bootstrapSummary builds the operator-visible intent description from the
-// blueprint and config — no terraform invocation, no state probing. ContextName
-// comes from the runtime, BackendType from terraform.backend.type config (with
-// "local" as the default when unset), Terraform entries from the blueprint's
-// terraform components in declaration order (skipping disabled ones),
-// Kustomize entries from the blueprint's Kustomizations.
+// bootstrapSummary builds the operator-visible intent description from the blueprint and config.
 func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *BootstrapSummary {
 	summary := &BootstrapSummary{
 		BackendType: i.configHandler.GetString("terraform.backend.type", "local"),
@@ -168,27 +120,10 @@ func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *
 	return summary
 }
 
-// pauseForProbeWarning emits a per-second countdown to w so the operator has
-// a Ctrl-C window before terraform output drowns the warning. Pause <= 0 is
-// a no-op (test mode).
-func pauseForProbeWarning(w io.Writer, pause time.Duration) {
-	if pause <= 0 {
-		return
-	}
-	seconds := int(pause / time.Second)
-	if seconds < 1 {
-		probeErrorSleep(pause)
-		return
-	}
-	for remaining := seconds; remaining > 0; remaining-- {
-		fmt.Fprintf(w, "  proceeding in %ds (Ctrl-C to abort)...\n", remaining)
-		probeErrorSleep(time.Second)
-	}
-}
-
-// pivot returns the enabled terraform component that provisions remote-backend
-// storage, or nil when no dance is needed. Resolves Blueprint.Backend; falls back
-// to the first enabled component when backendType is kubernetes and Backend is unset.
+// pivot returns the enabled terraform component that provisions remote-backend storage,
+// or nil when no dance is needed. Used by destroy paths and TeardownComponent's pivot
+// protection guard. Falls back to the first enabled component for kubernetes backends
+// when Blueprint.Backend is unset (legacy heuristic retained until destroy rewrites land).
 func pivot(bp *blueprintv1alpha1.Blueprint, backendType string) *blueprintv1alpha1.TerraformComponent {
 	if bp == nil {
 		return nil
@@ -221,53 +156,36 @@ func pivot(bp *blueprintv1alpha1.Blueprint, backendType string) *blueprintv1alph
 	return nil
 }
 
-// validatePivot returns an ordering error when the pivot is not the first
-// enabled terraform component. Earlier components would either fail (backend
-// not yet provisioned) or land state in remote before the pivot applied,
-// corrupting the bootstrap sequence.
-func validatePivot(bp *blueprintv1alpha1.Blueprint, pivotID string) error {
-	for _, c := range bp.TerraformComponents {
-		if c.Enabled != nil && !c.Enabled.IsEnabled() {
-			continue
-		}
-		if c.GetID() == pivotID {
-			return nil
-		}
-		return fmt.Errorf("bootstrap: pivot component %q must be the first enabled terraform component; %q is currently first — reorder your blueprint", pivotID, c.GetID())
-	}
-	return fmt.Errorf("bootstrap: pivot component %q not found among enabled terraform components", pivotID)
-}
-
-// blueprintWithOnly returns a shallow copy of bp with only the component
-// matching id in TerraformComponents.
-func blueprintWithOnly(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1alpha1.Blueprint {
+// blueprintWithComponents returns a shallow copy of bp containing only the given
+// terraform components, in their order in the slice. Non-terraform fields are shared.
+func blueprintWithComponents(bp *blueprintv1alpha1.Blueprint, components []*blueprintv1alpha1.TerraformComponent) *blueprintv1alpha1.Blueprint {
 	cp := *bp
-	cp.TerraformComponents = nil
-	for _, c := range bp.TerraformComponents {
-		if c.GetID() == id {
-			cp.TerraformComponents = []blueprintv1alpha1.TerraformComponent{c}
-			break
-		}
+	cp.TerraformComponents = make([]blueprintv1alpha1.TerraformComponent, len(components))
+	for i, c := range components {
+		cp.TerraformComponents[i] = *c
 	}
 	return &cp
 }
 
-// blueprintWithout returns a shallow copy of bp with the component matching
-// id removed from TerraformComponents. Order preserved.
-func blueprintWithout(bp *blueprintv1alpha1.Blueprint, id string) *blueprintv1alpha1.Blueprint {
+// blueprintWithoutComponents returns a shallow copy of bp with the given terraform
+// components removed, preserving declaration order of the survivors.
+func blueprintWithoutComponents(bp *blueprintv1alpha1.Blueprint, components []*blueprintv1alpha1.TerraformComponent) *blueprintv1alpha1.Blueprint {
+	exclude := make(map[string]bool, len(components))
+	for _, c := range components {
+		exclude[c.GetID()] = true
+	}
 	cp := *bp
 	cp.TerraformComponents = make([]blueprintv1alpha1.TerraformComponent, 0, len(bp.TerraformComponents))
 	for _, c := range bp.TerraformComponents {
-		if c.GetID() != id {
+		if !exclude[c.GetID()] {
 			cp.TerraformComponents = append(cp.TerraformComponents, c)
 		}
 	}
 	return &cp
 }
 
-// withBackendOverride pins terraform.backend.type to "local" for the duration
-// of fn, restoring the previously-configured value via defer. In-memory only;
-// values.yaml is unaffected. opLabel appears in override-failure messages.
+// withBackendOverride pins terraform.backend.type to "local" for the duration of fn,
+// restoring the previously-configured value via defer.
 func (i *Provisioner) withBackendOverride(opLabel string, fn func() error) error {
 	original := i.configHandler.GetString("terraform.backend.type", "local")
 	if err := i.configHandler.Set("terraform.backend.type", "local"); err != nil {
