@@ -1372,11 +1372,17 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	// terraform exits non-zero when any resource has prevent_destroy = true,
 	// but still emits the diagnostic events naming them. Look for those addresses
-	// regardless of exec error so the preflight can surface them; otherwise the
-	// gate has nothing to act on and the operator just sees a raw plan failure.
+	// regardless of exec error so the warning can surface them; otherwise the
+	// operator just sees a raw plan failure.
 	protected := extractPreventDestroyAddresses(planOutput)
 	if err != nil {
 		if len(protected) > 0 {
+			// Parse whatever planned_change / change_summary events terraform
+			// emitted before the diagnostic — without this, plan counts stay
+			// zero and the renderer shows "(no changes)" while the warning
+			// says N resources can't be destroyed, two directly contradictory
+			// signals to the operator.
+			result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
 			result.Protected = protected
 			return result
 		}
