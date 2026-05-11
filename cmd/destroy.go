@@ -62,6 +62,8 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			}
 			tuiplan.DestroySummary(os.Stdout, summary.Terraform, summary.Kustomize, os.Getenv("NO_COLOR") != "")
 
+			warnPreventDestroy(cmd.ErrOrStderr(), summary.Terraform)
+
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all infrastructure in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
@@ -115,6 +117,8 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 			return fmt.Errorf("error generating destroy plan: %w", err)
 		}
 		tuiplan.DestroySummary(os.Stdout, tfResults, k8sResults, os.Getenv("NO_COLOR") != "")
+
+		warnPreventDestroy(cmd.ErrOrStderr(), tfResults)
 
 		desc := fmt.Sprintf("This will permanently destroy component %q across all layers.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
@@ -173,6 +177,8 @@ var destroyTerraformCmd = &cobra.Command{
 			}
 			tuiplan.DestroySummary(os.Stdout, summary.Terraform, nil, os.Getenv("NO_COLOR") != "")
 
+			warnPreventDestroy(cmd.ErrOrStderr(), summary.Terraform)
+
 			contextName := proj.Runtime.ContextName
 			desc := fmt.Sprintf("This will permanently destroy all Terraform components in context %q.", contextName)
 			if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, contextName); err != nil {
@@ -201,6 +207,8 @@ var destroyTerraformCmd = &cobra.Command{
 			return fmt.Errorf("error generating destroy plan: %w", err)
 		}
 		tuiplan.DestroySummary(os.Stdout, []terraforminfra.TerraformComponentPlan{tfResult}, nil, os.Getenv("NO_COLOR") != "")
+
+		warnPreventDestroy(cmd.ErrOrStderr(), []terraforminfra.TerraformComponentPlan{tfResult})
 
 		desc := fmt.Sprintf("This will permanently destroy Terraform component %q.", componentID)
 		if err := resolveDestroyConfirmation(cmd.InOrStdin(), cmd.ErrOrStderr(), desc, componentID); err != nil {
@@ -324,6 +332,30 @@ func reportSkippedDestroyComponents(w io.Writer, skipped []string) {
 	}
 	fmt.Fprintln(w, "   if previously bootstrapped, cloud resources may now be orphaned —")
 	fmt.Fprintln(w, "   verify in your cloud console; remediate with `terraform import` if needed.")
+}
+
+// warnPreventDestroy emits a stderr warning naming any resource addresses
+// that terraform's plan -destroy flagged with `lifecycle { prevent_destroy =
+// true }`. The wrapper deliberately does not refuse — operators who run
+// `windsor destroy` typically want convergence on zero, and a partial
+// destroy that halts mid-graph leaves more mess than a destroy that surfaces
+// the protected addresses up front. Module authors who want hard protection
+// should gate their resources on TF_VAR_operation / TF_VAR_ephemeral and
+// design the destroy contract in HCL; see docs/spikes/terraform-lifecycle-hardening.md §6.2.
+// No-op when protected is empty.
+func warnPreventDestroy(w io.Writer, plans []terraforminfra.TerraformComponentPlan) {
+	var protected []string
+	for _, p := range plans {
+		protected = append(protected, p.Protected...)
+	}
+	if len(protected) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "warning: terraform will refuse to destroy %d resource(s) protected by lifecycle { prevent_destroy = true }:\n", len(protected))
+	for _, addr := range protected {
+		fmt.Fprintf(w, "  %s\n", addr)
+	}
+	fmt.Fprintln(w, "   the destroy may halt partway; remove the lifecycle block in HCL to enable tear-down.")
 }
 
 // resolveDestroyConfirmation gates a destructive operation. If --confirm was supplied it must

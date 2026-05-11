@@ -106,7 +106,17 @@ type TerraformComponentPlan struct {
 	NoChanges   bool
 	IsNew       bool
 	Resources   []ResourceChange
-	Err         error
+	// Protected lists resource addresses that terraform reports cannot be
+	// destroyed because their config sets `lifecycle { prevent_destroy = true }`.
+	// Populated only on destroy-plan paths; nil on apply-plan paths.
+	// Informational — cmd/destroy.go surfaces these as a stderr warning so the
+	// operator knows terraform will halt the destroy partway. The wrapper does
+	// not refuse: half-completed destroys orphan more state than letting the
+	// operator see the addresses and decide. Module authors who want a hard
+	// gate should consume TF_VAR_operation / TF_VAR_ephemeral and design the
+	// destroy contract in HCL.
+	Protected []string
+	Err       error
 }
 
 // Action enumerates the kinds of changes a plan can produce for a single resource.
@@ -1360,12 +1370,28 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
+	// terraform exits non-zero when any resource has prevent_destroy = true,
+	// but still emits the diagnostic events naming them. Look for those addresses
+	// regardless of exec error so the warning can surface them; otherwise the
+	// operator just sees a raw plan failure.
+	protected := extractPreventDestroyAddresses(planOutput)
 	if err != nil {
+		if len(protected) > 0 {
+			// Parse whatever planned_change / change_summary events terraform
+			// emitted before the diagnostic — without this, plan counts stay
+			// zero and the renderer shows "(no changes)" while the warning
+			// says N resources can't be destroyed, two directly contradictory
+			// signals to the operator.
+			result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
+			result.Protected = protected
+			return result
+		}
 		result.Err = fmt.Errorf("error running terraform plan -destroy for %s: %w", component.Path, err)
 		return result
 	}
 
 	result.Add, result.Change, result.Destroy, result.NoChanges, result.Resources = parseTerraformPlanJSON(planOutput)
+	result.Protected = protected
 	return result
 }
 
@@ -1645,6 +1671,78 @@ func parseTerraformPlanJSON(output string) (add, change, destroy int, noChanges 
 		noChanges = true
 	}
 	return
+}
+
+// extractPreventDestroyAddresses scans the line-delimited JSON event stream
+// emitted by `terraform plan -destroy -json` for diagnostic events that
+// terraform produces when a resource has `lifecycle { prevent_destroy = true }`.
+// The diagnostic summary is the canonical signal — terraform emits
+// "Instance cannot be destroyed" verbatim for this case. The address comes from
+// `diagnostic.address` when present (newer terraform/tofu), with a fallback to
+// parsing the `detail` string which always starts with "Resource <addr> has
+// lifecycle.prevent_destroy set". Returns the addresses in the order they
+// appear; duplicates are preserved so callers see each occurrence. Lines that
+// aren't JSON or don't parse are silently skipped, since terraform interleaves
+// non-event output.
+func extractPreventDestroyAddresses(output string) []string {
+	type diagnostic struct {
+		Severity string `json:"severity"`
+		Summary  string `json:"summary"`
+		Address  string `json:"address"`
+		Detail   string `json:"detail"`
+	}
+	type event struct {
+		Type       string      `json:"type"`
+		Diagnostic *diagnostic `json:"diagnostic,omitempty"`
+	}
+
+	var addresses []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var ev event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		if ev.Type != "diagnostic" || ev.Diagnostic == nil {
+			continue
+		}
+		if ev.Diagnostic.Severity != "error" {
+			continue
+		}
+		if ev.Diagnostic.Summary != "Instance cannot be destroyed" {
+			continue
+		}
+		addr := ev.Diagnostic.Address
+		if addr == "" {
+			addr = preventDestroyAddressFromDetail(ev.Diagnostic.Detail)
+		}
+		if addr == "" {
+			continue
+		}
+		addresses = append(addresses, stripModuleMain(addr))
+	}
+	return addresses
+}
+
+// preventDestroyAddressFromDetail extracts the resource address from a
+// "Instance cannot be destroyed" diagnostic detail. Terraform's detail string
+// always opens with "Resource <addr> has lifecycle.prevent_destroy set"; we
+// pull the substring between those markers. Returns "" when the pattern
+// doesn't match, so the caller can skip the malformed event.
+func preventDestroyAddressFromDetail(detail string) string {
+	const prefix = "Resource "
+	const suffix = " has lifecycle.prevent_destroy set"
+	if !strings.HasPrefix(detail, prefix) {
+		return ""
+	}
+	end := strings.Index(detail, suffix)
+	if end < len(prefix) {
+		return ""
+	}
+	return detail[len(prefix):end]
 }
 
 // mapTerraformAction maps a `terraform plan -json` change.action string to the

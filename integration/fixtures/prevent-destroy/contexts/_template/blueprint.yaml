@@ -1,0 +1,7 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: prevent-destroy
+  description: Fixture for the prevent_destroy preflight gate
+terraform:
+  - path: "protected"
