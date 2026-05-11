@@ -171,16 +171,14 @@ func TestDestroyTerraform_LocalBackendSkipsMigrationDance(t *testing.T) {
 	}
 }
 
-// TestDestroy_TolerantOfMisorderedBackend is the regression test for the catch-22 where
-// blueprint.ValidateComposedBlueprint blocked windsor destroy on a deployed-but-misordered
-// blueprint. We init against the correctly-ordered backend-first fixture (so init passes
-// validation and lays modules + composed blueprint to disk), then mutate the composed
-// blueprint.yaml to swap component order — simulating "operator deployed cleanly, then a
-// later edit moved backend off position 0." Destroy must still succeed: the prepareProject
-// path opts out of structural validation via SetSkipValidation(true), and the destroy
-// lifecycle iterates components by GetID() rather than blueprint position so order does
-// not affect correctness for teardown.
-func TestDestroy_TolerantOfMisorderedBackend(t *testing.T) {
+// TestDestroy_TolerantOfReorderedBackend guards against a regression in destroy on
+// a deployed blueprint whose terraform components were reordered after init. We
+// init against the canonical backend-first fixture (init lays modules and composed
+// blueprint to disk), then mutate the composed blueprint.yaml to swap component
+// order. Destroy must still succeed because the destroy lifecycle keys on
+// component ID, not position, and the prepareProject path opts out of structural
+// validation via SetSkipValidation(true).
+func TestDestroy_TolerantOfReorderedBackend(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
@@ -191,29 +189,26 @@ func TestDestroy_TolerantOfMisorderedBackend(t *testing.T) {
 	// Mutate the composed blueprint to put backend after null. Mirror what an operator
 	// would see if they hand-edited blueprint.yaml after deployment.
 	composedPath := filepath.Join(dir, "contexts", "local", "blueprint.yaml")
-	misordered := []byte(`kind: Blueprint
+	reordered := []byte(`kind: Blueprint
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: backend-first
-  description: Misordered for regression test.
+  description: Reordered for regression test.
+backend: backend
 terraform:
   - path: "null"
   - path: "backend"
 `)
-	if err := os.WriteFile(composedPath, misordered, 0o644); err != nil {
+	if err := os.WriteFile(composedPath, reordered, 0o644); err != nil {
 		t.Fatalf("rewrite composed blueprint: %v", err)
 	}
 
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"destroy", "--confirm=local", "terraform"}, env)
 	if err != nil {
-		t.Fatalf("destroy must tolerate misordered backend, got: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+		t.Fatalf("destroy must tolerate reordered backend, got: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
-	combined := string(stdout) + string(stderr)
-	// Prove validation did NOT fire — its prose would mention "first item in
-	// terraformComponents" or "currently at position".
-	if strings.Contains(combined, "first item in terraformComponents") || strings.Contains(combined, "currently at position") {
-		t.Errorf("destroy must skip structural validation; saw validator prose in output:\n%s", combined)
-	}
+	_ = stdout
+	_ = stderr
 }
 
 // TestDestroy_ShowsDestroyPlanBeforePromptOrConfirm verifies the operator-

@@ -324,42 +324,35 @@ func TestInit_DoesNotRequireDocker_EvenWhenDockerEnabled(t *testing.T) {
 	}
 }
 
-// TestInit_RejectsBlueprintWithMisorderedBackendComponent confirms that a blueprint
-// with the "backend" terraform component placed at any index other than 0 is
-// rejected at blueprint-load time, before any infrastructure work runs. The
-// rejection uses the calm-output pattern: the wrapped message is printed
-// verbatim, names the offending position, and cobra's "Error:" prefix is
-// suppressed so the output reads as guidance rather than a panic.
-func TestInit_RejectsBlueprintWithMisorderedBackendComponent(t *testing.T) {
-	t.Parallel()
-	dir, env := helpers.CopyFixtureOnly(t, "backend-misordered")
-	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
-	if err == nil {
-		t.Fatalf("expected init to fail for misordered backend, got success\nstdout: %s\nstderr: %s", stdout, stderr)
-	}
-	combined := string(stdout) + string(stderr)
-	if !strings.Contains(combined, "backend") {
-		t.Errorf("expected validation error to name the backend component, got:\n%s", combined)
-	}
-	if !strings.Contains(combined, "first item") {
-		t.Errorf("expected validation error to call out the ordering rule, got:\n%s", combined)
-	}
-	// The fixture lists `null` then `backend`, so backend is at 1-based YAML position 2.
-	if !strings.Contains(combined, "position 2") {
-		t.Errorf("expected validation error to name 1-based position 2, got:\n%s", combined)
-	}
-}
-
-// TestInit_AcceptsBlueprintWithBackendAtIndexZero confirms that a blueprint with
-// the backend component at index 0 passes validation. Regression guard against
-// the validation rule firing too eagerly — it must reject misordering, not the
-// canonical layout.
-func TestInit_AcceptsBlueprintWithBackendAtIndexZero(t *testing.T) {
+// TestInit_AcceptsBlueprintWithDeclaredBackendTier confirms that a blueprint that
+// declares its backend via the Backend field and lists the named component in
+// terraform passes validation.
+func TestInit_AcceptsBlueprintWithDeclaredBackendTier(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
-		t.Fatalf("expected init to succeed for backend-at-index-0 fixture, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+		t.Fatalf("expected init to succeed for backend-tier fixture, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+}
+
+// TestInit_RejectsBlueprintWithUnresolvedBackendField confirms that a blueprint
+// whose Backend field names a terraform component that does not exist is rejected
+// at blueprint-load time. The validator wraps ErrBlueprintInvalid so the cmd layer
+// routes the message through the calm-output presenter.
+func TestInit_RejectsBlueprintWithUnresolvedBackendField(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "backend-unresolved")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err == nil {
+		t.Fatalf("expected init to fail for unresolved backend, got success\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	combined := string(stdout) + string(stderr)
+	if !strings.Contains(combined, "ghost") {
+		t.Errorf("expected validation error to name the unresolved Backend value, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "backend") {
+		t.Errorf("expected validation error to mention the backend tier, got:\n%s", combined)
 	}
 }
 
