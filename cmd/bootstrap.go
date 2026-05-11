@@ -36,21 +36,11 @@ var (
 // production). Unlike `windsor init`, bootstrap does not anchor the current directory as
 // a project root — it is allowed to run in global mode, where directory trust is implicit.
 //
-// To handle the chicken-and-egg case where a configured remote backend (e.g. an S3 bucket
-// or kubernetes Secret) lives in infrastructure that terraform must create first, bootstrap
-// uses a two-phase apply when the blueprint declares a "backend" terraform component:
-//
-//  1. Override terraform.backend.type to "local" in-memory and apply only the backend
-//     component, materializing the remote state store (bucket, dynamodb table, etc.).
-//  2. Restore the configured backend type and migrate just the backend component's state
-//     to remote via MigrateComponentState. Subsequent components in the next Up pass init
-//     directly against the configured remote backend with no migration needed, since they
-//     have not been applied yet.
-//
-// When the blueprint has no backend component, bootstrap falls through to a single Up
-// pass against whatever backend type is configured (typically "local" for non-cloud
-// contexts, or a backend whose bucket exists out-of-band). The on-disk config
-// (values.yaml) is never mutated during the override window.
+// When the blueprint declares a backend tier via Blueprint.Backend, bootstrap pivots the
+// tier through local state on every run (always-on, idempotent) so the chicken-and-egg of
+// a backend living inside the infrastructure it provisions is resolved without any
+// first-run / subsequent-run branching. Without an in-blueprint backend tier, bootstrap
+// forwards to a single Up pass against the configured backend.
 var bootstrapCmd = &cobra.Command{
 	Use:          "bootstrap [context]",
 	Short:        "Bootstrap a fresh environment end-to-end",
