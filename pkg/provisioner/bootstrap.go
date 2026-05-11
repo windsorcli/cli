@@ -186,12 +186,9 @@ func pauseForProbeWarning(w io.Writer, pause time.Duration) {
 	}
 }
 
-// pivot returns the terraform component whose apply provisions the storage
-// for the configured remote backend, or nil when no dance is needed.
-// Detection: local/empty backend → nil; any IsBackend() component → that
-// component (operator-declared wins); kubernetes with no IsBackend() →
-// first enabled component (cluster IS the backend); other remote with no
-// IsBackend() → nil (out-of-band setup).
+// pivot returns the enabled terraform component that provisions remote-backend
+// storage, or nil when no dance is needed. Resolves Blueprint.Backend; falls back
+// to the first enabled component when backendType is kubernetes and Backend is unset.
 func pivot(bp *blueprintv1alpha1.Blueprint, backendType string) *blueprintv1alpha1.TerraformComponent {
 	if bp == nil {
 		return nil
@@ -199,12 +196,15 @@ func pivot(bp *blueprintv1alpha1.Blueprint, backendType string) *blueprintv1alph
 	if backendType == "" || backendType == "local" {
 		return nil
 	}
-	for i := range bp.TerraformComponents {
-		c := &bp.TerraformComponents[i]
-		if c.Enabled != nil && !c.Enabled.IsEnabled() {
-			continue
-		}
-		if c.IsBackend() {
+	if backendID := bp.BackendComponentID(); backendID != "" {
+		for i := range bp.TerraformComponents {
+			c := &bp.TerraformComponents[i]
+			if c.GetID() != backendID {
+				continue
+			}
+			if c.Enabled != nil && !c.Enabled.IsEnabled() {
+				continue
+			}
 			return c
 		}
 	}

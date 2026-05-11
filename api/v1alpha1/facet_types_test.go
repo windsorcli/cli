@@ -128,6 +128,19 @@ func TestFacetDeepCopy(t *testing.T) {
 			t.Error("Deep copy failed: config block body nested map was not copied")
 		}
 	})
+
+	t.Run("PreservesBackend", func(t *testing.T) {
+		// Given a facet that names the backend tier terminus
+		original := &Facet{Backend: "cluster"}
+
+		// When deep-copied
+		copy := original.DeepCopy()
+
+		// Then the Backend field round-trips
+		if copy.Backend != "cluster" {
+			t.Errorf("Expected copy.Backend=\"cluster\", got %q", copy.Backend)
+		}
+	})
 }
 
 func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
@@ -286,6 +299,43 @@ func TestFacetYAMLTags(t *testing.T) {
 		}
 		if len(out.Kustomizations) != len(facet.Kustomizations) {
 			t.Errorf("Expected %d Kustomizations, got %d after YAML unmarshal", len(facet.Kustomizations), len(out.Kustomizations))
+		}
+	})
+
+	t.Run("FacetMarshalsAndUnmarshalsBackend", func(t *testing.T) {
+		// Given a facet that names a backend tier terminus
+		facet := Facet{
+			Kind:       "Facet",
+			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
+			Metadata:   Metadata{Name: "cluster-facet"},
+			Backend:    "cluster",
+		}
+
+		data, err := yaml.Marshal(&facet)
+		if err != nil {
+			t.Fatalf("Marshal failed: %v", err)
+		}
+		if !strings.Contains(string(data), "backend: cluster") {
+			t.Errorf("Expected YAML to contain \"backend: cluster\", got:\n%s", string(data))
+		}
+
+		var out Facet
+		if err := yaml.Unmarshal(data, &out); err != nil {
+			t.Fatalf("Unmarshal failed: %v", err)
+		}
+		if out.Backend != "cluster" {
+			t.Errorf("Expected Backend=\"cluster\" after round-trip, got %q", out.Backend)
+		}
+	})
+
+	t.Run("FacetOmitsBackendWhenEmpty", func(t *testing.T) {
+		facet := Facet{Metadata: Metadata{Name: "no-backend"}}
+		data, err := yaml.Marshal(&facet)
+		if err != nil {
+			t.Fatalf("Marshal failed: %v", err)
+		}
+		if strings.Contains(string(data), "backend:") {
+			t.Errorf("Expected empty Backend to be omitted, got:\n%s", string(data))
 		}
 	})
 

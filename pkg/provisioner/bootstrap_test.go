@@ -21,6 +21,7 @@ import (
 func TestPivot(t *testing.T) {
 	t.Run("ReturnsNilForLocalBackendType", func(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
 				{Path: "vpc"},
@@ -33,6 +34,7 @@ func TestPivot(t *testing.T) {
 
 	t.Run("ReturnsNilForEmptyBackendType", func(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
 			},
@@ -44,6 +46,7 @@ func TestPivot(t *testing.T) {
 
 	t.Run("ReturnsExplicitBackendComponent", func(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
 				{Path: "vpc"},
@@ -57,6 +60,7 @@ func TestPivot(t *testing.T) {
 
 	t.Run("ExplicitBackendWinsOverKubernetesConvention", func(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "cluster/talos"},
 				{Path: "backend"},
@@ -140,8 +144,12 @@ func TestPivot(t *testing.T) {
 		}
 	})
 
-	t.Run("RecognisesNestedBackendForExplicitMatch", func(t *testing.T) {
+	t.Run("ResolvesBackendByExplicitField", func(t *testing.T) {
+		// Identification is by Blueprint.Backend, not by naming convention.
+		// The named component's location in the slice is irrelevant; pivot resolves
+		// it by ID regardless of nested paths.
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "terraform/backend",
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},
 				{Path: "terraform/backend"},
@@ -150,6 +158,20 @@ func TestPivot(t *testing.T) {
 		got := pivot(bp, "azurerm")
 		if got == nil || got.GetID() != "terraform/backend" {
 			t.Errorf("Expected pivot=terraform/backend, got %#v", got)
+		}
+	})
+
+	t.Run("ReturnsNilWhenBackendFieldUnset", func(t *testing.T) {
+		// Naming convention is no longer recognised; without Blueprint.Backend
+		// declared, no pivot fires even for components named "backend".
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "vpc"},
+			},
+		}
+		if got := pivot(bp, "s3"); got != nil {
+			t.Errorf("Expected nil (naming convention retired), got %#v", got)
 		}
 	})
 }
@@ -162,6 +184,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// the second Up's blueprint; the rest does NOT appear in the first.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -318,6 +341,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// or running any apply. The operator must reorder their blueprint.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "vpc"},
@@ -426,6 +450,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// the post-migrate Up is a no-op and must not be invoked.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -523,6 +548,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	t.Run("UpFailureRestoresBackend", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -564,6 +590,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	t.Run("MigrateStateErrorSurfaces", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -602,6 +629,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// skip list at most names the pivot.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -658,6 +686,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// any state-touching work begins.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -748,6 +777,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// no error.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -805,6 +835,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// separately by ProbeRemoteStateHitSkipsDanceAndRunsPlainUpOnFullBlueprint.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -915,6 +946,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// MigrateState, no RemoveLocalState.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -997,6 +1029,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mocks.Runtime.TerraformProvider.(*terraformruntime.MockTerraformProvider).BackendConfigCompleteFunc = func() bool { return false }
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -1075,6 +1108,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		defer func() { probeErrorPause = oldPause }()
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -1175,6 +1209,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// rerun path on a successful bootstrap.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -1234,6 +1269,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// failure in Phase 3 doesn't leave the local file lingering.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -1309,6 +1345,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// destroy the local state.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -1414,6 +1451,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// override. The clean rerun case must remain near-zero cost.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -1608,6 +1646,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -1812,6 +1851,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		// an unbootstrapped rest-of-stack is not.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},

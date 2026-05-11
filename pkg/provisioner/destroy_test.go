@@ -26,6 +26,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		// configured backend on defer.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -94,6 +95,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		// backend is restored via defer for subsequent operations.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -166,6 +168,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		// debugging black hole.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -445,6 +448,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		// components' state survives the bulk destroy.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},
@@ -657,6 +661,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 func TestProvisioner_TeardownComponent(t *testing.T) {
 	bpWithBackend := func() *blueprintv1alpha1.Blueprint {
 		return &blueprintv1alpha1.Blueprint{
+			Backend: "backend",
 			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
 				{Path: "backend"},

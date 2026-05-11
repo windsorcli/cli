@@ -49,6 +49,9 @@ age.public.key
 /terraform/
 /windsor.yaml
 
+# Investigation/spike artifacts
+docs/spikes/
+
 # managed by windsor cli
 .windsor/
 .volumes/

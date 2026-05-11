@@ -101,7 +101,29 @@ The replacement for all three is the same: delete the comment. If the rationale 
 
 ### Header novels are also bad, just less obvious
 
-Function headers should describe behavior, not narrate motivation. A header that runs past ~6 lines is usually doing the same job as an in-body novel — moved up to a "legal" location. Trim to: *what it does*, *what it returns*, and *the one constraint a caller must know about*. Drop incident history, design alternatives considered, and "Note on X" tangents — those belong in the commit message.
+Function headers should describe behavior, not narrate motivation. **Hard ceiling: 6 lines for function/method headers, 1 line for struct fields.** A header that runs longer is usually doing the same job as an in-body novel — moved up to a "legal" location. Trim to: *what it does*, *what it returns*, and *the one constraint a caller must know about*. Drop incident history, design alternatives considered, and "Note on X" tangents — those belong in the commit message.
+
+Struct fields are not docstring real estate. They get one short line — the name and the type already carry most of the meaning, and the surrounding type's header carries the rest. A 5-line explanation of *what this field means and how downstream code uses it* belongs in the type header or the consuming function's header, never on the field itself.
+
+```go
+// ❌ Multi-line struct field "what + why + downstream usage" novel
+//
+// Backend names the terraform component that terminates the backend tier — the
+// component whose apply provisions the remote-state store every other component
+// will use. When set, this component plus every terraform component declared before
+// it in the TerraformComponents list form the backend tier; that tier is brought up
+// with local state and migrated to the configured terraform.backend.* on every
+// bootstrap, and torn down with state pulled back to local on full destroy. When
+// empty, the blueprint has no in-blueprint backend tier and every component uses
+// the configured backend directly (the "external backend" case).
+Backend string `yaml:"backend,omitempty"`
+
+// ✅ One line — name carries the meaning, type header carries the model
+// Backend names the terraform component that terminates the backend tier.
+Backend string `yaml:"backend,omitempty"`
+```
+
+The same hard ceiling applies to constants, package-level variables, and type aliases. If you cannot say what it is in one line, the name is wrong.
 
 ## Section header naming rule
 
