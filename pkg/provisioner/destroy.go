@@ -65,18 +65,47 @@ func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, 
 func (i *Provisioner) runFullMigrationDestroy(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
 	var skipped []string
 	err := i.withBackendOverride("destroy", func() error {
-		if _, err := i.MigrateState(blueprint); err != nil {
+		migrationSkipped, err := i.MigrateState(blueprint)
+		if err != nil {
 			return err
 		}
+		var destroySkipped []string
 		var bulkErr error
 		if terraformOnly {
-			skipped, bulkErr = i.DestroyAllTerraform(blueprint)
+			destroySkipped, bulkErr = i.DestroyAllTerraform(blueprint)
 		} else {
-			skipped, bulkErr = i.DestroyAll(blueprint)
+			destroySkipped, bulkErr = i.DestroyAll(blueprint)
 		}
+		skipped = mergeSkipped(migrationSkipped, destroySkipped)
 		return bulkErr
 	})
 	return skipped, err
+}
+
+// mergeSkipped returns the union of two skipped-component lists in input
+// order without duplicates. MigrateState and DestroyAll both report
+// dir-missing components, so naive concat would double-count on the
+// happy path; on the error path MigrateState's list still names
+// components DestroyAll didn't reach before bailing out.
+func mergeSkipped(a, b []string) []string {
+	if len(a) == 0 {
+		return b
+	}
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, ids := range [][]string{a, b} {
+		for _, id := range ids {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // runPivotDestroy is Bootstrap's per-pivot dance reversed: destroy non-pivot

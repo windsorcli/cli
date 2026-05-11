@@ -551,6 +551,103 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Error("Expected backend.type Set to NOT be called when backend is already local")
 		}
 	})
+
+	t.Run("KubernetesFullMigrationMergesSkippedWithoutDuplicates", func(t *testing.T) {
+		// MigrateState and DestroyAll independently report dir-missing
+		// components: MigrateState because its loop stat-checks before
+		// invoking terraform init, DestroyAll for the same reason in its
+		// reverse-iter loop. Naive concatenation would double-count any
+		// component both saw. The returned skipped slice must be the
+		// dedup'd union, in input order (migration findings first, then
+		// any destroy-side skips DestroyAll discovered that MigrateState
+		// didn't surface — e.g. components with a dir but empty state).
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/talos"},
+				{Path: "cni/cilium"},
+				{Path: "gitops/flux"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(_ string, _ any) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return []string{"cni/cilium", "gitops/flux"}, nil
+		}
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+			return []string{"gitops/flux", "cluster/talos"}, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		skipped, err := provisioner.Teardown(bp, true)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		expected := []string{"cni/cilium", "gitops/flux", "cluster/talos"}
+		if len(skipped) != len(expected) {
+			t.Fatalf("Expected %d skipped IDs %v, got %d %v", len(expected), expected, len(skipped), skipped)
+		}
+		for i, want := range expected {
+			if skipped[i] != want {
+				t.Errorf("skipped[%d]: got %q, want %q (full: %v)", i, skipped[i], want, skipped)
+			}
+		}
+	})
+
+	t.Run("KubernetesFullMigrationSurfacesSkippedOnDestroyError", func(t *testing.T) {
+		// When DestroyAll errors before iterating to every component,
+		// MigrateState's skipped IDs are the only record we have of
+		// components that were dir-missing at migration time. Returning
+		// them paired with the error keeps the caller-visible contract
+		// intact: the slice is what we know was skipped; the error is
+		// what stopped us before we could enumerate more.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/talos"},
+				{Path: "gitops/flux"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(_ string, _ any) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			return []string{"gitops/flux"}, nil
+		}
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+			return nil, fmt.Errorf("destroy failed before completion")
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		skipped, err := provisioner.Teardown(bp, true)
+		if err == nil {
+			t.Fatal("Expected destroy error to surface, got nil")
+		}
+		if len(skipped) != 1 || skipped[0] != "gitops/flux" {
+			t.Errorf("Expected MigrateState's skipped IDs paired with the error, got %v", skipped)
+		}
+	})
 }
 
 // =============================================================================
