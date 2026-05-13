@@ -26,6 +26,59 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
+	t.Run("KubernetesWithoutBackendFieldErrorsBeforeAnyMutation", func(t *testing.T) {
+		// A kubernetes-configured backend with no Blueprint.Backend would silently
+		// fall through to plain Up against a cluster that does not yet exist — and
+		// on a subsequent destroy would tear the cluster down while components'
+		// state still lives in it. Refuse before any state-touching op.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/talos"},
+				{Path: "workloads/argocd"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		setCalled := false
+		mockCH.SetFunc = func(_ string, _ any) error {
+			setCalled = true
+			return nil
+		}
+		upCalled := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+			upCalled = true
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		_, err := provisioner.Bootstrap(bp, nil)
+		if err == nil {
+			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
+		}
+		if !strings.Contains(err.Error(), "Blueprint.Backend") {
+			t.Errorf("Expected error to name the missing field, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "kubernetes") {
+			t.Errorf("Expected error to name the backend type, got: %v", err)
+		}
+		if setCalled {
+			t.Error("No backend override may engage when refusing")
+		}
+		if upCalled {
+			t.Error("No apply may run when refusing")
+		}
+	})
+
 	t.Run("LocalBackendCollapsesToUp", func(t *testing.T) {
 		// When terraform.backend.type is "local", Bootstrap forwards to Up
 		// without any pivot — there is no remote backend to migrate state to.

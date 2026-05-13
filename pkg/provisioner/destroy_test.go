@@ -17,6 +17,50 @@ import (
 // =============================================================================
 
 func TestProvisioner_Teardown(t *testing.T) {
+	t.Run("KubernetesWithoutBackendFieldErrorsBeforeAnyDestroy", func(t *testing.T) {
+		// A kubernetes-configured backend with no Blueprint.Backend would silently
+		// fall through to plain DestroyAll, destroying the cluster while other
+		// components' state still lives in it. Refuse before any destroy runs.
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "cluster/talos"},
+				{Path: "workloads/argocd"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		destroyAllCalled := false
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+			destroyAllCalled = true
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		_, err := provisioner.Teardown(bp, true)
+		if err == nil {
+			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
+		}
+		if !strings.Contains(err.Error(), "Blueprint.Backend") {
+			t.Errorf("Expected error to name the missing field, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "kubernetes") {
+			t.Errorf("Expected error to name the backend type, got: %v", err)
+		}
+		if destroyAllCalled {
+			t.Error("DestroyAll must not run when refusing")
+		}
+	})
+
 	t.Run("LocalBackendCollapsesToDestroyAllTerraform", func(t *testing.T) {
 		// Local backend has no remote storage; Teardown forwards to
 		// DestroyAllTerraform without any pivot.

@@ -1495,6 +1495,7 @@ func TestProject_Bootstrap(t *testing.T) {
 		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
 		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
 			return &v1alpha1.Blueprint{
+				Backend: "backend",
 				TerraformComponents: []v1alpha1.TerraformComponent{
 					{Path: "backend"},
 					{Path: "workstation"},

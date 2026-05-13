@@ -18,6 +18,9 @@ import (
 // IDs of components skipped because their state was empty.
 func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "kubernetes" && blueprint.Backend == "" {
+		return nil, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
+	}
 	tier := blueprint.BackendTier()
 	if backendType == "" || backendType == "local" || len(tier) == 0 {
 		if terraformOnly {
