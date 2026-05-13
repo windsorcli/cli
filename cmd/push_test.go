@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/spf13/cobra"
+	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -21,6 +24,8 @@ import (
 // =============================================================================
 
 type PushMocks struct {
+	Composer        *composer.Composer
+	ArtifactBuilder *artifact.MockArtifact
 }
 
 // setupPushTest sets up the test environment for push command tests.
@@ -62,16 +67,19 @@ func setupPushTest(t *testing.T) (*PushMocks, *Mocks) {
 		return map[string][]byte{}, nil
 	}
 
-	// Mock artifact builder
+	// Mock artifact builder — default returns a wrapped *transport.Error so the auth-classification
+	// path in push.go (and its docker-login hint) is exercised end-to-end with a realistic shape
 	mockArtifactBuilder := artifact.NewMockArtifact()
 	mockArtifactBuilder.BundleFunc = func() error {
 		return nil
 	}
 	mockArtifactBuilder.PushFunc = func(registryBase string, repoName string, tag string) error {
-		return fmt.Errorf("authentication failed: unauthorized")
+		return fmt.Errorf("failed to push artifact: %w", &transport.Error{StatusCode: http.StatusUnauthorized})
 	}
 
-	return &PushMocks{}, baseMocks
+	mockComposer := &composer.Composer{ArtifactBuilder: mockArtifactBuilder}
+
+	return &PushMocks{Composer: mockComposer, ArtifactBuilder: mockArtifactBuilder}, baseMocks
 }
 
 // createTestPushCmd creates a new cobra.Command for testing the push command.
@@ -96,63 +104,93 @@ func TestPushCmdWithRuntime(t *testing.T) {
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
-	t.Run("SuccessWithRuntime", func(t *testing.T) {
-		// Given proper setup with runtime override
-		_, mocks := setupPushTest(t)
+	t.Run("ClassifiesAuthFailureAndReturnsHint", func(t *testing.T) {
+		// Given a mock composer whose ArtifactBuilder returns a wrapped *transport.Error{401}
+		pushMocks, mocks := setupPushTest(t)
 		cmd := createTestPushCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, pushMocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
 
 		// When executing the push command
 		err := cmd.Execute()
 
-		// Then it should fail with authentication error (expected in tests)
+		// Then push.go should classify it via IsAuthenticationError and return the auth-failed hint
 		if err == nil {
-			t.Error("Expected authentication error, got nil")
+			t.Fatal("Expected authentication error, got nil")
 		}
 		if !strings.Contains(err.Error(), "Authentication failed") {
-			t.Errorf("Expected authentication error, got %v", err)
+			t.Errorf("Expected 'Authentication failed' (auth-classified), got %v", err)
 		}
 	})
 
-	t.Run("SuccessWithoutTag", func(t *testing.T) {
-		// Given proper setup with runtime override
-		_, mocks := setupPushTest(t)
+	t.Run("ClassifiesAuthFailureWithoutTag", func(t *testing.T) {
+		// Given the same auth scenario but with a registry URL missing an explicit tag
+		pushMocks, mocks := setupPushTest(t)
 		cmd := createTestPushCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, pushMocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"registry.example.com/repo"})
 
 		// When executing the push command
 		err := cmd.Execute()
 
-		// Then it should fail with authentication error (expected in tests)
+		// Then the auth-classification path should still fire — argument parsing happens before push
 		if err == nil {
-			t.Error("Expected authentication error, got nil")
+			t.Fatal("Expected authentication error, got nil")
 		}
 		if !strings.Contains(err.Error(), "Authentication failed") {
-			t.Errorf("Expected authentication error, got %v", err)
+			t.Errorf("Expected 'Authentication failed' (auth-classified), got %v", err)
 		}
 	})
 
-	t.Run("SuccessWithOciUrl", func(t *testing.T) {
-		// Given proper setup with runtime override
-		_, mocks := setupPushTest(t)
+	t.Run("ClassifiesAuthFailureWithOciUrl", func(t *testing.T) {
+		// Given the same auth scenario with an oci:// prefixed URL
+		pushMocks, mocks := setupPushTest(t)
 		cmd := createTestPushCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, pushMocks.Composer)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"oci://ghcr.io/windsorcli/core:v0.0.0"})
 
 		// When executing the push command
 		err := cmd.Execute()
 
-		// Then it should fail with authentication error (expected in tests)
+		// Then auth classification should fire regardless of URL prefix
 		if err == nil {
-			t.Error("Expected authentication error, got nil")
+			t.Fatal("Expected authentication error, got nil")
 		}
 		if !strings.Contains(err.Error(), "Authentication failed") {
-			t.Errorf("Expected authentication error, got %v", err)
+			t.Errorf("Expected 'Authentication failed' (auth-classified), got %v", err)
+		}
+	})
+
+	t.Run("PassesThroughNonAuthErrors", func(t *testing.T) {
+		// Given a mock composer whose ArtifactBuilder returns a non-auth error
+		pushMocks, mocks := setupPushTest(t)
+		pushMocks.ArtifactBuilder.PushFunc = func(registryBase, repoName, tag string) error {
+			return fmt.Errorf("network timeout: dial tcp: i/o timeout")
+		}
+		cmd := createTestPushCmd()
+		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
+		ctx = context.WithValue(ctx, composerOverridesKey, pushMocks.Composer)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"registry.example.com/repo:v1.0.0"})
+
+		// When executing the push command
+		err := cmd.Execute()
+
+		// Then push.go should NOT classify it as auth — surfaces the underlying error verbatim
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if strings.Contains(err.Error(), "Authentication failed") {
+			t.Errorf("Non-auth error misclassified as auth: %v", err)
+		}
+		if !strings.Contains(err.Error(), "network timeout") {
+			t.Errorf("Expected underlying error to surface, got %v", err)
 		}
 	})
 

@@ -2,8 +2,11 @@ package artifact
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
 
 func TestParseOCIReference(t *testing.T) {
@@ -266,133 +269,73 @@ func TestParseRegistryURL(t *testing.T) {
 	})
 }
 func TestIsAuthenticationError(t *testing.T) {
-	t.Run("ReturnsTrueForUNAUTHORIZED", func(t *testing.T) {
-		// Given an error with UNAUTHORIZED
-		err := fmt.Errorf("UNAUTHORIZED: access denied")
+	t.Run("ReturnsTrueForWrappedTransportError401", func(t *testing.T) {
+		// Given a *transport.Error with HTTP 401 wrapped by fmt.Errorf %w (the shape the push
+		// path actually produces: composer.Push wraps artifact.Push wraps shim's transport.Error)
+		err := fmt.Errorf("failed to push artifact: %w", &transport.Error{StatusCode: http.StatusUnauthorized})
 
 		// When checking if it's an authentication error
 		result := IsAuthenticationError(err)
 
-		// Then it should return true
+		// Then errors.As should reach through the wrap chain and classify as auth
 		if !result {
-			t.Error("Expected true for UNAUTHORIZED error")
+			t.Error("Expected true for wrapped transport.Error with status 401")
 		}
 	})
 
-	t.Run("ReturnsTrueForUnauthorized", func(t *testing.T) {
-		// Given an error with unauthorized
-		err := fmt.Errorf("unauthorized access")
+	t.Run("ReturnsTrueForWrappedTransportError403", func(t *testing.T) {
+		// Given a *transport.Error with HTTP 403 wrapped through the push call chain
+		err := fmt.Errorf("failed to push artifact: %w", &transport.Error{StatusCode: http.StatusForbidden})
 
 		// When checking if it's an authentication error
 		result := IsAuthenticationError(err)
 
-		// Then it should return true
+		// Then it should be classified as auth
 		if !result {
-			t.Error("Expected true for unauthorized error")
+			t.Error("Expected true for wrapped transport.Error with status 403")
 		}
 	})
 
-	t.Run("ReturnsTrueForAuthenticationRequired", func(t *testing.T) {
-		// Given an error with authentication required
-		err := fmt.Errorf("authentication required to access this resource")
+	t.Run("ReturnsTrueForTransportErrorWithUnauthorizedDiagnostic", func(t *testing.T) {
+		// Given a *transport.Error whose HTTP status is not 401/403 but whose diagnostic
+		// payload carries an UNAUTHORIZED code (some registries return 200 OK on the token
+		// endpoint with the auth refusal embedded in the body diagnostics)
+		err := &transport.Error{StatusCode: http.StatusOK, Errors: []transport.Diagnostic{{Code: transport.UnauthorizedErrorCode}}}
 
 		// When checking if it's an authentication error
 		result := IsAuthenticationError(err)
 
-		// Then it should return true
+		// Then the diagnostic code should be honored
 		if !result {
-			t.Error("Expected true for authentication required error")
+			t.Error("Expected true for transport.Error with UNAUTHORIZED diagnostic code")
 		}
 	})
 
-	t.Run("ReturnsTrueForAuthenticationFailed", func(t *testing.T) {
-		// Given an error with authentication failed
-		err := fmt.Errorf("authentication failed")
+	t.Run("ReturnsTrueForTransportErrorWithDeniedDiagnostic", func(t *testing.T) {
+		// Given a *transport.Error carrying a DENIED diagnostic code (ghcr.io's token-endpoint
+		// shape — the exact case that triggered this fix)
+		err := &transport.Error{StatusCode: http.StatusOK, Errors: []transport.Diagnostic{{Code: transport.DeniedErrorCode}}}
 
 		// When checking if it's an authentication error
 		result := IsAuthenticationError(err)
 
-		// Then it should return true
+		// Then the diagnostic code should be honored
 		if !result {
-			t.Error("Expected true for authentication failed error")
+			t.Error("Expected true for transport.Error with DENIED diagnostic code")
 		}
 	})
 
-	t.Run("ReturnsTrueForHTTP401", func(t *testing.T) {
-		// Given an error with HTTP 401
-		err := fmt.Errorf("HTTP 401: unauthorized")
+	t.Run("ReturnsFalseForTransportErrorWithNonAuthStatus", func(t *testing.T) {
+		// Given a *transport.Error with a status code unrelated to auth (404 from a missing manifest)
+		err := &transport.Error{StatusCode: http.StatusNotFound}
 
 		// When checking if it's an authentication error
 		result := IsAuthenticationError(err)
 
-		// Then it should return true
-		if !result {
-			t.Error("Expected true for HTTP 401 error")
-		}
-	})
-
-	t.Run("ReturnsTrueForHTTP403", func(t *testing.T) {
-		// Given an error with HTTP 403
-		err := fmt.Errorf("HTTP 403: forbidden")
-
-		// When checking if it's an authentication error
-		result := IsAuthenticationError(err)
-
-		// Then it should return true
-		if !result {
-			t.Error("Expected true for HTTP 403 error")
-		}
-	})
-
-	t.Run("ReturnsTrueForBlobsUploads", func(t *testing.T) {
-		// Given an error with blobs/uploads
-		err := fmt.Errorf("POST https://registry.com/v2/repo/blobs/uploads: unauthorized")
-
-		// When checking if it's an authentication error
-		result := IsAuthenticationError(err)
-
-		// Then it should return true
-		if !result {
-			t.Error("Expected true for blobs/uploads error")
-		}
-	})
-
-	t.Run("ReturnsTrueForPOSTHTTPS", func(t *testing.T) {
-		// Given an error with POST https://
-		err := fmt.Errorf("POST https://registry.com/v2/repo/manifests/latest: unauthorized")
-
-		// When checking if it's an authentication error
-		result := IsAuthenticationError(err)
-
-		// Then it should return true
-		if !result {
-			t.Error("Expected true for POST https:// error")
-		}
-	})
-
-	t.Run("ReturnsTrueForFailedToPushArtifact", func(t *testing.T) {
-		// Given an error with failed to push artifact
-		err := fmt.Errorf("failed to push artifact: unauthorized")
-
-		// When checking if it's an authentication error
-		result := IsAuthenticationError(err)
-
-		// Then it should return true
-		if !result {
-			t.Error("Expected true for failed to push artifact error")
-		}
-	})
-
-	t.Run("ReturnsTrueForUserCannotBeAuthenticated", func(t *testing.T) {
-		// Given an error with User cannot be authenticated
-		err := fmt.Errorf("User cannot be authenticated")
-
-		// When checking if it's an authentication error
-		result := IsAuthenticationError(err)
-
-		// Then it should return true
-		if !result {
-			t.Error("Expected true for User cannot be authenticated error")
+		// Then it should NOT be classified as auth — the prior substring impl would falsely
+		// match "404" against any error containing that digit
+		if result {
+			t.Error("Expected false for transport.Error 404 — not an auth failure")
 		}
 	})
 
@@ -409,42 +352,17 @@ func TestIsAuthenticationError(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsFalseForGenericError", func(t *testing.T) {
-		// Given a generic error
-		err := fmt.Errorf("network timeout")
+	t.Run("ReturnsFalseForNonTransportError", func(t *testing.T) {
+		// Given an error that is not a *transport.Error and contains no embedded one — for example
+		// a network timeout or a pre-flight error before any registry round-trip
+		err := fmt.Errorf("network timeout: dial tcp: i/o timeout")
 
 		// When checking if it's an authentication error
 		result := IsAuthenticationError(err)
 
-		// Then it should return false
+		// Then it should return false — only typed registry auth errors qualify
 		if result {
-			t.Error("Expected false for generic error")
-		}
-	})
-
-	t.Run("ReturnsFalseForParseError", func(t *testing.T) {
-		// Given a parse error
-		err := fmt.Errorf("failed to parse JSON")
-
-		// When checking if it's an authentication error
-		result := IsAuthenticationError(err)
-
-		// Then it should return false
-		if result {
-			t.Error("Expected false for parse error")
-		}
-	})
-
-	t.Run("ReturnsFalseForNotFoundError", func(t *testing.T) {
-		// Given a not found error
-		err := fmt.Errorf("resource not found")
-
-		// When checking if it's an authentication error
-		result := IsAuthenticationError(err)
-
-		// Then it should return false
-		if result {
-			t.Error("Expected false for not found error")
+			t.Error("Expected false for non-transport error")
 		}
 	})
 }
