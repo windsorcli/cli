@@ -99,7 +99,7 @@ func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
 		"USERPROFILE=" + homeDir,
 		"PATH=" + os.Getenv("PATH"),
 	}
-	stdout, stderr, err := helpers.RunCLI(workDir, []string{"bootstrap", "--platform", "metal"}, env)
+	stdout, stderr, err := helpers.RunCLI(workDir, []string{"bootstrap", "--platform", "aws"}, env)
 	if err != nil {
 		t.Fatalf("expected clean exit when plan-confirm is declined, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
