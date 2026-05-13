@@ -1348,9 +1348,13 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extraction
 // Downloads the first layer of the OCI image which contains the artifact data.
 // Returns the uncompressed layer data as bytes for further processing.
 // Authenticates via the Docker keychain so private registries work; if the registry rejects
-// those credentials (401/403), retries anonymously so public artifacts still pull when the
-// local Docker config holds stale or scope-limited tokens. If the anonymous retry also fails,
-// the original keychain error is returned so the underlying auth failure remains visible.
+// those credentials (per IsAuthenticationError), retries anonymously so public artifacts still
+// pull when the local Docker config holds stale or scope-limited tokens. In verbose mode, on
+// a successful anonymous retry, emits a stderr note naming the registry so an operator who
+// opts into the detail can see that their configured credentials were bypassed; silent in
+// normal mode because the case is common for any user who has ever run `docker login`.
+// If the anonymous retry also fails, the original keychain error is returned so the
+// underlying auth failure remains visible.
 func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
 	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
@@ -1362,6 +1366,9 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil && IsAuthenticationError(err) {
 		if anonImg, anonErr := a.shims.RemoteImage(parsedRef, remote.WithAuth(authn.Anonymous)); anonErr == nil {
+			if a.shell.IsVerbose() {
+				fmt.Fprintf(os.Stderr, "keychain credentials rejected by %s; pulled anonymously\n", registry)
+			}
 			img, err = anonImg, nil
 		}
 	}
