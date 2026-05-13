@@ -581,41 +581,27 @@ func ParseRegistryURL(registryURL string) (registryBase, repoName, tag string, e
 	return registryBase, repoName, tag, nil
 }
 
-// IsAuthenticationError checks if the error is related to authentication failure.
-// It examines common authentication error patterns in error messages to determine
-// if the failure is due to authentication issues rather than other problems.
+// IsAuthenticationError reports whether err originates from a registry authentication or
+// authorization failure, detected via the *transport.Error type from go-containerregistry
+// (HTTP 401/403 or UNAUTHORIZED/DENIED diagnostic codes). Walks the wrap chain via errors.As,
+// so wrapping with fmt.Errorf("...: %w", err) is transparent. Used by the push command to
+// decide whether to hint the user to run `docker login`.
 func IsAuthenticationError(err error) bool {
 	if err == nil {
 		return false
 	}
-
-	errStr := err.Error()
-
-	authErrorPatterns := []string{
-		"UNAUTHORIZED",
-		"unauthorized",
-		"DENIED",
-		"authentication required",
-		"authentication failed",
-		"not authorized",
-		"access denied",
-		"login required",
-		"credentials required",
-		"401",
-		"403",
-		"unauthenticated",
-		"User cannot be authenticated",
-		"failed to push artifact",
-		"POST https://",
-		"blobs/uploads",
+	var tErr *transport.Error
+	if !errors.As(err, &tErr) {
+		return false
 	}
-
-	for _, pattern := range authErrorPatterns {
-		if strings.Contains(errStr, pattern) {
+	if tErr.StatusCode == http.StatusUnauthorized || tErr.StatusCode == http.StatusForbidden {
+		return true
+	}
+	for _, d := range tErr.Errors {
+		if d.Code == transport.UnauthorizedErrorCode || d.Code == transport.DeniedErrorCode {
 			return true
 		}
 	}
-
 	return false
 }
 
