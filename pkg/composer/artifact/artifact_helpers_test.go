@@ -292,6 +292,19 @@ func TestIsAuthenticationError(t *testing.T) {
 		}
 	})
 
+	t.Run("ReturnsTrueForRegistryDENIED", func(t *testing.T) {
+		// Given the literal error string ghcr.io returns when the token endpoint refuses credentials
+		err := fmt.Errorf("GET https://ghcr.io/token?scope=repository:org/repo:pull&service=ghcr.io: DENIED: requested access to the resource is denied")
+
+		// When checking if it's an authentication error
+		result := IsAuthenticationError(err)
+
+		// Then it should be classified as an auth error so push.go can hint the user to log in
+		if !result {
+			t.Error("Expected true for registry DENIED error")
+		}
+	})
+
 	t.Run("ReturnsTrueForAuthenticationRequired", func(t *testing.T) {
 		// Given an error with authentication required
 		err := fmt.Errorf("authentication required to access this resource")

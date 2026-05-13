@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -592,6 +594,7 @@ func IsAuthenticationError(err error) bool {
 	authErrorPatterns := []string{
 		"UNAUTHORIZED",
 		"unauthorized",
+		"DENIED",
 		"authentication required",
 		"authentication failed",
 		"not authorized",
@@ -1358,6 +1361,10 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extraction
 // Constructs an OCI reference from registry, repository, and tag components.
 // Downloads the first layer of the OCI image which contains the artifact data.
 // Returns the uncompressed layer data as bytes for further processing.
+// Authenticates via the Docker keychain so private registries work; if the registry rejects
+// those credentials (401/403), retries anonymously so public artifacts still pull when the
+// local Docker config holds stale or scope-limited tokens. If the anonymous retry also fails,
+// the original keychain error is returned so the underlying auth failure remains visible.
 func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
 	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
@@ -1367,6 +1374,14 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	}
 
 	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		var tErr *transport.Error
+		if errors.As(err, &tErr) && (tErr.StatusCode == http.StatusUnauthorized || tErr.StatusCode == http.StatusForbidden) {
+			if anonImg, anonErr := a.shims.RemoteImage(parsedRef, remote.WithAuth(authn.Anonymous)); anonErr == nil {
+				img, err = anonImg, nil
+			}
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image: %w", err)
 	}
