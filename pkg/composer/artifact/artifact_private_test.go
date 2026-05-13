@@ -1328,6 +1328,40 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		}
 	})
 
+	t.Run("RetriesAnonymouslyOnDeniedDiagnosticWithNonAuthStatus", func(t *testing.T) {
+		// Given a *transport.Error whose HTTP status is not 401/403 but whose Diagnostic.Code is
+		// DENIED — the ghcr.io token-endpoint shape that IsAuthenticationError catches and
+		// that the old inline status-only gate would have missed
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		callCount := 0
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, &transport.Error{StatusCode: http.StatusOK, Errors: []transport.Diagnostic{{Code: transport.DeniedErrorCode}}}
+			}
+			return nil, nil
+		}
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return nil, fmt.Errorf("stop after retry succeeded")
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("ghcr.io", "windsorcli/core", "v0.7.0-rc.1")
+
+		// Then the anonymous retry should fire on the diagnostic-only auth refusal
+		if callCount != 2 {
+			t.Fatalf("expected 2 RemoteImage calls (keychain + anonymous retry on DENIED diagnostic), got %d", callCount)
+		}
+		if err == nil || !strings.Contains(err.Error(), "failed to get image layers") {
+			t.Fatalf("expected retry to succeed and execution to reach ImageLayers, got %v", err)
+		}
+	})
+
 	t.Run("PreservesOriginalErrorWhenAnonymousRetryAlsoFails", func(t *testing.T) {
 		// Given a registry that rejects both keychain and anonymous access with distinguishable errors
 		builder, mocks := setup(t)

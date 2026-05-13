@@ -1360,12 +1360,9 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	}
 
 	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
-	if err != nil {
-		var tErr *transport.Error
-		if errors.As(err, &tErr) && (tErr.StatusCode == http.StatusUnauthorized || tErr.StatusCode == http.StatusForbidden) {
-			if anonImg, anonErr := a.shims.RemoteImage(parsedRef, remote.WithAuth(authn.Anonymous)); anonErr == nil {
-				img, err = anonImg, nil
-			}
+	if err != nil && IsAuthenticationError(err) {
+		if anonImg, anonErr := a.shims.RemoteImage(parsedRef, remote.WithAuth(authn.Anonymous)); anonErr == nil {
+			img, err = anonImg, nil
 		}
 	}
 	if err != nil {
