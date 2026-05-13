@@ -43,7 +43,14 @@ Examples:
 
 		rt := runtime.NewRuntime(rtOpts...)
 
-		comp := composer.NewComposer(rt)
+		var compOpts []*composer.Composer
+		if overridesVal := cmd.Context().Value(composerOverridesKey); overridesVal != nil {
+			if c, ok := overridesVal.(*composer.Composer); ok {
+				compOpts = []*composer.Composer{c}
+			}
+		}
+
+		comp := composer.NewComposer(rt, compOpts...)
 
 		registryURL, err := comp.Push(args[0])
 		if err != nil {
