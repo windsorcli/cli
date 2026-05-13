@@ -43,16 +43,17 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 		return false, fmt.Errorf("blueprint not provided")
 	}
 
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType == "kubernetes" && blueprint.Backend == "" {
+		return false, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
+	}
+
 	if confirm != nil {
 		if !confirm(i.bootstrapSummary(blueprint)) {
 			return false, nil
 		}
 	}
 
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	if backendType == "kubernetes" && blueprint.Backend == "" {
-		return false, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
-	}
 	tier := blueprint.BackendTier()
 	if backendType == "" || backendType == "local" || len(tier) == 0 {
 		if err := i.Up(blueprint, onApply...); err != nil {

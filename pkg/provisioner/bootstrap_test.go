@@ -26,11 +26,11 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("KubernetesWithoutBackendFieldErrorsBeforeAnyMutation", func(t *testing.T) {
+	t.Run("KubernetesWithoutBackendFieldErrorsBeforeConfirmAndAnyMutation", func(t *testing.T) {
 		// A kubernetes-configured backend with no Blueprint.Backend would silently
-		// fall through to plain Up against a cluster that does not yet exist — and
-		// on a subsequent destroy would tear the cluster down while components'
-		// state still lives in it. Refuse before any state-touching op.
+		// fall through to plain Up against a cluster that does not yet exist. Refuse
+		// before the confirmation prompt fires — an operator should not see a full
+		// bootstrap summary, confirm intent, and then receive the hard error.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -61,7 +61,13 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp, nil)
+		confirmCalled := false
+		confirm := func(_ *BootstrapSummary) bool {
+			confirmCalled = true
+			return true
+		}
+
+		_, err := provisioner.Bootstrap(bp, confirm)
 		if err == nil {
 			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
 		}
@@ -70,6 +76,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "kubernetes") {
 			t.Errorf("Expected error to name the backend type, got: %v", err)
+		}
+		if confirmCalled {
+			t.Error("Confirm callback must not run when refusing — fail-fast before the prompt")
 		}
 		if setCalled {
 			t.Error("No backend override may engage when refusing")
