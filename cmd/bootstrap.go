@@ -146,20 +146,18 @@ var bootstrapCmd = &cobra.Command{
 			return err
 		}
 
-		if err := proj.Runtime.SaveConfig(len(bootstrapSetFlags) > 0); err != nil {
-			return fmt.Errorf("failed to save configuration: %w", err)
-		}
-
-		// Cloud credential validation. In --yes (non-interactive) mode there is no prompt
-		// to defer behind, so the upfront check stays — operator wanted automation, fail
-		// fast on bad auth. In interactive mode, defer the check until after the operator
-		// confirms the plan: declining is a valid no-op, and an operator running bootstrap
-		// to see the plan shouldn't be blocked by auth. The wrapped callback runs
-		// requireCloudAuth on accept and stashes any error for surfacing once Bootstrap
-		// returns — confirmFn returns bool, so the error path goes via a captured variable.
+		// Cloud auth and SaveConfig are paired by the "auth gates state mutation" invariant:
+		// nothing writes config until cloud credentials have been validated. In --yes mode
+		// (no prompt to defer behind) both fire upfront — operator wanted automation, fail
+		// fast on bad auth before any disk write. In interactive mode both fire inside the
+		// wrapped confirm callback after the operator accepts — so declining is a true no-op
+		// (no auth burden, no state mutation, no surprise side effects). The wrapped callback
+		// stashes any error for surfacing after Bootstrap returns because confirmFn returns
+		// bool.
 		var confirmFn provisioner.BootstrapConfirmFn
 		finishPlan := func(error) {}
-		var deferredAuthErr error
+		var deferredErr error
+		saveSet := len(bootstrapSetFlags) > 0
 		if !bootstrapYes {
 			promptConfirmFn, fp := makeBootstrapConfirmFn(cmd.InOrStdin(), os.Stderr)
 			finishPlan = fp
@@ -167,14 +165,23 @@ var bootstrapCmd = &cobra.Command{
 				if !promptConfirmFn(summary) {
 					return false
 				}
-				if authErr := requireCloudAuth(cmd, proj); authErr != nil {
-					deferredAuthErr = authErr
+				if err := requireCloudAuth(cmd, proj); err != nil {
+					deferredErr = err
+					return false
+				}
+				if err := proj.Runtime.SaveConfig(saveSet); err != nil {
+					deferredErr = fmt.Errorf("failed to save configuration: %w", err)
 					return false
 				}
 				return true
 			}
-		} else if err := requireCloudAuth(cmd, proj); err != nil {
-			return err
+		} else {
+			if err := requireCloudAuth(cmd, proj); err != nil {
+				return err
+			}
+			if err := proj.Runtime.SaveConfig(saveSet); err != nil {
+				return fmt.Errorf("failed to save configuration: %w", err)
+			}
 		}
 
 		// The bootstrap confirm prompt fires from inside proj.Bootstrap, so the operator
@@ -208,8 +215,8 @@ var bootstrapCmd = &cobra.Command{
 		}); err != nil {
 			return err
 		}
-		if deferredAuthErr != nil {
-			return deferredAuthErr
+		if deferredErr != nil {
+			return deferredErr
 		}
 		if !applied {
 			fmt.Fprintln(os.Stderr, "Apply skipped. The context is configured — re-run with --yes to apply.")
