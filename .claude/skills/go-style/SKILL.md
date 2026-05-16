@@ -125,6 +125,61 @@ Backend string `yaml:"backend,omitempty"`
 
 The same hard ceiling applies to constants, package-level variables, and type aliases. If you cannot say what it is in one line, the name is wrong.
 
+## Error classification
+
+**Detect error categories with `errors.As` / `errors.Is` against typed errors. Do not use `strings.Contains(err.Error(), ...)` to classify errors.**
+
+Error text is part of the surface, not the contract. It varies between library versions, between providers (ghcr, ECR, ACR, GAR all phrase the "denied" case differently), and gets reshaped every time an upstream layer wraps with `fmt.Errorf("...: %w", err)`. Substring matching on those strings produces three failure modes that have already bitten this codebase:
+
+1. **False negatives.** A new library version or a different provider returns a string your pattern list does not match, and an auth failure silently looks like a generic error to the caller.
+2. **False positives.** Generic patterns like `"POST https://"` or `"blobs/uploads"` flag *any* push error as an auth error, even when the real cause is a network reset, a malformed manifest, or a 5xx from the registry.
+3. **Pattern-list drift.** Each new failure mode adds another string to the list. The list grows. It is never audited. Some entries become dead code, others contradict each other.
+
+The replacement is structural. Almost every Go library that produces categorized errors exposes them as typed errors — use those:
+
+```go
+// ❌ Sketchy substring matching
+if strings.Contains(err.Error(), "UNAUTHORIZED") ||
+    strings.Contains(err.Error(), "DENIED") ||
+    strings.Contains(err.Error(), "POST https://") { // false positive: matches any push error
+    // ...
+}
+
+// ✅ Typed check via errors.As — works through wrapping, version-stable
+var tErr *transport.Error
+if errors.As(err, &tErr) {
+    if tErr.StatusCode == http.StatusUnauthorized || tErr.StatusCode == http.StatusForbidden {
+        // ...
+    }
+    for _, d := range tErr.Errors {
+        if d.Code == transport.UnauthorizedErrorCode || d.Code == transport.DeniedErrorCode {
+            // ...
+        }
+    }
+}
+```
+
+The same rule applies to sentinel errors (`errors.Is(err, io.EOF)`, `errors.Is(err, context.DeadlineExceeded)`), to typed wrappers (`*os.PathError`, `*net.OpError`), and to custom errors defined in this codebase.
+
+### If a library does not expose a typed error
+
+Define your own typed error at the boundary where the library result enters Windsor code, and wrap the raw error with `%w`. From that point on, every downstream check is `errors.As` / `errors.Is` against the typed wrapper — never substring matching on the original library text. Example:
+
+```go
+// At the package boundary that calls the external tool:
+type ExitError struct { Code int; Err error }
+func (e *ExitError) Error() string { return e.Err.Error() }
+func (e *ExitError) Unwrap() error { return e.Err }
+
+if exitErr, ok := raw.(*exec.ExitError); ok {
+    return &ExitError{Code: exitErr.ExitCode(), Err: exitErr}
+}
+```
+
+Downstream callers then do `errors.As(err, &*ExitError)` — no substring matching anywhere in the chain.
+
+The rule has no fallback clause. If you find yourself reaching for `strings.Contains(err.Error(), ...)`, the fix is to add a typed wrapper at the boundary, not to add a substring pattern.
+
 ## Section header naming rule
 
 Section headers must use the **generic category names** listed above — never the name of a specific method, type, or feature. For example:
@@ -142,3 +197,4 @@ All tests for public methods belong under a single `// Test Public Methods` head
 - No inline comments inside function bodies.
 - Naming is consistent with existing package terminology.
 - No dump files introduced.
+- No `strings.Contains(err.Error(), ...)` (or equivalent) for error classification. Use `errors.As` / `errors.Is` against typed errors; if a library lacks one, define a typed wrapper at the boundary.

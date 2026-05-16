@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -579,40 +581,27 @@ func ParseRegistryURL(registryURL string) (registryBase, repoName, tag string, e
 	return registryBase, repoName, tag, nil
 }
 
-// IsAuthenticationError checks if the error is related to authentication failure.
-// It examines common authentication error patterns in error messages to determine
-// if the failure is due to authentication issues rather than other problems.
+// IsAuthenticationError reports whether err originates from a registry authentication or
+// authorization failure, detected via the *transport.Error type from go-containerregistry
+// (HTTP 401/403 or UNAUTHORIZED/DENIED diagnostic codes). Walks the wrap chain via errors.As,
+// so wrapping with fmt.Errorf("...: %w", err) is transparent. Used by the push command to
+// decide whether to hint the user to run `docker login`.
 func IsAuthenticationError(err error) bool {
 	if err == nil {
 		return false
 	}
-
-	errStr := err.Error()
-
-	authErrorPatterns := []string{
-		"UNAUTHORIZED",
-		"unauthorized",
-		"authentication required",
-		"authentication failed",
-		"not authorized",
-		"access denied",
-		"login required",
-		"credentials required",
-		"401",
-		"403",
-		"unauthenticated",
-		"User cannot be authenticated",
-		"failed to push artifact",
-		"POST https://",
-		"blobs/uploads",
+	var tErr *transport.Error
+	if !errors.As(err, &tErr) {
+		return false
 	}
-
-	for _, pattern := range authErrorPatterns {
-		if strings.Contains(errStr, pattern) {
+	if tErr.StatusCode == http.StatusUnauthorized || tErr.StatusCode == http.StatusForbidden {
+		return true
+	}
+	for _, d := range tErr.Errors {
+		if d.Code == transport.UnauthorizedErrorCode || d.Code == transport.DeniedErrorCode {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -1358,6 +1347,14 @@ func (a *ArtifactBuilder) extractArtifactToCache(artifactData []byte, extraction
 // Constructs an OCI reference from registry, repository, and tag components.
 // Downloads the first layer of the OCI image which contains the artifact data.
 // Returns the uncompressed layer data as bytes for further processing.
+// Authenticates via the Docker keychain so private registries work; if the registry rejects
+// those credentials (per IsAuthenticationError), retries anonymously so public artifacts still
+// pull when the local Docker config holds stale or scope-limited tokens. In verbose mode, on
+// a successful anonymous retry, emits a stderr note naming the registry so an operator who
+// opts into the detail can see that their configured credentials were bypassed; silent in
+// normal mode because the case is common for any user who has ever run `docker login`.
+// If the anonymous retry also fails, the original keychain error is returned so the
+// underlying auth failure remains visible.
 func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) ([]byte, error) {
 	ref := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
@@ -1367,6 +1364,14 @@ func (a *ArtifactBuilder) downloadOCIArtifact(registry, repository, tag string) 
 	}
 
 	img, err := a.shims.RemoteImage(parsedRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil && IsAuthenticationError(err) {
+		if anonImg, anonErr := a.shims.RemoteImage(parsedRef, remote.WithAuth(authn.Anonymous)); anonErr == nil {
+			if a.shell.IsVerbose() {
+				fmt.Fprintf(os.Stderr, "keychain credentials rejected by %s; pulled anonymously\n", registry)
+			}
+			img, err = anonImg, nil
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image: %w", err)
 	}

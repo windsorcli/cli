@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 )
@@ -1290,6 +1292,132 @@ func TestArtifactBuilder_downloadOCIArtifact(t *testing.T) {
 		// Then exactly one option (the keychain auth option) should be forwarded so private registries authenticate
 		if len(capturedOptions) != 1 {
 			t.Fatalf("expected 1 remote option to be forwarded for keychain auth, got %d", len(capturedOptions))
+		}
+	})
+
+	t.Run("RetriesAnonymouslyWhenKeychainRejectedByRegistry", func(t *testing.T) {
+		// Given a registry that rejects keychain credentials but accepts anonymous access
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		callCount := 0
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, &transport.Error{StatusCode: http.StatusForbidden, Errors: []transport.Diagnostic{{Code: transport.DeniedErrorCode}}}
+			}
+			return nil, nil
+		}
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return nil, fmt.Errorf("stop after retry succeeded")
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("ghcr.io", "windsorcli/core", "v0.7.0-rc.1")
+
+		// Then RemoteImage should be called twice (keychain then anonymous)
+		if callCount != 2 {
+			t.Fatalf("expected 2 RemoteImage calls (keychain + anonymous retry), got %d", callCount)
+		}
+		// And execution should proceed past the get-image step, reaching ImageLayers
+		if err == nil || !strings.Contains(err.Error(), "failed to get image layers") {
+			t.Fatalf("expected retry to succeed and execution to reach ImageLayers, got %v", err)
+		}
+	})
+
+	t.Run("RetriesAnonymouslyOnDeniedDiagnosticWithNonAuthStatus", func(t *testing.T) {
+		// Given a *transport.Error whose HTTP status is not 401/403 but whose Diagnostic.Code is
+		// DENIED — the ghcr.io token-endpoint shape that IsAuthenticationError catches and
+		// that the old inline status-only gate would have missed
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		callCount := 0
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, &transport.Error{StatusCode: http.StatusOK, Errors: []transport.Diagnostic{{Code: transport.DeniedErrorCode}}}
+			}
+			return nil, nil
+		}
+		mocks.Shims.ImageLayers = func(img v1.Image) ([]v1.Layer, error) {
+			return nil, fmt.Errorf("stop after retry succeeded")
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("ghcr.io", "windsorcli/core", "v0.7.0-rc.1")
+
+		// Then the anonymous retry should fire on the diagnostic-only auth refusal
+		if callCount != 2 {
+			t.Fatalf("expected 2 RemoteImage calls (keychain + anonymous retry on DENIED diagnostic), got %d", callCount)
+		}
+		if err == nil || !strings.Contains(err.Error(), "failed to get image layers") {
+			t.Fatalf("expected retry to succeed and execution to reach ImageLayers, got %v", err)
+		}
+	})
+
+	t.Run("PreservesOriginalErrorWhenAnonymousRetryAlsoFails", func(t *testing.T) {
+		// Given a registry that rejects both keychain and anonymous access with distinguishable errors
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		callCount := 0
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, &transport.Error{StatusCode: http.StatusUnauthorized, Errors: []transport.Diagnostic{{Code: transport.DeniedErrorCode, Message: "keychain-denied-marker"}}}
+			}
+			return nil, &transport.Error{StatusCode: http.StatusNotFound, Errors: []transport.Diagnostic{{Code: transport.ManifestUnknownErrorCode, Message: "anon-not-found-marker"}}}
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("ghcr.io", "private/repo", "v1.0.0")
+
+		// Then the keychain error should be surfaced (it carries the real auth failure reason),
+		// not the anonymous-retry error
+		if err == nil {
+			t.Fatal("expected error when both attempts fail")
+		}
+		if !strings.Contains(err.Error(), "keychain-denied-marker") {
+			t.Errorf("expected original keychain error to be preserved, got %v", err)
+		}
+		if strings.Contains(err.Error(), "anon-not-found-marker") {
+			t.Errorf("expected anonymous-retry error to be suppressed, got %v", err)
+		}
+	})
+
+	t.Run("DoesNotRetryOnNonAuthError", func(t *testing.T) {
+		// Given a non-authentication failure on the first RemoteImage call
+		builder, mocks := setup(t)
+
+		mocks.Shims.ParseReference = func(ref string, opts ...name.Option) (name.Reference, error) {
+			return nil, nil
+		}
+
+		callCount := 0
+		mocks.Shims.RemoteImage = func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			callCount++
+			return nil, fmt.Errorf("connection refused")
+		}
+
+		// When downloadOCIArtifact is called
+		_, err := builder.downloadOCIArtifact("registry.example.com", "modules", "v1.0.0")
+
+		// Then no anonymous retry should happen
+		if callCount != 1 {
+			t.Fatalf("expected exactly 1 RemoteImage call for non-auth error, got %d", callCount)
+		}
+		if err == nil || !strings.Contains(err.Error(), "connection refused") {
+			t.Errorf("expected original error to be returned, got %v", err)
 		}
 	})
 }

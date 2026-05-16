@@ -9,11 +9,11 @@
 #     - all
 registries:
   - type: standard
-    ref: v4.507.0 # renovate: depName=aquaproj/aqua-registry
+    ref: v4.512.1 # renovate: depName=aquaproj/aqua-registry
 packages:
-- name: siderolabs/talos@v1.13.0
-- name: siderolabs/omni/omnictl@v1.7.2
-- name: siderolabs/omni/omni@v1.7.2
+- name: siderolabs/talos@v1.13.2
+- name: siderolabs/omni/omnictl@v1.7.3
+- name: siderolabs/omni/omni@v1.7.3
 - name: kubernetes/kubectl@v1.34.3 # renovate: ignore
 - name: go-task/task@v3.50.0
 - name: golang/go@go1.26.2
@@ -24,8 +24,8 @@ packages:
 - name: google/go-jsonnet@v0.22.0
 - name: mikefarah/yq@v4.53.2
 - name: goreleaser/goreleaser@v2.15.4
-- name: helm/helm@v4.1.4
+- name: helm/helm@v4.2.0
 - name: 1password/cli@v2.30.3
-- name: fluxcd/flux2@v2.8.6
-- name: aws/aws-cli@2.34.43
+- name: fluxcd/flux2@v2.8.7
+- name: aws/aws-cli@2.34.48
 - name: twistedpair/google-cloud-sdk@562.0.0
