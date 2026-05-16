@@ -22,56 +22,22 @@ var ErrBlueprintInvalid = errors.New("invalid blueprint")
 // Public Helpers
 // =============================================================================
 
-// ValidateComposedBlueprint enforces structural invariants on a composed blueprint.
-// Today the only invariant is the backend terraform component placement: when a
-// component identified by IsBackend() (basename of GetID() == "backend", which matches
-// both bare "backend" and nested layouts like "terraform/backend") exists, it must be
-// the first item in terraformComponents and there must be exactly one such component.
-// Subsequent components implicitly depend on the backend bootstrapping the remote state
-// store, so misordering or duplication produces a state-storage flow that cannot work.
-// Returns nil for blueprints without a backend component (out-of-band buckets are a
-// supported workflow). All failures wrap ErrBlueprintInvalid so the cmd layer can
-// route them through the calm-output presenter.
+// ValidateComposedBlueprint rejects composed blueprints whose Backend field names a
+// component that does not exist. Nil and empty-Backend blueprints are accepted.
+// Failures wrap ErrBlueprintInvalid.
 func ValidateComposedBlueprint(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
+	if blueprint == nil || blueprint.Backend == "" {
 		return nil
 	}
 
-	var backendIndices []int
-	var backendIDs []string
 	for i := range blueprint.TerraformComponents {
-		c := blueprint.TerraformComponents[i]
-		if c.IsBackend() {
-			backendIndices = append(backendIndices, i)
-			backendIDs = append(backendIDs, c.GetID())
+		if blueprint.TerraformComponents[i].GetID() == blueprint.Backend {
+			return nil
 		}
 	}
 
-	const reservedNameNote = "Windsor treats any terraform component whose path or name basename is \"backend\" as the remote-state bootstrap. If a flagged component serves a different purpose (e.g. an application backend service), rename it so its basename is not \"backend\"."
-
-	switch len(backendIndices) {
-	case 0:
-		return nil
-	case 1:
-		if backendIndices[0] != 0 {
-			// 1-based position in the operator-facing message: YAML authors count their list
-			// entries from 1, so "position 1" must refer to the first item. Reporting the raw
-			// 0-based index reads as if the offending component is one slot earlier than it
-			// actually is.
-			return fmt.Errorf(
-				"%w\n\n%s\n\nBlueprint configuration: terraform component %q (matched as backend) needs to be the first item in terraformComponents (currently at position %d). The backend component bootstraps the remote state store, so subsequent components depend on it being applied first. Reorder your blueprint so it appears first, then re-run.",
-				ErrBlueprintInvalid, reservedNameNote, backendIDs[0], backendIndices[0]+1,
-			)
-		}
-		return nil
-	default:
-		oneBasedPositions := make([]int, len(backendIndices))
-		for i, idx := range backendIndices {
-			oneBasedPositions[i] = idx + 1
-		}
-		return fmt.Errorf(
-			"%w\n\n%s\n\nBlueprint configuration: %d terraform components match as backend (%v at positions %v). Exactly one backend component is allowed; remove or rename the duplicates and re-run.",
-			ErrBlueprintInvalid, reservedNameNote, len(backendIndices), backendIDs, oneBasedPositions,
-		)
-	}
+	return fmt.Errorf(
+		"%w\n\nBlueprint configuration: backend names terraform component %q but no component with that ID is declared. Set backend to the ID of an existing terraform component, or remove the backend field to opt out of the in-blueprint backend tier.",
+		ErrBlueprintInvalid, blueprint.Backend,
+	)
 }

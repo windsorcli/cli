@@ -99,7 +99,7 @@ func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
 		"USERPROFILE=" + homeDir,
 		"PATH=" + os.Getenv("PATH"),
 	}
-	stdout, stderr, err := helpers.RunCLI(workDir, []string{"bootstrap", "--platform", "metal"}, env)
+	stdout, stderr, err := helpers.RunCLI(workDir, []string{"bootstrap", "--platform", "aws"}, env)
 	if err != nil {
 		t.Fatalf("expected clean exit when plan-confirm is declined, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
@@ -115,15 +115,14 @@ func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
 	}
 }
 
-// TestBootstrap_DanceIsScopedToPivot exercises the new bootstrap flow end to
-// end against the backend-first fixture with a remote backend configured.
-// Phase 1 must apply only the pivot (backend) against local state, Phase 2
-// must attempt to migrate state to the configured remote, and Phase 3 (the
-// rest of the stack — here, the "null" module) must NOT run once migration
-// fails. The assertion proves the dance is scoped to the pivot rather than
-// the legacy "apply everything local then migrate everything" path that
-// surfaced as the cluster/azure-aks pointer-mismatch bug.
-func TestBootstrap_DanceIsScopedToPivot(t *testing.T) {
+// TestBootstrap_DanceIsScopedToTier exercises the always-on tier pivot end to end
+// against the backend-first fixture with a remote backend configured. Stage 1 must
+// apply only the tier (backend) against local state, Stage 2 must attempt to
+// migrate state to the configured remote, and Stage 3 (non-tier — here, the "null"
+// module) must NOT run once migration fails. The assertion proves the dance is
+// scoped to the tier rather than the legacy "apply everything local then migrate
+// everything" path.
+func TestBootstrap_DanceIsScopedToTier(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "terraform.backend.type=s3"}, env); err != nil {
@@ -137,21 +136,20 @@ func TestBootstrap_DanceIsScopedToPivot(t *testing.T) {
 	}
 	combined := string(stdout) + string(stderr)
 
-	// Phase 1: only the pivot was applied locally. The "null" module belongs
-	// to Phase 3 and must not appear in Phase 1's apply output.
+	// Stage 1: only the tier was applied locally. The "null" module is non-tier
+	// and must not appear in Stage 1's apply output.
 	if !strings.Contains(combined, "Applying backend") {
-		t.Errorf("expected pivot apply line for backend, got:\n%s", combined)
+		t.Errorf("expected tier apply line for backend, got:\n%s", combined)
 	}
-	// Phase 2 was reached.
+	// Stage 2 was reached.
 	if !strings.Contains(combined, "Migrating terraform state") {
-		t.Errorf("expected migrate phase to be reached, got:\n%s", combined)
+		t.Errorf("expected migrate stage to be reached, got:\n%s", combined)
 	}
-	// Phase 3 was NOT reached because migrate failed. "Applying null" is the
-	// signature of the legacy all-local-then-migrate path; its presence here
-	// would indicate the dance ran against the full stack instead of just
-	// the pivot.
+	// Stage 3 was NOT reached because migrate failed. "Applying null" is the
+	// signature of a non-tier component apply; its presence here would mean
+	// the dance ran against the full stack instead of just the tier.
 	if strings.Contains(combined, "Applying null") {
-		t.Errorf("Phase 3 must not run after migrate failure; saw 'Applying null':\n%s", combined)
+		t.Errorf("Stage 3 must not run after migrate failure; saw 'Applying null':\n%s", combined)
 	}
 }
 

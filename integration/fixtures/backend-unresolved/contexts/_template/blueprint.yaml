@@ -1,0 +1,8 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: backend-unresolved
+  description: Fixture whose Backend field names a component that is not declared in terraform. Used to exercise validation of the Backend field reference.
+backend: ghost
+terraform:
+  - path: "null"

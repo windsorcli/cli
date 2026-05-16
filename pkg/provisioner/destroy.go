@@ -10,35 +10,64 @@ import (
 // Public Methods
 // =============================================================================
 
-// Teardown is Bootstrap reversed. With a pivot: destroy non-pivot components
-// against the live remote, pin local, migrate the pivot's state to local,
-// destroy the pivot. Without a pivot: plain DestroyAll. terraformOnly=true
-// skips the kustomize uninstall. Returns IDs of components skipped because
-// their state was empty alongside any error.
+// Teardown reverses Bootstrap. With no backend tier it forwards to DestroyAll
+// (or DestroyAllTerraform when terraformOnly). With a tier declared via
+// Blueprint.Backend, Stage 1 destroys non-tier components against the
+// configured backend, then Stage 2 pins local, pulls every tier member's state
+// to local, and destroys the tier in reverse declaration order. Returns the
+// IDs of components skipped because their state was empty.
 func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	p := pivot(blueprint, backendType)
-
-	if p == nil {
+	if backendType == "kubernetes" && blueprint.Backend == "" {
+		return nil, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
+	}
+	tier := blueprint.BackendTier()
+	if backendType == "" || backendType == "local" || len(tier) == 0 {
 		if terraformOnly {
 			return i.DestroyAllTerraform(blueprint)
 		}
 		return i.DestroyAll(blueprint)
 	}
 
-	return i.runPivotDestroy(blueprint, p.GetID(), terraformOnly)
-}
-
-// TeardownComponent destroys a single terraform component. Targeting the
-// bootstrap pivot is refused for non-local backends — its state hosts the
-// remote backend other components rely on, so destroying it in isolation
-// would orphan their state. Use full-cycle `windsor destroy` instead.
-func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	if p := pivot(blueprint, backendType); p != nil && componentID == p.GetID() {
-		return false, fmt.Errorf("cannot destroy the bootstrap pivot component %q in isolation: its state provides the %s backend that every other component uses, so destroying it directly would orphan their state. Run `windsor destroy` (no arguments) for the full-cycle teardown that migrates state to local first", componentID, backendType)
+	tierIDs := make([]string, 0, len(tier))
+	for _, c := range tier {
+		tierIDs = append(tierIDs, c.GetID())
 	}
 
+	var skipped []string
+	var stage1Err error
+	if terraformOnly {
+		skipped, stage1Err = i.DestroyAllTerraform(blueprint, tierIDs...)
+	} else {
+		skipped, stage1Err = i.DestroyAll(blueprint, tierIDs...)
+	}
+	if stage1Err != nil {
+		return skipped, stage1Err
+	}
+
+	tierBP := blueprintWithComponents(blueprint, tier)
+	err := i.withBackendOverride("destroy", func() error {
+		migrationSkipped, err := i.MigrateState(tierBP)
+		if err != nil {
+			return err
+		}
+		destroySkipped, destroyErr := i.DestroyAllTerraform(tierBP)
+		skipped = mergeSkipped(skipped, mergeSkipped(migrationSkipped, destroySkipped))
+		return destroyErr
+	})
+	return skipped, err
+}
+
+// TeardownComponent destroys a single terraform component. Targeting any
+// backend-tier member on a non-local backend is refused: its state provides
+// the backend that other components rely on, so destroying it in isolation
+// would orphan their state. Use `windsor destroy` (no arguments) for the
+// full-cycle teardown.
+func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
+	if backendType != "" && backendType != "local" && blueprint.IsBackendTierMember(componentID) {
+		return false, fmt.Errorf("cannot destroy backend-tier component %q in isolation: its state provides the %s backend that every other component uses, so destroying it directly would orphan their state. Run `windsor destroy` (no arguments) for the full-cycle teardown that migrates state to local first", componentID, backendType)
+	}
 	return i.Destroy(blueprint, componentID)
 }
 
@@ -46,34 +75,28 @@ func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, 
 // Private Helpers
 // =============================================================================
 
-// runPivotDestroy is Bootstrap's per-pivot dance reversed: destroy non-pivot
-// components against the live remote first, then pin local, migrate the
-// pivot's state to local, and destroy the pivot. configHandler is restored
-// on defer.
-func (i *Provisioner) runPivotDestroy(blueprint *blueprintv1alpha1.Blueprint, pivotID string, terraformOnly bool) ([]string, error) {
-	var skipped []string
-	var bulkErr error
-	if terraformOnly {
-		skipped, bulkErr = i.DestroyAllTerraform(blueprint, pivotID)
-	} else {
-		skipped, bulkErr = i.DestroyAll(blueprint, pivotID)
+// mergeSkipped returns the union of two skipped-component lists in input order
+// without duplicates. MigrateState and DestroyAll both report dir-missing
+// components, so naive concat would double-count; on the error path
+// MigrateState's list still names components DestroyAll didn't reach before
+// bailing out.
+func mergeSkipped(a, b []string) []string {
+	if len(a) == 0 {
+		return b
 	}
-	if bulkErr != nil {
-		return skipped, bulkErr
+	if len(b) == 0 {
+		return a
 	}
-
-	err := i.withBackendOverride("destroy", func() error {
-		if err := i.MigrateComponentState(blueprint, pivotID); err != nil {
-			return err
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, ids := range [][]string{a, b} {
+		for _, id := range ids {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
 		}
-		pivotSkipped, err := i.Destroy(blueprint, pivotID)
-		if err != nil {
-			return err
-		}
-		if pivotSkipped {
-			skipped = append(skipped, pivotID)
-		}
-		return nil
-	})
-	return skipped, err
+	}
+	return out
 }

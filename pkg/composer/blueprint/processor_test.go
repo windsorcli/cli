@@ -1853,6 +1853,114 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_Backend(t *testing.T) {
+	t.Run("FacetBackendCopiedToTarget", func(t *testing.T) {
+		// Given a single facet naming a backend tier terminus
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "cluster-facet"},
+				Backend:  "cluster",
+			},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		// Then target.Backend should hold the facet value
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Backend != "cluster" {
+			t.Errorf("Expected target.Backend=\"cluster\", got %q", target.Backend)
+		}
+	})
+
+	t.Run("LaterOrdinalFacetBackendOverridesEarlier", func(t *testing.T) {
+		// Given two facets that both declare Backend, the higher ordinal wins
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		lowOrdinal := 100
+		highOrdinal := 200
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "base"},
+				Ordinal:  &lowOrdinal,
+				Backend:  "base-backend",
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "override"},
+				Ordinal:  &highOrdinal,
+				Backend:  "cluster",
+			},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		// Then the higher-ordinal facet's value wins
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Backend != "cluster" {
+			t.Errorf("Expected target.Backend=\"cluster\", got %q", target.Backend)
+		}
+	})
+
+	t.Run("FacetWithEmptyBackendDoesNotClearTarget", func(t *testing.T) {
+		// Given a pre-set target.Backend and a facet that does not declare Backend
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{Backend: "pre-existing"}
+		facets := []blueprintv1alpha1.Facet{
+			{Metadata: blueprintv1alpha1.Metadata{Name: "silent"}},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		// Then target.Backend is preserved
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Backend != "pre-existing" {
+			t.Errorf("Expected target.Backend preserved, got %q", target.Backend)
+		}
+	})
+
+	t.Run("ExcludesFacetBackendWhenWhenIsFalse", func(t *testing.T) {
+		// Given a facet whose 'when' evaluates false, its Backend should not contribute
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"enabled": false}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "conditional"},
+				When:     "enabled == true",
+				Backend:  "cluster",
+			},
+		}
+
+		// When processing facets
+		_, _, err := processor.ProcessFacets(target, facets)
+
+		// Then target.Backend stays empty
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if target.Backend != "" {
+			t.Errorf("Expected target.Backend empty (facet excluded), got %q", target.Backend)
+		}
+	})
+
+}
+
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
 		base := map[string]any{"a": 1, "b": map[string]any{"x": 10}}

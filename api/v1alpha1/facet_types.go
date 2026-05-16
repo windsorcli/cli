@@ -58,6 +58,9 @@ type Facet struct {
 	// Examples: "provider == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
 	When string `yaml:"when,omitempty"`
 
+	// Backend contributes Blueprint.Backend; the composer merges by ordinal precedence.
+	Backend string `yaml:"backend,omitempty"`
+
 	// Config is a list of named configuration blocks evaluated in blueprint context and exposed at scope root.
 	// Terraform inputs and kustomize substitutions reference <name>.<key> (e.g. talos.controlplanes), like context (cluster.*, network.*).
 	Config []ConfigBlock `yaml:"config,omitempty"`
@@ -230,6 +233,7 @@ func (f *Facet) DeepCopy() *Facet {
 		Path:                f.Path,
 		Ordinal:             ordinalCopy,
 		When:                f.When,
+		Backend:             f.Backend,
 		Config:              configCopy,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,

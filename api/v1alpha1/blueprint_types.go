@@ -5,7 +5,6 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
-	"path"
 	"reflect"
 	"slices"
 	"strings"
@@ -280,6 +279,9 @@ type Blueprint struct {
 	// Metadata includes the blueprint's name and description.
 	Metadata Metadata `yaml:"metadata"`
 
+	// Backend names the terraform component that terminates the backend tier.
+	Backend string `yaml:"backend,omitempty"`
+
 	// Repository details the source repository of the blueprint.
 	Repository Repository `yaml:"repository,omitempty"`
 
@@ -436,19 +438,6 @@ func (t *TerraformComponent) GetID() string {
 	return t.Path
 }
 
-// IsBackend reports whether this component is the remote-state backend bootstrap component
-// — the one whose apply must run first so subsequent components can use the remote state
-// store it provisions. Match is on the basename of GetID() rather than the full identifier
-// so blueprints that organize components under a subdirectory (e.g. path: "terraform/backend",
-// path: "infra/backend") are recognized correctly. Without the basename match, nested
-// declarations would silently bypass both ValidateComposedBlueprint's ordering check and the
-// provisioner's symmetric-destroy path, leaving operators with no migration on bootstrap and
-// no special handling on destroy. Always uses forward slashes (path.Base, not filepath.Base)
-// because blueprint identifiers are slash-delimited regardless of the host OS.
-func (t *TerraformComponent) IsBackend() bool {
-	return path.Base(t.GetID()) == "backend"
-}
-
 // DeepCopy creates a deep copy of the TerraformComponent object.
 func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 	if t == nil {
@@ -595,17 +584,44 @@ type SubstituteReference struct {
 // Public Methods
 // =============================================================================
 
-// BackendComponentID returns the ID of the terraform component matching IsBackend(), or "".
+// BackendComponentID returns Blueprint.Backend, or "" when no backend tier is declared.
 func (b *Blueprint) BackendComponentID() string {
 	if b == nil {
 		return ""
 	}
+	return b.Backend
+}
+
+// BackendTier returns the named backend component plus every component declared before
+// it in TerraformComponents, in declaration order. Returns nil when Backend is unset or
+// names a component not present (validation catches the latter at load).
+func (b *Blueprint) BackendTier() []*TerraformComponent {
+	if b == nil || b.Backend == "" {
+		return nil
+	}
 	for i := range b.TerraformComponents {
-		if b.TerraformComponents[i].IsBackend() {
-			return b.TerraformComponents[i].GetID()
+		if b.TerraformComponents[i].GetID() == b.Backend {
+			tier := make([]*TerraformComponent, 0, i+1)
+			for j := 0; j <= i; j++ {
+				tier = append(tier, &b.TerraformComponents[j])
+			}
+			return tier
 		}
 	}
-	return ""
+	return nil
+}
+
+// IsBackendTierMember reports whether the component ID appears in BackendTier.
+func (b *Blueprint) IsBackendTierMember(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, c := range b.BackendTier() {
+		if c.GetID() == id {
+			return true
+		}
+	}
+	return false
 }
 
 // DeepCopy creates a deep copy of the Blueprint object.
@@ -677,6 +693,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		Kind:                b.Kind,
 		ApiVersion:          b.ApiVersion,
 		Metadata:            metadataCopy,
+		Backend:             b.Backend,
 		Repository:          repositoryCopy,
 		Sources:             sourcesCopy,
 		TerraformComponents: terraformComponentsCopy,
@@ -707,6 +724,10 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 		}
 		if overlay.Metadata.Description != "" {
 			b.Metadata.Description = overlay.Metadata.Description
+		}
+
+		if overlay.Backend != "" {
+			b.Backend = overlay.Backend
 		}
 
 		if overlay.Repository.Url != "" {

@@ -232,6 +232,10 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
 			return nil, nil, err
 		}
+		if facet.Backend != "" {
+			target.Backend = facet.Backend
+		}
+
 		if len(facet.Substitutions) > 0 {
 			evaluated, deferredKeys, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
 			if err != nil {
