@@ -146,26 +146,35 @@ var bootstrapCmd = &cobra.Command{
 			return err
 		}
 
-		// Validate cloud credentials before any infrastructure-touching work runs. CheckAuth
-		// is intentionally NOT part of Initialize/PrepareTools (which fire from `windsor init`
-		// where the operator has no obligation to be authed yet); bootstrap is the first
-		// command that will exercise credentials, so failing here gives the operator the
-		// vendor's own error (expired SSO, profile not found, etc.) up front rather than
-		// minutes into a `terraform apply`. Routed through requireCloudAuth so the calm
-		// output pattern (just the hint, no scary "Error:" prefix, no stacked wrappers) is
-		// consistent across all preflight call sites.
-		if err := requireCloudAuth(cmd, proj); err != nil {
-			return err
-		}
-
 		if err := proj.Runtime.SaveConfig(len(bootstrapSetFlags) > 0); err != nil {
 			return fmt.Errorf("failed to save configuration: %w", err)
 		}
 
+		// Cloud credential validation. In --yes (non-interactive) mode there is no prompt
+		// to defer behind, so the upfront check stays — operator wanted automation, fail
+		// fast on bad auth. In interactive mode, defer the check until after the operator
+		// confirms the plan: declining is a valid no-op, and an operator running bootstrap
+		// to see the plan shouldn't be blocked by auth. The wrapped callback runs
+		// requireCloudAuth on accept and stashes any error for surfacing once Bootstrap
+		// returns — confirmFn returns bool, so the error path goes via a captured variable.
 		var confirmFn provisioner.BootstrapConfirmFn
 		finishPlan := func(error) {}
+		var deferredAuthErr error
 		if !bootstrapYes {
-			confirmFn, finishPlan = makeBootstrapConfirmFn(cmd.InOrStdin(), os.Stderr)
+			promptConfirmFn, fp := makeBootstrapConfirmFn(cmd.InOrStdin(), os.Stderr)
+			finishPlan = fp
+			confirmFn = func(summary *provisioner.BootstrapSummary) bool {
+				if !promptConfirmFn(summary) {
+					return false
+				}
+				if authErr := requireCloudAuth(cmd, proj); authErr != nil {
+					deferredAuthErr = authErr
+					return false
+				}
+				return true
+			}
+		} else if err := requireCloudAuth(cmd, proj); err != nil {
+			return err
 		}
 
 		// The bootstrap confirm prompt fires from inside proj.Bootstrap, so the operator
@@ -198,6 +207,9 @@ var bootstrapCmd = &cobra.Command{
 			return nil
 		}); err != nil {
 			return err
+		}
+		if deferredAuthErr != nil {
+			return deferredAuthErr
 		}
 		if !applied {
 			fmt.Fprintln(os.Stderr, "Apply skipped. The context is configured — re-run with --yes to apply.")
