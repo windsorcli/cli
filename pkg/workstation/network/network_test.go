@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,8 @@ func setupDefaultShims() *Shims {
 		ReadFile:  func(path string) ([]byte, error) { return nil, nil },
 		ReadLink:  func(path string) (string, error) { return "", nil },
 		MkdirAll:  func(path string, perm os.FileMode) error { return nil },
+		MkdirTemp: func(dir, pattern string) (string, error) { return "/tmp/windsor-test", nil },
+		RemoveAll: func(path string) error { return nil },
 	}
 }
 
@@ -228,6 +231,176 @@ func TestNetworkManager_ConfigureGuest(t *testing.T) {
 		// Then no error should be returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Private Methods
+// =============================================================================
+
+func TestValidateDomain(t *testing.T) {
+	t.Run("AcceptsRFC1123LabelCharsetDomains", func(t *testing.T) {
+		// Given domains using only RFC 1123 label characters (letters, digits, hyphen, dot)
+		cases := []string{"example.com", "local.test", "dev.example.io", "a", "x-y-z.com", "12345.test", "a-b.c-d.e"}
+
+		// When validating each
+		for _, d := range cases {
+			// Then validation passes
+			if err := validateDomain(d); err != nil {
+				t.Errorf("expected %q to be accepted, got %v", d, err)
+			}
+		}
+	})
+
+	t.Run("RejectsEmptyLabels", func(t *testing.T) {
+		// Given domains whose character set is allowlisted but whose dot structure produces empty
+		// labels — dot-only strings collapse to a parent-directory traversal when interpolated
+		// into a filesystem path (e.g. /etc/resolver/.. resolves to /etc/ on darwin).
+		cases := []string{
+			".",        // single dot
+			"..",       // double dot — the darwin traversal exploit
+			"...",      // triple dot
+			".foo",     // leading dot
+			"foo.",     // trailing dot
+			"foo..bar", // consecutive dots
+			"..bar",    // leading double dot
+			"bar..",    // trailing double dot
+		}
+
+		// When validating each
+		for _, d := range cases {
+			// Then validation rejects with the empty-label error
+			err := validateDomain(d)
+			if err == nil {
+				t.Errorf("expected %q to be rejected, got nil", d)
+				continue
+			}
+			if !strings.Contains(err.Error(), "contains empty label") {
+				t.Errorf("expected empty-label error for %q, got %v", d, err)
+			}
+		}
+	})
+
+	t.Run("RejectsCharactersOutsideAllowlist", func(t *testing.T) {
+		// Given domains containing characters that would let configuration escape downstream
+		// interpolation contexts — filesystem paths, PowerShell single-quoted strings, shell command lines
+		cases := []string{
+			"evil/../etc/passwd",       // path separator
+			"a\\b",                     // backslash
+			"/leading-slash",           // leading slash
+			"x/y",                      // embedded slash
+			"a'; calc; '",              // single quote → PowerShell injection
+			`a"b`,                      // double quote
+			"a b",                      // whitespace
+			"a;b",                      // shell statement separator
+			"a$b",                      // shell variable
+			"a`b`",                     // shell command substitution
+			"a&b",                      // shell background / chain
+			"a|b",                      // shell pipe
+			"with_underscore.test",     // underscore not in RFC 1123 label set
+			"unicödé.com",              // non-ASCII
+		}
+
+		// When validating each
+		for _, d := range cases {
+			// Then validation rejects with the allowlist error
+			err := validateDomain(d)
+			if err == nil {
+				t.Errorf("expected %q to be rejected, got nil", d)
+				continue
+			}
+			if !strings.Contains(err.Error(), "must contain only letters, digits, hyphen, and dot") {
+				t.Errorf("expected allowlist error for %q, got %v", d, err)
+			}
+		}
+	})
+}
+
+func TestNetworkManager_writeFileWithSudo(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("StagesAndInstallsContent", func(t *testing.T) {
+		// Given a happy-path environment
+		manager, mocks := setup(t)
+
+		var stagedDir, stagedPath string
+		var stagedContent []byte
+		mocks.Shims.MkdirTemp = func(_, _ string) (string, error) {
+			stagedDir = "/tmp/windsor-net-mock"
+			return stagedDir, nil
+		}
+		mocks.Shims.WriteFile = func(path string, data []byte, _ os.FileMode) error {
+			stagedPath = path
+			stagedContent = data
+			return nil
+		}
+		var mvSrc, mvDest, chmodMode, chmodTarget string
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			switch command {
+			case "mv":
+				mvSrc, mvDest = args[0], args[1]
+			case "chmod":
+				chmodMode, chmodTarget = args[0], args[1]
+			}
+			return "", nil
+		}
+
+		// When writing a file
+		if err := manager.writeFileWithSudo("/etc/some-dest", []byte("payload")); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the helper stages inside the private temp dir, mvs to the destination, and chmods 0644.
+		// filepath.Join uses the host separator (backslash on Windows) — assert with the same primitive.
+		expectedStagedPath := filepath.Join(stagedDir, "drop-in")
+		if stagedPath != expectedStagedPath {
+			t.Errorf("expected staged path %q, got %q", expectedStagedPath, stagedPath)
+		}
+		if string(stagedContent) != "payload" {
+			t.Errorf("expected staged content %q, got %q", "payload", string(stagedContent))
+		}
+		if mvSrc != expectedStagedPath || mvDest != "/etc/some-dest" {
+			t.Errorf("expected mv %q -> %q, got %q -> %q", expectedStagedPath, "/etc/some-dest", mvSrc, mvDest)
+		}
+		if chmodMode != "0644" || chmodTarget != "/etc/some-dest" {
+			t.Errorf("expected chmod 0644 %q, got chmod %q %q", "/etc/some-dest", chmodMode, chmodTarget)
+		}
+	})
+
+	t.Run("RemovesTempDirOnFailureAfterStaging", func(t *testing.T) {
+		// Given mv into place fails after a successful temp-file stage
+		manager, mocks := setup(t)
+		mocks.Shims.MkdirTemp = func(_, _ string) (string, error) {
+			return "/tmp/windsor-net-fail", nil
+		}
+		var removedPath string
+		mocks.Shims.RemoveAll = func(path string) error {
+			removedPath = path
+			return nil
+		}
+		mocks.Shell.ExecSudoFunc = func(_, command string, _ ...string) (string, error) {
+			if command == "mv" {
+				return "", fmt.Errorf("mv boom")
+			}
+			return "", nil
+		}
+
+		// When writing a file
+		err := manager.writeFileWithSudo("/etc/some-dest", []byte("payload"))
+
+		// Then the helper surfaces the install error and the deferred cleanup runs
+		if err == nil || !strings.Contains(err.Error(), "failed to install file: mv boom") {
+			t.Fatalf("expected install error, got %v", err)
+		}
+		if removedPath != "/tmp/windsor-net-fail" {
+			t.Errorf("expected cleanup of %q, got %q", "/tmp/windsor-net-fail", removedPath)
 		}
 	})
 }

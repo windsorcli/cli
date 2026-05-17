@@ -85,6 +85,9 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	if tld == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
+	if err := validateDomain(tld); err != nil {
+		return err
+	}
 
 	dnsIP := n.effectiveResolverIP()
 	if dnsIP == "" {
@@ -107,36 +110,13 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	if _, err := n.shims.Stat(resolverDir); os.IsNotExist(err) {
-		if _, err := n.shell.ExecSudo(
-			"Creating resolver directory",
-			"mkdir",
-			"-p",
-			resolverDir,
-		); err != nil {
+		if _, err := n.shell.ExecSudo("", "mkdir", "-p", resolverDir); err != nil {
 			return fmt.Errorf("Error creating resolver directory: %w", err)
 		}
 	}
 
-	tempResolverFile := fmt.Sprintf("/tmp/%s", tld)
-	if err := n.shims.WriteFile(tempResolverFile, []byte(content), 0644); err != nil {
-		return fmt.Errorf("Error writing to temporary resolver file: %w", err)
-	}
-
-	if _, err := n.shell.ExecSudo(
-		"",
-		"mv",
-		tempResolverFile,
-		resolverFile,
-	); err != nil {
-		return fmt.Errorf("Error moving resolver file: %w", err)
-	}
-	if _, err := n.shell.ExecSudo(
-		"",
-		"chmod",
-		"0644",
-		resolverFile,
-	); err != nil {
-		return fmt.Errorf("Error setting resolver file mode: %w", err)
+	if err := n.writeFileWithSudo(resolverFile, []byte(content)); err != nil {
+		return fmt.Errorf("Error installing resolver file: %w", err)
 	}
 
 	return nil
@@ -197,6 +177,9 @@ func resolverAlreadyConfigured(content, desiredIP string) bool {
 func (n *BaseNetworkManager) needsPrivilegeForResolver(desiredIP string) bool {
 	tld := n.configHandler.GetString("dns.domain")
 	if tld == "" {
+		return false
+	}
+	if err := validateDomain(tld); err != nil {
 		return false
 	}
 	resolverFile := fmt.Sprintf("/etc/resolver/%s", tld)

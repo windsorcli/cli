@@ -78,6 +78,9 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	if domain == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
 
 	dnsIP := n.effectiveResolverIP()
 	if dnsIP == "" {
@@ -85,7 +88,7 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
-	if err != nil || resolvConf != "../run/systemd/resolve/stub-resolv.conf" {
+	if err != nil || !isSystemdResolvedStubLink(resolvConf) {
 		return fmt.Errorf("systemd-resolved is not in use. Please configure DNS manually or use a compatible system")
 	}
 
@@ -104,33 +107,15 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration may require elevated privileges\n")
 	}
 
-	_, err = n.shell.ExecSudo(
-		"Creating DNS configuration directory",
-		"mkdir",
-		"-p",
-		dropInDir,
-	)
-	if err != nil {
+	if _, err := n.shell.ExecSudo("", "mkdir", "-p", dropInDir); err != nil {
 		return fmt.Errorf("failed to create drop-in directory: %w", err)
 	}
 
-	_, err = n.shell.ExecSudo(
-		"Writing DNS configuration to "+dropInFile,
-		"bash",
-		"-c",
-		fmt.Sprintf("echo '%s' | sudo tee %s", expectedContent, dropInFile),
-	)
-	if err != nil {
+	if err := n.writeFileWithSudo(dropInFile, []byte(expectedContent)); err != nil {
 		return fmt.Errorf("failed to write DNS configuration: %w", err)
 	}
 
-	_, err = n.shell.ExecSudo(
-		"Restarting systemd-resolved",
-		"systemctl",
-		"restart",
-		"systemd-resolved",
-	)
-	if err != nil {
+	if _, err := n.shell.ExecSudo("", "systemctl", "restart", "systemd-resolved"); err != nil {
 		return fmt.Errorf("failed to restart systemd-resolved: %w", err)
 	}
 
@@ -146,6 +131,14 @@ func (n *BaseNetworkManager) FlushDNS() error {
 	return nil
 }
 
+// isSystemdResolvedStubLink reports whether the /etc/resolv.conf symlink target points at
+// systemd-resolved's stub resolver. Accepts both the relative form (most distros) and the
+// absolute form (Fedora, some Ubuntu cloud images).
+func isSystemdResolvedStubLink(target string) bool {
+	return target == "../run/systemd/resolve/stub-resolv.conf" ||
+		target == "/run/systemd/resolve/stub-resolv.conf"
+}
+
 // needsPrivilegeForResolver reports whether sudo is required to apply the desired DNS resolver IP
 // for the configured domain. It returns true when systemd-resolved is in use and the current
 // drop-in for dns.domain is missing, unreadable, or has different Domains= or DNS= values.
@@ -154,8 +147,11 @@ func (n *BaseNetworkManager) needsPrivilegeForResolver(desiredIP string) bool {
 	if domain == "" {
 		return false
 	}
+	if err := validateDomain(domain); err != nil {
+		return false
+	}
 	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
-	if err != nil || resolvConf != "../run/systemd/resolve/stub-resolv.conf" {
+	if err != nil || !isSystemdResolvedStubLink(resolvConf) {
 		return false
 	}
 	dropInFile := fmt.Sprintf("/etc/systemd/resolved.conf.d/dns-override-%s.conf", domain)

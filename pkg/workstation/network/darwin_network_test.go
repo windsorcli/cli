@@ -330,7 +330,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "Error writing to temporary resolver file: mock error writing to temporary resolver file"
+		expectedError := "Error installing resolver file: failed to stage file: mock error writing to temporary resolver file"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
@@ -361,7 +361,7 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "Error moving resolver file: mock error moving resolver file"
+		expectedError := "Error installing resolver file: failed to install file: mock error moving resolver file"
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
@@ -379,6 +379,54 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("DomainOutsideAllowlistRejected", func(t *testing.T) {
+		// Given a malformed DNS domain that would let configuration escape the resolver directory
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "evil/../etc/passwd")
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then validation rejects it before any filesystem or shell operation runs
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := `invalid DNS domain "evil/../etc/passwd": must contain only letters, digits, hyphen, and dot`
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("DotOnlyDomainRejectedBeforeMv", func(t *testing.T) {
+		// Given a dot-only DNS domain. /etc/resolver/.. resolves to /etc/, so without this guard
+		// a subsequent sudo mv would deposit the staged drop-in at /etc/drop-in.
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "..")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+
+		// And tracking whether a sudo mv (or any sudo) ever runs
+		var sudoCommands []string
+		mocks.Shell.ExecSudoFunc = func(_, command string, _ ...string) (string, error) {
+			sudoCommands = append(sudoCommands, command)
+			return "", nil
+		}
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then validation rejects with the empty-label error before any sudo step runs
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := `invalid DNS domain "..": contains empty label`
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+		if len(sudoCommands) != 0 {
+			t.Fatalf("expected zero sudo invocations before validation rejection, got %v", sudoCommands)
 		}
 	})
 }

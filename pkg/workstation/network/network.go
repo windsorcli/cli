@@ -1,7 +1,11 @@
 package network
 
 import (
+	"fmt"
 	"net"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -93,6 +97,52 @@ func (n *BaseNetworkManager) NeedsPrivilege() bool {
 // isLocalhostMode checks if the system is in localhost mode.
 func (n *BaseNetworkManager) isLocalhostMode() bool {
 	return n.configHandler.GetString("workstation.runtime") == "docker-desktop"
+}
+
+// validateDomain restricts DNS domains to the RFC 1123 label character set (letters, digits,
+// hyphen, dot) and rejects empty labels. The character allowlist excludes shell metacharacters,
+// quotes, and path separators; the empty-label check rejects dot-only ("..", ".") and dot-edge
+// ("foo.", ".foo", "foo..bar") values that would escape into parent directories when interpolated
+// into a filesystem path under sudo (e.g. /etc/resolver/.. resolves to /etc/ on darwin).
+// Caller is responsible for the "empty domain" check.
+func validateDomain(domain string) error {
+	for _, r := range domain {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '.' {
+			continue
+		}
+		return fmt.Errorf("invalid DNS domain %q: must contain only letters, digits, hyphen, and dot", domain)
+	}
+	if slices.Contains(strings.Split(domain, "."), "") {
+		return fmt.Errorf("invalid DNS domain %q: contains empty label", domain)
+	}
+	return nil
+}
+
+// writeFileWithSudo stages content in a freshly-created private temp directory (mode 0700) and
+// then sudo-moves it to destPath and sudo-chmods it to 0644. Using MkdirTemp ensures the source
+// path is unpredictable and that an unprivileged local user cannot pre-create a symlink at the
+// source before the sudo mv runs. The temp directory is removed on every exit path.
+func (n *BaseNetworkManager) writeFileWithSudo(destPath string, content []byte) error {
+	tempDir, err := n.shims.MkdirTemp("", "windsor-net-")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer n.shims.RemoveAll(tempDir)
+
+	tempPath := filepath.Join(tempDir, "drop-in")
+	if err := n.shims.WriteFile(tempPath, content, 0644); err != nil {
+		return fmt.Errorf("failed to stage file: %w", err)
+	}
+
+	if _, err := n.shell.ExecSudo("", "mv", tempPath, destPath); err != nil {
+		return fmt.Errorf("failed to install file: %w", err)
+	}
+
+	if _, err := n.shell.ExecSudo("", "chmod", "0644", destPath); err != nil {
+		return fmt.Errorf("failed to set file mode: %w", err)
+	}
+
+	return nil
 }
 
 // effectiveResolverIP returns the resolver IP for DNS config: dns.address when set (by config, migration for

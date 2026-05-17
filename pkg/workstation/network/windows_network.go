@@ -73,6 +73,9 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	if domain == "" {
 		return fmt.Errorf("DNS domain is not configured")
 	}
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
 
 	dnsIP := n.effectiveResolverIP()
 	if dnsIP == "" {
@@ -86,7 +89,7 @@ $namespace = '%s'
 $allRules = Get-DnsClientNrptRule
 $existingRule = $allRules | Where-Object { $_.Namespace -eq $namespace }
 if ($existingRule) {
-  if ($existingRule.NameServers -ne "%s") {
+  if (($existingRule.NameServers -join ',') -ne "%s") {
     $false
   } else {
     $true
@@ -153,6 +156,9 @@ func (n *BaseNetworkManager) FlushDNS() error {
 func (n *BaseNetworkManager) needsPrivilegeForResolver(desiredIP string) bool {
 	domain := n.configHandler.GetString("dns.domain")
 	if domain == "" {
+		return false
+	}
+	if err := validateDomain(domain); err != nil {
 		return false
 	}
 	namespace := "." + domain

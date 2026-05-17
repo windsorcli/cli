@@ -23,6 +23,8 @@ type Shims struct {
 	ReadFile  func(string) ([]byte, error)
 	ReadLink  func(string) (string, error)
 	MkdirAll  func(string, os.FileMode) error
+	MkdirTemp func(dir, pattern string) (string, error)
+	RemoveAll func(string) error
 }
 
 // NetworkInterfaceProvider abstracts the system's network interface operations
@@ -56,6 +58,8 @@ func NewShims() *Shims {
 		ReadFile:  os.ReadFile,
 		ReadLink:  os.Readlink,
 		MkdirAll:  os.MkdirAll,
+		MkdirTemp: os.MkdirTemp,
+		RemoveAll: os.RemoveAll,
 	}
 }
 
