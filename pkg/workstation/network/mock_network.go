@@ -25,6 +25,8 @@ type MockNetworkManager struct {
 	FlushDNSFunc                 func() error
 	NeedsPrivilegeForClusterFunc func() bool
 	NeedsPrivilegeForDNSFunc     func() bool
+	IsHostRouteInstalledFunc     func() bool
+	IsResolverInstalledFunc      func() bool
 	DNSChangedFunc               func() bool
 }
 
@@ -109,6 +111,22 @@ func (m *MockNetworkManager) NeedsPrivilegeForCluster() bool {
 func (m *MockNetworkManager) NeedsPrivilegeForDNS() bool {
 	if m.NeedsPrivilegeForDNSFunc != nil {
 		return m.NeedsPrivilegeForDNSFunc()
+	}
+	return false
+}
+
+// IsHostRouteInstalled calls the custom IsHostRouteInstalledFunc if provided.
+func (m *MockNetworkManager) IsHostRouteInstalled() bool {
+	if m.IsHostRouteInstalledFunc != nil {
+		return m.IsHostRouteInstalledFunc()
+	}
+	return false
+}
+
+// IsResolverInstalled calls the custom IsResolverInstalledFunc if provided.
+func (m *MockNetworkManager) IsResolverInstalled() bool {
+	if m.IsResolverInstalledFunc != nil {
+		return m.IsResolverInstalledFunc()
 	}
 	return false
 }

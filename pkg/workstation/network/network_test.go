@@ -290,6 +290,95 @@ func TestNetworkManager_NeedsPrivilegeForCluster(t *testing.T) {
 	})
 }
 
+func TestNetworkManager_IsHostRouteInstalled(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("FalseOnDockerDesktop", func(t *testing.T) {
+		// Given a docker-desktop runtime — host routes never installed
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.10")
+
+		// Then the probe reports nothing installed
+		if manager.IsHostRouteInstalled() {
+			t.Errorf("expected IsHostRouteInstalled to be false on docker-desktop")
+		}
+	})
+
+	t.Run("FalseOnColimaWithoutGuestAddress", func(t *testing.T) {
+		// Given colima with no guest address (configure-network couldn't have installed anything)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.address", "")
+
+		// Then the probe reports nothing installed
+		if manager.IsHostRouteInstalled() {
+			t.Errorf("expected IsHostRouteInstalled to be false without guest address")
+		}
+	})
+
+	t.Run("FalseOnColimaWhenRouteAbsent", func(t *testing.T) {
+		// Given colima with a guest address and the route check shows no matching route
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.10")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "ip" && len(args) > 0 && args[0] == "route" {
+				return "", nil
+			}
+			if command == "route" && len(args) > 0 && args[0] == "-n" {
+				return "", nil
+			}
+			return "", nil
+		}
+
+		// Then the probe reports nothing installed
+		if manager.IsHostRouteInstalled() {
+			t.Errorf("expected IsHostRouteInstalled to be false when route is absent")
+		}
+	})
+}
+
+func TestNetworkManager_IsResolverInstalled(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("FalseWhenDomainUnset", func(t *testing.T) {
+		// Given no DNS domain in config — nothing could have been installed
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "")
+
+		// Then the probe reports nothing installed
+		if manager.IsResolverInstalled() {
+			t.Errorf("expected IsResolverInstalled to be false when domain is unset")
+		}
+	})
+
+	t.Run("FalseWhenResolverIPUnderivable", func(t *testing.T) {
+		// Given a domain but no resolver IP — nothing matchable to install
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
+
+		// Then the probe reports nothing installed
+		if manager.IsResolverInstalled() {
+			t.Errorf("expected IsResolverInstalled to be false when resolver IP is underivable")
+		}
+	})
+}
+
 func TestNetworkManager_NeedsPrivilegeForDNS(t *testing.T) {
 	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()

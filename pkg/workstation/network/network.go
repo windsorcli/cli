@@ -23,7 +23,11 @@ import (
 // Guest address is read from config (workstation.address) where needed.
 // Revert* counterparts undo Configure*, are idempotent (no-op when the
 // resource is absent), and are invoked by 'windsor configure network --revert'
-// and 'windsor down --clean'.
+// and 'windsor down'.
+// IsHostRouteInstalled / IsResolverInstalled answer the question "is the host
+// state this manager would install currently present?" — used by 'windsor down'
+// to detect orphaned host configuration when the operator can't elevate
+// non-interactively, so a hint can point them at 'configure network --revert'.
 type NetworkManager interface {
 	ConfigureHostRoute() error
 	ConfigureGuest() error
@@ -34,6 +38,8 @@ type NetworkManager interface {
 	FlushDNS() error
 	NeedsPrivilegeForCluster() bool
 	NeedsPrivilegeForDNS() bool
+	IsHostRouteInstalled() bool
+	IsResolverInstalled() bool
 	DNSChanged() bool
 }
 
@@ -121,6 +127,38 @@ func (n *BaseNetworkManager) NeedsPrivilegeForDNS() bool {
 		return false
 	}
 	return n.needsPrivilegeForResolver(desiredIP)
+}
+
+// IsHostRouteInstalled reports whether the host route this NetworkManager would install (for
+// the configured CIDR via the configured guest) is currently present and matches. Always false
+// on runtimes that don't use host routes (anything other than colima). Used by 'windsor down'
+// to detect orphaned cluster-reachability state when the operator can't elevate non-interactively.
+func (n *BaseNetworkManager) IsHostRouteInstalled() bool {
+	if n.configHandler.GetString("workstation.runtime") != "colima" {
+		return false
+	}
+	guestAddress := n.configHandler.GetString("workstation.address")
+	if guestAddress == "" {
+		return false
+	}
+	return !n.needsPrivilegeForHostRoute(guestAddress)
+}
+
+// IsResolverInstalled reports whether the per-domain DNS resolver entry this NetworkManager
+// would install is currently present and matches the configured resolver IP. False when no
+// dns.domain is configured or when no resolver address is derivable. Used by 'windsor down' to
+// detect orphaned DNS-resolver state. The "matches" semantic means a stale entry with a
+// different IP will not be detected as installed — operators with that edge case can run
+// 'configure network --revert' explicitly.
+func (n *BaseNetworkManager) IsResolverInstalled() bool {
+	if n.configHandler.GetString("dns.domain") == "" {
+		return false
+	}
+	desiredIP := n.effectiveResolverIP()
+	if desiredIP == "" {
+		return false
+	}
+	return !n.needsPrivilegeForResolver(desiredIP)
 }
 
 // =============================================================================
