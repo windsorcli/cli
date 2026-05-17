@@ -543,7 +543,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("DomainWithPathSeparatorRejected", func(t *testing.T) {
+	t.Run("DomainOutsideAllowlistRejected", func(t *testing.T) {
 		// Given a malformed DNS domain that would let configuration escape the drop-in directory
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "evil/../etc/passwd")
@@ -555,7 +555,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := `invalid DNS domain "evil/../etc/passwd": contains path separator`
+		expectedError := `invalid DNS domain "evil/../etc/passwd": must contain only letters, digits, hyphen, and dot`
 		if err.Error() != expectedError {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}

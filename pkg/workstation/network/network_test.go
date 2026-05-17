@@ -240,9 +240,9 @@ func TestNetworkManager_ConfigureGuest(t *testing.T) {
 // =============================================================================
 
 func TestValidateDomain(t *testing.T) {
-	t.Run("AcceptsTypicalDomains", func(t *testing.T) {
-		// Given domains that span the realistic config surface
-		cases := []string{"example.com", "local.test", "dev.example.io", "a", "x-y_z.com"}
+	t.Run("AcceptsRFC1123LabelCharsetDomains", func(t *testing.T) {
+		// Given domains using only RFC 1123 label characters (letters, digits, hyphen, dot)
+		cases := []string{"example.com", "local.test", "dev.example.io", "a", "x-y-z.com", "12345.test", "a-b.c-d.e"}
 
 		// When validating each
 		for _, d := range cases {
@@ -253,20 +253,36 @@ func TestValidateDomain(t *testing.T) {
 		}
 	})
 
-	t.Run("RejectsPathSeparators", func(t *testing.T) {
-		// Given domains containing path separators that would let configuration escape filesystem layout
-		cases := []string{"evil/../etc/passwd", "a\\b", "/leading-slash", "x/y"}
+	t.Run("RejectsCharactersOutsideAllowlist", func(t *testing.T) {
+		// Given domains containing characters that would let configuration escape downstream
+		// interpolation contexts — filesystem paths, PowerShell single-quoted strings, shell command lines
+		cases := []string{
+			"evil/../etc/passwd",       // path separator
+			"a\\b",                     // backslash
+			"/leading-slash",           // leading slash
+			"x/y",                      // embedded slash
+			"a'; calc; '",              // single quote → PowerShell injection
+			`a"b`,                      // double quote
+			"a b",                      // whitespace
+			"a;b",                      // shell statement separator
+			"a$b",                      // shell variable
+			"a`b`",                     // shell command substitution
+			"a&b",                      // shell background / chain
+			"a|b",                      // shell pipe
+			"with_underscore.test",     // underscore not in RFC 1123 label set
+			"unicödé.com",              // non-ASCII
+		}
 
 		// When validating each
 		for _, d := range cases {
-			// Then validation rejects with the path-separator error
+			// Then validation rejects with the allowlist error
 			err := validateDomain(d)
 			if err == nil {
 				t.Errorf("expected %q to be rejected, got nil", d)
 				continue
 			}
-			if !strings.Contains(err.Error(), "contains path separator") {
-				t.Errorf("expected path-separator error for %q, got %v", d, err)
+			if !strings.Contains(err.Error(), "must contain only letters, digits, hyphen, and dot") {
+				t.Errorf("expected allowlist error for %q, got %v", d, err)
 			}
 		}
 	})

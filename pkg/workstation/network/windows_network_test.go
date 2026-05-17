@@ -430,6 +430,43 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
+	t.Run("DomainWithSingleQuoteRejectedBeforePowerShellRuns", func(t *testing.T) {
+		// Given a DNS domain containing a single quote, which would close the PowerShell
+		// single-quoted string literal `$namespace = '.<domain>'` and inject arbitrary commands.
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", `evil'; calc; '`)
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+
+		// And tracking whether any PowerShell ever runs
+		var psInvoked bool
+		mocks.Shell.ExecSilentFunc = func(command string, _ ...string) (string, error) {
+			if command == "powershell" {
+				psInvoked = true
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressFunc = func(_, command string, _ ...string) (string, error) {
+			if command == "powershell" {
+				psInvoked = true
+			}
+			return "", nil
+		}
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then validation rejects before any PowerShell process is spawned
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "must contain only letters, digits, hyphen, and dot") {
+			t.Fatalf("expected allowlist rejection error, got %q", err.Error())
+		}
+		if psInvoked {
+			t.Fatal("PowerShell was invoked despite invalid domain — validation must run before any script execution")
+		}
+	})
+
 	t.Run("CheckScriptJoinsNameServersBeforeCompare", func(t *testing.T) {
 		// Given the rule check must handle NRPT rules whose NameServers is a multi-element array
 		// (a plain $existingRule.NameServers -ne "<ip>" compares array-to-scalar and always reports mismatch).

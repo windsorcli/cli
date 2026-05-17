@@ -179,6 +179,9 @@ func (n *BaseNetworkManager) needsPrivilegeForResolver(desiredIP string) bool {
 	if tld == "" {
 		return false
 	}
+	if err := validateDomain(tld); err != nil {
+		return false
+	}
 	resolverFile := fmt.Sprintf("/etc/resolver/%s", tld)
 	existingContent, err := n.shims.ReadFile(resolverFile)
 	if err != nil {

@@ -147,6 +147,9 @@ func (n *BaseNetworkManager) needsPrivilegeForResolver(desiredIP string) bool {
 	if domain == "" {
 		return false
 	}
+	if err := validateDomain(domain); err != nil {
+		return false
+	}
 	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
 	if err != nil || !isSystemdResolvedStubLink(resolvConf) {
 		return false

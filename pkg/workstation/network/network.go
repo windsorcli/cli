@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
-	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -98,12 +97,17 @@ func (n *BaseNetworkManager) isLocalhostMode() bool {
 	return n.configHandler.GetString("workstation.runtime") == "docker-desktop"
 }
 
-// validateDomain rejects DNS domains containing path separators that would let configuration values
-// escape the intended filesystem layout when interpolated into temp or drop-in file paths.
+// validateDomain restricts DNS domains to the RFC 1123 label character set (letters, digits,
+// hyphen, dot). The allowlist excludes shell metacharacters, quotes, and path separators that
+// would let configuration values escape downstream interpolation contexts — filesystem paths
+// on Linux/macOS, PowerShell single-quoted strings on Windows, command lines on every platform.
 // Caller is responsible for the "empty domain" check.
 func validateDomain(domain string) error {
-	if strings.ContainsAny(domain, `/\`) {
-		return fmt.Errorf("invalid DNS domain %q: contains path separator", domain)
+	for _, r := range domain {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '.' {
+			continue
+		}
+		return fmt.Errorf("invalid DNS domain %q: must contain only letters, digits, hyphen, and dot", domain)
 	}
 	return nil
 }
