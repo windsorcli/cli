@@ -1,6 +1,7 @@
 package workstation
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -67,8 +68,6 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 			return "colima"
 		case "docker.enabled":
 			return "true"
-		case "dns.enabled":
-			return "true"
 		case "git.livereload.enabled":
 			return "true"
 		case "aws.localstack.enabled":
@@ -90,8 +89,6 @@ func setupWorkstationMocks(t *testing.T, opts ...func(*WorkstationTestMocks)) *W
 	mockConfigHandler.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 		switch key {
 		case "docker.enabled":
-			return true
-		case "dns.enabled":
 			return true
 		case "git.livereload.enabled":
 			return true
@@ -672,9 +669,6 @@ func TestWorkstation_Up(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "test.example")
 		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
-			if key == "dns.enabled" {
-				return nil
-			}
 			return nil
 		}
 		flushCalled := false
@@ -708,9 +702,6 @@ func TestWorkstation_Up(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "test.example")
 		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
-			if key == "dns.enabled" {
-				return nil
-			}
 			return nil
 		}
 		flushCalled := false
@@ -744,9 +735,6 @@ func TestWorkstation_Up(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "test.example")
 		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
-			if key == "dns.enabled" {
-				return nil
-			}
 			return nil
 		}
 		mocks.NetworkManager.DNSChangedFunc = func() bool { return true }
@@ -781,9 +769,6 @@ func TestWorkstation_FlushDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "test.example")
 		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
-			if key == "dns.enabled" {
-				return nil
-			}
 			return "mock-value"
 		}
 		flushCalled := false
@@ -838,9 +823,6 @@ func TestWorkstation_FlushDNS(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "test.example")
 		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
-			if key == "dns.enabled" {
-				return nil
-			}
 			return "mock-value"
 		}
 		mocks.NetworkManager.FlushDNSFunc = func() error {
@@ -957,65 +939,60 @@ func TestWorkstation_PrepareForUp(t *testing.T) {
 	})
 }
 
-func TestWorkstation_EnsureNetworkPrivilege(t *testing.T) {
-	t.Run("NoOpWhenNetworkManagerNil", func(t *testing.T) {
+func TestCanElevateNonInteractively(t *testing.T) {
+	// Save and restore the geteuid override around each subtest
+	originalGeteuid := geteuidFunc
+	t.Cleanup(func() { geteuidFunc = originalGeteuid })
+
+	t.Run("TrueWhenRoot", func(t *testing.T) {
+		// Given the process appears to be running as root (CI typical, or 'sudo windsor up')
+		geteuidFunc = func() int { return 0 }
 		mocks := setupWorkstationMocks(t)
-		ws := NewWorkstation(mocks.Runtime, &Workstation{
-			VirtualMachine:   mocks.VirtualMachine,
-			ContainerRuntime: mocks.ContainerRuntime,
-			NetworkManager:   nil,
-		})
+		sudoChecked := false
+		mocks.Shell.ExecSilentFunc = func(command string, _ ...string) (string, error) {
+			if command == "sudo" {
+				sudoChecked = true
+			}
+			return "", nil
+		}
 
-		err := ws.EnsureNetworkPrivilege()
-
-		if err != nil {
-			t.Errorf("Expected no error when NetworkManager is nil, got: %v", err)
+		// Then the helper short-circuits without probing sudo
+		if !canElevateNonInteractively(mocks.Shell) {
+			t.Errorf("expected true when running as root")
+		}
+		if sudoChecked {
+			t.Errorf("expected sudo -n probe to be skipped when already root")
 		}
 	})
 
-	t.Run("NoOpWhenNeedsPrivilegeFalse", func(t *testing.T) {
+	t.Run("TrueWhenPasswordlessSudoCached", func(t *testing.T) {
+		// Given a non-root process with cached passwordless sudo credentials
+		geteuidFunc = func() int { return 1000 }
 		mocks := setupWorkstationMocks(t)
-		mocks.NetworkManager.NeedsPrivilegeFunc = func() bool {
-			return false
-		}
-		ws := NewWorkstation(mocks.Runtime, &Workstation{
-			VirtualMachine:   mocks.VirtualMachine,
-			ContainerRuntime: mocks.ContainerRuntime,
-			NetworkManager:   mocks.NetworkManager,
-		})
-
-		err := ws.EnsureNetworkPrivilege()
-
-		if err != nil {
-			t.Errorf("Expected no error when NeedsPrivilege false, got: %v", err)
-		}
-	})
-
-	t.Run("ErrorWhenPrivilegeCheckFails", func(t *testing.T) {
-		mocks := setupWorkstationMocks(t)
-		mocks.NetworkManager.NeedsPrivilegeFunc = func() bool {
-			return true
-		}
-		mocks.Shell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
-			return "", fmt.Errorf("sudo required")
-		}
 		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("passwordless sudo required")
+			if command == "sudo" && len(args) >= 2 && args[0] == "-n" && args[1] == "true" {
+				return "", nil
+			}
+			return "", fmt.Errorf("unexpected command")
 		}
-		ws := NewWorkstation(mocks.Runtime, &Workstation{
-			VirtualMachine:   mocks.VirtualMachine,
-			ContainerRuntime: mocks.ContainerRuntime,
-			NetworkManager:   mocks.NetworkManager,
-		})
 
-		err := ws.EnsureNetworkPrivilege()
-
-		if err == nil {
-			t.Error("Expected error when privilege check fails")
-			return
+		// Then the helper reports it can elevate without prompting
+		if !canElevateNonInteractively(mocks.Shell) {
+			t.Errorf("expected true when sudo -n true succeeds")
 		}
-		if !strings.Contains(err.Error(), "privileged access required") && !strings.Contains(err.Error(), "network configuration may require sudo") {
-			t.Errorf("Expected error about privilege/sudo, got: %v", err)
+	})
+
+	t.Run("FalseWhenNeitherRootNorCachedSudo", func(t *testing.T) {
+		// Given a non-root process with no cached sudo credentials
+		geteuidFunc = func() int { return 1000 }
+		mocks := setupWorkstationMocks(t)
+		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("a password is required")
+		}
+
+		// Then the helper reports it cannot elevate without prompting
+		if canElevateNonInteractively(mocks.Shell) {
+			t.Errorf("expected false when not root and sudo -n true fails")
 		}
 	})
 }
@@ -1064,22 +1041,15 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		}
 	})
 
-	t.Run("CallbackCallsConfigureNetworkForWorkstationComponent", func(t *testing.T) {
+	t.Run("CallbackReturnsNilWhenClusterPrivilegeNotNeeded", func(t *testing.T) {
+		// Given a docker-desktop runtime (no cluster privilege ever needed) with no other privileged work
 		mocks := setupWorkstationMocks(t)
-		mocks.ConfigHandler.Set("workstation.runtime", "colima")
-		configureNetworkCalled := false
-		mocks.NetworkManager.ConfigureGuestFunc = func() error {
-			configureNetworkCalled = true
-			return nil
-		}
-		mocks.NetworkManager.ConfigureHostRouteFunc = func() error {
-			configureNetworkCalled = true
-			return nil
-		}
-		mocks.NetworkManager.ConfigureDNSFunc = func() error {
-			configureNetworkCalled = true
-			return nil
-		}
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
+		var calls []string
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return false }
+		mocks.NetworkManager.ConfigureGuestFunc = func() error { calls = append(calls, "guest"); return nil }
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { calls = append(calls, "route"); return nil }
+		mocks.NetworkManager.ConfigureDNSFunc = func() error { calls = append(calls, "dns"); return nil }
 		ws := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
@@ -1087,18 +1057,102 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		})
 		ws.DeferHostGuestSetup = true
 
-		hook := ws.MakeApplyHook()
-		if hook == nil {
-			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
-		}
+		// When the hook fires for the workstation component
+		err := ws.MakeApplyHook()("workstation")
 
-		err := hook("workstation")
-
+		// Then the hook returns nil and never invokes any network configuration
 		if err != nil {
-			t.Errorf("Expected no error for workstation component, got: %v", err)
+			t.Errorf("expected nil error, got: %v", err)
 		}
-		if !configureNetworkCalled {
-			t.Error("Expected ConfigureNetwork to be called for workstation component")
+		if len(calls) != 0 {
+			t.Errorf("expected no network configuration calls, got: %v", calls)
+		}
+	})
+
+	t.Run("CallbackReturnsSentinelWhenCannotElevateInteractively", func(t *testing.T) {
+		// Given a runtime that needs cluster privilege but the process cannot elevate without prompting
+		originalGeteuid := geteuidFunc
+		t.Cleanup(func() { geteuidFunc = originalGeteuid })
+		geteuidFunc = func() int { return 1000 }
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return true }
+		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("a password is required")
+		}
+		var configureCalls []string
+		mocks.NetworkManager.ConfigureGuestFunc = func() error { configureCalls = append(configureCalls, "guest"); return nil }
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { configureCalls = append(configureCalls, "route"); return nil }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		ws.DeferHostGuestSetup = true
+
+		// When the hook fires
+		err := ws.MakeApplyHook()("workstation")
+
+		// Then the sentinel surfaces and no inline privileged work runs
+		if !errors.Is(err, ErrClusterPrivilegeRequired) {
+			t.Fatalf("expected ErrClusterPrivilegeRequired, got: %v", err)
+		}
+		if len(configureCalls) != 0 {
+			t.Errorf("expected no inline configure calls when sentinel returned, got: %v", configureCalls)
+		}
+	})
+
+	t.Run("CallbackRunsClusterWorkInlineWhenCanElevateNonInteractively", func(t *testing.T) {
+		// Given cluster privilege is needed and the process is root (CI / sudo windsor up)
+		originalGeteuid := geteuidFunc
+		t.Cleanup(func() { geteuidFunc = originalGeteuid })
+		geteuidFunc = func() int { return 0 }
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return true }
+		var calls []string
+		mocks.NetworkManager.ConfigureGuestFunc = func() error { calls = append(calls, "guest"); return nil }
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { calls = append(calls, "route"); return nil }
+		mocks.NetworkManager.ConfigureDNSFunc = func() error { calls = append(calls, "dns"); return nil }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		ws.DeferHostGuestSetup = true
+
+		// When the hook fires
+		err := ws.MakeApplyHook()("workstation")
+
+		// Then guest forwarding and host route ran inline; DNS did not (DNS is a post-up concern)
+		if err != nil {
+			t.Errorf("expected nil error, got: %v", err)
+		}
+		if len(calls) != 2 || calls[0] != "guest" || calls[1] != "route" {
+			t.Errorf("expected inline calls [guest, route], got: %v", calls)
+		}
+	})
+
+	t.Run("CallbackBubblesGuestConfigureError", func(t *testing.T) {
+		// Given cluster privilege is needed, the process can elevate, but ConfigureGuest fails
+		originalGeteuid := geteuidFunc
+		t.Cleanup(func() { geteuidFunc = originalGeteuid })
+		geteuidFunc = func() int { return 0 }
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return true }
+		mocks.NetworkManager.ConfigureGuestFunc = func() error { return fmt.Errorf("guest boom") }
+		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { return nil }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		ws.DeferHostGuestSetup = true
+
+		// When the hook fires
+		err := ws.MakeApplyHook()("workstation")
+
+		// Then the guest-configure error surfaces with context
+		if err == nil || !strings.Contains(err.Error(), "error configuring guest: guest boom") {
+			t.Errorf("expected configure-guest error, got: %v", err)
 		}
 	})
 }
@@ -1150,9 +1204,6 @@ func TestWorkstation_MakePostApplyHook(t *testing.T) {
 		mocks.ConfigHandler.Set("dns.domain", "test.example")
 		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetFunc = func(key string) any {
-			if key == "dns.enabled" {
-				return nil
-			}
 			return "mock-value"
 		}
 		flushCalled := false

@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1374,34 +1375,44 @@ func TestProject_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorFromEnsureNetworkPrivilege", func(t *testing.T) {
+	t.Run("ClusterPrivilegeSentinelBubblesFromApplyHook", func(t *testing.T) {
+		// Given a blueprint with a workstation TF component (so DeferHostGuestSetup → true and the
+		// apply hook fires), where the privileged probe says cluster work is needed but the process
+		// cannot elevate non-interactively (the halt-and-resume model on a normal dev workstation).
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
 			return true
 		}
-		mockShell := mocks.Shell.(*shell.MockShell)
-		mockShell.ExecSudoFunc = func(message string, command string, args ...string) (string, error) {
-			return "", fmt.Errorf("sudo failed")
-		}
-		mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			return "", fmt.Errorf("passwordless sudo required")
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return nil
-		}
-		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
 			if key == "terraform.enabled" {
 				return true
 			}
 			return false
 		}
-		mockNetwork := network.NewMockNetworkManager()
-		mockNetwork.NeedsPrivilegeFunc = func() bool {
-			return true
+		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
+		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
+			return &v1alpha1.Blueprint{
+				TerraformComponents: []v1alpha1.TerraformComponent{
+					{Path: "workstation"},
+				},
+			}
 		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+			// Simulate the terraform stack invoking the registered onApply hook for the workstation component
+			for _, fn := range onApply {
+				if err := fn("workstation"); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+
+		mockNetwork := network.NewMockNetworkManager()
+		mockNetwork.NeedsPrivilegeForClusterFunc = func() bool { return true }
+
 		proj := NewProject("test-context", &Project{
 			Runtime:     mocks.Runtime,
 			Composer:    mocks.Composer,
@@ -1415,14 +1426,19 @@ func TestProject_Up(t *testing.T) {
 		proj.Workstation.VirtualMachine = nil
 		proj.Workstation.ContainerRuntime = nil
 
+		// Force the canElevateNonInteractively path to report "cannot elevate"
+		t.Cleanup(workstation.SetGeteuidForTest(func() int { return 1000 }))
+		mockShell := mocks.Shell.(*shell.MockShell)
+		mockShell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("a password is required")
+		}
+
+		// When proj.Up runs
 		_, err := proj.Up()
 
-		if err == nil {
-			t.Error("Expected error when EnsureNetworkPrivilege fails")
-			return
-		}
-		if !strings.Contains(err.Error(), "privileged access required") && !strings.Contains(err.Error(), "network configuration may require sudo") {
-			t.Errorf("Expected error about privilege/sudo, got: %v", err)
+		// Then the sentinel bubbles up through the runApply / provisioner wrap chain
+		if !errors.Is(err, workstation.ErrClusterPrivilegeRequired) {
+			t.Errorf("expected ErrClusterPrivilegeRequired, got: %v", err)
 		}
 	})
 

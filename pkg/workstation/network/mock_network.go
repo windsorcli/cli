@@ -16,12 +16,13 @@ import (
 // MockNetworkManager is a struct that simulates a network manager for testing purposes.
 type MockNetworkManager struct {
 	NetworkManager
-	ConfigureHostRouteFunc func() error
-	ConfigureGuestFunc     func() error
-	ConfigureDNSFunc       func() error
-	FlushDNSFunc           func() error
-	NeedsPrivilegeFunc     func() bool
-	DNSChangedFunc         func() bool
+	ConfigureHostRouteFunc       func() error
+	ConfigureGuestFunc           func() error
+	ConfigureDNSFunc             func() error
+	FlushDNSFunc                 func() error
+	NeedsPrivilegeForClusterFunc func() bool
+	NeedsPrivilegeForDNSFunc     func() bool
+	DNSChangedFunc               func() bool
 }
 
 // =============================================================================
@@ -69,10 +70,18 @@ func (m *MockNetworkManager) FlushDNS() error {
 	return nil
 }
 
-// NeedsPrivilege calls the custom NeedsPrivilegeFunc if provided.
-func (m *MockNetworkManager) NeedsPrivilege() bool {
-	if m.NeedsPrivilegeFunc != nil {
-		return m.NeedsPrivilegeFunc()
+// NeedsPrivilegeForCluster calls the custom NeedsPrivilegeForClusterFunc if provided.
+func (m *MockNetworkManager) NeedsPrivilegeForCluster() bool {
+	if m.NeedsPrivilegeForClusterFunc != nil {
+		return m.NeedsPrivilegeForClusterFunc()
+	}
+	return false
+}
+
+// NeedsPrivilegeForDNS calls the custom NeedsPrivilegeForDNSFunc if provided.
+func (m *MockNetworkManager) NeedsPrivilegeForDNS() bool {
+	if m.NeedsPrivilegeForDNSFunc != nil {
+		return m.NeedsPrivilegeForDNSFunc()
 	}
 	return false
 }

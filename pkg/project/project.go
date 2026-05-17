@@ -216,8 +216,10 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 
 // Up generates the blueprint, starts the workstation if present (using PrepareForUp to defer host/guest setup
 // when a workstation Terraform component exists), runs the provisioner, and returns the blueprint for use by
-// Install/Wait. If network configuration may need privilege, ensures it up front (EnsureNetworkPrivilege) so
-// later configure can use cached credentials; if DNS address comes from Terraform, a prompt may occur later.
+// Install/Wait. Cluster reachability privilege (host route + in-VM forwarding for VM-backed runtimes) is
+// handled by the provisioner's onApply hook after the workstation Terraform component applies: it runs
+// inline when the process can elevate non-interactively, otherwise returns ErrClusterPrivilegeRequired so
+// the operator can run 'windsor configure network' from an elevated shell and re-run 'windsor up'.
 // Returns an error if any step fails.
 func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
 	return p.runApply(p.Provisioner.Up)
@@ -315,9 +317,6 @@ func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(string) 
 	p.Workstation.PrepareForUp(blueprint)
 	if err := p.Workstation.Up(); err != nil {
 		return nil, nil, fmt.Errorf("error starting workstation: %w", err)
-	}
-	if err := p.Workstation.EnsureNetworkPrivilege(); err != nil {
-		return nil, nil, err
 	}
 	onApply := p.Workstation.MakeApplyHook()
 	if postApply := p.Workstation.MakePostApplyHook(); postApply != nil {

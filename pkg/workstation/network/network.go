@@ -26,7 +26,8 @@ type NetworkManager interface {
 	ConfigureGuest() error
 	ConfigureDNS() error
 	FlushDNS() error
-	NeedsPrivilege() bool
+	NeedsPrivilegeForCluster() bool
+	NeedsPrivilegeForDNS() bool
 	DNSChanged() bool
 }
 
@@ -76,18 +77,37 @@ func (n *BaseNetworkManager) DNSChanged() bool {
 	return n.dnsChanged
 }
 
-// NeedsPrivilege returns true when network configuration will require elevated privileges (sudo or administrator).
-// Uses effectiveResolverIP and platform-specific needsPrivilegeForResolver/needsPrivilegeForHostRoute; errors are treated as false.
-func (n *BaseNetworkManager) NeedsPrivilege() bool {
-	desiredIP := n.effectiveResolverIP()
-	dnsEnabled := n.configHandler.Get("dns.enabled")
-	willConfigureDNS := (dnsEnabled == nil || dnsEnabled == true) &&
-		n.configHandler.GetString("dns.domain") != "" && desiredIP != ""
-	needForDNS := willConfigureDNS && n.needsPrivilegeForResolver(desiredIP)
-	workstationRuntime := n.configHandler.GetString("workstation.runtime")
+// NeedsPrivilegeForCluster reports whether the host needs elevated configuration before the rest
+// of the blueprint can reach the cluster — host route + in-VM forwarding on VM-backed runtimes
+// whose cluster IP is not on loopback. Returns true only on colima today; docker-desktop has the
+// cluster on 127.0.0.1 and never needs a host route. Failures of underlying probes are treated as
+// false (the privileged work is also gated by the actual ConfigureHostRoute call, which will
+// surface its own error if invoked when it shouldn't have been).
+func (n *BaseNetworkManager) NeedsPrivilegeForCluster() bool {
+	if n.configHandler.GetString("workstation.runtime") != "colima" {
+		return false
+	}
 	guestAddress := n.configHandler.GetString("workstation.address")
-	needForHostRoute := workstationRuntime == "colima" && guestAddress != "" && n.needsPrivilegeForHostRoute(guestAddress)
-	return needForDNS || needForHostRoute
+	if guestAddress == "" {
+		return false
+	}
+	return n.needsPrivilegeForHostRoute(guestAddress)
+}
+
+// NeedsPrivilegeForDNS reports whether the host's DNS resolver needs elevated configuration to
+// point *.dns.domain at the cluster resolver. Returns true when a configurable DNS service is
+// available (dns.domain set; resolver IP derivable via effectiveResolverIP) and the host's
+// current resolver entry does not already match. Failures of underlying probes are treated as
+// false.
+func (n *BaseNetworkManager) NeedsPrivilegeForDNS() bool {
+	if n.configHandler.GetString("dns.domain") == "" {
+		return false
+	}
+	desiredIP := n.effectiveResolverIP()
+	if desiredIP == "" {
+		return false
+	}
+	return n.needsPrivilegeForResolver(desiredIP)
 }
 
 // =============================================================================

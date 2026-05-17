@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
+	"github.com/windsorcli/cli/pkg/workstation"
 )
 
 var (
@@ -116,6 +118,14 @@ var upCmd = &cobra.Command{
 			}
 			return nil
 		}); err != nil {
+			// The cluster-privilege halt is a clean stop, not a stack trace. Its
+			// message is already operator-facing; print it directly to stderr and
+			// suppress cobra's "Error:" prefix while still exiting non-zero so
+			// CI / scripts know the up didn't complete.
+			if errors.Is(err, workstation.ErrClusterPrivilegeRequired) {
+				cmd.SilenceErrors = true
+				fmt.Fprintln(os.Stderr, workstation.ErrClusterPrivilegeRequired.Error())
+			}
 			return err
 		}
 
@@ -149,6 +159,6 @@ func init() {
 	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker)")
 	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp|hyperv]")
 	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Specify the blueprint to use")
-	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false")
+	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override configuration values. Example: --set cluster.endpoint=https://localhost:6443")
 	rootCmd.AddCommand(upCmd)
 }

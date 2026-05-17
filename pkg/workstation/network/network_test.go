@@ -235,6 +235,95 @@ func TestNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 }
 
+func TestNetworkManager_NeedsPrivilegeForCluster(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("FalseOnDockerDesktop", func(t *testing.T) {
+		// Given a docker-desktop runtime (cluster reachable via loopback, no host route needed)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
+
+		// Then no cluster-privilege work is required
+		if manager.NeedsPrivilegeForCluster() {
+			t.Errorf("expected NeedsPrivilegeForCluster to be false on docker-desktop")
+		}
+	})
+
+	t.Run("FalseOnColimaWithoutGuestAddress", func(t *testing.T) {
+		// Given colima with no workstation.address yet (typical before workstation TF applies)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.address", "")
+
+		// Then no cluster-privilege work is required — there's nothing to route to yet
+		if manager.NeedsPrivilegeForCluster() {
+			t.Errorf("expected NeedsPrivilegeForCluster to be false without guest address")
+		}
+	})
+
+	t.Run("TrueOnColimaWhenRouteAbsent", func(t *testing.T) {
+		// Given colima with a guest address and no matching host route
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.10")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "ip" && len(args) > 0 && args[0] == "route" {
+				return "", nil // empty route table → host route absent
+			}
+			if command == "route" && len(args) > 0 && args[0] == "-n" {
+				return "", nil // darwin: empty output → route absent
+			}
+			return "", nil
+		}
+
+		// Then cluster-privilege work is required
+		if !manager.NeedsPrivilegeForCluster() {
+			t.Errorf("expected NeedsPrivilegeForCluster to be true when host route is absent")
+		}
+	})
+}
+
+func TestNetworkManager_NeedsPrivilegeForDNS(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("FalseWhenDomainUnset", func(t *testing.T) {
+		// Given no DNS domain in config (no cluster DNS service to point at)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "")
+
+		// Then no DNS-privilege work is required
+		if manager.NeedsPrivilegeForDNS() {
+			t.Errorf("expected NeedsPrivilegeForDNS to be false when domain is unset")
+		}
+	})
+
+	t.Run("FalseWhenResolverIPUnderivable", func(t *testing.T) {
+		// Given a domain but no resolver IP — neither localhost mode nor workstation.dns.address
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
+
+		// Then no DNS-privilege work is required — there's no IP to write into the resolver entry
+		if manager.NeedsPrivilegeForDNS() {
+			t.Errorf("expected NeedsPrivilegeForDNS to be false when resolver IP is underivable")
+		}
+	})
+}
+
 // =============================================================================
 // Test Private Methods
 // =============================================================================

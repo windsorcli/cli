@@ -493,7 +493,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--set", "dns.enabled=false", "--yes"})
+		cmd.SetArgs([]string{"--set", "cluster.driver=talos", "--yes"})
 		cmd.SetContext(ctx)
 
 		// When executing bootstrap with --set

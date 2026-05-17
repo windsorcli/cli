@@ -1,9 +1,9 @@
 package workstation
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	stdruntime "runtime"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -12,7 +12,15 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
-	"golang.org/x/term"
+)
+
+// ErrClusterPrivilegeRequired is returned from MakeApplyHook when the workstation Terraform
+// component has just applied on a VM-backed runtime whose cluster IP is not reachable from the
+// host without elevated configuration (host route + in-VM forwarding). It is a clean halt, not a
+// failure: the operator runs 'windsor configure network' from an elevated shell and then re-runs
+// 'windsor up' to apply the remainder of the blueprint.
+var ErrClusterPrivilegeRequired = errors.New(
+	"cluster reachability requires running 'windsor configure network' from an elevated shell (one-time per host), then re-run 'windsor up'",
 )
 
 // The Workstation is a core component that manages workstation virtualization, networking, and SSH operations.
@@ -167,17 +175,14 @@ func (w *Workstation) Up() error {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
 		}
-		dnsEnabled := w.configHandler.Get("dns.enabled")
 		dnsDomain := w.configHandler.GetString("dns.domain")
-		if dnsEnabled == nil || dnsEnabled == true {
-			if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
-				if err := w.NetworkManager.ConfigureDNS(); err != nil {
-					return fmt.Errorf("error configuring DNS: %w", err)
-				}
-				if w.NetworkManager.DNSChanged() {
-					if err := w.FlushDNS(); err != nil {
-						return fmt.Errorf("error flushing DNS cache: %w", err)
-					}
+		if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
+			if err := w.NetworkManager.ConfigureDNS(); err != nil {
+				return fmt.Errorf("error configuring DNS: %w", err)
+			}
+			if w.NetworkManager.DNSChanged() {
+				if err := w.FlushDNS(); err != nil {
+					return fmt.Errorf("error flushing DNS cache: %w", err)
 				}
 			}
 		}
@@ -202,35 +207,11 @@ func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
 	}
 }
 
-// EnsureNetworkPrivilege ensures the process has (or can obtain) privilege required for network configuration.
-// Network manager resolves guest address and other settings from config; prompts for sudo when interactive or on Windows.
-func (w *Workstation) EnsureNetworkPrivilege() error {
-	if w.NetworkManager == nil || !w.NetworkManager.NeedsPrivilege() {
-		return nil
-	}
-	if term.IsTerminal(int(os.Stdin.Fd())) || stdruntime.GOOS == "windows" { // #nosec G115 -- file descriptors are small, safe to cast to int
-		if os.Geteuid() != 0 {
-			if _, err := w.shell.ExecSilent("sudo", "-n", "true"); err != nil {
-				fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
-			}
-		}
-		if _, err := w.shell.ExecSudo("", "true"); err != nil {
-			return fmt.Errorf("privileged access required: %w", err)
-		}
-		return nil
-	}
-	if os.Geteuid() != 0 {
-		if _, err := w.shell.ExecSilent("sudo", "-n", "true"); err != nil {
-			return fmt.Errorf("network configuration may require sudo; run from an interactive terminal or with passwordless sudo (e.g. sudo windsor up): %w", err)
-		}
-	}
-	return nil
-}
-
 // ConfigureNetwork runs host/guest and DNS setup. Workstation address and DNS config are
 // expected in the config handler, loaded from .windsor/contexts/<context>/workstation.yaml (written during
 // windsor up) or set explicitly. dnsAddressOverride (from --dns-address flag or Terraform
-// output) takes priority over config. DNS is configured unless dns.enabled is explicitly false.
+// output) takes priority over config. DNS is configured whenever dns.domain and the resolver
+// address are both available — the operator opts in by running 'windsor configure network'.
 // No-op when NetworkManager is nil.
 func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus bool) error {
 	if w.NetworkManager == nil {
@@ -253,28 +234,28 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus boo
 	} else if showStatus {
 		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
 	}
-	dnsEnabled := w.configHandler.Get("dns.enabled")
 	dnsDomain := w.configHandler.GetString("dns.domain")
-	if dnsEnabled == nil || dnsEnabled == true {
-		if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
-			if err := w.NetworkManager.ConfigureDNS(); err != nil {
-				return fmt.Errorf("error configuring DNS: %w", err)
-			}
-			if showStatus {
-				fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("workstation.dns.address"))
-			}
-		} else if showStatus {
-			fmt.Fprintln(os.Stderr, "dns: skipped (domain or address not set)")
+	if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
+		if err := w.NetworkManager.ConfigureDNS(); err != nil {
+			return fmt.Errorf("error configuring DNS: %w", err)
+		}
+		if showStatus {
+			fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("workstation.dns.address"))
 		}
 	} else if showStatus {
-		fmt.Fprintln(os.Stderr, "dns: disabled")
+		fmt.Fprintln(os.Stderr, "dns: skipped (domain or address not set)")
 	}
 	return nil
 }
 
 // MakeApplyHook returns a callback for the provisioner's onApply when DeferHostGuestSetup is true.
-// The callback configures network after the "workstation" Terraform component is applied, using
-// DNS address from Terraform outputs when available. Returns nil when DeferHostGuestSetup is false.
+// The callback persists DNS-related outputs from the just-applied workstation Terraform component,
+// then resolves cluster reachability: on runtimes that need a host route + in-VM forwarding to
+// reach the cluster (colima today), if the process can elevate non-interactively (root or cached
+// sudo), the cluster-privilege work runs inline; otherwise the hook returns ErrClusterPrivilegeRequired
+// so the operator can run 'windsor configure network' from an elevated shell and re-run 'windsor up'.
+// DNS resolver configuration is not applied here — it's a post-`up` concern handled by cmd/up.
+// Returns nil when DeferHostGuestSetup is false.
 func (w *Workstation) MakeApplyHook() func(componentID string) error {
 	if !w.DeferHostGuestSetup {
 		return nil
@@ -304,20 +285,31 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 		if err := w.WriteState(); err != nil {
 			return fmt.Errorf("error writing workstation state: %w", err)
 		}
-		return w.ConfigureNetwork("", false)
+		if w.NetworkManager == nil || !w.NetworkManager.NeedsPrivilegeForCluster() {
+			return nil
+		}
+		if !canElevateNonInteractively(w.shell) {
+			return ErrClusterPrivilegeRequired
+		}
+		if err := w.NetworkManager.ConfigureGuest(); err != nil {
+			return fmt.Errorf("error configuring guest: %w", err)
+		}
+		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
+			return fmt.Errorf("error configuring host route: %w", err)
+		}
+		return nil
 	}
 }
 
-// FlushDNS flushes the DNS cache when DNS is enabled and fully configured.
+// FlushDNS flushes the DNS cache when DNS is fully configured.
 // It is a no-op when the network manager is absent or DNS domain/address are not set.
 func (w *Workstation) FlushDNS() error {
 	if w.NetworkManager == nil {
 		return nil
 	}
-	dnsEnabled := w.configHandler.Get("dns.enabled")
 	dnsDomain := w.configHandler.GetString("dns.domain")
 	dnsAddress := w.configHandler.GetString("workstation.dns.address")
-	if (dnsEnabled == nil || dnsEnabled == true) && dnsDomain != "" && dnsAddress != "" {
+	if dnsDomain != "" && dnsAddress != "" {
 		return w.NetworkManager.FlushDNS()
 	}
 	return nil
@@ -367,5 +359,34 @@ func (w *Workstation) Down() error {
 // config keys (workstation.*, platform, dns.*) to .windsor/contexts/<context>/workstation.yaml.
 func (w *Workstation) WriteState() error {
 	return w.configHandler.SaveWorkstationState()
+}
+
+// SetGeteuidForTest replaces the package's geteuid implementation for the duration of a test and
+// returns a function that restores the previous implementation. Intended for cross-package tests
+// (e.g. pkg/project) that need to drive canElevateNonInteractively through a known path.
+func SetGeteuidForTest(fn func() int) func() {
+	original := geteuidFunc
+	geteuidFunc = fn
+	return func() { geteuidFunc = original }
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// geteuidFunc is the seam for testing canElevateNonInteractively. Tests override this to simulate
+// a root or non-root process without depending on the actual euid of the test runner.
+var geteuidFunc = os.Geteuid
+
+// canElevateNonInteractively reports whether the current process can run privileged commands
+// without prompting the operator: either it is already root (CI as root, sudo windsor up) or
+// passwordless sudo is cached for the current user. Used to decide between inline privilege
+// application and the operator-facing halt-and-resume model on commands like 'windsor up'.
+func canElevateNonInteractively(sh shell.Shell) bool {
+	if geteuidFunc() == 0 {
+		return true
+	}
+	_, err := sh.ExecSilent("sudo", "-n", "true")
+	return err == nil
 }
 

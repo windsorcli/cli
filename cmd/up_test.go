@@ -598,14 +598,14 @@ func TestBuildUpFlagOverrides(t *testing.T) {
 	t.Run("SetFlagsParsedAsKeyValuePairs", func(t *testing.T) {
 		resetFlags()
 		t.Cleanup(resetFlags)
-		upSetFlags = []string{"dns.enabled=false", "cluster.endpoint=https://localhost:6443"}
+		upSetFlags = []string{"cluster.driver=talos", "cluster.endpoint=https://localhost:6443"}
 
 		overrides, err := buildUpFlagOverrides()
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if overrides["dns.enabled"] != "false" {
-			t.Errorf("Expected dns.enabled=false, got %v", overrides["dns.enabled"])
+		if overrides["cluster.driver"] != "talos" {
+			t.Errorf("Expected cluster.driver=talos, got %v", overrides["cluster.driver"])
 		}
 		if overrides["cluster.endpoint"] != "https://localhost:6443" {
 			t.Errorf("Expected cluster.endpoint=https://localhost:6443, got %v", overrides["cluster.endpoint"])
