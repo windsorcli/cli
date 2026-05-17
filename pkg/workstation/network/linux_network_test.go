@@ -208,30 +208,17 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			return "../run/systemd/resolve/stub-resolv.conf", nil
 		}
 
-		// And capturing the content
+		// And capturing the content via the temp-file write shim
 		var capturedContent []byte
+		mocks.Shims.WriteFile = func(_ string, data []byte, _ os.FileMode) error {
+			capturedContent = data
+			return nil
+		}
 		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
 			if capturedContent != nil {
 				return capturedContent, nil
 			}
 			return nil, os.ErrNotExist
-		}
-
-		// And capturing the drop-in file content
-		mocks.Shell.ExecSudoFunc = func(description, command string, args ...string) (string, error) {
-			if command == "bash" && args[0] == "-c" {
-				cmdStr := args[1]
-				if strings.Contains(cmdStr, "echo '") && strings.Contains(cmdStr, "' | sudo tee") {
-					start := strings.Index(cmdStr, "echo '") + 6
-					end := strings.Index(cmdStr, "' | sudo tee")
-					if start < end {
-						content := cmdStr[start:end]
-						capturedContent = []byte(content)
-					}
-				}
-				return "", nil
-			}
-			return "", nil
 		}
 
 		// And configuring DNS
@@ -390,9 +377,9 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			return nil, os.ErrNotExist
 		}
 
-		// And mocking DNS config writing error
+		// And mocking DNS config writing error on the mv into place
 		mocks.Shell.ExecSudoFunc = func(description, command string, args ...string) (string, error) {
-			if command == "bash" && args[0] == "-c" {
+			if command == "mv" {
 				return "", fmt.Errorf("mock error writing config")
 			}
 			return "", nil
@@ -405,7 +392,7 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "failed to write DNS configuration: mock error writing config"
+		expectedError := "failed to write DNS configuration: failed to install file: mock error writing config"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
@@ -445,6 +432,164 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		expectedError := "failed to restart systemd-resolved: mock error restarting service"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("AbsoluteSymlinkAccepted", func(t *testing.T) {
+		// Given systemd-resolved exposes the absolute stub-resolv.conf symlink form (Fedora, some Ubuntu cloud images)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+		mocks.Shims.ReadLink = func(_ string) (string, error) {
+			return "/run/systemd/resolve/stub-resolv.conf", nil
+		}
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then no error should occur — the absolute symlink form is treated as systemd-resolved in use
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ErrorStagingTempFile", func(t *testing.T) {
+		// Given the temp-file write for the DNS drop-in fails
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+		mocks.Shims.ReadLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.WriteFile = func(_ string, _ []byte, _ os.FileMode) error {
+			return fmt.Errorf("mock error staging temp file")
+		}
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then the staging error surfaces and no sudo write is attempted
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to write DNS configuration: failed to stage file: mock error staging temp file"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorCreatingTempDir", func(t *testing.T) {
+		// Given the private temp dir cannot be created
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+		mocks.Shims.ReadLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.MkdirTemp = func(_, _ string) (string, error) {
+			return "", fmt.Errorf("mock mkdirtemp failure")
+		}
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then the helper's temp-dir error surfaces with context
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to write DNS configuration: failed to create temp directory: mock mkdirtemp failure"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("ErrorSettingFileMode", func(t *testing.T) {
+		// Given the post-mv chmod on the drop-in fails
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+		mocks.Shims.ReadLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "chmod" {
+				return "", fmt.Errorf("mock error setting mode")
+			}
+			return "", nil
+		}
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then the chmod error surfaces
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := "failed to write DNS configuration: failed to set file mode: mock error setting mode"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("DomainWithPathSeparatorRejected", func(t *testing.T) {
+		// Given a malformed DNS domain that would let configuration escape the drop-in directory
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "evil/../etc/passwd")
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then validation rejects it before any filesystem or shell operation runs
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		expectedError := `invalid DNS domain "evil/../etc/passwd": contains path separator`
+		if err.Error() != expectedError {
+			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("TempDirCleanedUpOnSuccess", func(t *testing.T) {
+		// Given a successful DNS configuration run
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+		mocks.Shims.ReadLink = func(_ string) (string, error) {
+			return "../run/systemd/resolve/stub-resolv.conf", nil
+		}
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		}
+
+		var removedPath string
+		mocks.Shims.MkdirTemp = func(_, _ string) (string, error) {
+			return "/tmp/windsor-net-mock", nil
+		}
+		mocks.Shims.RemoveAll = func(path string) error {
+			removedPath = path
+			return nil
+		}
+
+		// When configuring DNS
+		if err := manager.ConfigureDNS(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the deferred cleanup removed the same temp directory the helper created
+		if removedPath != "/tmp/windsor-net-mock" {
+			t.Fatalf("expected temp dir cleanup of %q, got %q", "/tmp/windsor-net-mock", removedPath)
 		}
 	})
 }

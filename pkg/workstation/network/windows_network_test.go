@@ -266,8 +266,10 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 						}
 					}
 
-					// Extract nameservers from the script
-					nameserversMatch := strings.Split(script, "NameServers -ne \"")
+					// Extract nameservers from the script — the check joins NameServers before comparing
+					// to handle multi-server NRPT rules, so the right-hand side of -ne is the only place
+					// the literal lives.
+					nameserversMatch := strings.Split(script, "-join ',') -ne \"")
 					if len(nameserversMatch) > 1 {
 						parts := strings.Split(nameserversMatch[1], "\"")
 						if len(parts) > 1 {
@@ -425,6 +427,35 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		expectedError := "DNS address is not configured"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		}
+	})
+
+	t.Run("CheckScriptJoinsNameServersBeforeCompare", func(t *testing.T) {
+		// Given the rule check must handle NRPT rules whose NameServers is a multi-element array
+		// (a plain $existingRule.NameServers -ne "<ip>" compares array-to-scalar and always reports mismatch).
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+
+		var checkScript string
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && args[0] == "-Command" && strings.Contains(args[1], "Get-DnsClientNrptRule") {
+				checkScript = args[1]
+			}
+			return "", nil
+		}
+
+		// When configuring DNS
+		if err := manager.ConfigureDNS(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the check script joins NameServers into a comma-separated string before comparing
+		if !strings.Contains(checkScript, "($existingRule.NameServers -join ',') -ne") {
+			t.Fatalf("expected check script to join NameServers before comparing, got: %q", checkScript)
+		}
+		if strings.Contains(checkScript, "$existingRule.NameServers -ne") {
+			t.Fatalf("check script still uses the broken array-vs-scalar comparison, got: %q", checkScript)
 		}
 	})
 }

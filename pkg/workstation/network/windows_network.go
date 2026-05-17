@@ -86,7 +86,7 @@ $namespace = '%s'
 $allRules = Get-DnsClientNrptRule
 $existingRule = $allRules | Where-Object { $_.Namespace -eq $namespace }
 if ($existingRule) {
-  if ($existingRule.NameServers -ne "%s") {
+  if (($existingRule.NameServers -join ',') -ne "%s") {
     $false
   } else {
     $true

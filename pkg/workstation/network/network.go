@@ -1,7 +1,10 @@
 package network
 
 import (
+	"fmt"
 	"net"
+	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -93,6 +96,43 @@ func (n *BaseNetworkManager) NeedsPrivilege() bool {
 // isLocalhostMode checks if the system is in localhost mode.
 func (n *BaseNetworkManager) isLocalhostMode() bool {
 	return n.configHandler.GetString("workstation.runtime") == "docker-desktop"
+}
+
+// validateDomain rejects DNS domains containing path separators that would let configuration values
+// escape the intended filesystem layout when interpolated into temp or drop-in file paths.
+// Caller is responsible for the "empty domain" check.
+func validateDomain(domain string) error {
+	if strings.ContainsAny(domain, `/\`) {
+		return fmt.Errorf("invalid DNS domain %q: contains path separator", domain)
+	}
+	return nil
+}
+
+// writeFileWithSudo stages content in a freshly-created private temp directory (mode 0700) and
+// then sudo-moves it to destPath and sudo-chmods it to 0644. Using MkdirTemp ensures the source
+// path is unpredictable and that an unprivileged local user cannot pre-create a symlink at the
+// source before the sudo mv runs. The temp directory is removed on every exit path.
+func (n *BaseNetworkManager) writeFileWithSudo(destPath string, content []byte) error {
+	tempDir, err := n.shims.MkdirTemp("", "windsor-net-")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer n.shims.RemoveAll(tempDir)
+
+	tempPath := filepath.Join(tempDir, "drop-in")
+	if err := n.shims.WriteFile(tempPath, content, 0644); err != nil {
+		return fmt.Errorf("failed to stage file: %w", err)
+	}
+
+	if _, err := n.shell.ExecSudo("", "mv", tempPath, destPath); err != nil {
+		return fmt.Errorf("failed to install file: %w", err)
+	}
+
+	if _, err := n.shell.ExecSudo("", "chmod", "0644", destPath); err != nil {
+		return fmt.Errorf("failed to set file mode: %w", err)
+	}
+
+	return nil
 }
 
 // effectiveResolverIP returns the resolver IP for DNS config: dns.address when set (by config, migration for
