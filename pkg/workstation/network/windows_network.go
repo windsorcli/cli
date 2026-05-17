@@ -143,6 +143,40 @@ if ($?) {
 // Private Methods
 // =============================================================================
 
+// RevertHostRoute removes the host-to-guest route previously added by ConfigureHostRoute on
+// Windows. Idempotent via -ErrorAction SilentlyContinue: a missing route does not surface an
+// error. Like the other Windows network operations, requires the cobra command to already be
+// running in an elevated PowerShell — there is no equivalent of 'sudo' to call from here.
+func (n *BaseNetworkManager) RevertHostRoute() error {
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" {
+		return nil
+	}
+	script := fmt.Sprintf("Remove-NetRoute -DestinationPrefix %s -Confirm:$false -ErrorAction SilentlyContinue", networkCIDR)
+	if _, err := n.shell.ExecSilent("powershell", "-Command", script); err != nil {
+		return fmt.Errorf("failed to remove host route: %w", err)
+	}
+	return nil
+}
+
+// RevertDNS removes the NRPT rule installed by ConfigureDNS on Windows. Idempotent via
+// -ErrorAction SilentlyContinue: a missing rule does not surface an error.
+func (n *BaseNetworkManager) RevertDNS() error {
+	domain := n.configHandler.GetString("dns.domain")
+	if domain == "" {
+		return nil
+	}
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
+	namespace := "." + domain
+	script := fmt.Sprintf("Remove-DnsClientNrptRule -Namespace '%s' -Force -ErrorAction SilentlyContinue", namespace)
+	if _, err := n.shell.ExecSilent("powershell", "-Command", script); err != nil {
+		return fmt.Errorf("failed to remove DNS rule: %w", err)
+	}
+	return nil
+}
+
 // FlushDNS clears the Windows DNS client cache via PowerShell.
 func (n *BaseNetworkManager) FlushDNS() error {
 	if _, err := n.shell.ExecSilent("powershell", "-Command", "Clear-DnsClientCache"); err != nil {

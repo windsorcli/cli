@@ -248,6 +248,39 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus boo
 	return nil
 }
 
+// RevertNetwork undoes the host configuration that ConfigureNetwork applied: removes the host
+// route + in-VM forwarding on VM-backed runtimes, and removes the per-domain DNS resolver entry.
+// Each step is idempotent — the corresponding NetworkManager.Revert* method tolerates missing
+// state — so this is safe to call after partial configuration or against contexts that were
+// never configured. No-op when NetworkManager is nil. showStatus emits one line per step to
+// stderr; suppress it for non-interactive callers.
+func (w *Workstation) RevertNetwork(showStatus bool) error {
+	if w.NetworkManager == nil {
+		return nil
+	}
+	workstationRuntime := w.configHandler.GetString("workstation.runtime")
+	if workstationRuntime == "colima" {
+		if err := w.NetworkManager.RevertGuest(); err != nil {
+			return fmt.Errorf("error reverting guest: %w", err)
+		}
+		if err := w.NetworkManager.RevertHostRoute(); err != nil {
+			return fmt.Errorf("error reverting host route: %w", err)
+		}
+		if showStatus {
+			fmt.Fprintln(os.Stderr, "network: reverted")
+		}
+	} else if showStatus {
+		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
+	}
+	if err := w.NetworkManager.RevertDNS(); err != nil {
+		return fmt.Errorf("error reverting DNS: %w", err)
+	}
+	if showStatus {
+		fmt.Fprintln(os.Stderr, "dns: reverted")
+	}
+	return nil
+}
+
 // MakeApplyHook returns a callback for the provisioner's onApply when DeferHostGuestSetup is true.
 // The callback persists DNS-related outputs from the just-applied workstation Terraform component,
 // then resolves cluster reachability: on runtimes that need a host route + in-VM forwarding to

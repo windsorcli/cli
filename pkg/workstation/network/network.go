@@ -21,10 +21,16 @@ import (
 
 // NetworkManager handles configuring the local development network.
 // Guest address is read from config (workstation.address) where needed.
+// Revert* counterparts undo Configure*, are idempotent (no-op when the
+// resource is absent), and are invoked by 'windsor configure network --revert'
+// and 'windsor down --clean'.
 type NetworkManager interface {
 	ConfigureHostRoute() error
 	ConfigureGuest() error
 	ConfigureDNS() error
+	RevertHostRoute() error
+	RevertGuest() error
+	RevertDNS() error
 	FlushDNS() error
 	NeedsPrivilegeForCluster() bool
 	NeedsPrivilegeForDNS() bool
@@ -69,6 +75,13 @@ func NewBaseNetworkManager(rt *runtime.Runtime) *BaseNetworkManager {
 
 // ConfigureGuest sets up the guest VM network. Base implementation is a no-op; Colima overrides and reads guest address from config.
 func (n *BaseNetworkManager) ConfigureGuest() error {
+	return nil
+}
+
+// RevertGuest removes guest-VM forwarding installed by ConfigureGuest. Base implementation is a
+// no-op (nothing to revert when ConfigureGuest was a no-op); Colima overrides to remove the
+// iptables FORWARD rule it installed in the VM.
+func (n *BaseNetworkManager) RevertGuest() error {
 	return nil
 }
 

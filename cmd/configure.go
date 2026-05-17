@@ -13,6 +13,7 @@ import (
 var (
 	configureNetworkDnsAddress string
 	configureNetworkDryRun     bool
+	configureNetworkRevert     bool
 )
 
 var configureCmd = &cobra.Command{
@@ -24,7 +25,7 @@ var configureCmd = &cobra.Command{
 var configureNetworkCmd = &cobra.Command{
 	Use:          "network",
 	Short:        "Configure workstation host/guest networking and DNS",
-	Long:         "Run from an elevated shell after 'windsor up' has provisioned the workstation. Installs the host route + in-VM forwarding required for cluster reachability on VM-backed runtimes, and writes the per-domain DNS resolver entry so '*.<dns.domain>' resolves to the cluster's DNS service. Use --dns-address to override the DNS service address; --dry-run to describe what would change without invoking sudo.",
+	Long:         "Run from an elevated shell after 'windsor up' has provisioned the workstation. Installs the host route + in-VM forwarding required for cluster reachability on VM-backed runtimes, and writes the per-domain DNS resolver entry so '*.<dns.domain>' resolves to the cluster's DNS service. Use --dns-address to override the DNS service address; --dry-run to describe what would change without invoking sudo; --revert to remove the host configuration this command previously installed.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var opts []*project.Project
@@ -85,6 +86,10 @@ var configureNetworkCmd = &cobra.Command{
 			return tw.Flush()
 		}
 
+		if configureNetworkRevert {
+			return proj.Workstation.RevertNetwork(true)
+		}
+
 		dnsAddr := configureNetworkDnsAddress
 		if err := proj.Workstation.ConfigureNetwork(dnsAddr, true); err != nil {
 			return err
@@ -116,6 +121,7 @@ func ensureWorkstationProvisioned(proj *project.Project) error {
 func init() {
 	configureNetworkCmd.Flags().StringVar(&configureNetworkDnsAddress, "dns-address", "", "DNS service address (e.g. from Terraform workstation output)")
 	configureNetworkCmd.Flags().BoolVar(&configureNetworkDryRun, "dry-run", false, "Describe what 'configure network' would do without invoking sudo or modifying host state")
+	configureNetworkCmd.Flags().BoolVar(&configureNetworkRevert, "revert", false, "Remove the host route, in-VM forwarding, and DNS resolver entry previously installed by 'configure network'")
 	configureCmd.AddCommand(configureNetworkCmd)
 	rootCmd.AddCommand(configureCmd)
 }

@@ -939,6 +939,103 @@ func TestWorkstation_PrepareForUp(t *testing.T) {
 	})
 }
 
+func TestWorkstation_RevertNetwork(t *testing.T) {
+	t.Run("NoOpWhenNetworkManagerNil", func(t *testing.T) {
+		// Given a workstation without a NetworkManager
+		mocks := setupWorkstationMocks(t)
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: nil})
+
+		// When reverting the network
+		err := ws.RevertNetwork(false)
+
+		// Then no error, no calls
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("SkipsClusterRevertOnNonColima", func(t *testing.T) {
+		// Given a docker-desktop runtime
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
+		var calls []string
+		mocks.NetworkManager.RevertGuestFunc = func() error { calls = append(calls, "guest"); return nil }
+		mocks.NetworkManager.RevertHostRouteFunc = func() error { calls = append(calls, "route"); return nil }
+		mocks.NetworkManager.RevertDNSFunc = func() error { calls = append(calls, "dns"); return nil }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: mocks.NetworkManager})
+
+		// When reverting the network
+		if err := ws.RevertNetwork(false); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then only DNS revert runs; cluster reverts are skipped (no host route or in-VM forwarding on docker-desktop)
+		if len(calls) != 1 || calls[0] != "dns" {
+			t.Errorf("expected [dns], got %v", calls)
+		}
+	})
+
+	t.Run("RevertsGuestThenRouteThenDNSOnColima", func(t *testing.T) {
+		// Given a colima runtime
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		var calls []string
+		mocks.NetworkManager.RevertGuestFunc = func() error { calls = append(calls, "guest"); return nil }
+		mocks.NetworkManager.RevertHostRouteFunc = func() error { calls = append(calls, "route"); return nil }
+		mocks.NetworkManager.RevertDNSFunc = func() error { calls = append(calls, "dns"); return nil }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: mocks.NetworkManager})
+
+		// When reverting the network
+		if err := ws.RevertNetwork(false); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then all three reverts run in the expected order: guest (in-VM forwarding) before route
+		// so the iptables rule is gone before the route stops carrying traffic
+		want := []string{"guest", "route", "dns"}
+		if len(calls) != len(want) {
+			t.Fatalf("expected %v, got %v", want, calls)
+		}
+		for i := range want {
+			if calls[i] != want[i] {
+				t.Errorf("position %d: expected %q, got %q", i, want[i], calls[i])
+			}
+		}
+	})
+
+	t.Run("BubblesGuestRevertError", func(t *testing.T) {
+		// Given colima with RevertGuest failing
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.NetworkManager.RevertGuestFunc = func() error { return fmt.Errorf("guest boom") }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: mocks.NetworkManager})
+
+		// When reverting the network
+		err := ws.RevertNetwork(false)
+
+		// Then the guest error surfaces with context
+		if err == nil || !strings.Contains(err.Error(), "error reverting guest: guest boom") {
+			t.Errorf("expected guest revert error, got %v", err)
+		}
+	})
+
+	t.Run("BubblesDNSRevertErrorOnDockerDesktop", func(t *testing.T) {
+		// Given docker-desktop with RevertDNS failing
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
+		mocks.NetworkManager.RevertDNSFunc = func() error { return fmt.Errorf("dns boom") }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: mocks.NetworkManager})
+
+		// When reverting the network
+		err := ws.RevertNetwork(false)
+
+		// Then the DNS error surfaces with context
+		if err == nil || !strings.Contains(err.Error(), "error reverting DNS: dns boom") {
+			t.Errorf("expected DNS revert error, got %v", err)
+		}
+	})
+}
+
 func TestWorkstation_PendingNetworkChanges(t *testing.T) {
 	t.Run("EmptyWhenNothingPending", func(t *testing.T) {
 		// Given a workstation whose network manager reports neither cluster nor DNS work pending

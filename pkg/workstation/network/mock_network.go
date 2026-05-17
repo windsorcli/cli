@@ -19,6 +19,9 @@ type MockNetworkManager struct {
 	ConfigureHostRouteFunc       func() error
 	ConfigureGuestFunc           func() error
 	ConfigureDNSFunc             func() error
+	RevertHostRouteFunc          func() error
+	RevertGuestFunc              func() error
+	RevertDNSFunc                func() error
 	FlushDNSFunc                 func() error
 	NeedsPrivilegeForClusterFunc func() bool
 	NeedsPrivilegeForDNSFunc     func() bool
@@ -58,6 +61,30 @@ func (m *MockNetworkManager) ConfigureGuest() error {
 func (m *MockNetworkManager) ConfigureDNS() error {
 	if m.ConfigureDNSFunc != nil {
 		return m.ConfigureDNSFunc()
+	}
+	return nil
+}
+
+// RevertHostRoute calls the custom RevertHostRouteFunc if provided.
+func (m *MockNetworkManager) RevertHostRoute() error {
+	if m.RevertHostRouteFunc != nil {
+		return m.RevertHostRouteFunc()
+	}
+	return nil
+}
+
+// RevertGuest calls the custom RevertGuestFunc if provided.
+func (m *MockNetworkManager) RevertGuest() error {
+	if m.RevertGuestFunc != nil {
+		return m.RevertGuestFunc()
+	}
+	return nil
+}
+
+// RevertDNS calls the custom RevertDNSFunc if provided.
+func (m *MockNetworkManager) RevertDNS() error {
+	if m.RevertDNSFunc != nil {
+		return m.RevertDNSFunc()
 	}
 	return nil
 }

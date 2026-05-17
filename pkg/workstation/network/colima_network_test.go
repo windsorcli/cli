@@ -596,3 +596,98 @@ func TestColimaNetworkManager_getHostIP(t *testing.T) {
 		}
 	})
 }
+
+func TestColimaNetworkManager_RevertGuest(t *testing.T) {
+	setup := func(t *testing.T) (*ColimaNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewColimaNetworkManager(mocks.Runtime, mocks.NetworkInterfaceProvider)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("NoOpWhenGuestAddressUnset", func(t *testing.T) {
+		// Given a network manager with no workstation.address (VM never came up for this context)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "")
+		var sshCalled bool
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, _ []string, _ time.Duration) (string, error) {
+			if command == "colima" {
+				sshCalled = true
+			}
+			return "", nil
+		}
+
+		// When reverting the guest
+		if err := manager.RevertGuest(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then no colima ssh occurs
+		if sshCalled {
+			t.Errorf("expected no colima ssh when guest address is unset")
+		}
+	})
+
+	t.Run("NoOpWhenVMDownAndSSHFails", func(t *testing.T) {
+		// Given the VM has been torn down so colima ssh fails — revert should not surface this
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, _ time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "ls /sys/class/net") {
+					return "", fmt.Errorf("could not ssh into vm: vm is not running")
+				}
+			}
+			return "", nil
+		}
+
+		// When reverting the guest
+		err := manager.RevertGuest()
+
+		// Then revert reports success — there's nothing to undo when the VM is gone
+		if err != nil {
+			t.Errorf("expected nil error when VM is down, got %v", err)
+		}
+	})
+
+	t.Run("DeletesIptablesRuleWhenBridgePresent", func(t *testing.T) {
+		// Given the VM is up with a docker bridge interface and iptables -D succeeds
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
+		var deleteCommand string
+		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, _ time.Duration) (string, error) {
+			if command == "colima" && len(args) > 0 && args[0] == "ssh" {
+				cmdStr := strings.Join(args, " ")
+				if strings.Contains(cmdStr, "ls /sys/class/net") {
+					return "br-bridge0\neth0\nlo", nil
+				}
+				if strings.Contains(cmdStr, "iptables") && strings.Contains(cmdStr, "-D FORWARD") {
+					deleteCommand = cmdStr
+					return "", nil
+				}
+			}
+			return "", nil
+		}
+
+		// When reverting the guest
+		if err := manager.RevertGuest(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then the iptables delete command targets the discovered bridge interface
+		if !strings.Contains(deleteCommand, "br-bridge0") {
+			t.Errorf("expected iptables -D to reference br-bridge0, got: %q", deleteCommand)
+		}
+		if !strings.Contains(deleteCommand, "-D FORWARD -i col0") {
+			t.Errorf("expected iptables -D FORWARD -i col0, got: %q", deleteCommand)
+		}
+	})
+
+	// Note: tolerance of iptables -D's "rule does not exist" exit code 1 is covered by
+	// isExitCode's own unit tests in TestIsExitCode. The RevertGuest path here only calls
+	// isExitCode and returns nil on a match — there is no isolated way to construct a real
+	// *exec.ExitError with a specific exit code from outside exec.Cmd, so we don't duplicate
+	// that coverage here.
+}
