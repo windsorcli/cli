@@ -131,6 +131,16 @@ var upCmd = &cobra.Command{
 
 		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 
+		// Post-up DNS hint: when a cluster DNS service is present (dns.domain + resolver address
+		// in TF outputs) and the host's resolver is not pointed at it, point the operator at
+		// 'windsor configure network'. The cluster works fine without this — it's purely for
+		// browser-friendly URLs against the cluster's services.
+		if proj.Workstation != nil && proj.Workstation.NetworkManager != nil && proj.Workstation.NetworkManager.NeedsPrivilegeForDNS() {
+			domain := proj.Runtime.ConfigHandler.GetString("dns.domain")
+			address := proj.Runtime.ConfigHandler.GetString("workstation.dns.address")
+			fmt.Fprintf(os.Stderr, "*.%s is reachable at %s; run 'windsor configure network' (elevated, one-time per host) for browser-friendly URLs.\n", domain, address)
+		}
+
 		return nil
 	},
 }

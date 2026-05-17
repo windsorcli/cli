@@ -21,6 +21,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/workstation"
+	"github.com/windsorcli/cli/pkg/workstation/network"
 )
 
 // =============================================================================
@@ -517,6 +518,98 @@ func TestUpCmd(t *testing.T) {
 		}
 		if upCalled {
 			t.Error("Provisioner.Up must not run when credential preflight fails")
+		}
+	})
+
+	t.Run("PostUpDNSHintFiresWhenDNSPrivilegeStillNeeded", func(t *testing.T) {
+		// Given a successful up where the cluster DNS service is up but the host's resolver
+		// is not yet pointed at it (typical docker-desktop case before 'configure network')
+		mocks := setupUpTest(t)
+		mockCfg := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCfg.GetStringFunc = func(key string, _ ...string) string {
+			switch key {
+			case "dns.domain":
+				return "local.test"
+			case "workstation.dns.address":
+				return "10.5.0.2"
+			}
+			return ""
+		}
+		mockNet := network.NewMockNetworkManager()
+		mockNet.NeedsPrivilegeForDNSFunc = func() bool { return true }
+		proj := newUpTestProject(mocks, true)
+		proj.Workstation.NetworkManager = mockNet
+
+		// And process stderr is captured so the hint is observable
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		// When executing up
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("expected success, got error: %v", err)
+		}
+		restore()
+
+		// Then the post-up DNS hint is printed with domain and address interpolated
+		stderr := stderrBuf.String()
+		want := "*.local.test is reachable at 10.5.0.2; run 'windsor configure network'"
+		if !strings.Contains(stderr, want) {
+			t.Errorf("expected stderr to contain %q, got: %q", want, stderr)
+		}
+	})
+
+	t.Run("PostUpDNSHintSuppressedWhenResolverAlreadyConfigured", func(t *testing.T) {
+		// Given a successful up where the host's resolver is already pointed at the cluster DNS
+		mocks := setupUpTest(t)
+		mockNet := network.NewMockNetworkManager()
+		mockNet.NeedsPrivilegeForDNSFunc = func() bool { return false }
+		proj := newUpTestProject(mocks, true)
+		proj.Workstation.NetworkManager = mockNet
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		// When executing up
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("expected success, got error: %v", err)
+		}
+		restore()
+
+		// Then the hint is not printed — operator already has browser-friendly URLs working
+		stderr := stderrBuf.String()
+		if strings.Contains(stderr, "windsor configure network") {
+			t.Errorf("expected no DNS hint when resolver already configured, got: %q", stderr)
+		}
+	})
+
+	t.Run("PostUpDNSHintSuppressedWhenNetworkManagerNil", func(t *testing.T) {
+		// Given a workstation without a NetworkManager (atypical, but the hint must not panic)
+		mocks := setupUpTest(t)
+		proj := newUpTestProject(mocks, true)
+		proj.Workstation.NetworkManager = nil
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		// When executing up
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("expected success, got error: %v", err)
+		}
+		restore()
+
+		// Then no hint and no panic
+		stderr := stderrBuf.String()
+		if strings.Contains(stderr, "windsor configure network") {
+			t.Errorf("expected no DNS hint when NetworkManager is nil, got: %q", stderr)
 		}
 	})
 }

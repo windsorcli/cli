@@ -96,6 +96,27 @@ func suppressProcessStderr(t *testing.T) {
 	})
 }
 
+// captureProcessStderr redirects os.Stderr to a pipe whose contents the caller can read after
+// invoking the returned restore. Use this from a subtest to override a parent test's
+// suppressProcessStderr when you need to assert on stderr content written via
+// fmt.Fprintln(os.Stderr, ...). The caller must invoke restore (or t.Cleanup it) before reading buf.
+func captureProcessStderr(t *testing.T) (buf *bytes.Buffer, restore func()) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	buf = new(bytes.Buffer)
+	restore = func() {
+		w.Close()
+		io.Copy(buf, r)
+		os.Stderr = orig
+	}
+	return buf, restore
+}
+
 // setupMocks creates mock components for testing the root command
 func setupMocks(t *testing.T, opts ...*SetupOptions) *Mocks {
 	t.Helper()
