@@ -939,6 +939,84 @@ func TestWorkstation_PrepareForUp(t *testing.T) {
 	})
 }
 
+func TestWorkstation_PendingNetworkChanges(t *testing.T) {
+	t.Run("EmptyWhenNothingPending", func(t *testing.T) {
+		// Given a workstation whose network manager reports neither cluster nor DNS work pending
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return false }
+		mocks.NetworkManager.NeedsPrivilegeForDNSFunc = func() bool { return false }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: mocks.NetworkManager})
+
+		// When inspecting pending changes
+		got := ws.PendingNetworkChanges()
+
+		// Then the list is empty (callers print "nothing pending")
+		if len(got) != 0 {
+			t.Errorf("expected empty pending list, got %v", got)
+		}
+	})
+
+	t.Run("ListsHostRouteAndVMForwardWhenClusterPending", func(t *testing.T) {
+		// Given cluster privilege is pending with concrete CIDR + guest address in config
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.10")
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return true }
+		mocks.NetworkManager.NeedsPrivilegeForDNSFunc = func() bool { return false }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: mocks.NetworkManager})
+
+		// When inspecting pending changes
+		got := ws.PendingNetworkChanges()
+
+		// Then both cluster-privilege rows appear with config values interpolated into Detail
+		want := []NetworkChange{
+			{Kind: "host-route", Detail: "192.168.5.0/24 via 192.168.5.10"},
+			{Kind: "vm-forward", Detail: "col0 -> docker bridge"},
+		}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d entries, got %d (%+v)", len(want), len(got), got)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("entry %d: expected %+v, got %+v", i, want[i], got[i])
+			}
+		}
+	})
+
+	t.Run("ListsResolverEntryWhenDNSPending", func(t *testing.T) {
+		// Given DNS privilege is pending with concrete domain + resolver address in config
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "local.test")
+		mocks.ConfigHandler.Set("workstation.dns.address", "10.5.0.2")
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return false }
+		mocks.NetworkManager.NeedsPrivilegeForDNSFunc = func() bool { return true }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: mocks.NetworkManager})
+
+		// When inspecting pending changes
+		got := ws.PendingNetworkChanges()
+
+		// Then the resolver entry appears with domain + address interpolated into Detail
+		want := NetworkChange{Kind: "dns-resolver", Detail: "*.local.test -> 10.5.0.2"}
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("expected [%+v], got %+v", want, got)
+		}
+	})
+
+	t.Run("ReturnsNilWhenNetworkManagerNil", func(t *testing.T) {
+		// Given a workstation with no NetworkManager (atypical, but the helper must not panic)
+		mocks := setupWorkstationMocks(t)
+		ws := NewWorkstation(mocks.Runtime, &Workstation{NetworkManager: nil})
+
+		// When inspecting pending changes
+		got := ws.PendingNetworkChanges()
+
+		// Then a nil slice is returned
+		if got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+}
+
 func TestCanElevateNonInteractively(t *testing.T) {
 	// Save and restore the geteuid override around each subtest
 	originalGeteuid := geteuidFunc

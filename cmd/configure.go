@@ -3,12 +3,17 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
 )
 
-var configureNetworkDnsAddress string
+var (
+	configureNetworkDnsAddress string
+	configureNetworkDryRun     bool
+)
 
 var configureCmd = &cobra.Command{
 	Use:   "configure",
@@ -19,7 +24,7 @@ var configureCmd = &cobra.Command{
 var configureNetworkCmd = &cobra.Command{
 	Use:          "network",
 	Short:        "Configure workstation host/guest networking and DNS",
-	Long:         "Run from project root after the workstation Terraform component is applied. Use --dns-address to set the DNS service address; otherwise DNS is not configured.",
+	Long:         "Run from an elevated shell after 'windsor up' has provisioned the workstation. Installs the host route + in-VM forwarding required for cluster reachability on VM-backed runtimes, and writes the per-domain DNS resolver entry so '*.<dns.domain>' resolves to the cluster's DNS service. Use --dns-address to override the DNS service address; --dry-run to describe what would change without invoking sudo.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var opts []*project.Project
@@ -49,14 +54,38 @@ var configureNetworkCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "workstation disabled")
 			return nil
 		}
+
+		// Precondition: refuse to run before the workstation Terraform component has applied.
+		// MakeApplyHook writes workstation.yaml after the workstation TF outputs are persisted,
+		// so its presence is the canonical signal that 'windsor up' has reached the cluster-
+		// reachability handoff point and we have real values (DNS address, runtime, etc.) to
+		// install on the host.
+		if err := ensureWorkstationProvisioned(proj); err != nil {
+			return err
+		}
+
 		if err := proj.Workstation.Prepare(); err != nil {
 			return err
 		}
-		dnsAddr := configureNetworkDnsAddress
 		if proj.Workstation.NetworkManager == nil {
 			fmt.Fprintln(os.Stderr, "network: n/a")
 			return nil
 		}
+
+		if configureNetworkDryRun {
+			changes := proj.Workstation.PendingNetworkChanges()
+			if len(changes) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "nothing pending")
+				return nil
+			}
+			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			for _, c := range changes {
+				fmt.Fprintf(tw, "%s\t%s\n", c.Kind, c.Detail)
+			}
+			return tw.Flush()
+		}
+
+		dnsAddr := configureNetworkDnsAddress
 		if err := proj.Workstation.ConfigureNetwork(dnsAddr, true); err != nil {
 			return err
 		}
@@ -64,8 +93,29 @@ var configureNetworkCmd = &cobra.Command{
 	},
 }
 
+// ensureWorkstationProvisioned errors when 'windsor up' has not yet reached the apply-hook
+// handoff for the current context. Detection is by file presence:
+// <projectRoot>/.windsor/contexts/<context>/workstation.yaml is written by Workstation.WriteState
+// only after the workstation Terraform component applies. Operator-facing message points at
+// 'windsor up' as the remediation.
+func ensureWorkstationProvisioned(proj *project.Project) error {
+	projectRoot, err := proj.Runtime.Shell.GetProjectRoot()
+	if err != nil {
+		return fmt.Errorf("error resolving project root: %w", err)
+	}
+	context := proj.Runtime.ConfigHandler.GetContext()
+	workstationYAML := filepath.Join(projectRoot, ".windsor", "contexts", context, "workstation.yaml")
+	if _, err := os.Stat(workstationYAML); os.IsNotExist(err) {
+		return fmt.Errorf("workstation has not been provisioned yet for context %q. Run 'windsor up' first, then re-run 'windsor configure network'", context)
+	} else if err != nil {
+		return fmt.Errorf("error checking workstation state: %w", err)
+	}
+	return nil
+}
+
 func init() {
 	configureNetworkCmd.Flags().StringVar(&configureNetworkDnsAddress, "dns-address", "", "DNS service address (e.g. from Terraform workstation output)")
+	configureNetworkCmd.Flags().BoolVar(&configureNetworkDryRun, "dry-run", false, "Describe what 'configure network' would do without invoking sudo or modifying host state")
 	configureCmd.AddCommand(configureNetworkCmd)
 	rootCmd.AddCommand(configureCmd)
 }

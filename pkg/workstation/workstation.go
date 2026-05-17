@@ -361,6 +361,42 @@ func (w *Workstation) WriteState() error {
 	return w.configHandler.SaveWorkstationState()
 }
 
+// NetworkChange is one row of structured output for PendingNetworkChanges. Kind is a stable
+// kebab-case identifier ("host-route", "vm-forward", "dns-resolver") and Detail is the value
+// being installed ("192.168.5.0/24 via 192.168.5.10"). Callers are expected to render these
+// as aligned columns rather than baking the kind into a prose sentence.
+type NetworkChange struct {
+	Kind   string
+	Detail string
+}
+
+// PendingNetworkChanges returns the host configuration changes that 'windsor configure network'
+// would apply for the current context. Returns an empty slice when nothing is pending. Returns
+// nil when the workstation has no NetworkManager.
+func (w *Workstation) PendingNetworkChanges() []NetworkChange {
+	if w.NetworkManager == nil {
+		return nil
+	}
+	var changes []NetworkChange
+	if w.NetworkManager.NeedsPrivilegeForCluster() {
+		cidr := w.configHandler.GetString("network.cidr_block")
+		gateway := w.configHandler.GetString("workstation.address")
+		changes = append(changes,
+			NetworkChange{Kind: "host-route", Detail: fmt.Sprintf("%s via %s", cidr, gateway)},
+			NetworkChange{Kind: "vm-forward", Detail: "col0 -> docker bridge"},
+		)
+	}
+	if w.NetworkManager.NeedsPrivilegeForDNS() {
+		domain := w.configHandler.GetString("dns.domain")
+		address := w.configHandler.GetString("workstation.dns.address")
+		changes = append(changes, NetworkChange{
+			Kind:   "dns-resolver",
+			Detail: fmt.Sprintf("*.%s -> %s", domain, address),
+		})
+	}
+	return changes
+}
+
 // SetGeteuidForTest replaces the package's geteuid implementation for the duration of a test and
 // returns a function that restores the previous implementation. Intended for cross-package tests
 // (e.g. pkg/project) that need to drive canElevateNonInteractively through a known path.
