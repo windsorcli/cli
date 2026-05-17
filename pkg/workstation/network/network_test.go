@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -311,15 +312,17 @@ func TestNetworkManager_writeFileWithSudo(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then the helper stages inside the private temp dir, mvs to the destination, and chmods 0644
-		if stagedPath != stagedDir+"/drop-in" {
-			t.Errorf("expected staged path under %q, got %q", stagedDir, stagedPath)
+		// Then the helper stages inside the private temp dir, mvs to the destination, and chmods 0644.
+		// filepath.Join uses the host separator (backslash on Windows) — assert with the same primitive.
+		expectedStagedPath := filepath.Join(stagedDir, "drop-in")
+		if stagedPath != expectedStagedPath {
+			t.Errorf("expected staged path %q, got %q", expectedStagedPath, stagedPath)
 		}
 		if string(stagedContent) != "payload" {
 			t.Errorf("expected staged content %q, got %q", "payload", string(stagedContent))
 		}
-		if mvSrc != stagedDir+"/drop-in" || mvDest != "/etc/some-dest" {
-			t.Errorf("expected mv %q -> %q, got %q -> %q", stagedDir+"/drop-in", "/etc/some-dest", mvSrc, mvDest)
+		if mvSrc != expectedStagedPath || mvDest != "/etc/some-dest" {
+			t.Errorf("expected mv %q -> %q, got %q -> %q", expectedStagedPath, "/etc/some-dest", mvSrc, mvDest)
 		}
 		if chmodMode != "0644" || chmodTarget != "/etc/some-dest" {
 			t.Errorf("expected chmod 0644 %q, got chmod %q %q", "/etc/some-dest", chmodMode, chmodTarget)
