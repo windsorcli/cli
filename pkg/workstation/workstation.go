@@ -367,10 +367,28 @@ func (w *Workstation) MakePostApplyHook() func(componentID string) error {
 	}
 }
 
-// Down stops the workstation environment: container runtime, then VM.
-// Gracefully shuts down the container runtime and virtual machine if present.
-// Workstation state is preserved so that windsor up can resume cleanly.
+// Down reverts host network configuration (when present and elevation is available without
+// prompting) and stops the workstation environment: container runtime, then VM. The revert
+// step, when it fires, runs FIRST so that RevertGuest can SSH into the still-running VM to
+// remove iptables rules; host route and resolver entries are then removed on the host. If the
+// process can't elevate without prompting, the revert is skipped and a one-line hint is
+// printed at the END (after teardown) so the last thing the operator sees is the actionable
+// guidance — surprise sudo prompts during 'windsor down' would undermine the no-prompts
+// contract this command exists to support. Revert failures are warned and do not halt
+// teardown — the operator's primary intent is to stop the workstation. Workstation state is
+// preserved so that 'windsor up' can resume cleanly.
 func (w *Workstation) Down() error {
+	hintLeftoverHostConfig := false
+	if w.NetworkManager != nil && (w.NetworkManager.IsHostRouteInstalled() || w.NetworkManager.IsResolverInstalled()) {
+		if canElevateNonInteractively(w.shell) {
+			if err := w.RevertNetwork(true); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to revert host network configuration: %v\n", err)
+			}
+		} else {
+			hintLeftoverHostConfig = true
+		}
+	}
+
 	platform := w.configHandler.GetString("platform")
 
 	if w.ContainerRuntime != nil {
@@ -383,6 +401,10 @@ func (w *Workstation) Down() error {
 		if err := w.VirtualMachine.Down(); err != nil {
 			return fmt.Errorf("Error running virtual machine Down command: %w", err)
 		}
+	}
+
+	if hintLeftoverHostConfig {
+		fmt.Fprintln(os.Stderr, "host network configuration remains; run 'windsor configure network --revert' from an elevated shell to remove")
 	}
 
 	return nil

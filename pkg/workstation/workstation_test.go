@@ -1,8 +1,10 @@
 package workstation
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -1545,7 +1547,176 @@ func TestWorkstation_Down(t *testing.T) {
 		}
 	})
 
+	t.Run("NoRevertOrHintWhenNothingInstalled", func(t *testing.T) {
+		// Given a NetworkManager that reports no installed state
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.IsHostRouteInstalledFunc = func() bool { return false }
+		mocks.NetworkManager.IsResolverInstalledFunc = func() bool { return false }
+		var revertCalled bool
+		mocks.NetworkManager.RevertHostRouteFunc = func() error { revertCalled = true; return nil }
+		mocks.NetworkManager.RevertDNSFunc = func() error { revertCalled = true; return nil }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager:   mocks.NetworkManager,
+			ContainerRuntime: mocks.ContainerRuntime,
+			VirtualMachine:   mocks.VirtualMachine,
+		})
 
+		// When tearing down
+		if err := ws.Down(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then no revert is attempted — silent teardown
+		if revertCalled {
+			t.Errorf("expected no revert call when nothing installed, but one fired")
+		}
+	})
+
+	t.Run("RevertsBeforeTeardownWhenInstalledAndCanElevate", func(t *testing.T) {
+		// Given installed network state AND non-interactive elevation available (CI / root)
+		originalGeteuid := geteuidFunc
+		t.Cleanup(func() { geteuidFunc = originalGeteuid })
+		geteuidFunc = func() int { return 0 }
+
+		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.NetworkManager.IsHostRouteInstalledFunc = func() bool { return true }
+		mocks.NetworkManager.IsResolverInstalledFunc = func() bool { return true }
+		var order []string
+		mocks.NetworkManager.RevertGuestFunc = func() error { order = append(order, "revert-guest"); return nil }
+		mocks.NetworkManager.RevertHostRouteFunc = func() error { order = append(order, "revert-route"); return nil }
+		mocks.NetworkManager.RevertDNSFunc = func() error { order = append(order, "revert-dns"); return nil }
+		mocks.ContainerRuntime.DownFunc = func() error { order = append(order, "runtime-down"); return nil }
+		mocks.VirtualMachine.DownFunc = func() error { order = append(order, "vm-down"); return nil }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager:   mocks.NetworkManager,
+			ContainerRuntime: mocks.ContainerRuntime,
+			VirtualMachine:   mocks.VirtualMachine,
+		})
+
+		// When tearing down
+		if err := ws.Down(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then revert runs BEFORE teardown so RevertGuest can still SSH into the live VM
+		want := []string{"revert-guest", "revert-route", "revert-dns", "runtime-down", "vm-down"}
+		if len(order) != len(want) {
+			t.Fatalf("expected order %v, got %v", want, order)
+		}
+		for i := range want {
+			if order[i] != want[i] {
+				t.Errorf("position %d: expected %q, got %q", i, want[i], order[i])
+			}
+		}
+	})
+
+	t.Run("PrintsHintAfterTeardownWhenInstalledButCannotElevate", func(t *testing.T) {
+		// Given installed network state but no non-interactive elevation
+		originalGeteuid := geteuidFunc
+		t.Cleanup(func() { geteuidFunc = originalGeteuid })
+		geteuidFunc = func() int { return 1000 }
+
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.IsResolverInstalledFunc = func() bool { return true }
+		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("a password is required")
+		}
+		var revertCalled bool
+		mocks.NetworkManager.RevertHostRouteFunc = func() error { revertCalled = true; return nil }
+		mocks.NetworkManager.RevertDNSFunc = func() error { revertCalled = true; return nil }
+		// Have the teardown step itself write a sentinel line to stderr so we can verify the
+		// hint comes AFTER it in the captured stderr (the actionable guidance should be the
+		// last thing the operator sees).
+		mocks.ContainerRuntime.DownFunc = func() error {
+			fmt.Fprintln(os.Stderr, "MARKER: container runtime stopped")
+			return nil
+		}
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager:   mocks.NetworkManager,
+			ContainerRuntime: mocks.ContainerRuntime,
+		})
+
+		// Capture stderr so we can assert the hint fired AFTER teardown
+		stderrBuf, restore := captureProcessStderrForWorkstationTest(t)
+		t.Cleanup(restore)
+
+		// When tearing down
+		if err := ws.Down(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		restore()
+
+		// Then no revert ran, and the hint appears AFTER the teardown sentinel
+		if revertCalled {
+			t.Errorf("expected no revert call when cannot elevate")
+		}
+		out := stderrBuf.String()
+		hint := "host network configuration remains; run 'windsor configure network --revert' from an elevated shell"
+		if !strings.Contains(out, hint) {
+			t.Fatalf("expected hint %q in stderr, got %q", hint, out)
+		}
+		markerIdx := strings.Index(out, "MARKER: container runtime stopped")
+		hintIdx := strings.Index(out, hint)
+		if markerIdx == -1 || hintIdx == -1 || hintIdx < markerIdx {
+			t.Errorf("expected hint to appear AFTER teardown sentinel, got order: marker=%d hint=%d in %q", markerIdx, hintIdx, out)
+		}
+	})
+
+	t.Run("WarnsButProceedsOnRevertError", func(t *testing.T) {
+		// Given installed state and elevation available, but RevertDNS fails partway
+		originalGeteuid := geteuidFunc
+		t.Cleanup(func() { geteuidFunc = originalGeteuid })
+		geteuidFunc = func() int { return 0 }
+
+		mocks := setupWorkstationMocks(t)
+		mocks.NetworkManager.IsResolverInstalledFunc = func() bool { return true }
+		mocks.NetworkManager.RevertDNSFunc = func() error { return fmt.Errorf("dns boom") }
+		var teardownCalled bool
+		mocks.ContainerRuntime.DownFunc = func() error { teardownCalled = true; return nil }
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			NetworkManager:   mocks.NetworkManager,
+			ContainerRuntime: mocks.ContainerRuntime,
+		})
+
+		stderrBuf, restore := captureProcessStderrForWorkstationTest(t)
+		t.Cleanup(restore)
+
+		// When tearing down
+		if err := ws.Down(); err != nil {
+			t.Fatalf("expected teardown to succeed despite revert failure, got %v", err)
+		}
+		restore()
+
+		// Then a warning was emitted but teardown proceeded — operator's primary intent honored
+		if !teardownCalled {
+			t.Errorf("expected teardown to proceed despite revert failure")
+		}
+		if !strings.Contains(stderrBuf.String(), "warning: failed to revert host network configuration") {
+			t.Errorf("expected warning in stderr, got %q", stderrBuf.String())
+		}
+	})
+}
+
+// captureProcessStderrForWorkstationTest is a local pipe-based stderr capture for tests that
+// assert on lines written via fmt.Fprintln(os.Stderr, ...) from production code. Mirrors the
+// equivalent helper in pkg/cmd/root_test.go (kept package-local here to avoid a cross-package
+// test-helper dependency).
+func captureProcessStderrForWorkstationTest(t *testing.T) (buf *bytes.Buffer, restore func()) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	buf = new(bytes.Buffer)
+	restore = func() {
+		w.Close()
+		_, _ = io.Copy(buf, r)
+		os.Stderr = orig
+	}
+	return buf, restore
 }
 
 // =============================================================================
