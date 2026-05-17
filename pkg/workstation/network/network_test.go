@@ -253,6 +253,35 @@ func TestValidateDomain(t *testing.T) {
 		}
 	})
 
+	t.Run("RejectsEmptyLabels", func(t *testing.T) {
+		// Given domains whose character set is allowlisted but whose dot structure produces empty
+		// labels — dot-only strings collapse to a parent-directory traversal when interpolated
+		// into a filesystem path (e.g. /etc/resolver/.. resolves to /etc/ on darwin).
+		cases := []string{
+			".",        // single dot
+			"..",       // double dot — the darwin traversal exploit
+			"...",      // triple dot
+			".foo",     // leading dot
+			"foo.",     // trailing dot
+			"foo..bar", // consecutive dots
+			"..bar",    // leading double dot
+			"bar..",    // trailing double dot
+		}
+
+		// When validating each
+		for _, d := range cases {
+			// Then validation rejects with the empty-label error
+			err := validateDomain(d)
+			if err == nil {
+				t.Errorf("expected %q to be rejected, got nil", d)
+				continue
+			}
+			if !strings.Contains(err.Error(), "contains empty label") {
+				t.Errorf("expected empty-label error for %q, got %v", d, err)
+			}
+		}
+	})
+
 	t.Run("RejectsCharactersOutsideAllowlist", func(t *testing.T) {
 		// Given domains containing characters that would let configuration escape downstream
 		// interpolation contexts — filesystem paths, PowerShell single-quoted strings, shell command lines

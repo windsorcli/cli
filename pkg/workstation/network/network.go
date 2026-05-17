@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -98,9 +100,10 @@ func (n *BaseNetworkManager) isLocalhostMode() bool {
 }
 
 // validateDomain restricts DNS domains to the RFC 1123 label character set (letters, digits,
-// hyphen, dot). The allowlist excludes shell metacharacters, quotes, and path separators that
-// would let configuration values escape downstream interpolation contexts — filesystem paths
-// on Linux/macOS, PowerShell single-quoted strings on Windows, command lines on every platform.
+// hyphen, dot) and rejects empty labels. The character allowlist excludes shell metacharacters,
+// quotes, and path separators; the empty-label check rejects dot-only ("..", ".") and dot-edge
+// ("foo.", ".foo", "foo..bar") values that would escape into parent directories when interpolated
+// into a filesystem path under sudo (e.g. /etc/resolver/.. resolves to /etc/ on darwin).
 // Caller is responsible for the "empty domain" check.
 func validateDomain(domain string) error {
 	for _, r := range domain {
@@ -108,6 +111,9 @@ func validateDomain(domain string) error {
 			continue
 		}
 		return fmt.Errorf("invalid DNS domain %q: must contain only letters, digits, hyphen, and dot", domain)
+	}
+	if slices.Contains(strings.Split(domain, "."), "") {
+		return fmt.Errorf("invalid DNS domain %q: contains empty label", domain)
 	}
 	return nil
 }
