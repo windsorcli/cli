@@ -235,6 +235,184 @@ func TestNetworkManager_ConfigureGuest(t *testing.T) {
 	})
 }
 
+func TestNetworkManager_NeedsPrivilegeForCluster(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("FalseOnDockerDesktop", func(t *testing.T) {
+		// Given a docker-desktop runtime (cluster reachable via loopback, no host route needed)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.1.10")
+
+		// Then no cluster-privilege work is required
+		if manager.NeedsPrivilegeForCluster() {
+			t.Errorf("expected NeedsPrivilegeForCluster to be false on docker-desktop")
+		}
+	})
+
+	t.Run("FalseOnColimaWithoutGuestAddress", func(t *testing.T) {
+		// Given colima with no workstation.address yet (typical before workstation TF applies)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.address", "")
+
+		// Then no cluster-privilege work is required — there's nothing to route to yet
+		if manager.NeedsPrivilegeForCluster() {
+			t.Errorf("expected NeedsPrivilegeForCluster to be false without guest address")
+		}
+	})
+
+	t.Run("TrueOnColimaWhenRouteAbsent", func(t *testing.T) {
+		// Given colima with a guest address and no matching host route
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.10")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "ip" && len(args) > 0 && args[0] == "route" {
+				return "", nil // empty route table → host route absent
+			}
+			if command == "route" && len(args) > 0 && args[0] == "-n" {
+				return "", nil // darwin: empty output → route absent
+			}
+			return "", nil
+		}
+
+		// Then cluster-privilege work is required
+		if !manager.NeedsPrivilegeForCluster() {
+			t.Errorf("expected NeedsPrivilegeForCluster to be true when host route is absent")
+		}
+	})
+}
+
+func TestNetworkManager_IsHostRouteInstalled(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("FalseOnDockerDesktop", func(t *testing.T) {
+		// Given a docker-desktop runtime — host routes never installed
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "docker-desktop")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.10")
+
+		// Then the probe reports nothing installed
+		if manager.IsHostRouteInstalled() {
+			t.Errorf("expected IsHostRouteInstalled to be false on docker-desktop")
+		}
+	})
+
+	t.Run("FalseOnColimaWithoutGuestAddress", func(t *testing.T) {
+		// Given colima with no guest address (configure-network couldn't have installed anything)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.address", "")
+
+		// Then the probe reports nothing installed
+		if manager.IsHostRouteInstalled() {
+			t.Errorf("expected IsHostRouteInstalled to be false without guest address")
+		}
+	})
+
+	t.Run("FalseOnColimaWhenRouteAbsent", func(t *testing.T) {
+		// Given colima with a guest address and the route check shows no matching route
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.10")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "ip" && len(args) > 0 && args[0] == "route" {
+				return "", nil
+			}
+			if command == "route" && len(args) > 0 && args[0] == "-n" {
+				return "", nil
+			}
+			return "", nil
+		}
+
+		// Then the probe reports nothing installed
+		if manager.IsHostRouteInstalled() {
+			t.Errorf("expected IsHostRouteInstalled to be false when route is absent")
+		}
+	})
+}
+
+func TestNetworkManager_IsResolverInstalled(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("FalseWhenDomainUnset", func(t *testing.T) {
+		// Given no DNS domain in config — nothing could have been installed
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "")
+
+		// Then the probe reports nothing installed
+		if manager.IsResolverInstalled() {
+			t.Errorf("expected IsResolverInstalled to be false when domain is unset")
+		}
+	})
+
+	t.Run("FalseWhenResolverIPUnderivable", func(t *testing.T) {
+		// Given a domain but no resolver IP — nothing matchable to install
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
+
+		// Then the probe reports nothing installed
+		if manager.IsResolverInstalled() {
+			t.Errorf("expected IsResolverInstalled to be false when resolver IP is underivable")
+		}
+	})
+}
+
+func TestNetworkManager_NeedsPrivilegeForDNS(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("FalseWhenDomainUnset", func(t *testing.T) {
+		// Given no DNS domain in config (no cluster DNS service to point at)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "")
+
+		// Then no DNS-privilege work is required
+		if manager.NeedsPrivilegeForDNS() {
+			t.Errorf("expected NeedsPrivilegeForDNS to be false when domain is unset")
+		}
+	})
+
+	t.Run("FalseWhenResolverIPUnderivable", func(t *testing.T) {
+		// Given a domain but no resolver IP — neither localhost mode nor workstation.dns.address
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.runtime", "colima")
+		mocks.ConfigHandler.Set("workstation.dns.address", "")
+
+		// Then no DNS-privilege work is required — there's no IP to write into the resolver entry
+		if manager.NeedsPrivilegeForDNS() {
+			t.Errorf("expected NeedsPrivilegeForDNS to be false when resolver IP is underivable")
+		}
+	})
+}
+
 // =============================================================================
 // Test Private Methods
 // =============================================================================
@@ -312,6 +490,89 @@ func TestValidateDomain(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "must contain only letters, digits, hyphen, and dot") {
 				t.Errorf("expected allowlist error for %q, got %v", d, err)
+			}
+		}
+	})
+}
+
+func TestValidateCIDR(t *testing.T) {
+	t.Run("AcceptsValidCIDRsAndReturnsCanonicalForm", func(t *testing.T) {
+		// Given well-formed CIDRs (some intentionally non-canonical to verify normalization)
+		cases := map[string]string{
+			"192.168.5.0/24":   "192.168.5.0/24",
+			"10.0.0.0/8":       "10.0.0.0/8",
+			"172.16.0.0/12":    "172.16.0.0/12",
+			"192.168.5.42/24":  "192.168.5.0/24", // host bits dropped by ParseCIDR
+			"fd00::/8":         "fd00::/8",
+		}
+		for input, want := range cases {
+			got, err := validateCIDR(input)
+			if err != nil {
+				t.Errorf("expected %q to validate, got %v", input, err)
+				continue
+			}
+			if got != want {
+				t.Errorf("validateCIDR(%q) = %q, want %q", input, got, want)
+			}
+		}
+	})
+
+	t.Run("RejectsInputsWithShellMetacharacters", func(t *testing.T) {
+		// Given strings shaped to escape PowerShell -Command or sh -c context
+		cases := []string{
+			"",
+			"not-a-cidr",
+			"192.168.5.0/24'; calc; #",         // PowerShell injection
+			"192.168.5.0/24; rm -rf /",         // shell statement separator
+			"192.168.5.0/24 -and (rm)",         // PowerShell operator
+			"192.168.5.0/24`whoami`",           // PowerShell subexpression
+			"$(rm -rf /)",                      // shell command substitution
+			"192.168.5.0",                      // missing mask
+			"192.168.5.0/33",                   // out-of-range mask
+			"...",
+		}
+		for _, input := range cases {
+			if _, err := validateCIDR(input); err == nil {
+				t.Errorf("expected %q to be rejected, got nil error", input)
+			}
+		}
+	})
+}
+
+func TestValidateIPAddress(t *testing.T) {
+	t.Run("AcceptsValidIPv4AndIPv6", func(t *testing.T) {
+		cases := map[string]string{
+			"192.168.5.10":  "192.168.5.10",
+			"10.5.0.2":      "10.5.0.2",
+			"::1":           "::1",
+			"fe80::1":       "fe80::1",
+		}
+		for input, want := range cases {
+			got, err := validateIPAddress(input)
+			if err != nil {
+				t.Errorf("expected %q to validate, got %v", input, err)
+				continue
+			}
+			if got != want {
+				t.Errorf("validateIPAddress(%q) = %q, want %q", input, got, want)
+			}
+		}
+	})
+
+	t.Run("RejectsInputsWithShellMetacharacters", func(t *testing.T) {
+		cases := []string{
+			"",
+			"not-an-ip",
+			"192.168.5.10'; calc; #",     // PowerShell injection
+			"192.168.5.10; rm -rf /",     // shell statement separator
+			"$(whoami)",                  // shell command substitution
+			"10.5.0.2`id`",               // PowerShell subexpression
+			"10.5.0.999",                 // out-of-range octet
+			"10.5.0",                     // truncated
+		}
+		for _, input := range cases {
+			if _, err := validateIPAddress(input); err == nil {
+				t.Errorf("expected %q to be rejected, got nil error", input)
 			}
 		}
 	})

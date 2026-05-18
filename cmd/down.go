@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
@@ -31,6 +32,16 @@ var downCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "windsor down is only applicable when a workstation is enabled; use windsor destroy to tear down live environments")
 			return nil
 		}
+
+		// Down records leftover-host-config items on the workstation register BEFORE attempting
+		// teardown, so render the summary via defer to survive a teardown or cleanup failure —
+		// otherwise an operator who hits a container-runtime or VM stop error never learns the
+		// host route / DNS resolver entries still need 'windsor configure network --revert'.
+		// Wrapped in a closure so DeferredWork() is read at defer-execution time, after Down
+		// has populated the register, rather than at defer-registration time.
+		defer func() {
+			printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
+		}()
 
 		if err := proj.Workstation.Down(); err != nil {
 			return fmt.Errorf("error tearing down workstation: %w", err)

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -187,15 +188,16 @@ var bootstrapCmd = &cobra.Command{
 		// The bootstrap confirm prompt fires from inside proj.Bootstrap, so the operator
 		// briefly holds the stack lock while answering. Acceptable today since bootstrap
 		// is rare; revisit if the prompt grows into a longer flow.
-		var applied bool
+		var applied, halted bool
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", func() error {
-			_, ok, err := proj.Bootstrap(confirmFn)
+			_, ok, h, err := proj.Bootstrap(confirmFn)
 			finishPlan(err)
 			if err != nil {
 				return err
 			}
 			applied = ok
-			if !applied {
+			halted = h
+			if !applied || halted {
 				return nil
 			}
 
@@ -223,7 +225,12 @@ var bootstrapCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Fprintln(os.Stderr, "Windsor environment bootstrapped successfully.")
+		if !halted {
+			fmt.Fprintln(os.Stderr, "Windsor environment bootstrapped successfully.")
+		}
+		if proj.Workstation != nil {
+			printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), stdruntime.GOOS)
+		}
 
 		return nil
 	},
@@ -345,7 +352,7 @@ func confirmBootstrapIfContextExists(in io.Reader, configRoot, contextName strin
 func init() {
 	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Target platform [none|metal|docker|aws|azure|gcp|hyperv]")
 	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Blueprint OCI reference (oci://ghcr.io/org/repo:tag, ghcr.io/org/repo:tag, or org/repo:tag — host defaults to ghcr.io; tag is required)")
-	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false")
+	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override config values, e.g. --set cluster.endpoint=https://localhost:6443")
 	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip all confirmation prompts")
 	rootCmd.AddCommand(bootstrapCmd)
 }

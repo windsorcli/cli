@@ -37,7 +37,9 @@ var applyCmd = &cobra.Command{
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
-			if err := proj.Provisioner.Up(blueprint); err != nil {
+			// 'apply' doesn't run the workstation prep that registers MakeApplyHook, so no
+			// onApply hooks fire and the halted return is always false. Ignore it.
+			if _, err := proj.Provisioner.Up(blueprint); err != nil {
 				return fmt.Errorf("error applying terraform: %w", err)
 			}
 

@@ -3,7 +3,7 @@ package workstation
 import (
 	"fmt"
 	"os"
-	stdruntime "runtime"
+	"path/filepath"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -12,7 +12,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
-	"golang.org/x/term"
 )
 
 // The Workstation is a core component that manages workstation virtualization, networking, and SSH operations.
@@ -39,6 +38,19 @@ type Workstation struct {
 	// Set when the blueprint has a "workstation" Terraform component; host/guest setup runs after that component is applied via the provisioner callback.
 	// Temporary: in the future host/guest setup will always run after the "workstation" component and this flag may be removed.
 	DeferHostGuestSetup bool
+
+	deferredWork []DeferredWorkItem
+}
+
+// DeferredWorkItem describes a step the apply skipped because it requires elevation the
+// in-process Up() will not request. The end-of-run summary in cmd/up renders these into
+// operator-facing guidance. Required items denote a halt (subsequent components were skipped
+// and the operator must re-run 'windsor up' after acting); optional items denote work the
+// operator can do at their convenience without re-running.
+type DeferredWorkItem struct {
+	Required bool
+	Outcome  string
+	Command  string
 }
 
 // =============================================================================
@@ -126,6 +138,7 @@ func (w *Workstation) Prepare() error {
 // Sets NO_CACHE, starts the virtual machine if configured, writes container runtime config,
 // and configures networking. All components must be created via Prepare() before calling Up().
 func (w *Workstation) Up() error {
+	w.deferredWork = nil
 	if err := os.Setenv("NO_CACHE", "true"); err != nil {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 	}
@@ -157,7 +170,8 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	// Host/guest and DNS are run via the hook after the workstation Terraform component when DeferHostGuestSetup.
+	// Inline host/guest + DNS path: runs when there is no workstation Terraform component. The
+	// deferred path (DeferHostGuestSetup=true) is handled by MakeApplyHook + 'windsor configure network'.
 	if w.NetworkManager != nil && !w.DeferHostGuestSetup {
 		if workstationRuntime == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
@@ -167,17 +181,14 @@ func (w *Workstation) Up() error {
 				return fmt.Errorf("error configuring host route: %w", err)
 			}
 		}
-		dnsEnabled := w.configHandler.Get("dns.enabled")
 		dnsDomain := w.configHandler.GetString("dns.domain")
-		if dnsEnabled == nil || dnsEnabled == true {
-			if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
-				if err := w.NetworkManager.ConfigureDNS(); err != nil {
-					return fmt.Errorf("error configuring DNS: %w", err)
-				}
-				if w.NetworkManager.DNSChanged() {
-					if err := w.FlushDNS(); err != nil {
-						return fmt.Errorf("error flushing DNS cache: %w", err)
-					}
+		if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
+			if err := w.NetworkManager.ConfigureDNS(); err != nil {
+				return fmt.Errorf("error configuring DNS: %w", err)
+			}
+			if w.NetworkManager.DNSChanged() {
+				if err := w.FlushDNS(); err != nil {
+					return fmt.Errorf("error flushing DNS cache: %w", err)
 				}
 			}
 		}
@@ -202,35 +213,11 @@ func (w *Workstation) PrepareForUp(blueprint *blueprintv1alpha1.Blueprint) {
 	}
 }
 
-// EnsureNetworkPrivilege ensures the process has (or can obtain) privilege required for network configuration.
-// Network manager resolves guest address and other settings from config; prompts for sudo when interactive or on Windows.
-func (w *Workstation) EnsureNetworkPrivilege() error {
-	if w.NetworkManager == nil || !w.NetworkManager.NeedsPrivilege() {
-		return nil
-	}
-	if term.IsTerminal(int(os.Stdin.Fd())) || stdruntime.GOOS == "windows" { // #nosec G115 -- file descriptors are small, safe to cast to int
-		if os.Geteuid() != 0 {
-			if _, err := w.shell.ExecSilent("sudo", "-n", "true"); err != nil {
-				fmt.Fprintf(os.Stderr, "\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
-			}
-		}
-		if _, err := w.shell.ExecSudo("", "true"); err != nil {
-			return fmt.Errorf("privileged access required: %w", err)
-		}
-		return nil
-	}
-	if os.Geteuid() != 0 {
-		if _, err := w.shell.ExecSilent("sudo", "-n", "true"); err != nil {
-			return fmt.Errorf("network configuration may require sudo; run from an interactive terminal or with passwordless sudo (e.g. sudo windsor up): %w", err)
-		}
-	}
-	return nil
-}
-
 // ConfigureNetwork runs host/guest and DNS setup. Workstation address and DNS config are
 // expected in the config handler, loaded from .windsor/contexts/<context>/workstation.yaml (written during
 // windsor up) or set explicitly. dnsAddressOverride (from --dns-address flag or Terraform
-// output) takes priority over config. DNS is configured unless dns.enabled is explicitly false.
+// output) takes priority over config. DNS is configured whenever dns.domain and the resolver
+// address are both available — the operator opts in by running 'windsor configure network'.
 // No-op when NetworkManager is nil.
 func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus bool) error {
 	if w.NetworkManager == nil {
@@ -253,80 +240,134 @@ func (w *Workstation) ConfigureNetwork(dnsAddressOverride string, showStatus boo
 	} else if showStatus {
 		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
 	}
-	dnsEnabled := w.configHandler.Get("dns.enabled")
 	dnsDomain := w.configHandler.GetString("dns.domain")
-	if dnsEnabled == nil || dnsEnabled == true {
-		if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
-			if err := w.NetworkManager.ConfigureDNS(); err != nil {
-				return fmt.Errorf("error configuring DNS: %w", err)
-			}
-			if showStatus {
-				fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("workstation.dns.address"))
-			}
-		} else if showStatus {
-			fmt.Fprintln(os.Stderr, "dns: skipped (domain or address not set)")
+	if dnsDomain != "" && w.configHandler.GetString("workstation.dns.address") != "" {
+		if err := w.NetworkManager.ConfigureDNS(); err != nil {
+			return fmt.Errorf("error configuring DNS: %w", err)
+		}
+		if showStatus {
+			fmt.Fprintf(os.Stderr, "dns: %s @ %s\n", w.configHandler.GetString("dns.domain"), w.configHandler.GetString("workstation.dns.address"))
 		}
 	} else if showStatus {
-		fmt.Fprintln(os.Stderr, "dns: disabled")
+		fmt.Fprintln(os.Stderr, "dns: skipped (domain or address not set)")
+	}
+	return nil
+}
+
+// RevertNetwork undoes the host configuration that ConfigureNetwork applied: removes the host
+// route + in-VM forwarding on VM-backed runtimes, and removes the per-domain DNS resolver entry.
+// Each step is idempotent — the corresponding NetworkManager.Revert* method tolerates missing
+// state — so this is safe to call after partial configuration or against contexts that were
+// never configured. No-op when NetworkManager is nil. showStatus emits one line per step to
+// stderr; suppress it for non-interactive callers.
+func (w *Workstation) RevertNetwork(showStatus bool) error {
+	if w.NetworkManager == nil {
+		return nil
+	}
+	workstationRuntime := w.configHandler.GetString("workstation.runtime")
+	if workstationRuntime == "colima" {
+		if err := w.NetworkManager.RevertGuest(); err != nil {
+			return fmt.Errorf("error reverting guest: %w", err)
+		}
+		if err := w.NetworkManager.RevertHostRoute(); err != nil {
+			return fmt.Errorf("error reverting host route: %w", err)
+		}
+		if showStatus {
+			fmt.Fprintln(os.Stderr, "network: reverted")
+		}
+	} else if showStatus {
+		fmt.Fprintln(os.Stderr, "network: skipped (not colima)")
+	}
+	if err := w.NetworkManager.RevertDNS(); err != nil {
+		return fmt.Errorf("error reverting DNS: %w", err)
+	}
+	if showStatus {
+		fmt.Fprintln(os.Stderr, "dns: reverted")
 	}
 	return nil
 }
 
 // MakeApplyHook returns a callback for the provisioner's onApply when DeferHostGuestSetup is true.
-// The callback configures network after the "workstation" Terraform component is applied, using
-// DNS address from Terraform outputs when available. Returns nil when DeferHostGuestSetup is false.
-func (w *Workstation) MakeApplyHook() func(componentID string) error {
+// The callback persists DNS-related outputs from the just-applied workstation Terraform component,
+// then inspects whether the host needs configuration that 'windsor up' is not allowed to perform
+// (it must never prompt for sudo). When the cluster is unreachable from the host without a host
+// route + in-VM forwarding, the hook appends a required DeferredWorkItem and returns (true, nil)
+// so the stack halts after the workstation component and 'windsor up' renders an operator-facing
+// summary. When the cluster DNS resolver isn't pointed at the cluster's DNS service, the hook
+// appends an optional DeferredWorkItem with the outcome the operator gets from running 'windsor
+// configure network' and continues (DNS is not load-bearing for subsequent components). Returns
+// nil when DeferHostGuestSetup is false.
+func (w *Workstation) MakeApplyHook() func(componentID string) (bool, error) {
 	if !w.DeferHostGuestSetup {
 		return nil
 	}
-	return func(componentID string) error {
+	return func(componentID string) (bool, error) {
 		if componentID != "workstation" {
-			return nil
+			return false, nil
 		}
 		dnsAddr := ""
 		if w.runtime.TerraformProvider != nil {
 			outputs, err := w.runtime.TerraformProvider.GetTerraformOutputs("workstation")
-			if err == nil {
-				for _, key := range []string{"dns_ip", "dns_address"} {
-					if v, ok := outputs[key]; ok && v != nil {
-						s := fmt.Sprint(v)
-						if s != "" {
-							dnsAddr = s
-							break
-						}
+			if err != nil {
+				return false, fmt.Errorf("error reading workstation terraform outputs: %w", err)
+			}
+			for _, key := range []string{"dns_ip", "dns_address"} {
+				if v, ok := outputs[key]; ok && v != nil {
+					s := fmt.Sprint(v)
+					if s != "" {
+						dnsAddr = s
+						break
 					}
 				}
 			}
 		}
 		if dnsAddr != "" {
-			_ = w.configHandler.Set("workstation.dns.address", dnsAddr)
+			if err := w.configHandler.Set("workstation.dns.address", dnsAddr); err != nil {
+				return false, fmt.Errorf("error persisting workstation.dns.address from terraform output: %w", err)
+			}
 		}
 		if err := w.WriteState(); err != nil {
-			return fmt.Errorf("error writing workstation state: %w", err)
+			return false, fmt.Errorf("error writing workstation state: %w", err)
 		}
-		return w.ConfigureNetwork("", false)
+		if w.NetworkManager == nil {
+			return false, nil
+		}
+		halt := false
+		if w.NetworkManager.NeedsPrivilegeForCluster() {
+			w.appendDeferredWork(DeferredWorkItem{
+				Required: true,
+				Command:  "windsor configure network",
+			})
+			halt = true
+		}
+		if w.NetworkManager.NeedsPrivilegeForDNS() {
+			domain := w.configHandler.GetString("dns.domain")
+			w.appendDeferredWork(DeferredWorkItem{
+				Command: "windsor configure network",
+				Outcome: fmt.Sprintf("use *.%s in your browser", domain),
+			})
+		}
+		return halt, nil
 	}
 }
 
-// FlushDNS flushes the DNS cache when DNS is enabled and fully configured.
+// FlushDNS flushes the DNS cache when DNS is fully configured.
 // It is a no-op when the network manager is absent or DNS domain/address are not set.
 func (w *Workstation) FlushDNS() error {
 	if w.NetworkManager == nil {
 		return nil
 	}
-	dnsEnabled := w.configHandler.Get("dns.enabled")
 	dnsDomain := w.configHandler.GetString("dns.domain")
 	dnsAddress := w.configHandler.GetString("workstation.dns.address")
-	if (dnsEnabled == nil || dnsEnabled == true) && dnsDomain != "" && dnsAddress != "" {
+	if dnsDomain != "" && dnsAddress != "" {
 		return w.NetworkManager.FlushDNS()
 	}
 	return nil
 }
 
 // MakePostApplyHook returns a callback for the provisioner's postApply when DeferHostGuestSetup is true.
-// The callback flushes the DNS cache after the "workstation" Terraform component's Done line is printed,
-// so the elevated-privilege prompt appears after the spinner completes rather than during it.
-// Returns nil when DeferHostGuestSetup is false.
+// The callback flushes the DNS cache after the workstation Terraform component if NetworkManager
+// reports DNSChanged. Returns nil when DeferHostGuestSetup is false.
 func (w *Workstation) MakePostApplyHook() func(componentID string) error {
 	if !w.DeferHostGuestSetup {
 		return nil
@@ -342,10 +383,31 @@ func (w *Workstation) MakePostApplyHook() func(componentID string) error {
 	}
 }
 
-// Down stops the workstation environment: container runtime, then VM.
-// Gracefully shuts down the container runtime and virtual machine if present.
-// Workstation state is preserved so that windsor up can resume cleanly.
+// Down reverts host network configuration (when present and elevation is available without
+// prompting) and stops the workstation environment: container runtime, then VM. The revert
+// step, when it fires, runs FIRST so that RevertGuest can SSH into the still-running VM to
+// remove iptables rules; host route and resolver entries are then removed on the host. If the
+// process can't elevate without prompting, the revert is skipped and the leftover state is
+// recorded as a deferred-work item so the cmd layer can render an end-of-run summary after
+// teardown — surprise sudo prompts during 'windsor down' would undermine the no-prompts
+// contract this command exists to support. Revert failures are warned and do not halt
+// teardown — the operator's primary intent is to stop the workstation. Workstation state is
+// preserved so that 'windsor up' can resume cleanly.
 func (w *Workstation) Down() error {
+	w.deferredWork = nil
+	if w.NetworkManager != nil && (w.NetworkManager.IsHostRouteInstalled() || w.NetworkManager.IsResolverInstalled()) {
+		if canElevateNonInteractively(w.shell) {
+			if err := w.RevertNetwork(true); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to revert host network configuration: %v\n", err)
+			}
+		} else {
+			w.appendDeferredWork(DeferredWorkItem{
+				Command: "windsor configure network --revert",
+				Outcome: "remove host configuration",
+			})
+		}
+	}
+
 	platform := w.configHandler.GetString("platform")
 
 	if w.ContainerRuntime != nil {
@@ -369,3 +431,78 @@ func (w *Workstation) WriteState() error {
 	return w.configHandler.SaveWorkstationState()
 }
 
+// IsProvisioned reports whether 'windsor up' has applied the workstation Terraform component
+// for the current context. Detection is by file presence: WriteState only writes
+// <projectRoot>/.windsor/contexts/<context>/workstation.yaml after MakeApplyHook persists the
+// component's TF outputs, so the file is the canonical "workstation provisioned" signal.
+// Callers like 'windsor configure network' use this as a precondition gate. Returns
+// (false, nil) when the state file is absent; (false, err) when a real IO error prevents
+// the check.
+func (w *Workstation) IsProvisioned() (bool, error) {
+	projectRoot, err := w.shell.GetProjectRoot()
+	if err != nil {
+		return false, fmt.Errorf("error resolving project root: %w", err)
+	}
+	statePath := filepath.Join(projectRoot, ".windsor", "contexts", w.configHandler.GetContext(), "workstation.yaml")
+	if _, err := os.Stat(statePath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error checking workstation state: %w", err)
+	}
+	return true, nil
+}
+
+// DeferredWork returns the deferred-work items accumulated during the most recent Up().
+// The slice is reset at the start of each Up; callers should read it after Up returns.
+// Returns nil when nothing was deferred.
+func (w *Workstation) DeferredWork() []DeferredWorkItem {
+	return w.deferredWork
+}
+
+// NetworkChange is one row of structured output for PendingNetworkChanges. Kind is a stable
+// kebab-case identifier ("host-route", "vm-forward", "dns-resolver") and Detail is the value
+// being installed ("192.168.5.0/24 via 192.168.5.10"). Callers are expected to render these
+// as aligned columns rather than baking the kind into a prose sentence.
+type NetworkChange struct {
+	Kind   string
+	Detail string
+}
+
+// PendingNetworkChanges returns the host configuration changes that 'windsor configure network'
+// would apply for the current context. Returns an empty slice when nothing is pending. Returns
+// nil when the workstation has no NetworkManager.
+func (w *Workstation) PendingNetworkChanges() []NetworkChange {
+	if w.NetworkManager == nil {
+		return nil
+	}
+	var changes []NetworkChange
+	if w.NetworkManager.NeedsPrivilegeForCluster() {
+		cidr := w.configHandler.GetString("network.cidr_block")
+		gateway := w.configHandler.GetString("workstation.address")
+		changes = append(changes,
+			NetworkChange{Kind: "host-route", Detail: fmt.Sprintf("%s via %s", cidr, gateway)},
+			NetworkChange{Kind: "vm-forward", Detail: "col0 -> docker bridge"},
+		)
+	}
+	if w.NetworkManager.NeedsPrivilegeForDNS() {
+		domain := w.configHandler.GetString("dns.domain")
+		address := w.configHandler.GetString("workstation.dns.address")
+		changes = append(changes, NetworkChange{
+			Kind:   "dns-resolver",
+			Detail: fmt.Sprintf("*.%s -> %s", domain, address),
+		})
+	}
+	return changes
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// appendDeferredWork records a step that the apply skipped because it requires elevation Up()
+// will not request. cmd/up reads these via DeferredWork() after Up returns to render the
+// end-of-run summary.
+func (w *Workstation) appendDeferredWork(item DeferredWorkItem) {
+	w.deferredWork = append(w.deferredWork, item)
+}

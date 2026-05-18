@@ -2,13 +2,16 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
+	"github.com/windsorcli/cli/pkg/workstation"
 )
 
 var (
@@ -89,9 +92,15 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
+		var halted bool
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", func() error {
-			if _, err := proj.Up(); err != nil {
+			_, h, err := proj.Up()
+			if err != nil {
 				return err
+			}
+			halted = h
+			if halted {
+				return nil
 			}
 
 			// Re-generate with deferred substitutions resolved now that terraform
@@ -119,10 +128,39 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
-
+		if !halted {
+			fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
+		}
+		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		return nil
 	},
+}
+
+// printDeferredWork renders the end-of-run summary for items the apply skipped because they
+// require elevation Up() will not request. Required items render as halt sentences ("then
+// re-run 'windsor up'"); optional items render as outcome sentences below. When both are
+// present the operator sees the halt instruction first, then any optional follow-up outcomes
+// the same command will also produce — they don't disappear just because a halt is in flight.
+// Empty items produce no output. goos selects the OS-specific elevation parenthetical:
+// "(Administrator PowerShell)" on windows, "(asks for sudo)" elsewhere.
+func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos string) {
+	if len(items) == 0 {
+		return
+	}
+	paren := "(asks for sudo)"
+	if goos == "windows" {
+		paren = "(Administrator PowerShell)"
+	}
+	for _, item := range items {
+		if item.Required {
+			fmt.Fprintf(w, "Run '%s' %s, then re-run 'windsor up'.\n", item.Command, paren)
+		}
+	}
+	for _, item := range items {
+		if !item.Required {
+			fmt.Fprintf(w, "Run '%s' %s to %s.\n", item.Command, paren, item.Outcome)
+		}
+	}
 }
 
 // buildUpFlagOverrides builds a config override map from up's command-line
@@ -149,6 +187,6 @@ func init() {
 	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker)")
 	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp|hyperv]")
 	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Specify the blueprint to use")
-	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false")
+	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override configuration values. Example: --set cluster.endpoint=https://localhost:6443")
 	rootCmd.AddCommand(upCmd)
 }

@@ -224,7 +224,7 @@ func init() {
 	initCmd.Flags().StringVar(&initProvider, "provider", "", "Deprecated: use --platform instead")
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
-	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set dns.enabled=false --set cluster.endpoint=https://localhost:6443")
+	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set cluster.endpoint=https://localhost:6443")
 
 	rootCmd.AddCommand(initCmd)
 }

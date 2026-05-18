@@ -594,6 +594,209 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 	})
 }
 
+func TestLinuxNetworkManager_RevertHostRoute(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("NoOpWhenCIDRUnset", func(t *testing.T) {
+		// Given no network CIDR in config
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "")
+		var called bool
+		mocks.Shell.ExecSudoFunc = func(_, _ string, _ ...string) (string, error) {
+			called = true
+			return "", nil
+		}
+
+		// When reverting the host route
+		if err := manager.RevertHostRoute(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then no sudo invocation occurs
+		if called {
+			t.Errorf("expected no sudo invocation when CIDR is unset")
+		}
+	})
+
+	t.Run("RemovesRouteWhenPresent", func(t *testing.T) {
+		// Given a configured CIDR and ip route del succeeds
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		var deletedCIDR string
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "ip" && len(args) >= 3 && args[0] == "route" && args[1] == "del" {
+				deletedCIDR = args[2]
+			}
+			return "", nil
+		}
+
+		// When reverting the host route
+		if err := manager.RevertHostRoute(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then ip route del was called with the configured CIDR
+		if deletedCIDR != "192.168.5.0/24" {
+			t.Errorf("expected ip route del for %q, got %q", "192.168.5.0/24", deletedCIDR)
+		}
+	})
+
+	t.Run("TolerantOfNoSuchProcess", func(t *testing.T) {
+		// Given ip route del returns "No such process" (route was never installed or already removed)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.Shell.ExecSudoFunc = func(_, command string, _ ...string) (string, error) {
+			if command == "ip" {
+				return "RTNETLINK answers: No such process", fmt.Errorf("exit status 2")
+			}
+			return "", nil
+		}
+
+		// When reverting the host route
+		err := manager.RevertHostRoute()
+
+		// Then revert reports success — idempotent
+		if err != nil {
+			t.Errorf("expected nil error for idempotent revert, got %v", err)
+		}
+	})
+
+	t.Run("ErrorsOnUnknownFailure", func(t *testing.T) {
+		// Given ip route del fails for an unrecognized reason
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.Shell.ExecSudoFunc = func(_, command string, _ ...string) (string, error) {
+			if command == "ip" {
+				return "permission denied", fmt.Errorf("exit status 1")
+			}
+			return "", nil
+		}
+
+		// When reverting the host route
+		err := manager.RevertHostRoute()
+
+		// Then the error surfaces with context
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to delete host route") {
+			t.Errorf("expected wrapped error, got %v", err)
+		}
+	})
+}
+
+func TestLinuxNetworkManager_RevertDNS(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("NoOpWhenDomainUnset", func(t *testing.T) {
+		// Given no DNS domain in config
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "")
+		var called bool
+		mocks.Shell.ExecSudoFunc = func(_, _ string, _ ...string) (string, error) {
+			called = true
+			return "", nil
+		}
+
+		// When reverting DNS
+		if err := manager.RevertDNS(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then no sudo invocation occurs
+		if called {
+			t.Errorf("expected no sudo invocation when domain is unset")
+		}
+	})
+
+	t.Run("RemovesDropInAndRestartsResolved", func(t *testing.T) {
+		// Given a configured domain
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "local.test")
+		var removedPath string
+		var restartedResolved bool
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			switch command {
+			case "rm":
+				if len(args) >= 2 {
+					removedPath = args[len(args)-1]
+				}
+			case "systemctl":
+				if len(args) >= 2 && args[0] == "restart" && args[1] == "systemd-resolved" {
+					restartedResolved = true
+				}
+			}
+			return "", nil
+		}
+
+		// When reverting DNS
+		if err := manager.RevertDNS(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then the per-domain drop-in is removed via rm -f and resolved is restarted
+		want := "/etc/systemd/resolved.conf.d/dns-override-local.test.conf"
+		if removedPath != want {
+			t.Errorf("expected removal of %q, got %q", want, removedPath)
+		}
+		if !restartedResolved {
+			t.Errorf("expected systemd-resolved restart after drop-in removal")
+		}
+	})
+
+	t.Run("ErrorWhenResolvedRestartFails", func(t *testing.T) {
+		// Given resolved restart fails after drop-in removal succeeds
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "local.test")
+		mocks.Shell.ExecSudoFunc = func(_, command string, _ ...string) (string, error) {
+			if command == "systemctl" {
+				return "", fmt.Errorf("mock restart failure")
+			}
+			return "", nil
+		}
+
+		// When reverting DNS
+		err := manager.RevertDNS()
+
+		// Then the restart error surfaces — operators expect coherent DNS state
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to restart systemd-resolved") {
+			t.Errorf("expected wrapped restart error, got %v", err)
+		}
+	})
+
+	t.Run("RejectsDomainWithPathSeparator", func(t *testing.T) {
+		// Given a malformed DNS domain
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "evil/../etc/passwd")
+
+		// When reverting DNS
+		err := manager.RevertDNS()
+
+		// Then validation rejects before any rm runs
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "must contain only letters") {
+			t.Errorf("expected validation error, got %v", err)
+		}
+	})
+}
+
 func TestLinuxNetworkManager_FlushDNS(t *testing.T) {
 	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()
