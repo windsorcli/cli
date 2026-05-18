@@ -14,6 +14,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	"github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
@@ -1354,6 +1355,74 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		}
 		if items[1].Required {
 			t.Errorf("expected second item to be optional (DNS), got %+v", items[1])
+		}
+	})
+
+	t.Run("CallbackSurfacesGetTerraformOutputsError", func(t *testing.T) {
+		// Given a terraform provider that fails to read workstation outputs (e.g. corrupted
+		// state file). The hook cannot reason about DNS state without the outputs and must
+		// surface the failure rather than silently proceeding with stale config.
+		mocks := setupWorkstationMocks(t)
+		mockTF := &terraform.MockTerraformProvider{}
+		mockTF.GetTerraformOutputsFunc = func(_ string) (map[string]any, error) {
+			return nil, fmt.Errorf("tf state unreadable")
+		}
+		mocks.Runtime.TerraformProvider = mockTF
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		ws.DeferHostGuestSetup = true
+
+		// When the hook fires
+		halt, err := ws.MakeApplyHook()("workstation")
+
+		// Then the error bubbles with context, no halt is signaled, and no deferred work was
+		// recorded (the hook bailed before the privilege probes)
+		if err == nil || !strings.Contains(err.Error(), "tf state unreadable") {
+			t.Errorf("expected wrapped tf-outputs error, got: %v", err)
+		}
+		if halt {
+			t.Error("expected halt=false on error path")
+		}
+		if items := ws.DeferredWork(); len(items) != 0 {
+			t.Errorf("expected no deferred work when hook errors early, got %v", items)
+		}
+	})
+
+	t.Run("CallbackSurfacesConfigSetError", func(t *testing.T) {
+		// Given a terraform provider that returns a dns_address, but the config handler refuses
+		// to persist it (read-only state, IO error, etc.). The hook must not call WriteState
+		// with a stale value masquerading as fresh — surface the error instead.
+		mocks := setupWorkstationMocks(t)
+		mockTF := &terraform.MockTerraformProvider{}
+		mockTF.GetTerraformOutputsFunc = func(_ string) (map[string]any, error) {
+			return map[string]any{"dns_address": "10.5.0.2"}, nil
+		}
+		mocks.Runtime.TerraformProvider = mockTF
+		mocks.ConfigHandler.(*config.MockConfigHandler).SetFunc = func(key string, _ any) error {
+			if key == "workstation.dns.address" {
+				return fmt.Errorf("config locked")
+			}
+			return nil
+		}
+		ws := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		ws.DeferHostGuestSetup = true
+
+		// When the hook fires
+		halt, err := ws.MakeApplyHook()("workstation")
+
+		// Then the Set failure bubbles with context and halt is not signaled
+		if err == nil || !strings.Contains(err.Error(), "config locked") {
+			t.Errorf("expected wrapped Set error, got: %v", err)
+		}
+		if halt {
+			t.Error("expected halt=false on error path")
 		}
 	})
 }

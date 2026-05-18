@@ -15,6 +15,7 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
+	terraformprovider "github.com/windsorcli/cli/pkg/runtime/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 	"github.com/windsorcli/cli/pkg/workstation"
 	"github.com/windsorcli/cli/pkg/workstation/network"
@@ -1413,6 +1414,15 @@ func TestProject_Up(t *testing.T) {
 			return false, nil
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+
+		// MakeApplyHook reads workstation TF outputs to backfill workstation.dns.address; the
+		// real TerraformProvider would error here because no on-disk component exists in this
+		// in-memory test. Stub it out to return no outputs cleanly.
+		mockTF := &terraformprovider.MockTerraformProvider{}
+		mockTF.GetTerraformOutputsFunc = func(_ string) (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		mocks.Runtime.TerraformProvider = mockTF
 
 		mockNetwork := network.NewMockNetworkManager()
 		mockNetwork.NeedsPrivilegeForClusterFunc = func() bool { return true }

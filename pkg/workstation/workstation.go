@@ -307,20 +307,23 @@ func (w *Workstation) MakeApplyHook() func(componentID string) (bool, error) {
 		dnsAddr := ""
 		if w.runtime.TerraformProvider != nil {
 			outputs, err := w.runtime.TerraformProvider.GetTerraformOutputs("workstation")
-			if err == nil {
-				for _, key := range []string{"dns_ip", "dns_address"} {
-					if v, ok := outputs[key]; ok && v != nil {
-						s := fmt.Sprint(v)
-						if s != "" {
-							dnsAddr = s
-							break
-						}
+			if err != nil {
+				return false, fmt.Errorf("error reading workstation terraform outputs: %w", err)
+			}
+			for _, key := range []string{"dns_ip", "dns_address"} {
+				if v, ok := outputs[key]; ok && v != nil {
+					s := fmt.Sprint(v)
+					if s != "" {
+						dnsAddr = s
+						break
 					}
 				}
 			}
 		}
 		if dnsAddr != "" {
-			_ = w.configHandler.Set("workstation.dns.address", dnsAddr)
+			if err := w.configHandler.Set("workstation.dns.address", dnsAddr); err != nil {
+				return false, fmt.Errorf("error persisting workstation.dns.address from terraform output: %w", err)
+			}
 		}
 		if err := w.WriteState(); err != nil {
 			return false, fmt.Errorf("error writing workstation state: %w", err)
