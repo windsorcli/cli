@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
@@ -40,6 +41,7 @@ var downCmd = &cobra.Command{
 			return fmt.Errorf("error performing cleanup: %w", err)
 		}
 
+		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		return nil
 	},
 }

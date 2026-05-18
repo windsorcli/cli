@@ -1693,7 +1693,7 @@ func TestWorkstation_Down(t *testing.T) {
 		}
 	})
 
-	t.Run("PrintsHintAfterTeardownWhenInstalledButCannotElevate", func(t *testing.T) {
+	t.Run("RecordsRevertDeferredWorkWhenInstalledButCannotElevate", func(t *testing.T) {
 		// Given installed network state but no non-interactive elevation
 		originalGeteuid := geteuidFunc
 		t.Cleanup(func() { geteuidFunc = originalGeteuid })
@@ -1707,41 +1707,34 @@ func TestWorkstation_Down(t *testing.T) {
 		var revertCalled bool
 		mocks.NetworkManager.RevertHostRouteFunc = func() error { revertCalled = true; return nil }
 		mocks.NetworkManager.RevertDNSFunc = func() error { revertCalled = true; return nil }
-		// Have the teardown step itself write a sentinel line to stderr so we can verify the
-		// hint comes AFTER it in the captured stderr (the actionable guidance should be the
-		// last thing the operator sees).
-		mocks.ContainerRuntime.DownFunc = func() error {
-			fmt.Fprintln(os.Stderr, "MARKER: container runtime stopped")
-			return nil
-		}
+		mocks.ContainerRuntime.DownFunc = func() error { return nil }
 		ws := NewWorkstation(mocks.Runtime, &Workstation{
 			NetworkManager:   mocks.NetworkManager,
 			ContainerRuntime: mocks.ContainerRuntime,
 		})
 
-		// Capture stderr so we can assert the hint fired AFTER teardown
-		stderrBuf, restore := captureProcessStderrForWorkstationTest(t)
-		t.Cleanup(restore)
-
 		// When tearing down
 		if err := ws.Down(); err != nil {
 			t.Fatalf("expected nil error, got %v", err)
 		}
-		restore()
 
-		// Then no revert ran, and the hint appears AFTER the teardown sentinel
+		// Then no revert ran inline (no surprise sudo prompt during down), and the leftover
+		// configuration is recorded as a deferred-work item the cmd layer renders after teardown
 		if revertCalled {
 			t.Errorf("expected no revert call when cannot elevate")
 		}
-		out := stderrBuf.String()
-		hint := "host network configuration remains; run 'windsor configure network --revert' from an elevated shell"
-		if !strings.Contains(out, hint) {
-			t.Fatalf("expected hint %q in stderr, got %q", hint, out)
+		items := ws.DeferredWork()
+		if len(items) != 1 {
+			t.Fatalf("expected 1 deferred-work item, got %d (%v)", len(items), items)
 		}
-		markerIdx := strings.Index(out, "MARKER: container runtime stopped")
-		hintIdx := strings.Index(out, hint)
-		if markerIdx == -1 || hintIdx == -1 || hintIdx < markerIdx {
-			t.Errorf("expected hint to appear AFTER teardown sentinel, got order: marker=%d hint=%d in %q", markerIdx, hintIdx, out)
+		if items[0].Required {
+			t.Error("expected optional item (down completed; cleanup is at operator's convenience)")
+		}
+		if items[0].Command != "windsor configure network --revert" {
+			t.Errorf("expected --revert command, got %q", items[0].Command)
+		}
+		if items[0].Outcome != "remove host configuration" {
+			t.Errorf("expected outcome 'remove host configuration', got %q", items[0].Outcome)
 		}
 	})
 

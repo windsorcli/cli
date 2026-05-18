@@ -18,6 +18,7 @@ import (
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/workstation"
+	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
 )
 
@@ -234,6 +235,40 @@ func TestDownCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error performing cleanup") {
 			t.Errorf("Expected cleanup error, got: %v", err)
+		}
+	})
+
+	t.Run("RendersDeferredWorkSummaryAfterTeardown", func(t *testing.T) {
+		// Given a workstation whose Down records a leftover-config deferred-work item
+		// (host route installed but the process cannot elevate non-interactively)
+		t.Cleanup(workstation.SetGeteuidForTest(func() int { return 1000 }))
+		mocks := setupDownTest(t)
+		mocks.Runtime.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("a password is required")
+		}
+		mockNet := network.NewMockNetworkManager()
+		mockNet.IsHostRouteInstalledFunc = func() bool { return true }
+		ws := workstation.NewWorkstation(mocks.Runtime.Runtime, &workstation.Workstation{
+			NetworkManager: mockNet,
+		})
+		mocks.Project.Workstation = ws
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		// When executing the down command
+		cmd := createTestDownCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("expected success, got: %v", err)
+		}
+		restore()
+
+		// Then the end-of-run summary points at the revert command
+		want := "Run 'windsor configure network --revert'"
+		if !strings.Contains(stderrBuf.String(), want) {
+			t.Errorf("expected stderr to contain %q, got: %q", want, stderrBuf.String())
 		}
 	})
 }
