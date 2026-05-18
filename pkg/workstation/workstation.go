@@ -169,7 +169,8 @@ func (w *Workstation) Up() error {
 		}
 	}
 
-	// Host/guest and DNS are run via the hook after the workstation Terraform component when DeferHostGuestSetup.
+	// Inline host/guest + DNS path: runs when there is no workstation Terraform component. The
+	// deferred path (DeferHostGuestSetup=true) is handled by MakeApplyHook + 'windsor configure network'.
 	if w.NetworkManager != nil && !w.DeferHostGuestSetup {
 		if workstationRuntime == "colima" {
 			if err := w.NetworkManager.ConfigureGuest(); err != nil {
@@ -361,9 +362,8 @@ func (w *Workstation) FlushDNS() error {
 }
 
 // MakePostApplyHook returns a callback for the provisioner's postApply when DeferHostGuestSetup is true.
-// The callback flushes the DNS cache after the "workstation" Terraform component's Done line is printed,
-// so the elevated-privilege prompt appears after the spinner completes rather than during it.
-// Returns nil when DeferHostGuestSetup is false.
+// The callback flushes the DNS cache after the workstation Terraform component if NetworkManager
+// reports DNSChanged. Returns nil when DeferHostGuestSetup is false.
 func (w *Workstation) MakePostApplyHook() func(componentID string) error {
 	if !w.DeferHostGuestSetup {
 		return nil

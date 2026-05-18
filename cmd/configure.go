@@ -32,7 +32,7 @@ var configureCmd = &cobra.Command{
 var configureNetworkCmd = &cobra.Command{
 	Use:          "network",
 	Short:        "Configure workstation host/guest networking and DNS",
-	Long:         "Run from an elevated shell after 'windsor up' has provisioned the workstation. Installs the host route + in-VM forwarding required for cluster reachability on VM-backed runtimes, and writes the per-domain DNS resolver entry so '*.<dns.domain>' resolves to the cluster's DNS service. Use --dns-address to override the DNS service address; --dry-run to describe what would change without invoking sudo; --revert to remove the host configuration this command previously installed.",
+	Long:         "Run after 'windsor up' has provisioned the workstation. Installs the host route + in-VM forwarding required for cluster reachability on VM-backed runtimes, and writes the per-domain DNS resolver entry so '*.<dns.domain>' resolves to the cluster's DNS service. Prompts for sudo on macOS/Linux; must be run from an Administrator PowerShell on Windows. Use --dns-address to override the DNS service address; --dry-run to describe what would change without invoking sudo; --revert to remove the host configuration this command previously installed.",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var opts []*project.Project
