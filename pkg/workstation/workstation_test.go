@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -819,6 +820,73 @@ func TestWorkstation_DeferredWork(t *testing.T) {
 		// Then the prior deferred work should be cleared
 		if items := w.DeferredWork(); items != nil {
 			t.Errorf("Expected deferred work to be reset at start of Up, got %v", items)
+		}
+	})
+}
+
+func TestWorkstation_IsProvisioned(t *testing.T) {
+	t.Run("ReturnsFalseWhenStateFileMissing", func(t *testing.T) {
+		// Given a project root with no .windsor/contexts/<context>/workstation.yaml
+		tmpDir := t.TempDir()
+		mocks := setupWorkstationMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string { return "test-context" }
+		w := NewWorkstation(mocks.Runtime)
+
+		// When checking the precondition
+		provisioned, err := w.IsProvisioned()
+
+		// Then no error and provisioned reports false — operator hasn't run 'windsor up' yet
+		if err != nil {
+			t.Fatalf("expected nil error when state file is missing, got %v", err)
+		}
+		if provisioned {
+			t.Error("expected provisioned=false when workstation.yaml is missing")
+		}
+	})
+
+	t.Run("ReturnsTrueWhenStateFilePresent", func(t *testing.T) {
+		// Given a project root with the workstation state file present (typical post-up state,
+		// preserved across windsor down by PerformCleanup so up→down→up cycles can resume)
+		tmpDir := t.TempDir()
+		contextDir := filepath.Join(tmpDir, ".windsor", "contexts", "test-context")
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			t.Fatalf("setup mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(contextDir, "workstation.yaml"), []byte("dns:\n  address: 10.5.0.2\n"), 0644); err != nil {
+			t.Fatalf("setup write workstation.yaml: %v", err)
+		}
+		mocks := setupWorkstationMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) { return tmpDir, nil }
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetContextFunc = func() string { return "test-context" }
+		w := NewWorkstation(mocks.Runtime)
+
+		// When checking the precondition
+		provisioned, err := w.IsProvisioned()
+
+		// Then provisioned reports true
+		if err != nil {
+			t.Errorf("expected nil error when state file exists, got %v", err)
+		}
+		if !provisioned {
+			t.Error("expected provisioned=true when workstation.yaml exists")
+		}
+	})
+
+	t.Run("ReturnsErrorWhenProjectRootCannotBeResolved", func(t *testing.T) {
+		// Given a shell that fails to resolve project root (e.g. operator outside any project)
+		mocks := setupWorkstationMocks(t)
+		mocks.Shell.GetProjectRootFunc = func() (string, error) {
+			return "", fmt.Errorf("not in a project")
+		}
+		w := NewWorkstation(mocks.Runtime)
+
+		// When checking the precondition
+		_, err := w.IsProvisioned()
+
+		// Then the IO error surfaces with context
+		if err == nil || !strings.Contains(err.Error(), "not in a project") {
+			t.Errorf("expected wrapped project-root error, got %v", err)
 		}
 	})
 }

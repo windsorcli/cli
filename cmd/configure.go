@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -64,12 +63,15 @@ var configureNetworkCmd = &cobra.Command{
 		}
 
 		// Precondition: refuse to run before the workstation Terraform component has applied.
-		// MakeApplyHook writes workstation.yaml after the workstation TF outputs are persisted,
-		// so its presence is the canonical signal that 'windsor up' has reached the cluster-
-		// reachability handoff point and we have real values (DNS address, runtime, etc.) to
-		// install on the host.
-		if err := ensureWorkstationProvisioned(proj); err != nil {
+		// IsProvisioned reads the canonical state file written by MakeApplyHook after the TF
+		// outputs are persisted — its presence means 'windsor up' has reached the cluster-
+		// reachability handoff and we have real values (DNS address, runtime, etc.) on hand.
+		provisioned, err := proj.Workstation.IsProvisioned()
+		if err != nil {
 			return err
+		}
+		if !provisioned {
+			return fmt.Errorf("workstation has not been provisioned yet for context %q. Run 'windsor up' first, then re-run 'windsor configure network'", proj.Runtime.ConfigHandler.GetContext())
 		}
 
 		if err := proj.Workstation.Prepare(); err != nil {
@@ -110,26 +112,6 @@ var configureNetworkCmd = &cobra.Command{
 		}
 		return proj.Workstation.FlushDNS()
 	},
-}
-
-// ensureWorkstationProvisioned errors when 'windsor up' has not yet reached the apply-hook
-// handoff for the current context. Detection is by file presence:
-// <projectRoot>/.windsor/contexts/<context>/workstation.yaml is written by Workstation.WriteState
-// only after the workstation Terraform component applies. Operator-facing message points at
-// 'windsor up' as the remediation.
-func ensureWorkstationProvisioned(proj *project.Project) error {
-	projectRoot, err := proj.Runtime.Shell.GetProjectRoot()
-	if err != nil {
-		return fmt.Errorf("error resolving project root: %w", err)
-	}
-	context := proj.Runtime.ConfigHandler.GetContext()
-	workstationYAML := filepath.Join(projectRoot, ".windsor", "contexts", context, "workstation.yaml")
-	if _, err := os.Stat(workstationYAML); os.IsNotExist(err) {
-		return fmt.Errorf("workstation has not been provisioned yet for context %q. Run 'windsor up' first, then re-run 'windsor configure network'", context)
-	} else if err != nil {
-		return fmt.Errorf("error checking workstation state: %w", err)
-	}
-	return nil
 }
 
 func init() {

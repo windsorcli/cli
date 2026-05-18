@@ -3,6 +3,7 @@ package workstation
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -428,6 +429,28 @@ func (w *Workstation) Down() error {
 // config keys (workstation.*, platform, dns.*) to .windsor/contexts/<context>/workstation.yaml.
 func (w *Workstation) WriteState() error {
 	return w.configHandler.SaveWorkstationState()
+}
+
+// IsProvisioned reports whether 'windsor up' has applied the workstation Terraform component
+// for the current context. Detection is by file presence: WriteState only writes
+// <projectRoot>/.windsor/contexts/<context>/workstation.yaml after MakeApplyHook persists the
+// component's TF outputs, so the file is the canonical "workstation provisioned" signal.
+// Callers like 'windsor configure network' use this as a precondition gate. Returns
+// (false, nil) when the state file is absent; (false, err) when a real IO error prevents
+// the check.
+func (w *Workstation) IsProvisioned() (bool, error) {
+	projectRoot, err := w.shell.GetProjectRoot()
+	if err != nil {
+		return false, fmt.Errorf("error resolving project root: %w", err)
+	}
+	statePath := filepath.Join(projectRoot, ".windsor", "contexts", w.configHandler.GetContext(), "workstation.yaml")
+	if _, err := os.Stat(statePath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error checking workstation state: %w", err)
+	}
+	return true, nil
 }
 
 // DeferredWork returns the deferred-work items accumulated during the most recent Up().
