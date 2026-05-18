@@ -495,6 +495,89 @@ func TestValidateDomain(t *testing.T) {
 	})
 }
 
+func TestValidateCIDR(t *testing.T) {
+	t.Run("AcceptsValidCIDRsAndReturnsCanonicalForm", func(t *testing.T) {
+		// Given well-formed CIDRs (some intentionally non-canonical to verify normalization)
+		cases := map[string]string{
+			"192.168.5.0/24":   "192.168.5.0/24",
+			"10.0.0.0/8":       "10.0.0.0/8",
+			"172.16.0.0/12":    "172.16.0.0/12",
+			"192.168.5.42/24":  "192.168.5.0/24", // host bits dropped by ParseCIDR
+			"fd00::/8":         "fd00::/8",
+		}
+		for input, want := range cases {
+			got, err := validateCIDR(input)
+			if err != nil {
+				t.Errorf("expected %q to validate, got %v", input, err)
+				continue
+			}
+			if got != want {
+				t.Errorf("validateCIDR(%q) = %q, want %q", input, got, want)
+			}
+		}
+	})
+
+	t.Run("RejectsInputsWithShellMetacharacters", func(t *testing.T) {
+		// Given strings shaped to escape PowerShell -Command or sh -c context
+		cases := []string{
+			"",
+			"not-a-cidr",
+			"192.168.5.0/24'; calc; #",         // PowerShell injection
+			"192.168.5.0/24; rm -rf /",         // shell statement separator
+			"192.168.5.0/24 -and (rm)",         // PowerShell operator
+			"192.168.5.0/24`whoami`",           // PowerShell subexpression
+			"$(rm -rf /)",                      // shell command substitution
+			"192.168.5.0",                      // missing mask
+			"192.168.5.0/33",                   // out-of-range mask
+			"...",
+		}
+		for _, input := range cases {
+			if _, err := validateCIDR(input); err == nil {
+				t.Errorf("expected %q to be rejected, got nil error", input)
+			}
+		}
+	})
+}
+
+func TestValidateIPAddress(t *testing.T) {
+	t.Run("AcceptsValidIPv4AndIPv6", func(t *testing.T) {
+		cases := map[string]string{
+			"192.168.5.10":  "192.168.5.10",
+			"10.5.0.2":      "10.5.0.2",
+			"::1":           "::1",
+			"fe80::1":       "fe80::1",
+		}
+		for input, want := range cases {
+			got, err := validateIPAddress(input)
+			if err != nil {
+				t.Errorf("expected %q to validate, got %v", input, err)
+				continue
+			}
+			if got != want {
+				t.Errorf("validateIPAddress(%q) = %q, want %q", input, got, want)
+			}
+		}
+	})
+
+	t.Run("RejectsInputsWithShellMetacharacters", func(t *testing.T) {
+		cases := []string{
+			"",
+			"not-an-ip",
+			"192.168.5.10'; calc; #",     // PowerShell injection
+			"192.168.5.10; rm -rf /",     // shell statement separator
+			"$(whoami)",                  // shell command substitution
+			"10.5.0.2`id`",               // PowerShell subexpression
+			"10.5.0.999",                 // out-of-range octet
+			"10.5.0",                     // truncated
+		}
+		for _, input := range cases {
+			if _, err := validateIPAddress(input); err == nil {
+				t.Errorf("expected %q to be rejected, got nil error", input)
+			}
+		}
+	})
+}
+
 func TestNetworkManager_writeFileWithSudo(t *testing.T) {
 	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
 		t.Helper()

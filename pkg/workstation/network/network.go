@@ -189,6 +189,30 @@ func validateDomain(domain string) error {
 	return nil
 }
 
+// validateCIDR parses cidr as a CIDR-notation network and returns the canonical form for
+// interpolation into shell or PowerShell command strings. Callers that build commands by
+// string concatenation (Windows PowerShell -Command, colima ssh sh -c) must use the returned
+// value rather than the raw config string to ensure no shell or PowerShell metacharacters can
+// be smuggled in via a tampered workstation.yaml.
+func validateCIDR(cidr string) (string, error) {
+	_, network, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", fmt.Errorf("invalid CIDR %q: %w", cidr, err)
+	}
+	return network.String(), nil
+}
+
+// validateIPAddress parses ip as an IPv4 or IPv6 literal and returns the canonical form. Same
+// rationale as validateCIDR: callers that interpolate IP-shaped config values into shell or
+// PowerShell command strings must use the canonical return value rather than the raw input.
+func validateIPAddress(ip string) (string, error) {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return "", fmt.Errorf("invalid IP address %q", ip)
+	}
+	return parsed.String(), nil
+}
+
 // writeFileWithSudo stages content in a freshly-created private temp directory (mode 0700) and
 // then sudo-moves it to destPath and sudo-chmods it to 0644. Using MkdirTemp ensures the source
 // path is unpredictable and that an unprivileged local user cannot pre-create a symlink at the

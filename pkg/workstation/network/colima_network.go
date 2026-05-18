@@ -173,6 +173,10 @@ func (n *ColimaNetworkManager) configureIncusNetwork(networkCIDR string) error {
 // host IP (caller has already torn down the VM bridge). IP forwarding is left enabled — other
 // workloads in the VM may depend on it.
 func (n *ColimaNetworkManager) removeForwardingRule(networkCIDR, outputInterface string) error {
+	cidr, err := validateCIDR(networkCIDR)
+	if err != nil {
+		return err
+	}
 	hostIP, err := n.getHostIP()
 	if err != nil {
 		// Bridge gone / VM down — nothing to revert.
@@ -180,7 +184,7 @@ func (n *ColimaNetworkManager) removeForwardingRule(networkCIDR, outputInterface
 	}
 	contextName := n.configHandler.GetContext()
 	profileName := fmt.Sprintf("windsor-%s", contextName)
-	deleteCommand := fmt.Sprintf("sudo iptables -t filter -D FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT 2>/dev/null </dev/null", outputInterface, hostIP, networkCIDR)
+	deleteCommand := fmt.Sprintf("sudo iptables -t filter -D FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT 2>/dev/null </dev/null", outputInterface, hostIP, cidr)
 	_, err = n.shell.ExecSilentWithTimeout(
 		"colima",
 		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", deleteCommand},
@@ -196,6 +200,10 @@ func (n *ColimaNetworkManager) removeForwardingRule(networkCIDR, outputInterface
 // setupForwardingRule sets up iptables forwarding from col0 to the specified output interface.
 // Host IP is resolved from config (workstation.address) via getHostIP.
 func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface string) error {
+	cidr, err := validateCIDR(networkCIDR)
+	if err != nil {
+		return err
+	}
 	hostIP, err := n.getHostIP()
 	if err != nil {
 		return fmt.Errorf("error getting host IP: %w", err)
@@ -211,14 +219,14 @@ func (n *ColimaNetworkManager) setupForwardingRule(networkCIDR, outputInterface 
 		return fmt.Errorf("error enabling IP forwarding in VM: %w", err)
 	}
 
-	checkCommand := fmt.Sprintf("sudo iptables -t filter -C FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT 2>/dev/null </dev/null", outputInterface, hostIP, networkCIDR)
+	checkCommand := fmt.Sprintf("sudo iptables -t filter -C FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT 2>/dev/null </dev/null", outputInterface, hostIP, cidr)
 	_, err = n.shell.ExecSilentWithTimeout(
 		"colima",
 		[]string{"ssh", "--profile", profileName, "--", "sh", "-c", checkCommand},
 		10*time.Second,
 	)
 	if err != nil {
-		addCommand := fmt.Sprintf("sudo iptables -t filter -A FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT 2>/dev/null </dev/null", outputInterface, hostIP, networkCIDR)
+		addCommand := fmt.Sprintf("sudo iptables -t filter -A FORWARD -i col0 -o %s -s %s -d %s -j ACCEPT 2>/dev/null </dev/null", outputInterface, hostIP, cidr)
 		_, addErr := n.shell.ExecSilentWithTimeout(
 			"colima",
 			[]string{"ssh", "--profile", profileName, "--", "sh", "-c", addCommand},
