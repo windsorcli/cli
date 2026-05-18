@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -187,15 +188,16 @@ var bootstrapCmd = &cobra.Command{
 		// The bootstrap confirm prompt fires from inside proj.Bootstrap, so the operator
 		// briefly holds the stack lock while answering. Acceptable today since bootstrap
 		// is rare; revisit if the prompt grows into a longer flow.
-		var applied bool
+		var applied, halted bool
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", func() error {
-			_, ok, _, err := proj.Bootstrap(confirmFn)
+			_, ok, h, err := proj.Bootstrap(confirmFn)
 			finishPlan(err)
 			if err != nil {
 				return err
 			}
 			applied = ok
-			if !applied {
+			halted = h
+			if !applied || halted {
 				return nil
 			}
 
@@ -223,7 +225,12 @@ var bootstrapCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Fprintln(os.Stderr, "Windsor environment bootstrapped successfully.")
+		if !halted {
+			fmt.Fprintln(os.Stderr, "Windsor environment bootstrapped successfully.")
+		}
+		if proj.Workstation != nil {
+			printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), stdruntime.GOOS)
+		}
 
 		return nil
 	},

@@ -200,6 +200,43 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("HaltedBootstrapSkipsBlueprintInstallAndSuccessLine", func(t *testing.T) {
+		// Given a terraform stack that halts after a component (the apply hook needed host
+		// configuration the operator hasn't done yet)
+		mocks := setupBootstrapTest(t)
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(string) (bool, error)) (bool, error) {
+			return true, nil
+		}
+		applyBlueprintCalled := false
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			applyBlueprintCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("expected halt to exit 0 (clean stop, not failure), got error: %v", err)
+		}
+		restore()
+
+		// Then blueprint install is skipped and the success line is suppressed
+		if applyBlueprintCalled {
+			t.Error("expected blueprint install to be skipped after halt")
+		}
+		if strings.Contains(stderrBuf.String(), "Windsor environment bootstrapped successfully") {
+			t.Errorf("expected success line to be suppressed after halt, got: %q", stderrBuf.String())
+		}
+	})
+
 	t.Run("NotifiesDuringInstallWithResolvedBlueprint", func(t *testing.T) {
 		// Given a bootstrap test project wired with a MockNotifier
 		mocks := setupBootstrapTest(t)
