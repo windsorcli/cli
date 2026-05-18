@@ -764,6 +764,65 @@ func TestWorkstation_Up(t *testing.T) {
 
 }
 
+func TestWorkstation_DeferredWork(t *testing.T) {
+	t.Run("ReturnsNilWhenNothingAppended", func(t *testing.T) {
+		// Given a fresh workstation with no deferred work recorded
+		mocks := setupWorkstationMocks(t)
+		w := NewWorkstation(mocks.Runtime)
+
+		// When reading DeferredWork before any append
+		items := w.DeferredWork()
+
+		// Then the slice should be nil
+		if items != nil {
+			t.Errorf("Expected nil deferred work, got %v", items)
+		}
+	})
+
+	t.Run("AppendDeferredWorkAccumulatesInOrder", func(t *testing.T) {
+		// Given a workstation
+		mocks := setupWorkstationMocks(t)
+		w := NewWorkstation(mocks.Runtime)
+
+		// When appending two items
+		w.appendDeferredWork(DeferredWorkItem{Required: true, Command: "windsor configure network"})
+		w.appendDeferredWork(DeferredWorkItem{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"})
+
+		// Then DeferredWork should return both in insertion order
+		items := w.DeferredWork()
+		if len(items) != 2 {
+			t.Fatalf("Expected 2 items, got %d", len(items))
+		}
+		if !items[0].Required || items[0].Command != "windsor configure network" {
+			t.Errorf("Expected first item required+command, got %+v", items[0])
+		}
+		if items[1].Required || items[1].Outcome != "use *.local.test in your browser" {
+			t.Errorf("Expected second item optional+outcome, got %+v", items[1])
+		}
+	})
+
+	t.Run("UpResetsDeferredWorkAtStart", func(t *testing.T) {
+		// Given a workstation that previously accumulated deferred work
+		mocks := setupWorkstationMocks(t)
+		w := NewWorkstation(mocks.Runtime, &Workstation{
+			VirtualMachine:   mocks.VirtualMachine,
+			ContainerRuntime: mocks.ContainerRuntime,
+			NetworkManager:   mocks.NetworkManager,
+		})
+		w.appendDeferredWork(DeferredWorkItem{Required: true, Command: "windsor configure network"})
+
+		// When running Up()
+		if err := w.Up(); err != nil {
+			t.Fatalf("Expected Up to succeed, got %v", err)
+		}
+
+		// Then the prior deferred work should be cleared
+		if items := w.DeferredWork(); items != nil {
+			t.Errorf("Expected deferred work to be reset at start of Up, got %v", items)
+		}
+	})
+}
+
 func TestWorkstation_FlushDNS(t *testing.T) {
 	t.Run("CallsFlushDNSWhenDNSConfigured", func(t *testing.T) {
 		// Given a workstation with DNS domain and address configured

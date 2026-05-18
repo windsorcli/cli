@@ -3,7 +3,9 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -141,8 +143,34 @@ var upCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "*.%s is reachable at %s; run 'windsor configure network' (elevated, one-time per host) for browser-friendly URLs.\n", domain, address)
 		}
 
+		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		return nil
 	},
+}
+
+// printDeferredWork renders the end-of-run summary for items the apply skipped because they
+// require elevation Up() will not request. When any item is Required the output is a single
+// halt sentence (operator runs the command, then re-runs 'windsor up'); otherwise one line per
+// optional item describes the outcome the operator gets from running it. Empty items produce
+// no output. goos selects the OS-specific elevation parenthetical: "(Administrator PowerShell)"
+// on windows, "(asks for sudo)" elsewhere.
+func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos string) {
+	if len(items) == 0 {
+		return
+	}
+	paren := "(asks for sudo)"
+	if goos == "windows" {
+		paren = "(Administrator PowerShell)"
+	}
+	for _, item := range items {
+		if item.Required {
+			fmt.Fprintf(w, "Run '%s' %s, then re-run 'windsor up'.\n", item.Command, paren)
+			return
+		}
+	}
+	for _, item := range items {
+		fmt.Fprintf(w, "Run '%s' %s to %s.\n", item.Command, paren, item.Outcome)
+	}
 }
 
 // buildUpFlagOverrides builds a config override map from up's command-line

@@ -720,4 +720,71 @@ func TestBuildUpFlagOverrides(t *testing.T) {
 	})
 }
 
+func TestPrintDeferredWork(t *testing.T) {
+	t.Run("EmptyItemsProducesNoOutput", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, nil, "darwin")
+		if buf.Len() != 0 {
+			t.Errorf("Expected no output for empty items, got %q", buf.String())
+		}
+	})
 
+	t.Run("RequiredItemRendersHaltSentenceWithSudoParenOnUnix", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: true, Command: "windsor configure network"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n"
+		if buf.String() != want {
+			t.Errorf("Expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("RequiredItemRendersHaltSentenceWithAdministratorParenOnWindows", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: true, Command: "windsor configure network"},
+		}, "windows")
+		want := "Run 'windsor configure network' (Administrator PowerShell), then re-run 'windsor up'.\n"
+		if buf.String() != want {
+			t.Errorf("Expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("OptionalItemRendersOutcomeSentence", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n"
+		if buf.String() != want {
+			t.Errorf("Expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("RequiredItemSuppressesOptionalOutput", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
+			{Required: true, Command: "windsor configure network"},
+		}, "darwin")
+		// Halt sentence wins; optional outcome is not separately listed.
+		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n"
+		if buf.String() != want {
+			t.Errorf("Expected halt-only output %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("MultipleOptionalItemsEachRenderOnTheirOwnLine", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
+			{Required: false, Command: "windsor configure network --revert", Outcome: "remove host configuration"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n" +
+			"Run 'windsor configure network --revert' (asks for sudo) to remove host configuration.\n"
+		if buf.String() != want {
+			t.Errorf("Expected %q, got %q", want, buf.String())
+		}
+	})
+}

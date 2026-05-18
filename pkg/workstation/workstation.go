@@ -47,6 +47,19 @@ type Workstation struct {
 	// Set when the blueprint has a "workstation" Terraform component; host/guest setup runs after that component is applied via the provisioner callback.
 	// Temporary: in the future host/guest setup will always run after the "workstation" component and this flag may be removed.
 	DeferHostGuestSetup bool
+
+	deferredWork []DeferredWorkItem
+}
+
+// DeferredWorkItem describes a step the apply skipped because it requires elevation the
+// in-process Up() will not request. The end-of-run summary in cmd/up renders these into
+// operator-facing guidance. Required items denote a halt (subsequent components were skipped
+// and the operator must re-run 'windsor up' after acting); optional items denote work the
+// operator can do at their convenience without re-running.
+type DeferredWorkItem struct {
+	Required bool
+	Outcome  string
+	Command  string
 }
 
 // =============================================================================
@@ -134,6 +147,7 @@ func (w *Workstation) Prepare() error {
 // Sets NO_CACHE, starts the virtual machine if configured, writes container runtime config,
 // and configures networking. All components must be created via Prepare() before calling Up().
 func (w *Workstation) Up() error {
+	w.deferredWork = nil
 	if err := os.Setenv("NO_CACHE", "true"); err != nil {
 		return fmt.Errorf("Error setting NO_CACHE environment variable: %w", err)
 	}
@@ -417,6 +431,13 @@ func (w *Workstation) WriteState() error {
 	return w.configHandler.SaveWorkstationState()
 }
 
+// DeferredWork returns the deferred-work items accumulated during the most recent Up().
+// The slice is reset at the start of each Up; callers should read it after Up returns.
+// Returns nil when nothing was deferred.
+func (w *Workstation) DeferredWork() []DeferredWorkItem {
+	return w.deferredWork
+}
+
 // NetworkChange is one row of structured output for PendingNetworkChanges. Kind is a stable
 // kebab-case identifier ("host-route", "vm-forward", "dns-resolver") and Detail is the value
 // being installed ("192.168.5.0/24 via 192.168.5.10"). Callers are expected to render these
@@ -469,6 +490,13 @@ func SetGeteuidForTest(fn func() int) func() {
 // geteuidFunc is the seam for testing canElevateNonInteractively. Tests override this to simulate
 // a root or non-root process without depending on the actual euid of the test runner.
 var geteuidFunc = os.Geteuid
+
+// appendDeferredWork records a step that the apply skipped because it requires elevation Up()
+// will not request. cmd/up reads these via DeferredWork() after Up returns to render the
+// end-of-run summary.
+func (w *Workstation) appendDeferredWork(item DeferredWorkItem) {
+	w.deferredWork = append(w.deferredWork, item)
+}
 
 // canElevateNonInteractively reports whether the current process can run privileged commands
 // without prompting the operator: either it is already root (CI as root, sudo windsor up) or
