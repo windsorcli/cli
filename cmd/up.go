@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -93,9 +92,15 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
+		var halted bool
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", func() error {
-			if _, _, err := proj.Up(); err != nil {
+			_, h, err := proj.Up()
+			if err != nil {
 				return err
+			}
+			halted = h
+			if halted {
+				return nil
 			}
 
 			// Re-generate with deferred substitutions resolved now that terraform
@@ -120,29 +125,12 @@ var upCmd = &cobra.Command{
 			}
 			return nil
 		}); err != nil {
-			// The cluster-privilege halt is a clean stop, not a stack trace. Its
-			// message is already operator-facing; print it directly to stderr and
-			// suppress cobra's "Error:" prefix while still exiting non-zero so
-			// CI / scripts know the up didn't complete.
-			if errors.Is(err, workstation.ErrClusterPrivilegeRequired) {
-				cmd.SilenceErrors = true
-				fmt.Fprintln(os.Stderr, workstation.ErrClusterPrivilegeRequired.Error())
-			}
 			return err
 		}
 
-		fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
-
-		// Post-up DNS hint: when a cluster DNS service is present (dns.domain + resolver address
-		// in TF outputs) and the host's resolver is not pointed at it, point the operator at
-		// 'windsor configure network'. The cluster works fine without this — it's purely for
-		// browser-friendly URLs against the cluster's services.
-		if proj.Workstation != nil && proj.Workstation.NetworkManager != nil && proj.Workstation.NetworkManager.NeedsPrivilegeForDNS() {
-			domain := proj.Runtime.ConfigHandler.GetString("dns.domain")
-			address := proj.Runtime.ConfigHandler.GetString("workstation.dns.address")
-			fmt.Fprintf(os.Stderr, "*.%s is reachable at %s; run 'windsor configure network' (elevated, one-time per host) for browser-friendly URLs.\n", domain, address)
+		if !halted {
+			fmt.Fprintln(os.Stderr, "Windsor environment set up successfully.")
 		}
-
 		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		return nil
 	},

@@ -2,7 +2,6 @@ package workstation
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1305,16 +1304,11 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		}
 	})
 
-	t.Run("CallbackReturnsSentinelWhenCannotElevateInteractively", func(t *testing.T) {
-		// Given a runtime that needs cluster privilege but the process cannot elevate without prompting
-		originalGeteuid := geteuidFunc
-		t.Cleanup(func() { geteuidFunc = originalGeteuid })
-		geteuidFunc = func() int { return 1000 }
+	t.Run("CallbackHaltsAndAppendsRequiredDeferredWorkWhenClusterPrivilegeNeeded", func(t *testing.T) {
+		// Given cluster privilege is needed (host route + in-VM forwarding missing)
 		mocks := setupWorkstationMocks(t)
 		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return true }
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "", fmt.Errorf("a password is required")
-		}
+		mocks.NetworkManager.NeedsPrivilegeForDNSFunc = func() bool { return false }
 		var configureCalls []string
 		mocks.NetworkManager.ConfigureGuestFunc = func() error { configureCalls = append(configureCalls, "guest"); return nil }
 		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { configureCalls = append(configureCalls, "route"); return nil }
@@ -1325,29 +1319,35 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		})
 		ws.DeferHostGuestSetup = true
 
-		// When the hook fires
-		_, err := ws.MakeApplyHook()("workstation")
+		// When the hook fires for the workstation component
+		halt, err := ws.MakeApplyHook()("workstation")
 
-		// Then the sentinel surfaces and no inline privileged work runs
-		if !errors.Is(err, ErrClusterPrivilegeRequired) {
-			t.Fatalf("expected ErrClusterPrivilegeRequired, got: %v", err)
+		// Then the hook signals halt with no error, appends a required deferred-work item,
+		// and never invokes inline ConfigureGuest/ConfigureHostRoute (windsor up must not prompt for sudo)
+		if err != nil {
+			t.Fatalf("expected nil error, got: %v", err)
+		}
+		if !halt {
+			t.Error("expected halt=true when cluster privilege is needed")
 		}
 		if len(configureCalls) != 0 {
-			t.Errorf("expected no inline configure calls when sentinel returned, got: %v", configureCalls)
+			t.Errorf("expected no inline configure calls, got: %v", configureCalls)
+		}
+		items := ws.DeferredWork()
+		if len(items) != 1 {
+			t.Fatalf("expected 1 deferred-work item, got %d (%v)", len(items), items)
+		}
+		if !items[0].Required || items[0].Command != "windsor configure network" {
+			t.Errorf("expected required item for 'windsor configure network', got %+v", items[0])
 		}
 	})
 
-	t.Run("CallbackRunsClusterWorkInlineWhenCanElevateNonInteractively", func(t *testing.T) {
-		// Given cluster privilege is needed and the process is root (CI / sudo windsor up)
-		originalGeteuid := geteuidFunc
-		t.Cleanup(func() { geteuidFunc = originalGeteuid })
-		geteuidFunc = func() int { return 0 }
+	t.Run("CallbackAppendsOptionalDeferredWorkWhenOnlyDNSPrivilegeNeeded", func(t *testing.T) {
+		// Given only DNS privilege is needed (cluster reachable; host resolver not pointed at cluster DNS)
 		mocks := setupWorkstationMocks(t)
-		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return true }
-		var calls []string
-		mocks.NetworkManager.ConfigureGuestFunc = func() error { calls = append(calls, "guest"); return nil }
-		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { calls = append(calls, "route"); return nil }
-		mocks.NetworkManager.ConfigureDNSFunc = func() error { calls = append(calls, "dns"); return nil }
+		mocks.ConfigHandler.Set("dns.domain", "local.test")
+		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return false }
+		mocks.NetworkManager.NeedsPrivilegeForDNSFunc = func() bool { return true }
 		ws := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
@@ -1356,26 +1356,36 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		_, err := ws.MakeApplyHook()("workstation")
+		halt, err := ws.MakeApplyHook()("workstation")
 
-		// Then guest forwarding and host route ran inline; DNS did not (DNS is a post-up concern)
+		// Then no halt is signaled and an optional deferred-work item describing the DNS outcome is appended
 		if err != nil {
-			t.Errorf("expected nil error, got: %v", err)
+			t.Fatalf("expected nil error, got: %v", err)
 		}
-		if len(calls) != 2 || calls[0] != "guest" || calls[1] != "route" {
-			t.Errorf("expected inline calls [guest, route], got: %v", calls)
+		if halt {
+			t.Error("expected halt=false when only DNS privilege is needed (DNS is not load-bearing for subsequent components)")
+		}
+		items := ws.DeferredWork()
+		if len(items) != 1 {
+			t.Fatalf("expected 1 deferred-work item, got %d (%v)", len(items), items)
+		}
+		if items[0].Required {
+			t.Error("expected optional item for DNS, got required")
+		}
+		if items[0].Outcome != "use *.local.test in your browser" {
+			t.Errorf("expected outcome to embed dns.domain, got %q", items[0].Outcome)
+		}
+		if items[0].Command != "windsor configure network" {
+			t.Errorf("expected command 'windsor configure network', got %q", items[0].Command)
 		}
 	})
 
-	t.Run("CallbackBubblesGuestConfigureError", func(t *testing.T) {
-		// Given cluster privilege is needed, the process can elevate, but ConfigureGuest fails
-		originalGeteuid := geteuidFunc
-		t.Cleanup(func() { geteuidFunc = originalGeteuid })
-		geteuidFunc = func() int { return 0 }
+	t.Run("CallbackAppendsBothItemsAndHaltsWhenClusterAndDNSPrivilegeNeeded", func(t *testing.T) {
+		// Given both cluster and DNS privilege are needed (typical first-run colima case)
 		mocks := setupWorkstationMocks(t)
+		mocks.ConfigHandler.Set("dns.domain", "local.test")
 		mocks.NetworkManager.NeedsPrivilegeForClusterFunc = func() bool { return true }
-		mocks.NetworkManager.ConfigureGuestFunc = func() error { return fmt.Errorf("guest boom") }
-		mocks.NetworkManager.ConfigureHostRouteFunc = func() error { return nil }
+		mocks.NetworkManager.NeedsPrivilegeForDNSFunc = func() bool { return true }
 		ws := NewWorkstation(mocks.Runtime, &Workstation{
 			VirtualMachine:   mocks.VirtualMachine,
 			ContainerRuntime: mocks.ContainerRuntime,
@@ -1384,11 +1394,24 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		_, err := ws.MakeApplyHook()("workstation")
+		halt, err := ws.MakeApplyHook()("workstation")
 
-		// Then the guest-configure error surfaces with context
-		if err == nil || !strings.Contains(err.Error(), "error configuring guest: guest boom") {
-			t.Errorf("expected configure-guest error, got: %v", err)
+		// Then the hook halts and records both items; the renderer collapses to the halt sentence
+		if err != nil {
+			t.Fatalf("expected nil error, got: %v", err)
+		}
+		if !halt {
+			t.Error("expected halt=true when cluster privilege is needed (regardless of DNS state)")
+		}
+		items := ws.DeferredWork()
+		if len(items) != 2 {
+			t.Fatalf("expected 2 deferred-work items, got %d (%v)", len(items), items)
+		}
+		if !items[0].Required {
+			t.Errorf("expected first item to be required (cluster), got %+v", items[0])
+		}
+		if items[1].Required {
+			t.Errorf("expected second item to be optional (DNS), got %+v", items[1])
 		}
 	})
 }

@@ -1,7 +1,6 @@
 package workstation
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -12,15 +11,6 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
-)
-
-// ErrClusterPrivilegeRequired is returned from MakeApplyHook when the workstation Terraform
-// component has just applied on a VM-backed runtime whose cluster IP is not reachable from the
-// host without elevated configuration (host route + in-VM forwarding). It is a clean halt, not a
-// failure: the operator runs 'windsor configure network' from an elevated shell and then re-runs
-// 'windsor up' to apply the remainder of the blueprint.
-var ErrClusterPrivilegeRequired = errors.New(
-	"cluster reachability requires running 'windsor configure network' from an elevated shell (one-time per host), then re-run 'windsor up'",
 )
 
 // The Workstation is a core component that manages workstation virtualization, networking, and SSH operations.
@@ -297,13 +287,14 @@ func (w *Workstation) RevertNetwork(showStatus bool) error {
 
 // MakeApplyHook returns a callback for the provisioner's onApply when DeferHostGuestSetup is true.
 // The callback persists DNS-related outputs from the just-applied workstation Terraform component,
-// then resolves cluster reachability. The hook returns (haltAfter, err): on runtimes that need a
-// host route + in-VM forwarding to reach the cluster (colima today), if the process can elevate
-// non-interactively (root or cached sudo), the cluster-privilege work runs inline and the hook
-// returns (false, nil); otherwise the hook returns (false, ErrClusterPrivilegeRequired) so the
-// operator can run 'windsor configure network' and re-run 'windsor up'. DNS resolver configuration
-// is not applied here — it's a post-`up` concern handled by cmd/up. Returns nil when
-// DeferHostGuestSetup is false.
+// then inspects whether the host needs configuration that 'windsor up' is not allowed to perform
+// (it must never prompt for sudo). When the cluster is unreachable from the host without a host
+// route + in-VM forwarding, the hook appends a required DeferredWorkItem and returns (true, nil)
+// so the stack halts after the workstation component and 'windsor up' renders an operator-facing
+// summary. When the cluster DNS resolver isn't pointed at the cluster's DNS service, the hook
+// appends an optional DeferredWorkItem with the outcome the operator gets from running 'windsor
+// configure network' and continues (DNS is not load-bearing for subsequent components). Returns
+// nil when DeferHostGuestSetup is false.
 func (w *Workstation) MakeApplyHook() func(componentID string) (bool, error) {
 	if !w.DeferHostGuestSetup {
 		return nil
@@ -333,19 +324,25 @@ func (w *Workstation) MakeApplyHook() func(componentID string) (bool, error) {
 		if err := w.WriteState(); err != nil {
 			return false, fmt.Errorf("error writing workstation state: %w", err)
 		}
-		if w.NetworkManager == nil || !w.NetworkManager.NeedsPrivilegeForCluster() {
+		if w.NetworkManager == nil {
 			return false, nil
 		}
-		if !canElevateNonInteractively(w.shell) {
-			return false, ErrClusterPrivilegeRequired
+		halt := false
+		if w.NetworkManager.NeedsPrivilegeForCluster() {
+			w.appendDeferredWork(DeferredWorkItem{
+				Required: true,
+				Command:  "windsor configure network",
+			})
+			halt = true
 		}
-		if err := w.NetworkManager.ConfigureGuest(); err != nil {
-			return false, fmt.Errorf("error configuring guest: %w", err)
+		if w.NetworkManager.NeedsPrivilegeForDNS() {
+			domain := w.configHandler.GetString("dns.domain")
+			w.appendDeferredWork(DeferredWorkItem{
+				Command: "windsor configure network",
+				Outcome: fmt.Sprintf("use *.%s in your browser", domain),
+			})
 		}
-		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
-			return false, fmt.Errorf("error configuring host route: %w", err)
-		}
-		return false, nil
+		return halt, nil
 	}
 }
 

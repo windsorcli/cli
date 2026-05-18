@@ -1,7 +1,6 @@
 package project
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1375,10 +1374,11 @@ func TestProject_Up(t *testing.T) {
 		}
 	})
 
-	t.Run("ClusterPrivilegeSentinelBubblesFromApplyHook", func(t *testing.T) {
+	t.Run("ClusterPrivilegeHaltsApplyHookWithoutError", func(t *testing.T) {
 		// Given a blueprint with a workstation TF component (so DeferHostGuestSetup → true and the
-		// apply hook fires), where the privileged probe says cluster work is needed but the process
-		// cannot elevate non-interactively (the halt-and-resume model on a normal dev workstation).
+		// apply hook fires), where the privileged probe says cluster work is needed. The apply hook
+		// must signal halt (windsor up will not prompt for sudo); subsequent components are skipped
+		// and the cmd layer renders an operator-facing summary.
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.IsDevModeFunc = func(contextName string) bool {
@@ -1430,19 +1430,20 @@ func TestProject_Up(t *testing.T) {
 		proj.Workstation.VirtualMachine = nil
 		proj.Workstation.ContainerRuntime = nil
 
-		// Force the canElevateNonInteractively path to report "cannot elevate"
-		t.Cleanup(workstation.SetGeteuidForTest(func() int { return 1000 }))
-		mockShell := mocks.Shell.(*shell.MockShell)
-		mockShell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "", fmt.Errorf("a password is required")
-		}
-
 		// When proj.Up runs
-		_, _, err := proj.Up()
+		_, halted, err := proj.Up()
 
-		// Then the sentinel bubbles up through the runApply / provisioner wrap chain
-		if !errors.Is(err, workstation.ErrClusterPrivilegeRequired) {
-			t.Errorf("expected ErrClusterPrivilegeRequired, got: %v", err)
+		// Then no error surfaces, halt propagates through the runApply / provisioner chain,
+		// and the workstation accumulated a required deferred-work item the cmd layer can render
+		if err != nil {
+			t.Fatalf("expected no error on halt, got: %v", err)
+		}
+		if !halted {
+			t.Error("expected halted=true to propagate from the apply hook")
+		}
+		items := proj.Workstation.DeferredWork()
+		if len(items) != 1 || !items[0].Required || items[0].Command != "windsor configure network" {
+			t.Errorf("expected one required deferred-work item for 'windsor configure network', got: %v", items)
 		}
 	})
 
