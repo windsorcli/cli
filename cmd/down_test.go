@@ -17,6 +17,7 @@ import (
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/workstation"
 	"github.com/windsorcli/cli/pkg/workstation/network"
 	"github.com/windsorcli/cli/pkg/workstation/virt"
@@ -241,11 +242,8 @@ func TestDownCmd(t *testing.T) {
 	t.Run("RendersDeferredWorkSummaryAfterTeardown", func(t *testing.T) {
 		// Given a workstation whose Down records a leftover-config deferred-work item
 		// (host route installed but the process cannot elevate non-interactively)
-		t.Cleanup(workstation.SetGeteuidForTest(func() int { return 1000 }))
+		t.Cleanup(workstation.SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return false }))
 		mocks := setupDownTest(t)
-		mocks.Runtime.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "", fmt.Errorf("a password is required")
-		}
 		mockNet := network.NewMockNetworkManager()
 		mockNet.IsHostRouteInstalledFunc = func() bool { return true }
 		ws := workstation.NewWorkstation(mocks.Runtime.Runtime, &workstation.Workstation{

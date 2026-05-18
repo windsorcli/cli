@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/project"
+	"github.com/windsorcli/cli/pkg/workstation"
 )
 
 var (
@@ -15,6 +16,12 @@ var (
 	configureNetworkDryRun     bool
 	configureNetworkRevert     bool
 )
+
+// configureNetworkPreflight is the test seam for the per-OS elevation pre-flight in
+// 'windsor configure network'. The default implementation lives in pkg/workstation (the
+// privileged-elevation predicate sits next to canElevateNonInteractively); tests override this
+// to exercise the gate-error path on platforms that wouldn't otherwise trigger it.
+var configureNetworkPreflight = workstation.PreflightConfigureNetwork
 
 var configureCmd = &cobra.Command{
 	Use:   "configure",
@@ -84,6 +91,13 @@ var configureNetworkCmd = &cobra.Command{
 				fmt.Fprintf(tw, "%s\t%s\n", c.Kind, c.Detail)
 			}
 			return tw.Flush()
+		}
+
+		// Privileged work follows: on Windows the process itself must be elevated; on Unix
+		// per-op sudo handles each step. The pre-flight runs after --dry-run (which never
+		// modifies host state) so operators on non-Admin Windows can still preview changes.
+		if err := configureNetworkPreflight(); err != nil {
+			return err
 		}
 
 		if configureNetworkRevert {

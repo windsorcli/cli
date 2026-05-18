@@ -1174,64 +1174,6 @@ func TestWorkstation_PendingNetworkChanges(t *testing.T) {
 	})
 }
 
-func TestCanElevateNonInteractively(t *testing.T) {
-	// Save and restore the geteuid override around each subtest
-	originalGeteuid := geteuidFunc
-	t.Cleanup(func() { geteuidFunc = originalGeteuid })
-
-	t.Run("TrueWhenRoot", func(t *testing.T) {
-		// Given the process appears to be running as root (CI typical, or 'sudo windsor up')
-		geteuidFunc = func() int { return 0 }
-		mocks := setupWorkstationMocks(t)
-		sudoChecked := false
-		mocks.Shell.ExecSilentFunc = func(command string, _ ...string) (string, error) {
-			if command == "sudo" {
-				sudoChecked = true
-			}
-			return "", nil
-		}
-
-		// Then the helper short-circuits without probing sudo
-		if !canElevateNonInteractively(mocks.Shell) {
-			t.Errorf("expected true when running as root")
-		}
-		if sudoChecked {
-			t.Errorf("expected sudo -n probe to be skipped when already root")
-		}
-	})
-
-	t.Run("TrueWhenPasswordlessSudoCached", func(t *testing.T) {
-		// Given a non-root process with cached passwordless sudo credentials
-		geteuidFunc = func() int { return 1000 }
-		mocks := setupWorkstationMocks(t)
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "sudo" && len(args) >= 2 && args[0] == "-n" && args[1] == "true" {
-				return "", nil
-			}
-			return "", fmt.Errorf("unexpected command")
-		}
-
-		// Then the helper reports it can elevate without prompting
-		if !canElevateNonInteractively(mocks.Shell) {
-			t.Errorf("expected true when sudo -n true succeeds")
-		}
-	})
-
-	t.Run("FalseWhenNeitherRootNorCachedSudo", func(t *testing.T) {
-		// Given a non-root process with no cached sudo credentials
-		geteuidFunc = func() int { return 1000 }
-		mocks := setupWorkstationMocks(t)
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "", fmt.Errorf("a password is required")
-		}
-
-		// Then the helper reports it cannot elevate without prompting
-		if canElevateNonInteractively(mocks.Shell) {
-			t.Errorf("expected false when not root and sudo -n true fails")
-		}
-	})
-}
-
 func TestWorkstation_MakeApplyHook(t *testing.T) {
 	t.Run("ReturnsNilWhenDeferHostGuestSetupFalse", func(t *testing.T) {
 		mocks := setupWorkstationMocks(t)
@@ -1656,9 +1598,7 @@ func TestWorkstation_Down(t *testing.T) {
 
 	t.Run("RevertsBeforeTeardownWhenInstalledAndCanElevate", func(t *testing.T) {
 		// Given installed network state AND non-interactive elevation available (CI / root)
-		originalGeteuid := geteuidFunc
-		t.Cleanup(func() { geteuidFunc = originalGeteuid })
-		geteuidFunc = func() int { return 0 }
+		t.Cleanup(SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return true }))
 
 		mocks := setupWorkstationMocks(t)
 		mocks.ConfigHandler.Set("workstation.runtime", "colima")
@@ -1695,15 +1635,10 @@ func TestWorkstation_Down(t *testing.T) {
 
 	t.Run("RecordsRevertDeferredWorkWhenInstalledButCannotElevate", func(t *testing.T) {
 		// Given installed network state but no non-interactive elevation
-		originalGeteuid := geteuidFunc
-		t.Cleanup(func() { geteuidFunc = originalGeteuid })
-		geteuidFunc = func() int { return 1000 }
+		t.Cleanup(SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return false }))
 
 		mocks := setupWorkstationMocks(t)
 		mocks.NetworkManager.IsResolverInstalledFunc = func() bool { return true }
-		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
-			return "", fmt.Errorf("a password is required")
-		}
 		var revertCalled bool
 		mocks.NetworkManager.RevertHostRouteFunc = func() error { revertCalled = true; return nil }
 		mocks.NetworkManager.RevertDNSFunc = func() error { revertCalled = true; return nil }
@@ -1740,9 +1675,7 @@ func TestWorkstation_Down(t *testing.T) {
 
 	t.Run("WarnsButProceedsOnRevertError", func(t *testing.T) {
 		// Given installed state and elevation available, but RevertDNS fails partway
-		originalGeteuid := geteuidFunc
-		t.Cleanup(func() { geteuidFunc = originalGeteuid })
-		geteuidFunc = func() int { return 0 }
+		t.Cleanup(SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return true }))
 
 		mocks := setupWorkstationMocks(t)
 		mocks.NetworkManager.IsResolverInstalledFunc = func() bool { return true }

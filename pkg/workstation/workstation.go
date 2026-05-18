@@ -470,22 +470,9 @@ func (w *Workstation) PendingNetworkChanges() []NetworkChange {
 	return changes
 }
 
-// SetGeteuidForTest replaces the package's geteuid implementation for the duration of a test and
-// returns a function that restores the previous implementation. Intended for cross-package tests
-// (e.g. pkg/project) that need to drive canElevateNonInteractively through a known path.
-func SetGeteuidForTest(fn func() int) func() {
-	original := geteuidFunc
-	geteuidFunc = fn
-	return func() { geteuidFunc = original }
-}
-
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// geteuidFunc is the seam for testing canElevateNonInteractively. Tests override this to simulate
-// a root or non-root process without depending on the actual euid of the test runner.
-var geteuidFunc = os.Geteuid
 
 // appendDeferredWork records a step that the apply skipped because it requires elevation Up()
 // will not request. cmd/up reads these via DeferredWork() after Up returns to render the
@@ -493,16 +480,3 @@ var geteuidFunc = os.Geteuid
 func (w *Workstation) appendDeferredWork(item DeferredWorkItem) {
 	w.deferredWork = append(w.deferredWork, item)
 }
-
-// canElevateNonInteractively reports whether the current process can run privileged commands
-// without prompting the operator: either it is already root (CI as root, sudo windsor up) or
-// passwordless sudo is cached for the current user. Used to decide between inline privilege
-// application and the operator-facing halt-and-resume model on commands like 'windsor up'.
-func canElevateNonInteractively(sh shell.Shell) bool {
-	if geteuidFunc() == 0 {
-		return true
-	}
-	_, err := sh.ExecSilent("sudo", "-n", "true")
-	return err == nil
-}
-
