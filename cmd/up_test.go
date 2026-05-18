@@ -705,16 +705,20 @@ func TestPrintDeferredWork(t *testing.T) {
 		}
 	})
 
-	t.Run("RequiredItemSuppressesOptionalOutput", func(t *testing.T) {
+	t.Run("RequiredItemEmitsHaltSentenceFirstThenOptionalOutcomes", func(t *testing.T) {
+		// Given a halt (cluster-privilege) paired with an optional outcome (DNS hint) — the
+		// typical first-run colima case where 'configure network' will produce both. The
+		// operator must see BOTH: the halt instruction (with re-run guidance) AND the
+		// follow-up outcome they'll get from the same command.
 		var buf strings.Builder
 		printDeferredWork(&buf, []workstation.DeferredWorkItem{
 			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
 			{Required: true, Command: "windsor configure network"},
 		}, "darwin")
-		// Halt sentence wins; optional outcome is not separately listed.
-		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n"
+		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n" +
+			"Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n"
 		if buf.String() != want {
-			t.Errorf("Expected halt-only output %q, got %q", want, buf.String())
+			t.Errorf("Expected halt + optional output %q, got %q", want, buf.String())
 		}
 	})
 

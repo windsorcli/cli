@@ -137,11 +137,12 @@ var upCmd = &cobra.Command{
 }
 
 // printDeferredWork renders the end-of-run summary for items the apply skipped because they
-// require elevation Up() will not request. When any item is Required the output is a single
-// halt sentence (operator runs the command, then re-runs 'windsor up'); otherwise one line per
-// optional item describes the outcome the operator gets from running it. Empty items produce
-// no output. goos selects the OS-specific elevation parenthetical: "(Administrator PowerShell)"
-// on windows, "(asks for sudo)" elsewhere.
+// require elevation Up() will not request. Required items render as halt sentences ("then
+// re-run 'windsor up'"); optional items render as outcome sentences below. When both are
+// present the operator sees the halt instruction first, then any optional follow-up outcomes
+// the same command will also produce — they don't disappear just because a halt is in flight.
+// Empty items produce no output. goos selects the OS-specific elevation parenthetical:
+// "(Administrator PowerShell)" on windows, "(asks for sudo)" elsewhere.
 func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos string) {
 	if len(items) == 0 {
 		return
@@ -153,11 +154,12 @@ func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos s
 	for _, item := range items {
 		if item.Required {
 			fmt.Fprintf(w, "Run '%s' %s, then re-run 'windsor up'.\n", item.Command, paren)
-			return
 		}
 	}
 	for _, item := range items {
-		fmt.Fprintf(w, "Run '%s' %s to %s.\n", item.Command, paren, item.Outcome)
+		if !item.Required {
+			fmt.Fprintf(w, "Run '%s' %s to %s.\n", item.Command, paren, item.Outcome)
+		}
 	}
 }
 
