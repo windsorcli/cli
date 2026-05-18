@@ -38,48 +38,65 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // backend to local, applies the tier against local; Stage 2 pushes tier state to the
 // configured backend; Stage 3 applies non-tier components. The algorithm is idempotent —
 // every bootstrap runs the same flow regardless of whether the backend already exists.
-func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm BootstrapConfirmFn, onApply ...func(id string) error) (bool, error) {
+//
+// Returns (applied, halted, err). applied=true means bootstrap proceeded past confirm;
+// halted=true means one of the inner Up calls signaled a clean halt-after-component
+// (e.g. cluster reachability needs operator action). On halt the caller surfaces the
+// deferred-work summary; bootstrap is partially complete and the operator re-runs after
+// addressing it.
+func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm BootstrapConfirmFn, onApply ...func(id string) (bool, error)) (bool, bool, error) {
 	if blueprint == nil {
-		return false, fmt.Errorf("blueprint not provided")
+		return false, false, fmt.Errorf("blueprint not provided")
 	}
 
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	if backendType == "kubernetes" && blueprint.Backend == "" {
-		return false, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
+		return false, false, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
 	}
 
 	if confirm != nil {
 		if !confirm(i.bootstrapSummary(blueprint)) {
-			return false, nil
+			return false, false, nil
 		}
 	}
 
 	tier := blueprint.BackendTier()
 	if backendType == "" || backendType == "local" || len(tier) == 0 {
-		if err := i.Up(blueprint, onApply...); err != nil {
-			return false, err
+		halted, err := i.Up(blueprint, onApply...)
+		if err != nil {
+			return false, false, err
 		}
-		return true, nil
+		return true, halted, nil
 	}
 
 	tierBP := blueprintWithComponents(blueprint, tier)
 	nonTierBP := blueprintWithoutComponents(blueprint, tier)
 
+	var tierHalted bool
 	if err := i.withBackendOverride("bootstrap", func() error {
 		if _, err := i.MigrateState(tierBP); err != nil {
 			return err
 		}
-		return i.Up(tierBP, onApply...)
+		halted, err := i.Up(tierBP, onApply...)
+		if err != nil {
+			return err
+		}
+		tierHalted = halted
+		return nil
 	}); err != nil {
-		return false, err
+		return false, false, err
+	}
+	if tierHalted {
+		// Halt during tier apply — don't migrate state or run non-tier components yet.
+		return true, true, nil
 	}
 
 	skipped, err := i.MigrateState(tierBP)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if len(skipped) > 0 {
-		return false, fmt.Errorf("bootstrap migration skipped tier components after a successful local apply: %v — their directories should have been materialised by Up", skipped)
+		return false, false, fmt.Errorf("bootstrap migration skipped tier components after a successful local apply: %v — their directories should have been materialised by Up", skipped)
 	}
 
 	for _, c := range tier {
@@ -89,12 +106,13 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 	}
 
 	if len(nonTierBP.TerraformComponents) == 0 {
-		return true, nil
+		return true, false, nil
 	}
-	if err := i.Up(nonTierBP, onApply...); err != nil {
-		return false, err
+	halted, err := i.Up(nonTierBP, onApply...)
+	if err != nil {
+		return false, false, err
 	}
-	return true, nil
+	return true, halted, nil
 }
 
 // =============================================================================

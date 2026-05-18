@@ -163,8 +163,14 @@ type tfState struct {
 
 // Stack defines the interface for Terraform stack operations.
 // Both the Stack struct and MockStack implement this interface.
+//
+// onApply hooks return (haltAfter, err). A non-nil err is a real failure and aborts the loop
+// the same as before. haltAfter=true means the component apply succeeded but subsequent
+// components should NOT be applied — used to defer privileged host configuration to an
+// explicit 'windsor configure network' invocation by the operator. Stack.Up returns
+// (halted bool, err error); halted=true indicates a clean stop, not a failure.
 type Stack interface {
-	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error
+	Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error)
 	MigrateState(blueprint *blueprintv1alpha1.Blueprint) ([]string, error)
 	MigrateComponentState(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error)
@@ -234,9 +240,16 @@ func (s *TerraformStack) PostApply(fns ...func(id string) error) {
 // after all components complete so terraform_output() calls between components keep working.
 // onApply hooks run inside each spinner; PostApply hooks run after each Done line and are
 // consumed (not retained across calls).
-func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+//
+// Returns (halted bool, err error). halted=true means a hook signaled that the component
+// apply succeeded but subsequent components should not be applied (e.g. cluster reachability
+// needs a host-side configuration step the operator hasn't done yet). halted is reported as
+// a clean stop — the TUI marks the component Done, no error is returned, and the caller can
+// surface a "deferred work" summary at the cmd layer. A non-nil err is a real failure as
+// before.
+func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return false, fmt.Errorf("blueprint not provided")
 	}
 
 	postApply := s.postApply
@@ -244,7 +257,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return false, fmt.Errorf("error getting current directory: %v", err)
 	}
 
 	defer func() {
@@ -253,7 +266,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 
 	projectRoot := s.runtime.ProjectRoot
 	if projectRoot == "" {
-		return fmt.Errorf("error getting project root: project root is empty")
+		return false, fmt.Errorf("error getting project root: project root is empty")
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
@@ -265,6 +278,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 	}()
 
 	for _, component := range components {
+		var componentHalted bool
 		if err := tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
 			if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
 				return fmt.Errorf("directory %s does not exist", component.FullPath)
@@ -305,28 +319,40 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			_ = s.runtime.TerraformProvider.CacheOutputs(component.GetID())
 			componentID := component.GetID()
 			for _, fn := range onApply {
-				if fn != nil {
-					if err := fn(componentID); err != nil {
-						return fmt.Errorf("post-apply hook %s: %w", componentID, err)
-					}
+				if fn == nil {
+					continue
+				}
+				haltAfter, err := fn(componentID)
+				if err != nil {
+					return fmt.Errorf("post-apply hook %s: %w", componentID, err)
+				}
+				if haltAfter {
+					componentHalted = true
 				}
 			}
 			return nil
 		}); err != nil {
-			return err
+			return false, err
 		}
 
 		componentID := component.GetID()
 		for _, fn := range postApply {
 			if fn != nil {
 				if err := fn(componentID); err != nil {
-					return fmt.Errorf("post-apply hook %s: %w", componentID, err)
+					return false, fmt.Errorf("post-apply hook %s: %w", componentID, err)
 				}
 			}
 		}
+
+		// A halt signaled by this component's onApply hooks stops further apply iterations
+		// cleanly: the component itself is Done in the TUI (the hook returned nil), the
+		// caller receives (true, nil), and the cmd layer renders the deferred-work summary.
+		if componentHalted {
+			return true, nil
+		}
 	}
 
-	return nil
+	return false, nil
 }
 
 // HasRemoteState reports whether the named component has non-empty terraform

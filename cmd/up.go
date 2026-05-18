@@ -92,7 +92,7 @@ var upCmd = &cobra.Command{
 		}
 
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "up", func() error {
-			if _, err := proj.Up(); err != nil {
+			if _, _, err := proj.Up(); err != nil {
 				return err
 			}
 

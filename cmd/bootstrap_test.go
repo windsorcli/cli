@@ -94,7 +94,7 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 	mockBlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return testBlueprint, nil }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
@@ -293,9 +293,9 @@ func TestBootstrapCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			timeline = append(timeline, "up")
-			return nil
+			return false, nil
 		}
 		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 			timeline = append(timeline, "migrate")
@@ -338,9 +338,9 @@ func TestBootstrapCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			timeline = append(timeline, "up")
-			return nil
+			return false, nil
 		}
 		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 			timeline = append(timeline, "migrate")
@@ -388,8 +388,8 @@ func TestBootstrapCmd(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return nil
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, nil
 		}
 		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return []string{"backend"}, nil
@@ -748,9 +748,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -779,9 +779,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled, installCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
 			installCalled = true
@@ -817,9 +817,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -847,9 +847,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -879,9 +879,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = false
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -909,9 +909,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = false
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -939,9 +939,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = false
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 

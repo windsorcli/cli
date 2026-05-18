@@ -134,7 +134,7 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 	}
 
 	terraformStack := terraforminfra.NewMockStack()
-	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
+	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
 	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
 
 	fluxStack := fluxinfra.NewMockStack()
@@ -309,7 +309,7 @@ func TestProvisioner_Up(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Up(blueprint)
+		_, err := provisioner.Up(blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -320,7 +320,7 @@ func TestProvisioner_Up(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Up(nil)
+		_, err := provisioner.Up(nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -346,7 +346,7 @@ func TestProvisioner_Up(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Up(blueprint)
+		_, err := provisioner.Up(blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error when terraform is disabled, got: %v", err)
@@ -376,7 +376,7 @@ func TestProvisioner_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Up(blueprint)
+		_, err := provisioner.Up(blueprint)
 
 		if provisioner.TerraformStack == nil {
 			t.Error("Expected TerraformStack to be initialized after Up() when terraform is enabled, even if operation fails")
@@ -390,8 +390,8 @@ func TestProvisioner_Up(t *testing.T) {
 	t.Run("ErrorTerraformStackUp", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return fmt.Errorf("terraform stack up failed")
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("terraform stack up failed")
 		}
 		opts := &Provisioner{
 			TerraformStack: mockStack,
@@ -399,7 +399,7 @@ func TestProvisioner_Up(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Up(blueprint)
+		_, err := provisioner.Up(blueprint)
 
 		if err == nil {
 			t.Error("Expected error for terraform stack up failure")
@@ -413,17 +413,17 @@ func TestProvisioner_Up(t *testing.T) {
 
 	t.Run("PassesOnTerraformApplyHooksToStack", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		var capturedOnApply []func(id string) error
+		var capturedOnApply []func(id string) (bool, error)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			capturedOnApply = onApply
-			return nil
+			return false, nil
 		}
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		provisioner.OnTerraformApply(func(id string) error { return nil })
+		provisioner.OnTerraformApply(func(id string) (bool, error) { return false, nil })
 
-		_ = provisioner.Up(createTestBlueprint())
+		_, _ = provisioner.Up(createTestBlueprint())
 
 		if len(capturedOnApply) != 1 {
 			t.Errorf("Expected stack to receive 1 onApply hook, got %d", len(capturedOnApply))
@@ -567,21 +567,21 @@ func TestProvisioner_OnTerraformApply(t *testing.T) {
 		var hookCalled bool
 		var hookID string
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mockStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			if len(onApply) > 0 && onApply[0] != nil {
-				_ = onApply[0]("test-component")
+				_, _ = onApply[0]("test-component")
 			}
-			return nil
+			return false, nil
 		}
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
-		provisioner.OnTerraformApply(func(id string) error {
+		provisioner.OnTerraformApply(func(id string) (bool, error) {
 			hookCalled = true
 			hookID = id
-			return nil
+			return false, nil
 		})
 
-		err := provisioner.Up(createTestBlueprint())
+		_, err := provisioner.Up(createTestBlueprint())
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)

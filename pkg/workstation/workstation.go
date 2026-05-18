@@ -283,19 +283,20 @@ func (w *Workstation) RevertNetwork(showStatus bool) error {
 
 // MakeApplyHook returns a callback for the provisioner's onApply when DeferHostGuestSetup is true.
 // The callback persists DNS-related outputs from the just-applied workstation Terraform component,
-// then resolves cluster reachability: on runtimes that need a host route + in-VM forwarding to
-// reach the cluster (colima today), if the process can elevate non-interactively (root or cached
-// sudo), the cluster-privilege work runs inline; otherwise the hook returns ErrClusterPrivilegeRequired
-// so the operator can run 'windsor configure network' from an elevated shell and re-run 'windsor up'.
-// DNS resolver configuration is not applied here — it's a post-`up` concern handled by cmd/up.
-// Returns nil when DeferHostGuestSetup is false.
-func (w *Workstation) MakeApplyHook() func(componentID string) error {
+// then resolves cluster reachability. The hook returns (haltAfter, err): on runtimes that need a
+// host route + in-VM forwarding to reach the cluster (colima today), if the process can elevate
+// non-interactively (root or cached sudo), the cluster-privilege work runs inline and the hook
+// returns (false, nil); otherwise the hook returns (false, ErrClusterPrivilegeRequired) so the
+// operator can run 'windsor configure network' and re-run 'windsor up'. DNS resolver configuration
+// is not applied here — it's a post-`up` concern handled by cmd/up. Returns nil when
+// DeferHostGuestSetup is false.
+func (w *Workstation) MakeApplyHook() func(componentID string) (bool, error) {
 	if !w.DeferHostGuestSetup {
 		return nil
 	}
-	return func(componentID string) error {
+	return func(componentID string) (bool, error) {
 		if componentID != "workstation" {
-			return nil
+			return false, nil
 		}
 		dnsAddr := ""
 		if w.runtime.TerraformProvider != nil {
@@ -316,21 +317,21 @@ func (w *Workstation) MakeApplyHook() func(componentID string) error {
 			_ = w.configHandler.Set("workstation.dns.address", dnsAddr)
 		}
 		if err := w.WriteState(); err != nil {
-			return fmt.Errorf("error writing workstation state: %w", err)
+			return false, fmt.Errorf("error writing workstation state: %w", err)
 		}
 		if w.NetworkManager == nil || !w.NetworkManager.NeedsPrivilegeForCluster() {
-			return nil
+			return false, nil
 		}
 		if !canElevateNonInteractively(w.shell) {
-			return ErrClusterPrivilegeRequired
+			return false, ErrClusterPrivilegeRequired
 		}
 		if err := w.NetworkManager.ConfigureGuest(); err != nil {
-			return fmt.Errorf("error configuring guest: %w", err)
+			return false, fmt.Errorf("error configuring guest: %w", err)
 		}
 		if err := w.NetworkManager.ConfigureHostRoute(); err != nil {
-			return fmt.Errorf("error configuring host route: %w", err)
+			return false, fmt.Errorf("error configuring host route: %w", err)
 		}
-		return nil
+		return false, nil
 	}
 }
 

@@ -21,7 +21,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if _, err := provisioner.Bootstrap(nil, nil); err == nil {
+		if _, _, err := provisioner.Bootstrap(nil, nil); err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
 		}
 	})
@@ -55,9 +55,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		upCalled := false
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
@@ -67,7 +67,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return true
 		}
 
-		_, err := provisioner.Bootstrap(bp, confirm)
+		_, _, err := provisioner.Bootstrap(bp, confirm)
 		if err == nil {
 			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
 		}
@@ -119,13 +119,13 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
-			return nil
+			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, err := provisioner.Bootstrap(bp, nil)
+		applied, _, err := provisioner.Bootstrap(bp, nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -168,13 +168,13 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
-			return nil
+			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, err := provisioner.Bootstrap(bp, nil)
+		applied, _, err := provisioner.Bootstrap(bp, nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -223,10 +223,10 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			upBlueprints = append(upBlueprints, b)
-			return nil
+			return false, nil
 		}
 		mockStack.MigrateStateFunc = func(b *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate")
@@ -235,7 +235,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, err := provisioner.Bootstrap(bp, nil)
+		applied, _, err := provisioner.Bootstrap(bp, nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -311,10 +311,10 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(b *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
 			upBlueprints = append(upBlueprints, b)
-			return nil
+			return false, nil
 		}
 		mockStack.MigrateStateFunc = func(b *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate")
@@ -323,7 +323,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, err := provisioner.Bootstrap(bp, nil)
+		applied, _, err := provisioner.Bootstrap(bp, nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -392,9 +392,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
-			return nil
+			return false, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate")
@@ -402,7 +402,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, err := provisioner.Bootstrap(bp, nil)
+		applied, _, err := provisioner.Bootstrap(bp, nil)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -455,13 +455,13 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			ops = append(ops, "migrate")
 			return nil, nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up-fail")
-			return fmt.Errorf("apply blew up")
+			return false, fmt.Errorf("apply blew up")
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp, nil)
+		_, _, err := provisioner.Bootstrap(bp, nil)
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -501,8 +501,8 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
-			return nil
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			return false, nil
 		}
 		migrateCalls := 0
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -516,7 +516,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp, nil)
+		_, _, err := provisioner.Bootstrap(bp, nil)
 		if err == nil {
 			t.Fatal("Expected error from Stage 2 migrate failure, got nil")
 		}
@@ -548,8 +548,8 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
-			return nil
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			return false, nil
 		}
 		calls := 0
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -561,7 +561,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp, nil)
+		_, _, err := provisioner.Bootstrap(bp, nil)
 		if err == nil {
 			t.Fatal("Expected error for skipped-after-apply, got nil")
 		}
@@ -595,7 +595,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error { return nil }
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) { return false, nil }
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
@@ -605,7 +605,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return true
 		}
 
-		applied, err := provisioner.Bootstrap(bp, confirm)
+		applied, _, err := provisioner.Bootstrap(bp, confirm)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -654,9 +654,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			migrateCalled = true
@@ -664,7 +664,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, err := provisioner.Bootstrap(bp, func(_ *BootstrapSummary) bool { return false })
+		applied, _, err := provisioner.Bootstrap(bp, func(_ *BootstrapSummary) bool { return false })
 		if err != nil {
 			t.Fatalf("Expected no error on decline, got %v", err)
 		}
@@ -708,9 +708,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
-			return nil
+			return false, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate")
@@ -731,7 +731,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		defer func() { os.Stderr = origStderr }()
 
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		applied, err := provisioner.Bootstrap(bp, nil)
+		applied, _, err := provisioner.Bootstrap(bp, nil)
 
 		w.Close()
 		stderrBytes, _ := io.ReadAll(r)
@@ -820,13 +820,13 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			ops = append(ops, fmt.Sprintf("remove-local:%s", componentID))
 			return nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			ops = append(ops, "up")
-			return nil
+			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if err := provisioner.Up(bp); err != nil {
+		if _, err := provisioner.Up(bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -890,12 +890,12 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			probeRemoteCalled = true
 			return true, nil
 		}
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
-			return nil
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if err := provisioner.Up(bp); err != nil {
+		if _, err := provisioner.Up(bp); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -954,13 +954,13 @@ func TestProvisioner_recoverHalfMigratedComponents(t *testing.T) {
 			return nil
 		}
 		upCalled := false
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		err := provisioner.Up(bp)
+		_, err := provisioner.Up(bp)
 		if err == nil {
 			t.Fatal("Expected Up to fail on recovery probe error, got nil")
 		}

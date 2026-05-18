@@ -1250,7 +1250,7 @@ func TestProject_Up(t *testing.T) {
 		}
 		proj := NewProject("test-context", &Project{Runtime: mocks.Runtime, Composer: mocks.Composer})
 
-		blueprint, err := proj.Up()
+		blueprint, _, err := proj.Up()
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1274,11 +1274,11 @@ func TestProject_Up(t *testing.T) {
 				},
 			}
 		}
-		var capturedOnApply []func(string) error
+		var capturedOnApply []func(id string) (bool, error)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			capturedOnApply = onApply
-			return nil
+			return false, nil
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -1300,7 +1300,7 @@ func TestProject_Up(t *testing.T) {
 		}
 		proj.Workstation.NetworkManager = nil
 
-		blueprint, err := proj.Up()
+		blueprint, _, err := proj.Up()
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1323,8 +1323,8 @@ func TestProject_Up(t *testing.T) {
 			return true
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return nil
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, nil
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -1364,7 +1364,7 @@ func TestProject_Up(t *testing.T) {
 			return ""
 		}
 
-		_, err := proj.Up()
+		_, _, err := proj.Up()
 
 		if err == nil {
 			t.Error("Expected error when Workstation.Up fails")
@@ -1399,14 +1399,18 @@ func TestProject_Up(t *testing.T) {
 			}
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			// Simulate the terraform stack invoking the registered onApply hook for the workstation component
 			for _, fn := range onApply {
-				if err := fn("workstation"); err != nil {
-					return err
+				haltAfter, err := fn("workstation")
+				if err != nil {
+					return false, err
+				}
+				if haltAfter {
+					return true, nil
 				}
 			}
-			return nil
+			return false, nil
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
@@ -1434,7 +1438,7 @@ func TestProject_Up(t *testing.T) {
 		}
 
 		// When proj.Up runs
-		_, err := proj.Up()
+		_, _, err := proj.Up()
 
 		// Then the sentinel bubbles up through the runApply / provisioner wrap chain
 		if !errors.Is(err, workstation.ErrClusterPrivilegeRequired) {
@@ -1445,8 +1449,8 @@ func TestProject_Up(t *testing.T) {
 	t.Run("ErrorFromProvisionerUp", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return fmt.Errorf("terraform up failed")
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("terraform up failed")
 		}
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
 		mockConfig.GetBoolFunc = func(key string, defaultValue ...bool) bool {
@@ -1462,7 +1466,7 @@ func TestProject_Up(t *testing.T) {
 			Provisioner: prov,
 		})
 
-		_, err := proj.Up()
+		_, _, err := proj.Up()
 
 		if err == nil {
 			t.Error("Expected error when Provisioner.Up fails")
@@ -1522,9 +1526,9 @@ func TestProject_Bootstrap(t *testing.T) {
 		var timeline []string
 
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mockStack.UpFunc = func(blueprint *v1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			timeline = append(timeline, "up")
-			return nil
+			return false, nil
 		}
 		mockStack.MigrateStateFunc = func(blueprint *v1alpha1.Blueprint) ([]string, error) {
 			timeline = append(timeline, "migrate")
@@ -1554,7 +1558,7 @@ func TestProject_Bootstrap(t *testing.T) {
 		proj.Workstation.ContainerRuntime = nil
 		proj.Workstation.NetworkManager = nil
 
-		if _, _, err := proj.Bootstrap(nil); err != nil {
+		if _, _, _, err := proj.Bootstrap(nil); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1588,8 +1592,8 @@ func TestProject_Bootstrap(t *testing.T) {
 			return false
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *v1alpha1.Blueprint, _ ...func(id string) error) error {
-			return fmt.Errorf("terraform up failed")
+		mockStack.UpFunc = func(_ *v1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("terraform up failed")
 		}
 		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
 
@@ -1599,7 +1603,7 @@ func TestProject_Bootstrap(t *testing.T) {
 			Provisioner: prov,
 		})
 
-		_, _, err := proj.Bootstrap(nil)
+		_, _, _, err := proj.Bootstrap(nil)
 		if err == nil {
 			t.Fatal("Expected error when provisioner errors")
 		}

@@ -50,7 +50,7 @@ type Provisioner struct {
 	TerraformStack         terraforminfra.Stack
 	FluxStack              fluxinfra.Stack
 	Notifier               fluxinfra.Notifier
-	onTerraformApply       []func(id string) error
+	onTerraformApply       []func(id string) (bool, error)
 	onTerraformPostApply   []func(id string) error
 	KubernetesManager kubernetes.KubernetesManager
 	KubernetesClient  k8sclient.KubernetesClient
@@ -168,8 +168,11 @@ func NewProvisioner(rt *runtime.Runtime, blueprintHandler blueprint.BlueprintHan
 // Public Methods
 // =============================================================================
 
-// OnTerraformApply registers a hook to run after each Terraform component apply, inside the progress spinner.
-func (i *Provisioner) OnTerraformApply(fn func(id string) error) {
+// OnTerraformApply registers a hook to run after each Terraform component apply, inside the
+// progress spinner. The hook returns (haltAfter, err); haltAfter=true signals the component
+// apply succeeded but subsequent components must not be applied (e.g. cluster reachability
+// needs host configuration the operator hasn't done yet). Errors are real failures.
+func (i *Provisioner) OnTerraformApply(fn func(id string) (bool, error)) {
 	if fn != nil {
 		i.onTerraformApply = append(i.onTerraformApply, fn)
 	}
@@ -183,31 +186,37 @@ func (i *Provisioner) OnTerraformPostApply(fn func(id string) error) {
 	}
 }
 
-// Up orchestrates the high-level infrastructure deployment process. It runs Terraform apply when terraform.enabled
-// and the stack exists, invoking the given onApply hooks after each component apply (after any hooks registered via
-// OnTerraformApply). The blueprint parameter is required.
-func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+// Up orchestrates the high-level infrastructure deployment process. It runs Terraform apply
+// when terraform.enabled and the stack exists, invoking the given onApply hooks after each
+// component apply (after any hooks registered via OnTerraformApply). The blueprint parameter
+// is required.
+//
+// Returns (halted bool, err error). halted=true means a hook signaled a clean stop after a
+// component apply — the apply succeeded, but subsequent components were intentionally
+// skipped. err remains the path for real failures.
+func (i *Provisioner) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
+		return false, fmt.Errorf("blueprint not provided")
 	}
 	if err := i.ensureTerraformStack(); err != nil {
-		return err
+		return false, err
 	}
 	if i.TerraformStack == nil {
-		return nil
+		return false, nil
 	}
 	if err := i.recoverHalfMigratedComponents(blueprint); err != nil {
-		return err
+		return false, err
 	}
-	hooks := append([]func(id string) error{}, i.onTerraformApply...)
+	hooks := append([]func(id string) (bool, error){}, i.onTerraformApply...)
 	hooks = append(hooks, onApply...)
 	if len(i.onTerraformPostApply) > 0 {
 		i.TerraformStack.PostApply(i.onTerraformPostApply...)
 	}
-	if err := i.TerraformStack.Up(blueprint, hooks...); err != nil {
-		return fmt.Errorf("failed to run terraform up: %w", err)
+	halted, err := i.TerraformStack.Up(blueprint, hooks...)
+	if err != nil {
+		return false, fmt.Errorf("failed to run terraform up: %w", err)
 	}
-	return nil
+	return halted, nil
 }
 
 // MigrateState reinitializes every Terraform component's backend against the currently configured

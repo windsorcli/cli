@@ -1208,7 +1208,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 			t.Fatal("Expected non-nil hook when DeferHostGuestSetup is true")
 		}
 
-		err := hook("other-component")
+		_, err := hook("other-component")
 
 		if err != nil {
 			t.Errorf("Expected no error for non-workstation component, got: %v", err)
@@ -1235,7 +1235,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires for the workstation component
-		err := ws.MakeApplyHook()("workstation")
+		_, err := ws.MakeApplyHook()("workstation")
 
 		// Then the hook returns nil and never invokes any network configuration
 		if err != nil {
@@ -1267,7 +1267,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		err := ws.MakeApplyHook()("workstation")
+		_, err := ws.MakeApplyHook()("workstation")
 
 		// Then the sentinel surfaces and no inline privileged work runs
 		if !errors.Is(err, ErrClusterPrivilegeRequired) {
@@ -1297,7 +1297,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		err := ws.MakeApplyHook()("workstation")
+		_, err := ws.MakeApplyHook()("workstation")
 
 		// Then guest forwarding and host route ran inline; DNS did not (DNS is a post-up concern)
 		if err != nil {
@@ -1325,7 +1325,7 @@ func TestWorkstation_MakeApplyHook(t *testing.T) {
 		ws.DeferHostGuestSetup = true
 
 		// When the hook fires
-		err := ws.MakeApplyHook()("workstation")
+		_, err := ws.MakeApplyHook()("workstation")
 
 		// Then the guest-configure error surfaces with context
 		if err == nil || !strings.Contains(err.Error(), "error configuring guest: guest boom") {

@@ -189,7 +189,7 @@ var bootstrapCmd = &cobra.Command{
 		// is rare; revisit if the prompt grows into a longer flow.
 		var applied bool
 		if err := stacklock.With(cmd.Context(), proj.Runtime, "bootstrap", func() error {
-			_, ok, err := proj.Bootstrap(confirmFn)
+			_, ok, _, err := proj.Bootstrap(confirmFn)
 			finishPlan(err)
 			if err != nil {
 				return err

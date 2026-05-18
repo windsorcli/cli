@@ -214,40 +214,40 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	return nil
 }
 
-// Up generates the blueprint, starts the workstation if present (using PrepareForUp to defer host/guest setup
-// when a workstation Terraform component exists), runs the provisioner, and returns the blueprint for use by
-// Install/Wait. Cluster reachability privilege (host route + in-VM forwarding for VM-backed runtimes) is
-// handled by the provisioner's onApply hook after the workstation Terraform component applies: it runs
-// inline when the process can elevate non-interactively, otherwise returns ErrClusterPrivilegeRequired so
-// the operator can run 'windsor configure network' from an elevated shell and re-run 'windsor up'.
-// Returns an error if any step fails.
-func (p *Project) Up() (*blueprintv1alpha1.Blueprint, error) {
+// Up generates the blueprint, starts the workstation if present (using PrepareForUp to defer
+// host/guest setup when a workstation Terraform component exists), runs the provisioner, and
+// returns the blueprint for use by Install/Wait.
+//
+// Returns (blueprint, halted, err). halted=true means a hook signaled a clean stop after a
+// component apply (e.g. cluster reachability needs host configuration the operator hasn't
+// done yet); err remains the path for real failures. Callers render the deferred-work
+// summary based on the halt and exit cleanly.
+func (p *Project) Up() (*blueprintv1alpha1.Blueprint, bool, error) {
 	return p.runApply(p.Provisioner.Up)
 }
 
-// Bootstrap is Up's first-run sibling: workstation prep runs first (so the
-// backend component's apply has a live cluster on docker/colima/incus), then
-// the provisioner pins backend.type=local for one Up pass and migrates state
-// to the configured remote backend at the end. When confirm is non-nil, the
-// provisioner runs a combined Terraform + Kustomize plan summary inside the
-// same backend override and hands it to confirm; returning false aborts
-// cleanly with applied=false. Returns (blueprint, applied, error) — applied
-// is false when confirm declined; callers can use that to short-circuit
-// without surfacing an error.
-func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv1alpha1.Blueprint, bool, error) {
+// Bootstrap is Up's first-run sibling: workstation prep runs first (so the backend component's
+// apply has a live cluster on docker/colima/incus), then the provisioner pins backend.type=local
+// for one Up pass and migrates state to the configured remote backend at the end. When confirm
+// is non-nil, the provisioner runs a combined Terraform + Kustomize plan summary inside the
+// same backend override and hands it to confirm; returning false aborts cleanly with applied=false.
+//
+// Returns (blueprint, applied, halted, err). applied=false when confirm declined. halted=true
+// means one of the inner Up calls signaled a clean halt-after-component.
+func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv1alpha1.Blueprint, bool, bool, error) {
 	blueprint, onApply, err := p.prepareForApply()
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
-	var hooks []func(string) error
+	var hooks []func(string) (bool, error)
 	if onApply != nil {
-		hooks = []func(string) error{onApply}
+		hooks = []func(string) (bool, error){onApply}
 	}
-	applied, err := p.Provisioner.Bootstrap(blueprint, confirm, hooks...)
+	applied, halted, err := p.Provisioner.Bootstrap(blueprint, confirm, hooks...)
 	if err != nil {
-		return nil, false, fmt.Errorf("error starting infrastructure: %w", err)
+		return nil, false, false, fmt.Errorf("error starting infrastructure: %w", err)
 	}
-	return blueprint, applied, nil
+	return blueprint, applied, halted, nil
 }
 
 // PerformCleanup removes context-specific artifacts: config state and
@@ -289,26 +289,28 @@ func (p *Project) PerformCleanup() error {
 // Private Methods
 // =============================================================================
 
-// runApply runs workstation prep then dispatches to a Provisioner Up-style
-// method (Up or Bootstrap), wrapping any error as "error starting infrastructure".
-func (p *Project) runApply(fn func(*blueprintv1alpha1.Blueprint, ...func(string) error) error) (*blueprintv1alpha1.Blueprint, error) {
+// runApply runs workstation prep then dispatches to a Provisioner Up-style method (Up or
+// Bootstrap), wrapping any error as "error starting infrastructure". Propagates the halt
+// signal from the dispatched method so the caller can render the deferred-work summary.
+func (p *Project) runApply(fn func(*blueprintv1alpha1.Blueprint, ...func(string) (bool, error)) (bool, error)) (*blueprintv1alpha1.Blueprint, bool, error) {
 	blueprint, onApply, err := p.prepareForApply()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	var hooks []func(string) error
+	var hooks []func(string) (bool, error)
 	if onApply != nil {
-		hooks = []func(string) error{onApply}
+		hooks = []func(string) (bool, error){onApply}
 	}
-	if err := fn(blueprint, hooks...); err != nil {
-		return nil, fmt.Errorf("error starting infrastructure: %w", err)
+	halted, err := fn(blueprint, hooks...)
+	if err != nil {
+		return nil, false, fmt.Errorf("error starting infrastructure: %w", err)
 	}
-	return blueprint, nil
+	return blueprint, halted, nil
 }
 
 // prepareForApply runs workstation lifecycle hooks before any terraform applies.
 // Shared by Up and Bootstrap.
-func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(string) error, error) {
+func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(string) (bool, error), error) {
 	p.EnsureWorkstation()
 	blueprint := p.Composer.BlueprintHandler.Generate()
 	if p.Workstation == nil {

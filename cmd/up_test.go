@@ -93,7 +93,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 
 	// Add terraform stack mock
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
 
 	// Add kubernetes manager mock
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
@@ -274,8 +274,8 @@ func TestUpCmd(t *testing.T) {
 	t.Run("ProvisionerUpError", func(t *testing.T) {
 		// Given a terraform stack that fails during Up
 		mocks := setupUpTest(t)
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return fmt.Errorf("terraform stack up failed")
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("terraform stack up failed")
 		}
 		proj := newUpTestProject(mocks, true)
 
@@ -499,9 +499,9 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupUpTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		upCalled := false
-		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) error) error {
+		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newUpTestProject(mocks, true)
 
