@@ -269,4 +269,44 @@ func TestDownCmd(t *testing.T) {
 			t.Errorf("expected stderr to contain %q, got: %q", want, stderrBuf.String())
 		}
 	})
+
+	t.Run("RendersDeferredWorkSummaryEvenWhenVMTeardownErrors", func(t *testing.T) {
+		// Given a workstation that records a deferred-work item AND whose VM teardown fails.
+		// The item is appended in Down() before the VM stop; without a deferred render the
+		// operator would see only the teardown error and never learn about the orphaned host
+		// configuration that still needs 'windsor configure network --revert'.
+		t.Cleanup(workstation.SetCanElevateNonInteractivelyForTest(func(_ shell.Shell) bool { return false }))
+		mocks := setupDownTest(t)
+		mockNet := network.NewMockNetworkManager()
+		mockNet.IsHostRouteInstalledFunc = func() bool { return true }
+		mockVirt := virt.NewMockVirt()
+		mockVirt.DownFunc = func() error { return fmt.Errorf("vm down failed") }
+		ws := workstation.NewWorkstation(mocks.Runtime.Runtime, &workstation.Workstation{
+			NetworkManager: mockNet,
+			VirtualMachine: mockVirt,
+		})
+		mocks.Project.Workstation = ws
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		// When executing the down command (expecting an error)
+		cmd := createTestDownCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, mocks.Project)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+		restore()
+
+		// Then the teardown error surfaces AND the summary was still rendered
+		if err == nil {
+			t.Fatal("expected teardown error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error tearing down workstation") {
+			t.Errorf("expected teardown error, got: %v", err)
+		}
+		want := "Run 'windsor configure network --revert'"
+		if !strings.Contains(stderrBuf.String(), want) {
+			t.Errorf("expected stderr to contain %q despite teardown error, got: %q", want, stderrBuf.String())
+		}
+	})
 }

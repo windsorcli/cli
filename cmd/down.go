@@ -33,6 +33,16 @@ var downCmd = &cobra.Command{
 			return nil
 		}
 
+		// Down records leftover-host-config items on the workstation register BEFORE attempting
+		// teardown, so render the summary via defer to survive a teardown or cleanup failure —
+		// otherwise an operator who hits a container-runtime or VM stop error never learns the
+		// host route / DNS resolver entries still need 'windsor configure network --revert'.
+		// Wrapped in a closure so DeferredWork() is read at defer-execution time, after Down
+		// has populated the register, rather than at defer-registration time.
+		defer func() {
+			printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
+		}()
+
 		if err := proj.Workstation.Down(); err != nil {
 			return fmt.Errorf("error tearing down workstation: %w", err)
 		}
@@ -41,7 +51,6 @@ var downCmd = &cobra.Command{
 			return fmt.Errorf("error performing cleanup: %w", err)
 		}
 
-		printDeferredWork(os.Stderr, proj.Workstation.DeferredWork(), runtime.GOOS)
 		return nil
 	},
 }
