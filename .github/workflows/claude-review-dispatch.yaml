@@ -1,0 +1,27 @@
+name: Claude Review Dispatch
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  actions: write
+jobs:
+  dispatch:
+    name: Dispatch Review
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/review') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    steps:
+      - name: Dispatch review workflow with pinned SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
+          HEAD_SHA=$(echo "$PR_JSON" | jq -r .head.sha)
+          BASE_REF=$(echo "$PR_JSON" | jq -r .base.ref)
+          gh workflow run claude-code-review.yaml \
+            --repo ${{ github.repository }} \
+            -f pr_number=${{ github.event.issue.number }} \
+            -f head_sha="$HEAD_SHA" \
+            -f base_ref="$BASE_REF"
