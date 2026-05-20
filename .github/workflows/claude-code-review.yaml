@@ -2,8 +2,17 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, ready_for_review, synchronize]
-  issue_comment:
-    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_ref:
+        required: true
+        type: string
 permissions:
   contents: read
   pull-requests: write
@@ -196,47 +205,23 @@ jobs:
             --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh pr view:*),Bash(gh pr edit:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task scan:*),Bash(go vet:*),Write
             --disallowedTools WebSearch,WebFetch
 
-  review-on-comment:
+  review-on-dispatch:
     name: Full Review (on-demand)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-      id-token: write
-    # issue_comment runs in the base repo with secrets and write permissions, so any code
-    # checked out from the PR head is "untrusted code in trusted context" (CodeQL warning).
-    # Mitigated two ways:
-    #   1. author_association gate restricts the trigger to commenters with repo-write
-    #      access — fork contributors cannot invoke the privileged job.
-    #   2. The checkout uses the head SHA captured at API-call time, not the head branch
-    #      ref, so a push between the API call and checkout cannot substitute new code.
-    if: >-
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/review') &&
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    if: github.event_name == 'workflow_dispatch'
     steps:
-      - name: Get PR details
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
-          echo "head_sha=$(echo "$PR_JSON" | jq -r .head.sha)" >> "$GITHUB_OUTPUT"
-          echo "base_ref=$(echo "$PR_JSON" | jq -r .base.ref)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ steps.pr.outputs.head_sha }}
+          ref: ${{ inputs.head_sha }}
           fetch-depth: 0
       - name: Fetch base ref
-        run: git fetch --depth=1 origin ${{ steps.pr.outputs.base_ref }}
+        run: git fetch --depth=1 origin ${{ inputs.base_ref }}
       - uses: anthropics/claude-code-action@51ea8ea73a139f2a74ff649e3092c25a904aed7e # v1.0.123
         env:
-          PR_NUMBER: ${{ github.event.issue.number }}
-          PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_REF: ${{ inputs.base_ref }}
           GH_REPO: ${{ github.repository }}
           STICKY_MARKER: "<!-- claude-code-review:summary -->"
         with:
