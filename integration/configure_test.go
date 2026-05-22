@@ -71,9 +71,10 @@ func TestConfigureNetwork_FailsBeforeWorkstationProvisioned(t *testing.T) {
 }
 
 // TestConfigureNetwork_DryRunPrintsPlanAndDoesNotConfigure exercises the new --dry-run flag.
-// In the integration environment nothing is actually installed and the cluster runtime is the
-// default (docker-desktop on macOS), so the plan reports "nothing pending" — verifying both
-// the flag's wiring and that no privileged work runs.
+// A clean exit proves no privileged work ran (sudo would hang or fail non-interactively in CI).
+// The plan body is host-dependent — a fresh macOS host has no /etc/resolver entry so the DNS
+// resolver shows pending, whereas a Linux host whose resolv.conf isn't a systemd-resolved stub
+// reports nothing pending — so the test asserts the output is a plan, not a specific host's plan.
 func TestConfigureNetwork_DryRunPrintsPlanAndDoesNotConfigure(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "default")
@@ -81,8 +82,8 @@ func TestConfigureNetwork_DryRunPrintsPlanAndDoesNotConfigure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configure network --dry-run: %v\nstderr: %s", err, stderr)
 	}
-	if !strings.Contains(string(stdout), "nothing pending") {
-		t.Errorf("expected stdout to report 'nothing pending' (no install in test env), got stdout=%q stderr=%q", stdout, stderr)
+	if !isDryRunPlan(string(stdout)) {
+		t.Errorf("expected stdout to be a dry-run plan, got stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 
@@ -106,9 +107,24 @@ func TestConfigureNetwork_DryRunTakesPrecedenceOverRevert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configure network --dry-run --revert: %v\nstderr: %s", err, stderr)
 	}
-	// "nothing pending" is what --dry-run prints; --revert would print "network: skipped..."
-	// or "dns: reverted" status lines via showStatus=true.
-	if !strings.Contains(string(stdout), "nothing pending") {
-		t.Errorf("expected dry-run output ('nothing pending') when both flags are passed, got stdout=%q stderr=%q", stdout, stderr)
+	// dry-run prints a plan; --revert would print "network: skipped..." or "dns: reverted"
+	// status lines via showStatus=true. Seeing a plan confirms dry-run short-circuited first.
+	if !isDryRunPlan(string(stdout)) {
+		t.Errorf("expected dry-run plan (not revert status) when both flags are passed, got stdout=%q stderr=%q", stdout, stderr)
 	}
+}
+
+// isDryRunPlan reports whether out is a 'configure network --dry-run' plan: the "nothing pending"
+// sentinel or a tabwriter row keyed by a known change kind. Used to assert dry-run behavior
+// without depending on which host the test runs on.
+func isDryRunPlan(out string) bool {
+	if strings.Contains(out, "nothing pending") {
+		return true
+	}
+	for _, kind := range []string{"host-route", "vm-forward", "dns-resolver"} {
+		if strings.Contains(out, kind) {
+			return true
+		}
+	}
+	return false
 }
