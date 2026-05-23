@@ -1221,11 +1221,11 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 			t.Error("Expected validation to fail")
 		}
 
-		// kaptinlin's instance locations are scoped per keyword evaluator, so the leaf enum
-		// error lands at /driver (not /storage/driver) and the parent additionalProperties
-		// error at /storage mentions the rejected child key.
-		if !hasErrorMatching(result.Errors, "/driver", "enum") {
-			t.Errorf("Expected enum error at /driver, got %v", result.Errors)
+		// walkList reconstructs fully-qualified instance paths from kaptinlin's evaluator-
+		// scoped output, so the leaf enum error appears at /storage/driver and the parent
+		// additionalProperties error at /storage mentions the rejected child key.
+		if !hasErrorMatching(result.Errors, "/storage/driver", "enum") {
+			t.Errorf("Expected enum error at /storage/driver, got %v", result.Errors)
 		}
 		if !hasErrorMatching(result.Errors, "/storage", "extraField") {
 			t.Errorf("Expected /storage error mentioning extraField, got %v", result.Errors)

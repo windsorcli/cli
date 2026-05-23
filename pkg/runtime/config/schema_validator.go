@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/kaptinlin/jsonschema"
@@ -223,7 +224,7 @@ func collectErrors(result *jsonschema.EvaluationResult) []string {
 	}
 	list := result.ToList(true)
 	var errs []string
-	walkList(list, &errs)
+	walkList(list, "", &errs)
 	if len(errs) == 0 {
 		errs = []string{"validation failed"}
 	}
@@ -231,17 +232,37 @@ func collectErrors(result *jsonschema.EvaluationResult) []string {
 }
 
 // walkList descends a flattened List, emitting one string per (instance-location, keyword)
-// pair. The instance location uses JSON Pointer notation (e.g. "/network/cidr_block");
-// the root document is reported as "/".
-func walkList(list *jsonschema.List, errs *[]string) {
-	loc := list.InstanceLocation
-	if loc == "" {
-		loc = "/"
+// pair. Instance locations use JSON Pointer notation rooted at "/" (e.g. "/network/cidr_block").
+// kaptinlin scopes each evaluator's leaf to a path local to that evaluator — a nested enum
+// failure on storage.driver surfaces as "/driver" rather than "/storage/driver" — so this
+// walker carries the parent location down the recursion and joins it onto each child to
+// reconstruct the fully-qualified pointer operators expect when reading the message.
+func walkList(list *jsonschema.List, parent string, errs *[]string) {
+	loc := joinInstanceLocation(parent, list.InstanceLocation)
+	display := loc
+	if display == "" {
+		display = "/"
 	}
 	for keyword, msg := range list.Errors {
-		*errs = append(*errs, fmt.Sprintf("%s: %s: %s", loc, keyword, msg))
+		*errs = append(*errs, fmt.Sprintf("%s: %s: %s", display, keyword, msg))
 	}
 	for i := range list.Details {
-		walkList(&list.Details[i], errs)
+		walkList(&list.Details[i], loc, errs)
+	}
+}
+
+// joinInstanceLocation concatenates two JSON Pointer fragments, treating "" and "/" as the
+// document root and guarding against double-prepending when a child evaluator already
+// reports its absolute path.
+func joinInstanceLocation(parent, child string) string {
+	switch {
+	case child == "" || child == "/":
+		return parent
+	case parent == "" || parent == "/":
+		return child
+	case strings.HasPrefix(child, parent+"/"):
+		return child
+	default:
+		return parent + child
 	}
 }
