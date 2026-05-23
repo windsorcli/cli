@@ -13,11 +13,12 @@ import (
 // SchemaValidator wraps a kaptinlin JSON Schema (draft 2020-12) compiler. Schemas are
 // authored as YAML alongside the resource types they describe and loaded one fragment at a
 // time via LoadSchema / LoadSchemaFromBytes — each fragment deep-merges into the in-memory
-// Schema map (see schema_merge.go). On the next call to Validate or GetSchemaDefaults the
-// merged map is marshaled to JSON and compiled once; the compiled schema is cached and
-// invalidated whenever another fragment is loaded. Defaults extraction reuses kaptinlin's
-// Unmarshal against an empty input, which walks the schema and populates default-bearing
-// keys into the result map.
+// Schema map (see schema_merge.go). On the next call to Validate the merged map is
+// marshaled to JSON and compiled once; the compiled schema is cached and invalidated
+// whenever another fragment is loaded. Defaults extraction runs against the raw merged
+// schema map via the standalone extractDefaults walker rather than the compiled form;
+// see extractDefaults for the rationale (kaptinlin's Unmarshal applies defaults only into
+// existing keys, which doesn't fit our "complete defaults shadow" semantic).
 
 // =============================================================================
 // Types
