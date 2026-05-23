@@ -1005,45 +1005,6 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 	})
 }
 
-func TestSchemaValidator_GetValueType(t *testing.T) {
-	mockShell := &shell.MockShell{}
-	validator := NewSchemaValidator(mockShell)
-
-	testCases := []struct {
-		name     string
-		value    any
-		expected string
-	}{
-		{"Nil", nil, "null"},
-		{"Bool", true, "boolean"},
-		{"Int", int(42), "integer"},
-		{"Int8", int8(42), "integer"},
-		{"Int16", int16(42), "integer"},
-		{"Int32", int32(42), "integer"},
-		{"Int64", int64(42), "integer"},
-		{"Uint", uint(42), "integer"},
-		{"Uint8", uint8(42), "integer"},
-		{"Uint16", uint16(42), "integer"},
-		{"Uint32", uint32(42), "integer"},
-		{"Uint64", uint64(42), "integer"},
-		{"Float32", float32(3.14), "number"},
-		{"Float64", float64(3.14), "number"},
-		{"String", "hello", "string"},
-		{"Array", []any{1, 2, 3}, "array"},
-		{"Object", map[string]any{"key": "value"}, "object"},
-		{"Unknown", struct{}{}, "unknown"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := validator.getValueType(tc.value)
-			if result != tc.expected {
-				t.Errorf("Expected type %s for %v, got %s", tc.expected, tc.value, result)
-			}
-		})
-	}
-}
-
 func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 	t.Run("ErrorAdditionalPropertiesNotAllowed", func(t *testing.T) {
 		// Given a schema validator with additionalProperties: false
@@ -2457,50 +2418,6 @@ properties:
 		}
 		if len(result.Errors) == 0 {
 			t.Error("Expected validation errors for invalid array items")
-		}
-	})
-
-	t.Run("ValidateArrayWithNonArrayValue", func(t *testing.T) {
-		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
-		validator.Schema = map[string]any{
-			"type": "array",
-			"items": map[string]any{
-				"type": "string",
-			},
-		}
-
-		errors := validator.validateArray("not_an_array", validator.Schema, "test")
-
-		if len(errors) != 0 {
-			t.Errorf("Expected no errors for non-array value, got %v", errors)
-		}
-	})
-
-	t.Run("ValidateArrayWithoutItems", func(t *testing.T) {
-		validator := NewSchemaValidator(shell.NewMockShell())
-		validator.Schema = map[string]any{
-			"type": "array",
-		}
-
-		errors := validator.validateArray([]any{"item1", "item2"}, validator.Schema, "test")
-
-		if len(errors) != 0 {
-			t.Errorf("Expected no errors when items not in schema, got %v", errors)
-		}
-	})
-
-	t.Run("ValidateArrayWithNonMapItems", func(t *testing.T) {
-		validator := NewSchemaValidator(shell.NewMockShell())
-		validator.Schema = map[string]any{
-			"type":  "array",
-			"items": "not_a_map",
-		}
-
-		errors := validator.validateArray([]any{"item1", "item2"}, validator.Schema, "test")
-
-		if len(errors) != 0 {
-			t.Errorf("Expected no errors when items is not a map, got %v", errors)
 		}
 	})
 

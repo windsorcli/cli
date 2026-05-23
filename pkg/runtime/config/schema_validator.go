@@ -1,29 +1,38 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/goccy/go-yaml"
+	"github.com/kaptinlin/jsonschema"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
-// The SchemaValidator is a JSON Schema validation component for Windsor blueprints.
-// It provides comprehensive validation capabilities including type checking, pattern matching,
-// and support for both boolean and schema object additionalProperties validation.
-// The SchemaValidator enables robust configuration validation with detailed error reporting.
+// SchemaValidator wraps a kaptinlin JSON Schema (draft 2020-12) compiler. Schemas are
+// authored as YAML alongside the resource types they describe and loaded one fragment at a
+// time via LoadSchema / LoadSchemaFromBytes — each fragment deep-merges into the in-memory
+// Schema map (see schema_merge.go). On the next call to Validate or GetSchemaDefaults the
+// merged map is marshaled to JSON and compiled once; the compiled schema is cached and
+// invalidated whenever another fragment is loaded. Defaults extraction reuses kaptinlin's
+// Unmarshal against an empty input, which walks the schema and populates default-bearing
+// keys into the result map.
 
 // =============================================================================
 // Types
 // =============================================================================
 
-// SchemaValidator handles Windsor blueprint schema validation
+// SchemaValidator handles Windsor blueprint schema validation.
 type SchemaValidator struct {
-	shell  shell.Shell
-	Shims  *Shims
-	Schema map[string]any
+	shell    shell.Shell
+	Shims    *Shims
+	Schema   map[string]any
+	compiled *jsonschema.Schema
 }
 
-// SchemaValidationResult contains validation results and extracted defaults
+// SchemaValidationResult carries the outcome of a Validate call. Defaults is populated by
+// Validate for callers that want both validation and defaults in one pass; standalone
+// defaults extraction uses GetSchemaDefaults instead.
 type SchemaValidationResult struct {
 	Valid    bool           `json:"valid"`
 	Errors   []string       `json:"errors,omitempty"`
@@ -34,7 +43,7 @@ type SchemaValidationResult struct {
 // Constructor
 // =============================================================================
 
-// NewSchemaValidator creates a new schema validator instance
+// NewSchemaValidator creates a new schema validator instance.
 func NewSchemaValidator(shell shell.Shell) *SchemaValidator {
 	if shell == nil {
 		panic("shell is required")
@@ -50,8 +59,8 @@ func NewSchemaValidator(shell shell.Shell) *SchemaValidator {
 // Public Methods
 // =============================================================================
 
-// LoadSchema loads the schema.yaml file from the specified directory
-// Returns error if schema file doesn't exist or is invalid
+// LoadSchema loads a schema fragment from a file on disk and merges it into the current
+// in-memory schema. Subsequent Validate / GetSchemaDefaults calls operate on the union.
 func (sv *SchemaValidator) LoadSchema(schemaPath string) error {
 	schemaContent, err := sv.Shims.ReadFile(schemaPath)
 	if err != nil {
@@ -61,10 +70,11 @@ func (sv *SchemaValidator) LoadSchema(schemaPath string) error {
 	return sv.LoadSchemaFromBytes(schemaContent)
 }
 
-// LoadSchemaFromBytes loads schema directly from byte content.
-// If a schema already exists, the new schema is merged into it with the new schema's properties
-// overriding existing properties with the same name. If no schema exists, it loads the new schema.
-// Returns error if schema content is invalid.
+// LoadSchemaFromBytes parses a YAML schema fragment and merges it into the current
+// in-memory schema. The first fragment becomes the base; later fragments deep-merge over
+// it with overlay properties winning on conflict (see schema_merge.go). Loading any new
+// fragment invalidates the compiled schema cache; recompilation runs on the next Validate
+// or GetSchemaDefaults call.
 func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
 	var newSchema map[string]any
 	if err := yaml.Unmarshal(schemaContent, &newSchema); err != nil {
@@ -77,341 +87,81 @@ func (sv *SchemaValidator) LoadSchemaFromBytes(schemaContent []byte) error {
 
 	if sv.Schema == nil {
 		sv.Schema = newSchema
-		return nil
+	} else {
+		sv.Schema = sv.mergeSchema(sv.Schema, newSchema)
 	}
-
-	mergedSchema := sv.mergeSchema(sv.Schema, newSchema)
-	sv.Schema = mergedSchema
+	sv.compiled = nil
 	return nil
 }
 
-// Validate validates user values against the loaded schema
-// Returns validation result with errors and defaults
+// Validate checks values against the loaded schema and returns the outcome plus extracted
+// defaults. Errors are flattened from kaptinlin's hierarchical EvaluationResult into one
+// "<instance-path>: <message>" line per leaf, suitable for direct %v formatting by callers.
 func (sv *SchemaValidator) Validate(values map[string]any) (*SchemaValidationResult, error) {
-	if sv.Schema == nil {
-		return nil, fmt.Errorf("no schema loaded - call LoadSchema first")
-	}
-
-	result := &SchemaValidationResult{
-		Valid:  true,
-		Errors: []string{},
-	}
-
-	defaults, err := sv.extractDefaults(sv.Schema)
+	schema, err := sv.ensureCompiled()
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract defaults from schema: %w", err)
-	}
-	result.Defaults = defaults
-
-	errors := sv.validateObject(values, sv.Schema, "")
-	if len(errors) > 0 {
-		result.Valid = false
-		result.Errors = errors
+		return nil, err
 	}
 
+	evaluation := schema.ValidateMap(values)
+	result := &SchemaValidationResult{
+		Valid:    evaluation.IsValid(),
+		Errors:   collectErrors(evaluation),
+		Defaults: extractDefaults(sv.Schema),
+	}
 	return result, nil
 }
 
-// GetSchemaDefaults extracts default values from the loaded schema
-// Returns defaults as a map suitable for merging with user values
+// GetSchemaDefaults returns the default values declared in the loaded schema as a single
+// nested map. Callers (accessors.go, resolve.go) merge this under user values to fill in
+// fields the operator omitted. Defaults extraction walks the raw merged schema without
+// touching kaptinlin's compiled form — see extractDefaults for why.
 func (sv *SchemaValidator) GetSchemaDefaults() (map[string]any, error) {
 	if sv.Schema == nil {
 		return nil, fmt.Errorf("no schema loaded - call LoadSchema first")
 	}
-
-	return sv.extractDefaults(sv.Schema)
+	return extractDefaults(sv.Schema), nil
 }
 
 // =============================================================================
 // Private Methods
 // =============================================================================
 
-// extractDefaults recursively extracts default values from a schema
-func (sv *SchemaValidator) extractDefaults(schema map[string]any) (map[string]any, error) {
-	defaults := make(map[string]any)
-
-	properties, ok := schema["properties"]
-	if !ok {
-		return defaults, nil
+// ensureCompiled lazily marshals the merged in-memory schema to JSON and compiles it with
+// kaptinlin. The custom windsorcli $schema URI is rewritten to the canonical draft 2020-12
+// URI on the marshaled copy so the compiler picks the right vocabulary; the in-memory
+// Schema map is left untouched. Subsequent calls return the cached compiled schema until
+// LoadSchemaFromBytes invalidates it.
+func (sv *SchemaValidator) ensureCompiled() (*jsonschema.Schema, error) {
+	if sv.Schema == nil {
+		return nil, fmt.Errorf("no schema loaded - call LoadSchema first")
+	}
+	if sv.compiled != nil {
+		return sv.compiled, nil
 	}
 
-	propertiesMap, ok := properties.(map[string]any)
-	if !ok {
-		return defaults, nil
+	forCompile := make(map[string]any, len(sv.Schema))
+	for k, v := range sv.Schema {
+		forCompile[k] = v
+	}
+	forCompile["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+
+	schemaJSON, err := json.Marshal(forCompile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal merged schema to JSON: %w", err)
 	}
 
-	for propName, propSchema := range propertiesMap {
-		propSchemaMap, ok := propSchema.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		if defaultValue, hasDefault := propSchemaMap["default"]; hasDefault {
-			defaults[propName] = defaultValue
-		}
-
-		if propType, ok := propSchemaMap["type"]; ok {
-			if typeStr, ok := propType.(string); ok && typeStr == "object" {
-				nestedDefaults, err := sv.extractDefaults(propSchemaMap)
-				if err != nil {
-					return nil, fmt.Errorf("failed to extract defaults for property %s: %w", propName, err)
-				}
-				if len(nestedDefaults) > 0 {
-					defaults[propName] = nestedDefaults
-				}
-			}
-		}
+	compiled, err := jsonschema.NewCompiler().Compile(schemaJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile schema: %w", err)
 	}
-
-	return defaults, nil
+	sv.compiled = compiled
+	return compiled, nil
 }
 
-// validateObject validates a value against an object schema.
-// It checks required fields, validates each property, and enforces additionalProperties constraints.
-// Returns a slice of error messages for any validation failures encountered.
-func (sv *SchemaValidator) validateObject(value map[string]any, schema map[string]any, path string) []string {
-	var errors []string
-
-	properties, ok := schema["properties"]
-	if !ok {
-		return errors
-	}
-
-	propertiesMap, ok := properties.(map[string]any)
-	if !ok {
-		return errors
-	}
-
-	if required, ok := schema["required"]; ok {
-		if requiredSlice, ok := required.([]any); ok {
-			for _, reqField := range requiredSlice {
-				if reqFieldStr, ok := reqField.(string); ok {
-					if _, exists := value[reqFieldStr]; !exists {
-						fieldPath := sv.buildPath(path, reqFieldStr)
-						errors = append(errors, fmt.Sprintf("missing required field: %s", fieldPath))
-					}
-				}
-			}
-		}
-	}
-
-	for propName, propValue := range value {
-		propPath := sv.buildPath(path, propName)
-
-		propSchema, exists := propertiesMap[propName]
-		if !exists {
-			if additionalProps, ok := schema["additionalProperties"]; ok {
-				if allow, ok := additionalProps.(bool); ok && !allow {
-					errors = append(errors, fmt.Sprintf("additional property not allowed: %s", propPath))
-					continue
-				}
-				if additionalSchema, ok := additionalProps.(map[string]any); ok {
-					propErrors := sv.validateValue(propValue, additionalSchema, propPath)
-					errors = append(errors, propErrors...)
-					continue
-				}
-			}
-			continue
-		}
-
-		propSchemaMap, ok := propSchema.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		propErrors := sv.validateValue(propValue, propSchemaMap, propPath)
-		errors = append(errors, propErrors...)
-	}
-
-	return errors
-}
-
-// validateValue validates a single value against its schema.
-// It checks type conformity, delegates to object or string validation as appropriate,
-// and enforces enum constraints if present. Returns a slice of error messages for any violations.
-func (sv *SchemaValidator) validateValue(value any, schema map[string]any, path string) []string {
-	var errors []string
-
-	expectedType, ok := schema["type"]
-	if !ok {
-		return errors
-	}
-
-	expectedTypeStr, ok := expectedType.(string)
-	if !ok {
-		return errors
-	}
-
-	actualType := sv.getValueType(value)
-	if actualType != expectedTypeStr {
-		errors = append(errors, fmt.Sprintf("type mismatch at %s: expected %s, got %s", path, expectedTypeStr, actualType))
-		return errors
-	}
-
-	switch expectedTypeStr {
-	case "object":
-		if valueMap, ok := value.(map[string]any); ok {
-			objErrors := sv.validateObject(valueMap, schema, path)
-			errors = append(errors, objErrors...)
-		}
-	case "string":
-		stringErrors := sv.validateString(value, schema, path)
-		errors = append(errors, stringErrors...)
-	case "array":
-		arrayErrors := sv.validateArray(value, schema, path)
-		errors = append(errors, arrayErrors...)
-	case "integer":
-		integerErrors := sv.validateInteger(value, schema, path)
-		errors = append(errors, integerErrors...)
-	case "boolean":
-		booleanErrors := sv.validateBoolean(value, schema, path)
-		errors = append(errors, booleanErrors...)
-	}
-
-	if enum, ok := schema["enum"]; ok {
-		if enumSlice, ok := enum.([]any); ok {
-			found := false
-			for _, enumValue := range enumSlice {
-				if sv.valuesEqual(value, enumValue) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				errors = append(errors, fmt.Sprintf("value at %s not in allowed enum values", path))
-			}
-		}
-	}
-
-	return errors
-}
-
-// validateString checks if a value is a string and validates it against the pattern constraint in the schema.
-// Returns a slice of error messages if the value does not match the pattern or if the pattern is invalid.
-func (sv *SchemaValidator) validateString(value any, schema map[string]any, path string) []string {
-	var errors []string
-
-	str, ok := value.(string)
-	if !ok {
-		return errors
-	}
-
-	if pattern, ok := schema["pattern"]; ok {
-		if patternStr, ok := pattern.(string); ok {
-			matched, err := sv.Shims.RegexpMatchString(patternStr, str)
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("invalid regex pattern for %s: %v", path, err))
-			} else if !matched {
-				errors = append(errors, fmt.Sprintf("string at %s does not match required pattern", path))
-			}
-		}
-	}
-
-	return errors
-}
-
-// validateArray validates an array value against its schema.
-// It checks array items against the items schema if present and validates each element.
-// Returns a slice of error messages for any validation failures encountered.
-func (sv *SchemaValidator) validateArray(value any, schema map[string]any, path string) []string {
-	var errors []string
-
-	arrayValue, ok := value.([]any)
-	if !ok {
-		return errors
-	}
-
-	items, ok := schema["items"]
-	if !ok {
-		return errors
-	}
-
-	itemSchema, ok := items.(map[string]any)
-	if !ok {
-		return errors
-	}
-
-	for i, item := range arrayValue {
-		itemPath := fmt.Sprintf("%s[%d]", path, i)
-		itemErrors := sv.validateValue(item, itemSchema, itemPath)
-		errors = append(errors, itemErrors...)
-	}
-
-	return errors
-}
-
-// validateInteger checks if the provided value is an integer type according to JSON schema requirements.
-// This method currently performs type validation only and is structured for future extension to support
-// numeric constraints such as minimum, maximum, and multipleOf. It returns a slice of error messages
-// for any validation failures encountered. The schema and path parameters are reserved for future use.
-func (sv *SchemaValidator) validateInteger(value any, schema map[string]any, path string) []string {
-	_ = schema
-	_ = path
-	var errors []string
-
-	switch value.(type) {
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-	default:
-	}
-
-	return errors
-}
-
-// validateBoolean checks if the provided value is a boolean type according to JSON schema requirements.
-// This method performs type validation only and is structured for future extension if needed.
-// It returns a slice of error messages for any validation failures encountered.
-func (sv *SchemaValidator) validateBoolean(value any, schema map[string]any, path string) []string {
-	_ = schema
-	_ = path
-	var errors []string
-
-	switch value.(type) {
-	case bool:
-	default:
-	}
-
-	return errors
-}
-
-// buildPath constructs a dot-notation path for error reporting
-func (sv *SchemaValidator) buildPath(basePath, field string) string {
-	if basePath == "" {
-		return field
-	}
-	return basePath + "." + field
-}
-
-// getValueType returns the JSON schema type corresponding to the provided Go value.
-// It maps Go types to JSON schema types: null, boolean, integer, number, string, array, object, or unknown.
-func (sv *SchemaValidator) getValueType(value any) string {
-	switch value.(type) {
-	case nil:
-		return "null"
-	case bool:
-		return "boolean"
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return "integer"
-	case float32, float64:
-		return "number"
-	case string:
-		return "string"
-	case []any:
-		return "array"
-	case map[string]any:
-		return "object"
-	default:
-		return "unknown"
-	}
-}
-
-// valuesEqual compares two values for equality
-func (sv *SchemaValidator) valuesEqual(a, b any) bool {
-	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
-}
-
-// validateSchemaStructure checks that the provided schema map conforms to Windsor or JSON Schema requirements.
-// It verifies the presence of the '$schema' field and ensures the schema version is supported.
-// Returns an error if the schema is missing required fields or uses an unsupported version.
+// validateSchemaStructure verifies the loaded fragment carries a recognized $schema URI.
+// Recognized values are the custom windsorcli URI (rewritten to draft 2020-12 at compile
+// time) and the canonical draft 2020-12 URI itself.
 func (sv *SchemaValidator) validateSchemaStructure(schema map[string]any) error {
 	schemaVersion, ok := schema["$schema"]
 	if !ok {
@@ -426,4 +176,72 @@ func (sv *SchemaValidator) validateSchemaStructure(schema map[string]any) error 
 	}
 
 	return nil
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// extractDefaults walks the merged in-memory schema and returns a nested map of every
+// "default:" value declared under "properties". Kaptinlin's Unmarshal also applies defaults
+// but only into keys the input already carries — it won't fabricate intermediate objects
+// for nested-only defaults. Our callers (accessors.go, resolve.go) and operators expect a
+// complete defaults shadow regardless of what the user has set, so we keep the walk on the
+// raw schema map rather than routing through the compiled schema.
+func extractDefaults(schema map[string]any) map[string]any {
+	defaults := map[string]any{}
+
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return defaults
+	}
+
+	for propName, propSchema := range properties {
+		propSchemaMap, ok := propSchema.(map[string]any)
+		if !ok {
+			continue
+		}
+		if defaultValue, hasDefault := propSchemaMap["default"]; hasDefault {
+			defaults[propName] = defaultValue
+		}
+		if propType, _ := propSchemaMap["type"].(string); propType == "object" {
+			nested := extractDefaults(propSchemaMap)
+			if len(nested) > 0 {
+				defaults[propName] = nested
+			}
+		}
+	}
+	return defaults
+}
+
+// collectErrors flattens a kaptinlin EvaluationResult into one error string per leaf,
+// formatted as "<instance-path>: <keyword>: <message>" so callers that %v-format the
+// []string surface readable paths to operators.
+func collectErrors(result *jsonschema.EvaluationResult) []string {
+	if result.IsValid() {
+		return nil
+	}
+	list := result.ToList(true)
+	var errs []string
+	walkList(list, &errs)
+	if len(errs) == 0 {
+		errs = []string{"validation failed"}
+	}
+	return errs
+}
+
+// walkList descends a flattened List, emitting one string per (instance-location, keyword)
+// pair. The instance location uses JSON Pointer notation (e.g. "/network/cidr_block");
+// the root document is reported as "/".
+func walkList(list *jsonschema.List, errs *[]string) {
+	loc := list.InstanceLocation
+	if loc == "" {
+		loc = "/"
+	}
+	for keyword, msg := range list.Errors {
+		*errs = append(*errs, fmt.Sprintf("%s: %s: %s", loc, keyword, msg))
+	}
+	for i := range list.Details {
+		walkList(&list.Details[i], errs)
+	}
 }
