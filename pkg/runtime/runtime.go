@@ -440,7 +440,14 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 				workstationRuntime = driver
 			}
 		}
-		if isDevMode && workstationRuntime == "" {
+		overridePlatform := ""
+		if len(flagOverrides) > 0 && flagOverrides[0] != nil {
+			if p, ok := flagOverrides[0]["platform"].(string); ok && p != "" {
+				overridePlatform = p
+			}
+		}
+		platformExplicit := overridePlatform != "" || existingPlatform != ""
+		if isDevMode && workstationRuntime == "" && !platformExplicit {
 			switch runtime.GOOS {
 			case "darwin", "windows":
 				workstationRuntime = "docker-desktop"
@@ -465,12 +472,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 		}
 
 		if existingPlatform == "" && isDevMode {
-			overridePlatform := ""
-			if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-				if p, ok := flagOverrides[0]["platform"].(string); ok && p != "" {
-					overridePlatform = p
-				}
-			}
 			if overridePlatform != "" {
 				if err := rt.ConfigHandler.Set("platform", overridePlatform); err != nil {
 					return fmt.Errorf("failed to set platform from overrides: %w", err)
