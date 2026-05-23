@@ -1631,6 +1631,71 @@ func TestRuntime_ApplyConfigDefaults(t *testing.T) {
 			t.Errorf("Expected platform to be set to 'incus', got: %s", platformSet)
 		}
 	})
+
+	t.Run("SkipsWorkstationRuntimeDefaultWhenPlatformIsExplicit", func(t *testing.T) {
+		for _, platform := range []string{"aws", "azure", "gcp", "metal", "none", "docker", "incus", "hyperv"} {
+			t.Run(platform, func(t *testing.T) {
+				mocks := setupRuntimeMocks(t)
+				rt := mocks.Runtime
+				rt.ContextName = "local"
+
+				mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+				mockConfigHandler.IsLoadedFunc = func() bool { return false }
+				mockConfigHandler.IsDevModeFunc = func(_ string) bool { return true }
+				mockConfigHandler.GetStringFunc = func(_ string, defaultValue ...string) string {
+					if len(defaultValue) > 0 {
+						return defaultValue[0]
+					}
+					return ""
+				}
+				mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+
+				setCalls := make(map[string]any)
+				mockConfigHandler.SetFunc = func(key string, value any) error {
+					setCalls[key] = value
+					return nil
+				}
+
+				err := rt.ApplyConfigDefaults(map[string]any{"platform": platform})
+				if err != nil {
+					t.Fatalf("Expected no error, got: %v", err)
+				}
+				if _, ok := setCalls["workstation.runtime"]; ok {
+					t.Errorf("Expected workstation.runtime NOT to be set for platform=%q, got setCalls=%v", platform, setCalls)
+				}
+			})
+		}
+	})
+
+	t.Run("DefaultsWorkstationRuntimeWhenNoPlatformInDevMode", func(t *testing.T) {
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.ContextName = "local"
+
+		mockConfigHandler := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfigHandler.IsLoadedFunc = func() bool { return false }
+		mockConfigHandler.IsDevModeFunc = func(_ string) bool { return true }
+		mockConfigHandler.GetStringFunc = func(_ string, defaultValue ...string) string {
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockConfigHandler.SetDefaultFunc = func(_ v1alpha1.Context) error { return nil }
+
+		setCalls := make(map[string]any)
+		mockConfigHandler.SetFunc = func(key string, value any) error {
+			setCalls[key] = value
+			return nil
+		}
+
+		if err := rt.ApplyConfigDefaults(); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if _, ok := setCalls["workstation.runtime"]; !ok {
+			t.Errorf("Expected workstation.runtime to be set when no platform is chosen, got setCalls=%v", setCalls)
+		}
+	})
 }
 
 func TestRuntime_SaveConfig(t *testing.T) {
