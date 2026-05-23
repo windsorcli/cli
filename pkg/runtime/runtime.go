@@ -442,7 +442,7 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 		}
 		overridePlatform := ""
 		if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-			if p, ok := flagOverrides[0]["platform"].(string); ok {
+			if p, ok := flagOverrides[0]["platform"].(string); ok && p != "" {
 				overridePlatform = p
 			}
 		}
@@ -472,12 +472,6 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 		}
 
 		if existingPlatform == "" && isDevMode {
-			overridePlatform := ""
-			if len(flagOverrides) > 0 && flagOverrides[0] != nil {
-				if p, ok := flagOverrides[0]["platform"].(string); ok && p != "" {
-					overridePlatform = p
-				}
-			}
 			if overridePlatform != "" {
 				if err := rt.ConfigHandler.Set("platform", overridePlatform); err != nil {
 					return fmt.Errorf("failed to set platform from overrides: %w", err)
