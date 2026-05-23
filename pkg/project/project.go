@@ -226,16 +226,34 @@ func (p *Project) Up() (*blueprintv1alpha1.Blueprint, bool, error) {
 	return p.runApply(p.Provisioner.Up)
 }
 
-// Bootstrap is Up's first-run sibling: workstation prep runs first (so the backend component's
-// apply has a live cluster on docker/colima/incus), then the provisioner pins backend.type=local
-// for one Up pass and migrates state to the configured remote backend at the end. When confirm
-// is non-nil, the provisioner runs a combined Terraform + Kustomize plan summary inside the
-// same backend override and hands it to confirm; returning false aborts cleanly with applied=false.
+// Bootstrap is Up's first-run sibling. Operator confirmation runs first against a cheap
+// blueprint summary; only after acceptance does workstation prep run (so declining never
+// triggers privileged work like DNS resolver writes or sudo prompts). Then the provisioner
+// pins backend.type=local for one Up pass and migrates state to the configured remote
+// backend at the end.
 //
-// Returns (blueprint, applied, halted, err). applied=false when confirm declined. halted=true
-// means one of the inner Up calls signaled a clean halt-after-component.
+// Returns (blueprint, applied, halted, err). applied=false when confirm declined; in that
+// case no workstation startup or terraform work has happened. halted=true means one of the
+// inner Up calls signaled a clean halt-after-component.
 func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv1alpha1.Blueprint, bool, bool, error) {
-	blueprint, onApply, err := p.prepareForApply()
+	blueprint := p.Composer.BlueprintHandler.Generate()
+	if blueprint == nil {
+		return nil, false, false, fmt.Errorf("blueprint not loaded")
+	}
+
+	backendType := p.configHandler.GetString("terraform.backend.type", "local")
+	if err := provisioner.ValidateBootstrap(blueprint, backendType); err != nil {
+		return blueprint, false, false, err
+	}
+
+	if confirm != nil {
+		summary := provisioner.BuildBootstrapSummary(blueprint, p.contextName, backendType)
+		if !confirm(summary) {
+			return blueprint, false, false, nil
+		}
+	}
+
+	onApply, err := p.prepareWorkstationForApply(blueprint)
 	if err != nil {
 		return nil, false, false, err
 	}
@@ -243,11 +261,11 @@ func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv
 	if onApply != nil {
 		hooks = []func(string) (bool, error){onApply}
 	}
-	applied, halted, err := p.Provisioner.Bootstrap(blueprint, confirm, hooks...)
+	halted, err := p.Provisioner.Bootstrap(blueprint, hooks...)
 	if err != nil {
 		return nil, false, false, fmt.Errorf("error starting infrastructure: %w", err)
 	}
-	return blueprint, applied, halted, nil
+	return blueprint, true, halted, nil
 }
 
 // PerformCleanup removes context-specific artifacts: config state and
@@ -308,21 +326,34 @@ func (p *Project) runApply(fn func(*blueprintv1alpha1.Blueprint, ...func(string)
 	return blueprint, halted, nil
 }
 
-// prepareForApply runs workstation lifecycle hooks before any terraform applies.
-// Shared by Up and Bootstrap.
+// prepareForApply generates the blueprint and runs workstation lifecycle hooks before any
+// terraform applies. Used by Up; Bootstrap drives the two halves separately so confirmation
+// gates workstation prep.
 func (p *Project) prepareForApply() (*blueprintv1alpha1.Blueprint, func(string) (bool, error), error) {
-	p.EnsureWorkstation()
 	blueprint := p.Composer.BlueprintHandler.Generate()
+	onApply, err := p.prepareWorkstationForApply(blueprint)
+	if err != nil {
+		return nil, nil, err
+	}
+	return blueprint, onApply, nil
+}
+
+// prepareWorkstationForApply runs the privileged half of pre-apply setup: workstation Up
+// (DNS resolver writes, host routes, container runtime). Split out so Bootstrap can gate
+// it on operator confirmation — declining the plan must not trigger sudo prompts or
+// /etc/resolver writes.
+func (p *Project) prepareWorkstationForApply(blueprint *blueprintv1alpha1.Blueprint) (func(string) (bool, error), error) {
+	p.EnsureWorkstation()
 	if p.Workstation == nil {
-		return blueprint, nil, nil
+		return nil, nil
 	}
 	p.Workstation.PrepareForUp(blueprint)
 	if err := p.Workstation.Up(); err != nil {
-		return nil, nil, fmt.Errorf("error starting workstation: %w", err)
+		return nil, fmt.Errorf("error starting workstation: %w", err)
 	}
 	onApply := p.Workstation.MakeApplyHook()
 	if postApply := p.Workstation.MakePostApplyHook(); postApply != nil {
 		p.Provisioner.OnTerraformPostApply(postApply)
 	}
-	return blueprint, onApply, nil
+	return onApply, nil
 }

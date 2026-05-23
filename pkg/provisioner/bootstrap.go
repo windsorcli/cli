@@ -39,34 +39,21 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // configured backend; Stage 3 applies non-tier components. The algorithm is idempotent —
 // every bootstrap runs the same flow regardless of whether the backend already exists.
 //
-// Returns (applied, halted, err). applied=true means bootstrap proceeded past confirm;
-// halted=true means one of the inner Up calls signaled a clean halt-after-component
-// (e.g. cluster reachability needs operator action). On halt the caller surfaces the
-// deferred-work summary; bootstrap is partially complete and the operator re-runs after
-// addressing it.
-func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm BootstrapConfirmFn, onApply ...func(id string) (bool, error)) (bool, bool, error) {
-	if blueprint == nil {
-		return false, false, fmt.Errorf("blueprint not provided")
-	}
-
+// Returns (halted, err). halted=true means one of the inner Up calls signaled a clean
+// halt-after-component (e.g. cluster reachability needs operator action). On halt the
+// caller surfaces the deferred-work summary; bootstrap is partially complete and the
+// operator re-runs after addressing it. Operator confirmation is the project layer's
+// responsibility — callers gate Bootstrap on the operator's decision so declining the
+// plan never reaches privileged work (workstation startup, DNS, etc.).
+func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	if backendType == "kubernetes" && blueprint.Backend == "" {
-		return false, false, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
-	}
-
-	if confirm != nil {
-		if !confirm(i.bootstrapSummary(blueprint)) {
-			return false, false, nil
-		}
+	if err := ValidateBootstrap(blueprint, backendType); err != nil {
+		return false, err
 	}
 
 	tier := blueprint.BackendTier()
 	if backendType == "" || backendType == "local" || len(tier) == 0 {
-		halted, err := i.Up(blueprint, onApply...)
-		if err != nil {
-			return false, false, err
-		}
-		return true, halted, nil
+		return i.Up(blueprint, onApply...)
 	}
 
 	tierBP := blueprintWithComponents(blueprint, tier)
@@ -84,19 +71,19 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 		tierHalted = halted
 		return nil
 	}); err != nil {
-		return false, false, err
+		return false, err
 	}
 	if tierHalted {
 		// Halt during tier apply — don't migrate state or run non-tier components yet.
-		return true, true, nil
+		return true, nil
 	}
 
 	skipped, err := i.MigrateState(tierBP)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 	if len(skipped) > 0 {
-		return false, false, fmt.Errorf("bootstrap migration skipped tier components after a successful local apply: %v — their directories should have been materialised by Up", skipped)
+		return false, fmt.Errorf("bootstrap migration skipped tier components after a successful local apply: %v — their directories should have been materialised by Up", skipped)
 	}
 
 	for _, c := range tier {
@@ -106,26 +93,35 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, confirm 
 	}
 
 	if len(nonTierBP.TerraformComponents) == 0 {
-		return true, false, nil
+		return false, nil
 	}
-	halted, err := i.Up(nonTierBP, onApply...)
-	if err != nil {
-		return false, false, err
-	}
-	return true, halted, nil
+	return i.Up(nonTierBP, onApply...)
 }
 
-// =============================================================================
-// Private Helpers
-// =============================================================================
-
-// bootstrapSummary builds the operator-visible intent description from the blueprint and config.
-func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *BootstrapSummary {
-	summary := &BootstrapSummary{
-		BackendType: i.configHandler.GetString("terraform.backend.type", "local"),
+// ValidateBootstrap performs cheap, side-effect-free checks on the inputs to a bootstrap.
+// Callers run this before any privileged work or operator prompt so a structurally invalid
+// configuration (nil blueprint, terraform.backend.type=kubernetes without Blueprint.Backend)
+// fails fast rather than after the operator has confirmed a plan that cannot succeed.
+func ValidateBootstrap(blueprint *blueprintv1alpha1.Blueprint, backendType string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
 	}
-	if i.runtime != nil {
-		summary.ContextName = i.runtime.ContextName
+	if backendType == "kubernetes" && blueprint.Backend == "" {
+		return fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
+	}
+	return nil
+}
+
+// BuildBootstrapSummary constructs the operator-visible intent description for a bootstrap,
+// independent of any Provisioner instance so the project layer can render the plan before
+// committing to privileged work.
+func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, backendType string) *BootstrapSummary {
+	summary := &BootstrapSummary{
+		ContextName: contextName,
+		BackendType: backendType,
+	}
+	if summary.BackendType == "" {
+		summary.BackendType = "local"
 	}
 	for _, c := range blueprint.TerraformComponents {
 		if c.Enabled != nil && !c.Enabled.IsEnabled() {
@@ -141,6 +137,10 @@ func (i *Provisioner) bootstrapSummary(blueprint *blueprintv1alpha1.Blueprint) *
 	}
 	return summary
 }
+
+// =============================================================================
+// Private Helpers
+// =============================================================================
 
 // blueprintWithComponents returns a shallow copy of bp containing only the given
 // terraform components, in their order in the slice. Non-terraform fields are shared.

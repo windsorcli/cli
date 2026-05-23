@@ -21,16 +21,16 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		if _, _, err := provisioner.Bootstrap(nil, nil); err == nil {
+		if _, err := provisioner.Bootstrap(nil); err == nil {
 			t.Fatal("Expected error for nil blueprint, got nil")
 		}
 	})
 
-	t.Run("KubernetesWithoutBackendFieldErrorsBeforeConfirmAndAnyMutation", func(t *testing.T) {
+	t.Run("KubernetesWithoutBackendFieldErrorsBeforeAnyMutation", func(t *testing.T) {
 		// A kubernetes-configured backend with no Blueprint.Backend would silently
 		// fall through to plain Up against a cluster that does not yet exist. Refuse
-		// before the confirmation prompt fires — an operator should not see a full
-		// bootstrap summary, confirm intent, and then receive the hard error.
+		// before any state-mutating work runs. The project layer is responsible for
+		// the equivalent fail-fast before its operator-facing confirm prompt fires.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
@@ -61,13 +61,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		confirmCalled := false
-		confirm := func(_ *BootstrapSummary) bool {
-			confirmCalled = true
-			return true
-		}
-
-		_, _, err := provisioner.Bootstrap(bp, confirm)
+		_, err := provisioner.Bootstrap(bp)
 		if err == nil {
 			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
 		}
@@ -76,9 +70,6 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "kubernetes") {
 			t.Errorf("Expected error to name the backend type, got: %v", err)
-		}
-		if confirmCalled {
-			t.Error("Confirm callback must not run when refusing — fail-fast before the prompt")
 		}
 		if setCalled {
 			t.Error("No backend override may engage when refusing")
@@ -125,12 +116,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !applied {
-			t.Fatal("Expected applied=true")
 		}
 		expected := []string{"up"}
 		if len(ops) != len(expected) || ops[0] != expected[0] {
@@ -174,12 +162,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !applied {
-			t.Fatal("Expected applied=true")
 		}
 		expected := []string{"up"}
 		if len(ops) != len(expected) || ops[0] != expected[0] {
@@ -235,12 +220,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !applied {
-			t.Fatal("Expected applied=true with no confirm callback")
 		}
 
 		expected := []string{"set:local", "migrate", "up", "set:azurerm", "migrate", "up"}
@@ -323,12 +305,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !applied {
-			t.Fatal("Expected applied=true")
 		}
 
 		expected := []string{"set:local", "migrate", "up", "set:s3", "migrate", "up"}
@@ -402,12 +381,9 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		applied, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !applied {
-			t.Fatal("Expected applied=true")
 		}
 
 		expected := []string{"set:local", "migrate", "up", "set:s3", "migrate"}
@@ -461,7 +437,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -516,7 +492,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 		if err == nil {
 			t.Fatal("Expected error from Stage 2 migrate failure, got nil")
 		}
@@ -561,118 +537,12 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 		if err == nil {
 			t.Fatal("Expected error for skipped-after-apply, got nil")
 		}
 		if !strings.Contains(err.Error(), "skipped") || !strings.Contains(err.Error(), "backend") {
 			t.Errorf("Expected error to name skipped component, got: %v", err)
-		}
-	})
-
-	t.Run("ConfirmReceivesSummaryBeforeAnyMutation", func(t *testing.T) {
-		// confirm runs with the summary before any state-touching op fires.
-		mocks := setupProvisionerMocks(t)
-		bp := &blueprintv1alpha1.Blueprint{
-			Backend: "backend",
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "backend"},
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "argocd"},
-			},
-		}
-
-		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "s3"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) { return false, nil }
-		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-
-		var received *BootstrapSummary
-		confirm := func(s *BootstrapSummary) bool {
-			received = s
-			return true
-		}
-
-		applied, _, err := provisioner.Bootstrap(bp, confirm)
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !applied {
-			t.Fatal("Expected applied=true")
-		}
-		if received == nil {
-			t.Fatal("Expected confirm callback to receive summary")
-		}
-		if received.BackendType != "s3" {
-			t.Errorf("Expected BackendType=s3 in summary, got %q", received.BackendType)
-		}
-		if len(received.Terraform) != 1 || received.Terraform[0].ComponentID != "backend" {
-			t.Errorf("Expected summary to list [backend], got %#v", received.Terraform)
-		}
-		if len(received.Kustomize) != 1 || received.Kustomize[0] != "argocd" {
-			t.Errorf("Expected summary to list [argocd] kustomize, got %#v", received.Kustomize)
-		}
-	})
-
-	t.Run("ConfirmDeclineSkipsAllWork", func(t *testing.T) {
-		mocks := setupProvisionerMocks(t)
-		bp := &blueprintv1alpha1.Blueprint{
-			Backend: "backend",
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "backend"},
-			},
-		}
-
-		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "s3"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-
-		var setCalled, upCalled, migrateCalled bool
-		mockCH.SetFunc = func(key string, _ any) error {
-			if key == "terraform.backend.type" {
-				setCalled = true
-			}
-			return nil
-		}
-		mockStack := terraforminfra.NewMockStack()
-		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
-			upCalled = true
-			return false, nil
-		}
-		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
-			migrateCalled = true
-			return nil, nil
-		}
-		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-
-		applied, _, err := provisioner.Bootstrap(bp, func(_ *BootstrapSummary) bool { return false })
-		if err != nil {
-			t.Fatalf("Expected no error on decline, got %v", err)
-		}
-		if applied {
-			t.Error("Expected applied=false when confirm declines")
-		}
-		if setCalled || upCalled || migrateCalled {
-			t.Errorf("Expected no state-touching ops on decline, got set=%v up=%v migrate=%v", setCalled, upCalled, migrateCalled)
 		}
 	})
 
@@ -731,7 +601,7 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		defer func() { os.Stderr = origStderr }()
 
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		applied, _, err := provisioner.Bootstrap(bp, nil)
+		_, err := provisioner.Bootstrap(bp)
 
 		w.Close()
 		stderrBytes, _ := io.ReadAll(r)
@@ -739,9 +609,6 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 
 		if err != nil {
 			t.Fatalf("Expected no error (cleanup failure is warning-only), got %v", err)
-		}
-		if !applied {
-			t.Fatal("Expected applied=true")
 		}
 		if !strings.Contains(stderrOutput, "permission denied") {
 			t.Errorf("Expected stderr warning to include underlying cause, got: %q", stderrOutput)
@@ -759,6 +626,105 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 		if !sawSecondUp {
 			t.Errorf("Expected Stage 3 Up after cleanup warning, got %v", ops)
+		}
+	})
+}
+
+func TestValidateBootstrap(t *testing.T) {
+	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		if err := ValidateBootstrap(nil, "local"); err == nil {
+			t.Fatal("Expected error for nil blueprint")
+		}
+	})
+
+	t.Run("KubernetesBackendWithoutBlueprintBackendFieldErrors", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cluster"}},
+		}
+		err := ValidateBootstrap(bp, "kubernetes")
+		if err == nil {
+			t.Fatal("Expected error when terraform.backend.type=kubernetes and Blueprint.Backend is unset")
+		}
+		if !strings.Contains(err.Error(), "Blueprint.Backend") || !strings.Contains(err.Error(), "kubernetes") {
+			t.Errorf("Expected error to name both kubernetes and Blueprint.Backend, got: %v", err)
+		}
+	})
+
+	t.Run("KubernetesBackendWithBlueprintBackendFieldPasses", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{Backend: "cluster"}
+		if err := ValidateBootstrap(bp, "kubernetes"); err != nil {
+			t.Errorf("Expected no error with Blueprint.Backend set, got: %v", err)
+		}
+	})
+
+	t.Run("NonKubernetesBackendPasses", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{}
+		for _, backend := range []string{"", "local", "s3", "azurerm", "gcs"} {
+			if err := ValidateBootstrap(bp, backend); err != nil {
+				t.Errorf("backend %q: expected no error, got: %v", backend, err)
+			}
+		}
+	})
+}
+
+func TestBuildBootstrapSummary(t *testing.T) {
+	t.Run("PopulatesContextAndBackend", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{}
+		s := BuildBootstrapSummary(bp, "staging", "s3")
+		if s.ContextName != "staging" {
+			t.Errorf("Expected ContextName=staging, got %q", s.ContextName)
+		}
+		if s.BackendType != "s3" {
+			t.Errorf("Expected BackendType=s3, got %q", s.BackendType)
+		}
+	})
+
+	t.Run("EmptyBackendDefaultsToLocal", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{}
+		s := BuildBootstrapSummary(bp, "local", "")
+		if s.BackendType != "local" {
+			t.Errorf("Expected BackendType=local when input empty, got %q", s.BackendType)
+		}
+	})
+
+	t.Run("ListsEnabledTerraformComponentsAndKustomizations", func(t *testing.T) {
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "argocd"},
+				{Name: "monitoring"},
+			},
+		}
+		s := BuildBootstrapSummary(bp, "local", "s3")
+		if len(s.Terraform) != 2 || s.Terraform[0].ComponentID != "backend" || s.Terraform[1].ComponentID != "cluster" {
+			t.Errorf("Expected terraform [backend, cluster], got %#v", s.Terraform)
+		}
+		if len(s.Kustomize) != 2 || s.Kustomize[0] != "argocd" || s.Kustomize[1] != "monitoring" {
+			t.Errorf("Expected kustomize [argocd, monitoring], got %#v", s.Kustomize)
+		}
+	})
+
+	t.Run("OmitsDisabledTerraformComponents", func(t *testing.T) {
+		falseValue := false
+		disabled := &blueprintv1alpha1.BoolExpression{Value: &falseValue}
+		bp := &blueprintv1alpha1.Blueprint{
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "skipped", Enabled: disabled},
+				{Path: "cluster"},
+			},
+		}
+		s := BuildBootstrapSummary(bp, "local", "local")
+		if len(s.Terraform) != 2 {
+			t.Fatalf("Expected 2 enabled components, got %d (%#v)", len(s.Terraform), s.Terraform)
+		}
+		for _, e := range s.Terraform {
+			if e.ComponentID == "skipped" {
+				t.Errorf("Disabled component leaked into summary: %#v", s.Terraform)
+			}
 		}
 	})
 }

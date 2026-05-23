@@ -1593,6 +1593,153 @@ func TestProject_Bootstrap(t *testing.T) {
 		}
 	})
 
+	t.Run("ConfirmFiresBeforeWorkstationStart", func(t *testing.T) {
+		// Declining the plan must not trigger any privileged work — historically
+		// Workstation.Up ran before confirm, so declining still wrote /etc/resolver
+		// entries and prompted for sudo. Confirm must gate workstation startup.
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.IsDevModeFunc = func(_ string) bool { return true }
+		mockConfig.GetBoolFunc = func(key string, _ ...bool) bool {
+			return key == "terraform.enabled"
+		}
+
+		var timeline []string
+		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
+		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
+			timeline = append(timeline, "generate")
+			return &v1alpha1.Blueprint{}
+		}
+
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.UpFunc = func(_ *v1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
+			timeline = append(timeline, "provisioner_up")
+			return false, nil
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler, &provisioner.Provisioner{TerraformStack: mockStack})
+
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+		if err := proj.Configure(nil); err != nil {
+			t.Fatalf("Configure: %v", err)
+		}
+		mockVM := virt.NewMockVirt()
+		mockVM.UpFunc = func(_ ...bool) error {
+			timeline = append(timeline, "workstation_up")
+			return nil
+		}
+		if proj.Workstation != nil {
+			proj.Workstation.VirtualMachine = mockVM
+			proj.Workstation.ContainerRuntime = nil
+			proj.Workstation.NetworkManager = nil
+		}
+
+		var confirmAt int
+		confirm := func(_ *provisioner.BootstrapSummary) bool {
+			confirmAt = len(timeline)
+			timeline = append(timeline, "confirm")
+			return false
+		}
+
+		_, applied, _, err := proj.Bootstrap(confirm)
+		if err != nil {
+			t.Fatalf("Expected no error on decline, got: %v", err)
+		}
+		if applied {
+			t.Error("Expected applied=false when confirm declines")
+		}
+
+		for _, step := range timeline {
+			if step == "workstation_up" {
+				t.Errorf("Workstation.Up must not run on decline, timeline: %v", timeline)
+			}
+			if step == "provisioner_up" {
+				t.Errorf("Provisioner Up must not run on decline, timeline: %v", timeline)
+			}
+		}
+		if confirmAt == 0 {
+			t.Fatalf("Expected confirm to fire, timeline: %v", timeline)
+		}
+	})
+
+	t.Run("ConfirmDeclineReturnsBlueprintAndAppliedFalse", func(t *testing.T) {
+		// Acceptance returns applied=true; decline returns applied=false. The blueprint
+		// is returned in both cases so callers can render summaries off it.
+		mocks := setupProjectMocks(t)
+		expectedBP := &v1alpha1.Blueprint{
+			TerraformComponents: []v1alpha1.TerraformComponent{{Path: "marker"}},
+		}
+		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
+		mockBH.GenerateFunc = func() *v1alpha1.Blueprint { return expectedBP }
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler)
+
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+
+		bp, applied, _, err := proj.Bootstrap(func(_ *provisioner.BootstrapSummary) bool { return false })
+		if err != nil {
+			t.Fatalf("Expected no error on decline, got: %v", err)
+		}
+		if applied {
+			t.Error("Expected applied=false on decline")
+		}
+		if bp != expectedBP {
+			t.Errorf("Expected blueprint to round-trip, got %#v", bp)
+		}
+	})
+
+	t.Run("KubernetesBackendValidationFiresBeforeConfirm", func(t *testing.T) {
+		// Configuration errors (e.g. terraform.backend.type=kubernetes without
+		// Blueprint.Backend) must fail fast — the operator should not see a plan,
+		// confirm, and then receive a hard error after deciding.
+		mocks := setupProjectMocks(t)
+		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "kubernetes"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
+		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
+			// Backend field omitted — must trigger validation error.
+			return &v1alpha1.Blueprint{
+				TerraformComponents: []v1alpha1.TerraformComponent{{Path: "cluster"}},
+			}
+		}
+		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler)
+
+		proj := NewProject("test-context", &Project{
+			Runtime:     mocks.Runtime,
+			Composer:    mocks.Composer,
+			Provisioner: prov,
+		})
+
+		confirmCalled := false
+		_, _, _, err := proj.Bootstrap(func(_ *provisioner.BootstrapSummary) bool {
+			confirmCalled = true
+			return true
+		})
+		if err == nil {
+			t.Fatal("Expected validation error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Blueprint.Backend") {
+			t.Errorf("Expected error to name Blueprint.Backend, got: %v", err)
+		}
+		if confirmCalled {
+			t.Error("Confirm callback must not run when validation fails fast")
+		}
+	})
+
 	t.Run("WrapsProvisionerErrorAsStartingInfrastructure", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
