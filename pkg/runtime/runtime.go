@@ -446,8 +446,12 @@ func (rt *Runtime) ApplyConfigDefaults(flagOverrides ...map[string]any) error {
 				overridePlatform = p
 			}
 		}
-		platformExplicit := overridePlatform != "" || existingPlatform != ""
-		if isDevMode && workstationRuntime == "" && !platformExplicit {
+		effectivePlatform := overridePlatform
+		if effectivePlatform == "" {
+			effectivePlatform = existingPlatform
+		}
+		needsWorkstationRuntime := effectivePlatform == "" || effectivePlatform == "docker" || effectivePlatform == "incus"
+		if isDevMode && workstationRuntime == "" && needsWorkstationRuntime {
 			switch runtime.GOOS {
 			case "darwin", "windows":
 				workstationRuntime = "docker-desktop"
