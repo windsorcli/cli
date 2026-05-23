@@ -231,9 +231,10 @@ func (c *configHandler) GetStringMap(key string, defaultValue ...map[string]stri
 
 // Set assigns a configuration value at the specified hierarchical path in the configHandler's internal data map.
 // The input value is automatically converted to the appropriate type according to the schema, if available.
-// If a schema is present, Set validates only the dynamic fields of the configuration map after the new value is set.
-// Returns an error if the path is invalid, schema validation fails, or if value assignment encounters an issue.
-// Changes made by this method are in-memory and must be persisted separately via SaveConfig.
+// Set does not validate against the schema; callers that compose configuration via multiple Set calls leave
+// the map in transient states that only satisfy cross-field rules once composition completes. Run
+// ValidateContextValues after composition to surface schema violations. Returns an error if the path is
+// invalid or if value assignment encounters an issue. Changes are in-memory; persist via SaveConfig.
 func (c *configHandler) Set(path string, value any) error {
 	if path == "" {
 		return fmt.Errorf("path cannot be empty")
@@ -245,15 +246,6 @@ func (c *configHandler) Set(path string, value any) error {
 	convertedValue := c.convertStringValue(value)
 	pathKeys := parsePath(path)
 	setValueInMap(c.data, pathKeys, convertedValue)
-
-	if c.schemaValidator != nil && c.schemaValidator.Schema != nil {
-		_, dynamicFields := c.separateStaticAndDynamicFields(c.data)
-		if result, err := c.schemaValidator.Validate(dynamicFields); err != nil {
-			return fmt.Errorf("error validating context value: %w", err)
-		} else if !result.Valid {
-			return fmt.Errorf("context value validation failed: %v", result.Errors)
-		}
-	}
 	return nil
 }
 

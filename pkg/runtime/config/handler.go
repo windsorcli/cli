@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"reflect"
 	"strings"
 
 	"github.com/windsorcli/cli/api/v1alpha1"
@@ -548,15 +547,16 @@ func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 	return nil
 }
 
-// ValidateContextValues runs schema validation on the current context's dynamic fields.
-// Use before impactful operations (e.g. windsor up) so invalid or typo'd values.yaml fails fast.
-// Returns nil if no schema is loaded or if validation passes; returns an error if validation fails.
+// ValidateContextValues runs schema validation on the full context configuration map. Cross-field
+// rules spanning static (v1alpha1.Context) and dynamic fields are evaluated against the unified map,
+// matching the file-load validation path. Use before impactful operations (e.g. windsor up) and after
+// compositional Set sequences. Returns nil if no schema is loaded or if validation passes; returns an
+// error if validation fails.
 func (c *configHandler) ValidateContextValues() error {
 	if c.schemaValidator == nil || c.schemaValidator.Schema == nil {
 		return nil
 	}
-	_, dynamicFields := c.separateStaticAndDynamicFields(c.data)
-	if result, err := c.schemaValidator.Validate(dynamicFields); err != nil {
+	if result, err := c.schemaValidator.Validate(c.data); err != nil {
 		return fmt.Errorf("error validating context values: %w", err)
 	} else if !result.Valid {
 		return fmt.Errorf("context value validation failed: %v", result.Errors)
@@ -632,43 +632,6 @@ func (c *configHandler) mapToContext(data map[string]any) *v1alpha1.Context {
 	}
 
 	return &context
-}
-
-// separateStaticAndDynamicFields splits the data map into static fields (matching v1alpha1.Context schema)
-// and dynamic fields (everything else). This is used when saving to separate windsor.yaml from values.yaml.
-func (c *configHandler) separateStaticAndDynamicFields(data map[string]any) (static map[string]any, dynamic map[string]any) {
-	static = make(map[string]any)
-	dynamic = make(map[string]any)
-
-	for key, value := range data {
-		if c.isKeyInStaticSchema(key) {
-			static[key] = value
-		} else {
-			dynamic[key] = value
-		}
-	}
-
-	return static, dynamic
-}
-
-// isKeyInStaticSchema determines whether the provided key exists as a top-level field
-// in the static windsor.yaml schema, represented by v1alpha1.Context. It checks both
-// direct keys and those nested with dot notation (e.g., "environment.TEST_VAR" -> "environment").
-// Returns true if the top-level key matches a YAML field tag in v1alpha1.Context, false otherwise.
-func (c *configHandler) isKeyInStaticSchema(key string) bool {
-	topLevelKey := key
-	if dotIndex := strings.Index(key, "."); dotIndex != -1 {
-		topLevelKey = key[:dotIndex]
-	}
-	contextType := reflect.TypeOf(v1alpha1.Context{})
-	for i := 0; i < contextType.NumField(); i++ {
-		field := contextType.Field(i)
-		yamlTag := strings.Split(field.Tag.Get("yaml"), ",")[0]
-		if yamlTag == topLevelKey {
-			return true
-		}
-	}
-	return false
 }
 
 // deepMerge recursively merges two maps with overlay values taking precedence.

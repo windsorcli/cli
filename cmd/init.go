@@ -149,6 +149,10 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
+		if err := proj.Runtime.ConfigHandler.ValidateContextValues(); err != nil {
+			return fmt.Errorf("invalid configuration: %w", err)
+		}
+
 		blueprintURL, err := resolveBlueprintURL(initBlueprint, initPlatform, contextName, rt.TemplateRoot, true)
 		if err != nil {
 			return err

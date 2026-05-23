@@ -2180,6 +2180,70 @@ func TestTestRunner_createGenerator(t *testing.T) {
 			t.Error("Expected blueprint to be generated")
 		}
 	})
+
+	t.Run("CrossFieldRuleSpanningStaticAndDynamicFires", func(t *testing.T) {
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		// gateway (dynamic) requires dns.private_domain (static) when access is private.
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  gateway:
+    type: object
+    properties:
+      access:
+        type: string
+  dns:
+    type: object
+    properties:
+      private_domain:
+        type: string
+allOf:
+  - if:
+      properties:
+        gateway:
+          type: object
+          properties:
+            access:
+              const: private
+          required: [access]
+      required: [gateway]
+    then:
+      required: [dns]
+      properties:
+        dns:
+          type: object
+          required: [private_domain]
+          properties:
+            private_domain:
+              type: string
+              minLength: 1
+`
+		createTestFile(t, templateDir, "schema.yaml", schemaContent)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// Satisfied: gateway dynamic and dns static both set; Set loop's random order must not
+		// cause spurious failures, and the final ValidateContextValues call must pass.
+		satisfied := map[string]any{
+			"gateway": map[string]any{"access": "private"},
+			"dns":     map[string]any{"private_domain": "internal.example"},
+		}
+		for i := 0; i < 10; i++ {
+			generator := runner.createGenerator(nil)
+			if _, err := generator(satisfied); err != nil {
+				t.Fatalf("iteration %d: expected satisfied cross-field rule to pass, got %v", i, err)
+			}
+		}
+
+		// Violation: dns omitted. ValidateContextValues after the Set loop must surface this.
+		violation := map[string]any{
+			"gateway": map[string]any{"access": "private"},
+		}
+		generator := runner.createGenerator(nil)
+		if _, err := generator(violation); err == nil {
+			t.Fatal("expected cross-field rule violation to be surfaced from runner")
+		}
+	})
 }
 
 // =============================================================================
