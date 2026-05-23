@@ -28,15 +28,23 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	if networkCIDR == "" {
 		return fmt.Errorf("network CIDR is not configured")
 	}
+	cidr, err := validateCIDR(networkCIDR)
+	if err != nil {
+		return err
+	}
 	guestIP := n.configHandler.GetString("workstation.address")
 	if guestIP == "" {
 		return fmt.Errorf("guest address is required")
+	}
+	guest, err := validateIPAddress(guestIP)
+	if err != nil {
+		return fmt.Errorf("invalid workstation.address: %w", err)
 	}
 
 	output, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
-		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestIP),
+		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' }", cidr, guest),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to check if route exists: %w", err)
@@ -53,7 +61,7 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	output, err = n.shell.ExecSilent(
 		"powershell",
 		"-Command",
-		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", networkCIDR, guestIP),
+		fmt.Sprintf("New-NetRoute -DestinationPrefix %s -NextHop %s -RouteMetric 1", cidr, guest),
 	)
 	if err != nil {
 		tui.Fail()
@@ -81,6 +89,10 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	if dnsIP == "" {
 		return fmt.Errorf("DNS address is not configured")
 	}
+	dns, err := validateIPAddress(dnsIP)
+	if err != nil {
+		return fmt.Errorf("invalid DNS resolver address: %w", err)
+	}
 
 	namespace := "." + domain
 
@@ -97,7 +109,7 @@ if ($existingRule) {
 } else {
   $false
 }
-`, namespace, dnsIP)
+`, namespace, dns)
 
 	output, err := n.shell.ExecSilent(
 		"powershell",
@@ -123,7 +135,7 @@ if ($existingRule) {
 if ($?) {
   Clear-DnsClientCache
 }
-`, namespace, dnsIP, dnsIP, domain)
+`, namespace, dns, dns, domain)
 
 		_, err = n.shell.ExecProgress(
 			fmt.Sprintf("Configuring DNS for '*.%s'", domain),
@@ -142,6 +154,44 @@ if ($?) {
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// RevertHostRoute removes the host-to-guest route previously added by ConfigureHostRoute on
+// Windows. Idempotent via -ErrorAction SilentlyContinue: a missing route does not surface an
+// error. Like the other Windows network operations, requires the cobra command to already be
+// running in an elevated PowerShell — there is no equivalent of 'sudo' to call from here.
+func (n *BaseNetworkManager) RevertHostRoute() error {
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" {
+		return nil
+	}
+	cidr, err := validateCIDR(networkCIDR)
+	if err != nil {
+		return err
+	}
+	script := fmt.Sprintf("Remove-NetRoute -DestinationPrefix %s -Confirm:$false -ErrorAction SilentlyContinue", cidr)
+	if _, err := n.shell.ExecSilent("powershell", "-Command", script); err != nil {
+		return fmt.Errorf("failed to remove host route: %w", err)
+	}
+	return nil
+}
+
+// RevertDNS removes the NRPT rule installed by ConfigureDNS on Windows. Idempotent via
+// -ErrorAction SilentlyContinue: a missing rule does not surface an error.
+func (n *BaseNetworkManager) RevertDNS() error {
+	domain := n.configHandler.GetString("dns.domain")
+	if domain == "" {
+		return nil
+	}
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
+	namespace := "." + domain
+	script := fmt.Sprintf("Remove-DnsClientNrptRule -Namespace '%s' -Force -ErrorAction SilentlyContinue", namespace)
+	if _, err := n.shell.ExecSilent("powershell", "-Command", script); err != nil {
+		return fmt.Errorf("failed to remove DNS rule: %w", err)
+	}
+	return nil
+}
 
 // FlushDNS clears the Windows DNS client cache via PowerShell.
 func (n *BaseNetworkManager) FlushDNS() error {
@@ -187,10 +237,18 @@ func (n *BaseNetworkManager) needsPrivilegeForHostRoute(guestAddress string) boo
 	if networkCIDR == "" || guestAddress == "" {
 		return false
 	}
+	cidr, err := validateCIDR(networkCIDR)
+	if err != nil {
+		return false
+	}
+	guest, err := validateIPAddress(guestAddress)
+	if err != nil {
+		return false
+	}
 	output, err := n.shell.ExecSilent(
 		"powershell",
 		"-Command",
-		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' }", networkCIDR, guestAddress),
+		fmt.Sprintf("Get-NetRoute -DestinationPrefix %s -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' }", cidr, guest),
 	)
 	if err != nil {
 		return false

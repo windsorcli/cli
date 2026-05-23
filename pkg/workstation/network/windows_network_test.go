@@ -496,3 +496,149 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 }
+
+func TestWindowsNetworkManager_RevertHostRoute(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("NoOpWhenCIDRUnset", func(t *testing.T) {
+		// Given no network CIDR in config
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "")
+		var called bool
+		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
+			called = true
+			return "", nil
+		}
+
+		// When reverting the host route
+		if err := manager.RevertHostRoute(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then no PowerShell invocation occurs
+		if called {
+			t.Errorf("expected no PowerShell invocation when CIDR is unset")
+		}
+	})
+
+	t.Run("RemoveScriptIsSilentlyIdempotentAndInterpolatesCIDR", func(t *testing.T) {
+		// Given a configured CIDR
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		var capturedScript string
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
+				capturedScript = args[1]
+			}
+			return "", nil
+		}
+
+		// When reverting the host route
+		if err := manager.RevertHostRoute(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then the PowerShell script invokes Remove-NetRoute with the CIDR and silent error
+		// handling so a missing route is not surfaced as an error to the operator
+		if !strings.Contains(capturedScript, "Remove-NetRoute") {
+			t.Errorf("expected Remove-NetRoute in script, got: %q", capturedScript)
+		}
+		if !strings.Contains(capturedScript, "192.168.5.0/24") {
+			t.Errorf("expected CIDR interpolated, got: %q", capturedScript)
+		}
+		if !strings.Contains(capturedScript, "ErrorAction SilentlyContinue") {
+			t.Errorf("expected SilentlyContinue for idempotency, got: %q", capturedScript)
+		}
+	})
+}
+
+func TestWindowsNetworkManager_RevertDNS(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("NoOpWhenDomainUnset", func(t *testing.T) {
+		// Given no DNS domain in config
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "")
+		var called bool
+		mocks.Shell.ExecSilentFunc = func(_ string, _ ...string) (string, error) {
+			called = true
+			return "", nil
+		}
+
+		// When reverting DNS
+		if err := manager.RevertDNS(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then no PowerShell invocation occurs
+		if called {
+			t.Errorf("expected no PowerShell invocation when domain is unset")
+		}
+	})
+
+	t.Run("RemoveScriptInterpolatesNamespaceWithLeadingDot", func(t *testing.T) {
+		// Given a configured domain
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "local.test")
+		var capturedScript string
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
+				capturedScript = args[1]
+			}
+			return "", nil
+		}
+
+		// When reverting DNS
+		if err := manager.RevertDNS(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then the PowerShell script invokes Remove-DnsClientNrptRule with .<domain> namespace
+		// and silent error handling
+		if !strings.Contains(capturedScript, "Remove-DnsClientNrptRule") {
+			t.Errorf("expected Remove-DnsClientNrptRule in script, got: %q", capturedScript)
+		}
+		if !strings.Contains(capturedScript, "'.local.test'") {
+			t.Errorf("expected '.local.test' namespace interpolated, got: %q", capturedScript)
+		}
+		if !strings.Contains(capturedScript, "ErrorAction SilentlyContinue") {
+			t.Errorf("expected SilentlyContinue for idempotency, got: %q", capturedScript)
+		}
+	})
+
+	t.Run("RejectsDomainWithSingleQuoteBeforePowerShellRuns", func(t *testing.T) {
+		// Given a malformed domain that would inject into the PowerShell single-quoted namespace string
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", `evil'; calc; '`)
+		var psInvoked bool
+		mocks.Shell.ExecSilentFunc = func(command string, _ ...string) (string, error) {
+			if command == "powershell" {
+				psInvoked = true
+			}
+			return "", nil
+		}
+
+		// When reverting DNS
+		err := manager.RevertDNS()
+
+		// Then validation rejects before any PowerShell spawn
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if psInvoked {
+			t.Fatal("PowerShell must not be invoked when domain validation fails")
+		}
+	})
+}

@@ -9,8 +9,7 @@ import (
 func TestDNSConfig_Merge(t *testing.T) {
 	t.Run("MergeWithNilOverlay", func(t *testing.T) {
 		base := &DNSConfig{
-			Enabled: ptrBool(true),
-			Domain:  ptrString("test.local"),
+			Domain: ptrString("test.local"),
 		}
 		original := base.DeepCopy()
 
@@ -23,21 +22,16 @@ func TestDNSConfig_Merge(t *testing.T) {
 
 	t.Run("MergeBasicFields", func(t *testing.T) {
 		base := &DNSConfig{
-			Enabled: ptrBool(false),
-			Domain:  ptrString("old.local"),
+			Domain: ptrString("old.local"),
 		}
 
 		overlay := &DNSConfig{
-			Enabled: ptrBool(true),
 			Domain:  ptrString("new.local"),
 			Address: ptrString("10.0.0.1"),
 		}
 
 		base.Merge(overlay)
 
-		if !*base.Enabled {
-			t.Errorf("Expected Enabled to be true")
-		}
 		if *base.Domain != "new.local" {
 			t.Errorf("Expected Domain to be 'new.local', got %s", *base.Domain)
 		}
@@ -82,7 +76,6 @@ func TestDNSConfig_Merge(t *testing.T) {
 
 	t.Run("MergeAllFields", func(t *testing.T) {
 		base := &DNSConfig{
-			Enabled: ptrBool(false),
 			Domain:  ptrString("old.local"),
 			Address: ptrString("10.0.0.1"),
 			Forward: []string{"8.8.8.8"},
@@ -90,7 +83,6 @@ func TestDNSConfig_Merge(t *testing.T) {
 		}
 
 		overlay := &DNSConfig{
-			Enabled: ptrBool(true),
 			Domain:  ptrString("new.local"),
 			Address: ptrString("10.0.0.2"),
 			Forward: []string{"1.1.1.1", "8.8.4.4"},
@@ -99,9 +91,6 @@ func TestDNSConfig_Merge(t *testing.T) {
 
 		base.Merge(overlay)
 
-		if !*base.Enabled {
-			t.Errorf("Expected Enabled to be true")
-		}
 		if *base.Domain != "new.local" {
 			t.Errorf("Expected Domain to be 'new.local', got %s", *base.Domain)
 		}
@@ -146,7 +135,6 @@ func TestDNSConfig_Copy(t *testing.T) {
 
 	t.Run("CopyPopulatedConfig", func(t *testing.T) {
 		config := &DNSConfig{
-			Enabled: ptrBool(true),
 			Domain:  ptrString("test.local"),
 			Address: ptrString("10.0.0.1"),
 			Forward: []string{"8.8.8.8", "1.1.1.1"},
@@ -160,12 +148,6 @@ func TestDNSConfig_Copy(t *testing.T) {
 		}
 		if !reflect.DeepEqual(config, copied) {
 			t.Errorf("Expected copy to be equal to original")
-		}
-
-		// Verify deep copy by modifying original
-		*config.Enabled = false
-		if *copied.Enabled {
-			t.Errorf("Expected copy to be independent of original")
 		}
 
 		// Verify deep copy of slices
@@ -182,8 +164,7 @@ func TestDNSConfig_Copy(t *testing.T) {
 
 	t.Run("CopyWithNilSlices", func(t *testing.T) {
 		config := &DNSConfig{
-			Enabled: ptrBool(true),
-			Domain:  ptrString("test.local"),
+			Domain: ptrString("test.local"),
 			// Forward and Records are nil
 		}
 
@@ -199,7 +180,6 @@ func TestDNSConfig_Copy(t *testing.T) {
 
 	t.Run("CopyWithEmptySlices", func(t *testing.T) {
 		config := &DNSConfig{
-			Enabled: ptrBool(true),
 			Domain:  ptrString("test.local"),
 			Forward: []string{},
 			Records: []string{},

@@ -34,6 +34,12 @@ func TestContextCmd(t *testing.T) {
 		}
 
 		tmpDir := t.TempDir()
+		// Anchor GetProjectRoot at tmpDir by dropping a minimal windsor.yaml. Without this,
+		// GetProjectRoot walks past tmpDir and falls back to $HOME/.config/windsor, where the
+		// developer's global state (.windsor/context) bleeds into the test result.
+		if err := os.WriteFile(filepath.Join(tmpDir, "windsor.yaml"), []byte("version: v1alpha1\n"), 0644); err != nil {
+			t.Fatalf("Failed to write anchor windsor.yaml: %v", err)
+		}
 		if err := os.Chdir(tmpDir); err != nil {
 			t.Fatalf("Failed to change to temp directory: %v", err)
 		}

@@ -92,7 +92,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 
 	// Add terraform stack mock
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
 
 	// Add kubernetes manager mock
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
@@ -273,8 +273,8 @@ func TestUpCmd(t *testing.T) {
 	t.Run("ProvisionerUpError", func(t *testing.T) {
 		// Given a terraform stack that fails during Up
 		mocks := setupUpTest(t)
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return fmt.Errorf("terraform stack up failed")
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("terraform stack up failed")
 		}
 		proj := newUpTestProject(mocks, true)
 
@@ -498,9 +498,9 @@ func TestUpCmd(t *testing.T) {
 		mocks := setupUpTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		upCalled := false
-		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) error) error {
+		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newUpTestProject(mocks, true)
 
@@ -517,6 +517,42 @@ func TestUpCmd(t *testing.T) {
 		}
 		if upCalled {
 			t.Error("Provisioner.Up must not run when credential preflight fails")
+		}
+	})
+
+	t.Run("HaltedUpSkipsBlueprintInstallAndSuccessLine", func(t *testing.T) {
+		// Given a project where the terraform stack halts after the workstation component
+		// (the apply hook needed host configuration the operator hasn't done yet)
+		mocks := setupUpTest(t)
+		applyBlueprintCalled := false
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(string) (bool, error)) (bool, error) {
+			return true, nil
+		}
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			applyBlueprintCalled = true
+			return nil
+		}
+		proj := newUpTestProject(mocks, true)
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		// When executing up
+		cmd := createTestUpCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("expected halt to exit 0 (clean stop, not failure), got error: %v", err)
+		}
+		restore()
+
+		// Then blueprint install is skipped and the success line is suppressed
+		if applyBlueprintCalled {
+			t.Error("expected blueprint install to be skipped after halt")
+		}
+		stderr := stderrBuf.String()
+		if strings.Contains(stderr, "Windsor environment set up successfully") {
+			t.Errorf("expected success line to be suppressed after halt, got: %q", stderr)
 		}
 	})
 }
@@ -598,14 +634,14 @@ func TestBuildUpFlagOverrides(t *testing.T) {
 	t.Run("SetFlagsParsedAsKeyValuePairs", func(t *testing.T) {
 		resetFlags()
 		t.Cleanup(resetFlags)
-		upSetFlags = []string{"dns.enabled=false", "cluster.endpoint=https://localhost:6443"}
+		upSetFlags = []string{"cluster.driver=talos", "cluster.endpoint=https://localhost:6443"}
 
 		overrides, err := buildUpFlagOverrides()
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if overrides["dns.enabled"] != "false" {
-			t.Errorf("Expected dns.enabled=false, got %v", overrides["dns.enabled"])
+		if overrides["cluster.driver"] != "talos" {
+			t.Errorf("Expected cluster.driver=talos, got %v", overrides["cluster.driver"])
 		}
 		if overrides["cluster.endpoint"] != "https://localhost:6443" {
 			t.Errorf("Expected cluster.endpoint=https://localhost:6443, got %v", overrides["cluster.endpoint"])
@@ -627,4 +663,75 @@ func TestBuildUpFlagOverrides(t *testing.T) {
 	})
 }
 
+func TestPrintDeferredWork(t *testing.T) {
+	t.Run("EmptyItemsProducesNoOutput", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, nil, "darwin")
+		if buf.Len() != 0 {
+			t.Errorf("Expected no output for empty items, got %q", buf.String())
+		}
+	})
 
+	t.Run("RequiredItemRendersHaltSentenceWithSudoParenOnUnix", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: true, Command: "windsor configure network"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n"
+		if buf.String() != want {
+			t.Errorf("Expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("RequiredItemRendersHaltSentenceWithAdministratorParenOnWindows", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: true, Command: "windsor configure network"},
+		}, "windows")
+		want := "Run 'windsor configure network' (Administrator PowerShell), then re-run 'windsor up'.\n"
+		if buf.String() != want {
+			t.Errorf("Expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("OptionalItemRendersOutcomeSentence", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n"
+		if buf.String() != want {
+			t.Errorf("Expected %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("RequiredItemEmitsHaltSentenceFirstThenOptionalOutcomes", func(t *testing.T) {
+		// Given a halt (cluster-privilege) paired with an optional outcome (DNS hint) — the
+		// typical first-run colima case where 'configure network' will produce both. The
+		// operator must see BOTH: the halt instruction (with re-run guidance) AND the
+		// follow-up outcome they'll get from the same command.
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
+			{Required: true, Command: "windsor configure network"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n" +
+			"Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n"
+		if buf.String() != want {
+			t.Errorf("Expected halt + optional output %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("MultipleOptionalItemsEachRenderOnTheirOwnLine", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
+			{Required: false, Command: "windsor configure network --revert", Outcome: "remove host configuration"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n" +
+			"Run 'windsor configure network --revert' (asks for sudo) to remove host configuration.\n"
+		if buf.String() != want {
+			t.Errorf("Expected %q, got %q", want, buf.String())
+		}
+	})
+}

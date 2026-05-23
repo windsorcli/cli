@@ -9,6 +9,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -191,6 +192,46 @@ func TestIntegration_ConfigureNetwork(t *testing.T) {
 			for _, c := range env.Capture.SilentWithTimeoutCalls {
 				t.Logf("ExecSilentWithTimeout: %s %v (timeout %v)", c.Command, c.Args, c.Timeout)
 			}
+		}
+	})
+
+	t.Run("ConfigureNetworkAdminGateBlocksConfigureWhenHelperErrors", func(t *testing.T) {
+		// Given the elevation pre-flight reports non-Admin (simulates Windows non-Admin PowerShell)
+		original := configureNetworkPreflight
+		t.Cleanup(func() { configureNetworkPreflight = original })
+		configureNetworkPreflight = func() error {
+			return fmt.Errorf("'windsor configure network' must be run from an Administrator PowerShell. Right-click PowerShell → Run as Administrator, then re-run")
+		}
+
+		env := setupConfigureTest(t)
+
+		// When the configure path runs
+		_, _, err := runCmd(t, env.Ctx, []string{"configure", "network"})
+
+		// Then the gate error surfaces and no privileged shell work was attempted
+		if err == nil {
+			t.Fatalf("expected gate error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Administrator PowerShell") {
+			t.Errorf("expected gate's operator-facing message, got: %v", err)
+		}
+		if len(env.Capture.SudoCalls) != 0 {
+			t.Errorf("expected no ExecSudo calls when gate fails, got: %v", env.Capture.SudoCalls)
+		}
+	})
+
+	t.Run("ConfigureNetworkAdminGateDoesNotBlockDryRun", func(t *testing.T) {
+		// Given the elevation pre-flight reports non-Admin, --dry-run should still succeed
+		// (dry-run never modifies host state, so the gate must run AFTER the dry-run branch).
+		original := configureNetworkPreflight
+		t.Cleanup(func() { configureNetworkPreflight = original })
+		configureNetworkPreflight = func() error { return fmt.Errorf("not elevated") }
+
+		env := setupConfigureTest(t)
+
+		_, _, err := runCmd(t, env.Ctx, []string{"configure", "network", "--dry-run"})
+		if err != nil {
+			t.Errorf("expected --dry-run to succeed regardless of elevation gate, got: %v", err)
 		}
 	})
 }

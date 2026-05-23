@@ -56,8 +56,7 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 				Driver:  ptrString("talos"),
 			},
 			DNS: &dnsconfig.DNSConfig{
-				Enabled: ptrBool(true),
-				Domain:  ptrString("test.local"),
+				Domain: ptrString("test.local"),
 			},
 		}
 
@@ -74,9 +73,6 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 		}
 		if *base.Cluster.Driver != "talos" {
 			t.Errorf("Expected Cluster.Driver to be 'talos', got %s", *base.Cluster.Driver)
-		}
-		if !*base.DNS.Enabled {
-			t.Errorf("Expected DNS.Enabled to be true")
 		}
 		if *base.DNS.Domain != "test.local" {
 			t.Errorf("Expected DNS.Domain to be 'test.local', got %s", *base.DNS.Domain)
@@ -101,8 +97,7 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 				Driver:  ptrString("talos"),
 			},
 			DNS: &dnsconfig.DNSConfig{
-				Enabled: ptrBool(true),
-				Domain:  ptrString("test.local"),
+				Domain: ptrString("test.local"),
 			},
 		}
 
@@ -116,9 +111,6 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 		}
 		if base.DNS == nil {
 			t.Errorf("Expected DNS to be initialized")
-		}
-		if !*base.DNS.Enabled {
-			t.Errorf("Expected DNS.Enabled to be true")
 		}
 	})
 
@@ -144,7 +136,7 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 				CIDRBlock: ptrString("10.0.0.0/24"),
 			},
 			DNS: &dnsconfig.DNSConfig{
-				Enabled: ptrBool(true),
+				Domain: ptrString("test.local"),
 			},
 			Localstack: &localstackconfig.LocalstackConfig{
 				Enabled: ptrBool(true),
@@ -192,9 +184,6 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "10.0.0.0/24" {
 			t.Errorf("Expected Network.CIDRBlock to be '10.0.0.0/24'")
 		}
-		if !*base.DNS.Enabled {
-			t.Errorf("Expected DNS.Enabled to be true")
-		}
 		if !*base.Localstack.Enabled {
 			t.Errorf("Expected Localstack.Enabled to be true")
 		}
@@ -220,7 +209,7 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 				CIDRBlock: ptrString("192.168.0.0/24"),
 			},
 			DNS: &dnsconfig.DNSConfig{
-				Enabled: ptrBool(false),
+				Domain: ptrString("test.local"),
 			},
 			Localstack: &localstackconfig.LocalstackConfig{
 				Enabled: ptrBool(false),
@@ -246,7 +235,7 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 				CIDRBlock: ptrString("10.0.0.0/24"),
 			},
 			DNS: &dnsconfig.DNSConfig{
-				Enabled: ptrBool(true),
+				Domain: ptrString("test.local"),
 			},
 			Localstack: &localstackconfig.LocalstackConfig{
 				Enabled: ptrBool(true),
@@ -270,9 +259,6 @@ func TestWorkstationConfig_Merge(t *testing.T) {
 		}
 		if base.Network.CIDRBlock == nil || *base.Network.CIDRBlock != "10.0.0.0/24" {
 			t.Errorf("Expected Network.CIDRBlock to be '10.0.0.0/24' after merge")
-		}
-		if !*base.DNS.Enabled {
-			t.Errorf("Expected DNS.Enabled to be true after merge")
 		}
 		if !*base.Localstack.Enabled {
 			t.Errorf("Expected Localstack.Enabled to be true after merge")
@@ -312,8 +298,7 @@ func TestWorkstationConfig_Copy(t *testing.T) {
 				Driver:  ptrString("talos"),
 			},
 			DNS: &dnsconfig.DNSConfig{
-				Enabled: ptrBool(true),
-				Domain:  ptrString("test.local"),
+				Domain: ptrString("test.local"),
 			},
 		}
 

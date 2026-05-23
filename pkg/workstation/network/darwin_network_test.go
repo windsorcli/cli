@@ -6,6 +6,7 @@ package network
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -427,6 +428,179 @@ func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 		if len(sudoCommands) != 0 {
 			t.Fatalf("expected zero sudo invocations before validation rejection, got %v", sudoCommands)
+		}
+	})
+}
+
+func TestDarwinNetworkManager_RevertHostRoute(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("NoOpWhenCIDRUnset", func(t *testing.T) {
+		// Given no network CIDR in config
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "")
+		var called bool
+		mocks.Shell.ExecSudoFunc = func(_, _ string, _ ...string) (string, error) {
+			called = true
+			return "", nil
+		}
+
+		// When reverting the host route
+		if err := manager.RevertHostRoute(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then no sudo invocation occurs — there's nothing to revert
+		if called {
+			t.Errorf("expected no sudo invocation when CIDR is unset")
+		}
+	})
+
+	t.Run("RemovesRouteWhenPresent", func(t *testing.T) {
+		// Given a configured CIDR and route delete succeeds
+		manager, _ := setup(t)
+		var deletedCIDR string
+		mocks := setupNetworkMocks(t)
+		manager.shell = mocks.Shell
+		manager.configHandler = mocks.ConfigHandler
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "route" && len(args) > 2 && args[1] == "delete" {
+				deletedCIDR = args[len(args)-1]
+				return "", nil
+			}
+			return "", nil
+		}
+
+		// When reverting the host route
+		if err := manager.RevertHostRoute(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then route delete was called with the configured CIDR
+		if deletedCIDR != "192.168.5.0/24" {
+			t.Errorf("expected route delete for %q, got %q", "192.168.5.0/24", deletedCIDR)
+		}
+	})
+
+	t.Run("TolerantOfNotInTable", func(t *testing.T) {
+		// Given route delete returns "not in table" (route was never installed or already removed)
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.Shell.ExecSudoFunc = func(_, command string, _ ...string) (string, error) {
+			if command == "route" {
+				return "route: writing to routing socket: not in table", fmt.Errorf("exit status 77")
+			}
+			return "", nil
+		}
+
+		// When reverting the host route
+		err := manager.RevertHostRoute()
+
+		// Then revert reports success — idempotent
+		if err != nil {
+			t.Errorf("expected nil error for idempotent revert, got %v", err)
+		}
+	})
+
+	t.Run("ErrorsOnUnknownFailure", func(t *testing.T) {
+		// Given route delete fails for an unrecognized reason
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.Shell.ExecSudoFunc = func(_, command string, _ ...string) (string, error) {
+			if command == "route" {
+				return "permission denied", fmt.Errorf("exit status 1")
+			}
+			return "", nil
+		}
+
+		// When reverting the host route
+		err := manager.RevertHostRoute()
+
+		// Then the error surfaces with context
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "Error deleting host route") {
+			t.Errorf("expected wrapped error, got %v", err)
+		}
+	})
+}
+
+func TestDarwinNetworkManager_RevertDNS(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	t.Run("NoOpWhenDomainUnset", func(t *testing.T) {
+		// Given no DNS domain in config
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "")
+		var called bool
+		mocks.Shell.ExecSudoFunc = func(_, _ string, _ ...string) (string, error) {
+			called = true
+			return "", nil
+		}
+
+		// When reverting DNS
+		if err := manager.RevertDNS(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then no sudo invocation occurs
+		if called {
+			t.Errorf("expected no sudo invocation when domain is unset")
+		}
+	})
+
+	t.Run("RemovesResolverFileForConfiguredDomain", func(t *testing.T) {
+		// Given a configured domain
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "local.test")
+		var removed string
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "rm" && len(args) >= 2 {
+				removed = args[len(args)-1]
+			}
+			return "", nil
+		}
+
+		// When reverting DNS
+		if err := manager.RevertDNS(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+
+		// Then the per-domain resolver file is removed via rm -f
+		want := "/etc/resolver/local.test"
+		if removed != want {
+			t.Errorf("expected removal of %q, got %q", want, removed)
+		}
+	})
+
+	t.Run("RejectsDomainWithPathSeparator", func(t *testing.T) {
+		// Given a malformed DNS domain
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "evil/../etc/passwd")
+
+		// When reverting DNS
+		err := manager.RevertDNS()
+
+		// Then validation rejects before any rm runs
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "must contain only letters") {
+			t.Errorf("expected validation error, got %v", err)
 		}
 	})
 }

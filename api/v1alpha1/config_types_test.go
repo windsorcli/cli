@@ -44,7 +44,7 @@ func TestConfig_Merge(t *testing.T) {
 				Enabled: ptrBool(true),
 			},
 			DNS: &dns.DNSConfig{
-				Enabled: ptrBool(true),
+				Domain: ptrString("example.com"),
 			},
 			Secrets: &secrets.SecretsConfig{
 				OnePasswordConfig: secrets.OnePasswordConfig{
@@ -89,7 +89,7 @@ func TestConfig_Merge(t *testing.T) {
 				Enabled: ptrBool(false),
 			},
 			DNS: &dns.DNSConfig{
-				Enabled: ptrBool(false),
+				Domain: ptrString("other.example"),
 			},
 			Secrets: &secrets.SecretsConfig{
 				OnePasswordConfig: secrets.OnePasswordConfig{
@@ -136,9 +136,6 @@ func TestConfig_Merge(t *testing.T) {
 		if base.Cluster.Enabled == nil || *base.Cluster.Enabled != false {
 			t.Errorf("Cluster Enabled mismatch: expected false, got %v", *base.Cluster.Enabled)
 		}
-		if base.DNS.Enabled == nil || *base.DNS.Enabled != false {
-			t.Errorf("DNS Enabled mismatch: expected false, got %v", *base.DNS.Enabled)
-		}
 		if base.Secrets.OnePasswordConfig.Vaults["vault1"].URL != "https://url.com" {
 			t.Errorf("Secrets Vault URL mismatch: expected 'https://url.com', got '%s'", base.Secrets.OnePasswordConfig.Vaults["vault1"].URL)
 		}
@@ -181,7 +178,7 @@ func TestConfig_Merge(t *testing.T) {
 				Enabled: ptrBool(true),
 			},
 			DNS: &dns.DNSConfig{
-				Enabled: ptrBool(true),
+				Domain: ptrString("example.com"),
 			},
 			Secrets: &secrets.SecretsConfig{
 				OnePasswordConfig: secrets.OnePasswordConfig{
@@ -229,9 +226,6 @@ func TestConfig_Merge(t *testing.T) {
 		if base.Cluster.Enabled == nil || *base.Cluster.Enabled != true {
 			t.Errorf("Cluster Enabled mismatch: expected true, got %v", *base.Cluster.Enabled)
 		}
-		if base.DNS.Enabled == nil || *base.DNS.Enabled != true {
-			t.Errorf("DNS Enabled mismatch: expected true, got %v", *base.DNS.Enabled)
-		}
 		if base.Secrets.OnePasswordConfig.Vaults["vault1"].URL != "https://url.com" {
 			t.Errorf("Secrets Vault URL mismatch: expected 'https://url.com', got '%s'", base.Secrets.OnePasswordConfig.Vaults["vault1"].URL)
 		}
@@ -276,7 +270,7 @@ func TestConfig_Merge(t *testing.T) {
 				Enabled: ptrBool(false),
 			},
 			DNS: &dns.DNSConfig{
-				Enabled: ptrBool(false),
+				Domain: ptrString("other.example"),
 			},
 			Secrets: &secrets.SecretsConfig{
 				OnePasswordConfig: secrets.OnePasswordConfig{
@@ -322,9 +316,6 @@ func TestConfig_Merge(t *testing.T) {
 		}
 		if base.Cluster.Enabled == nil || *base.Cluster.Enabled != false {
 			t.Errorf("Cluster Enabled mismatch: expected false, got %v", *base.Cluster.Enabled)
-		}
-		if base.DNS.Enabled == nil || *base.DNS.Enabled != false {
-			t.Errorf("DNS Enabled mismatch: expected false, got %v", *base.DNS.Enabled)
 		}
 		if base.Secrets.OnePasswordConfig.Vaults["vault1"].URL != "https://url.com" {
 			t.Errorf("Secrets Vault URL mismatch: expected 'https://url.com', got '%s'", base.Secrets.OnePasswordConfig.Vaults["vault1"].URL)
@@ -389,7 +380,7 @@ func TestConfig_Copy(t *testing.T) {
 				Enabled: ptrBool(true),
 			},
 			DNS: &dns.DNSConfig{
-				Enabled: ptrBool(true),
+				Domain: ptrString("example.com"),
 			},
 			Network: &network.NetworkConfig{
 				CIDRBlock: ptrString("192.168.0.0/16"),
@@ -436,9 +427,6 @@ func TestConfig_Copy(t *testing.T) {
 		}
 		if original.Cluster.Enabled == nil || copy.Cluster.Enabled == nil || *original.Cluster.Enabled != *copy.Cluster.Enabled {
 			t.Errorf("Cluster Enabled mismatch: expected %v, got %v", *original.Cluster.Enabled, *copy.Cluster.Enabled)
-		}
-		if original.DNS.Enabled == nil || copy.DNS.Enabled == nil || *original.DNS.Enabled != *copy.DNS.Enabled {
-			t.Errorf("DNS Enabled mismatch: expected %v, got %v", *original.DNS.Enabled, *copy.DNS.Enabled)
 		}
 		if original.Network.CIDRBlock == nil || copy.Network.CIDRBlock == nil || *original.Network.CIDRBlock != *copy.Network.CIDRBlock {
 			t.Errorf("Network CIDRBlock mismatch: expected %v, got %v", *original.Network.CIDRBlock, *copy.Network.CIDRBlock)

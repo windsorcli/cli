@@ -94,7 +94,7 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 	mockBlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return testBlueprint, nil }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error { return nil }
+	mockTerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
@@ -200,6 +200,43 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("HaltedBootstrapSkipsBlueprintInstallAndSuccessLine", func(t *testing.T) {
+		// Given a terraform stack that halts after a component (the apply hook needed host
+		// configuration the operator hasn't done yet)
+		mocks := setupBootstrapTest(t)
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(string) (bool, error)) (bool, error) {
+			return true, nil
+		}
+		applyBlueprintCalled := false
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			applyBlueprintCalled = true
+			return nil
+		}
+		proj := newBootstrapTestProject(mocks)
+
+		stderrBuf, restore := captureProcessStderr(t)
+		t.Cleanup(restore)
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("expected halt to exit 0 (clean stop, not failure), got error: %v", err)
+		}
+		restore()
+
+		// Then blueprint install is skipped and the success line is suppressed
+		if applyBlueprintCalled {
+			t.Error("expected blueprint install to be skipped after halt")
+		}
+		if strings.Contains(stderrBuf.String(), "Windsor environment bootstrapped successfully") {
+			t.Errorf("expected success line to be suppressed after halt, got: %q", stderrBuf.String())
+		}
+	})
+
 	t.Run("NotifiesDuringInstallWithResolvedBlueprint", func(t *testing.T) {
 		// Given a bootstrap test project wired with a MockNotifier
 		mocks := setupBootstrapTest(t)
@@ -293,9 +330,9 @@ func TestBootstrapCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			timeline = append(timeline, "up")
-			return nil
+			return false, nil
 		}
 		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 			timeline = append(timeline, "migrate")
@@ -338,9 +375,9 @@ func TestBootstrapCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
 			timeline = append(timeline, "up")
-			return nil
+			return false, nil
 		}
 		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 			timeline = append(timeline, "migrate")
@@ -388,8 +425,8 @@ func TestBootstrapCmd(t *testing.T) {
 			}
 			return ""
 		}
-		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return nil
+		mocks.TerraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, nil
 		}
 		mocks.TerraformStack.MigrateStateFunc = func(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return []string{"backend"}, nil
@@ -493,7 +530,7 @@ func TestBootstrapCmd(t *testing.T) {
 
 		cmd := createTestBootstrapCmd()
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
-		cmd.SetArgs([]string{"--set", "dns.enabled=false", "--yes"})
+		cmd.SetArgs([]string{"--set", "cluster.driver=talos", "--yes"})
 		cmd.SetContext(ctx)
 
 		// When executing bootstrap with --set
@@ -748,9 +785,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -779,9 +816,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled, installCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
 			installCalled = true
@@ -817,9 +854,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -847,9 +884,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = true
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -879,9 +916,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = false
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -909,9 +946,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = false
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 
@@ -939,9 +976,9 @@ func TestBootstrapCmd(t *testing.T) {
 		mocks := setupBootstrapTest(t)
 		mocks.Runtime.Global = false
 		var upCalled bool
-		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) error) error {
+		mocks.TerraformStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
 			upCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newBootstrapTestProject(mocks)
 

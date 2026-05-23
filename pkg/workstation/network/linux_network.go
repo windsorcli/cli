@@ -126,6 +126,46 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 // Private Methods
 // =============================================================================
 
+// RevertHostRoute removes the host-to-guest route previously added by ConfigureHostRoute on Linux.
+// Idempotent: no-op when the network CIDR is unset, and tolerates "No such process" (the exit
+// signal from ip route del when the destination isn't in the table).
+func (n *BaseNetworkManager) RevertHostRoute() error {
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" {
+		return nil
+	}
+	output, err := n.shell.ExecSudo("", "ip", "route", "del", networkCIDR)
+	if err != nil {
+		if strings.Contains(output, "No such process") {
+			return nil
+		}
+		return fmt.Errorf("failed to delete host route: %w, output: %s", err, output)
+	}
+	return nil
+}
+
+// RevertDNS removes the systemd-resolved drop-in installed by ConfigureDNS on Linux and restarts
+// systemd-resolved so it picks up the change. Idempotent: no-op when dns.domain is unset; rm -f
+// tolerates a missing file silently. The restart is best-effort — a failure surfaces an error
+// because operators expect DNS state to be coherent after revert.
+func (n *BaseNetworkManager) RevertDNS() error {
+	domain := n.configHandler.GetString("dns.domain")
+	if domain == "" {
+		return nil
+	}
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
+	dropInFile := fmt.Sprintf("/etc/systemd/resolved.conf.d/dns-override-%s.conf", domain)
+	if _, err := n.shell.ExecSudo("", "rm", "-f", dropInFile); err != nil {
+		return fmt.Errorf("failed to remove DNS drop-in: %w", err)
+	}
+	if _, err := n.shell.ExecSudo("", "systemctl", "restart", "systemd-resolved"); err != nil {
+		return fmt.Errorf("failed to restart systemd-resolved: %w", err)
+	}
+	return nil
+}
+
 // FlushDNS is a no-op on Linux; DNS cache is cleared by restarting systemd-resolved during ConfigureDNS.
 func (n *BaseNetworkManager) FlushDNS() error {
 	return nil

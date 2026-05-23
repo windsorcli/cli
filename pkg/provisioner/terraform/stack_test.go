@@ -278,7 +278,7 @@ func TestStack_Up(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 
-		if err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(blueprint); err != nil {
 			t.Errorf("Expected Up to return nil, got %v", err)
 		}
 	})
@@ -287,12 +287,12 @@ func TestStack_Up(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 		var invokedIDs []string
-		hook := func(id string) error {
+		hook := func(id string) (bool, error) {
 			invokedIDs = append(invokedIDs, id)
-			return nil
+			return false, nil
 		}
 
-		err := stack.Up(blueprint, hook)
+		_, err := stack.Up(blueprint, hook)
 
 		if err != nil {
 			t.Errorf("Expected Up to return nil, got %v", err)
@@ -312,11 +312,11 @@ func TestStack_Up(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 		hookErr := fmt.Errorf("hook failed")
-		hook := func(id string) error {
-			return hookErr
+		hook := func(id string) (bool, error) {
+			return false, hookErr
 		}
 
-		err := stack.Up(blueprint, hook)
+		_, err := stack.Up(blueprint, hook)
 
 		if err == nil {
 			t.Fatal("Expected Up to return error when hook fails")
@@ -333,7 +333,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 		expectedError := "error getting current directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -347,7 +347,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 		if err == nil {
 			t.Fatalf("Expected an error, but got nil")
 		}
@@ -368,7 +368,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 		expectedError := "error running terraform init for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -388,7 +388,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 		expectedError := "error running terraform plan for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -405,7 +405,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 		expectedError := "error running terraform apply for"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -414,7 +414,7 @@ func TestStack_Up(t *testing.T) {
 
 	t.Run("NilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
-		err := stack.Up(nil)
+		_, err := stack.Up(nil)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -427,7 +427,7 @@ func TestStack_Up(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Runtime.ProjectRoot = ""
 		blueprint := createTestBlueprint()
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -453,7 +453,7 @@ func TestStack_Up(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When running Up
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 
 		// Then it should succeed (cleanup errors are ignored)
 		if err != nil {
@@ -486,7 +486,7 @@ func TestStack_Up(t *testing.T) {
 			},
 		}
 
-		if err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(blueprint); err != nil {
 			t.Errorf("Expected Up to succeed with named component, got %v", err)
 		}
 	})
@@ -523,7 +523,7 @@ func TestStack_Up(t *testing.T) {
 			},
 		}
 
-		if err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(blueprint); err != nil {
 			t.Errorf("Expected Up to succeed with named component with source, got %v", err)
 		}
 	})
@@ -546,7 +546,7 @@ func TestStack_Up(t *testing.T) {
 			return "", nil
 		}
 
-		_ = stack.Up(blueprint)
+		_, _ = stack.Up(blueprint)
 
 		// Then TF_VAR_operation is "apply"
 		if capturedEnv == nil {
@@ -574,7 +574,7 @@ func TestStack_Up(t *testing.T) {
 			return "", nil
 		}
 
-		_ = stack.Up(blueprint)
+		_, _ = stack.Up(blueprint)
 
 		// Then plan was called with -refresh=false (refresh ran explicitly before)
 		var sawRefreshFalse bool
@@ -606,7 +606,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		// When Up runs
-		_ = stack.Up(blueprint)
+		_, _ = stack.Up(blueprint)
 
 		// Then refresh was never invoked — empty state means nothing to reconcile
 		if sawRefreshExec {
@@ -631,7 +631,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		// When Up runs
-		_ = stack.Up(blueprint)
+		_, _ = stack.Up(blueprint)
 
 		// Then refresh was invoked because state is non-empty
 		if !sawRefreshExec {
@@ -657,7 +657,7 @@ func TestStack_Up(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When Up runs
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 
 		// Then no error surfaces (warn-but-continue policy) and the warning names the failure
 		if err != nil {
@@ -680,7 +680,7 @@ func TestStack_Up(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When Up runs
-		err := stack.Up(blueprint)
+		_, err := stack.Up(blueprint)
 
 		// Then the state-check error propagates
 		if err == nil {
@@ -711,7 +711,7 @@ func TestStack_Up(t *testing.T) {
 		}
 
 		// When Up runs
-		if err := stack.Up(blueprint); err != nil {
+		if _, err := stack.Up(blueprint); err != nil {
 			t.Fatalf("Expected Up to succeed, got %v", err)
 		}
 

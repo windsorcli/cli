@@ -236,8 +236,8 @@ func TestApplyCmd(t *testing.T) {
 	t.Run("ErrorTerraformFails", func(t *testing.T) {
 		// Given a terraform stack whose Up fails
 		mocks := setupApplyTest(t)
-		mocks.TerraformStack.UpFunc = func(bp *blueprintv1alpha1.Blueprint, onApply ...func(id string) error) error {
-			return fmt.Errorf("terraform up failed")
+		mocks.TerraformStack.UpFunc = func(bp *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("terraform up failed")
 		}
 		proj := newApplyAllProject(mocks)
 
@@ -314,9 +314,9 @@ func TestApplyCmd(t *testing.T) {
 		mocks := setupApplyTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		applyCalled := false
-		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) error) error {
+		mocks.TerraformStack.UpFunc = func(*blueprintv1alpha1.Blueprint, ...func(string) (bool, error)) (bool, error) {
 			applyCalled = true
-			return nil
+			return false, nil
 		}
 		proj := newApplyAllProject(mocks)
 

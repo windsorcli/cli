@@ -122,6 +122,41 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	return nil
 }
 
+// RevertHostRoute removes the host-to-guest route previously added by ConfigureHostRoute on macOS.
+// Idempotent: no-op when the network CIDR is unset, and tolerates "not in table" if the route was
+// never installed or has already been removed.
+func (n *BaseNetworkManager) RevertHostRoute() error {
+	networkCIDR := n.configHandler.GetString("network.cidr_block")
+	if networkCIDR == "" {
+		return nil
+	}
+	output, err := n.shell.ExecSudo("", "route", "-nv", "delete", "-net", networkCIDR)
+	if err != nil {
+		if strings.Contains(output, "not in table") {
+			return nil
+		}
+		return fmt.Errorf("Error deleting host route: %w, output: %s", err, output)
+	}
+	return nil
+}
+
+// RevertDNS removes the per-domain resolver file installed by ConfigureDNS on macOS.
+// Idempotent: no-op when dns.domain is unset; rm -f tolerates a missing file silently.
+func (n *BaseNetworkManager) RevertDNS() error {
+	tld := n.configHandler.GetString("dns.domain")
+	if tld == "" {
+		return nil
+	}
+	if err := validateDomain(tld); err != nil {
+		return err
+	}
+	resolverFile := fmt.Sprintf("/etc/resolver/%s", tld)
+	if _, err := n.shell.ExecSudo("", "rm", "-f", resolverFile); err != nil {
+		return fmt.Errorf("Error removing resolver file: %w", err)
+	}
+	return nil
+}
+
 // FlushDNS flushes the macOS DNS cache by running dscacheutil and restarting mDNSResponder.
 func (n *BaseNetworkManager) FlushDNS() error {
 	tui.Pause()
