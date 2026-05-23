@@ -620,26 +620,6 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 	})
 }
 
-func TestValidateBootstrap(t *testing.T) {
-	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		if err := ValidateBootstrap(nil); err == nil {
-			t.Fatal("Expected error for nil blueprint")
-		}
-	})
-
-	t.Run("NonNilBlueprintPasses", func(t *testing.T) {
-		// terraform.backend.type and Blueprint.Backend are orthogonal: backend.type
-		// names the state store, Blueprint.Backend (optional) names the component
-		// that provisions it for the dance. ValidateBootstrap intentionally does
-		// not couple them — backend.type=kubernetes with Blueprint.Backend unset is
-		// the "external cluster already exists" case and must pass.
-		bp := &blueprintv1alpha1.Blueprint{}
-		if err := ValidateBootstrap(bp); err != nil {
-			t.Errorf("Expected no error for empty blueprint, got: %v", err)
-		}
-	})
-}
-
 func TestBuildBootstrapSummary(t *testing.T) {
 	t.Run("PopulatesContextAndBackend", func(t *testing.T) {
 		bp := &blueprintv1alpha1.Blueprint{}

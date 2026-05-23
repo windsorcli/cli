@@ -241,10 +241,6 @@ func (p *Project) Bootstrap(confirm provisioner.BootstrapConfirmFn) (*blueprintv
 		return nil, false, false, fmt.Errorf("blueprint not loaded")
 	}
 
-	if err := provisioner.ValidateBootstrap(blueprint); err != nil {
-		return blueprint, false, false, err
-	}
-
 	if confirm != nil {
 		backendType := p.configHandler.GetString("terraform.backend.type", "local")
 		summary := provisioner.BuildBootstrapSummary(blueprint, p.contextName, backendType)

@@ -46,8 +46,8 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // responsibility — callers gate Bootstrap on the operator's decision so declining the
 // plan never reaches privileged work (workstation startup, DNS, etc.).
 func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
-	if err := ValidateBootstrap(blueprint); err != nil {
-		return false, err
+	if blueprint == nil {
+		return false, fmt.Errorf("blueprint not provided")
 	}
 
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
@@ -96,16 +96,6 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, onApply 
 		return false, nil
 	}
 	return i.Up(nonTierBP, onApply...)
-}
-
-// ValidateBootstrap performs cheap, side-effect-free checks on the blueprint before any
-// privileged work or operator prompt so a structurally invalid input fails fast rather
-// than after the operator has confirmed a plan that cannot succeed.
-func ValidateBootstrap(blueprint *blueprintv1alpha1.Blueprint) error {
-	if blueprint == nil {
-		return fmt.Errorf("blueprint not provided")
-	}
-	return nil
 }
 
 // BuildBootstrapSummary constructs the operator-visible intent description for a bootstrap,
