@@ -1425,7 +1425,7 @@ func TestConfigHandler_ValidateContextValues(t *testing.T) {
 		}
 	})
 
-	t.Run("ReturnsErrorWhenDynamicFieldsFailValidation", func(t *testing.T) {
+	t.Run("ReturnsErrorWhenContextValuesFailValidation", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		schemaPath := filepath.Join(tmpDir, "schema.yaml")
 		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
@@ -1443,34 +1443,105 @@ additionalProperties: false
 
 		err := handler.ValidateContextValues()
 		if err == nil {
-			t.Fatal("Expected validation error for disallowed dynamic key")
+			t.Fatal("Expected validation error for disallowed key")
 		}
 		if !strings.Contains(err.Error(), "context value validation failed") {
 			t.Errorf("Expected validation failure error, got %v", err)
 		}
 	})
 
-	t.Run("ValidatesOnlyDynamicFields", func(t *testing.T) {
+	t.Run("ValidatesStaticFieldsAgainstSchema", func(t *testing.T) {
 		handler, tmpDir := setupPrivateTestHandler(t)
 		schemaPath := filepath.Join(tmpDir, "schema.yaml")
 		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
 type: object
 properties:
-  dynamic_key:
+  provider:
     type: string
-additionalProperties: false
+    enum: [docker, incus]
 `
 		os.WriteFile(schemaPath, []byte(schemaContent), 0644)
 		if err := handler.LoadSchema(schemaPath); err != nil {
 			t.Fatalf("Expected no error loading schema, got %v", err)
 		}
-		handler.data = map[string]any{
-			"provider":    "docker",
-			"dynamic_key": "value",
+		handler.data = map[string]any{"provider": "not-allowed"}
+
+		err := handler.ValidateContextValues()
+		if err == nil {
+			t.Fatal("Expected validation error for static field violating schema")
+		}
+		if !strings.Contains(err.Error(), "context value validation failed") {
+			t.Errorf("Expected validation failure error, got %v", err)
+		}
+	})
+
+	t.Run("FiresCrossFieldRuleSpanningStaticAndDynamic", func(t *testing.T) {
+		handler, tmpDir := setupPrivateTestHandler(t)
+		schemaPath := filepath.Join(tmpDir, "schema.yaml")
+		// gateway (dynamic) requires dns (static) when access is private — exercises a rule that
+		// the prior dynamicFields-only validation path filtered out and silently passed.
+		schemaContent := `$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  gateway:
+    type: object
+    properties:
+      access:
+        type: string
+  dns:
+    type: object
+    properties:
+      private_domain:
+        type: string
+allOf:
+  - if:
+      properties:
+        gateway:
+          type: object
+          properties:
+            access:
+              const: private
+          required: [access]
+      required: [gateway]
+    then:
+      required: [dns]
+      properties:
+        dns:
+          type: object
+          required: [private_domain]
+          properties:
+            private_domain:
+              type: string
+              minLength: 1
+`
+		os.WriteFile(schemaPath, []byte(schemaContent), 0644)
+		if err := handler.LoadSchema(schemaPath); err != nil {
+			t.Fatalf("Expected no error loading schema, got %v", err)
 		}
 
+		// Violation: gateway.access=private without dns.private_domain.
+		handler.data = map[string]any{
+			"gateway": map[string]any{"access": "private"},
+		}
+		if err := handler.ValidateContextValues(); err == nil {
+			t.Fatal("Expected cross-field rule to fire when gateway.access=private and dns.private_domain is missing")
+		}
+
+		// Satisfied: both fields present.
+		handler.data = map[string]any{
+			"gateway": map[string]any{"access": "private"},
+			"dns":     map[string]any{"private_domain": "internal.example"},
+		}
 		if err := handler.ValidateContextValues(); err != nil {
-			t.Fatalf("Expected static fields to be excluded from validation, got %v", err)
+			t.Fatalf("Expected cross-field rule to pass when both fields are set, got %v", err)
+		}
+
+		// Non-triggering: if-condition not met.
+		handler.data = map[string]any{
+			"gateway": map[string]any{"access": "public"},
+		}
+		if err := handler.ValidateContextValues(); err != nil {
+			t.Fatalf("Expected validation to pass when if-condition is not met, got %v", err)
 		}
 	})
 }

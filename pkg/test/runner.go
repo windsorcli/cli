@@ -210,6 +210,11 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 			}
 		}
 
+		// Validate after the loop, not per-Set: Go-map iteration order is random.
+		if err := rt.ConfigHandler.ValidateContextValues(); err != nil {
+			return nil, err
+		}
+
 		if err := rt.InitializeComponents(); err != nil {
 			return nil, fmt.Errorf("failed to initialize components: %w", err)
 		}

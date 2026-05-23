@@ -202,9 +202,8 @@ properties:
 		}
 	})
 
-	t.Run("SetValidatesPathsAndSchema", func(t *testing.T) {
+	t.Run("SetValidatesPaths", func(t *testing.T) {
 		mocks := setupConfigMocks(t)
-		tmpDir, _ := mocks.Shell.GetProjectRoot()
 		handler := NewConfigHandler(mocks.Shell)
 
 		if err := handler.Set("valid.path", "value"); err != nil {
@@ -216,6 +215,12 @@ properties:
 		if err := handler.Set("invalid..path", "value"); err == nil {
 			t.Fatal("Expected error for invalid path")
 		}
+	})
+
+	t.Run("SetDoesNotValidateAgainstSchema", func(t *testing.T) {
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+		handler := NewConfigHandler(mocks.Shell)
 
 		schemaDir := filepath.Join(tmpDir, "contexts", "_template")
 		if err := os.MkdirAll(schemaDir, 0755); err != nil {
@@ -235,8 +240,12 @@ additionalProperties: false
 			t.Fatalf("Expected no error loading schema, got %v", err)
 		}
 
-		if err := handler.Set("disallowed_key", "value"); err == nil {
-			t.Fatal("Expected schema validation error for disallowed key")
+		// Schema violations surface from ValidateContextValues, not from Set.
+		if err := handler.Set("disallowed_key", "value"); err != nil {
+			t.Fatalf("Set should not validate against schema, got %v", err)
+		}
+		if err := handler.ValidateContextValues(); err == nil {
+			t.Fatal("Expected validation error from ValidateContextValues for disallowed key")
 		}
 	})
 }
