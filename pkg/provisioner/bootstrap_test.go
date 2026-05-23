@@ -26,15 +26,13 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("KubernetesWithoutBackendFieldErrorsBeforeAnyMutation", func(t *testing.T) {
-		// A kubernetes-configured backend with no Blueprint.Backend would silently
-		// fall through to plain Up against a cluster that does not yet exist. Refuse
-		// before any state-mutating work runs. The project layer is responsible for
-		// the equivalent fail-fast before its operator-facing confirm prompt fires.
+	t.Run("KubernetesBackendWithoutBlueprintBackendCollapsesToUp", func(t *testing.T) {
+		// terraform.backend.type=kubernetes with no Blueprint.Backend is the
+		// "external cluster already provisioned" case. Bootstrap forwards to Up
+		// without the local-pin/migrate dance — len(tier) == 0 short-circuits.
 		mocks := setupProvisionerMocks(t)
 		bp := &blueprintv1alpha1.Blueprint{
 			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
-				{Path: "cluster/talos"},
 				{Path: "workloads/argocd"},
 			},
 		}
@@ -48,34 +46,26 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 			}
 			return ""
 		}
-		setCalled := false
-		mockCH.SetFunc = func(_ string, _ any) error {
-			setCalled = true
+		var ops []string
+		mockCH.SetFunc = func(key string, value any) error {
+			if key == "terraform.backend.type" {
+				ops = append(ops, fmt.Sprintf("set:%v", value))
+			}
 			return nil
 		}
-		upCalled := false
 		mockStack := terraforminfra.NewMockStack()
 		mockStack.UpFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...func(id string) (bool, error)) (bool, error) {
-			upCalled = true
+			ops = append(ops, "up")
 			return false, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Bootstrap(bp)
-		if err == nil {
-			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
+		if _, err := provisioner.Bootstrap(bp); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "Blueprint.Backend") {
-			t.Errorf("Expected error to name the missing field, got: %v", err)
-		}
-		if !strings.Contains(err.Error(), "kubernetes") {
-			t.Errorf("Expected error to name the backend type, got: %v", err)
-		}
-		if setCalled {
-			t.Error("No backend override may engage when refusing")
-		}
-		if upCalled {
-			t.Error("No apply may run when refusing")
+		// Must be a plain Up — no backend pinning, no migrate dance.
+		if len(ops) != 1 || ops[0] != "up" {
+			t.Errorf("Expected ops=[up], got %v", ops)
 		}
 	})
 
@@ -632,37 +622,20 @@ func TestProvisioner_Bootstrap(t *testing.T) {
 
 func TestValidateBootstrap(t *testing.T) {
 	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
-		if err := ValidateBootstrap(nil, "local"); err == nil {
+		if err := ValidateBootstrap(nil); err == nil {
 			t.Fatal("Expected error for nil blueprint")
 		}
 	})
 
-	t.Run("KubernetesBackendWithoutBlueprintBackendFieldErrors", func(t *testing.T) {
-		bp := &blueprintv1alpha1.Blueprint{
-			TerraformComponents: []blueprintv1alpha1.TerraformComponent{{Path: "cluster"}},
-		}
-		err := ValidateBootstrap(bp, "kubernetes")
-		if err == nil {
-			t.Fatal("Expected error when terraform.backend.type=kubernetes and Blueprint.Backend is unset")
-		}
-		if !strings.Contains(err.Error(), "Blueprint.Backend") || !strings.Contains(err.Error(), "kubernetes") {
-			t.Errorf("Expected error to name both kubernetes and Blueprint.Backend, got: %v", err)
-		}
-	})
-
-	t.Run("KubernetesBackendWithBlueprintBackendFieldPasses", func(t *testing.T) {
-		bp := &blueprintv1alpha1.Blueprint{Backend: "cluster"}
-		if err := ValidateBootstrap(bp, "kubernetes"); err != nil {
-			t.Errorf("Expected no error with Blueprint.Backend set, got: %v", err)
-		}
-	})
-
-	t.Run("NonKubernetesBackendPasses", func(t *testing.T) {
+	t.Run("NonNilBlueprintPasses", func(t *testing.T) {
+		// terraform.backend.type and Blueprint.Backend are orthogonal: backend.type
+		// names the state store, Blueprint.Backend (optional) names the component
+		// that provisions it for the dance. ValidateBootstrap intentionally does
+		// not couple them — backend.type=kubernetes with Blueprint.Backend unset is
+		// the "external cluster already exists" case and must pass.
 		bp := &blueprintv1alpha1.Blueprint{}
-		for _, backend := range []string{"", "local", "s3", "azurerm", "gcs"} {
-			if err := ValidateBootstrap(bp, backend); err != nil {
-				t.Errorf("backend %q: expected no error, got: %v", backend, err)
-			}
+		if err := ValidateBootstrap(bp); err != nil {
+			t.Errorf("Expected no error for empty blueprint, got: %v", err)
 		}
 	})
 }

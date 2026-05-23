@@ -1694,52 +1694,6 @@ func TestProject_Bootstrap(t *testing.T) {
 		}
 	})
 
-	t.Run("KubernetesBackendValidationFiresBeforeConfirm", func(t *testing.T) {
-		// Configuration errors (e.g. terraform.backend.type=kubernetes without
-		// Blueprint.Backend) must fail fast — the operator should not see a plan,
-		// confirm, and then receive a hard error after deciding.
-		mocks := setupProjectMocks(t)
-		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)
-		mockConfig.GetStringFunc = func(key string, defaultValue ...string) string {
-			if key == "terraform.backend.type" {
-				return "kubernetes"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		mockBH := mocks.Composer.BlueprintHandler.(*blueprint.MockBlueprintHandler)
-		mockBH.GenerateFunc = func() *v1alpha1.Blueprint {
-			// Backend field omitted — must trigger validation error.
-			return &v1alpha1.Blueprint{
-				TerraformComponents: []v1alpha1.TerraformComponent{{Path: "cluster"}},
-			}
-		}
-		prov := provisioner.NewProvisioner(mocks.Runtime, mocks.Composer.BlueprintHandler)
-
-		proj := NewProject("test-context", &Project{
-			Runtime:     mocks.Runtime,
-			Composer:    mocks.Composer,
-			Provisioner: prov,
-		})
-
-		confirmCalled := false
-		_, _, _, err := proj.Bootstrap(func(_ *provisioner.BootstrapSummary) bool {
-			confirmCalled = true
-			return true
-		})
-		if err == nil {
-			t.Fatal("Expected validation error, got nil")
-		}
-		if !strings.Contains(err.Error(), "Blueprint.Backend") {
-			t.Errorf("Expected error to name Blueprint.Backend, got: %v", err)
-		}
-		if confirmCalled {
-			t.Error("Confirm callback must not run when validation fails fast")
-		}
-	})
-
 	t.Run("WrapsProvisionerErrorAsStartingInfrastructure", func(t *testing.T) {
 		mocks := setupProjectMocks(t)
 		mockConfig := mocks.ConfigHandler.(*config.MockConfigHandler)

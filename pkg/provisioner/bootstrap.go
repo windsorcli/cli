@@ -46,11 +46,11 @@ type BootstrapConfirmFn func(*BootstrapSummary) bool
 // responsibility — callers gate Bootstrap on the operator's decision so declining the
 // plan never reaches privileged work (workstation startup, DNS, etc.).
 func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
-	backendType := i.configHandler.GetString("terraform.backend.type", "local")
-	if err := ValidateBootstrap(blueprint, backendType); err != nil {
+	if err := ValidateBootstrap(blueprint); err != nil {
 		return false, err
 	}
 
+	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	tier := blueprint.BackendTier()
 	if backendType == "" || backendType == "local" || len(tier) == 0 {
 		return i.Up(blueprint, onApply...)
@@ -98,16 +98,12 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, onApply 
 	return i.Up(nonTierBP, onApply...)
 }
 
-// ValidateBootstrap performs cheap, side-effect-free checks on the inputs to a bootstrap.
-// Callers run this before any privileged work or operator prompt so a structurally invalid
-// configuration (nil blueprint, terraform.backend.type=kubernetes without Blueprint.Backend)
-// fails fast rather than after the operator has confirmed a plan that cannot succeed.
-func ValidateBootstrap(blueprint *blueprintv1alpha1.Blueprint, backendType string) error {
+// ValidateBootstrap performs cheap, side-effect-free checks on the blueprint before any
+// privileged work or operator prompt so a structurally invalid input fails fast rather
+// than after the operator has confirmed a plan that cannot succeed.
+func ValidateBootstrap(blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
-	}
-	if backendType == "kubernetes" && blueprint.Backend == "" {
-		return fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
 	}
 	return nil
 }
