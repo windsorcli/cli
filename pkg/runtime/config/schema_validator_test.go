@@ -13,6 +13,26 @@ import (
 // default value extraction, and error handling across various validation scenarios.
 // The test suite ensures robust schema validation behavior for Windsor blueprint configurations.
 
+// hasErrorMatching reports whether any of the validator errors contains every substring
+// in substrs. Used to assert kaptinlin's structured "<path>: <keyword>: <message>" errors
+// carry the right instance location and keyword without pinning to the exact message text
+// kaptinlin happens to emit for a given version.
+func hasErrorMatching(errors []string, substrs ...string) bool {
+	for _, errMsg := range errors {
+		match := true
+		for _, s := range substrs {
+			if !strings.Contains(errMsg, s) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 // =============================================================================
 // Test Public Methods
 // =============================================================================
@@ -534,20 +554,8 @@ func TestSchemaValidator_Validate(t *testing.T) {
 			t.Error("Expected validation to fail")
 		}
 
-		if len(result.Errors) == 0 {
-			t.Error("Expected validation errors")
-		}
-
-		expectedError := "missing required field: provider"
-		found := false
-		for _, errMsg := range result.Errors {
-			if errMsg == expectedError {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected error '%s' in %v", expectedError, result.Errors)
+		if !hasErrorMatching(result.Errors, "required", "provider") {
+			t.Errorf("Expected an error mentioning required+provider, got %v", result.Errors)
 		}
 	})
 
@@ -584,16 +592,8 @@ func TestSchemaValidator_Validate(t *testing.T) {
 			t.Error("Expected validation to fail")
 		}
 
-		expectedError := "type mismatch at provider: expected string, got integer"
-		found := false
-		for _, errMsg := range result.Errors {
-			if errMsg == expectedError {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected error '%s' in %v", expectedError, result.Errors)
+		if !hasErrorMatching(result.Errors, "/provider", "type") {
+			t.Errorf("Expected a type error at /provider, got %v", result.Errors)
 		}
 	})
 
@@ -631,16 +631,8 @@ func TestSchemaValidator_Validate(t *testing.T) {
 			t.Error("Expected validation to fail")
 		}
 
-		expectedError := "value at provider not in allowed enum values"
-		found := false
-		for _, errMsg := range result.Errors {
-			if errMsg == expectedError {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected error '%s' in %v", expectedError, result.Errors)
+		if !hasErrorMatching(result.Errors, "/provider", "enum") {
+			t.Errorf("Expected an enum error at /provider, got %v", result.Errors)
 		}
 	})
 
@@ -912,21 +904,15 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 			t.Error("Expected validation to fail")
 		}
 
-		expectedError := "string at email does not match required pattern"
-		found := false
-		for _, errMsg := range result.Errors {
-			if errMsg == expectedError {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected error '%s' in %v", expectedError, result.Errors)
+		if !hasErrorMatching(result.Errors, "/email", "pattern") {
+			t.Errorf("Expected a pattern error at /email, got %v", result.Errors)
 		}
 	})
 
 	t.Run("ErrorInvalidRegexPattern", func(t *testing.T) {
-		// Given a schema validator with invalid regex pattern
+		// Given a schema with an unparseable regex in pattern. The legacy hand-rolled validator
+		// surfaced this as a per-value validation error; kaptinlin rejects the pattern at schema
+		// compile time, which fails fast and stops the bad schema from ever being used.
 		mockShell := shell.NewMockShell()
 		validator := NewSchemaValidator(mockShell)
 
@@ -936,38 +922,19 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 			"properties": map[string]any{
 				"field": map[string]any{
 					"type":    "string",
-					"pattern": "[invalid-regex", // Invalid regex
+					"pattern": "[invalid-regex",
 				},
 			},
 		}
 
-		// And valid string value
-		values := map[string]any{
-			"field": "test",
-		}
+		values := map[string]any{"field": "test"}
 
-		// When validating values
-		result, err := validator.Validate(values)
-
-		// Then it should succeed but validation should fail
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
+		_, err := validator.Validate(values)
+		if err == nil {
+			t.Fatal("Expected compile error for invalid regex, got nil")
 		}
-
-		if result.Valid {
-			t.Error("Expected validation to fail")
-		}
-
-		// Should contain regex error
-		found := false
-		for _, errMsg := range result.Errors {
-			if len(errMsg) > 0 && errMsg[:len("invalid regex pattern for field:")] == "invalid regex pattern for field:" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected regex error in %v", result.Errors)
+		if !strings.Contains(err.Error(), "compile") {
+			t.Errorf("Expected error to mention compilation, got: %v", err)
 		}
 	})
 
@@ -1005,45 +972,6 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 	})
 }
 
-func TestSchemaValidator_GetValueType(t *testing.T) {
-	mockShell := &shell.MockShell{}
-	validator := NewSchemaValidator(mockShell)
-
-	testCases := []struct {
-		name     string
-		value    any
-		expected string
-	}{
-		{"Nil", nil, "null"},
-		{"Bool", true, "boolean"},
-		{"Int", int(42), "integer"},
-		{"Int8", int8(42), "integer"},
-		{"Int16", int16(42), "integer"},
-		{"Int32", int32(42), "integer"},
-		{"Int64", int64(42), "integer"},
-		{"Uint", uint(42), "integer"},
-		{"Uint8", uint8(42), "integer"},
-		{"Uint16", uint16(42), "integer"},
-		{"Uint32", uint32(42), "integer"},
-		{"Uint64", uint64(42), "integer"},
-		{"Float32", float32(3.14), "number"},
-		{"Float64", float64(3.14), "number"},
-		{"String", "hello", "string"},
-		{"Array", []any{1, 2, 3}, "array"},
-		{"Object", map[string]any{"key": "value"}, "object"},
-		{"Unknown", struct{}{}, "unknown"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := validator.getValueType(tc.value)
-			if result != tc.expected {
-				t.Errorf("Expected type %s for %v, got %s", tc.expected, tc.value, result)
-			}
-		})
-	}
-}
-
 func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 	t.Run("ErrorAdditionalPropertiesNotAllowed", func(t *testing.T) {
 		// Given a schema validator with additionalProperties: false
@@ -1079,16 +1007,8 @@ func TestSchemaValidator_ValidateObject_AdditionalProperties(t *testing.T) {
 			t.Error("Expected validation to fail")
 		}
 
-		expectedError := "additional property not allowed: extraField"
-		found := false
-		for _, errMsg := range result.Errors {
-			if errMsg == expectedError {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected error '%s' in %v", expectedError, result.Errors)
+		if !hasErrorMatching(result.Errors, "extraField", "additionalProperties") {
+			t.Errorf("Expected an additionalProperties error mentioning extraField, got %v", result.Errors)
 		}
 	})
 
@@ -1229,8 +1149,11 @@ func TestSchemaValidator_ValidateValue_EdgeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("SuccessInvalidTypeFormat", func(t *testing.T) {
-		// Given a schema validator with invalid type format
+	t.Run("ErrorInvalidTypeFormat", func(t *testing.T) {
+		// Given a schema whose property "type" is a number rather than a string. The legacy
+		// hand-rolled validator silently ignored malformed type specs and let validation pass;
+		// kaptinlin rejects the schema at compile and fails fast so a buggy schema can't quietly
+		// permit invalid data.
 		mockShell := shell.NewMockShell()
 		validator := NewSchemaValidator(mockShell)
 
@@ -1239,26 +1162,17 @@ func TestSchemaValidator_ValidateValue_EdgeCases(t *testing.T) {
 			"type":    "object",
 			"properties": map[string]any{
 				"field": map[string]any{
-					"type": 123, // Invalid type format (should be string)
+					"type": 123,
 				},
 			},
 		}
 
-		// And any value
-		values := map[string]any{
-			"field": "anything",
+		_, err := validator.Validate(map[string]any{"field": "anything"})
+		if err == nil {
+			t.Fatal("Expected compile error for non-string type spec, got nil")
 		}
-
-		// When validating values
-		result, err := validator.Validate(values)
-
-		// Then it should succeed (no type validation performed for invalid type spec)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if !result.Valid {
-			t.Errorf("Expected validation to pass, got errors: %v", result.Errors)
+		if !strings.Contains(err.Error(), "compile") {
+			t.Errorf("Expected error to mention compilation, got: %v", err)
 		}
 	})
 }
@@ -1307,33 +1221,21 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 			t.Error("Expected validation to fail")
 		}
 
-		// Should have multiple nested errors
-		if len(result.Errors) < 2 {
-			t.Errorf("Expected at least 2 errors, got: %v", result.Errors)
+		// walkList reconstructs fully-qualified instance paths from kaptinlin's evaluator-
+		// scoped output, so the leaf enum error appears at /storage/driver and the parent
+		// additionalProperties error at /storage mentions the rejected child key.
+		if !hasErrorMatching(result.Errors, "/storage/driver", "enum") {
+			t.Errorf("Expected enum error at /storage/driver, got %v", result.Errors)
 		}
-
-		// Check for enum error
-		enumErrorFound := false
-		additionalPropErrorFound := false
-		for _, errMsg := range result.Errors {
-			if errMsg == "value at storage.driver not in allowed enum values" {
-				enumErrorFound = true
-			}
-			if errMsg == "additional property not allowed: storage.extraField" {
-				additionalPropErrorFound = true
-			}
-		}
-
-		if !enumErrorFound {
-			t.Errorf("Expected enum error in %v", result.Errors)
-		}
-		if !additionalPropErrorFound {
-			t.Errorf("Expected additional property error in %v", result.Errors)
+		if !hasErrorMatching(result.Errors, "/storage", "extraField") {
+			t.Errorf("Expected /storage error mentioning extraField, got %v", result.Errors)
 		}
 	})
 
 	t.Run("ErrorInvalidRequiredType", func(t *testing.T) {
-		// Given a schema validator with invalid required field type
+		// Given a schema whose "required" is a string rather than an array of strings. The
+		// legacy validator silently ignored this and continued; kaptinlin rejects the schema
+		// at compile so malformed required specs surface immediately.
 		mockShell := shell.NewMockShell()
 		validator := NewSchemaValidator(mockShell)
 
@@ -1341,33 +1243,24 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
 			"properties": map[string]any{
-				"provider": map[string]any{
-					"type": "string",
-				},
+				"provider": map[string]any{"type": "string"},
 			},
-			"required": "invalid", // Should be array
+			"required": "invalid",
 		}
 
-		// And valid values
-		values := map[string]any{
-			"provider": "docker",
+		_, err := validator.Validate(map[string]any{"provider": "docker"})
+		if err == nil {
+			t.Fatal("Expected compile error for non-array required, got nil")
 		}
-
-		// When validating values
-		result, err := validator.Validate(values)
-
-		// Then it should succeed (invalid required spec is ignored)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if !result.Valid {
-			t.Errorf("Expected validation to pass, got errors: %v", result.Errors)
+		if !strings.Contains(err.Error(), "compile") {
+			t.Errorf("Expected error to mention compilation, got: %v", err)
 		}
 	})
 
 	t.Run("ErrorInvalidRequiredFieldType", func(t *testing.T) {
-		// Given a schema validator with invalid required field type
+		// Given a "required" array whose entries are numbers, not strings. Same rationale as
+		// ErrorInvalidRequiredType — the legacy validator tolerated it; kaptinlin's compile
+		// step now catches it.
 		mockShell := shell.NewMockShell()
 		validator := NewSchemaValidator(mockShell)
 
@@ -1375,28 +1268,17 @@ func TestSchemaValidator_NestedValidation(t *testing.T) {
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"type":    "object",
 			"properties": map[string]any{
-				"provider": map[string]any{
-					"type": "string",
-				},
+				"provider": map[string]any{"type": "string"},
 			},
-			"required": []any{123}, // Should be string array
+			"required": []any{123},
 		}
 
-		// And valid values
-		values := map[string]any{
-			"provider": "docker",
+		_, err := validator.Validate(map[string]any{"provider": "docker"})
+		if err == nil {
+			t.Fatal("Expected compile error for non-string required entry, got nil")
 		}
-
-		// When validating values
-		result, err := validator.Validate(values)
-
-		// Then it should succeed (invalid required field spec is ignored)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if !result.Valid {
-			t.Errorf("Expected validation to pass, got errors: %v", result.Errors)
+		if !strings.Contains(err.Error(), "compile") {
+			t.Errorf("Expected error to mention compilation, got: %v", err)
 		}
 	})
 }
@@ -1700,19 +1582,12 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 			t.Error("Expected validation to fail due to additional properties")
 		}
 
-		// Should have exactly 3 additional property errors
-		additionalPropErrors := 0
-		for _, errMsg := range result.Errors {
-			if len(errMsg) > 20 && errMsg[:20] == "additional property " {
-				additionalPropErrors++
+		// Each rejected key should appear in an error string at its own /key path.
+		for _, key := range []string{"/email", "/city", "/occupation"} {
+			if !hasErrorMatching(result.Errors, key) {
+				t.Errorf("Expected an error mentioning %s, got %v", key, result.Errors)
 			}
 		}
-
-		if additionalPropErrors != 3 {
-			t.Errorf("Expected 3 additional property errors, got %d. Errors: %v", additionalPropErrors, result.Errors)
-		}
-
-		t.Logf("additionalProperties: false correctly rejected %d extra properties", additionalPropErrors)
 	})
 
 	t.Run("ExplicitTrue_AllowsAdditionalProperties", func(t *testing.T) {
@@ -1791,8 +1666,11 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 		t.Logf("Default behavior (no additionalProperties) correctly allowed extra properties")
 	})
 
-	t.Run("InvalidTypeIgnored_DefaultsToAllow", func(t *testing.T) {
-		// Given a schema with invalid additionalProperties type
+	t.Run("InvalidTypeRejectedAtCompile", func(t *testing.T) {
+		// Given a schema with additionalProperties: "invalid" — a bare string where the spec
+		// requires a boolean or schema object. The legacy validator silently ignored this and
+		// defaulted to "allow"; kaptinlin's compile step catches it so a typo doesn't quietly
+		// disable additional-property enforcement.
 		mockShell := shell.NewMockShell()
 		validator := NewSchemaValidator(mockShell)
 
@@ -1802,27 +1680,16 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 			"properties": map[string]any{
 				"name": map[string]any{"type": "string"},
 			},
-			"additionalProperties": "invalid", // Should be boolean, not string
+			"additionalProperties": "invalid",
 		}
 
-		// When validating values with extra properties
-		values := map[string]any{
-			"name":  "John",
-			"email": "john@example.com", // Not in schema
+		_, err := validator.Validate(map[string]any{"name": "John"})
+		if err == nil {
+			t.Fatal("Expected compile error for malformed additionalProperties, got nil")
 		}
-
-		result, err := validator.Validate(values)
-
-		// Then invalid additionalProperties is ignored, defaults to allow
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
+		if !strings.Contains(err.Error(), "compile") {
+			t.Errorf("Expected error to mention compilation, got: %v", err)
 		}
-
-		if !result.Valid {
-			t.Errorf("Expected validation to pass (invalid additionalProperties ignored), got errors: %v", result.Errors)
-		}
-
-		t.Logf("Invalid additionalProperties type correctly ignored, defaulted to allow")
 	})
 
 	t.Run("NestedObjectsRespectAdditionalProperties", func(t *testing.T) {
@@ -1876,29 +1743,19 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 			t.Error("Expected validation to fail")
 		}
 
-		expectedErrors := []string{
-			"additional property not allowed: user.email",
-			"additional property not allowed: extraRootField",
+		// Both rejected keys should surface. kaptinlin reports the parent's additionalProperties
+		// error scoped at the parent path (/user, /) and a leaf at the child path; either side
+		// is enough to prove enforcement. metadata.author should produce no error at all
+		// (metadata allows extras).
+		if !hasErrorMatching(result.Errors, "/user", "email") {
+			t.Errorf("Expected /user additionalProperties error mentioning email, got %v", result.Errors)
 		}
-
-		if len(result.Errors) != 2 {
-			t.Errorf("Expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
+		if !hasErrorMatching(result.Errors, "extraRootField") {
+			t.Errorf("Expected error mentioning extraRootField, got %v", result.Errors)
 		}
-
-		for _, expectedError := range expectedErrors {
-			found := false
-			for _, actualError := range result.Errors {
-				if actualError == expectedError {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Errorf("Expected error '%s' not found in %v", expectedError, result.Errors)
-			}
+		if hasErrorMatching(result.Errors, "author") {
+			t.Errorf("Did not expect error mentioning author (metadata.additionalProperties: true), got %v", result.Errors)
 		}
-
-		t.Logf("Nested additionalProperties correctly enforced at each level")
 	})
 
 	t.Run("OnlyChecksForUndefinedProperties", func(t *testing.T) {
@@ -1934,31 +1791,20 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 			t.Error("Expected validation to fail due to type mismatch")
 		}
 
-		// Should have type error, NOT additional property error
-		hasTypeError := false
-		hasAdditionalPropertyError := false
-		for _, errMsg := range result.Errors {
-			if len(errMsg) > 20 && errMsg[:20] == "additional property " {
-				hasAdditionalPropertyError = true
-			}
-			if len(errMsg) > 10 && errMsg[:10] == "type misma" {
-				hasTypeError = true
-			}
+		// Should report a type error at /age and no additionalProperties error (every key
+		// in values is in properties).
+		if !hasErrorMatching(result.Errors, "/age", "type") {
+			t.Errorf("Expected type error at /age, got %v", result.Errors)
 		}
-
-		if hasAdditionalPropertyError {
-			t.Error("Should not have additional property error for defined properties")
+		if hasErrorMatching(result.Errors, "additionalProperties") {
+			t.Errorf("Did not expect additionalProperties error for a defined property, got %v", result.Errors)
 		}
-
-		if !hasTypeError {
-			t.Error("Should have type mismatch error")
-		}
-
-		t.Logf("additionalProperties correctly only applies to undefined properties, not type validation")
 	})
 
-	t.Run("LimitationSchemaObjectNotSupported", func(t *testing.T) {
-		// Given a schema with additionalProperties as schema object (JSON Schema standard)
+	t.Run("SchemaObjectAdditionalProperties_ValidatesAgainstSchema", func(t *testing.T) {
+		// Given additionalProperties as a schema object (the JSON Schema spec form), each
+		// undefined key is validated against that schema. The legacy hand-rolled validator
+		// could not handle this form; kaptinlin handles it natively.
 		mockShell := shell.NewMockShell()
 		validator := NewSchemaValidator(mockShell)
 
@@ -1968,41 +1814,29 @@ func TestSchemaValidator_AdditionalProperties_Detailed(t *testing.T) {
 			"properties": map[string]any{
 				"name": map[string]any{"type": "string"},
 			},
-			"additionalProperties": map[string]any{ // Schema object, not boolean
+			"additionalProperties": map[string]any{
 				"type":    "string",
 				"pattern": "^[a-z]+$",
 			},
 		}
 
-		// When validating values with additional properties
 		values := map[string]any{
 			"name":      "John",
-			"valid_key": "lowercase",    // Should match pattern
-			"Invalid":   "HasUppercase", // Should fail pattern
+			"valid_key": "lowercase",    // matches pattern
+			"Invalid":   "HasUppercase", // fails pattern
 		}
 
 		result, err := validator.Validate(values)
-
-		// Then Windsor ignores the schema object and allows everything
-		// (This demonstrates the current limitation)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
 		if result.Valid {
-			t.Error("Expected validation to fail due to pattern mismatch")
+			t.Error("Expected validation to fail due to pattern mismatch on /Invalid")
 		}
 
-		// Should have pattern validation error
-		hasPatternError := false
-		for _, errMsg := range result.Errors {
-			if len(errMsg) > 20 && errMsg[len(errMsg)-16:] == "required pattern" {
-				hasPatternError = true
-			}
-		}
-
-		if !hasPatternError {
-			t.Errorf("Expected pattern validation error, got errors: %v", result.Errors)
+		if !hasErrorMatching(result.Errors, "/Invalid", "pattern") {
+			t.Errorf("Expected pattern error at /Invalid, got %v", result.Errors)
 		}
 
 		t.Logf("SUCCESS: Windsor now supports additionalProperties schema objects! Found %d validation errors", len(result.Errors))
@@ -2457,50 +2291,6 @@ properties:
 		}
 		if len(result.Errors) == 0 {
 			t.Error("Expected validation errors for invalid array items")
-		}
-	})
-
-	t.Run("ValidateArrayWithNonArrayValue", func(t *testing.T) {
-		mockShell := shell.NewMockShell()
-		validator := NewSchemaValidator(mockShell)
-		validator.Schema = map[string]any{
-			"type": "array",
-			"items": map[string]any{
-				"type": "string",
-			},
-		}
-
-		errors := validator.validateArray("not_an_array", validator.Schema, "test")
-
-		if len(errors) != 0 {
-			t.Errorf("Expected no errors for non-array value, got %v", errors)
-		}
-	})
-
-	t.Run("ValidateArrayWithoutItems", func(t *testing.T) {
-		validator := NewSchemaValidator(shell.NewMockShell())
-		validator.Schema = map[string]any{
-			"type": "array",
-		}
-
-		errors := validator.validateArray([]any{"item1", "item2"}, validator.Schema, "test")
-
-		if len(errors) != 0 {
-			t.Errorf("Expected no errors when items not in schema, got %v", errors)
-		}
-	})
-
-	t.Run("ValidateArrayWithNonMapItems", func(t *testing.T) {
-		validator := NewSchemaValidator(shell.NewMockShell())
-		validator.Schema = map[string]any{
-			"type":  "array",
-			"items": "not_a_map",
-		}
-
-		errors := validator.validateArray([]any{"item1", "item2"}, validator.Schema, "test")
-
-		if len(errors) != 0 {
-			t.Errorf("Expected no errors when items is not a map, got %v", errors)
 		}
 	})
 
