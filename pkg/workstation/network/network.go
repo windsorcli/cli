@@ -213,6 +213,30 @@ func validateIPAddress(ip string) (string, error) {
 	return parsed.String(), nil
 }
 
+// validateBridgeInterface verifies iface matches what the Linux kernel allows for a network
+// interface name and what Docker emits for a user bridge: "br-" prefix, ≤15 bytes (IFNAMSIZ
+// minus the null terminator), characters drawn from [A-Za-z0-9_.-]. Returns the canonical form
+// for interpolation into shell command strings. Used at the trust boundary where bridge names
+// cross from the colima guest (via `ls /sys/class/net`) into commands the host process builds
+// with fmt.Sprintf and runs over `sh -c` — the kernel's IFNAMSIZ and `br-` prefix already make
+// a working injection payload very hard to construct, but the explicit allowlist matches the
+// pattern validateCIDR / validateIPAddress establish for the same data path.
+func validateBridgeInterface(iface string) (string, error) {
+	if !strings.HasPrefix(iface, "br-") {
+		return "", fmt.Errorf("invalid bridge interface %q: must begin with %q", iface, "br-")
+	}
+	if len(iface) > 15 {
+		return "", fmt.Errorf("invalid bridge interface %q: exceeds IFNAMSIZ (15 bytes)", iface)
+	}
+	for _, r := range iface {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return "", fmt.Errorf("invalid bridge interface %q: contains disallowed character %q", iface, r)
+	}
+	return iface, nil
+}
+
 // writeFileWithSudo stages content in a freshly-created private temp directory (mode 0700) and
 // then sudo-moves it to destPath and sudo-chmods it to 0644. Using MkdirTemp ensures the source
 // path is unpredictable and that an unprivileged local user cannot pre-create a symlink at the

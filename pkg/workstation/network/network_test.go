@@ -464,20 +464,20 @@ func TestValidateDomain(t *testing.T) {
 		// Given domains containing characters that would let configuration escape downstream
 		// interpolation contexts — filesystem paths, PowerShell single-quoted strings, shell command lines
 		cases := []string{
-			"evil/../etc/passwd",       // path separator
-			"a\\b",                     // backslash
-			"/leading-slash",           // leading slash
-			"x/y",                      // embedded slash
-			"a'; calc; '",              // single quote → PowerShell injection
-			`a"b`,                      // double quote
-			"a b",                      // whitespace
-			"a;b",                      // shell statement separator
-			"a$b",                      // shell variable
-			"a`b`",                     // shell command substitution
-			"a&b",                      // shell background / chain
-			"a|b",                      // shell pipe
-			"with_underscore.test",     // underscore not in RFC 1123 label set
-			"unicödé.com",              // non-ASCII
+			"evil/../etc/passwd",   // path separator
+			"a\\b",                 // backslash
+			"/leading-slash",       // leading slash
+			"x/y",                  // embedded slash
+			"a'; calc; '",          // single quote → PowerShell injection
+			`a"b`,                  // double quote
+			"a b",                  // whitespace
+			"a;b",                  // shell statement separator
+			"a$b",                  // shell variable
+			"a`b`",                 // shell command substitution
+			"a&b",                  // shell background / chain
+			"a|b",                  // shell pipe
+			"with_underscore.test", // underscore not in RFC 1123 label set
+			"unicödé.com",          // non-ASCII
 		}
 
 		// When validating each
@@ -499,11 +499,11 @@ func TestValidateCIDR(t *testing.T) {
 	t.Run("AcceptsValidCIDRsAndReturnsCanonicalForm", func(t *testing.T) {
 		// Given well-formed CIDRs (some intentionally non-canonical to verify normalization)
 		cases := map[string]string{
-			"192.168.5.0/24":   "192.168.5.0/24",
-			"10.0.0.0/8":       "10.0.0.0/8",
-			"172.16.0.0/12":    "172.16.0.0/12",
-			"192.168.5.42/24":  "192.168.5.0/24", // host bits dropped by ParseCIDR
-			"fd00::/8":         "fd00::/8",
+			"192.168.5.0/24":  "192.168.5.0/24",
+			"10.0.0.0/8":      "10.0.0.0/8",
+			"172.16.0.0/12":   "172.16.0.0/12",
+			"192.168.5.42/24": "192.168.5.0/24", // host bits dropped by ParseCIDR
+			"fd00::/8":        "fd00::/8",
 		}
 		for input, want := range cases {
 			got, err := validateCIDR(input)
@@ -522,13 +522,13 @@ func TestValidateCIDR(t *testing.T) {
 		cases := []string{
 			"",
 			"not-a-cidr",
-			"192.168.5.0/24'; calc; #",         // PowerShell injection
-			"192.168.5.0/24; rm -rf /",         // shell statement separator
-			"192.168.5.0/24 -and (rm)",         // PowerShell operator
-			"192.168.5.0/24`whoami`",           // PowerShell subexpression
-			"$(rm -rf /)",                      // shell command substitution
-			"192.168.5.0",                      // missing mask
-			"192.168.5.0/33",                   // out-of-range mask
+			"192.168.5.0/24'; calc; #", // PowerShell injection
+			"192.168.5.0/24; rm -rf /", // shell statement separator
+			"192.168.5.0/24 -and (rm)", // PowerShell operator
+			"192.168.5.0/24`whoami`",   // PowerShell subexpression
+			"$(rm -rf /)",              // shell command substitution
+			"192.168.5.0",              // missing mask
+			"192.168.5.0/33",           // out-of-range mask
 			"...",
 		}
 		for _, input := range cases {
@@ -542,10 +542,10 @@ func TestValidateCIDR(t *testing.T) {
 func TestValidateIPAddress(t *testing.T) {
 	t.Run("AcceptsValidIPv4AndIPv6", func(t *testing.T) {
 		cases := map[string]string{
-			"192.168.5.10":  "192.168.5.10",
-			"10.5.0.2":      "10.5.0.2",
-			"::1":           "::1",
-			"fe80::1":       "fe80::1",
+			"192.168.5.10": "192.168.5.10",
+			"10.5.0.2":     "10.5.0.2",
+			"::1":          "::1",
+			"fe80::1":      "fe80::1",
 		}
 		for input, want := range cases {
 			got, err := validateIPAddress(input)
@@ -563,15 +563,63 @@ func TestValidateIPAddress(t *testing.T) {
 		cases := []string{
 			"",
 			"not-an-ip",
-			"192.168.5.10'; calc; #",     // PowerShell injection
-			"192.168.5.10; rm -rf /",     // shell statement separator
-			"$(whoami)",                  // shell command substitution
-			"10.5.0.2`id`",               // PowerShell subexpression
-			"10.5.0.999",                 // out-of-range octet
-			"10.5.0",                     // truncated
+			"192.168.5.10'; calc; #", // PowerShell injection
+			"192.168.5.10; rm -rf /", // shell statement separator
+			"$(whoami)",              // shell command substitution
+			"10.5.0.2`id`",           // PowerShell subexpression
+			"10.5.0.999",             // out-of-range octet
+			"10.5.0",                 // truncated
 		}
 		for _, input := range cases {
 			if _, err := validateIPAddress(input); err == nil {
+				t.Errorf("expected %q to be rejected, got nil error", input)
+			}
+		}
+	})
+}
+
+func TestValidateBridgeInterface(t *testing.T) {
+	t.Run("AcceptsWellFormedDockerBridgeNames", func(t *testing.T) {
+		// Given names matching Docker's br-<12-hex> shape and the broader kernel-allowed alphabet
+		cases := []string{
+			"br-1234567890ab", // canonical docker bridge
+			"br-abcDEF012345",
+			"br-a",
+			"br-test_1.2",
+			"br-aaaaaaaaaaaa", // 15 bytes (IFNAMSIZ boundary)
+		}
+		for _, input := range cases {
+			got, err := validateBridgeInterface(input)
+			if err != nil {
+				t.Errorf("expected %q to validate, got %v", input, err)
+				continue
+			}
+			if got != input {
+				t.Errorf("validateBridgeInterface(%q) = %q, want %q", input, got, input)
+			}
+		}
+	})
+
+	t.Run("RejectsShellMetaAndOutOfShapeNames", func(t *testing.T) {
+		// Given inputs that either miss the br- prefix, exceed IFNAMSIZ, or carry characters
+		// that would alter sh -c parsing if interpolated. The kernel would already reject most
+		// of these, but the allowlist runs before any kernel call.
+		cases := []string{
+			"",
+			"eth0",             // wrong prefix
+			"docker0",          // wrong prefix
+			"br-aaaaaaaaaaaaa", // 16 bytes, exceeds IFNAMSIZ
+			"br-foo; rm -rf /", // shell statement separator
+			"br-foo$(whoami)",  // shell command substitution
+			"br-foo`id`",       // backtick subexpression
+			"br-foo bar",       // space
+			"br-foo|cat",       // pipe
+			"br-foo\nbr-bar",   // newline (would also split FieldsFunc, but defense-in-depth)
+			"br-foo'quoted'",   // single quote
+			"br-foo\"quoted\"", // double quote
+		}
+		for _, input := range cases {
+			if _, err := validateBridgeInterface(input); err == nil {
 				t.Errorf("expected %q to be rejected, got nil error", input)
 			}
 		}

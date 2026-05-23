@@ -97,10 +97,12 @@ func (n *ColimaNetworkManager) RevertGuest() error {
 	}
 	var dockerBridgeInterface string
 	for _, iface := range strings.FieldsFunc(output, func(r rune) bool { return r == '\n' }) {
-		if strings.HasPrefix(iface, "br-") {
-			dockerBridgeInterface = iface
-			break
+		canonical, err := validateBridgeInterface(iface)
+		if err != nil {
+			continue
 		}
+		dockerBridgeInterface = canonical
+		break
 	}
 	if dockerBridgeInterface == "" {
 		return nil
@@ -129,10 +131,12 @@ func (n *ColimaNetworkManager) configureDockerForwarding(networkCIDR string) err
 
 	var dockerBridgeInterface string
 	for _, iface := range strings.FieldsFunc(output, func(r rune) bool { return r == '\n' }) {
-		if strings.HasPrefix(iface, "br-") {
-			dockerBridgeInterface = iface
-			break
+		canonical, err := validateBridgeInterface(iface)
+		if err != nil {
+			continue
 		}
+		dockerBridgeInterface = canonical
+		break
 	}
 	if dockerBridgeInterface == "" {
 		return fmt.Errorf("error: no docker bridge interface found")
