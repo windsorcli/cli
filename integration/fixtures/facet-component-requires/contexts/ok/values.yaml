@@ -1,0 +1,6 @@
+platform: aws
+cni:
+  driver: cilium
+aws:
+  region: us-east-1
+  cilium_role_arn: arn:aws:iam::123456789012:role/cilium

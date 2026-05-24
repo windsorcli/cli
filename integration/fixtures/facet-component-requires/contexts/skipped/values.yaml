@@ -1,0 +1,5 @@
+platform: aws
+cni:
+  driver: calico
+aws:
+  region: us-east-1

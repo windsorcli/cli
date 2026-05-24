@@ -114,3 +114,70 @@ func TestShowBlueprint_FacetRequires_MissingProducesAggregatedError(t *testing.T
 		t.Errorf("expected count summary in stderr, got: %s", out)
 	}
 }
+
+// TestShowBlueprint_FacetComponentRequires_Satisfied verifies the happy path for per-component
+// requires: when the component's When is true and the required inputs are present, show blueprint
+// succeeds and emits a Blueprint document.
+func TestShowBlueprint_FacetComponentRequires_Satisfied(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-component-requires")
+	env = append(env, "WINDSOR_CONTEXT=ok")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+	var bp map[string]any
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+	if bp["kind"] != "Blueprint" {
+		t.Errorf("expected kind Blueprint, got %v", bp["kind"])
+	}
+}
+
+// TestShowBlueprint_FacetComponentRequires_MissingProducesComposedConditionError verifies the
+// failure path: when a per-component required path is missing, the error groups the miss under the
+// AND of facet.When and component.When, not just the facet condition.
+func TestShowBlueprint_FacetComponentRequires_MissingProducesComposedConditionError(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-component-requires")
+	env = append(env, "WINDSOR_CONTEXT=missing")
+	_, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err == nil {
+		t.Fatalf("expected show blueprint to fail with missing component requirements, got nil error\nstderr: %s", stderr)
+	}
+	out := string(stderr)
+	if !strings.Contains(out, "Required configuration is missing") {
+		t.Errorf("expected aggregated error header, got: %s", out)
+	}
+	if !strings.Contains(out, "aws.cilium_role_arn") {
+		t.Errorf("expected stderr to list aws.cilium_role_arn, got: %s", out)
+	}
+	if !strings.Contains(out, "Because (platform ?? '') == 'aws' && (cni.driver ?? '') == 'cilium':") {
+		t.Errorf("expected composed condition heading (facet && component), got: %s", out)
+	}
+	if !strings.Contains(out, "The cilium terraform component needs an IAM role ARN.") {
+		t.Errorf("expected block message in stderr, got: %s", out)
+	}
+}
+
+// TestShowBlueprint_FacetComponentRequires_ComponentExcludedSkipsRequires verifies that a
+// per-component require does not fire when the component's own When evaluates to false. The
+// fixture sets cni.driver to a non-cilium value, so the cilium terraform component is excluded
+// and its missing aws.cilium_role_arn is not surfaced.
+func TestShowBlueprint_FacetComponentRequires_ComponentExcludedSkipsRequires(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-component-requires")
+	env = append(env, "WINDSOR_CONTEXT=skipped")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+	var bp map[string]any
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+	if bp["kind"] != "Blueprint" {
+		t.Errorf("expected kind Blueprint, got %v", bp["kind"])
+	}
+}
