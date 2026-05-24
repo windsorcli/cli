@@ -103,7 +103,7 @@ Evaluation order: facets are processed by ordinal (ascending), then by name. Fir
 A facet can declare the inputs it needs via `requires`. Each entry is a **block** that scopes a set of `paths` under an optional `when` condition with an optional `message`. The check runs once the facet's own `when` is true; if any required path is missing, the facet is deferred and may be re-evaluated in a later round (so requirements satisfied by another facet's config block work naturally). After the convergence loop, every still-unsatisfied path across every active facet is collected into a single error.
 
 ```yaml
-when: provider == 'aws'
+when: platform == 'aws'
 requires:
   # Always required while this facet is active.
   - paths:
@@ -144,7 +144,7 @@ Required configuration is missing:
     - cluster.name
     - dns.domain
 
-  Because provider == 'aws':
+  Because platform == 'aws':
     - aws.region
     - aws.account_id
 

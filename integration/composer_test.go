@@ -104,10 +104,10 @@ func TestShowBlueprint_FacetRequires_MissingProducesAggregatedError(t *testing.T
 			t.Errorf("expected stderr to list %q, got: %s", path, out)
 		}
 	}
-	if !strings.Contains(out, "AWS provider needs region and account_id set.") {
+	if !strings.Contains(out, "AWS platform needs region and account_id set.") {
 		t.Errorf("expected block message in stderr, got: %s", out)
 	}
-	if !strings.Contains(out, "Because (provider ?? '') == 'aws':") {
+	if !strings.Contains(out, "Because (platform ?? '') == 'aws':") {
 		t.Errorf("expected condition heading in stderr, got: %s", out)
 	}
 	if !strings.Contains(out, "3 missing values") {

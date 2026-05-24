@@ -5312,7 +5312,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 	t.Run("ConditionalBlockSkippedWhenFalse", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"provider": "docker"}, nil
+			return map[string]any{"platform": "docker"}, nil
 		}
 		processor := NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
@@ -5320,7 +5320,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "aws-only"},
 				Requires: []blueprintv1alpha1.RequirementBlock{
-					{When: "provider == 'aws'", Paths: []string{"aws.region"}},
+					{When: "platform == 'aws'", Paths: []string{"aws.region"}},
 				},
 			},
 		}
@@ -5332,14 +5332,14 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 	t.Run("UnsatisfiedRequirementProducesAggregatedError", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"provider": "aws"}, nil
+			return map[string]any{"platform": "aws"}, nil
 		}
 		processor := NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "provider-aws"},
-				When:     "provider == 'aws'",
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-aws"},
+				When:     "platform == 'aws'",
 				Requires: []blueprintv1alpha1.RequirementBlock{
 					{Paths: []string{"aws.region", "aws.account_id"}},
 				},
@@ -5356,7 +5356,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 		if !strings.Contains(msg, "aws.region") || !strings.Contains(msg, "aws.account_id") {
 			t.Errorf("Expected both paths listed, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because provider == 'aws':") {
+		if !strings.Contains(msg, "Because platform == 'aws':") {
 			t.Errorf("Expected condition heading, got: %s", msg)
 		}
 		if strings.Contains(msg, "facet") {
@@ -5417,7 +5417,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 	t.Run("CrossFacetConfigBlockSatisfiesAfterDeferral", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"provider": "incus", "cluster": map[string]any{"name": "demo"}}, nil
+			return map[string]any{"platform": "incus", "cluster": map[string]any{"name": "demo"}}, nil
 		}
 		processor := NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
@@ -5432,7 +5432,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "config-talos"},
 				Ordinal:  intPtr(100),
-				When:     "provider == 'incus'",
+				When:     "platform == 'incus'",
 				Config: []blueprintv1alpha1.ConfigBlock{
 					{Name: "talos", Body: map[string]any{"value": map[string]any{"cluster_name": "${cluster.name}"}}},
 				},
@@ -5481,7 +5481,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 	t.Run("AggregatesAcrossMultipleFacets", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"provider": "aws"}, nil
+			return map[string]any{"platform": "aws"}, nil
 		}
 		processor := NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
@@ -5494,7 +5494,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 			},
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "facet-b"},
-				When:     "provider == 'aws'",
+				When:     "platform == 'aws'",
 				Requires: []blueprintv1alpha1.RequirementBlock{
 					{Paths: []string{"aws.region"}},
 				},
@@ -5508,7 +5508,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 		if !strings.Contains(msg, "Required:") {
 			t.Errorf("Expected unconditional 'Required:' heading, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because provider == 'aws':") {
+		if !strings.Contains(msg, "Because platform == 'aws':") {
 			t.Errorf("Expected conditional heading, got: %s", msg)
 		}
 		if !strings.Contains(msg, "cluster.name") || !strings.Contains(msg, "aws.region") {
@@ -5522,14 +5522,14 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 	t.Run("SelfReferenceNeverSatisfied", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"provider": "incus", "cluster": map[string]any{"name": "demo"}}, nil
+			return map[string]any{"platform": "incus", "cluster": map[string]any{"name": "demo"}}, nil
 		}
 		processor := NewBlueprintProcessor(mocks.Runtime)
 		target := &blueprintv1alpha1.Blueprint{}
 		facets := []blueprintv1alpha1.Facet{
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "self-referencing"},
-				When:     "provider == 'incus'",
+				When:     "platform == 'incus'",
 				Config: []blueprintv1alpha1.ConfigBlock{
 					{Name: "self", Body: map[string]any{"value": map[string]any{"k": "${cluster.name}"}}},
 				},
@@ -5559,12 +5559,12 @@ func TestFormatRequirementsError(t *testing.T) {
 				{Condition: "", Paths: []string{"cluster.name"}},
 			}},
 			"b": {FacetName: "b", Misses: []requirementBlockMiss{
-				{Condition: "provider == 'aws'", Paths: []string{"aws.region"}},
+				{Condition: "platform == 'aws'", Paths: []string{"aws.region"}},
 			}},
 		}
 		msg := formatRequirementsError(pending).Error()
 		idxRequired := strings.Index(msg, "Required:")
-		idxBecause := strings.Index(msg, "Because provider == 'aws':")
+		idxBecause := strings.Index(msg, "Because platform == 'aws':")
 		if idxRequired < 0 || idxBecause < 0 {
 			t.Fatalf("Missing headings in: %s", msg)
 		}
@@ -5576,14 +5576,14 @@ func TestFormatRequirementsError(t *testing.T) {
 	t.Run("MergesSameConditionAcrossFacets", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
 			"a": {FacetName: "a", Misses: []requirementBlockMiss{
-				{Condition: "provider == 'aws'", Paths: []string{"aws.region"}},
+				{Condition: "platform == 'aws'", Paths: []string{"aws.region"}},
 			}},
 			"b": {FacetName: "b", Misses: []requirementBlockMiss{
-				{Condition: "provider == 'aws'", Paths: []string{"aws.account_id"}},
+				{Condition: "platform == 'aws'", Paths: []string{"aws.account_id"}},
 			}},
 		}
 		msg := formatRequirementsError(pending).Error()
-		if c := strings.Count(msg, "Because provider == 'aws':"); c != 1 {
+		if c := strings.Count(msg, "Because platform == 'aws':"); c != 1 {
 			t.Errorf("Expected one merged heading, got %d. Msg: %s", c, msg)
 		}
 		if !strings.Contains(msg, "aws.region") || !strings.Contains(msg, "aws.account_id") {
