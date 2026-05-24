@@ -74,6 +74,7 @@ Facets can define **config** blocks to build generic configuration (e.g. Talos n
 - **name** – Exposed at scope root; expressions use `name.key` (e.g. `talos.controlplanes`).
 - **when** (optional) – Expression; if present and false, the block is skipped.
 - **body** – Remaining keys (e.g. `controlplanes`, `workers`, `patchVars`); values may contain `${}` expressions.
+- **requires** (optional) – Input requirements evaluated only when this block's `when` holds; see [RequirementBlock](#requirementblock).
 
 Config blocks are evaluated in blueprint context only (no facet config in scope). References from terraform or kustomize use `<name>.<key>`.
 
@@ -98,64 +99,19 @@ terraform:
 
 Evaluation order: facets are processed by ordinal (ascending), then by name. First, each facet's config block **structure** (name, when, body keys) is merged into a global scope (same block name merges block bodies recursively); config body expressions are **not** evaluated yet. After all facets are merged, config body expressions are evaluated once in blueprint context (very late). Then terraform and kustomize components are collected; their inputs and substitutions can reference the evaluated `<name>.<key>` (e.g. `talos.controlplanes`).
 
-## Requires
+## RequirementBlock
 
-A facet can declare the inputs it needs via `requires`. Each entry is a **block** that scopes a set of `paths` under an optional `when` condition with an optional `message`. The check runs once the facet's own `when` is true; if any required path is missing, the facet is deferred and may be re-evaluated in a later round (so requirements satisfied by another facet's config block work naturally). After the convergence loop, every still-unsatisfied path across every active facet is collected into a single error.
+A `requires` field may appear on `Facet`, `ConfigBlock`, `ConditionalTerraformComponent`, and `ConditionalKustomization`. Each entry is a `RequirementBlock`:
 
-```yaml
-when: platform == 'aws'
-requires:
-  # Always required while this facet is active.
-  - paths:
-      - cluster.name
-      - dns.domain
+| Field     | Type       | Required | Description                                                                                       |
+|-----------|------------|----------|---------------------------------------------------------------------------------------------------|
+| `when`    | `string`   | no       | Expression gating the block. Empty means always required while the parent facet/component is active. |
+| `paths`   | `[]string` | yes      | Dotted scope keys (e.g. `aws.region`, `cluster.workers.count`) that must resolve to a present, non-empty value. |
+| `message` | `string`   | no       | Optional author context surfaced under the condition heading in the aggregated error.              |
 
-  # Conditionally required.
-  - when: cluster.workers.count > 0
-    paths:
-      - aws.subnets.private
+Presence semantics: `nil`, `""`, empty slice, and empty map count as **missing**; `false` and `0` count as **present**. The check verifies that the user has declared a value, not that the value is truthy.
 
-  # Conditionally required, with author-supplied context.
-  - when: observability.enabled
-    paths:
-      - observability.endpoint
-      - observability.token
-    message: |
-      Observability is enabled but its endpoint/token are not set.
-      See https://docs.windsorcli.dev/observability for setup details.
-```
-
-Block fields:
-
-| Field     | Type       | Required | Notes                                                                                       |
-|-----------|------------|----------|---------------------------------------------------------------------------------------------|
-| `when`    | `string`   | no       | Expression gating the block. Empty means always required while the parent facet is active.  |
-| `paths`   | `[]string` | yes      | Dotted scope keys (e.g. `aws.region`, `cluster.workers.count`).                              |
-| `message` | `string`   | no       | Optional context surfaced under the heading in the aggregated error.                         |
-
-A path is **satisfied** when it resolves to a non-nil, non-empty value. Empty string, empty slice, and empty map count as **missing**; `false` and `0` count as **present**. `requires` checks presence — *that the user has declared a value* — not truthiness. If you mean "only required when the feature is on," put that in the block's `when`.
-
-The aggregated error groups missing paths by their effective condition (the AND of facet `when` and block `when`) — never by facet — and never uses the word "facet" in user-facing output. Example output:
-
-```
-Required configuration is missing:
-
-  Required:
-    - cluster.name
-    - dns.domain
-
-  Because platform == 'aws':
-    - aws.region
-    - aws.account_id
-
-  Because observability.enabled:
-    Observability is enabled but its endpoint/token are not set.
-    See https://docs.windsorcli.dev/observability for setup details.
-      - observability.endpoint
-      - observability.token
-
-5 missing values. Set these in values.yaml and re-run.
-```
+For composition rules, deferral semantics, and worked examples, see the conceptual guide: [Blueprint facets — Requires](https://docs.windsorcli.dev/blueprints/facets#requires).
 
 ## Conditional Logic
 
@@ -209,6 +165,7 @@ Extends `TerraformComponent` with conditional logic and merge strategy support.
 | `when`     | `string`            | Expression that determines if this component should be applied. If empty, the component is always applied when the parent facet matches. |
 | `ordinal`  | `integer` (optional)| Overrides the facet ordinal for this component's merge precedence. When omitted, the facet's ordinal is used. Higher ordinal wins when merging. |
 | `strategy` | `string`            | Merge strategy: `merge` (default), `replace`, or `remove`. Only available in facets.  |
+| `requires` | `[]RequirementBlock`| Input requirements evaluated only when this component's `when` holds; missing paths are bucketed under the AND of facet, component, and block `when`. See [RequirementBlock](#requirementblock). |
 
 ### Merge Strategies
 
@@ -257,6 +214,7 @@ Extends `Kustomization` with conditional logic and merge strategy support.
 | `when`         | `string`            | Expression that determines if this kustomization should be applied. If empty, the kustomization is always applied when the parent facet matches. |
 | `ordinal`      | `integer` (optional) | Overrides the facet ordinal for this kustomization's merge precedence. When omitted, the facet's ordinal is used. Higher ordinal wins when merging. |
 | `strategy`     | `string`            | Merge strategy: `merge` (default), `replace`, or `remove`. Only available in facets.  |
+| `requires`     | `[]RequirementBlock`| Input requirements evaluated only when this kustomization's `when` holds; missing paths are bucketed under the AND of facet, kustomization, and block `when`. See [RequirementBlock](#requirementblock). |
 
 ### Merge Strategies
 
