@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+
+	"github.com/goccy/go-yaml"
 )
 
 // =============================================================================
@@ -29,6 +31,11 @@ type ConfigBlock struct {
 	// Ordinal overrides the facet ordinal for this block's merge precedence. When nil, the facet's ordinal is used.
 	// Higher ordinal means higher precedence when merging (wins on conflict).
 	Ordinal *int `yaml:"ordinal,omitempty"`
+	// Requires lists requirement blocks scoped to this config block. When the parent facet is active and this
+	// block's optional When holds, every block in Requires is evaluated under the AND of facet.When,
+	// block.When, and each Requires entry's own When. Missing paths are aggregated alongside facet- and
+	// component-level misses in the user-facing error.
+	Requires []RequirementBlock `yaml:"requires,omitempty"`
 	// Body holds the canonical content as map[string]any{"value": <content>} for merge and evaluation. Not YAML-marshaled directly.
 	Body map[string]any `yaml:"-"`
 }
@@ -118,6 +125,11 @@ type ConditionalTerraformComponent struct {
 	// Ordinal overrides the facet ordinal for this component's merge precedence. When nil, the facet's ordinal is used.
 	// Higher ordinal means higher precedence when merging (processed later, wins on conflict).
 	Ordinal *int `yaml:"ordinal,omitempty"`
+
+	// Requires lists requirement blocks scoped to this terraform component. Evaluated only when the
+	// parent facet is active and this component's When holds; missing paths are aggregated under the
+	// effective condition (facet.When && component.When && block.When).
+	Requires []RequirementBlock `yaml:"requires,omitempty"`
 }
 
 // ConditionalKustomization extends Kustomization with conditional logic support.
@@ -139,6 +151,11 @@ type ConditionalKustomization struct {
 	// Ordinal overrides the facet ordinal for this kustomization's merge precedence. When nil, the facet's ordinal is used.
 	// Higher ordinal means higher precedence when merging (processed later, wins on conflict).
 	Ordinal *int `yaml:"ordinal,omitempty"`
+
+	// Requires lists requirement blocks scoped to this kustomization. Evaluated only when the parent
+	// facet is active and this kustomization's When holds; missing paths are aggregated under the
+	// effective condition (facet.When && kustomization.When && block.When).
+	Requires []RequirementBlock `yaml:"requires,omitempty"`
 }
 
 // =============================================================================
@@ -173,6 +190,15 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 			c.Ordinal = &i
 		}
 	}
+	if r, ok := raw["requires"]; ok && r != nil {
+		b, err := yaml.Marshal(r)
+		if err != nil {
+			return fmt.Errorf("config block %q: marshal requires: %w", c.Name, err)
+		}
+		if err := yaml.Unmarshal(b, &c.Requires); err != nil {
+			return fmt.Errorf("config block %q: parse requires: %w", c.Name, err)
+		}
+	}
 	if _, hasValue := raw["value"]; !hasValue {
 		return fmt.Errorf("config block %q: value is required", c.Name)
 	}
@@ -194,6 +220,9 @@ func (c *ConfigBlock) MarshalYAML() (any, error) {
 	}
 	if c.Ordinal != nil {
 		out["ordinal"] = *c.Ordinal
+	}
+	if len(c.Requires) > 0 {
+		out["requires"] = c.Requires
 	}
 	if c.Body != nil {
 		if v, ok := c.Body["value"]; ok {
@@ -225,7 +254,21 @@ func (c *ConfigBlock) DeepCopy() *ConfigBlock {
 		o := *c.Ordinal
 		ordinalCopy = &o
 	}
-	return &ConfigBlock{Name: c.Name, When: c.When, Strategy: c.Strategy, Ordinal: ordinalCopy, Body: deepCopyMapStringAny(c.Body)}
+	var requiresCopy []RequirementBlock
+	if len(c.Requires) > 0 {
+		requiresCopy = make([]RequirementBlock, len(c.Requires))
+		for i, block := range c.Requires {
+			requiresCopy[i] = *block.DeepCopy()
+		}
+	}
+	return &ConfigBlock{
+		Name:     c.Name,
+		When:     c.When,
+		Strategy: c.Strategy,
+		Ordinal:  ordinalCopy,
+		Requires: requiresCopy,
+		Body:     deepCopyMapStringAny(c.Body),
+	}
 }
 
 // DeepCopy creates a deep copy of the Facet object.
@@ -293,11 +336,20 @@ func (c *ConditionalTerraformComponent) DeepCopy() *ConditionalTerraformComponen
 		ordinalCopy = &o
 	}
 
+	var requiresCopy []RequirementBlock
+	if len(c.Requires) > 0 {
+		requiresCopy = make([]RequirementBlock, len(c.Requires))
+		for i, block := range c.Requires {
+			requiresCopy[i] = *block.DeepCopy()
+		}
+	}
+
 	return &ConditionalTerraformComponent{
 		TerraformComponent: *c.TerraformComponent.DeepCopy(),
 		When:               c.When,
 		Strategy:           c.Strategy,
 		Ordinal:            ordinalCopy,
+		Requires:           requiresCopy,
 	}
 }
 
@@ -313,11 +365,20 @@ func (c *ConditionalKustomization) DeepCopy() *ConditionalKustomization {
 		ordinalCopy = &o
 	}
 
+	var requiresCopy []RequirementBlock
+	if len(c.Requires) > 0 {
+		requiresCopy = make([]RequirementBlock, len(c.Requires))
+		for i, block := range c.Requires {
+			requiresCopy[i] = *block.DeepCopy()
+		}
+	}
+
 	return &ConditionalKustomization{
 		Kustomization: *c.Kustomization.DeepCopy(),
 		When:          c.When,
 		Strategy:      c.Strategy,
 		Ordinal:       ordinalCopy,
+		Requires:      requiresCopy,
 	}
 }
 

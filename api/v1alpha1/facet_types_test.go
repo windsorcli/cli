@@ -250,6 +250,33 @@ func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 			t.Error("Deep copy failed: inputs map was not copied")
 		}
 	})
+
+	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
+		original := &ConditionalTerraformComponent{
+			TerraformComponent: TerraformComponent{Path: "network/aws-vpc"},
+			When:               "platform == 'aws'",
+			Requires: []RequirementBlock{
+				{Paths: []string{"aws.region"}},
+				{When: "cni_effective.driver == 'cilium'", Paths: []string{"aws.cilium.role_arn"}, Message: "Set the cilium role arn."},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Requires) != len(original.Requires) {
+			t.Fatalf("Expected %d requirement blocks, got %d", len(original.Requires), len(copy.Requires))
+		}
+
+		original.Requires[0].Paths[0] = "modified"
+		if copy.Requires[0].Paths[0] == "modified" {
+			t.Error("Deep copy failed: requires paths slice was not copied")
+		}
+
+		original.Requires[1].Message = "modified"
+		if copy.Requires[1].Message == "modified" {
+			t.Error("Deep copy failed: requires message was not copied")
+		}
+	})
 }
 
 func TestConditionalKustomizationDeepCopy(t *testing.T) {
@@ -300,6 +327,63 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 		original.Substitutions["host"] = "modified"
 		if copy.Substitutions["host"] == "modified" {
 			t.Error("Deep copy failed: substitutions map was not copied")
+		}
+	})
+
+	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
+		original := &ConditionalKustomization{
+			Kustomization: Kustomization{Name: "ingress"},
+			When:          "ingress.enabled == true",
+			Requires: []RequirementBlock{
+				{Paths: []string{"ingress.class"}},
+				{When: "ingress.tls == true", Paths: []string{"ingress.tls_secret"}, Message: "Set the TLS secret name."},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Requires) != len(original.Requires) {
+			t.Fatalf("Expected %d requirement blocks, got %d", len(original.Requires), len(copy.Requires))
+		}
+
+		original.Requires[0].Paths[0] = "modified"
+		if copy.Requires[0].Paths[0] == "modified" {
+			t.Error("Deep copy failed: requires paths slice was not copied")
+		}
+
+		original.Requires[1].Message = "modified"
+		if copy.Requires[1].Message == "modified" {
+			t.Error("Deep copy failed: requires message was not copied")
+		}
+	})
+}
+
+func TestConfigBlockDeepCopy(t *testing.T) {
+	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
+		original := &ConfigBlock{
+			Name: "talos",
+			When: "platform == 'docker'",
+			Body: map[string]any{"value": "x"},
+			Requires: []RequirementBlock{
+				{Paths: []string{"talos.endpoint"}},
+				{When: "talos.tls == true", Paths: []string{"talos.ca_cert"}, Message: "Set the CA cert path."},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Requires) != len(original.Requires) {
+			t.Fatalf("Expected %d requirement blocks, got %d", len(original.Requires), len(copy.Requires))
+		}
+
+		original.Requires[0].Paths[0] = "modified"
+		if copy.Requires[0].Paths[0] == "modified" {
+			t.Error("Deep copy failed: requires paths slice was not copied")
+		}
+
+		original.Requires[1].Message = "modified"
+		if copy.Requires[1].Message == "modified" {
+			t.Error("Deep copy failed: requires message was not copied")
 		}
 	})
 }
@@ -626,6 +710,111 @@ kustomize:
 			t.Error("Expected Timeout to be set, got nil")
 		} else if k.Timeout.Duration != 10*time.Minute {
 			t.Errorf("Expected Timeout duration 10m, got %v", k.Timeout.Duration)
+		}
+	})
+
+	t.Run("ConfigBlockUnmarshalsAndMarshalsRequires", func(t *testing.T) {
+		y := []byte(`name: talos
+when: platform == 'docker'
+requires:
+  - paths:
+      - talos.endpoint
+  - when: talos.tls == true
+    paths:
+      - talos.ca_cert
+    message: |
+      Set the CA cert path.
+value:
+  controlplanes: ${cluster.controlplanes}
+`)
+		var block ConfigBlock
+		if err := yaml.Unmarshal(y, &block); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if len(block.Requires) != 2 {
+			t.Fatalf("Expected 2 requirement blocks, got %d", len(block.Requires))
+		}
+		if block.Requires[0].When != "" || block.Requires[0].Paths[0] != "talos.endpoint" {
+			t.Errorf("Unexpected first block: %+v", block.Requires[0])
+		}
+		if block.Requires[1].When != "talos.tls == true" || block.Requires[1].Paths[0] != "talos.ca_cert" {
+			t.Errorf("Unexpected second block: %+v", block.Requires[1])
+		}
+		if !strings.Contains(block.Requires[1].Message, "Set the CA cert path.") {
+			t.Errorf("Unexpected second block message: %q", block.Requires[1].Message)
+		}
+
+		out, err := yaml.Marshal(&block)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		outStr := string(out)
+		if !strings.Contains(outStr, "requires:") {
+			t.Errorf("Expected marshaled YAML to contain requires: %s", outStr)
+		}
+		if !strings.Contains(outStr, "talos.endpoint") || !strings.Contains(outStr, "talos.ca_cert") {
+			t.Errorf("Expected marshaled YAML to contain both required paths: %s", outStr)
+		}
+	})
+
+	t.Run("ConditionalTerraformComponentUnmarshalsRequires", func(t *testing.T) {
+		y := []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws
+when: platform == 'aws'
+terraform:
+  - path: cluster/aws-cilium
+    when: cni_effective.driver == 'cilium'
+    requires:
+      - paths:
+          - aws.cilium.role_arn
+        message: |
+          Set the cilium role arn.
+`)
+		var facet Facet
+		if err := yaml.Unmarshal(y, &facet); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if len(facet.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(facet.TerraformComponents))
+		}
+		comp := facet.TerraformComponents[0]
+		if len(comp.Requires) != 1 {
+			t.Fatalf("Expected 1 requirement block on terraform component, got %d", len(comp.Requires))
+		}
+		if comp.Requires[0].Paths[0] != "aws.cilium.role_arn" {
+			t.Errorf("Unexpected required path: %v", comp.Requires[0].Paths)
+		}
+	})
+
+	t.Run("ConditionalKustomizationUnmarshalsRequires", func(t *testing.T) {
+		y := []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: gateway
+when: gateway.enabled == true
+kustomize:
+  - name: gateway
+    path: gateway
+    when: gateway.driver == 'envoy'
+    requires:
+      - paths:
+          - gateway.cert_arn
+`)
+		var facet Facet
+		if err := yaml.Unmarshal(y, &facet); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if len(facet.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(facet.Kustomizations))
+		}
+		k := facet.Kustomizations[0]
+		if len(k.Requires) != 1 {
+			t.Fatalf("Expected 1 requirement block on kustomization, got %d", len(k.Requires))
+		}
+		if k.Requires[0].Paths[0] != "gateway.cert_arn" {
+			t.Errorf("Unexpected required path: %v", k.Requires[0].Paths)
 		}
 	})
 }
