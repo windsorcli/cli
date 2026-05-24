@@ -1613,25 +1613,101 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 	return &result, nil
 }
 
-// evaluateRequirements walks the facet's Requires blocks against scope and returns the unsatisfied
-// blocks. A block is skipped when its When evaluates to false; otherwise every path must resolve to
-// a present, non-empty value (nil/""/empty slice/empty map count as missing; false and 0 are
-// present). The returned slice is empty when all blocks are satisfied. An error is returned only
-// when a block's When fails to evaluate.
+// evaluateRequirements walks the facet's Requires blocks and the Requires blocks of every config
+// block, terraform component, and kustomization whose When holds, returning the unsatisfied entries.
+// A requirement block is skipped when its own When evaluates to false; otherwise every path must
+// resolve to a present, non-empty value (nil/""/empty slice/empty map count as missing; false and 0
+// are present). Component-level Requires are skipped entirely when the component's When is false,
+// so the component's needs only bind when it would actually be included. The miss's Condition is
+// the AND of facet.When, component.When (when applicable), and block.When; the formatter buckets
+// misses by Condition so each effective scope renders as its own "Because" section. An error is
+// returned only when a When expression fails to evaluate.
 func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Facet, scope map[string]any) ([]requirementBlockMiss, error) {
-	if len(facet.Requires) == 0 {
+	var misses []requirementBlockMiss
+
+	facetMisses, err := p.evaluateRequirementBlocks(facet.Requires, scope, facet.Path, facet.Metadata.Name, facet.When)
+	if err != nil {
+		return nil, err
+	}
+	misses = append(misses, facetMisses...)
+
+	for _, cb := range facet.Config {
+		if len(cb.Requires) == 0 {
+			continue
+		}
+		include, err := p.shouldIncludeComponent(cb.When, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating config block when '%s' in facet '%s': %w", cb.When, facet.Metadata.Name, err)
+		}
+		if !include {
+			continue
+		}
+		m, err := p.evaluateRequirementBlocks(cb.Requires, scope, facet.Path, facet.Metadata.Name, facet.When, cb.When)
+		if err != nil {
+			return nil, err
+		}
+		misses = append(misses, m...)
+	}
+
+	for _, tc := range facet.TerraformComponents {
+		if len(tc.Requires) == 0 {
+			continue
+		}
+		include, err := p.shouldIncludeComponent(tc.When, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating terraform component when '%s' in facet '%s': %w", tc.When, facet.Metadata.Name, err)
+		}
+		if !include {
+			continue
+		}
+		m, err := p.evaluateRequirementBlocks(tc.Requires, scope, facet.Path, facet.Metadata.Name, facet.When, tc.When)
+		if err != nil {
+			return nil, err
+		}
+		misses = append(misses, m...)
+	}
+
+	for _, k := range facet.Kustomizations {
+		if len(k.Requires) == 0 {
+			continue
+		}
+		include, err := p.shouldIncludeComponent(k.When, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating kustomization when '%s' in facet '%s': %w", k.When, facet.Metadata.Name, err)
+		}
+		if !include {
+			continue
+		}
+		m, err := p.evaluateRequirementBlocks(k.Requires, scope, facet.Path, facet.Metadata.Name, facet.When, k.When)
+		if err != nil {
+			return nil, err
+		}
+		misses = append(misses, m...)
+	}
+
+	return misses, nil
+}
+
+// evaluateRequirementBlocks walks blocks against scope and returns the unsatisfied entries.
+// parentWhens are the chain of parent-level when expressions (facet.When, optionally
+// component.When) that are composed with each block's own When into the miss's effective condition.
+// A block is skipped when its own When evaluates to false. Empty parts in parentWhens are dropped
+// by combineConditions, so callers may pass an unset When (e.g. an empty facet.When) without
+// special-casing.
+func (p *BaseBlueprintProcessor) evaluateRequirementBlocks(blocks []blueprintv1alpha1.RequirementBlock, scope map[string]any, facetPath, facetName string, parentWhens ...string) ([]requirementBlockMiss, error) {
+	if len(blocks) == 0 {
 		return nil, nil
 	}
 	var misses []requirementBlockMiss
-	for _, block := range facet.Requires {
+	for _, block := range blocks {
 		if len(block.Paths) == 0 {
 			continue
 		}
 		applies := true
 		if block.When != "" {
-			ok, err := p.evaluateCondition(block.When, facet.Path, scope)
+			ok, err := p.evaluateCondition(block.When, facetPath, scope)
 			if err != nil {
-				return nil, fmt.Errorf("error evaluating requirement when '%s' in facet '%s': %w", block.When, facet.Metadata.Name, err)
+				return nil, fmt.Errorf("error evaluating requirement when '%s' in facet '%s': %w", block.When, facetName, err)
 			}
 			applies = ok
 		}
@@ -1648,7 +1724,7 @@ func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Fa
 			continue
 		}
 		misses = append(misses, requirementBlockMiss{
-			Condition: combineConditions(facet.When, block.When),
+			Condition: combineConditions(append(parentWhens, block.When)...),
 			Message:   block.Message,
 			Paths:     missing,
 		})
@@ -1937,22 +2013,17 @@ func isPresentAtPath(scope map[string]any, path string) bool {
 	return true
 }
 
-// combineConditions joins facet-level and block-level when expressions into a single condition
-// string used as a grouping key in the aggregated requirements error. Empty parts are dropped;
-// both empty yields "", meaning the requirement was unconditional.
-func combineConditions(facetWhen, blockWhen string) string {
-	fw := strings.TrimSpace(facetWhen)
-	bw := strings.TrimSpace(blockWhen)
-	switch {
-	case fw == "" && bw == "":
-		return ""
-	case fw == "":
-		return bw
-	case bw == "":
-		return fw
-	default:
-		return fw + " && " + bw
+// combineConditions joins one or more when expressions into a single condition string used as a
+// grouping key in the aggregated requirements error. Empty parts are trimmed and dropped; all
+// empty (or no parts) yields "", meaning the requirement was unconditional.
+func combineConditions(parts ...string) string {
+	var nonEmpty []string
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			nonEmpty = append(nonEmpty, trimmed)
+		}
 	}
+	return strings.Join(nonEmpty, " && ")
 }
 
 // formatRequirementsError renders the user-facing aggregated error for unsatisfied facet
