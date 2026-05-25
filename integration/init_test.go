@@ -79,9 +79,6 @@ func TestInit_RejectsRemovedProviderFlag(t *testing.T) {
 func TestContext_RemovedGroupReturnsMigrationHint(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
-	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
-		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
-	}
 
 	_, stderr, err := helpers.RunCLI(dir, []string{"context", "get"}, env)
 	if err == nil {
