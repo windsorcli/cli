@@ -37,10 +37,10 @@ var strategyPrecedence = map[string]int{
 // BlueprintProcessor evaluates when: conditions on facets, terraform components, and kustomizations.
 // It determines inclusion/exclusion based on boolean condition results.
 // The processor is stateless and shared across all loaders.
-// ProcessFacets returns the evaluated config scope and block order for the loader so callers can merge
+// ProcessFacets returns the evaluated config scope for the loader so callers can merge
 // scopes from multiple loaders (e.g. for user overlay and final terraform input evaluation).
 type BlueprintProcessor interface {
-	ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (scope map[string]any, order []string, err error)
+	ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (scope map[string]any, err error)
 }
 
 // =============================================================================
@@ -146,16 +146,16 @@ func (p *BaseBlueprintProcessor) GetDeferredPaths() map[string]bool {
 // If sourceName is set, it updates Source on components lacking it. The target blueprint is modified in place.
 // Returns: evaluated config scope and block order for the loader. Runtime ConfigHandler context values are
 // merged over facet-derived scope so 'when' or component expressions use the actual config.
-func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
+func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.deferredPaths = make(map[string]bool)
 	if target == nil {
-		return nil, nil, fmt.Errorf("target blueprint cannot be nil")
+		return nil, fmt.Errorf("target blueprint cannot be nil")
 	}
 
 	if len(facets) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	var contextScope map[string]any
@@ -183,7 +183,6 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	scope := contextScope
 	var globalScope map[string]any
 	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
-	var configBlockOrder []string
 	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
 	prevIncludedSet := make(map[string]bool)
 	pendingRequirements := make(map[string]facetRequirementMisses)
@@ -192,7 +191,6 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		includedFacets = includedFacets[:0]
 		globalScope = nil
 		cfgEntries = nil
-		configBlockOrder = nil
 		pendingRequirements = make(map[string]facetRequirementMisses)
 		passScope := scope
 		if passScope == nil && contextScope != nil {
@@ -204,14 +202,14 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		for _, facet := range sortedFacets {
 			shouldInclude, err := p.shouldIncludeFacet(facet, passScope)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			if !shouldInclude {
 				continue
 			}
 			misses, err := p.evaluateRequirements(facet, passScope)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			if len(misses) > 0 {
 				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{Misses: misses}
@@ -219,13 +217,13 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			}
 			includedFacets = append(includedFacets, facet)
 			var errMerge error
-			globalScope, cfgEntries, configBlockOrder, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, configBlockOrder, passScope)
+			globalScope, cfgEntries, errMerge = p.mergeFacetScopeIntoGlobal(facet, globalScope, cfgEntries, passScope)
 			if errMerge != nil {
-				return nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
+				return nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 			}
 		}
 		if err := p.evaluateGlobalScopeConfig(globalScope, contextScope); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		mergeBase := contextScope
 		if mergeBase == nil {
@@ -253,15 +251,15 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	}
 
 	if len(pendingRequirements) > 0 {
-		return nil, nil, formatRequirementsError(pendingRequirements)
+		return nil, formatRequirementsError(pendingRequirements)
 	}
 
 	for _, facet := range includedFacets {
 		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, scope); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if facet.Backend != "" {
 			target.Backend = facet.Backend
@@ -270,7 +268,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		if len(facet.Substitutions) > 0 {
 			evaluated, deferredKeys, err := p.evaluateSubstitutions(facet.Substitutions, facet.Path, scope)
 			if err != nil {
-				return nil, nil, fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
+				return nil, fmt.Errorf("error evaluating substitutions for facet '%s': %w", facet.Metadata.Name, err)
 			}
 			if target.Substitutions == nil {
 				target.Substitutions = make(map[string]string)
@@ -300,9 +298,9 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	}
 
 	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return globalScope, configBlockOrder, nil
+	return globalScope, nil
 }
 
 // =============================================================================
@@ -359,12 +357,13 @@ func (p *BaseBlueprintProcessor) scopeForConfigBlock(contextScope, globalScope m
 
 // mergeFacetScopeIntoGlobal merges the facet's config block structure into the global scope
 // (accumulated from prior facets) without evaluating config body expressions. Returns the
-// updated global scope, per-block meta (ordinal and strategy), and config block name order.
-// Config body expressions are evaluated later in evaluateGlobalScopeConfig.
+// updated global scope and per-block meta (ordinal and strategy). Config body expressions
+// are evaluated later in evaluateGlobalScopeConfig, which determines its own evaluation
+// order via topoSortConfigBlocks based on inter-block references.
 // For a given name, only blocks whose when condition is true contribute; if multiple blocks
 // with the same name have when true, their bodies are deep-merged in list order (later overlay).
 // Merge precedence: higher ordinal wins; when ordinals match, strategy precedence remove > replace > merge.
-func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, order []string, contextScope map[string]any) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, []string, error) {
+func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alpha1.Facet, globalScope map[string]any, existing map[string]*blueprintv1alpha1.ConfigBlock, contextScope map[string]any) (map[string]any, map[string]*blueprintv1alpha1.ConfigBlock, error) {
 	facetOrdinal := resolvedFacetOrdinal(facet)
 	incoming := make(map[string]*blueprintv1alpha1.ConfigBlock)
 	byName := make(map[string][]any)
@@ -377,7 +376,7 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		if block.When != "" {
 			shouldInclude, err := p.shouldIncludeComponent(block.When, facet.Path, contextScope)
 			if err != nil {
-				return nil, nil, order, fmt.Errorf("config block %q when: %w", block.Name, err)
+				return nil, nil, fmt.Errorf("config block %q when: %w", block.Name, err)
 			}
 			if !shouldInclude {
 				continue
@@ -458,22 +457,15 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		}
 		cb := incoming[name]
 		cb.Body = map[string]any{"value": body}
-		for i := 0; i < len(order); i++ {
-			if order[i] == name {
-				order = append(order[:i], order[i+1:]...)
-				break
-			}
-		}
-		order = append(order, name)
 	}
 	if len(incoming) == 0 {
-		return globalScope, existing, order, nil
+		return globalScope, existing, nil
 	}
 	mergedScope, mergedEntries, err := p.mergeConfigBlocks(globalScope, existing, incoming)
 	if err != nil {
-		return nil, nil, order, err
+		return nil, nil, err
 	}
-	return mergedScope, mergedEntries, order, nil
+	return mergedScope, mergedEntries, nil
 }
 
 // mergeConfigBlocks merges incoming config blocks into the global scope using ordinal and strategy.
