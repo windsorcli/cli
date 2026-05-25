@@ -459,13 +459,9 @@ func (p *BaseBlueprintProcessor) mergeFacetScopeIntoGlobal(facet blueprintv1alph
 		}
 		cb := incoming[name]
 		cb.Body = map[string]any{"value": body}
-		for i := 0; i < len(order); i++ {
-			if order[i] == name {
-				order = append(order[:i], order[i+1:]...)
-				break
-			}
+		if !slices.Contains(order, name) {
+			order = append(order, name)
 		}
-		order = append(order, name)
 	}
 	if len(incoming) == 0 {
 		return globalScope, existing, order, nil
