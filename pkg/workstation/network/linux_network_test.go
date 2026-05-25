@@ -289,21 +289,24 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// When configuring DNS
 		err := manager.ConfigureDNS()
 
-		// Then the operator-facing hint surfaces — names the supported distros
-		// and points at the manual-config escape hatch for unsupported ones
+		// Then the symlink-specific hint surfaces — names the actual condition
+		// and points at the symlink recovery, not 'systemctl enable --now'
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
 		for _, want := range []string{
-			"systemd-resolved",
-			"sudo systemctl enable --now systemd-resolved",
-			"Ubuntu/Debian/Fedora/openSUSE",
-			"Alpine, Void, Devuan, NixOS, Slackware",
+			"systemd-resolved is active but /etc/resolv.conf is not pointing at its stub",
+			"sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf",
+			"NetworkManager",
 			"troubleshooting.md#dns-on-non-systemd-linux",
 		} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("expected hint to include %q, got: %s", want, err.Error())
 			}
+		}
+		// And the not-running hint's signature phrase MUST NOT appear here
+		if strings.Contains(err.Error(), "which is not running") {
+			t.Errorf("expected symlink hint, got not-running hint: %s", err.Error())
 		}
 	})
 

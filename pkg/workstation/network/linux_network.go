@@ -20,10 +20,16 @@ import (
 // Constants
 // =============================================================================
 
-// systemdResolvedRequiredHint surfaces when either the resolved service is not
-// active or /etc/resolv.conf does not point at its stub. Names the supported
-// distros + the manual-config escape hatch for distros without systemd-resolved.
-const systemdResolvedRequiredHint = "DNS configuration on this distro requires systemd-resolved, which is not running. Windsor's supported Linux DNS setup uses a systemd-resolved drop-in at /etc/systemd/resolved.conf.d/. To enable: 'sudo systemctl enable --now systemd-resolved' (Ubuntu/Debian/Fedora/openSUSE), then re-run 'windsor configure network'. If your distro doesn't ship systemd-resolved (Alpine, Void, Devuan, NixOS, Slackware), you'll need to wire DNS manually — add 'nameserver <address>' for *.<domain> via your distro's resolver (resolvconf, dnsmasq, unbound). See docs/guides/troubleshooting.md#dns-on-non-systemd-linux."
+// systemdResolvedNotRunningHint surfaces when `systemctl is-active systemd-resolved` reports
+// inactive. Names the supported distros + the manual-config escape hatch for distros that
+// don't ship systemd-resolved at all (Alpine, Void, NixOS, etc.).
+const systemdResolvedNotRunningHint = "DNS configuration on this distro requires systemd-resolved, which is not running. Windsor's supported Linux DNS setup uses a systemd-resolved drop-in at /etc/systemd/resolved.conf.d/. To enable: 'sudo systemctl enable --now systemd-resolved' (Ubuntu/Debian/Fedora/openSUSE), then re-run 'windsor configure network'. If your distro doesn't ship systemd-resolved (Alpine, Void, Devuan, NixOS, Slackware), you'll need to wire DNS manually — add 'nameserver <address>' for *.<domain> via your distro's resolver (resolvconf, dnsmasq, unbound). See docs/guides/troubleshooting.md#dns-on-non-systemd-linux."
+
+// systemdResolvedSymlinkHint surfaces when the resolved service is active but /etc/resolv.conf
+// does not symlink to its stub. The drop-in we'd write would be ignored in that state because
+// resolv.conf bypasses resolved entirely. Common causes: NetworkManager with `dns=default`,
+// manual edits, or distro defaults that haven't switched over.
+const systemdResolvedSymlinkHint = "systemd-resolved is active but /etc/resolv.conf is not pointing at its stub resolver, so any drop-in we write would be ignored. Restore the symlink with 'sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf', then re-run 'windsor configure network'. If NetworkManager keeps rewriting /etc/resolv.conf, set 'dns=systemd-resolved' in /etc/NetworkManager/conf.d/dns.conf and reload NetworkManager. See docs/guides/troubleshooting.md#dns-on-non-systemd-linux."
 
 // =============================================================================
 // Public Methods
@@ -98,12 +104,12 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	}
 
 	if status, err := n.shell.ExecSilent("systemctl", "is-active", "systemd-resolved"); err != nil || strings.TrimSpace(status) != "active" {
-		return fmt.Errorf("%s", systemdResolvedRequiredHint)
+		return fmt.Errorf("%s", systemdResolvedNotRunningHint)
 	}
 
 	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
 	if err != nil || !isSystemdResolvedStubLink(resolvConf) {
-		return fmt.Errorf("%s", systemdResolvedRequiredHint)
+		return fmt.Errorf("%s", systemdResolvedSymlinkHint)
 	}
 
 	dropInDir := "/etc/systemd/resolved.conf.d"
