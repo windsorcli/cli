@@ -224,7 +224,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				return nil, nil, fmt.Errorf("facet %s: %w", facet.Metadata.Name, errMerge)
 			}
 		}
-		if err := p.evaluateGlobalScopeConfig(globalScope, configBlockOrder, contextScope); err != nil {
+		if err := p.evaluateGlobalScopeConfig(globalScope, contextScope); err != nil {
 			return nil, nil, err
 		}
 		mergeBase := contextScope
@@ -550,8 +550,10 @@ func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existin
 // with globalScope (facet config blocks) so expressions can reference both (e.g.
 // cluster.controlplanes.schedulable from values and talos.controlplanes from config blocks).
 // Same-block references are supported by re-evaluating each block until stable. Mutates
-// globalScope in place. Block names are iterated in configBlockOrder.
-func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, configBlockOrder []string, contextScope map[string]any) error {
+// globalScope in place. Block evaluation order is determined by topoSortConfigBlocks —
+// each block evaluates after every block it references, regardless of which facet wrote
+// which first; alphabetical tiebreak for independent blocks.
+func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[string]any, contextScope map[string]any) error {
 	if globalScope == nil {
 		return nil
 	}
@@ -560,13 +562,13 @@ func (p *BaseBlueprintProcessor) evaluateGlobalScopeConfig(globalScope map[strin
 			contextScope = vals
 		}
 	}
-	names := configBlockOrder
-	if len(names) == 0 {
-		names = make([]string, 0, len(globalScope))
-		for name := range globalScope {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+	// Order blocks by their inter-block reference dependencies, not by the order facets
+	// happened to write them. A block that references another must evaluate after the
+	// block it references, regardless of authoring order. topoSortConfigBlocks returns
+	// blocks in dependency order with alphabetical tiebreak.
+	names, err := topoSortConfigBlocks(globalScope)
+	if err != nil {
+		return err
 	}
 	const maxSameBlockPasses = 5
 	const maxCrossBlockRounds = 5
