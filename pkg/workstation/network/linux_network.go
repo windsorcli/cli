@@ -17,6 +17,15 @@ import (
 // ensuring proper network connectivity between the host and guest VM environments.
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+// systemdResolvedRequiredHint surfaces when either the resolved service is not
+// active or /etc/resolv.conf does not point at its stub. Names the supported
+// distros + the manual-config escape hatch for distros without systemd-resolved.
+const systemdResolvedRequiredHint = "DNS configuration on this distro requires systemd-resolved, which is not running. Windsor's supported Linux DNS setup uses a systemd-resolved drop-in at /etc/systemd/resolved.conf.d/. To enable: 'sudo systemctl enable --now systemd-resolved' (Ubuntu/Debian/Fedora/openSUSE), then re-run 'windsor configure network'. If your distro doesn't ship systemd-resolved (Alpine, Void, Devuan, NixOS, Slackware), you'll need to wire DNS manually — add 'nameserver <address>' for *.<domain> via your distro's resolver (resolvconf, dnsmasq, unbound). See docs/guides/troubleshooting.md#dns-on-non-systemd-linux."
+
+// =============================================================================
 // Public Methods
 // =============================================================================
 
@@ -70,9 +79,10 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS configures systemd-resolved so only the configured dns.domain uses our resolver;
-// global DNS is unchanged. Resolver IP is read from config (dns.resolver_ip, or derived: 127.0.0.1 in
-// localhost mode, else dns.address).
+// ConfigureDNS installs a systemd-resolved drop-in scoping dns.domain to our resolver; global DNS is
+// unchanged. Probes `systemctl is-active systemd-resolved` first so distros that don't ship resolved
+// fail with an actionable hint, and warns non-fatally when NetworkManager's `dns=default` mode would
+// rewrite /etc/resolv.conf and shadow the drop-in.
 func (n *BaseNetworkManager) ConfigureDNS() error {
 	domain := n.configHandler.GetString("dns.domain")
 	if domain == "" {
@@ -87,9 +97,13 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 		return fmt.Errorf("DNS address is not configured")
 	}
 
+	if status, err := n.shell.ExecSilent("systemctl", "is-active", "systemd-resolved"); err != nil || strings.TrimSpace(status) != "active" {
+		return fmt.Errorf("%s", systemdResolvedRequiredHint)
+	}
+
 	resolvConf, err := n.shims.ReadLink("/etc/resolv.conf")
 	if err != nil || !isSystemdResolvedStubLink(resolvConf) {
-		return fmt.Errorf("systemd-resolved is not in use. Please configure DNS manually or use a compatible system")
+		return fmt.Errorf("%s", systemdResolvedRequiredHint)
 	}
 
 	dropInDir := "/etc/systemd/resolved.conf.d"
@@ -117,6 +131,10 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 
 	if _, err := n.shell.ExecSudo("", "systemctl", "restart", "systemd-resolved"); err != nil {
 		return fmt.Errorf("failed to restart systemd-resolved: %w", err)
+	}
+
+	if msg := n.networkManagerShadowsResolverWarning(domain); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
 	}
 
 	return nil
@@ -201,6 +219,61 @@ func (n *BaseNetworkManager) needsPrivilegeForResolver(desiredIP string) bool {
 	}
 	expectedContent := fmt.Sprintf("[Resolve]\nDomains=~%s\nDNS=%s\n", domain, desiredIP)
 	return string(existingContent) != expectedContent
+}
+
+// networkManagerShadowsResolverWarning returns a non-fatal hint when NM is active and configured to
+// rewrite /etc/resolv.conf directly (dns=default, or dns= unset). Walks NetworkManager.conf then
+// conf.d/*.conf in lexical order — last [main] dns= wins. Returns "" otherwise.
+func (n *BaseNetworkManager) networkManagerShadowsResolverWarning(domain string) string {
+	status, err := n.shell.ExecSilent("systemctl", "is-active", "NetworkManager")
+	if err != nil || strings.TrimSpace(status) != "active" {
+		return ""
+	}
+
+	paths := []string{"/etc/NetworkManager/NetworkManager.conf"}
+	if matches, _ := n.shims.Glob("/etc/NetworkManager/conf.d/*.conf"); len(matches) > 0 {
+		paths = append(paths, matches...)
+	}
+	dnsSetting := ""
+	for _, p := range paths {
+		if v, ok := readNetworkManagerMainDNS(n.shims.ReadFile, p); ok {
+			dnsSetting = v
+		}
+	}
+
+	if dnsSetting != "" && dnsSetting != "default" {
+		return ""
+	}
+	return fmt.Sprintf("\n\033[33m⚠\033[0m NetworkManager is configured with 'dns=default' (or unset). NM will rewrite /etc/resolv.conf directly, which can shadow the systemd-resolved drop-in this command just wrote. If '*.%s' fails to resolve after this, add 'dns=systemd-resolved' to /etc/NetworkManager/conf.d/dns.conf and run 'sudo systemctl reload NetworkManager'.", domain)
+}
+
+// readNetworkManagerMainDNS parses an NM-style INI file and returns the dns=
+// value from the [main] section if present. Honors comments (# and ;) and is
+// section-aware so a stray `dns=` in `[connection]` or similar doesn't leak.
+func readNetworkManagerMainDNS(readFile func(string) ([]byte, error), path string) (value string, found bool) {
+	data, err := readFile(path)
+	if err != nil {
+		return "", false
+	}
+	inMain := false
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			inMain = line == "[main]"
+			continue
+		}
+		if !inMain {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == "dns" {
+			return strings.TrimSpace(parts[1]), true
+		}
+	}
+	return "", false
 }
 
 // needsPrivilegeForHostRoute reports whether sudo is required to add the host route for the guest.

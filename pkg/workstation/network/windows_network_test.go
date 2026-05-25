@@ -257,26 +257,27 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
 				script := args[1]
 				if strings.Contains(script, "Get-DnsClientNrptRule") {
-					// Extract namespace from the script
-					namespaceMatch := strings.Split(script, "$namespace = '")
-					if len(namespaceMatch) > 1 {
-						namespaceParts := strings.Split(namespaceMatch[1], "'")
-						if len(namespaceParts) > 0 {
-							capturedNamespace = namespaceParts[0]
+					// Extract namespace from the check script's Where-Object filter.
+					if match := strings.Split(script, "Namespace -eq '"); len(match) > 1 {
+						parts := strings.SplitN(match[1], "'", 2)
+						if len(parts) > 0 {
+							capturedNamespace = parts[0]
 						}
 					}
-
-					// Extract nameservers from the script — the check joins NameServers before comparing
-					// to handle multi-server NRPT rules, so the right-hand side of -ne is the only place
-					// the literal lives.
-					nameserversMatch := strings.Split(script, "-join ',') -ne \"")
-					if len(nameserversMatch) > 1 {
-						parts := strings.Split(nameserversMatch[1], "\"")
-						if len(parts) > 1 {
-							capturedNameServers = strings.Trim(parts[0], "\"")
-						}
+				}
+			}
+			return "", nil
+		}
+		// The addOrUpdate script (used to actually install the rule) is dispatched
+		// via ExecProgress; its -NameServers parameter is the literal we want.
+		mocks.Shell.ExecProgressFunc = func(message, command string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
+				script := args[1]
+				if match := strings.Split(script, "-NameServers \""); len(match) > 1 {
+					parts := strings.SplitN(match[1], "\"", 2)
+					if len(parts) > 0 {
+						capturedNameServers = parts[0]
 					}
-					return "", nil
 				}
 			}
 			return "", nil
@@ -299,6 +300,40 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		expectedNameServers := "127.0.0.1"
 		if capturedNameServers != expectedNameServers {
 			t.Errorf("expected nameservers to be %q, got %q", expectedNameServers, capturedNameServers)
+		}
+	})
+
+	t.Run("ExistingRuleWithOurIPFirstIsLeftAlone", func(t *testing.T) {
+		// Given an NRPT rule whose first NameServer is our desired IP, followed by
+		// operator-added entries (NameServers comma-joins as "1.2.3.4,5.6.7.8")
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+
+		var addOrUpdateCalled bool
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && strings.Contains(args[1], "Get-DnsClientNrptRule") {
+				return "1.2.3.4,5.6.7.8", nil
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressFunc = func(message, command string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && (strings.Contains(args[1], "Set-DnsClientNrptRule") || strings.Contains(args[1], "Add-DnsClientNrptRule")) {
+				addOrUpdateCalled = true
+			}
+			return "", nil
+		}
+
+		// When configuring DNS
+		if err := manager.ConfigureDNS(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then no rewrite is issued — the first NameServer already matches our IP.
+		// The pre-fix comparison ($_.NameServers -join ',' -ne "1.2.3.4") would have
+		// returned $false here and triggered a redundant elevation.
+		if addOrUpdateCalled {
+			t.Errorf("expected no NRPT rewrite when first NameServer already matches; got privileged update")
 		}
 	})
 

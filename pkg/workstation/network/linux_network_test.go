@@ -279,25 +279,55 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("SystemdResolvedNotInUse", func(t *testing.T) {
-		// Given a network manager with systemd-resolved not in use
+	t.Run("ResolvConfNotPointingAtStubReturnsActionableHint", func(t *testing.T) {
+		// Given systemd-resolved is active but /etc/resolv.conf is not its stub
 		manager, mocks := setup(t)
-
-		// And mocking systemd-resolved being in use
 		mocks.Shims.ReadLink = func(_ string) (string, error) {
 			return "/etc/resolv.conf", nil
 		}
 
-		// And configuring DNS
+		// When configuring DNS
 		err := manager.ConfigureDNS()
 
-		// Then an error should occur
+		// Then the operator-facing hint surfaces — names the supported distros
+		// and points at the manual-config escape hatch for unsupported ones
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		expectedError := "systemd-resolved is not in use. Please configure DNS manually or use a compatible system"
-		if !strings.Contains(err.Error(), expectedError) {
-			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
+		for _, want := range []string{
+			"systemd-resolved",
+			"sudo systemctl enable --now systemd-resolved",
+			"Ubuntu/Debian/Fedora/openSUSE",
+			"Alpine, Void, Devuan, NixOS, Slackware",
+			"troubleshooting.md#dns-on-non-systemd-linux",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("expected hint to include %q, got: %s", want, err.Error())
+			}
+		}
+	})
+
+	t.Run("SystemctlInactiveReturnsActionableHint", func(t *testing.T) {
+		// Given systemd-resolved is not active (distros without it shipped:
+		// Alpine, Void, etc., or systems where the operator disabled it)
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "systemctl" && len(args) == 2 && args[0] == "is-active" && args[1] == "systemd-resolved" {
+				return "inactive", fmt.Errorf("exit status 3")
+			}
+			return "", nil
+		}
+
+		// When configuring DNS
+		err := manager.ConfigureDNS()
+
+		// Then the same operator-facing hint surfaces — the symlink check is
+		// not reached, but the hint copy works for both failure modes
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "systemd-resolved, which is not running") {
+			t.Errorf("expected hint mentioning systemd-resolved not running, got: %s", err.Error())
 		}
 	})
 
@@ -590,6 +620,130 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 		// Then the deferred cleanup removed the same temp directory the helper created
 		if removedPath != "/tmp/windsor-net-mock" {
 			t.Fatalf("expected temp dir cleanup of %q, got %q", "/tmp/windsor-net-mock", removedPath)
+		}
+	})
+}
+
+func TestLinuxNetworkManager_NetworkManagerShadowsResolverWarning(t *testing.T) {
+	setup := func(t *testing.T) (*BaseNetworkManager, *NetworkTestMocks) {
+		t.Helper()
+		mocks := setupNetworkMocks(t)
+		manager := NewBaseNetworkManager(mocks.Runtime)
+		manager.shims = mocks.Shims
+		return manager, mocks
+	}
+
+	// nmActiveAndConfig wires the systemctl probe to report NetworkManager
+	// active, and stubs ReadFile + Glob to return the supplied main config and
+	// optional conf.d overrides keyed by path.
+	nmActiveAndConfig := func(mocks *NetworkTestMocks, files map[string]string) {
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "systemctl" && len(args) == 2 && args[0] == "is-active" {
+				if args[1] == "systemd-resolved" || args[1] == "NetworkManager" {
+					return "active", nil
+				}
+			}
+			return "", nil
+		}
+		mocks.Shims.ReadFile = func(path string) ([]byte, error) {
+			if body, ok := files[path]; ok {
+				return []byte(body), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Shims.Glob = func(pattern string) ([]string, error) {
+			if pattern != "/etc/NetworkManager/conf.d/*.conf" {
+				return nil, nil
+			}
+			var matches []string
+			for path := range files {
+				if strings.HasPrefix(path, "/etc/NetworkManager/conf.d/") {
+					matches = append(matches, path)
+				}
+			}
+			return matches, nil
+		}
+	}
+
+	t.Run("NoWarningWhenNetworkManagerInactive", func(t *testing.T) {
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "systemctl" && len(args) == 2 && args[0] == "is-active" && args[1] == "NetworkManager" {
+				return "inactive", fmt.Errorf("exit status 3")
+			}
+			if command == "systemctl" && len(args) == 2 && args[0] == "is-active" && args[1] == "systemd-resolved" {
+				return "active", nil
+			}
+			return "", nil
+		}
+
+		if msg := manager.networkManagerShadowsResolverWarning("example.com"); msg != "" {
+			t.Errorf("expected no warning when NM inactive, got: %s", msg)
+		}
+	})
+
+	t.Run("WarnsWhenDnsExplicitlyDefault", func(t *testing.T) {
+		manager, mocks := setup(t)
+		nmActiveAndConfig(mocks, map[string]string{
+			"/etc/NetworkManager/NetworkManager.conf": "[main]\ndns=default\n",
+		})
+
+		msg := manager.networkManagerShadowsResolverWarning("local.test")
+		if msg == "" {
+			t.Fatal("expected warning for dns=default, got empty string")
+		}
+		for _, want := range []string{"dns=default", "local.test", "dns=systemd-resolved"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("expected warning to include %q, got: %s", want, msg)
+			}
+		}
+	})
+
+	t.Run("WarnsWhenDnsKeyMissingFromMainSection", func(t *testing.T) {
+		manager, mocks := setup(t)
+		nmActiveAndConfig(mocks, map[string]string{
+			"/etc/NetworkManager/NetworkManager.conf": "[main]\nplugins=keyfile\n",
+		})
+
+		if msg := manager.networkManagerShadowsResolverWarning("example.com"); msg == "" {
+			t.Error("expected warning when dns= is unset (NM treats unset as default)")
+		}
+	})
+
+	t.Run("NoWarningWhenDnsExplicitlyDefersToSystemdResolved", func(t *testing.T) {
+		manager, mocks := setup(t)
+		nmActiveAndConfig(mocks, map[string]string{
+			"/etc/NetworkManager/NetworkManager.conf": "[main]\ndns=systemd-resolved\n",
+		})
+
+		if msg := manager.networkManagerShadowsResolverWarning("example.com"); msg != "" {
+			t.Errorf("expected no warning when dns=systemd-resolved, got: %s", msg)
+		}
+	})
+
+	t.Run("ConfDOverridesMainConfig", func(t *testing.T) {
+		// Given main says dns=default but conf.d overrides to systemd-resolved
+		manager, mocks := setup(t)
+		nmActiveAndConfig(mocks, map[string]string{
+			"/etc/NetworkManager/NetworkManager.conf":     "[main]\ndns=default\n",
+			"/etc/NetworkManager/conf.d/dns-override.conf": "[main]\ndns=systemd-resolved\n",
+		})
+
+		if msg := manager.networkManagerShadowsResolverWarning("example.com"); msg != "" {
+			t.Errorf("expected no warning when conf.d overrides to systemd-resolved, got: %s", msg)
+		}
+	})
+
+	t.Run("DnsSettingInWrongSectionIsIgnored", func(t *testing.T) {
+		// Given dns= appears outside [main]
+		manager, mocks := setup(t)
+		nmActiveAndConfig(mocks, map[string]string{
+			"/etc/NetworkManager/NetworkManager.conf": "[connection]\ndns=systemd-resolved\n",
+		})
+
+		// Then no main setting is found and the warning still fires (unset == default)
+		if msg := manager.networkManagerShadowsResolverWarning("example.com"); msg == "" {
+			t.Error("expected warning when dns= is outside [main] (it doesn't count)")
 		}
 	})
 }

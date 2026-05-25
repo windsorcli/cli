@@ -3,6 +3,7 @@ package network
 import (
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 )
 
@@ -25,6 +26,7 @@ type Shims struct {
 	MkdirAll  func(string, os.FileMode) error
 	MkdirTemp func(dir, pattern string) (string, error)
 	RemoveAll func(string) error
+	Glob      func(pattern string) ([]string, error)
 }
 
 // NetworkInterfaceProvider abstracts the system's network interface operations
@@ -60,6 +62,7 @@ func NewShims() *Shims {
 		MkdirAll:  os.MkdirAll,
 		MkdirTemp: os.MkdirTemp,
 		RemoveAll: os.RemoveAll,
+		Glob:      filepath.Glob,
 	}
 }
 
