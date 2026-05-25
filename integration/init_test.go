@@ -58,6 +58,45 @@ func getPathValue(data map[string]any, path ...string) (any, bool) {
 	return current, true
 }
 
+// TestInit_RejectsRemovedProviderFlag verifies that --provider, the long
+// deprecated alias for --platform, no longer parses. Removed in v0.9.0.
+func TestInit_RejectsRemovedProviderFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "prod", "--provider", "aws"}, env)
+	if err == nil {
+		t.Fatal("expected failure for removed --provider flag, got success")
+	}
+	if !strings.Contains(string(stderr), "unknown flag: --provider") {
+		t.Errorf("expected stderr to mention 'unknown flag: --provider', got: %s", stderr)
+	}
+}
+
+// TestContext_RemovedGroupReturnsMigrationHint verifies that invocations of the
+// removed `windsor context …` group return a migration-friendly error pointing
+// at the replacement command, rather than cobra's default "unknown command".
+// The friendly stub is scheduled for deletion in v0.10.0.
+func TestContext_RemovedGroupReturnsMigrationHint(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"context", "get"}, env)
+	if err == nil {
+		t.Fatal("expected migration error for 'context get', got success")
+	}
+	if !strings.Contains(string(stderr), "use 'windsor get context'") {
+		t.Errorf("expected migration hint suggesting 'windsor get context', got: %s", stderr)
+	}
+
+	_, stderr, err = helpers.RunCLI(dir, []string{"context", "set", "staging"}, env)
+	if err == nil {
+		t.Fatal("expected migration error for 'context set', got success")
+	}
+	if !strings.Contains(string(stderr), "use 'windsor set context'") {
+		t.Errorf("expected migration hint suggesting 'windsor set context', got: %s", stderr)
+	}
+}
+
 func TestInit_PersistsSetValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")

@@ -105,7 +105,7 @@ In your project, the `terraform/` directory houses your standard Terraform files
 - **Terraform Directory**: `terraform/database/postgres`
 - **Local Context Variables**: `contexts/local/terraform/database/postgres.tfvars`
 
-When you set a context using `windsor context set`, the Windsor CLI automatically includes the appropriate `.tfvars` files in your Terraform commands. This means running `terraform plan` in the `terraform/database/postgres` directory is equivalent to:
+When you set a context using `windsor set context`, the Windsor CLI automatically includes the appropriate `.tfvars` files in your Terraform commands. This means running `terraform plan` in the `terraform/database/postgres` directory is equivalent to:
 
 ```bash
 terraform plan --var-file path/to/contexts/local/terraform/database/postgres.tfvars
