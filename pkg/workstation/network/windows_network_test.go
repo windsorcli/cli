@@ -502,9 +502,12 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("CheckScriptJoinsNameServersBeforeCompare", func(t *testing.T) {
-		// Given the rule check must handle NRPT rules whose NameServers is a multi-element array
-		// (a plain $existingRule.NameServers -ne "<ip>" compares array-to-scalar and always reports mismatch).
+	t.Run("CheckScriptHandlesNameServersAsArray", func(t *testing.T) {
+		// Regression guard for the original array-vs-scalar NRPT bug: a plain
+		// $r.NameServers -ne "<ip>" compares array-to-scalar and always reports mismatch.
+		// The current check joins NameServers and returns the comma-string for Go-side
+		// first-IP comparison (see needsPrivilegeForResolver), so the array case is handled
+		// regardless of where the compare lives.
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "example.com")
 		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
@@ -522,12 +525,15 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then the check script joins NameServers into a comma-separated string before comparing
-		if !strings.Contains(checkScript, "($existingRule.NameServers -join ',') -ne") {
-			t.Fatalf("expected check script to join NameServers before comparing, got: %q", checkScript)
+		// Then the check script must join NameServers (handles the multi-element array)
+		if !strings.Contains(checkScript, "NameServers -join ','") {
+			t.Fatalf("expected check script to join NameServers (handles array), got: %q", checkScript)
 		}
-		if strings.Contains(checkScript, "$existingRule.NameServers -ne") {
-			t.Fatalf("check script still uses the broken array-vs-scalar comparison, got: %q", checkScript)
+		// And must not regress to the broken array-vs-scalar PowerShell comparison
+		for _, broken := range []string{"$existingRule.NameServers -ne", "$r.NameServers -ne"} {
+			if strings.Contains(checkScript, broken) {
+				t.Fatalf("check script still uses the broken array-vs-scalar comparison %q, got: %q", broken, checkScript)
+			}
 		}
 	})
 }
