@@ -72,21 +72,31 @@ func TestInit_RejectsRemovedProviderFlag(t *testing.T) {
 	}
 }
 
-// TestContext_RejectsRemovedHiddenContextGroup verifies that the hidden
-// `windsor context get|set` legacy command group, deprecated in favor of
-// `windsor get context` / `windsor set context`, is no longer registered.
-func TestContext_RejectsRemovedHiddenContextGroup(t *testing.T) {
+// TestContext_RemovedGroupReturnsMigrationHint verifies that invocations of the
+// removed `windsor context …` group return a migration-friendly error pointing
+// at the replacement command, rather than cobra's default "unknown command".
+// The friendly stub is scheduled for deletion in v0.10.0.
+func TestContext_RemovedGroupReturnsMigrationHint(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
+
 	_, stderr, err := helpers.RunCLI(dir, []string{"context", "get"}, env)
 	if err == nil {
-		t.Fatal("expected failure for removed 'context' command group, got success")
+		t.Fatal("expected migration error for 'context get', got success")
 	}
-	if !strings.Contains(string(stderr), "unknown command") {
-		t.Errorf("expected stderr to mention 'unknown command', got: %s", stderr)
+	if !strings.Contains(string(stderr), "use 'windsor get context'") {
+		t.Errorf("expected migration hint suggesting 'windsor get context', got: %s", stderr)
+	}
+
+	_, stderr, err = helpers.RunCLI(dir, []string{"context", "set", "staging"}, env)
+	if err == nil {
+		t.Fatal("expected migration error for 'context set', got success")
+	}
+	if !strings.Contains(string(stderr), "use 'windsor set context'") {
+		t.Errorf("expected migration hint suggesting 'windsor set context', got: %s", stderr)
 	}
 }
 

@@ -220,17 +220,31 @@ func TestContextCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("RemovedContextGroupRejected", func(t *testing.T) {
+	t.Run("RemovedContextGroupPrintsMigrationHintForGet", func(t *testing.T) {
 		_, _ = setup(t)
 		rootCmd.SetArgs([]string{"context", "get"})
 
 		err := Execute()
 
 		if err == nil {
-			t.Fatal("Expected error for removed 'context' command group, got nil")
+			t.Fatal("Expected migration error for removed 'context get', got nil")
 		}
-		if !strings.Contains(err.Error(), "unknown command \"context\"") {
-			t.Errorf("Expected 'unknown command \"context\"' error, got: %v", err)
+		if !strings.Contains(err.Error(), "use 'windsor get context'") {
+			t.Errorf("Expected migration hint to suggest 'windsor get context', got: %v", err)
+		}
+	})
+
+	t.Run("RemovedContextGroupPrintsMigrationHintForSet", func(t *testing.T) {
+		_, _ = setup(t)
+		rootCmd.SetArgs([]string{"context", "set", "staging"})
+
+		err := Execute()
+
+		if err == nil {
+			t.Fatal("Expected migration error for removed 'context set', got nil")
+		}
+		if !strings.Contains(err.Error(), "use 'windsor set context'") {
+			t.Errorf("Expected migration hint to suggest 'windsor set context', got: %v", err)
 		}
 	})
 }
