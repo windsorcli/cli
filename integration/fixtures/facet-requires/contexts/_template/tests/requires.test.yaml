@@ -1,0 +1,29 @@
+# Facet requires tests for the declarative `windsor test` harness.
+# Exercises the `consumer` facet (active when platform == 'aws') across the
+# three states an author cares about: requirements satisfied, requirements
+# missing while the facet is active, and the facet not active at all.
+
+cases:
+
+  # All required paths are present — composition succeeds.
+  - name: satisfied
+    values:
+      platform: aws
+      dns:
+        domain: example.com
+      aws:
+        region: us-east-1
+        account_id: "123456789012"
+
+  # Facet is active (platform == 'aws') but required paths are missing —
+  # composition must fail.
+  - name: missing_required_paths_fails
+    values:
+      platform: aws
+    expectError: true
+
+  # Facet's own `when` evaluates false — requires are not checked even
+  # though required paths are absent.
+  - name: facet_not_active_skips_requires
+    values:
+      platform: docker
