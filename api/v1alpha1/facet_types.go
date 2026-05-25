@@ -232,6 +232,22 @@ func (c *ConfigBlock) MarshalYAML() (any, error) {
 	return out, nil
 }
 
+// UnmarshalYAML enforces that paths is present and non-empty. A block with no paths would silently
+// disable requirement checking and defeat the feature's purpose, so the most likely cause (a typo
+// like `pahts:`) is surfaced as a parse-time error instead of a downstream surprise.
+func (r *RequirementBlock) UnmarshalYAML(unmarshal func(any) error) error {
+	type rawRequirementBlock RequirementBlock
+	var raw rawRequirementBlock
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+	if len(raw.Paths) == 0 {
+		return fmt.Errorf("requirement block: paths is required and must contain at least one entry")
+	}
+	*r = RequirementBlock(raw)
+	return nil
+}
+
 // DeepCopy creates a deep copy of the RequirementBlock object.
 func (r *RequirementBlock) DeepCopy() *RequirementBlock {
 	if r == nil {

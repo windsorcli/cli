@@ -208,6 +208,51 @@ func TestRequirementBlockDeepCopy(t *testing.T) {
 	})
 }
 
+func TestRequirementBlockUnmarshalYAML(t *testing.T) {
+	t.Run("ErrorsWhenPathsKeyMissing", func(t *testing.T) {
+		// Models a typo such as `pahts:` — the field is absent entirely, which would
+		// otherwise produce a silently-disabled requirement.
+		var f Facet
+		err := yaml.Unmarshal([]byte(`requires:
+  - when: provider == 'aws'
+    message: missing the paths key entirely
+`), &f)
+		if err == nil {
+			t.Fatal("Expected error when paths is missing, got nil")
+		}
+		if !strings.Contains(err.Error(), "paths is required") {
+			t.Errorf("Expected error to mention 'paths is required', got: %v", err)
+		}
+	})
+
+	t.Run("ErrorsWhenPathsListEmpty", func(t *testing.T) {
+		var f Facet
+		err := yaml.Unmarshal([]byte(`requires:
+  - paths: []
+`), &f)
+		if err == nil {
+			t.Fatal("Expected error when paths is empty, got nil")
+		}
+		if !strings.Contains(err.Error(), "paths is required") {
+			t.Errorf("Expected error to mention 'paths is required', got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsValidBlock", func(t *testing.T) {
+		var f Facet
+		err := yaml.Unmarshal([]byte(`requires:
+  - paths:
+      - cluster.name
+`), &f)
+		if err != nil {
+			t.Fatalf("Expected no error for valid block, got: %v", err)
+		}
+		if len(f.Requires) != 1 || len(f.Requires[0].Paths) != 1 || f.Requires[0].Paths[0] != "cluster.name" {
+			t.Errorf("Expected one requires entry with paths=[cluster.name], got: %+v", f.Requires)
+		}
+	})
+}
+
 func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 	t.Run("ReturnsNilForNilComponent", func(t *testing.T) {
 		var c *ConditionalTerraformComponent
