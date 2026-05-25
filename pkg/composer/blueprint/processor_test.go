@@ -5555,10 +5555,10 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 func TestFormatRequirementsError(t *testing.T) {
 	t.Run("UnconditionalBucketRendersFirst", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
-			"a": {FacetName: "a", Misses: []requirementBlockMiss{
+			"a": {Misses: []requirementBlockMiss{
 				{Condition: "", Paths: []string{"cluster.name"}},
 			}},
-			"b": {FacetName: "b", Misses: []requirementBlockMiss{
+			"b": {Misses: []requirementBlockMiss{
 				{Condition: "platform == 'aws'", Paths: []string{"aws.region"}},
 			}},
 		}
@@ -5575,10 +5575,10 @@ func TestFormatRequirementsError(t *testing.T) {
 
 	t.Run("MergesSameConditionAcrossFacets", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
-			"a": {FacetName: "a", Misses: []requirementBlockMiss{
+			"a": {Misses: []requirementBlockMiss{
 				{Condition: "platform == 'aws'", Paths: []string{"aws.region"}},
 			}},
-			"b": {FacetName: "b", Misses: []requirementBlockMiss{
+			"b": {Misses: []requirementBlockMiss{
 				{Condition: "platform == 'aws'", Paths: []string{"aws.account_id"}},
 			}},
 		}
@@ -5593,7 +5593,7 @@ func TestFormatRequirementsError(t *testing.T) {
 
 	t.Run("MessageIndentedAboveDeeperPaths", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
-			"obs": {FacetName: "obs", Misses: []requirementBlockMiss{
+			"obs": {Misses: []requirementBlockMiss{
 				{Condition: "observability.enabled", Message: "See docs/obs.", Paths: []string{"observability.token"}},
 			}},
 		}
@@ -5608,7 +5608,7 @@ func TestFormatRequirementsError(t *testing.T) {
 
 	t.Run("FooterUsesSingularForOneMissing", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
-			"a": {FacetName: "a", Misses: []requirementBlockMiss{
+			"a": {Misses: []requirementBlockMiss{
 				{Paths: []string{"cluster.name"}},
 			}},
 		}
@@ -5620,7 +5620,7 @@ func TestFormatRequirementsError(t *testing.T) {
 
 	t.Run("ErrorDoesNotMentionFacet", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
-			"facet-name-here": {FacetName: "facet-name-here", Misses: []requirementBlockMiss{
+			"facet-name-here": {Misses: []requirementBlockMiss{
 				{Paths: []string{"cluster.name"}},
 			}},
 		}

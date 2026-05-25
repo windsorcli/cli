@@ -68,10 +68,9 @@ type requirementBlockMiss struct {
 }
 
 // facetRequirementMisses aggregates a single facet's unsatisfied requirement blocks for the
-// final-round error report.
+// final-round error report. The facet name is carried by the outer map key in pendingRequirements.
 type facetRequirementMisses struct {
-	FacetName string
-	Misses    []requirementBlockMiss
+	Misses []requirementBlockMiss
 }
 
 // =============================================================================
@@ -215,10 +214,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				return nil, nil, err
 			}
 			if len(misses) > 0 {
-				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{
-					FacetName: facet.Metadata.Name,
-					Misses:    misses,
-				}
+				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{Misses: misses}
 				continue
 			}
 			includedFacets = append(includedFacets, facet)
