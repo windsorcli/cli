@@ -5411,14 +5411,14 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 			t.Fatal("Expected error for unsatisfied requirements, got nil")
 		}
 		msg := err.Error()
-		if !strings.Contains(msg, "Required configuration is missing") {
-			t.Errorf("Expected aggregated header, got: %s", msg)
+		if !strings.Contains(msg, "the following required values are not set in values.yaml:") {
+			t.Errorf("Expected lead instruction, got: %s", msg)
 		}
-		if !strings.Contains(msg, "aws.region") || !strings.Contains(msg, "aws.account_id") {
-			t.Errorf("Expected both paths listed, got: %s", msg)
+		if !strings.Contains(msg, "- aws.account_id\n  - aws.region") {
+			t.Errorf("Expected both paths listed alphabetically as bullets, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because platform == 'aws':") {
-			t.Errorf("Expected condition heading, got: %s", msg)
+		if strings.Contains(msg, "Because") || strings.Contains(msg, "platform == 'aws'") {
+			t.Errorf("Expected error to not surface condition expression, got: %s", msg)
 		}
 		if strings.Contains(msg, "facet") {
 			t.Errorf("Expected error to not mention 'facet', got: %s", msg)
@@ -5504,7 +5504,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 		}
 	})
 
-	t.Run("MessageRendersUnderConditionHeading", func(t *testing.T) {
+	t.Run("MessageRendersInNotesSection", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
 			return map[string]any{"observability": map[string]any{"enabled": true}}, nil
@@ -5528,14 +5528,17 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 			t.Fatal("Expected error, got nil")
 		}
 		msg := err.Error()
-		if !strings.Contains(msg, "Because observability.enabled:") {
-			t.Errorf("Expected condition heading, got: %s", msg)
+		if strings.Contains(msg, "Because") {
+			t.Errorf("Expected no 'Because' heading in new format, got: %s", msg)
 		}
-		if !strings.Contains(msg, "See docs/observability for setup.") {
-			t.Errorf("Expected message text in error, got: %s", msg)
+		if !strings.Contains(msg, "\nNotes:\n") {
+			t.Errorf("Expected 'Notes:' section, got: %s", msg)
 		}
-		if !strings.Contains(msg, "observability.endpoint") || !strings.Contains(msg, "observability.token") {
-			t.Errorf("Expected both paths in error, got: %s", msg)
+		if !strings.Contains(msg, "  observability.endpoint:\n    See docs/observability for setup.") {
+			t.Errorf("Expected message in Notes under first path, got: %s", msg)
+		}
+		if !strings.Contains(msg, "  observability.token:\n    See docs/observability for setup.") {
+			t.Errorf("Expected message in Notes under second path, got: %s", msg)
 		}
 	})
 
@@ -5566,17 +5569,11 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 			t.Fatal("Expected aggregated error, got nil")
 		}
 		msg := err.Error()
-		if !strings.Contains(msg, "Required:") {
-			t.Errorf("Expected unconditional 'Required:' heading, got: %s", msg)
+		if !strings.Contains(msg, "- aws.region") || !strings.Contains(msg, "- cluster.name") {
+			t.Errorf("Expected both paths as bullets, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because platform == 'aws':") {
-			t.Errorf("Expected conditional heading, got: %s", msg)
-		}
-		if !strings.Contains(msg, "cluster.name") || !strings.Contains(msg, "aws.region") {
-			t.Errorf("Expected both paths, got: %s", msg)
-		}
-		if !strings.Contains(msg, "2 missing values") {
-			t.Errorf("Expected '2 missing values' summary, got: %s", msg)
+		if strings.Contains(msg, "platform == 'aws'") {
+			t.Errorf("Expected no condition expression in output, got: %s", msg)
 		}
 	})
 
@@ -5614,68 +5611,65 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 // =============================================================================
 
 func TestFormatRequirementsError(t *testing.T) {
-	t.Run("UnconditionalBucketRendersFirst", func(t *testing.T) {
+	t.Run("PathsListedAlphabetically", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
 			"a": {Misses: []requirementBlockMiss{
-				{Condition: "", Paths: []string{"cluster.name"}},
+				{Paths: []string{"cluster.name"}},
 			}},
 			"b": {Misses: []requirementBlockMiss{
-				{Condition: "platform == 'aws'", Paths: []string{"aws.region"}},
+				{Paths: []string{"aws.region"}},
 			}},
 		}
 		msg := formatRequirementsError(pending).Error()
-		idxRequired := strings.Index(msg, "Required:")
-		idxBecause := strings.Index(msg, "Because platform == 'aws':")
-		if idxRequired < 0 || idxBecause < 0 {
-			t.Fatalf("Missing headings in: %s", msg)
+		idxAws := strings.Index(msg, "- aws.region")
+		idxCluster := strings.Index(msg, "- cluster.name")
+		if idxAws < 0 || idxCluster < 0 {
+			t.Fatalf("Missing bullets in: %s", msg)
 		}
-		if idxRequired > idxBecause {
-			t.Error("Expected 'Required:' to appear before conditional heading")
+		if idxAws > idxCluster {
+			t.Error("Expected aws.region to appear before cluster.name (alphabetical)")
 		}
 	})
 
-	t.Run("MergesSameConditionAcrossFacets", func(t *testing.T) {
+	t.Run("DuplicatePathAcrossFacetsRendersOnce", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
 			"a": {Misses: []requirementBlockMiss{
-				{Condition: "platform == 'aws'", Paths: []string{"aws.region"}},
+				{Paths: []string{"aws.region"}},
 			}},
 			"b": {Misses: []requirementBlockMiss{
-				{Condition: "platform == 'aws'", Paths: []string{"aws.account_id"}},
+				{Paths: []string{"aws.region"}},
 			}},
 		}
 		msg := formatRequirementsError(pending).Error()
-		if c := strings.Count(msg, "Because platform == 'aws':"); c != 1 {
-			t.Errorf("Expected one merged heading, got %d. Msg: %s", c, msg)
-		}
-		if !strings.Contains(msg, "aws.region") || !strings.Contains(msg, "aws.account_id") {
-			t.Error("Expected both paths under merged heading")
+		if c := strings.Count(msg, "- aws.region"); c != 1 {
+			t.Errorf("Expected one bullet for aws.region (deduplicated), got %d. Msg: %s", c, msg)
 		}
 	})
 
-	t.Run("MessageIndentedAboveDeeperPaths", func(t *testing.T) {
+	t.Run("NotesSectionRendersAuthorMessage", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
 			"obs": {Misses: []requirementBlockMiss{
-				{Condition: "observability.enabled", Message: "See docs/obs.", Paths: []string{"observability.token"}},
+				{Message: "See docs/obs.", Paths: []string{"observability.token"}},
 			}},
 		}
 		msg := formatRequirementsError(pending).Error()
-		if !strings.Contains(msg, "    See docs/obs.\n") {
-			t.Errorf("Expected message indented at 4 spaces, got: %s", msg)
+		if !strings.Contains(msg, "\nNotes:\n") {
+			t.Errorf("Expected 'Notes:' section, got: %s", msg)
 		}
-		if !strings.Contains(msg, "      - observability.token") {
-			t.Errorf("Expected path indented at 6 spaces under message, got: %s", msg)
+		if !strings.Contains(msg, "  observability.token:\n    See docs/obs.") {
+			t.Errorf("Expected '<path>:' header with indented message, got: %s", msg)
 		}
 	})
 
-	t.Run("FooterUsesSingularForOneMissing", func(t *testing.T) {
+	t.Run("NotesSectionOmittedWhenNoMessages", func(t *testing.T) {
 		pending := map[string]facetRequirementMisses{
 			"a": {Misses: []requirementBlockMiss{
 				{Paths: []string{"cluster.name"}},
 			}},
 		}
 		msg := formatRequirementsError(pending).Error()
-		if !strings.Contains(msg, "1 missing value.") {
-			t.Errorf("Expected singular footer, got: %s", msg)
+		if strings.Contains(msg, "Notes:") {
+			t.Errorf("Expected no 'Notes:' section when no messages, got: %s", msg)
 		}
 	})
 
@@ -5790,8 +5784,8 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 		if !strings.Contains(msg, "aws.cilium_role_arn") {
 			t.Errorf("Expected missing path listed, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because platform == 'aws' && cni.driver == 'cilium':") {
-			t.Errorf("Expected composed condition heading, got: %s", msg)
+		if strings.Contains(msg, "Because") || strings.Contains(msg, "platform == 'aws'") {
+			t.Errorf("Expected no condition expression in output, got: %s", msg)
 		}
 	})
 
@@ -5852,8 +5846,8 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 		if !strings.Contains(msg, "gateway.cert_arn") {
 			t.Errorf("Expected missing path listed, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because gateway.enabled == true && gateway.driver == 'envoy':") {
-			t.Errorf("Expected composed condition heading, got: %s", msg)
+		if strings.Contains(msg, "Because") || strings.Contains(msg, "gateway.enabled") {
+			t.Errorf("Expected no condition expression in output, got: %s", msg)
 		}
 	})
 
@@ -5915,8 +5909,8 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 		if !strings.Contains(msg, "talos.ca_cert") {
 			t.Errorf("Expected missing path listed, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because cluster.driver == 'talos' && talos.tls == true:") {
-			t.Errorf("Expected composed condition heading, got: %s", msg)
+		if strings.Contains(msg, "Because") || strings.Contains(msg, "cluster.driver") {
+			t.Errorf("Expected no condition expression in output, got: %s", msg)
 		}
 	})
 
@@ -5982,14 +5976,11 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 			t.Fatal("Expected aggregated error")
 		}
 		msg := err.Error()
-		if !strings.Contains(msg, "Because platform == 'aws' && cni.driver == 'cilium':") {
-			t.Errorf("Expected cilium bucket, got: %s", msg)
+		if !strings.Contains(msg, "- aws.cilium_role_arn") || !strings.Contains(msg, "- aws.public_zone_id") {
+			t.Errorf("Expected both paths as bullets, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because platform == 'aws' && dns.public_domain != '':") {
-			t.Errorf("Expected dns bucket, got: %s", msg)
-		}
-		if !strings.Contains(msg, "aws.cilium_role_arn") || !strings.Contains(msg, "aws.public_zone_id") {
-			t.Errorf("Expected both paths listed, got: %s", msg)
+		if strings.Contains(msg, "Because") || strings.Contains(msg, "cni.driver") {
+			t.Errorf("Expected no condition expression in output, got: %s", msg)
 		}
 	})
 
@@ -6021,14 +6012,11 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 			t.Fatal("Expected aggregated error")
 		}
 		msg := err.Error()
-		if !strings.Contains(msg, "Because platform == 'aws':") {
-			t.Errorf("Expected facet-level bucket, got: %s", msg)
+		if !strings.Contains(msg, "- aws.cilium_role_arn") || !strings.Contains(msg, "- aws.region") {
+			t.Errorf("Expected both paths as bullets, got: %s", msg)
 		}
-		if !strings.Contains(msg, "Because platform == 'aws' && cni.driver == 'cilium':") {
-			t.Errorf("Expected component-level bucket, got: %s", msg)
-		}
-		if !strings.Contains(msg, "aws.region") || !strings.Contains(msg, "aws.cilium_role_arn") {
-			t.Errorf("Expected both paths listed, got: %s", msg)
+		if strings.Contains(msg, "Because") || strings.Contains(msg, "platform == 'aws'") {
+			t.Errorf("Expected no condition expression in output, got: %s", msg)
 		}
 	})
 

@@ -1,7 +1,6 @@
 package blueprint
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -2020,20 +2019,27 @@ func combineConditions(parts ...string) string {
 }
 
 // formatRequirementsError renders the user-facing aggregated error for unsatisfied facet
-// requirements. Missing paths are bucketed by (effective condition, message); same-key buckets
-// merge while preserving authoring order of paths. Buckets are emitted unconditional-first, then
-// alphabetically by condition. The word "facet" is intentionally absent from the rendered output.
+// requirements. Paths are listed alphabetically, deduplicated across facets, with any
+// author-supplied messages attached underneath. Conditions are deliberately not surfaced —
+// the message field is the right place for an author to explain why a value is needed; raw
+// when-expressions leak engine detail and confuse operators. The word "facet" is intentionally
+// absent from the rendered output.
 func formatRequirementsError(pending map[string]facetRequirementMisses) error {
-	type bucketKey struct {
-		Condition string
-		Message   string
+	pathMessages := make(map[string][]string)
+	var pathOrder []string
+	addMessage := func(path, msg string) {
+		if _, exists := pathMessages[path]; !exists {
+			pathOrder = append(pathOrder, path)
+			pathMessages[path] = nil
+		}
+		if msg == "" {
+			return
+		}
+		if slices.Contains(pathMessages[path], msg) {
+			return
+		}
+		pathMessages[path] = append(pathMessages[path], msg)
 	}
-	type bucket struct {
-		Key   bucketKey
-		Paths []string
-	}
-	bucketIndex := make(map[bucketKey]int)
-	var buckets []*bucket
 
 	names := make([]string, 0, len(pending))
 	for name := range pending {
@@ -2042,62 +2048,46 @@ func formatRequirementsError(pending map[string]facetRequirementMisses) error {
 	sort.Strings(names)
 	for _, name := range names {
 		for _, miss := range pending[name].Misses {
-			key := bucketKey{Condition: miss.Condition, Message: miss.Message}
-			idx, exists := bucketIndex[key]
-			if !exists {
-				bucketIndex[key] = len(buckets)
-				buckets = append(buckets, &bucket{Key: key, Paths: slices.Clone(miss.Paths)})
-				continue
-			}
 			for _, p := range miss.Paths {
-				if !slices.Contains(buckets[idx].Paths, p) {
-					buckets[idx].Paths = append(buckets[idx].Paths, p)
-				}
+				addMessage(p, miss.Message)
 			}
 		}
 	}
 
-	sort.SliceStable(buckets, func(i, j int) bool {
-		ci, cj := buckets[i].Key.Condition, buckets[j].Key.Condition
-		if ci == "" && cj != "" {
-			return true
-		}
-		if cj == "" && ci != "" {
-			return false
-		}
-		return ci < cj
-	})
+	sort.Strings(pathOrder)
 
 	var b strings.Builder
-	b.WriteString("Required configuration is missing:\n\n")
-	total := 0
-	for _, bk := range buckets {
-		if bk.Key.Condition == "" {
-			b.WriteString("  Required:\n")
-		} else {
-			fmt.Fprintf(&b, "  Because %s:\n", bk.Key.Condition)
+	b.WriteString("the following required values are not set in values.yaml:\n\n")
+	for _, path := range pathOrder {
+		fmt.Fprintf(&b, "  - %s\n", path)
+	}
+
+	hasNotes := false
+	for _, msgs := range pathMessages {
+		if len(msgs) > 0 {
+			hasNotes = true
+			break
 		}
-		pathIndent := "    "
-		if bk.Key.Message != "" {
-			for _, line := range strings.Split(strings.TrimRight(bk.Key.Message, "\n"), "\n") {
-				b.WriteString("    ")
-				b.WriteString(line)
-				b.WriteByte('\n')
+	}
+	if hasNotes {
+		b.WriteString("\nNotes:\n\n")
+		for _, path := range pathOrder {
+			msgs := pathMessages[path]
+			if len(msgs) == 0 {
+				continue
 			}
-			pathIndent = "      "
+			fmt.Fprintf(&b, "  %s:\n", path)
+			for _, msg := range msgs {
+				for _, line := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
+					b.WriteString("    ")
+					b.WriteString(line)
+					b.WriteByte('\n')
+				}
+			}
+			b.WriteByte('\n')
 		}
-		for _, p := range bk.Paths {
-			fmt.Fprintf(&b, "%s- %s\n", pathIndent, p)
-			total++
-		}
-		b.WriteByte('\n')
 	}
-	noun := "values"
-	if total == 1 {
-		noun = "value"
-	}
-	fmt.Fprintf(&b, "%d missing %s. Set these in values.yaml and re-run.", total, noun)
-	return errors.New(b.String())
+	return &RequirementsError{Message: strings.TrimRight(b.String(), "\n")}
 }
 
 // =============================================================================

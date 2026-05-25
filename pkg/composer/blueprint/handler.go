@@ -138,6 +138,10 @@ func (h *BaseBlueprintHandler) LoadBlueprint(blueprintURL ...string) error {
 	}
 
 	if err := h.processAndCompose(); err != nil {
+		var reqErr *RequirementsError
+		if errors.As(err, &reqErr) {
+			return err
+		}
 		return fmt.Errorf("failed to compose blueprint: %w", err)
 	}
 
@@ -722,7 +726,12 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 			scope, _, err := h.processLoader(l)
 			if err != nil {
 				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to process facets for '%s': %w", name, err))
+				var reqErr *RequirementsError
+				if errors.As(err, &reqErr) {
+					errs = append(errs, err)
+				} else {
+					errs = append(errs, fmt.Errorf("failed to process facets for '%s': %w", name, err))
+				}
 				mu.Unlock()
 				return
 			}

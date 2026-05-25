@@ -96,10 +96,10 @@ func TestShowBlueprint_FacetRequires_MissingProducesAggregatedError(t *testing.T
 		t.Fatalf("expected show blueprint to fail with missing requirements, got nil error\nstderr: %s", stderr)
 	}
 	out := string(stderr)
-	if !strings.Contains(out, "Required configuration is missing") {
-		t.Errorf("expected aggregated error header, got: %s", out)
+	if !strings.Contains(out, "the following required values are not set in values.yaml:") {
+		t.Errorf("expected aggregated error lead, got: %s", out)
 	}
-	for _, path := range []string{"dns.domain", "aws.region", "aws.account_id"} {
+	for _, path := range []string{"- dns.domain", "- aws.region", "- aws.account_id"} {
 		if !strings.Contains(out, path) {
 			t.Errorf("expected stderr to list %q, got: %s", path, out)
 		}
@@ -107,11 +107,16 @@ func TestShowBlueprint_FacetRequires_MissingProducesAggregatedError(t *testing.T
 	if !strings.Contains(out, "AWS platform needs region and account_id set.") {
 		t.Errorf("expected block message in stderr, got: %s", out)
 	}
-	if !strings.Contains(out, "Because (platform ?? '') == 'aws':") {
-		t.Errorf("expected condition heading in stderr, got: %s", out)
+	if !strings.Contains(out, "\nNotes:\n") {
+		t.Errorf("expected Notes section in stderr, got: %s", out)
 	}
-	if !strings.Contains(out, "3 missing values") {
-		t.Errorf("expected count summary in stderr, got: %s", out)
+	if strings.Contains(out, "Because") || strings.Contains(out, "platform ?? '')") {
+		t.Errorf("expected no condition expression in output, got: %s", out)
+	}
+	for _, frame := range []string{"failed to load blueprint data", "failed to compose blueprint", "failed to process facets for"} {
+		if strings.Contains(out, frame) {
+			t.Errorf("expected wrapped chain frame %q to be absent (RequirementsError should be passed through unwrapped), got: %s", frame, out)
+		}
 	}
 }
 
@@ -147,17 +152,22 @@ func TestShowBlueprint_FacetComponentRequires_MissingProducesComposedConditionEr
 		t.Fatalf("expected show blueprint to fail with missing component requirements, got nil error\nstderr: %s", stderr)
 	}
 	out := string(stderr)
-	if !strings.Contains(out, "Required configuration is missing") {
-		t.Errorf("expected aggregated error header, got: %s", out)
+	if !strings.Contains(out, "the following required values are not set in values.yaml:") {
+		t.Errorf("expected aggregated error lead, got: %s", out)
 	}
-	if !strings.Contains(out, "aws.cilium_role_arn") {
-		t.Errorf("expected stderr to list aws.cilium_role_arn, got: %s", out)
-	}
-	if !strings.Contains(out, "Because (platform ?? '') == 'aws' && (cni.driver ?? '') == 'cilium':") {
-		t.Errorf("expected composed condition heading (facet && component), got: %s", out)
+	if !strings.Contains(out, "- aws.cilium_role_arn") {
+		t.Errorf("expected stderr to list aws.cilium_role_arn as a bullet, got: %s", out)
 	}
 	if !strings.Contains(out, "The cilium terraform component needs an IAM role ARN.") {
 		t.Errorf("expected block message in stderr, got: %s", out)
+	}
+	if strings.Contains(out, "Because") || strings.Contains(out, "cni.driver") {
+		t.Errorf("expected no condition expression in output, got: %s", out)
+	}
+	for _, frame := range []string{"failed to load blueprint data", "failed to compose blueprint", "failed to process facets for"} {
+		if strings.Contains(out, frame) {
+			t.Errorf("expected wrapped chain frame %q to be absent (RequirementsError should be passed through unwrapped), got: %s", frame, out)
+		}
 	}
 }
 
