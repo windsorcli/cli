@@ -120,13 +120,13 @@ This creates:
 Switch contexts by running:
 
 ```bash
-windsor context set <context-name>
+windsor set context <context-name>
 ```
 
 View the current context:
 
 ```bash
-windsor context get
+windsor get context
 ```
 
 The current context is also available via the `WINDSOR_CONTEXT` environment variable.

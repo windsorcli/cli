@@ -20,7 +20,7 @@ You create a Windsor project by running `windsor init`. When doing so, it automa
 To create another context, say one representing production, you run:
 
 ```bash
-windsor init production --provider aws
+windsor init production --platform aws
 ```
 
 This will create a folder, `contexts/production` with a basic `blueprint.yaml` file and default `windsor.yaml` file.
@@ -30,13 +30,13 @@ This will create a folder, `contexts/production` with a basic `blueprint.yaml` f
 You can switch contexts by running:
 
 ```bash
-windsor context set <context-name>
+windsor set context <context-name>
 ```
 
 You can see the current context by running:
 
 ```bash
-windsor context get
+windsor get context
 ```
 
 Additionally, the `WINDSOR_CONTEXT` environment variable is available to you.

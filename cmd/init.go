@@ -30,7 +30,6 @@ var (
 	initArch           string
 	initDocker         bool
 	initGitLivereload  bool
-	initProvider       string
 	initPlatform       string
 	initBlueprint      string
 	initEndpoint       string
@@ -82,13 +81,6 @@ var initCmd = &cobra.Command{
 			currentContext := rt.ConfigHandler.GetContext()
 			if currentContext != "" {
 				contextName = currentContext
-			}
-		}
-
-		if initProvider != "" {
-			fmt.Fprintf(os.Stderr, "\033[33mWarning: The --provider flag is deprecated and will be removed in a future version. Please use --platform instead.\033[0m\n")
-			if initPlatform == "" {
-				initPlatform = initProvider
 			}
 		}
 
@@ -225,7 +217,6 @@ func init() {
 	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker")
 	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable Git Livereload")
 	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp|hyperv]")
-	initCmd.Flags().StringVar(&initProvider, "provider", "", "Deprecated: use --platform instead")
 	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
 	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
 	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set cluster.endpoint=https://localhost:6443")

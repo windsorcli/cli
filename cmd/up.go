@@ -15,8 +15,7 @@ import (
 )
 
 var (
-	waitFlag    bool // Declare the wait flag
-	installFlag bool // Deprecated: no-op, kept for backwards compatibility
+	waitFlag    bool
 	upVmDriver  string
 	upPlatform  string
 	upBlueprint string
@@ -182,8 +181,6 @@ func buildUpFlagOverrides() (map[string]any, error) {
 
 func init() {
 	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
-	upCmd.Flags().BoolVar(&installFlag, "install", false, "")
-	_ = upCmd.Flags().MarkDeprecated("install", "the --install flag is no longer needed and will be removed in a future release")
 	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker)")
 	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp|hyperv]")
 	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Specify the blueprint to use")

@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
-	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
@@ -48,7 +47,6 @@ func setupInitTest(t *testing.T, opts ...*SetupOptions) *InitMocks {
 	initArch = ""
 	initDocker = false
 	initGitLivereload = false
-	initProvider = ""
 	initPlatform = ""
 	initBlueprint = ""
 	initEndpoint = ""
@@ -598,309 +596,6 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("LocalContextUsesDefaultBlueprint", func(t *testing.T) {
-		// Given a local context with no explicit provider or blueprint
-		initProvider = ""
-		initBlueprint = ""
-		contextName := "local"
-
-		// When processing the init logic (local assumes default OCI blueprint when none provided)
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "reset", false)
-		ctx = context.WithValue(ctx, "trust", true)
-
-		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.GetEffectiveBlueprintURL()
-		} else if contextName == "local" && initBlueprint == "" {
-			initBlueprint = constants.GetEffectiveBlueprintURL()
-		}
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-
-		// Then blueprint should be set to default OCI (local always assumes default blueprint when none provided)
-		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
-			t.Errorf("Expected default blueprint to be set for local context without --blueprint or provider")
-		} else if blueprint, ok := blueprintCtx.(string); !ok {
-			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.GetEffectiveBlueprintURL() {
-			t.Errorf("Expected blueprint to be default OCI URL, got %s", blueprint)
-		}
-	})
-
-	t.Run("LocalContextWithExplicitProvider", func(t *testing.T) {
-		initProvider = "aws"
-		initBlueprint = ""
-
-		// When processing the init logic
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "reset", false)
-		ctx = context.WithValue(ctx, "trust", true)
-
-		// If provider is set and blueprint is not set, set blueprint
-		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-
-		// Then the explicit provider should be used and OCI blueprint should be set
-		if initProvider != "aws" {
-			t.Errorf("Expected provider to be 'aws', got %s", initProvider)
-		}
-
-		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
-			t.Errorf("Expected blueprint to be set in context when explicit provider is specified")
-		} else if blueprint, ok := blueprintCtx.(string); !ok {
-			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DefaultOCIBlueprintURL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
-		}
-	})
-
-	t.Run("LocalContextWithExplicitBlueprint", func(t *testing.T) {
-		initProvider = ""
-		initBlueprint = "oci://custom/blueprint:v1.0.0"
-
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "reset", false)
-		ctx = context.WithValue(ctx, "trust", true)
-
-		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-
-		// Then the explicit blueprint should be used
-		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
-			t.Errorf("Expected blueprint to be set in context")
-		} else if blueprint, ok := blueprintCtx.(string); !ok {
-			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != "oci://custom/blueprint:v1.0.0" {
-			t.Errorf("Expected blueprint to be oci://custom/blueprint:v1.0.0, got %s", blueprint)
-		}
-	})
-
-	t.Run("NonLocalContext", func(t *testing.T) {
-		// Given a non-local context with no explicit provider or blueprint
-		args := []string{"aws"}
-		initProvider = ""
-		initBlueprint = ""
-
-		// When processing the init logic
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "reset", false)
-		ctx = context.WithValue(ctx, "trust", true)
-
-		// If context is "local" and neither provider nor blueprint is set, set both
-		if len(args) > 0 && strings.HasPrefix(args[0], "local") && initProvider == "" && initBlueprint == "" {
-			initProvider = "generic"
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-
-		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
-		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-
-		// If blueprint is set, use it (overrides all)
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-
-		// Then provider should not be auto-set and blueprint should not be set
-		if initProvider != "" {
-			t.Errorf("Expected provider to not be auto-set for non-local context, got %s", initProvider)
-		}
-
-		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx != nil {
-			t.Errorf("Expected blueprint to not be set when no provider is specified, got %v", blueprintCtx)
-		}
-	})
-
-	t.Run("ProviderAutoBlueprint", func(t *testing.T) {
-		// Given a provider is specified
-		initProvider = "aws"
-		initBlueprint = ""
-
-		// When processing the init logic
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "reset", false)
-		ctx = context.WithValue(ctx, "trust", true)
-
-		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
-		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-
-		// Then the blueprint should be set correctly
-		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
-			t.Errorf("Expected blueprint to be set in context when provider is specified")
-		} else if blueprint, ok := blueprintCtx.(string); !ok {
-			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DefaultOCIBlueprintURL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
-		}
-	})
-
-	t.Run("ExplicitBlueprintOverrides", func(t *testing.T) {
-		// Given an explicit blueprint is specified
-		initProvider = "aws"
-		initBlueprint = "oci://custom/blueprint:v1.0.0"
-
-		// When processing the init logic
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "reset", false)
-		ctx = context.WithValue(ctx, "trust", true)
-
-		// If provider is set and blueprint is not set, set blueprint (covers all providers, including local)
-		if initProvider != "" && initBlueprint == "" {
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-
-		// Then the explicit blueprint should be used instead of the default
-		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
-			t.Errorf("Expected blueprint to be set in context")
-		} else if blueprint, ok := blueprintCtx.(string); !ok {
-			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != "oci://custom/blueprint:v1.0.0" {
-			t.Errorf("Expected blueprint to be oci://custom/blueprint:v1.0.0, got %s", blueprint)
-		}
-	})
-
-	t.Run("PlatformAutoBlueprint", func(t *testing.T) {
-		// Given a platform is specified
-		initPlatform = "aws"
-		initProvider = ""
-		initBlueprint = ""
-
-		// When processing the init logic
-		ctx := context.Background()
-		ctx = context.WithValue(ctx, "reset", false)
-		ctx = context.WithValue(ctx, "trust", true)
-
-		// When --platform is set (primary) and no blueprint, set default blueprint
-		if initPlatform != "" && initBlueprint == "" {
-			initBlueprint = constants.DefaultOCIBlueprintURL
-		}
-
-		if initBlueprint != "" {
-			ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-		}
-
-		// Then the blueprint should be set correctly
-		if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
-			t.Errorf("Expected blueprint to be set in context when platform is specified")
-		} else if blueprint, ok := blueprintCtx.(string); !ok {
-			t.Errorf("Expected blueprint context value to be a string")
-		} else if blueprint != constants.DefaultOCIBlueprintURL {
-			t.Errorf("Expected blueprint to be %s, got %s", constants.DefaultOCIBlueprintURL, blueprint)
-		}
-	})
-
-	t.Run("LocalContextVariations", func(t *testing.T) {
-		testCases := []struct {
-			name              string
-			args              []string
-			provider          string
-			blueprint         string
-			expectedProvider  string
-			expectedBlueprint string
-		}{
-			{
-				name:              "local context with no flags",
-				args:              []string{"local"},
-				provider:          "",
-				blueprint:         "",
-				expectedProvider:  "local",
-				expectedBlueprint: "",
-			},
-			{
-				name:              "local-dev context with no flags",
-				args:              []string{"local-dev"},
-				provider:          "",
-				blueprint:         "",
-				expectedProvider:  "local",
-				expectedBlueprint: "",
-			},
-			{
-				name:              "local context with explicit provider",
-				args:              []string{"local"},
-				provider:          "aws",
-				blueprint:         "",
-				expectedProvider:  "aws",
-				expectedBlueprint: constants.DefaultOCIBlueprintURL,
-			},
-			{
-				name:              "local context with explicit blueprint",
-				args:              []string{"local"},
-				provider:          "",
-				blueprint:         "oci://custom/blueprint:v1.0.0",
-				expectedProvider:  "",
-				expectedBlueprint: "oci://custom/blueprint:v1.0.0",
-			},
-			{
-				name:              "local context with both explicit provider and blueprint",
-				args:              []string{"local"},
-				provider:          "azure",
-				blueprint:         "oci://custom/blueprint:v1.0.0",
-				expectedProvider:  "azure",
-				expectedBlueprint: "oci://custom/blueprint:v1.0.0",
-			},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				// Given the test case parameters
-				initProvider = tc.provider
-				initBlueprint = tc.blueprint
-
-				ctx := context.Background()
-				ctx = context.WithValue(ctx, "reset", false)
-				ctx = context.WithValue(ctx, "trust", true)
-
-				if initProvider != "" && initBlueprint == "" {
-					initBlueprint = constants.DefaultOCIBlueprintURL
-				}
-				if initBlueprint != "" {
-					ctx = context.WithValue(ctx, "blueprint", initBlueprint)
-				}
-
-				if len(tc.args) > 0 && strings.HasPrefix(tc.args[0], "local") && initProvider == "" && tc.expectedProvider != "" {
-					initProvider = tc.expectedProvider
-				}
-
-				// Then verify the results
-				if tc.expectedProvider != "" {
-					if initProvider != tc.expectedProvider {
-						t.Errorf("Expected provider to be %s, got %s", tc.expectedProvider, initProvider)
-					}
-				}
-
-				if tc.expectedBlueprint != "" {
-					if blueprintCtx := ctx.Value("blueprint"); blueprintCtx == nil {
-						t.Errorf("Expected blueprint to be set in context")
-					} else if blueprint, ok := blueprintCtx.(string); !ok {
-						t.Errorf("Expected blueprint context value to be a string")
-					} else if blueprint != tc.expectedBlueprint {
-						t.Errorf("Expected blueprint to be %s, got %s", tc.expectedBlueprint, blueprint)
-					}
-				}
-			})
-		}
-	})
-
 	t.Run("RunEAutoProviderBlueprintLogic", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
@@ -910,24 +605,6 @@ func TestInitCmd(t *testing.T) {
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
 		cmd.SetArgs([]string{"local"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur and the logic should be executed
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
-		}
-	})
-
-	t.Run("RunEExplicitProviderAutoBlueprint", func(t *testing.T) {
-		// Given a temporary directory with mocked dependencies
-		mocks := setupInitTest(t)
-
-		// When executing the init command with explicit provider
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
-		cmd.SetArgs([]string{"--provider", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
@@ -973,7 +650,7 @@ func TestInitCmd(t *testing.T) {
 			"--reset",
 			"--docker",
 			"--git-livereload",
-			"--provider", "aws",
+			"--platform", "aws",
 		})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -997,7 +674,7 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("RunEDeprecatedProviderFlag", func(t *testing.T) {
+	t.Run("RunERemovedProviderFlagRejected", func(t *testing.T) {
 		mocks := setupInitTest(t)
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
@@ -1005,23 +682,11 @@ func TestInitCmd(t *testing.T) {
 		cmd.SetArgs([]string{"--provider", "aws"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
-		if err != nil {
-			t.Errorf("Expected success with deprecated --provider, got error: %v", err)
+		if err == nil {
+			t.Fatal("Expected error for removed --provider flag, got nil")
 		}
-	})
-
-	t.Run("RunEPlatformAndProviderConflict", func(t *testing.T) {
-		mocks := setupInitTest(t)
-		cmd := createTestInitCmd()
-		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
-		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
-		cmd.SetArgs([]string{"--platform", "aws", "--provider", "azure"})
-		cmd.SetContext(ctx)
-		err := cmd.Execute()
-
-		// Then no error should occur - platform overrides provider
-		if err != nil {
-			t.Errorf("Expected success, got error: %v", err)
+		if !strings.Contains(err.Error(), "unknown flag: --provider") {
+			t.Errorf("Expected 'unknown flag: --provider' error, got: %v", err)
 		}
 	})
 
@@ -1115,19 +780,19 @@ func TestInitCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("RunEExplicitProviderOverridesContextName", func(t *testing.T) {
+	t.Run("RunEExplicitPlatformOverridesContextName", func(t *testing.T) {
 		// Given a temporary directory with mocked dependencies
 		mocks := setupInitTest(t)
 
-		// When executing the init command with explicit provider that differs from context name
+		// When executing the init command with explicit platform that differs from context name
 		cmd := createTestInitCmd()
 		ctx := context.WithValue(context.Background(), runtimeOverridesKey, mocks.Runtime)
 		ctx = context.WithValue(ctx, composerOverridesKey, mocks.Composer)
-		cmd.SetArgs([]string{"aws", "--provider", "azure"}) // Context name vs explicit provider
+		cmd.SetArgs([]string{"aws", "--platform", "azure"})
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then no error should occur and explicit provider should be used
+		// Then no error should occur and explicit platform should be used
 		if err != nil {
 			t.Errorf("Expected success, got error: %v", err)
 		}

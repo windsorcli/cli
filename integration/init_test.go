@@ -58,6 +58,38 @@ func getPathValue(data map[string]any, path ...string) (any, bool) {
 	return current, true
 }
 
+// TestInit_RejectsRemovedProviderFlag verifies that --provider, the long
+// deprecated alias for --platform, no longer parses. Removed in v0.9.0.
+func TestInit_RejectsRemovedProviderFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "prod", "--provider", "aws"}, env)
+	if err == nil {
+		t.Fatal("expected failure for removed --provider flag, got success")
+	}
+	if !strings.Contains(string(stderr), "unknown flag: --provider") {
+		t.Errorf("expected stderr to mention 'unknown flag: --provider', got: %s", stderr)
+	}
+}
+
+// TestContext_RejectsRemovedHiddenContextGroup verifies that the hidden
+// `windsor context get|set` legacy command group, deprecated in favor of
+// `windsor get context` / `windsor set context`, is no longer registered.
+func TestContext_RejectsRemovedHiddenContextGroup(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	_, stderr, err := helpers.RunCLI(dir, []string{"context", "get"}, env)
+	if err == nil {
+		t.Fatal("expected failure for removed 'context' command group, got success")
+	}
+	if !strings.Contains(string(stderr), "unknown command") {
+		t.Errorf("expected stderr to mention 'unknown command', got: %s", stderr)
+	}
+}
+
 func TestInit_PersistsSetValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")

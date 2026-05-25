@@ -60,7 +60,7 @@ windsor check
 Verify that the default 'local' context was selected:
 
 ```sh
-windsor context get
+windsor get context
 ```
 
 ### Start the environment

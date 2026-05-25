@@ -49,6 +49,21 @@ func TestUp_FailsWhenNotInTrustedDirectory(t *testing.T) {
 	}
 }
 
+// TestUp_RejectsRemovedInstallFlag verifies that the long-deprecated --install
+// flag no longer parses. Removed in v0.9.0; the flag was a no-op shim retained
+// only to warn users mid-deprecation.
+func TestUp_RejectsRemovedInstallFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "up")
+	_, stderr, err := helpers.RunCLI(dir, []string{"up", "--install"}, env)
+	if err == nil {
+		t.Fatal("expected failure for removed --install flag, got success")
+	}
+	if !strings.Contains(string(stderr), "unknown flag: --install") {
+		t.Errorf("expected stderr to mention 'unknown flag: --install', got: %s", stderr)
+	}
+}
+
 // TestUp_AcceptsWaitFlag verifies that --wait is a recognised flag and does not
 // cause an "unknown flag" error in the no-op path.
 func TestUp_AcceptsWaitFlag(t *testing.T) {
