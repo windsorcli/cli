@@ -6,6 +6,7 @@ package network
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -664,6 +665,7 @@ func TestLinuxNetworkManager_NetworkManagerShadowsResolverWarning(t *testing.T) 
 					matches = append(matches, path)
 				}
 			}
+			sort.Strings(matches)
 			return matches, nil
 		}
 	}
