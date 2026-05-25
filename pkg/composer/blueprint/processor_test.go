@@ -182,7 +182,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 
 		// When processing empty facets
-		_, _, err := processor.ProcessFacets(target, nil)
+		_, err := processor.ProcessFacets(target, nil)
 
 		// Then should return empty blueprint
 		if err != nil {
@@ -212,7 +212,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then facet components should be included
 		if err != nil {
@@ -246,7 +246,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then facet should be included
 		if err != nil {
@@ -276,7 +276,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -306,7 +306,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then facet should be excluded
 		if err != nil {
@@ -336,7 +336,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -367,7 +367,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then components should be in sorted facet order (ordinal then name; both ordinal 0 so name tiebreak: a before z)
 		if err != nil {
@@ -408,7 +408,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -444,7 +444,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -490,7 +490,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -536,7 +536,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets (inputs are not evaluated in processor; handler evaluates with merged scope)
 		target := &blueprintv1alpha1.Blueprint{}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -565,7 +565,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then kustomization should be included
 		if err != nil {
@@ -601,7 +601,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then only unconditional component should be included
 		if err != nil {
@@ -637,7 +637,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then only unconditional kustomization should be included
 		if err != nil {
@@ -668,7 +668,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -695,7 +695,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -722,7 +722,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -750,7 +750,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then facet should be included (string "true" is truthy)
 		if err != nil {
@@ -791,7 +791,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then substitutions should be evaluated
 		if err != nil {
@@ -836,7 +836,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -884,7 +884,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -926,7 +926,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then non-string inputs should be preserved
 		if err != nil {
@@ -961,7 +961,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then should return error for malformed expression
 		if err == nil {
@@ -989,7 +989,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then should return error for malformed expression
 		if err == nil {
@@ -1013,7 +1013,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing with sourceName
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets, "test-source")
+		_, err := processor.ProcessFacets(target, facets, "test-source")
 
 		// Then source should be assigned
 		if err != nil {
@@ -1040,7 +1040,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing with sourceName
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets, "new-source")
+		_, err := processor.ProcessFacets(target, facets, "new-source")
 
 		// Then existing source should be preserved
 		if err != nil {
@@ -1070,7 +1070,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -1100,7 +1100,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then should return error
 		if err == nil {
@@ -1129,7 +1129,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1150,7 +1150,7 @@ func TestProcessor_ProcessFacets(t *testing.T) {
 			},
 		}
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Error("Expected error for invalid config block strategy")
 		}
@@ -1206,7 +1206,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1260,7 +1260,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1312,7 +1312,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1363,7 +1363,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1405,7 +1405,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1447,7 +1447,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1486,7 +1486,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1522,7 +1522,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1560,7 +1560,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1601,7 +1601,7 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 				},
 			},
 		}
-		scope, _, err := processor.ProcessFacets(target, facets)
+		scope, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1615,6 +1615,150 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 		tagsStr, _ := inputs["tags"].(string)
 		if tagsStr == "" || !strings.Contains(tagsStr, "x") || !strings.Contains(tagsStr, "y") {
 			t.Errorf("Expected tags to contain evaluated list (${tag1}/${tag2}), got %q", tagsStr)
+		}
+	})
+}
+
+func TestProcessor_ProcessFacets_ConfigBlockEvaluationOrder(t *testing.T) {
+	// These tests pin the dependency-driven evaluation order for config blocks. The
+	// processor must evaluate a block AFTER every block it references via ${...}, no
+	// matter which facet wrote each block or in what source order the blocks appear.
+
+	t.Run("ConsumerWrittenBeforeProducerStillEvaluatesAfter", func(t *testing.T) {
+		// Mirrors the production core blueprint failure: a low-ordinal facet writes a
+		// consumer block (talos_common.k8s_service_host) that calls a function on
+		// network_effective.cidr_block. A higher-ordinal facet writes network_effective,
+		// whose cidr_block references network_cidr_effective from a third facet. With
+		// authoring-order evaluation the consumer would evaluate first and call cidrhost
+		// on an unevaluated template string. With dependency-order evaluation each
+		// block evaluates only after its prerequisites.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		ord100, ord200, ord300 := 100, 200, 300
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "consumer-first"},
+				Ordinal:  &ord100,
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "talos_common", Body: map[string]any{"value": map[string]any{
+						"k8s_service_host": "${cidrhost(network_effective.cidr_block, 10)}",
+					}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "network-mid"},
+				Ordinal:  &ord200,
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network_effective", Body: map[string]any{"value": map[string]any{
+						"cidr_block": "${network_cidr_effective.value}",
+					}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "network-root"},
+				Ordinal:  &ord300,
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network_cidr_effective", Body: map[string]any{"value": map[string]any{
+						"value": "10.5.0.0/16",
+					}}},
+				},
+			},
+		}
+		scope, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		talos, ok := scope["talos_common"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected talos_common map, got %T", scope["talos_common"])
+		}
+		if talos["k8s_service_host"] != "10.5.0.10" {
+			t.Errorf("Expected talos_common.k8s_service_host='10.5.0.10' (cidrhost of evaluated network), got %v", talos["k8s_service_host"])
+		}
+	})
+
+	t.Run("ExtendedBlockKeepsDependencyOrderingNotSourceOrder", func(t *testing.T) {
+		// Mirrors the platform-base / platform-hyperv scenario: one facet writes the
+		// producer block (network with a self-defaulting cidr_block), a higher-ordinal
+		// facet writes both an extension of network (gateway) and a consumer block
+		// (hyperv_effective) whose value calls cidrhost on the producer. The
+		// dependency-driven order must put network ahead of hyperv_effective even though
+		// authoring order in the high-ordinal facet lists hyperv_effective first.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		low, high := 100, 200
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
+				Ordinal:  &low,
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"cidr_block": "${network.cidr_block ?? '10.5.0.0/16'}",
+					}}},
+				},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "platform-hyperv"},
+				Ordinal:  &high,
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "hyperv_effective", Body: map[string]any{"value": map[string]any{
+						"nat_host_address": "${cidrhost(network.cidr_block ?? '10.5.0.0/16', 1)}",
+					}}},
+					{Name: "network", Body: map[string]any{"value": map[string]any{
+						"gateway": "10.5.0.1",
+					}}},
+				},
+			},
+		}
+		scope, err := processor.ProcessFacets(target, facets)
+		if err != nil {
+			t.Fatalf("ProcessFacets failed: %v", err)
+		}
+		hyperv, ok := scope["hyperv_effective"].(map[string]any)
+		if !ok {
+			t.Fatalf("Expected hyperv_effective map, got %T", scope["hyperv_effective"])
+		}
+		if hyperv["nat_host_address"] != "10.5.0.1" {
+			t.Errorf("Expected hyperv_effective.nat_host_address='10.5.0.1', got %v", hyperv["nat_host_address"])
+		}
+	})
+
+	t.Run("CircularReferenceProducesError", func(t *testing.T) {
+		// Two blocks reference each other through different keys; no valid evaluation
+		// order exists. The topo sort must surface this as an explicit error rather
+		// than silently looping until the cross-block retry budget is exhausted.
+		mocks := setupProcessorMocks(t)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{}, nil
+		}
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "cycle"},
+				Config: []blueprintv1alpha1.ConfigBlock{
+					{Name: "alpha", Body: map[string]any{"value": map[string]any{"x": "${beta.y}"}}},
+					{Name: "beta", Body: map[string]any{"value": map[string]any{"y": "${alpha.x}"}}},
+				},
+			},
+		}
+		_, err := processor.ProcessFacets(target, facets)
+		if err == nil {
+			t.Fatal("Expected error for circular references between alpha and beta")
+		}
+		if !strings.Contains(err.Error(), "circular reference") {
+			t.Errorf("Expected error to mention 'circular reference', got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "beta") {
+			t.Errorf("Expected error to name both blocks in cycle, got: %v", err)
 		}
 	})
 }
@@ -1665,7 +1809,7 @@ func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
 			},
 		}
 
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err != nil {
 			t.Fatalf("ProcessFacets failed: %v", err)
 		}
@@ -1696,7 +1840,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then target.Substitutions should contain the facet values
 		if err != nil {
@@ -1743,7 +1887,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then substitution expressions should be evaluated against config scope
 		if err != nil {
@@ -1778,7 +1922,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then the higher-ordinal facet's value should win
 		if err != nil {
@@ -1806,7 +1950,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then substitutions from excluded facet should not appear
 		if err != nil {
@@ -1835,7 +1979,7 @@ func TestProcessor_ProcessFacets_Substitutions(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		tc.Finalize(target, nil, "")
 
 		// Then the trace collector should have a contribution for each substitution key
@@ -1867,7 +2011,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then target.Backend should hold the facet value
 		if err != nil {
@@ -1899,7 +2043,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then the higher-ordinal facet's value wins
 		if err != nil {
@@ -1920,7 +2064,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then target.Backend is preserved
 		if err != nil {
@@ -1948,7 +2092,7 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 		}
 
 		// When processing facets
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then target.Backend stays empty
 		if err != nil {
@@ -3417,7 +3561,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3463,7 +3607,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3509,7 +3653,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3555,7 +3699,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3601,7 +3745,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3646,7 +3790,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3686,7 +3830,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3725,7 +3869,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3765,7 +3909,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err == nil {
 			t.Error("Expected error for deferred expression in dependsOn")
@@ -3802,7 +3946,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err == nil {
 			t.Error("Expected error for deferred expression in components")
@@ -3837,7 +3981,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3878,7 +4022,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3913,7 +4057,7 @@ func TestProcessor_ExpressionEvaluation(t *testing.T) {
 		}
 
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
@@ -3952,7 +4096,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then component should be included (inherited facet condition is true)
 		if err != nil {
@@ -3986,7 +4130,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then component should be excluded (inherited facet condition is false)
 		if err != nil {
@@ -4020,7 +4164,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then kustomization should be included (inherited facet condition is true)
 		if err != nil {
@@ -4058,7 +4202,7 @@ func TestProcessor_ComponentConditionInheritance(t *testing.T) {
 
 		// When processing facets
 		target := &blueprintv1alpha1.Blueprint{}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 
 		// Then component should be excluded (its own condition is false, even though facet condition is true)
 		if err != nil {
@@ -5304,7 +5448,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected no error when requirements are satisfied, got %v", err)
 		}
 	})
@@ -5324,7 +5468,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected no error; aws block should be skipped, got %v", err)
 		}
 	})
@@ -5345,7 +5489,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected error for unsatisfied requirements, got nil")
 		}
@@ -5382,7 +5526,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected error for empty values, got nil")
 		}
@@ -5409,7 +5553,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected false/0 to satisfy requirement, got error: %v", err)
 		}
 	})
@@ -5438,7 +5582,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected requirement to be satisfied via config block in later round, got: %v", err)
 		}
 	})
@@ -5462,7 +5606,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -5503,7 +5647,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected aggregated error, got nil")
 		}
@@ -5535,7 +5679,7 @@ func TestProcessor_ProcessFacets_Requires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected error for self-referenced requirement, got nil")
 		}
@@ -5688,7 +5832,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected no error when component requires are satisfied, got %v", err)
 		}
 	})
@@ -5715,7 +5859,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected error for unsatisfied component requirement")
 		}
@@ -5750,7 +5894,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected no error when component is excluded by When, got %v", err)
 		}
 	})
@@ -5777,7 +5921,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected error for unsatisfied kustomization requirement")
 		}
@@ -5812,7 +5956,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected no error when kustomization is excluded by When, got %v", err)
 		}
 	})
@@ -5840,7 +5984,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected error for unsatisfied config-block requirement")
 		}
@@ -5876,7 +6020,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected no error when config block is excluded by When, got %v", err)
 		}
 	})
@@ -5910,7 +6054,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected aggregated error")
 		}
@@ -5946,7 +6090,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected aggregated error")
 		}
@@ -5990,7 +6134,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected convergence to satisfy the requirement, got %v", err)
 		}
 	})
@@ -6017,7 +6161,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		if _, _, err := processor.ProcessFacets(target, facets); err != nil {
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
 			t.Fatalf("Expected no error when the block's own When is false, got %v", err)
 		}
 	})
@@ -6042,7 +6186,7 @@ func TestProcessor_ProcessFacets_ComponentRequires(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := processor.ProcessFacets(target, facets)
+		_, err := processor.ProcessFacets(target, facets)
 		if err == nil {
 			t.Fatal("Expected error from invalid component When")
 		}

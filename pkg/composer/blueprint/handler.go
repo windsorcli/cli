@@ -723,7 +723,7 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 		wg.Add(1)
 		go func(l BlueprintLoader, name string) {
 			defer wg.Done()
-			scope, _, err := h.processLoader(l)
+			scope, err := h.processLoader(l)
 			if err != nil {
 				mu.Lock()
 				var reqErr *RequirementsError
@@ -846,19 +846,19 @@ func (h *BaseBlueprintHandler) processAndCompose() error {
 // Facets with 'when' conditions are evaluated, and only matching facets contribute their
 // terraform components and kustomizations. The loader's source name is passed to the processor
 // to set the Source field on facet-derived components. Facets are processed directly against
-// the loader's blueprint, modifying it in place. Returns the evaluated config scope and block
-// order for this loader so the handler can merge scopes from all loaders.
-func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) (map[string]any, []string, error) {
+// the loader's blueprint, modifying it in place. Returns the evaluated config scope for this
+// loader so the handler can merge scopes from all loaders.
+func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) (map[string]any, error) {
 	facets := loader.GetFacets()
 	if len(facets) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	sourceName := loader.GetSourceName()
 	bp := loader.GetBlueprint()
-	scope, order, err := h.processor.ProcessFacets(bp, facets, sourceName)
+	scope, err := h.processor.ProcessFacets(bp, facets, sourceName)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if concrete, ok := h.processor.(*BaseBlueprintProcessor); ok {
 		h.deferredPathsMu.Lock()
@@ -867,7 +867,7 @@ func (h *BaseBlueprintHandler) processLoader(loader BlueprintLoader) (map[string
 		}
 		h.deferredPathsMu.Unlock()
 	}
-	return scope, order, nil
+	return scope, nil
 }
 
 // getConfigValues retrieves the current context's configuration values from the ConfigHandler.

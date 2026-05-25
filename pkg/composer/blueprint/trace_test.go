@@ -47,8 +47,8 @@ func setupExplainHandler(t *testing.T, bp *blueprintv1alpha1.Blueprint, scope ma
 
 type explainTestProcessor struct{}
 
-func (explainTestProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, []string, error) {
-	return nil, nil, nil
+func (explainTestProcessor) ProcessFacets(target *blueprintv1alpha1.Blueprint, facets []blueprintv1alpha1.Facet, sourceName ...string) (map[string]any, error) {
+	return nil, nil
 }
 
 // =============================================================================
