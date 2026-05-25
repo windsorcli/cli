@@ -250,7 +250,7 @@ func (n *BaseNetworkManager) networkManagerShadowsResolverWarning(domain string)
 	if dnsSetting != "" && dnsSetting != "default" {
 		return ""
 	}
-	return fmt.Sprintf("\n\033[33m⚠\033[0m NetworkManager is configured with 'dns=default' (or unset). NM will rewrite /etc/resolv.conf directly, which can shadow the systemd-resolved drop-in this command just wrote. If '*.%s' fails to resolve after this, add 'dns=systemd-resolved' to /etc/NetworkManager/conf.d/dns.conf and run 'sudo systemctl reload NetworkManager'.", domain)
+	return fmt.Sprintf("\n⚠ NetworkManager is configured with 'dns=default' (or unset). NM will rewrite /etc/resolv.conf directly, which can shadow the systemd-resolved drop-in this command just wrote. If '*.%s' fails to resolve after this, add 'dns=systemd-resolved' to /etc/NetworkManager/conf.d/dns.conf and run 'sudo systemctl reload NetworkManager'.", domain)
 }
 
 // readNetworkManagerMainDNS parses an NM-style INI file and returns the dns=
