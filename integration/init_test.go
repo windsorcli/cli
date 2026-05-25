@@ -277,6 +277,9 @@ func TestInit_DevContextOwnershipStableAcrossReinit(t *testing.T) {
 func TestInit_CreatesProjectAnchorInEmptyDirectory(t *testing.T) {
 	t.Parallel()
 	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, ".git"), 0755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
 	homeDir := t.TempDir()
 	env := []string{
 		"HOME=" + homeDir,
@@ -297,6 +300,32 @@ func TestInit_CreatesProjectAnchorInEmptyDirectory(t *testing.T) {
 	globalProject := filepath.Join(homeDir, ".config", "windsor", "windsor.yaml")
 	if _, err := os.Stat(globalProject); err == nil {
 		t.Errorf("init should anchor to cwd, but also created windsor.yaml in global home: %s", globalProject)
+	}
+}
+
+// TestInit_RejectsNonGitDirectory verifies that running `windsor init` outside
+// a git repository fails fast with an actionable hint rather than producing a
+// confusing downstream error. The README documents `git init` as a prerequisite;
+// this test pins the operator-facing message.
+func TestInit_RejectsNonGitDirectory(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	env := []string{
+		"HOME=" + homeDir,
+		"USERPROFILE=" + homeDir,
+		"PATH=" + os.Getenv("PATH"),
+	}
+
+	_, stderr, err := helpers.RunCLI(workDir, []string{"init"}, env)
+	if err == nil {
+		t.Fatal("expected init to fail in a non-git directory, got success")
+	}
+	if !strings.Contains(string(stderr), "must run inside a git repository") {
+		t.Errorf("expected stderr to mention 'must run inside a git repository', got: %s", stderr)
+	}
+	if !strings.Contains(string(stderr), "git init") {
+		t.Errorf("expected stderr to suggest 'git init', got: %s", stderr)
 	}
 }
 

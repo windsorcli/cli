@@ -135,6 +135,8 @@ func envForHome(homeDir string) []string {
 
 // CopyFixtureOnly copies the named fixture into a temp dir and returns workDir and env
 // (HOME/USERPROFILE set to a temp dir). Does not run windsor init, so the dir is not trusted.
+// Creates an empty .git/ in workDir so that `windsor init`'s git-repository
+// precondition is satisfied; fixtures already model real project directories.
 func CopyFixtureOnly(t *testing.T, name string) (workDir string, env []string) {
 	t.Helper()
 	src := FixturePath(name)
@@ -144,6 +146,9 @@ func CopyFixtureOnly(t *testing.T, name string) (workDir string, env []string) {
 	workDir = t.TempDir()
 	if err := CopyFixture(src, workDir); err != nil {
 		t.Fatalf("copy fixture: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, ".git"), 0755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
 	}
 	env = envForHome(t.TempDir())
 	return workDir, env

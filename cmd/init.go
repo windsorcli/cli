@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -52,7 +51,10 @@ var initCmd = &cobra.Command{
 		// Without this, an `init` run in an empty directory would fall back to
 		// global mode (via GetProjectRoot) and silently operate against $HOME.
 		if len(rtOpts) == 0 {
-			if err := ensureProjectAnchor(); err != nil {
+			if err := shell.EnsureGitRepository(); err != nil {
+				return err
+			}
+			if err := shell.EnsureProjectAnchor(); err != nil {
 				return fmt.Errorf("failed to initialize project: %w", err)
 			}
 		}
@@ -173,35 +175,6 @@ var initCmd = &cobra.Command{
 
 		return nil
 	},
-}
-
-// ensureProjectAnchor writes a minimal windsor.yaml in the current working
-// directory when no project file is found anywhere in the walk-up path. This
-// anchors `windsor init` to the cwd so subsequent runtime resolution does not
-// fall back to global mode and silently operate against $HOME/.config/windsor.
-// If a project file already exists at or above the cwd, this is a no-op.
-func ensureProjectAnchor() error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-	dir := cwd
-	for i := 0; i <= shell.MaxFolderSearchDepth; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "windsor.yaml")); err == nil {
-			return nil
-		}
-		if _, err := os.Stat(filepath.Join(dir, "windsor.yml")); err == nil {
-			return nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	// windsor.yaml is user-readable project config, 0644 matches the project
-	// convention used by typed_source.EnsureRoot.
-	return os.WriteFile(filepath.Join(cwd, "windsor.yaml"), []byte("version: v1alpha1\n"), 0644) // #nosec G306
 }
 
 func init() {

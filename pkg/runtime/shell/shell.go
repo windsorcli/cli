@@ -26,10 +26,9 @@ import (
 // Constants
 // =============================================================================
 
-// MaxFolderSearchDepth is the maximum depth to search for the project root.
-// Exported so callers performing their own walk-up (e.g. ensureProjectAnchor in
-// cmd/init.go) can match the traversal bounds GetProjectRoot uses, preventing
-// divergence where one finds an ancestor windsor.yaml that the other misses.
+// MaxFolderSearchDepth is the maximum depth to search for the project root,
+// shared by GetProjectRoot and the EnsureGitRepository / EnsureProjectAnchor
+// helpers so all walk-up traversals stop at the same boundary.
 const MaxFolderSearchDepth = 10
 
 // SessionTokenPrefix is the prefix used for session token files
