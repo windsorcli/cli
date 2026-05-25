@@ -135,8 +135,8 @@ func envForHome(homeDir string) []string {
 
 // CopyFixtureOnly copies the named fixture into a temp dir and returns workDir and env
 // (HOME/USERPROFILE set to a temp dir). Does not run windsor init, so the dir is not trusted.
-// Creates an empty .git/ in workDir so that `windsor init`'s git-repository
-// precondition is satisfied; fixtures already model real project directories.
+// Does NOT create .git/; tests that subsequently run `windsor init` must call
+// MarkAsGitRepo to satisfy init's git-repository precondition.
 func CopyFixtureOnly(t *testing.T, name string) (workDir string, env []string) {
 	t.Helper()
 	src := FixturePath(name)
@@ -147,11 +147,20 @@ func CopyFixtureOnly(t *testing.T, name string) (workDir string, env []string) {
 	if err := CopyFixture(src, workDir); err != nil {
 		t.Fatalf("copy fixture: %v", err)
 	}
+	env = envForHome(t.TempDir())
+	return workDir, env
+}
+
+// MarkAsGitRepo creates an empty .git/ in workDir so that `windsor init`'s
+// git-repository precondition is satisfied. Use after CopyFixtureOnly when the
+// test will subsequently invoke `windsor init` (or any command that requires
+// a project-scoped runtime). Pairs with CopyFixtureOnly's deliberately clean
+// baseline; callers that don't run init should not call this helper.
+func MarkAsGitRepo(t *testing.T, workDir string) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Join(workDir, ".git"), 0755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
-	env = envForHome(t.TempDir())
-	return workDir, env
 }
 
 // MinimalPATHEnv returns env with any PATH entry replaced by a minimal PATH (/usr/bin:/bin).
@@ -172,10 +181,12 @@ func MinimalPATHEnv(env []string) []string {
 
 // PrepareFixture copies the named fixture into a temp dir, runs windsor init with a temp
 // HOME so the dir is trusted, and returns workDir and env. Include env in RunCLI so the
-// trusted check passes.
+// trusted check passes. Marks the workdir as a git repo before init because init
+// requires it.
 func PrepareFixture(t *testing.T, name string) (workDir string, env []string) {
 	t.Helper()
 	workDir, env = CopyFixtureOnly(t, name)
+	MarkAsGitRepo(t, workDir)
 	stdout, stderr, err := RunCLI(workDir, []string{"init"}, env)
 	if err != nil {
 		t.Fatalf("windsor init: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)

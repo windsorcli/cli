@@ -17,6 +17,7 @@ import (
 func TestApplyTerraform_SucceedsWithMinimalLocalConfig(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -52,6 +53,7 @@ func TestApplyTerraform_FailsWithNoArgument(t *testing.T) {
 func TestApplyTerraform_FailsForNonexistentComponent(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -69,6 +71,7 @@ func TestApplyTerraform_FailsForNonexistentComponent(t *testing.T) {
 func TestApplyKustomize_AcceptsWaitFlag(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -84,6 +87,7 @@ func TestApplyKustomize_AcceptsWaitFlag(t *testing.T) {
 func TestApply_AcceptsWaitFlag(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -109,6 +113,7 @@ func TestApply_AcceptsWaitFlag(t *testing.T) {
 func TestApplyTerraform_MissingBinary_ShowsActionableError(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "terraform.enabled=true"}, env); err != nil {
 		t.Fatalf("init local --set terraform.enabled=true: %v\nstderr: %s", err, stderr)
