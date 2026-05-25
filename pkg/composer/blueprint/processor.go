@@ -1,6 +1,7 @@
 package blueprint
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -2100,7 +2101,7 @@ func formatRequirementsError(pending map[string]facetRequirementMisses) error {
 		noun = "value"
 	}
 	fmt.Fprintf(&b, "%d missing %s. Set these in values.yaml and re-run.", total, noun)
-	return fmt.Errorf("%s", b.String())
+	return errors.New(b.String())
 }
 
 // =============================================================================
