@@ -211,6 +211,9 @@ func NewMockShellWithCapture(capture *ShellCapture) *shell.MockShell {
 	}
 	m.ExecSilentFunc = func(command string, args ...string) (string, error) {
 		capture.SilentCalls = append(capture.SilentCalls, ShellCall{Command: command, Args: args})
+		if command == "systemctl" && len(args) == 2 && args[0] == "is-active" && args[1] == "systemd-resolved" {
+			return "active", nil
+		}
 		return "", nil
 	}
 	m.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
