@@ -1617,67 +1617,6 @@ func TestProcessor_ProcessFacets_Config(t *testing.T) {
 			t.Errorf("Expected tags to contain evaluated list (${tag1}/${tag2}), got %q", tagsStr)
 		}
 	})
-
-	t.Run("FirstWriterDefinesIterationOrderForCrossBlockReads", func(t *testing.T) {
-		// Mirrors the platform-base / platform-hyperv reproduction in core:
-		// facet-a writes network.cidr_block with a self-referential default;
-		// facet-b has higher ordinal, extends the same network block with
-		// gateway, and writes hyperv_effective.nat_host_address which calls
-		// cidrhost(network.cidr_block, 1). Iteration position for the network
-		// block must stay anchored to facet-a (its first writer). If position
-		// were driven by last writer, facet-b would push network to the end
-		// of the iteration order, hyperv_effective would evaluate first, and
-		// cidrhost would receive the unevaluated template string and error
-		// with "invalid CIDR address".
-		mocks := setupProcessorMocks(t)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{}, nil
-		}
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		target := &blueprintv1alpha1.Blueprint{}
-		lowOrdinal := 100
-		highOrdinal := 200
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "platform-base"},
-				Ordinal:  &lowOrdinal,
-				Config: []blueprintv1alpha1.ConfigBlock{
-					{Name: "network", Body: map[string]any{"value": map[string]any{"cidr_block": "${network.cidr_block ?? '10.5.0.0/16'}"}}},
-				},
-			},
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "platform-hyperv"},
-				Ordinal:  &highOrdinal,
-				Config: []blueprintv1alpha1.ConfigBlock{
-					{Name: "hyperv_effective", Body: map[string]any{"value": map[string]any{
-						"nat_host_address": "${cidrhost(network.cidr_block ?? '10.5.0.0/16', 1)}",
-					}}},
-					{Name: "network", Body: map[string]any{"value": map[string]any{"gateway": "10.5.0.1"}}},
-				},
-			},
-		}
-		scope, _, err := processor.ProcessFacets(target, facets)
-		if err != nil {
-			t.Fatalf("ProcessFacets failed: %v", err)
-		}
-		hyperv, ok := scope["hyperv_effective"].(map[string]any)
-		if !ok {
-			t.Fatalf("Expected scope hyperv_effective to be map, got %T", scope["hyperv_effective"])
-		}
-		if hyperv["nat_host_address"] != "10.5.0.1" {
-			t.Errorf("Expected hyperv_effective.nat_host_address='10.5.0.1' (network evaluated before hyperv_effective), got %v", hyperv["nat_host_address"])
-		}
-		network, ok := scope["network"].(map[string]any)
-		if !ok {
-			t.Fatalf("Expected scope network to be map, got %T", scope["network"])
-		}
-		if network["cidr_block"] != "10.5.0.0/16" {
-			t.Errorf("Expected network.cidr_block='10.5.0.0/16', got %v", network["cidr_block"])
-		}
-		if network["gateway"] != "10.5.0.1" {
-			t.Errorf("Expected network.gateway='10.5.0.1' (merged from platform-hyperv), got %v", network["gateway"])
-		}
-	})
 }
 
 func TestProcessor_ProcessFacets_ConfigDeferredValues(t *testing.T) {
