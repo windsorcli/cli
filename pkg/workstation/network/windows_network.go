@@ -72,10 +72,10 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	return nil
 }
 
-// ConfigureDNS sets up a per-domain DNS rule using Windows NRPT. Resolver IP is read from config
-// (dns.resolver_ip, or derived: 127.0.0.1 in localhost mode, else dns.address). The domain is normalized
-// to a leading-dot namespace for NRPT. If no matching rule exists or the rule's name servers differ,
-// an add or update is performed with administrator privileges.
+// ConfigureDNS installs a per-domain NRPT rule for dns.domain. The existence check returns the rule's
+// NameServers comma-joined; Go parses the first entry and compares against the desired IP, matching
+// needsPrivilegeForResolver so rules carrying extra operator-added entries are not rewritten on every
+// run. Privileged add/update fires only on first-IP mismatch.
 func (n *BaseNetworkManager) ConfigureDNS() error {
 	domain := n.configHandler.GetString("dns.domain")
 	if domain == "" {
@@ -97,19 +97,9 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 	namespace := "." + domain
 
 	checkScript := fmt.Sprintf(`
-$namespace = '%s'
-$allRules = Get-DnsClientNrptRule
-$existingRule = $allRules | Where-Object { $_.Namespace -eq $namespace }
-if ($existingRule) {
-  if (($existingRule.NameServers -join ',') -ne "%s") {
-    $false
-  } else {
-    $true
-  }
-} else {
-  $false
-}
-`, namespace, dns)
+$r = Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq '%s' } | Select-Object -First 1
+if (-not $r) { '' } else { ($r.NameServers -join ',') }
+`, namespace)
 
 	output, err := n.shell.ExecSilent(
 		"powershell",
@@ -120,7 +110,12 @@ if ($existingRule) {
 		return fmt.Errorf("failed to check existing DNS rules for %s: %w", domain, err)
 	}
 
-	if strings.TrimSpace(output) == "False" || output == "" {
+	currentIP := strings.TrimSpace(output)
+	if idx := strings.Index(currentIP, ","); idx > 0 {
+		currentIP = strings.TrimSpace(currentIP[:idx])
+	}
+
+	if currentIP != dns {
 		n.dnsChanged = true
 		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m DNS configuration requires elevated privileges\n")
 

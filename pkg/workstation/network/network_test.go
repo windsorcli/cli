@@ -36,6 +36,7 @@ func setupDefaultShims() *Shims {
 		MkdirAll:  func(path string, perm os.FileMode) error { return nil },
 		MkdirTemp: func(dir, pattern string) (string, error) { return "/tmp/windsor-test", nil },
 		RemoveAll: func(path string) error { return nil },
+		Glob:      func(pattern string) ([]string, error) { return nil, nil },
 	}
 }
 
@@ -94,6 +95,11 @@ contexts:
 		return "", nil
 	}
 	mockShell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		// Default systemd-resolved as active so existing tests pass the
+		// ConfigureDNS preflight without each one re-mocking the probe.
+		if command == "systemctl" && len(args) == 2 && args[0] == "is-active" && args[1] == "systemd-resolved" {
+			return "active", nil
+		}
 		return "", nil
 	}
 	mockShell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
