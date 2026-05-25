@@ -141,6 +141,116 @@ func TestFacetDeepCopy(t *testing.T) {
 			t.Errorf("Expected copy.Backend=\"cluster\", got %q", copy.Backend)
 		}
 	})
+
+	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
+		original := &Facet{
+			Metadata: Metadata{Name: "test-facet"},
+			Requires: []RequirementBlock{
+				{Paths: []string{"cluster.name", "dns.domain"}},
+				{
+					When:    "provider == 'aws'",
+					Paths:   []string{"aws.region"},
+					Message: "Set aws.region",
+				},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Requires) != len(original.Requires) {
+			t.Fatalf("Expected %d requirement blocks, got %d", len(original.Requires), len(copy.Requires))
+		}
+
+		original.Requires[0].Paths[0] = "modified"
+		if copy.Requires[0].Paths[0] == "modified" {
+			t.Error("Deep copy failed: requires paths slice was not copied")
+		}
+
+		original.Requires[1].Message = "modified"
+		if copy.Requires[1].Message == "modified" {
+			t.Error("Deep copy failed: requires message was not copied")
+		}
+	})
+}
+
+func TestRequirementBlockDeepCopy(t *testing.T) {
+	t.Run("ReturnsNilForNilBlock", func(t *testing.T) {
+		var r *RequirementBlock
+		result := r.DeepCopy()
+		if result != nil {
+			t.Errorf("Expected nil, got %v", result)
+		}
+	})
+
+	t.Run("CreatesDeepCopyOfRequirementBlock", func(t *testing.T) {
+		original := &RequirementBlock{
+			When:    "provider == 'aws'",
+			Paths:   []string{"aws.region", "aws.account_id"},
+			Message: "Set these in values.yaml",
+		}
+
+		copy := original.DeepCopy()
+
+		if copy.When != original.When {
+			t.Errorf("Expected When %q, got %q", original.When, copy.When)
+		}
+		if copy.Message != original.Message {
+			t.Errorf("Expected Message %q, got %q", original.Message, copy.Message)
+		}
+		if len(copy.Paths) != len(original.Paths) {
+			t.Fatalf("Expected %d paths, got %d", len(original.Paths), len(copy.Paths))
+		}
+
+		original.Paths[0] = "modified"
+		if copy.Paths[0] == "modified" {
+			t.Error("Deep copy failed: paths slice was not copied")
+		}
+	})
+}
+
+func TestRequirementBlockUnmarshalYAML(t *testing.T) {
+	t.Run("ErrorsWhenPathsKeyMissing", func(t *testing.T) {
+		// Models a typo such as `pahts:` — the field is absent entirely, which would
+		// otherwise produce a silently-disabled requirement.
+		var f Facet
+		err := yaml.Unmarshal([]byte(`requires:
+  - when: provider == 'aws'
+    message: missing the paths key entirely
+`), &f)
+		if err == nil {
+			t.Fatal("Expected error when paths is missing, got nil")
+		}
+		if !strings.Contains(err.Error(), "paths is required") {
+			t.Errorf("Expected error to mention 'paths is required', got: %v", err)
+		}
+	})
+
+	t.Run("ErrorsWhenPathsListEmpty", func(t *testing.T) {
+		var f Facet
+		err := yaml.Unmarshal([]byte(`requires:
+  - paths: []
+`), &f)
+		if err == nil {
+			t.Fatal("Expected error when paths is empty, got nil")
+		}
+		if !strings.Contains(err.Error(), "paths is required") {
+			t.Errorf("Expected error to mention 'paths is required', got: %v", err)
+		}
+	})
+
+	t.Run("AcceptsValidBlock", func(t *testing.T) {
+		var f Facet
+		err := yaml.Unmarshal([]byte(`requires:
+  - paths:
+      - cluster.name
+`), &f)
+		if err != nil {
+			t.Fatalf("Expected no error for valid block, got: %v", err)
+		}
+		if len(f.Requires) != 1 || len(f.Requires[0].Paths) != 1 || f.Requires[0].Paths[0] != "cluster.name" {
+			t.Errorf("Expected one requires entry with paths=[cluster.name], got: %+v", f.Requires)
+		}
+	})
 }
 
 func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
@@ -183,6 +293,33 @@ func TestConditionalTerraformComponentDeepCopy(t *testing.T) {
 		original.Inputs["cidr"] = "modified"
 		if copy.Inputs["cidr"] == "modified" {
 			t.Error("Deep copy failed: inputs map was not copied")
+		}
+	})
+
+	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
+		original := &ConditionalTerraformComponent{
+			TerraformComponent: TerraformComponent{Path: "network/aws-vpc"},
+			When:               "platform == 'aws'",
+			Requires: []RequirementBlock{
+				{Paths: []string{"aws.region"}},
+				{When: "cni_effective.driver == 'cilium'", Paths: []string{"aws.cilium.role_arn"}, Message: "Set the cilium role arn."},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Requires) != len(original.Requires) {
+			t.Fatalf("Expected %d requirement blocks, got %d", len(original.Requires), len(copy.Requires))
+		}
+
+		original.Requires[0].Paths[0] = "modified"
+		if copy.Requires[0].Paths[0] == "modified" {
+			t.Error("Deep copy failed: requires paths slice was not copied")
+		}
+
+		original.Requires[1].Message = "modified"
+		if copy.Requires[1].Message == "modified" {
+			t.Error("Deep copy failed: requires message was not copied")
 		}
 	})
 }
@@ -235,6 +372,63 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 		original.Substitutions["host"] = "modified"
 		if copy.Substitutions["host"] == "modified" {
 			t.Error("Deep copy failed: substitutions map was not copied")
+		}
+	})
+
+	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
+		original := &ConditionalKustomization{
+			Kustomization: Kustomization{Name: "ingress"},
+			When:          "ingress.enabled == true",
+			Requires: []RequirementBlock{
+				{Paths: []string{"ingress.class"}},
+				{When: "ingress.tls == true", Paths: []string{"ingress.tls_secret"}, Message: "Set the TLS secret name."},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Requires) != len(original.Requires) {
+			t.Fatalf("Expected %d requirement blocks, got %d", len(original.Requires), len(copy.Requires))
+		}
+
+		original.Requires[0].Paths[0] = "modified"
+		if copy.Requires[0].Paths[0] == "modified" {
+			t.Error("Deep copy failed: requires paths slice was not copied")
+		}
+
+		original.Requires[1].Message = "modified"
+		if copy.Requires[1].Message == "modified" {
+			t.Error("Deep copy failed: requires message was not copied")
+		}
+	})
+}
+
+func TestConfigBlockDeepCopy(t *testing.T) {
+	t.Run("PreservesRequiresIndependently", func(t *testing.T) {
+		original := &ConfigBlock{
+			Name: "talos",
+			When: "platform == 'docker'",
+			Body: map[string]any{"value": "x"},
+			Requires: []RequirementBlock{
+				{Paths: []string{"talos.endpoint"}},
+				{When: "talos.tls == true", Paths: []string{"talos.ca_cert"}, Message: "Set the CA cert path."},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Requires) != len(original.Requires) {
+			t.Fatalf("Expected %d requirement blocks, got %d", len(original.Requires), len(copy.Requires))
+		}
+
+		original.Requires[0].Paths[0] = "modified"
+		if copy.Requires[0].Paths[0] == "modified" {
+			t.Error("Deep copy failed: requires paths slice was not copied")
+		}
+
+		original.Requires[1].Message = "modified"
+		if copy.Requires[1].Message == "modified" {
+			t.Error("Deep copy failed: requires message was not copied")
 		}
 	})
 }
@@ -430,6 +624,96 @@ controlplanes: ${cluster.controlplanes}
 		}
 	})
 
+	t.Run("FacetUnmarshalsRequires", func(t *testing.T) {
+		facetYAML := []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: requires-facet
+when: provider == 'aws'
+requires:
+  - paths:
+      - cluster.name
+      - dns.domain
+  - when: cluster.workers.count > 0
+    paths:
+      - aws.subnets.private
+  - when: observability.enabled
+    paths:
+      - observability.endpoint
+      - observability.token
+    message: |
+      Observability is enabled but its endpoint/token are not set.
+      See https://docs.windsorcli.dev/observability for setup details.
+`)
+		var facet Facet
+		err := yaml.Unmarshal(facetYAML, &facet)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal facet with requires: %v", err)
+		}
+		if len(facet.Requires) != 3 {
+			t.Fatalf("Expected 3 requirement blocks, got %d", len(facet.Requires))
+		}
+
+		first := facet.Requires[0]
+		if first.When != "" {
+			t.Errorf("Expected first block When empty, got %q", first.When)
+		}
+		if len(first.Paths) != 2 || first.Paths[0] != "cluster.name" || first.Paths[1] != "dns.domain" {
+			t.Errorf("Unexpected first block paths: %v", first.Paths)
+		}
+		if first.Message != "" {
+			t.Errorf("Expected first block Message empty, got %q", first.Message)
+		}
+
+		second := facet.Requires[1]
+		if second.When != "cluster.workers.count > 0" {
+			t.Errorf("Unexpected second block When: %q", second.When)
+		}
+		if len(second.Paths) != 1 || second.Paths[0] != "aws.subnets.private" {
+			t.Errorf("Unexpected second block paths: %v", second.Paths)
+		}
+
+		third := facet.Requires[2]
+		if third.When != "observability.enabled" {
+			t.Errorf("Unexpected third block When: %q", third.When)
+		}
+		if len(third.Paths) != 2 {
+			t.Fatalf("Expected 2 paths in third block, got %d", len(third.Paths))
+		}
+		if !strings.Contains(third.Message, "endpoint/token are not set") {
+			t.Errorf("Expected message to contain context, got %q", third.Message)
+		}
+	})
+
+	t.Run("FacetMarshalsRequires", func(t *testing.T) {
+		facet := Facet{
+			Kind:       "Facet",
+			ApiVersion: "blueprints.windsorcli.dev/v1alpha1",
+			Metadata:   Metadata{Name: "test"},
+			Requires: []RequirementBlock{
+				{Paths: []string{"cluster.name"}},
+				{When: "provider == 'aws'", Paths: []string{"aws.region"}, Message: "Set aws.region"},
+			},
+		}
+		out, err := yaml.Marshal(&facet)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		s := string(out)
+		if !strings.Contains(s, "requires:") {
+			t.Error("Expected marshaled YAML to contain requires:")
+		}
+		if !strings.Contains(s, "cluster.name") {
+			t.Error("Expected marshaled YAML to contain cluster.name path")
+		}
+		if !strings.Contains(s, "when: provider == 'aws'") {
+			t.Error("Expected marshaled YAML to contain when: provider == 'aws'")
+		}
+		if !strings.Contains(s, "Set aws.region") {
+			t.Error("Expected marshaled YAML to contain message text")
+		}
+	})
+
 	t.Run("FacetUnmarshalsDurationStrings", func(t *testing.T) {
 		facetYAML := []byte(`kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
@@ -471,6 +755,111 @@ kustomize:
 			t.Error("Expected Timeout to be set, got nil")
 		} else if k.Timeout.Duration != 10*time.Minute {
 			t.Errorf("Expected Timeout duration 10m, got %v", k.Timeout.Duration)
+		}
+	})
+
+	t.Run("ConfigBlockUnmarshalsAndMarshalsRequires", func(t *testing.T) {
+		y := []byte(`name: talos
+when: platform == 'docker'
+requires:
+  - paths:
+      - talos.endpoint
+  - when: talos.tls == true
+    paths:
+      - talos.ca_cert
+    message: |
+      Set the CA cert path.
+value:
+  controlplanes: ${cluster.controlplanes}
+`)
+		var block ConfigBlock
+		if err := yaml.Unmarshal(y, &block); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if len(block.Requires) != 2 {
+			t.Fatalf("Expected 2 requirement blocks, got %d", len(block.Requires))
+		}
+		if block.Requires[0].When != "" || block.Requires[0].Paths[0] != "talos.endpoint" {
+			t.Errorf("Unexpected first block: %+v", block.Requires[0])
+		}
+		if block.Requires[1].When != "talos.tls == true" || block.Requires[1].Paths[0] != "talos.ca_cert" {
+			t.Errorf("Unexpected second block: %+v", block.Requires[1])
+		}
+		if !strings.Contains(block.Requires[1].Message, "Set the CA cert path.") {
+			t.Errorf("Unexpected second block message: %q", block.Requires[1].Message)
+		}
+
+		out, err := yaml.Marshal(&block)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		outStr := string(out)
+		if !strings.Contains(outStr, "requires:") {
+			t.Errorf("Expected marshaled YAML to contain requires: %s", outStr)
+		}
+		if !strings.Contains(outStr, "talos.endpoint") || !strings.Contains(outStr, "talos.ca_cert") {
+			t.Errorf("Expected marshaled YAML to contain both required paths: %s", outStr)
+		}
+	})
+
+	t.Run("ConditionalTerraformComponentUnmarshalsRequires", func(t *testing.T) {
+		y := []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws
+when: platform == 'aws'
+terraform:
+  - path: cluster/aws-cilium
+    when: cni_effective.driver == 'cilium'
+    requires:
+      - paths:
+          - aws.cilium.role_arn
+        message: |
+          Set the cilium role arn.
+`)
+		var facet Facet
+		if err := yaml.Unmarshal(y, &facet); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if len(facet.TerraformComponents) != 1 {
+			t.Fatalf("Expected 1 terraform component, got %d", len(facet.TerraformComponents))
+		}
+		comp := facet.TerraformComponents[0]
+		if len(comp.Requires) != 1 {
+			t.Fatalf("Expected 1 requirement block on terraform component, got %d", len(comp.Requires))
+		}
+		if comp.Requires[0].Paths[0] != "aws.cilium.role_arn" {
+			t.Errorf("Unexpected required path: %v", comp.Requires[0].Paths)
+		}
+	})
+
+	t.Run("ConditionalKustomizationUnmarshalsRequires", func(t *testing.T) {
+		y := []byte(`kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: gateway
+when: gateway.enabled == true
+kustomize:
+  - name: gateway
+    path: gateway
+    when: gateway.driver == 'envoy'
+    requires:
+      - paths:
+          - gateway.cert_arn
+`)
+		var facet Facet
+		if err := yaml.Unmarshal(y, &facet); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if len(facet.Kustomizations) != 1 {
+			t.Fatalf("Expected 1 kustomization, got %d", len(facet.Kustomizations))
+		}
+		k := facet.Kustomizations[0]
+		if len(k.Requires) != 1 {
+			t.Fatalf("Expected 1 requirement block on kustomization, got %d", len(k.Requires))
+		}
+		if k.Requires[0].Paths[0] != "gateway.cert_arn" {
+			t.Errorf("Unexpected required path: %v", k.Requires[0].Paths)
 		}
 	})
 }

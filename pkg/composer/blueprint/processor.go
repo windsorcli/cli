@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -54,6 +55,22 @@ type BaseBlueprintProcessor struct {
 	mu             sync.Mutex
 	deferredPaths  map[string]bool
 	extraScope     map[string]any
+}
+
+// requirementBlockMiss records the unsatisfied paths and the effective condition under which a
+// single requirement block applied during a ProcessFacets pass. Condition is the AND of the parent
+// facet's When and the block's When; an empty Condition means the paths were unconditionally
+// required. Message is the optional author-supplied context for this block.
+type requirementBlockMiss struct {
+	Condition string
+	Message   string
+	Paths     []string
+}
+
+// facetRequirementMisses aggregates a single facet's unsatisfied requirement blocks for the
+// final-round error report. The facet name is carried by the outer map key in pendingRequirements.
+type facetRequirementMisses struct {
+	Misses []requirementBlockMiss
 }
 
 // =============================================================================
@@ -169,12 +186,14 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	var configBlockOrder []string
 	includedFacets := make([]blueprintv1alpha1.Facet, 0, len(sortedFacets))
 	prevIncludedSet := make(map[string]bool)
+	pendingRequirements := make(map[string]facetRequirementMisses)
 	const maxFacetRounds = 10
 	for range make([]struct{}, maxFacetRounds) {
 		includedFacets = includedFacets[:0]
 		globalScope = nil
 		cfgEntries = nil
 		configBlockOrder = nil
+		pendingRequirements = make(map[string]facetRequirementMisses)
 		passScope := scope
 		if passScope == nil && contextScope != nil {
 			passScope = maps.Clone(contextScope)
@@ -188,6 +207,14 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				return nil, nil, err
 			}
 			if !shouldInclude {
+				continue
+			}
+			misses, err := p.evaluateRequirements(facet, passScope)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(misses) > 0 {
+				pendingRequirements[facet.Metadata.Name] = facetRequirementMisses{Misses: misses}
 				continue
 			}
 			includedFacets = append(includedFacets, facet)
@@ -223,6 +250,10 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			}
 		}
 		prevIncludedSet = currSet
+	}
+
+	if len(pendingRequirements) > 0 {
+		return nil, nil, formatRequirementsError(pendingRequirements)
 	}
 
 	for _, facet := range includedFacets {
@@ -1578,6 +1609,125 @@ func (p *BaseBlueprintProcessor) evaluateIntegerExpression(expr string, facetPat
 	return &result, nil
 }
 
+// evaluateRequirements walks the facet's Requires blocks and the Requires blocks of every config
+// block, terraform component, and kustomization whose When holds, returning the unsatisfied entries.
+// A requirement block is skipped when its own When evaluates to false; otherwise every path must
+// resolve to a present, non-empty value (nil/""/empty slice/empty map count as missing; false and 0
+// are present). Component-level Requires are skipped entirely when the component's When is false,
+// so the component's needs only bind when it would actually be included. The miss's Condition is
+// the AND of facet.When, component.When (when applicable), and block.When; the formatter buckets
+// misses by Condition so each effective scope renders as its own "Because" section. An error is
+// returned only when a When expression fails to evaluate.
+func (p *BaseBlueprintProcessor) evaluateRequirements(facet blueprintv1alpha1.Facet, scope map[string]any) ([]requirementBlockMiss, error) {
+	var misses []requirementBlockMiss
+
+	facetMisses, err := p.evaluateRequirementBlocks(facet.Requires, scope, facet.Path, facet.Metadata.Name, facet.When)
+	if err != nil {
+		return nil, err
+	}
+	misses = append(misses, facetMisses...)
+
+	for _, cb := range facet.Config {
+		if len(cb.Requires) == 0 {
+			continue
+		}
+		include, err := p.shouldIncludeComponent(cb.When, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating config block when '%s' in facet '%s': %w", cb.When, facet.Metadata.Name, err)
+		}
+		if !include {
+			continue
+		}
+		m, err := p.evaluateRequirementBlocks(cb.Requires, scope, facet.Path, facet.Metadata.Name, facet.When, cb.When)
+		if err != nil {
+			return nil, err
+		}
+		misses = append(misses, m...)
+	}
+
+	for _, tc := range facet.TerraformComponents {
+		if len(tc.Requires) == 0 {
+			continue
+		}
+		include, err := p.shouldIncludeComponent(tc.When, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating terraform component when '%s' in facet '%s': %w", tc.When, facet.Metadata.Name, err)
+		}
+		if !include {
+			continue
+		}
+		m, err := p.evaluateRequirementBlocks(tc.Requires, scope, facet.Path, facet.Metadata.Name, facet.When, tc.When)
+		if err != nil {
+			return nil, err
+		}
+		misses = append(misses, m...)
+	}
+
+	for _, k := range facet.Kustomizations {
+		if len(k.Requires) == 0 {
+			continue
+		}
+		include, err := p.shouldIncludeComponent(k.When, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating kustomization when '%s' in facet '%s': %w", k.When, facet.Metadata.Name, err)
+		}
+		if !include {
+			continue
+		}
+		m, err := p.evaluateRequirementBlocks(k.Requires, scope, facet.Path, facet.Metadata.Name, facet.When, k.When)
+		if err != nil {
+			return nil, err
+		}
+		misses = append(misses, m...)
+	}
+
+	return misses, nil
+}
+
+// evaluateRequirementBlocks walks blocks against scope and returns the unsatisfied entries.
+// parentWhens are the chain of parent-level when expressions (facet.When, optionally
+// component.When) that are composed with each block's own When into the miss's effective condition.
+// A block is skipped when its own When evaluates to false. Empty parts in parentWhens are dropped
+// by combineConditions, so callers may pass an unset When (e.g. an empty facet.When) without
+// special-casing.
+func (p *BaseBlueprintProcessor) evaluateRequirementBlocks(blocks []blueprintv1alpha1.RequirementBlock, scope map[string]any, facetPath, facetName string, parentWhens ...string) ([]requirementBlockMiss, error) {
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+	var misses []requirementBlockMiss
+	for _, block := range blocks {
+		if len(block.Paths) == 0 {
+			continue
+		}
+		applies := true
+		if block.When != "" {
+			ok, err := p.evaluateCondition(block.When, facetPath, scope)
+			if err != nil {
+				return nil, fmt.Errorf("error evaluating requirement when '%s' in facet '%s': %w", block.When, facetName, err)
+			}
+			applies = ok
+		}
+		if !applies {
+			continue
+		}
+		var missing []string
+		for _, path := range block.Paths {
+			if !isPresentAtPath(scope, path) {
+				missing = append(missing, path)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		misses = append(misses, requirementBlockMiss{
+			Condition: combineConditions(append(parentWhens, block.When)...),
+			Message:   block.Message,
+			Paths:     missing,
+		})
+	}
+	return misses, nil
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -1816,6 +1966,132 @@ func accumulateMapKeys[K comparable, V any](m1, m2 map[K]V) map[K]V {
 		result[k] = zero
 	}
 	return result
+}
+
+// lookupPath resolves a dotted-path key (e.g. "cluster.workers.count") in a nested scope. Returns
+// (value, true) when every segment is found; returns (nil, false) when any segment is missing or
+// when an intermediate segment is not a map.
+func lookupPath(scope map[string]any, path string) (any, bool) {
+	if path == "" {
+		return nil, false
+	}
+	segments := strings.Split(path, ".")
+	var current any = scope
+	for _, seg := range segments {
+		m, ok := asMapStringAny(current)
+		if !ok {
+			return nil, false
+		}
+		v, exists := m[seg]
+		if !exists {
+			return nil, false
+		}
+		current = v
+	}
+	return current, true
+}
+
+// isPresentAtPath reports whether the dotted path resolves to a non-nil, non-empty value in scope.
+// Empty string, empty slice, and empty map are treated as missing; false and 0 are present.
+func isPresentAtPath(scope map[string]any, path string) bool {
+	val, ok := lookupPath(scope, path)
+	if !ok || val == nil {
+		return false
+	}
+	if s, ok := val.(string); ok {
+		return s != ""
+	}
+	rv := reflect.ValueOf(val)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array:
+		return rv.Len() > 0
+	}
+	return true
+}
+
+// combineConditions joins one or more when expressions into a single condition string used as a
+// grouping key in the aggregated requirements error. Empty parts are trimmed and dropped; all
+// empty (or no parts) yields "", meaning the requirement was unconditional.
+func combineConditions(parts ...string) string {
+	var nonEmpty []string
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			nonEmpty = append(nonEmpty, trimmed)
+		}
+	}
+	return strings.Join(nonEmpty, " && ")
+}
+
+// formatRequirementsError renders the user-facing aggregated error for unsatisfied facet
+// requirements. Paths are listed alphabetically, deduplicated across facets, with any
+// author-supplied messages attached underneath. Conditions are deliberately not surfaced —
+// the message field is the right place for an author to explain why a value is needed; raw
+// when-expressions leak engine detail and confuse operators. The word "facet" is intentionally
+// absent from the rendered output.
+func formatRequirementsError(pending map[string]facetRequirementMisses) error {
+	pathMessages := make(map[string][]string)
+	var pathOrder []string
+	addMessage := func(path, msg string) {
+		if _, exists := pathMessages[path]; !exists {
+			pathOrder = append(pathOrder, path)
+			pathMessages[path] = nil
+		}
+		if msg == "" {
+			return
+		}
+		if slices.Contains(pathMessages[path], msg) {
+			return
+		}
+		pathMessages[path] = append(pathMessages[path], msg)
+	}
+
+	names := make([]string, 0, len(pending))
+	for name := range pending {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, miss := range pending[name].Misses {
+			for _, p := range miss.Paths {
+				addMessage(p, miss.Message)
+			}
+		}
+	}
+
+	sort.Strings(pathOrder)
+
+	var b strings.Builder
+	b.WriteString("the following required values are not set in values.yaml:\n\n")
+	for _, path := range pathOrder {
+		fmt.Fprintf(&b, "  - %s\n", path)
+	}
+
+	hasNotes := false
+	for _, msgs := range pathMessages {
+		if len(msgs) > 0 {
+			hasNotes = true
+			break
+		}
+	}
+	if hasNotes {
+		b.WriteString("\nNotes:\n\n")
+		for _, path := range pathOrder {
+			msgs := pathMessages[path]
+			if len(msgs) == 0 {
+				continue
+			}
+			fmt.Fprintf(&b, "  %s:\n", path)
+			for _, msg := range msgs {
+				for _, line := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
+					b.WriteString("    ")
+					b.WriteString(line)
+					b.WriteByte('\n')
+				}
+			}
+			b.WriteByte('\n')
+		}
+	}
+	return &RequirementsError{Message: strings.TrimRight(b.String(), "\n")}
 }
 
 // =============================================================================

@@ -44,6 +44,7 @@ kustomize:
 | `ordinal`   | `integer` (optional)              | Order in which this facet is applied relative to others. Higher ordinal = higher precedence when merging. When omitted, derived from the facet file basename (see [Default ordinal from filename](#default-ordinal-from-filename)). |
 | `when`      | `string`                          | Expression that determines if the facet should be applied. Evaluated against configuration values. If empty or evaluates to `true`, the facet is applied. |
 | `config`    | `[]ConfigBlock`                   | Named configuration blocks evaluated in blueprint context; referenced as `<name>.<key>` (e.g. `talos.controlplanes`) from terraform inputs and kustomize substitutions, same style as context (`cluster.*`, `network.*`). |
+| `requires`  | `[]RequirementBlock`              | Input requirement blocks. When the facet is active and a block's optional `when` holds, every path must resolve to a present, non-empty value. Unsatisfied paths are aggregated into a single user-facing error. See [Requires](#requires). |
 | `terraform` | `[]ConditionalTerraformComponent` | Terraform components to include when the facet matches.                  |
 | `kustomize` | `[]ConditionalKustomization`       | Kustomizations to include when the facet matches.                         |
 
@@ -73,6 +74,7 @@ Facets can define **config** blocks to build generic configuration (e.g. Talos n
 - **name** – Exposed at scope root; expressions use `name.key` (e.g. `talos.controlplanes`).
 - **when** (optional) – Expression; if present and false, the block is skipped.
 - **body** – Remaining keys (e.g. `controlplanes`, `workers`, `patchVars`); values may contain `${}` expressions.
+- **requires** (optional) – Input requirements evaluated only when this block's `when` holds; see [RequirementBlock](#requirementblock).
 
 Config blocks are evaluated in blueprint context only (no facet config in scope). References from terraform or kustomize use `<name>.<key>`.
 
@@ -96,6 +98,20 @@ terraform:
 ```
 
 Evaluation order: facets are processed by ordinal (ascending), then by name. First, each facet's config block **structure** (name, when, body keys) is merged into a global scope (same block name merges block bodies recursively); config body expressions are **not** evaluated yet. After all facets are merged, config body expressions are evaluated once in blueprint context (very late). Then terraform and kustomize components are collected; their inputs and substitutions can reference the evaluated `<name>.<key>` (e.g. `talos.controlplanes`).
+
+## RequirementBlock
+
+A `requires` field may appear on `Facet`, `ConfigBlock`, `ConditionalTerraformComponent`, and `ConditionalKustomization`. Each entry is a `RequirementBlock`:
+
+| Field     | Type       | Required | Description                                                                                       |
+|-----------|------------|----------|---------------------------------------------------------------------------------------------------|
+| `when`    | `string`   | no       | Expression gating the block. Empty means always required while the parent facet/component is active. |
+| `paths`   | `[]string` | yes      | Dotted scope keys (e.g. `aws.region`, `cluster.workers.count`) that must resolve to a present, non-empty value. |
+| `message` | `string`   | no       | Optional author context surfaced under the condition heading in the aggregated error.              |
+
+Presence semantics: `nil`, `""`, empty slice, and empty map count as **missing**; `false` and `0` count as **present**. The check verifies that the user has declared a value, not that the value is truthy.
+
+For composition rules, deferral semantics, and worked examples, see the conceptual guide: [Blueprint facets — Requires](https://docs.windsorcli.dev/blueprints/facets#requires).
 
 ## Conditional Logic
 
@@ -149,6 +165,7 @@ Extends `TerraformComponent` with conditional logic and merge strategy support.
 | `when`     | `string`            | Expression that determines if this component should be applied. If empty, the component is always applied when the parent facet matches. |
 | `ordinal`  | `integer` (optional)| Overrides the facet ordinal for this component's merge precedence. When omitted, the facet's ordinal is used. Higher ordinal wins when merging. |
 | `strategy` | `string`            | Merge strategy: `merge` (default), `replace`, or `remove`. Only available in facets.  |
+| `requires` | `[]RequirementBlock`| Input requirements evaluated only when this component's `when` holds; missing paths are bucketed under the AND of facet, component, and block `when`. See [RequirementBlock](#requirementblock). |
 
 ### Merge Strategies
 
@@ -197,6 +214,7 @@ Extends `Kustomization` with conditional logic and merge strategy support.
 | `when`         | `string`            | Expression that determines if this kustomization should be applied. If empty, the kustomization is always applied when the parent facet matches. |
 | `ordinal`      | `integer` (optional) | Overrides the facet ordinal for this kustomization's merge precedence. When omitted, the facet's ordinal is used. Higher ordinal wins when merging. |
 | `strategy`     | `string`            | Merge strategy: `merge` (default), `replace`, or `remove`. Only available in facets.  |
+| `requires`     | `[]RequirementBlock`| Input requirements evaluated only when this kustomization's `when` holds; missing paths are bucketed under the AND of facet, kustomization, and block `when`. See [RequirementBlock](#requirementblock). |
 
 ### Merge Strategies
 

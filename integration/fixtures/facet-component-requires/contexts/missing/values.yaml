@@ -1,0 +1,5 @@
+platform: aws
+cni:
+  driver: cilium
+aws:
+  region: us-east-1

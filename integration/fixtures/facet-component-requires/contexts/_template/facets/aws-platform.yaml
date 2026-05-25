@@ -1,0 +1,20 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: aws-platform
+  description: Active on aws; the cilium terraform component requires aws.cilium_role_arn only when cni.driver is cilium.
+when: (platform ?? '') == 'aws'
+requires:
+  - paths:
+      - aws.region
+terraform:
+  - path: cluster/aws-cilium
+    when: (cni.driver ?? '') == 'cilium'
+    requires:
+      - paths:
+          - aws.cilium_role_arn
+        message: |
+          The cilium terraform component needs an IAM role ARN.
+          See https://docs.windsorcli.dev/aws-cilium for setup.
+    inputs:
+      role_arn: ${aws.cilium_role_arn}

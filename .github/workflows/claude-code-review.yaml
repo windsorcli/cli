@@ -226,6 +226,7 @@ jobs:
           STICKY_MARKER: "<!-- claude-code-review:summary -->"
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_bots: github-actions
           prompt: |
             Run the `review-pr` skill against this pull request and publish
             findings as a GitHub pull request review with **inline, line-anchored

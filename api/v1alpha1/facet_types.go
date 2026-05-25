@@ -5,6 +5,9 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"slices"
+
+	"github.com/goccy/go-yaml"
 )
 
 // =============================================================================
@@ -28,8 +31,29 @@ type ConfigBlock struct {
 	// Ordinal overrides the facet ordinal for this block's merge precedence. When nil, the facet's ordinal is used.
 	// Higher ordinal means higher precedence when merging (wins on conflict).
 	Ordinal *int `yaml:"ordinal,omitempty"`
+	// Requires lists requirement blocks scoped to this config block. When the parent facet is active and this
+	// block's optional When holds, every block in Requires is evaluated under the AND of facet.When,
+	// block.When, and each Requires entry's own When. Missing paths are aggregated alongside facet- and
+	// component-level misses in the user-facing error.
+	Requires []RequirementBlock `yaml:"requires,omitempty"`
 	// Body holds the canonical content as map[string]any{"value": <content>} for merge and evaluation. Not YAML-marshaled directly.
 	Body map[string]any `yaml:"-"`
+}
+
+// RequirementBlock declares a set of scope paths that must resolve to present,
+// non-empty values for the parent facet's activation to be well-formed. When is
+// optional and gates the block; if empty, the paths are required whenever the
+// parent facet is active. Message is optional context surfaced in the
+// aggregated error alongside the missing paths.
+type RequirementBlock struct {
+	// When is an expression gating this block. Empty means always required while the parent facet is active.
+	When string `yaml:"when,omitempty"`
+
+	// Paths are dotted scope keys whose values must be present and non-empty.
+	Paths []string `yaml:"paths"`
+
+	// Message is optional author-supplied context surfaced under this block's heading in the aggregated error.
+	Message string `yaml:"message,omitempty"`
 }
 
 // Facet represents a conditional blueprint fragment that can be merged into a base blueprint.
@@ -65,6 +89,11 @@ type Facet struct {
 	// Terraform inputs and kustomize substitutions reference <name>.<key> (e.g. talos.controlplanes), like context (cluster.*, network.*).
 	Config []ConfigBlock `yaml:"config,omitempty"`
 
+	// Requires lists input requirement blocks. When the facet is active and a block's optional When holds,
+	// every path must resolve to a present, non-empty value in the merged scope. Unsatisfied paths across
+	// every active facet are aggregated into a single user-facing error.
+	Requires []RequirementBlock `yaml:"requires,omitempty"`
+
 	// TerraformComponents are Terraform modules in the facet.
 	TerraformComponents []ConditionalTerraformComponent `yaml:"terraform,omitempty"`
 
@@ -96,6 +125,11 @@ type ConditionalTerraformComponent struct {
 	// Ordinal overrides the facet ordinal for this component's merge precedence. When nil, the facet's ordinal is used.
 	// Higher ordinal means higher precedence when merging (processed later, wins on conflict).
 	Ordinal *int `yaml:"ordinal,omitempty"`
+
+	// Requires lists requirement blocks scoped to this terraform component. Evaluated only when the
+	// parent facet is active and this component's When holds; missing paths are aggregated under the
+	// effective condition (facet.When && component.When && block.When).
+	Requires []RequirementBlock `yaml:"requires,omitempty"`
 }
 
 // ConditionalKustomization extends Kustomization with conditional logic support.
@@ -117,6 +151,11 @@ type ConditionalKustomization struct {
 	// Ordinal overrides the facet ordinal for this kustomization's merge precedence. When nil, the facet's ordinal is used.
 	// Higher ordinal means higher precedence when merging (processed later, wins on conflict).
 	Ordinal *int `yaml:"ordinal,omitempty"`
+
+	// Requires lists requirement blocks scoped to this kustomization. Evaluated only when the parent
+	// facet is active and this kustomization's When holds; missing paths are aggregated under the
+	// effective condition (facet.When && kustomization.When && block.When).
+	Requires []RequirementBlock `yaml:"requires,omitempty"`
 }
 
 // =============================================================================
@@ -151,6 +190,15 @@ func (c *ConfigBlock) UnmarshalYAML(unmarshal func(any) error) error {
 			c.Ordinal = &i
 		}
 	}
+	if r, ok := raw["requires"]; ok && r != nil {
+		b, err := yaml.Marshal(r)
+		if err != nil {
+			return fmt.Errorf("config block %q: marshal requires: %w", c.Name, err)
+		}
+		if err := yaml.Unmarshal(b, &c.Requires); err != nil {
+			return fmt.Errorf("config block %q: parse requires: %w", c.Name, err)
+		}
+	}
 	if _, hasValue := raw["value"]; !hasValue {
 		return fmt.Errorf("config block %q: value is required", c.Name)
 	}
@@ -173,12 +221,43 @@ func (c *ConfigBlock) MarshalYAML() (any, error) {
 	if c.Ordinal != nil {
 		out["ordinal"] = *c.Ordinal
 	}
+	if len(c.Requires) > 0 {
+		out["requires"] = c.Requires
+	}
 	if c.Body != nil {
 		if v, ok := c.Body["value"]; ok {
 			out["value"] = v
 		}
 	}
 	return out, nil
+}
+
+// UnmarshalYAML enforces that paths is present and non-empty. A block with no paths would silently
+// disable requirement checking and defeat the feature's purpose, so the most likely cause (a typo
+// like `pahts:`) is surfaced as a parse-time error instead of a downstream surprise.
+func (r *RequirementBlock) UnmarshalYAML(unmarshal func(any) error) error {
+	type rawRequirementBlock RequirementBlock
+	var raw rawRequirementBlock
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+	if len(raw.Paths) == 0 {
+		return fmt.Errorf("requirement block: paths is required and must contain at least one entry")
+	}
+	*r = RequirementBlock(raw)
+	return nil
+}
+
+// DeepCopy creates a deep copy of the RequirementBlock object.
+func (r *RequirementBlock) DeepCopy() *RequirementBlock {
+	if r == nil {
+		return nil
+	}
+	return &RequirementBlock{
+		When:    r.When,
+		Paths:   slices.Clone(r.Paths),
+		Message: r.Message,
+	}
 }
 
 // DeepCopy creates a deep copy of the ConfigBlock object.
@@ -191,7 +270,21 @@ func (c *ConfigBlock) DeepCopy() *ConfigBlock {
 		o := *c.Ordinal
 		ordinalCopy = &o
 	}
-	return &ConfigBlock{Name: c.Name, When: c.When, Strategy: c.Strategy, Ordinal: ordinalCopy, Body: deepCopyMapStringAny(c.Body)}
+	var requiresCopy []RequirementBlock
+	if len(c.Requires) > 0 {
+		requiresCopy = make([]RequirementBlock, len(c.Requires))
+		for i, block := range c.Requires {
+			requiresCopy[i] = *block.DeepCopy()
+		}
+	}
+	return &ConfigBlock{
+		Name:     c.Name,
+		When:     c.When,
+		Strategy: c.Strategy,
+		Ordinal:  ordinalCopy,
+		Requires: requiresCopy,
+		Body:     deepCopyMapStringAny(c.Body),
+	}
 }
 
 // DeepCopy creates a deep copy of the Facet object.
@@ -220,6 +313,11 @@ func (f *Facet) DeepCopy() *Facet {
 		configCopy[i] = *block.DeepCopy()
 	}
 
+	requiresCopy := make([]RequirementBlock, len(f.Requires))
+	for i, block := range f.Requires {
+		requiresCopy[i] = *block.DeepCopy()
+	}
+
 	var ordinalCopy *int
 	if f.Ordinal != nil {
 		o := *f.Ordinal
@@ -235,6 +333,7 @@ func (f *Facet) DeepCopy() *Facet {
 		When:                f.When,
 		Backend:             f.Backend,
 		Config:              configCopy,
+		Requires:            requiresCopy,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,
 		Substitutions:       maps.Clone(f.Substitutions),
@@ -253,11 +352,20 @@ func (c *ConditionalTerraformComponent) DeepCopy() *ConditionalTerraformComponen
 		ordinalCopy = &o
 	}
 
+	var requiresCopy []RequirementBlock
+	if len(c.Requires) > 0 {
+		requiresCopy = make([]RequirementBlock, len(c.Requires))
+		for i, block := range c.Requires {
+			requiresCopy[i] = *block.DeepCopy()
+		}
+	}
+
 	return &ConditionalTerraformComponent{
 		TerraformComponent: *c.TerraformComponent.DeepCopy(),
 		When:               c.When,
 		Strategy:           c.Strategy,
 		Ordinal:            ordinalCopy,
+		Requires:           requiresCopy,
 	}
 }
 
@@ -273,11 +381,20 @@ func (c *ConditionalKustomization) DeepCopy() *ConditionalKustomization {
 		ordinalCopy = &o
 	}
 
+	var requiresCopy []RequirementBlock
+	if len(c.Requires) > 0 {
+		requiresCopy = make([]RequirementBlock, len(c.Requires))
+		for i, block := range c.Requires {
+			requiresCopy[i] = *block.DeepCopy()
+		}
+	}
+
 	return &ConditionalKustomization{
 		Kustomization: *c.Kustomization.DeepCopy(),
 		When:          c.When,
 		Strategy:      c.Strategy,
 		Ordinal:       ordinalCopy,
+		Requires:      requiresCopy,
 	}
 }
 

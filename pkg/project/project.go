@@ -1,12 +1,14 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -188,6 +190,10 @@ func (p *Project) Initialize(overwrite bool, blueprintURL ...string) error {
 	}
 
 	if err := p.Composer.BlueprintHandler.LoadBlueprint(blueprintURL...); err != nil {
+		var reqErr *blueprint.RequirementsError
+		if errors.As(err, &reqErr) {
+			return err
+		}
 		return fmt.Errorf("failed to load blueprint data: %w", err)
 	}
 
