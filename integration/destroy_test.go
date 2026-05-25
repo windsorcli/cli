@@ -19,6 +19,7 @@ import (
 func TestDestroyTerraform_SucceedsWithMinimalLocalConfig(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -37,6 +38,7 @@ func TestDestroyTerraform_SucceedsWithMinimalLocalConfig(t *testing.T) {
 func TestDestroyTerraform_SucceedsAllWithMinimalLocalConfig(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -67,6 +69,7 @@ func TestDestroyTerraform_FailsWhenNotInTrustedDirectory(t *testing.T) {
 func TestDestroy_FailsWhenConfirmFlagDoesNotMatch(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -84,6 +87,7 @@ func TestDestroy_FailsWhenConfirmFlagDoesNotMatch(t *testing.T) {
 func TestDestroyTerraform_FailsForNonexistentComponent(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -109,6 +113,7 @@ func TestDestroyTerraform_FailsForNonexistentComponent(t *testing.T) {
 func TestDestroyTerraform_SkipsComponentWithEmptyState(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -144,6 +149,7 @@ func TestDestroyTerraform_SkipsComponentWithEmptyState(t *testing.T) {
 func TestDestroyTerraform_LocalBackendSkipsMigrationDance(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -181,6 +187,7 @@ func TestDestroyTerraform_LocalBackendSkipsMigrationDance(t *testing.T) {
 func TestDestroy_TolerantOfReorderedBackend(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	helpers.MarkAsGitRepo(t, dir)
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
@@ -219,6 +226,7 @@ terraform:
 func TestDestroy_ShowsDestroyPlanBeforePromptOrConfirm(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -249,6 +257,7 @@ func TestDestroy_ShowsDestroyPlanBeforePromptOrConfirm(t *testing.T) {
 func TestDestroyTerraform_WarnsWhenPreventDestroySet(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "prevent-destroy")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)

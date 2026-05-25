@@ -125,6 +125,7 @@ func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
 func TestBootstrap_DanceIsScopedToTier(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	helpers.MarkAsGitRepo(t, dir)
 	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "terraform.backend.type=s3"}, env); err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}

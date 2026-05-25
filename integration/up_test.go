@@ -21,6 +21,7 @@ import (
 func TestUp_NoOpWhenWorkstationDisabled(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "up")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env)
 	if err != nil {
 		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
@@ -69,6 +70,7 @@ func TestUp_RejectsRemovedInstallFlag(t *testing.T) {
 func TestUp_AcceptsWaitFlag(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "up")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env)
 	if err != nil {
 		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
@@ -86,6 +88,7 @@ func TestUp_AcceptsWaitFlag(t *testing.T) {
 func TestUp_AcceptsSetFlag(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "up")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env)
 	if err != nil {
 		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)
@@ -115,6 +118,7 @@ func TestUp_AcceptsSetFlag(t *testing.T) {
 func TestUp_FailsOnMalformedSetFlag(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "up")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "staging"}, env)
 	if err != nil {
 		t.Fatalf("init staging: %v\nstderr: %s", err, stderr)

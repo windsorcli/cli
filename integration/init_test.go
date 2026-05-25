@@ -100,6 +100,7 @@ func TestContext_RemovedGroupReturnsMigrationHint(t *testing.T) {
 func TestInit_PersistsSetValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "dns.enabled=false", "--set", "cluster.endpoint=https://127.0.0.1:6443"}, env)
 	if err != nil {
@@ -119,6 +120,7 @@ func TestInit_PersistsSetValues(t *testing.T) {
 func TestInit_DevPlatformGoesToWorkstationState(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local-dev", "--platform", "docker"}, env)
 	if err != nil {
@@ -146,6 +148,7 @@ func TestInit_DevPlatformGoesToWorkstationState(t *testing.T) {
 func TestInit_NonDevPlatformStaysInValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "prod", "--platform", "aws"}, env)
 	if err != nil {
@@ -173,6 +176,7 @@ func TestInit_NonDevPlatformStaysInValues(t *testing.T) {
 func TestInit_RepeatedInitIsIdempotentForExplicitValues(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "custom.value=one"}, env)
 	if err != nil {
@@ -194,6 +198,7 @@ func TestInit_RepeatedInitIsIdempotentForExplicitValues(t *testing.T) {
 func TestInit_PreservesUserValuesAcrossInit(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 	contextDir := filepath.Join(dir, "contexts", "prod")
 	if err := os.MkdirAll(contextDir, 0755); err != nil {
 		t.Fatalf("expected no error creating context dir, got %v", err)
@@ -217,6 +222,7 @@ func TestInit_PreservesUserValuesAcrossInit(t *testing.T) {
 func TestInit_SetContextThenInitUsesSelectedContext(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "prod", "--platform", "aws"}, env)
 	if err != nil {
@@ -244,6 +250,7 @@ func TestInit_SetContextThenInitUsesSelectedContext(t *testing.T) {
 func TestInit_DevContextOwnershipStableAcrossReinit(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local-dev", "--platform", "docker", "--set", "dns.enabled=false"}, env)
 	if err != nil {
@@ -277,6 +284,7 @@ func TestInit_DevContextOwnershipStableAcrossReinit(t *testing.T) {
 func TestInit_CreatesProjectAnchorInEmptyDirectory(t *testing.T) {
 	t.Parallel()
 	workDir := t.TempDir()
+	helpers.MarkAsGitRepo(t, workDir)
 	homeDir := t.TempDir()
 	env := []string{
 		"HOME=" + homeDir,
@@ -300,12 +308,39 @@ func TestInit_CreatesProjectAnchorInEmptyDirectory(t *testing.T) {
 	}
 }
 
+// TestInit_RejectsNonGitDirectory verifies that running `windsor init` outside
+// a git repository fails fast with an actionable hint rather than producing a
+// confusing downstream error. The README documents `git init` as a prerequisite;
+// this test pins the operator-facing message.
+func TestInit_RejectsNonGitDirectory(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	env := []string{
+		"HOME=" + homeDir,
+		"USERPROFILE=" + homeDir,
+		"PATH=" + os.Getenv("PATH"),
+	}
+
+	_, stderr, err := helpers.RunCLI(workDir, []string{"init"}, env)
+	if err == nil {
+		t.Fatal("expected init to fail in a non-git directory, got success")
+	}
+	if !strings.Contains(string(stderr), "must run inside a git repository") {
+		t.Errorf("expected stderr to mention 'must run inside a git repository', got: %s", stderr)
+	}
+	if !strings.Contains(string(stderr), "git init") {
+		t.Errorf("expected stderr to suggest 'git init', got: %s", stderr)
+	}
+}
+
 // TestInit_NoAnchorWhenProjectExistsInParent verifies that running
 // `windsor init` in a subdirectory of an existing project reuses the parent's
 // windsor.yaml instead of creating a stray one in the subdirectory.
 func TestInit_NoAnchorWhenProjectExistsInParent(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 	subDir := filepath.Join(dir, "nested", "deeper")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
 		t.Fatalf("mkdir subdir: %v", err)
@@ -324,6 +359,7 @@ func TestInit_NoAnchorWhenProjectExistsInParent(t *testing.T) {
 func TestInit_InvalidValuesDoNotBlockShowCommand(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "default"}, env)
 	if err != nil {
@@ -354,6 +390,7 @@ func TestInit_InvalidValuesDoNotBlockShowCommand(t *testing.T) {
 func TestInit_DoesNotRequireDocker_EvenWhenDockerEnabled(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
 
 	stripped := helpers.MinimalPATHEnv(env)
 
@@ -369,6 +406,7 @@ func TestInit_DoesNotRequireDocker_EvenWhenDockerEnabled(t *testing.T) {
 func TestInit_AcceptsBlueprintWithDeclaredBackendTier(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-first")
+	helpers.MarkAsGitRepo(t, dir)
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("expected init to succeed for backend-tier fixture, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
@@ -382,6 +420,7 @@ func TestInit_AcceptsBlueprintWithDeclaredBackendTier(t *testing.T) {
 func TestInit_RejectsBlueprintWithUnresolvedBackendField(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "backend-unresolved")
+	helpers.MarkAsGitRepo(t, dir)
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err == nil {
 		t.Fatalf("expected init to fail for unresolved backend, got success\nstdout: %s\nstderr: %s", stdout, stderr)
@@ -405,6 +444,7 @@ func TestInit_RejectsBlueprintWithUnresolvedBackendField(t *testing.T) {
 func TestInit_PlatformAwsDefaultsBackendTypeToS3(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "aws-test", "--platform", "aws", "--set", "dns.enabled=false"}, env)
 	if err != nil {
 		t.Logf("init exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
@@ -427,6 +467,7 @@ func TestInit_PlatformAwsDefaultsBackendTypeToS3(t *testing.T) {
 func TestInit_PlatformAzureDefaultsBackendTypeToAzurerm(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "azure-test", "--platform", "azure", "--set", "dns.enabled=false"}, env)
 	if err != nil {
 		t.Logf("init exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
@@ -451,6 +492,7 @@ func TestInit_PlatformAzureDefaultsBackendTypeToAzurerm(t *testing.T) {
 func TestInit_PlatformMetalDefaultsBackendTypeToKubernetes(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "metal-test", "--platform", "metal", "--set", "dns.enabled=false"}, env)
 	if err != nil {
 		t.Logf("init exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)
@@ -476,6 +518,7 @@ func TestInit_PlatformMetalDefaultsBackendTypeToKubernetes(t *testing.T) {
 func TestInit_UnmappedPlatformDoesNotDefaultBackendType(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	stdout, stderr, err := helpers.RunCLI(dir, []string{"init", "gcp-test", "--platform", "gcp", "--set", "dns.enabled=false"}, env)
 	if err != nil {
 		t.Logf("init exited: %v (tolerated)\nstdout: %s\nstderr: %s", err, stdout, stderr)

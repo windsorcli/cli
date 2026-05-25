@@ -64,6 +64,7 @@ func TestPlanTerraform_FailsForNonexistentComponent(t *testing.T) {
 func TestPlanTerraform_SucceedsWithMinimalLocalConfig(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -109,6 +110,7 @@ func TestPlanKustomize_SucceedsWithEmptyKustomizations(t *testing.T) {
 	t.Parallel()
 	skipIfFluxNotInstalled(t)
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -135,6 +137,7 @@ func TestPlan_FailsWhenNotInTrustedDirectory(t *testing.T) {
 func TestPlan_SucceedsWithEmptyBlueprint(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -152,6 +155,7 @@ func TestPlan_SucceedsWithEmptyBlueprint(t *testing.T) {
 func TestPlanTerraform_SummaryFlagShowsSummaryTable(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -169,6 +173,7 @@ func TestPlanTerraform_SummaryFlagShowsSummaryTable(t *testing.T) {
 func TestPlanTerraform_JSONFlagOutputsJSON(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -186,6 +191,7 @@ func TestPlanTerraform_JSONFlagOutputsJSON(t *testing.T) {
 func TestPlanTerraform_SummaryFlagWithComponent(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -203,6 +209,7 @@ func TestPlanTerraform_SummaryFlagWithComponent(t *testing.T) {
 func TestPlanKustomize_SummaryFlagShowsSummaryTable(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
@@ -239,6 +246,7 @@ func TestPlanKustomize_FailsWhenKustomizationNotInBlueprint(t *testing.T) {
 func TestPlan_FooterHintAppearsForNewComponents(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
 	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
 	if err != nil {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
