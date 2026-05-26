@@ -104,14 +104,14 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 // Private Methods
 // =============================================================================
 
-// createMinimalBlueprint creates the referential blueprint form: metadata, repository, and
-// createMinimalBlueprint creates a minimal blueprint with only sources, metadata, and API version.
-// This is used for first-time initialization when components come from referenced blueprints
-// rather than being explicitly listed in the user blueprint. The initBlueprintURLs parameter
-// contains blueprint URLs that should be added as sources with install: true, using their metadata
-// names from the loaded blueprints. When contexts/_template exists, a "template" source (install: true,
-// no URL) is included so the blueprint declares local template; no GitRepository/OCIRepository is
-// created for it—components from template reference repository: or another source by name.
+// createMinimalBlueprint creates the referential blueprint form: metadata, repository, sources,
+// and any user-authored top-level overrides (currently Backend). Components come from referenced
+// blueprints rather than being explicitly listed in the user blueprint. The initBlueprintURLs
+// parameter contains blueprint URLs that should be added as sources with install: true, using
+// their metadata names from the loaded blueprints. When contexts/_template exists, a "template"
+// source (install: true, no URL) is included so the blueprint declares local template; no
+// GitRepository/OCIRepository is created for it—components from template reference repository:
+// or another source by name.
 func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha1.Blueprint, initBlueprintURLs ...string) *blueprintv1alpha1.Blueprint {
 	metadata := blueprint.Metadata
 	if w.runtime != nil && w.runtime.ContextName != "" {
@@ -127,6 +127,9 @@ func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha
 	}
 	if blueprint.Repository.Url != "" {
 		minimal.Repository = blueprint.Repository
+	}
+	if blueprint.Backend != "" {
+		minimal.Backend = blueprint.Backend
 	}
 
 	trueVal := true
