@@ -23,7 +23,7 @@ sudo systemctl enable --now systemd-resolved
 windsor configure network
 ```
 
-**On distros that don't ship systemd-resolved** (Alpine, Void, Devuan, NixOS, Slackware), wire DNS manually via your distro's resolver. The Windsor cluster's DNS service IP is in `workstation.dns.address` (run `windsor get config workstation.dns.address` after `windsor up`). Add a per-domain rule for `*.<dns.domain>` via your distro's mechanism:
+**On distros that don't ship systemd-resolved** (Alpine, Void, Devuan, NixOS, Slackware), wire DNS manually via your distro's resolver. The Windsor cluster's DNS service IP is the `dns.address` value in `.windsor/contexts/<context-name>/workstation.yaml` (populated by `windsor up`). Add a per-domain rule for `*.<dns.domain>` via your distro's mechanism:
 
 - **resolvconf / openresolv:** `echo "nameserver <address>" | sudo resolvconf -a <iface>.windsor`
 - **dnsmasq:** add `server=/<dns.domain>/<address>` to `/etc/dnsmasq.d/windsor.conf` and reload.
@@ -40,7 +40,7 @@ A Group Policy NRPT rule is overriding the per-machine rule Windsor installs. GP
 **Recovery options** (in order of preference):
 
 1. **Contact your IT administrator** and ask for either an NRPT exception covering `*.<dns.domain>`, or a domain on the corporate allow-list. Provide the GPO-served IP from the warning so they can locate the policy.
-2. **Use IP-based access** in the meantime — point your tools directly at the cluster's API endpoint or service IPs, skipping name resolution. Run `windsor get config workstation.address` for the workstation IP and consult `windsor get services` for the per-service IPs.
+2. **Use IP-based access** in the meantime — point your tools directly at the cluster's API endpoint or service IPs, skipping name resolution. The workstation IP is `address:` in `.windsor/contexts/<context-name>/workstation.yaml`. With the windsor shell hook installed (see [Installation](../install.md)), `kubectl get svc -A` picks up the right kubeconfig automatically from the project directory.
 3. **Use WSL2 with its own resolver** for development — WSL2 distros do not inherit Windows NRPT and can use systemd-resolved drop-ins directly (see *WSL2 doesn't see Windows NRPT* below).
 
 You can confirm the effective rule yourself:
@@ -49,7 +49,7 @@ You can confirm the effective rule yourself:
 Get-DnsClientNrptPolicy -Effective | Where-Object { $_.Namespace -eq '.<dns.domain>' }
 ```
 
-If the `NameServers` field shows an IP other than the one in `workstation.dns.address`, a GPO is winning.
+If the `NameServers` field shows an IP other than the one in `.windsor/contexts/<context-name>/workstation.yaml` under `dns.address`, a GPO is winning.
 
 ### Browser DNS-over-HTTPS shadows the system resolver
 
@@ -156,7 +156,7 @@ ping -c 3 <ip-from-host-output>
 If `ping` fails, the issue is one of:
 
 - **On VM-backed runtimes (colima):** missing/stale host route, or missing in-VM iptables FORWARD. Re-run `windsor configure network` from an elevated shell.
-- **On any runtime:** the cluster service isn't running, the port mapping is wrong, or a host firewall is blocking. Check `windsor get services` and `windsor get pods`.
+- **On any runtime:** the cluster service isn't running, the port mapping is wrong, or a host firewall is blocking. With the windsor shell hook installed (see [Installation](../install.md)), `kubectl get svc -A` and `kubectl get pods -A` pick up the right kubeconfig from the project directory.
 
 ## Networking
 
@@ -187,7 +187,7 @@ Pick one of these:
 
 A previous Windsor session installed a host route for the old `workstation.address`. When the VM came back up on a different IP, the stale route was never removed.
 
-The clean recovery is `windsor down --clean`, which removes the route via the revert path. If state was deleted manually outside Windsor (or revert never ran), remove the stale route by hand:
+The clean recovery is `windsor configure network --revert`, which removes the host route, in-VM forwarding rules, and DNS resolver entries Windsor installed. If state was deleted manually outside Windsor (or revert never ran), remove the stale route by hand:
 
 - **macOS:** `sudo route delete -net <old-cidr>`
 - **Linux:** `sudo ip route del <old-cidr>`
@@ -218,27 +218,21 @@ Common root causes: a node hasn't joined yet (Talos config issue), an image pull
 
 If you're stuck, `Ctrl-C` is safe — `windsor up` is idempotent. Fix the underlying resource and re-run.
 
-### "another windsor operation is in progress"
+### "stack lock is held by another windsor process"
 
-**Symptom:** `windsor up`, `down`, or `apply` immediately exits with `another windsor operation is in progress`.
+**Symptom:** `windsor up`, `down`, or `apply` immediately exits with `stack lock at ... is held by another windsor process` (or, when holder identity is known, `... is held by <user>@<host> (operation=..., started=...)`).
 
-Windsor holds a per-context stack lock to prevent concurrent runs from corrupting state. The lock file lives under `.windsor/locks/` in the project root.
+Windsor holds a per-context stack lock to prevent concurrent runs from corrupting state. The lock file lives at `.windsor/contexts/<context-name>/.stacklock` in the project root.
 
-**If you know no other Windsor process is running** (previous run crashed, hit `Ctrl-C` at the wrong moment, etc.):
+**If another Windsor process really is running**, wait for it to finish — interrupting can leave state in a half-applied condition.
 
-```bash
-windsor unlock
-```
-
-This removes the lock file. **Do not run this while another Windsor process is actually running** — it will let two operations collide and you'll end up with state divergence.
-
-To check whether another process really holds the lock, inspect the lock file:
+**If you know no other Windsor process is running** (previous run crashed, was killed with `kill -9`, hit `Ctrl-C` at the wrong moment, etc.), there is no `windsor unlock` command today — remove the lock file directly:
 
 ```bash
-cat .windsor/locks/<context>.lock
+rm .windsor/contexts/<context-name>/.stacklock
 ```
 
-The file contains the PID and start time of the holder.
+**Do not delete this file while another Windsor process is actually running** — it will let two operations collide and you'll end up with state divergence. On Linux/macOS you can check whether another process is currently holding the flock with `lsof .windsor/contexts/<context-name>/.stacklock`; a non-empty result means the lock is genuinely held.
 
 ### "error acquiring the state lock"
 
@@ -254,10 +248,18 @@ This is Terraform's lock, not Windsor's stack lock. Terraform holds a lock on it
 
 **Recovery:**
 
-- If you're certain no other process holds it, re-run with a lock timeout:
+- If you're certain no other process holds it, configure a lock timeout in your context's `values.yaml`:
+
+  ```yaml
+  terraform:
+    lock:
+      timeout: 30s
+  ```
+
+  Or set it for one run via `--set` on init / up:
 
   ```bash
-  windsor apply --lock-timeout 30s
+  windsor init --set terraform.lock.timeout=30s
   ```
 
   Terraform retries until the timeout, then fails clearly.
