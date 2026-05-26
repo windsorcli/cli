@@ -591,7 +591,7 @@ func (rt *Runtime) ResolveConfig(flagOverrides map[string]any) error {
 // .windsor/contexts/<context>/workstation.yaml and excluded from values.yaml.
 func (rt *Runtime) SaveConfig(overwrite ...bool) error {
 	if rt.ConfigHandler == nil {
-		return fmt.Errorf("config handler not initialized")
+		return fmt.Errorf("runtime not fully initialized: config handler missing")
 	}
 	if v := rt.ConfigHandler.GetString("provider"); v != "" {
 		if rt.ConfigHandler.GetString("platform") == "" {

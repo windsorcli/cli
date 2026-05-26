@@ -120,7 +120,7 @@ func (sv *SchemaValidator) Validate(values map[string]any) (*SchemaValidationRes
 // touching kaptinlin's compiled form — see extractDefaults for why.
 func (sv *SchemaValidator) GetSchemaDefaults() (map[string]any, error) {
 	if sv.Schema == nil {
-		return nil, fmt.Errorf("no schema loaded - call LoadSchema first")
+		return nil, fmt.Errorf("config schema has not been loaded")
 	}
 	return extractDefaults(sv.Schema), nil
 }
@@ -136,7 +136,7 @@ func (sv *SchemaValidator) GetSchemaDefaults() (map[string]any, error) {
 // LoadSchemaFromBytes invalidates it.
 func (sv *SchemaValidator) ensureCompiled() (*jsonschema.Schema, error) {
 	if sv.Schema == nil {
-		return nil, fmt.Errorf("no schema loaded - call LoadSchema first")
+		return nil, fmt.Errorf("config schema has not been loaded")
 	}
 	if sv.compiled != nil {
 		return sv.compiled, nil

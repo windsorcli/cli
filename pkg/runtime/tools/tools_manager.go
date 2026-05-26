@@ -345,7 +345,7 @@ func (t *BaseToolsManager) checkOnePassword() error {
 
 	out, err := t.shell.ExecSilentWithTimeout("op", []string{"--version"}, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("1Password CLI --version failed: %v", err)
+		return fmt.Errorf("1Password CLI --version failed: %w", err)
 	}
 
 	version := extractVersion(out)
