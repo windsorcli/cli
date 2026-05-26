@@ -326,18 +326,19 @@ func (n *BaseNetworkManager) writeNetworkdHostRouteDropIn(networkCIDR, guestIP s
 }
 
 // addNetworkManagerPersistentRoute appends a persistent ipv4.routes entry on the first active
-// NetworkManager connection. Skips when an identical "<dest> <gateway>" entry already exists.
+// NetworkManager connection. The duplicate guard probes for both the CIDR and the gateway as
+// independent substrings in `nmcli -t -f ipv4.routes` — format-agnostic across NM versions
+// (modern NM emits `{ ip = …, nh = …, mt = N }`; older ones emit `<cidr> <gateway>`). False
+// positives are limited to the unlikely case of a different route already containing both
+// strings, where the worst outcome is skipping an already-correct add.
 func (n *BaseNetworkManager) addNetworkManagerPersistentRoute(networkCIDR, guestIP string) error {
 	conn, err := n.firstActiveNetworkManagerConnection()
 	if err != nil {
 		return err
 	}
 	current, err := n.shell.ExecSilent("nmcli", "-t", "-f", "ipv4.routes", "connection", "show", conn)
-	if err == nil {
-		needle := networkCIDR + " " + guestIP
-		if strings.Contains(current, needle) {
-			return nil
-		}
+	if err == nil && strings.Contains(current, networkCIDR) && strings.Contains(current, guestIP) {
+		return nil
 	}
 	if _, err := n.shell.ExecSudo("", "nmcli", "connection", "modify", conn, "+ipv4.routes", networkCIDR+" "+guestIP); err != nil {
 		return fmt.Errorf("nmcli connection modify failed: %w", err)
@@ -364,9 +365,11 @@ func (n *BaseNetworkManager) firstActiveNetworkManagerConnection() (string, erro
 // unpersistLinuxHostRoute removes whichever persistent route configuration ConfigureHostRoute
 // installed: the systemd-networkd drop-in if it exists (followed by a best-effort
 // `networkctl reload` whose failure does not break revert), and the matching nmcli ipv4.routes
-// entry if NetworkManager is active (mismatched entries return non-zero from nmcli but revert is
-// idempotent — that exit is intentionally swallowed). Both branches are no-ops when their backend
-// isn't in use.
+// entry if NetworkManager is active. The NM removal uses the CIDR alone — NM 1.36+ (Ubuntu 22.04+,
+// Debian 12+, Fedora 40+) matches routes by destination prefix on `-ipv4.routes`, so this catches
+// stale entries whose gateway no longer matches the current workstation.address. Both branches are
+// no-ops when their backend isn't in use; nmcli non-zero exits on no-match are intentionally
+// swallowed since revert is idempotent.
 func (n *BaseNetworkManager) unpersistLinuxHostRoute(networkCIDR string) error {
 	contextName := n.configHandler.GetContext()
 	if contextName == "" {
@@ -381,12 +384,7 @@ func (n *BaseNetworkManager) unpersistLinuxHostRoute(networkCIDR string) error {
 	}
 	if status, err := n.shell.ExecSilent("systemctl", "is-active", "NetworkManager"); err == nil && strings.TrimSpace(status) == "active" {
 		if conn, err := n.firstActiveNetworkManagerConnection(); err == nil {
-			guestIP := n.configHandler.GetString("workstation.address")
-			value := networkCIDR
-			if guestIP != "" {
-				value = networkCIDR + " " + guestIP
-			}
-			_, _ = n.shell.ExecSudo("", "nmcli", "connection", "modify", conn, "-ipv4.routes", value)
+			_, _ = n.shell.ExecSudo("", "nmcli", "connection", "modify", conn, "-ipv4.routes", networkCIDR)
 		}
 	}
 	return nil
