@@ -250,34 +250,22 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// And capturing namespace and nameservers
+		// And capturing namespace and nameservers from the env map (R24: scripts are now
+		// fixed constants that read $env:WINDSOR_NRPT_*; the values flow via the env arg)
 		var capturedNamespace string
 		var capturedNameServers string
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
-			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
-				script := args[1]
-				if strings.Contains(script, "Get-DnsClientNrptRule") {
-					// Extract namespace from the check script's Where-Object filter.
-					if match := strings.Split(script, "Namespace -eq '"); len(match) > 1 {
-						parts := strings.SplitN(match[1], "'", 2)
-						if len(parts) > 0 {
-							capturedNamespace = parts[0]
-						}
-					}
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "powershell" && env != nil {
+				if ns, ok := env["WINDSOR_NRPT_NAMESPACE"]; ok {
+					capturedNamespace = ns
 				}
 			}
 			return "", nil
 		}
-		// The addOrUpdate script (used to actually install the rule) is dispatched
-		// via ExecProgress; its -NameServers parameter is the literal we want.
-		mocks.Shell.ExecProgressFunc = func(message, command string, args ...string) (string, error) {
-			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
-				script := args[1]
-				if match := strings.Split(script, "-NameServers \""); len(match) > 1 {
-					parts := strings.SplitN(match[1], "\"", 2)
-					if len(parts) > 0 {
-						capturedNameServers = parts[0]
-					}
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if command == "powershell" && env != nil {
+				if dns, ok := env["WINDSOR_NRPT_DNS"]; ok {
+					capturedNameServers = dns
 				}
 			}
 			return "", nil
@@ -536,6 +524,130 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("NrptValuesFlowThroughEnvVarsNotScriptInterpolation", func(t *testing.T) {
+		// R24 regression guard: namespace, DNS, and domain values must reach PowerShell via
+		// $env:WINDSOR_NRPT_* (defense-in-depth against script-interpolation injection if
+		// validateDomain / validateIPAddress ever regress). The PS script itself must NOT
+		// contain the literal namespace / IP strings.
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("dns.domain", "example.com")
+		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
+
+		var checkEnv map[string]string
+		var checkScript string
+		var addOrUpdateEnv map[string]string
+		var addOrUpdateScript string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && strings.Contains(args[1], "Get-DnsClientNrptRule") {
+				checkEnv = env
+				checkScript = args[1]
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressWithEnvFunc = func(message, command string, env map[string]string, args ...string) (string, error) {
+			if command == "powershell" && len(args) > 1 && strings.Contains(args[1], "Add-DnsClientNrptRule") {
+				addOrUpdateEnv = env
+				addOrUpdateScript = args[1]
+			}
+			return "", nil
+		}
+
+		if err := manager.ConfigureDNS(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Check script: env carries namespace, script must reference $env:WINDSOR_NRPT_NAMESPACE
+		if got := checkEnv["WINDSOR_NRPT_NAMESPACE"]; got != ".example.com" {
+			t.Errorf("expected check env WINDSOR_NRPT_NAMESPACE=.example.com, got %q", got)
+		}
+		if !strings.Contains(checkScript, "$env:WINDSOR_NRPT_NAMESPACE") {
+			t.Errorf("expected check script to reference $env:WINDSOR_NRPT_NAMESPACE, got: %q", checkScript)
+		}
+		if strings.Contains(checkScript, ".example.com") {
+			t.Errorf("check script must not interpolate the namespace literal, got: %q", checkScript)
+		}
+
+		// AddOrUpdate script: env carries dns + domain, script must reference both env vars
+		if got := addOrUpdateEnv["WINDSOR_NRPT_DNS"]; got != "1.2.3.4" {
+			t.Errorf("expected addOrUpdate env WINDSOR_NRPT_DNS=1.2.3.4, got %q", got)
+		}
+		if got := addOrUpdateEnv["WINDSOR_NRPT_DOMAIN"]; got != "example.com" {
+			t.Errorf("expected addOrUpdate env WINDSOR_NRPT_DOMAIN=example.com, got %q", got)
+		}
+		for _, want := range []string{"$env:WINDSOR_NRPT_NAMESPACE", "$env:WINDSOR_NRPT_DNS", "$env:WINDSOR_NRPT_DOMAIN"} {
+			if !strings.Contains(addOrUpdateScript, want) {
+				t.Errorf("expected addOrUpdate script to reference %s, got: %q", want, addOrUpdateScript)
+			}
+		}
+		for _, banned := range []string{"1.2.3.4", "'.example.com'", "\"example.com\""} {
+			if strings.Contains(addOrUpdateScript, banned) {
+				t.Errorf("addOrUpdate script must not interpolate %q, got: %q", banned, addOrUpdateScript)
+			}
+		}
+	})
+
+	t.Run("GpoOverrideWarningFiresWhenEffectiveNameServerDiffers", func(t *testing.T) {
+		// R23: when a Group Policy NRPT rule resolves *.<domain> to a different name server
+		// than the one we just installed, the helper returns a non-fatal warning naming the
+		// GPO-served IP. Asserts on the helper's return value (no os.Stderr swap, parallel-safe).
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "powershell" && len(args) >= 2 && strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective") {
+				return "10.0.0.1", nil
+			}
+			return "", nil
+		}
+
+		env := map[string]string{"WINDSOR_NRPT_NAMESPACE": ".corp.test", "WINDSOR_NRPT_DOMAIN": "corp.test"}
+		msg := manager.gpoOverridesNrptRuleWarning(env, "1.2.3.4")
+		if msg == "" {
+			t.Fatal("expected GPO override warning, got empty string")
+		}
+		for _, want := range []string{
+			"NRPT rule for *.corp.test",
+			"10.0.0.1",
+			"Group Policy",
+			"troubleshooting.md#windows-nrpt-gpo-conflict",
+		} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("expected warning to include %q, got: %s", want, msg)
+			}
+		}
+	})
+
+	t.Run("NoGpoWarningWhenEffectiveMatchesOurIP", func(t *testing.T) {
+		// When the effective NRPT name server matches what we set, there's no GPO override.
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "powershell" && len(args) >= 2 && strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective") {
+				return "1.2.3.4", nil
+			}
+			return "", nil
+		}
+
+		env := map[string]string{"WINDSOR_NRPT_NAMESPACE": ".corp.test", "WINDSOR_NRPT_DOMAIN": "corp.test"}
+		if msg := manager.gpoOverridesNrptRuleWarning(env, "1.2.3.4"); msg != "" {
+			t.Errorf("expected no warning when effective NRPT matches; got: %s", msg)
+		}
+	})
+
+	t.Run("NoGpoWarningWhenEffectiveQueryFails", func(t *testing.T) {
+		// Some Windows editions / WSL2 hosts don't expose Get-DnsClientNrptPolicy; the probe
+		// must fail open (return "") rather than scaring the operator with a noise message.
+		manager, mocks := setup(t)
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "powershell" && len(args) >= 2 && strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective") {
+				return "", fmt.Errorf("Get-DnsClientNrptPolicy not recognized")
+			}
+			return "", nil
+		}
+
+		env := map[string]string{"WINDSOR_NRPT_NAMESPACE": ".corp.test", "WINDSOR_NRPT_DOMAIN": "corp.test"}
+		if msg := manager.gpoOverridesNrptRuleWarning(env, "1.2.3.4"); msg != "" {
+			t.Errorf("expected GPO probe failure to be silent; got: %s", msg)
+		}
+	})
 }
 
 func TestWindowsNetworkManager_RevertHostRoute(t *testing.T) {
@@ -629,14 +741,16 @@ func TestWindowsNetworkManager_RevertDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("RemoveScriptInterpolatesNamespaceWithLeadingDot", func(t *testing.T) {
+	t.Run("RemoveScriptUsesEnvVarNamespace", func(t *testing.T) {
 		// Given a configured domain
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "local.test")
 		var capturedScript string
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
 				capturedScript = args[1]
+				capturedEnv = env
 			}
 			return "", nil
 		}
@@ -646,13 +760,19 @@ func TestWindowsNetworkManager_RevertDNS(t *testing.T) {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
-		// Then the PowerShell script invokes Remove-DnsClientNrptRule with .<domain> namespace
-		// and silent error handling
+		// Then the env carries the namespace with leading dot, the script references it via
+		// $env:WINDSOR_NRPT_NAMESPACE (no interpolated literal), and idempotency is preserved
+		if got := capturedEnv["WINDSOR_NRPT_NAMESPACE"]; got != ".local.test" {
+			t.Errorf("expected WINDSOR_NRPT_NAMESPACE=.local.test, got %q", got)
+		}
 		if !strings.Contains(capturedScript, "Remove-DnsClientNrptRule") {
 			t.Errorf("expected Remove-DnsClientNrptRule in script, got: %q", capturedScript)
 		}
-		if !strings.Contains(capturedScript, "'.local.test'") {
-			t.Errorf("expected '.local.test' namespace interpolated, got: %q", capturedScript)
+		if !strings.Contains(capturedScript, "$env:WINDSOR_NRPT_NAMESPACE") {
+			t.Errorf("expected script to reference $env:WINDSOR_NRPT_NAMESPACE, got: %q", capturedScript)
+		}
+		if strings.Contains(capturedScript, ".local.test") {
+			t.Errorf("script must not interpolate the namespace literal, got: %q", capturedScript)
 		}
 		if !strings.Contains(capturedScript, "ErrorAction SilentlyContinue") {
 			t.Errorf("expected SilentlyContinue for idempotency, got: %q", capturedScript)
