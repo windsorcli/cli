@@ -180,16 +180,20 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			}
 			return "", nil
 		}
-		var capturedPath string
 		var capturedContent []byte
-		mocks.Shims.WriteFile = func(path string, data []byte, _ os.FileMode) error {
-			capturedPath = path
+		mocks.Shims.WriteFile = func(_ string, data []byte, _ os.FileMode) error {
 			capturedContent = append([]byte{}, data...)
 			return nil
 		}
 		mocks.Shims.ReadFile = func(_ string) ([]byte, error) { return nil, os.ErrNotExist }
+		// writeFileWithSudo stages into a temp dir then `sudo mv <temp> <dest>`. Capture the
+		// final destination from the mv args (not from WriteFile, which sees the temp path).
+		var destPath string
 		var networkctlReloaded bool
 		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "mv" && len(args) == 2 {
+				destPath = args[1]
+			}
 			if command == "networkctl" && len(args) > 0 && args[0] == "reload" {
 				networkctlReloaded = true
 			}
@@ -200,9 +204,9 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Then the staged drop-in file targets the per-context path and contains the route
-		if !strings.HasSuffix(capturedPath, "windsor-local.network") && !strings.Contains(capturedPath, "windsor-local") {
-			t.Errorf("expected staged drop-in basename to include windsor-local.network, got %q", capturedPath)
+		// Then the drop-in lands at the per-context path and contains the route
+		if destPath != "/etc/systemd/network/windsor-local.network" {
+			t.Errorf("expected drop-in destination /etc/systemd/network/windsor-local.network, got %q", destPath)
 		}
 		body := string(capturedContent)
 		for _, want := range []string{"[Route]", "Destination=192.168.5.0/24", "Gateway=192.168.5.1"} {
