@@ -86,7 +86,7 @@ func (s *typedSource) LoadRoot(
 
 		var contextMap map[string]any
 		if err := s.shims.YamlUnmarshal(contextData, &contextMap); err != nil {
-			return nil, true, fmt.Errorf("error unmarshalling context config to map: %w", err)
+			return nil, true, fmt.Errorf("error decoding context config: %w", err)
 		}
 
 		return contextMap, true, nil

@@ -653,7 +653,7 @@ func TestSchemaValidator_Validate(t *testing.T) {
 			t.Fatal("Expected error when no schema loaded")
 		}
 
-		expectedError := "no schema loaded - call LoadSchema first"
+		expectedError := "config schema has not been loaded"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error '%s', got: %v", expectedError, err)
 		}
@@ -674,7 +674,7 @@ func TestSchemaValidator_GetSchemaDefaults(t *testing.T) {
 			t.Fatal("Expected error when no schema loaded")
 		}
 
-		expectedError := "no schema loaded - call LoadSchema first"
+		expectedError := "config schema has not been loaded"
 		if err.Error() != expectedError {
 			t.Errorf("Expected error '%s', got: %v", expectedError, err)
 		}

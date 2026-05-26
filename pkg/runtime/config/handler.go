@@ -322,7 +322,7 @@ func (c *configHandler) SetDefault(context v1alpha1.Context) error {
 
 	var contextMap map[string]any
 	if err := c.shims.YamlUnmarshal(contextData, &contextMap); err != nil {
-		return fmt.Errorf("error unmarshalling context to map: %w", err)
+		return fmt.Errorf("error decoding context: %w", err)
 	}
 
 	c.data = c.deepMerge(c.data, contextMap)
@@ -522,7 +522,7 @@ func (c *configHandler) GetSchema() map[string]any {
 // Returns error if schema file doesn't exist or is invalid.
 func (c *configHandler) LoadSchema(schemaPath string) error {
 	if c.schemaValidator == nil {
-		return fmt.Errorf("schema validator not initialized")
+		return fmt.Errorf("runtime not fully initialized: schema validator missing")
 	}
 	if err := c.schemaValidator.LoadSchema(schemaPath); err != nil {
 		return err
@@ -538,7 +538,7 @@ func (c *configHandler) LoadSchema(schemaPath string) error {
 // Returns error if schema content is invalid.
 func (c *configHandler) LoadSchemaFromBytes(schemaContent []byte) error {
 	if c.schemaValidator == nil {
-		return fmt.Errorf("schema validator not initialized")
+		return fmt.Errorf("runtime not fully initialized: schema validator missing")
 	}
 	if err := c.schemaValidator.LoadSchemaFromBytes(schemaContent); err != nil {
 		return err

@@ -1332,8 +1332,8 @@ properties:
 		if err == nil {
 			t.Error("Expected error when schema validator is nil")
 		}
-		if !strings.Contains(err.Error(), "schema validator not initialized") {
-			t.Errorf("Expected error about schema validator not initialized, got: %v", err)
+		if !strings.Contains(err.Error(), "schema validator missing") {
+			t.Errorf("Expected error about schema validator missing, got: %v", err)
 		}
 	})
 }
@@ -1375,8 +1375,8 @@ properties:
 		if err == nil {
 			t.Error("Expected error when schema validator is nil")
 		}
-		if !strings.Contains(err.Error(), "schema validator not initialized") {
-			t.Errorf("Expected error about schema validator not initialized, got: %v", err)
+		if !strings.Contains(err.Error(), "schema validator missing") {
+			t.Errorf("Expected error about schema validator missing, got: %v", err)
 		}
 	})
 
