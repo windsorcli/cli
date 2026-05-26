@@ -12,7 +12,8 @@ nav:
     - 'Blueprint Templates': guides/templates.md
     - 'Sharing Blueprints': guides/sharing.md
     - 'Blueprint Testing': guides/testing.md
-  - 'Tutorial': 
+    - 'Troubleshooting': guides/troubleshooting.md
+  - 'Tutorial':
     - 'Hello, World!': tutorial/hello-world.md
   - 'Security':
     - 'Trusted Folders': security/trusted-folders.md
