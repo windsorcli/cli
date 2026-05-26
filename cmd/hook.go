@@ -10,7 +10,7 @@ import (
 var hookCmd = &cobra.Command{
 	Use:          "hook",
 	Short:        "Print the shell hook for a target shell",
-	Long:         "Prints out shell hook information for each platform (zsh,bash,fish,tcsh,powershell).",
+	Long:         "Print the shell hook for the specified platform (zsh, bash, fish, tcsh, powershell).",
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
