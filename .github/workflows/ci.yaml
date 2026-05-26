@@ -228,11 +228,17 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     # id-token + attestations are required for actions/attest-build-provenance
     # to sign the release artifacts via Sigstore and write the attestation back
-    # to the repository's /attestations API.
+    # to the repository's /attestations API. issues/pull-requests reads mirror
+    # the workflow-level grants — a job-level permissions block fully replaces
+    # the workflow-level one (no merge), so list them here to preserve goreleaser's
+    # ability to enrich the changelog with PR/issue context if changelog.use is
+    # ever switched to "github".
     permissions:
       contents: write
       id-token: write
       attestations: write
+      issues: read
+      pull-requests: read
 
     steps:
       - name: Checkout code
