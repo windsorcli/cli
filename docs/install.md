@@ -283,7 +283,9 @@ This document describes how to install the Windsor CLI on your development works
 
 ## Supply Chain Verification
 
-Every Windsor release ships with two artifacts beyond the binary and GPG signature: a CycloneDX SBOM per archive, and a SLSA v1.0 build-provenance attestation covering every release artifact. These let supply-chain reviewers verify both *what* is in the release (the SBOM) and *how* it was built (the attestation, signed via GitHub's OIDC-backed Sigstore root). The per-platform GPG checks above cover binary tamper detection; the steps in this section cover provenance and dependency review.
+Every Windsor release ships with two artifacts beyond the binary and GPG signature: a CycloneDX SBOM per archive, and a SLSA v1.0 build-provenance attestation covering every GitHub release asset (archives, checksums file, and SBOMs). These let supply-chain reviewers verify both *what* is in the release (the SBOM) and *how* it was built (the attestation, signed via GitHub's OIDC-backed Sigstore root). The per-platform GPG checks above cover binary tamper detection; the steps in this section cover provenance and dependency review.
+
+> **Note for Chocolatey users:** The `.nupkg` published to chocolatey.org wraps the Windows zip from this same release but is not itself covered by the SLSA attestation. To verify provenance of the binary you got via `choco install`, download the matching `windsor_<version>_windows_amd64.zip` from the GitHub release and run `gh attestation verify` on it — the binary inside is byte-identical to the one Chocolatey installed.
 
 ### SLSA Build Provenance
 
