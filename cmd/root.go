@@ -45,8 +45,8 @@ func Execute() error {
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:               "windsor",
-	Short:             "A command line interface to assist your cloud native development workflow",
-	Long:              "A command line interface to assist your cloud native development workflow",
+	Short:             "CLI for cloud-native development workflows",
+	Long:              "CLI for cloud-native development workflows.",
 	PersistentPreRunE: commandPreflight,
 }
 

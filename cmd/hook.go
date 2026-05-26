@@ -9,7 +9,7 @@ import (
 
 var hookCmd = &cobra.Command{
 	Use:          "hook",
-	Short:        "Prints out shell hook information per platform (zsh,bash,fish,tcsh,powershell).",
+	Short:        "Print the shell hook for a target shell",
 	Long:         "Prints out shell hook information for each platform (zsh,bash,fish,tcsh,powershell).",
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),
