@@ -281,6 +281,37 @@ This document describes how to install the Windsor CLI on your development works
 
     </details>
 
+## Supply Chain Verification
+
+Every Windsor release ships with two artifacts beyond the binary and GPG signature: a CycloneDX SBOM per archive, and a SLSA v1.0 build-provenance attestation covering every release artifact. These let supply-chain reviewers verify both *what* is in the release (the SBOM) and *how* it was built (the attestation, signed via GitHub's OIDC-backed Sigstore root). The per-platform GPG checks above cover binary tamper detection; the steps in this section cover provenance and dependency review.
+
+### SLSA Build Provenance
+
+Each release archive, checksums file, and SBOM is covered by a SLSA v1.0 build-provenance attestation signed via Sigstore and published to GitHub's attestation API. Verify any downloaded artifact with [`gh attestation verify`](https://cli.github.com/manual/gh_attestation_verify) (`gh` ≥ 2.49.0):
+
+```bash
+gh attestation verify windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz --repo windsorcli/cli
+```
+
+The command fetches the attestation from `github.com/windsorcli/cli/attestations`, confirms the artifact's hash matches the signed claim, and verifies the signer was the Windsor CLI release workflow running on a GitHub-hosted runner. A successful run prints `✓ Verification succeeded!` and confirms the artifact was produced by the published release pipeline rather than a side-channel build.
+
+### CycloneDX SBOM
+
+Each release archive is accompanied by a sibling `.sbom.cdx.json` file with the full dependency tree in CycloneDX 1.5 format. Download it from the release page alongside the archive:
+
+```bash
+curl -L -o windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz.sbom.cdx.json \
+  https://github.com/windsorcli/cli/releases/download/v{{ config.extra.release_version }}/windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz.sbom.cdx.json
+```
+
+Common consumers:
+
+- **[`grype`](https://github.com/anchore/grype)** — scan the SBOM for known CVEs: `grype sbom:windsor_{{ config.extra.release_version }}_darwin_arm64.tar.gz.sbom.cdx.json`
+- **[`cyclonedx-cli`](https://github.com/CycloneDX/cyclonedx-cli)** — convert to SPDX, diff against a previous release, or check against a policy file
+- **Manual inspection** — `jq '.components[] | {name, version}' windsor_*.sbom.cdx.json` lists every dependency with its pinned version
+
+The SBOM file is covered by the same SLSA attestation as the archive, so a single `gh attestation verify` run confirms provenance for both.
+
 ## Version Check
 
 To verify the installation and check the version of the Windsor CLI, execute the following command:
