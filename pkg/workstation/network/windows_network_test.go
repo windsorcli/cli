@@ -4,38 +4,10 @@
 package network
 
 import (
-	"bytes"
 	"fmt"
-	"io"
-	"os"
 	"strings"
 	"testing"
 )
-
-// captureStderr swaps os.Stderr for a pipe, runs fn, and returns whatever the function wrote.
-// Used to assert on operator-facing warnings emitted via fmt.Fprintln(os.Stderr, ...).
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	orig := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	os.Stderr = w
-	defer func() { os.Stderr = orig }()
-
-	done := make(chan struct{})
-	var buf bytes.Buffer
-	go func() {
-		_, _ = io.Copy(&buf, r)
-		close(done)
-	}()
-
-	fn()
-	_ = w.Close()
-	<-done
-	return buf.String()
-}
 
 // =============================================================================
 // Test Public Methods
@@ -617,40 +589,29 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 
 	t.Run("GpoOverrideWarningFiresWhenEffectiveNameServerDiffers", func(t *testing.T) {
 		// R23: when a Group Policy NRPT rule resolves *.<domain> to a different name server
-		// than the one we just installed, surface a non-fatal warning naming the GPO-served IP.
+		// than the one we just installed, the helper returns a non-fatal warning naming the
+		// GPO-served IP. Asserts on the helper's return value (no os.Stderr swap, parallel-safe).
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("dns.domain", "corp.test")
-		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
-
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if command != "powershell" || len(args) < 2 {
-				return "", nil
-			}
-			switch {
-			case strings.Contains(args[1], "Get-DnsClientNrptRule"):
-				// Local rule already matches → no addOrUpdate fires
-				return "1.2.3.4", nil
-			case strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective"):
-				// GPO is serving a different IP
+			if command == "powershell" && len(args) >= 2 && strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective") {
 				return "10.0.0.1", nil
 			}
 			return "", nil
 		}
 
-		stderr := captureStderr(t, func() {
-			if err := manager.ConfigureDNS(); err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-
+		env := map[string]string{"WINDSOR_NRPT_NAMESPACE": ".corp.test", "WINDSOR_NRPT_DOMAIN": "corp.test"}
+		msg := manager.gpoOverridesNrptRuleWarning(env, "1.2.3.4")
+		if msg == "" {
+			t.Fatal("expected GPO override warning, got empty string")
+		}
 		for _, want := range []string{
 			"NRPT rule for *.corp.test",
 			"10.0.0.1",
 			"Group Policy",
 			"troubleshooting.md#windows-nrpt-gpo-conflict",
 		} {
-			if !strings.Contains(stderr, want) {
-				t.Errorf("expected stderr warning to include %q, got: %s", want, stderr)
+			if !strings.Contains(msg, want) {
+				t.Errorf("expected warning to include %q, got: %s", want, msg)
 			}
 		}
 	})
@@ -658,61 +619,33 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 	t.Run("NoGpoWarningWhenEffectiveMatchesOurIP", func(t *testing.T) {
 		// When the effective NRPT name server matches what we set, there's no GPO override.
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("dns.domain", "corp.test")
-		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
-
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if command != "powershell" || len(args) < 2 {
-				return "", nil
-			}
-			switch {
-			case strings.Contains(args[1], "Get-DnsClientNrptRule"):
-				return "1.2.3.4", nil
-			case strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective"):
+			if command == "powershell" && len(args) >= 2 && strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective") {
 				return "1.2.3.4", nil
 			}
 			return "", nil
 		}
 
-		stderr := captureStderr(t, func() {
-			if err := manager.ConfigureDNS(); err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-
-		if strings.Contains(stderr, "Group Policy") {
-			t.Errorf("expected no GPO warning when effective NRPT matches; got: %s", stderr)
+		env := map[string]string{"WINDSOR_NRPT_NAMESPACE": ".corp.test", "WINDSOR_NRPT_DOMAIN": "corp.test"}
+		if msg := manager.gpoOverridesNrptRuleWarning(env, "1.2.3.4"); msg != "" {
+			t.Errorf("expected no warning when effective NRPT matches; got: %s", msg)
 		}
 	})
 
 	t.Run("NoGpoWarningWhenEffectiveQueryFails", func(t *testing.T) {
 		// Some Windows editions / WSL2 hosts don't expose Get-DnsClientNrptPolicy; the probe
-		// must fail open (no warning) rather than scaring the operator with a noise message.
+		// must fail open (return "") rather than scaring the operator with a noise message.
 		manager, mocks := setup(t)
-		mocks.ConfigHandler.Set("dns.domain", "corp.test")
-		mocks.ConfigHandler.Set("workstation.dns.address", "1.2.3.4")
-
 		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
-			if command != "powershell" || len(args) < 2 {
-				return "", nil
-			}
-			switch {
-			case strings.Contains(args[1], "Get-DnsClientNrptRule"):
-				return "1.2.3.4", nil
-			case strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective"):
+			if command == "powershell" && len(args) >= 2 && strings.Contains(args[1], "Get-DnsClientNrptPolicy -Effective") {
 				return "", fmt.Errorf("Get-DnsClientNrptPolicy not recognized")
 			}
 			return "", nil
 		}
 
-		stderr := captureStderr(t, func() {
-			if err := manager.ConfigureDNS(); err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
-
-		if strings.Contains(stderr, "Group Policy") || strings.Contains(stderr, "NRPT rule") {
-			t.Errorf("expected GPO probe failure to be silent; got stderr: %s", stderr)
+		env := map[string]string{"WINDSOR_NRPT_NAMESPACE": ".corp.test", "WINDSOR_NRPT_DOMAIN": "corp.test"}
+		if msg := manager.gpoOverridesNrptRuleWarning(env, "1.2.3.4"); msg != "" {
+			t.Errorf("expected GPO probe failure to be silent; got: %s", msg)
 		}
 	})
 }
