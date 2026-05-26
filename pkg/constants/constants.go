@@ -8,6 +8,10 @@ var Version = "dev"
 // CommitSHA is the git commit SHA, set at build time via ldflags
 var CommitSHA = "none"
 
+// BuildDate is the RFC 3339 build timestamp, set at build time via ldflags
+// (goreleaser's `{{ .Date }}` template). Unset in `go build` / `go install`.
+var BuildDate = "unknown"
+
 // The Constants package provides centralized default values and configuration constants
 // It provides shared constants for default settings, timeouts, versions, and resource configurations
 // The Constants package serves as a single source of truth for default values across the application

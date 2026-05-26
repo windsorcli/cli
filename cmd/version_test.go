@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -79,6 +80,26 @@ func TestVersionCmd(t *testing.T) {
 			t.Error("Expected empty stderr")
 		}
 	})
+}
+
+// TestVersionCmd_OutputStructure pins the field labels operators see on
+// `windsor version`. The §3.2 contract is: Version, Commit SHA, Build Date,
+// Go, Platform — five lines, in that order. Regressing the structure breaks
+// scripts that grep for these labels and supply-chain reviewers comparing
+// nightly vs tagged builds at a glance.
+func TestVersionCmd_OutputStructure(t *testing.T) {
+	rootCmd.SetArgs([]string{"version"})
+	stdout, _ := captureOutput(t)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stdout)
+	if err := Execute(); err != nil {
+		t.Fatalf("version command: %v", err)
+	}
+	for _, label := range []string{"Version:", "Commit SHA:", "Build Date:", "Go:", "Platform:"} {
+		if !strings.Contains(stdout.String(), label) {
+			t.Errorf("expected output to contain %q, got:\n%s", label, stdout.String())
+		}
+	}
 }
 
 func TestAnnotatedVersion(t *testing.T) {

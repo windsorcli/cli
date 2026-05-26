@@ -20,7 +20,13 @@ var versionCmd = &cobra.Command{
 	SilenceUsage: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		platform := fmt.Sprintf("%s/%s", Goos, runtime.GOARCH)
-		cmd.Printf("Version: %s\nCommit SHA: %s\nPlatform: %s\n", annotatedVersion(constants.Version), constants.CommitSHA, platform)
+		cmd.Printf("Version: %s\nCommit SHA: %s\nBuild Date: %s\nGo: %s\nPlatform: %s\n",
+			annotatedVersion(constants.Version),
+			constants.CommitSHA,
+			constants.BuildDate,
+			runtime.Version(),
+			platform,
+		)
 	},
 }
 
