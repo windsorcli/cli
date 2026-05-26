@@ -741,14 +741,16 @@ func TestWindowsNetworkManager_RevertDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("RemoveScriptInterpolatesNamespaceWithLeadingDot", func(t *testing.T) {
+	t.Run("RemoveScriptUsesEnvVarNamespace", func(t *testing.T) {
 		// Given a configured domain
 		manager, mocks := setup(t)
 		mocks.ConfigHandler.Set("dns.domain", "local.test")
 		var capturedScript string
-		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+		var capturedEnv map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
 			if command == "powershell" && len(args) > 1 && args[0] == "-Command" {
 				capturedScript = args[1]
+				capturedEnv = env
 			}
 			return "", nil
 		}
@@ -758,13 +760,19 @@ func TestWindowsNetworkManager_RevertDNS(t *testing.T) {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 
-		// Then the PowerShell script invokes Remove-DnsClientNrptRule with .<domain> namespace
-		// and silent error handling
+		// Then the env carries the namespace with leading dot, the script references it via
+		// $env:WINDSOR_NRPT_NAMESPACE (no interpolated literal), and idempotency is preserved
+		if got := capturedEnv["WINDSOR_NRPT_NAMESPACE"]; got != ".local.test" {
+			t.Errorf("expected WINDSOR_NRPT_NAMESPACE=.local.test, got %q", got)
+		}
 		if !strings.Contains(capturedScript, "Remove-DnsClientNrptRule") {
 			t.Errorf("expected Remove-DnsClientNrptRule in script, got: %q", capturedScript)
 		}
-		if !strings.Contains(capturedScript, "'.local.test'") {
-			t.Errorf("expected '.local.test' namespace interpolated, got: %q", capturedScript)
+		if !strings.Contains(capturedScript, "$env:WINDSOR_NRPT_NAMESPACE") {
+			t.Errorf("expected script to reference $env:WINDSOR_NRPT_NAMESPACE, got: %q", capturedScript)
+		}
+		if strings.Contains(capturedScript, ".local.test") {
+			t.Errorf("script must not interpolate the namespace literal, got: %q", capturedScript)
 		}
 		if !strings.Contains(capturedScript, "ErrorAction SilentlyContinue") {
 			t.Errorf("expected SilentlyContinue for idempotency, got: %q", capturedScript)
