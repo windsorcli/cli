@@ -165,6 +165,137 @@ func TestLinuxNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
+
+	t.Run("PersistsRouteViaNetworkdWhenAvailable", func(t *testing.T) {
+		// Given systemd-networkd is active and our drop-in is not yet present
+		manager, mocks := setup(t)
+		if err := mocks.ConfigHandler.SetContext("local"); err != nil {
+			t.Fatalf("set context: %v", err)
+		}
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.1")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "systemctl" && len(args) == 2 && args[0] == "is-active" && args[1] == "systemd-networkd" {
+				return "active", nil
+			}
+			return "", nil
+		}
+		var capturedContent []byte
+		mocks.Shims.WriteFile = func(_ string, data []byte, _ os.FileMode) error {
+			capturedContent = append([]byte{}, data...)
+			return nil
+		}
+		mocks.Shims.ReadFile = func(_ string) ([]byte, error) { return nil, os.ErrNotExist }
+		// writeFileWithSudo stages into a temp dir then `sudo mv <temp> <dest>`. Capture the
+		// final destination from the mv args (not from WriteFile, which sees the temp path).
+		var destPath string
+		var networkctlReloaded bool
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "mv" && len(args) == 2 {
+				destPath = args[1]
+			}
+			if command == "networkctl" && len(args) > 0 && args[0] == "reload" {
+				networkctlReloaded = true
+			}
+			return "", nil
+		}
+
+		if err := manager.ConfigureHostRoute(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the drop-in lands at the per-context path and contains the route
+		if destPath != "/etc/systemd/network/windsor-local.network" {
+			t.Errorf("expected drop-in destination /etc/systemd/network/windsor-local.network, got %q", destPath)
+		}
+		body := string(capturedContent)
+		for _, want := range []string{"[Route]", "Destination=192.168.5.0/24", "Gateway=192.168.5.1"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("expected drop-in to contain %q, got: %s", want, body)
+			}
+		}
+		if !networkctlReloaded {
+			t.Error("expected networkctl reload to fire after drop-in write")
+		}
+	})
+
+	t.Run("PersistsRouteViaNetworkManagerWhenNetworkdInactive", func(t *testing.T) {
+		// Given systemd-networkd is inactive but NetworkManager is active
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.1")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "systemctl" && len(args) == 2 && args[0] == "is-active" {
+				if args[1] == "systemd-networkd" {
+					return "inactive", fmt.Errorf("exit status 3")
+				}
+				if args[1] == "NetworkManager" {
+					return "active", nil
+				}
+			}
+			if command == "nmcli" && len(args) >= 5 && args[0] == "-t" && args[3] == "connection" && args[4] == "show" {
+				return "Wired connection 1\n", nil
+			}
+			return "", nil
+		}
+		var modifyArgs []string
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "nmcli" && len(args) > 0 && args[0] == "connection" {
+				modifyArgs = append([]string{}, args...)
+			}
+			return "", nil
+		}
+
+		if err := manager.ConfigureHostRoute(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then nmcli was used to append the route to the first active connection
+		if len(modifyArgs) < 5 {
+			t.Fatalf("expected nmcli connection modify call, got args=%v", modifyArgs)
+		}
+		for i, want := range []string{"connection", "modify", "Wired connection 1", "+ipv4.routes", "192.168.5.0/24 192.168.5.1"} {
+			if modifyArgs[i] != want {
+				t.Errorf("arg[%d] = %q, want %q (full args=%v)", i, modifyArgs[i], want, modifyArgs)
+			}
+		}
+	})
+
+	t.Run("WarnsWhenNoPersistenceBackendAvailable", func(t *testing.T) {
+		// Given neither systemd-networkd nor NetworkManager is active
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.1")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "systemctl" && len(args) == 2 && args[0] == "is-active" {
+				return "inactive", fmt.Errorf("exit status 3")
+			}
+			return "", nil
+		}
+		var ipRouteAdded bool
+		var persistenceCallSeen bool
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "ip" && len(args) > 1 && args[1] == "add" {
+				ipRouteAdded = true
+			}
+			if command == "nmcli" || command == "networkctl" {
+				persistenceCallSeen = true
+			}
+			return "", nil
+		}
+
+		if err := manager.ConfigureHostRoute(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the live route was added but no persistence call fired
+		if !ipRouteAdded {
+			t.Error("expected ephemeral route to still be added when no persistence backend is available")
+		}
+		if persistenceCallSeen {
+			t.Error("expected no nmcli/networkctl call when both backends are inactive")
+		}
+	})
 }
 
 func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
