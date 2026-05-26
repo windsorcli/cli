@@ -155,6 +155,75 @@ func TestWriter_Write(t *testing.T) {
 		}
 	})
 
+	t.Run("PreservesUserBackendInReferentialForm", func(t *testing.T) {
+		// Given a blueprint carrying a user-authored top-level backend field.
+		// `windsor init --reset` rewrites blueprint.yaml from the loaded blueprint,
+		// so a regression here would silently drop the user's backend selection.
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var writtenData []byte
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata:   blueprintv1alpha1.Metadata{Name: "test"},
+			Backend:    "my-component",
+		}
+
+		// When writing with overwrite=true
+		if err := writer.Write(blueprint, true); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then blueprint.yaml should contain the backend field
+		if !strings.Contains(string(writtenData), "backend: my-component") {
+			t.Errorf("Expected blueprint.yaml to preserve backend, got:\n%s", writtenData)
+		}
+	})
+
+	t.Run("OmitsBackendKeyWhenEmpty", func(t *testing.T) {
+		// Given a blueprint with no backend set, the omitempty tag should keep
+		// the key out of blueprint.yaml entirely.
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var writtenData []byte
+		writer.shims.Stat = func(path string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
+		}
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error {
+			return nil
+		}
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kind:       "Blueprint",
+			ApiVersion: "v1alpha1",
+			Metadata:   blueprintv1alpha1.Metadata{Name: "test"},
+		}
+
+		if err := writer.Write(blueprint, true); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if strings.Contains(string(writtenData), "backend:") {
+			t.Errorf("Expected no backend key when empty, got:\n%s", writtenData)
+		}
+	})
+
 	t.Run("WritesMinimalBlueprintWithInitURLsWhenFileDoesNotExist", func(t *testing.T) {
 		// Given a writer, no existing file, and initBlueprintURLs
 		mocks := setupWriterMocks(t)
