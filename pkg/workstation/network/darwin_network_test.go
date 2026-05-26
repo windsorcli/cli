@@ -160,6 +160,112 @@ func TestDarwinNetworkManager_ConfigureHostRoute(t *testing.T) {
 			t.Fatalf("expected error %q, got %q", expectedError, err.Error())
 		}
 	})
+
+	t.Run("PersistsRouteViaNetworksetupWhenServiceAvailable", func(t *testing.T) {
+		// Given a primary network service is available and no persistent route exists yet
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.1")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "networksetup" && len(args) > 0 && args[0] == "-listallnetworkservices" {
+				return "An asterisk (*) denotes that a network service is disabled.\nWi-Fi\n*USB 10/100\n", nil
+			}
+			if command == "networksetup" && len(args) > 0 && args[0] == "-getadditionalroutes" {
+				return "There aren't any.\n", nil
+			}
+			return "", nil
+		}
+		var setAdditionalArgs []string
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "networksetup" && len(args) > 0 && args[0] == "-setadditionalroutes" {
+				setAdditionalArgs = append([]string{}, args...)
+			}
+			return "", nil
+		}
+
+		if err := manager.ConfigureHostRoute(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then setadditionalroutes was invoked with our triple after the service name
+		if len(setAdditionalArgs) < 5 {
+			t.Fatalf("expected setadditionalroutes to be invoked, got args=%v", setAdditionalArgs)
+		}
+		for i, want := range []string{"-setadditionalroutes", "Wi-Fi", "192.168.5.0", "255.255.255.0", "192.168.5.1"} {
+			if setAdditionalArgs[i] != want {
+				t.Errorf("arg[%d] = %q, want %q (full args=%v)", i, setAdditionalArgs[i], want, setAdditionalArgs)
+			}
+		}
+	})
+
+	t.Run("EphemeralFallbackWhenNoServiceDetected", func(t *testing.T) {
+		// Given no enabled network service is available
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.1")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "networksetup" {
+				return "An asterisk (*) denotes that a network service is disabled.\n", nil
+			}
+			return "", nil
+		}
+		var routeAdded bool
+		var setAdditionalCalled bool
+		mocks.Shell.ExecSudoFunc = func(_, command string, args ...string) (string, error) {
+			if command == "route" && len(args) > 1 && args[1] == "add" {
+				routeAdded = true
+			}
+			if command == "networksetup" && len(args) > 0 && args[0] == "-setadditionalroutes" {
+				setAdditionalCalled = true
+			}
+			return "", nil
+		}
+
+		if err := manager.ConfigureHostRoute(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the live route was added but no persistence call fired
+		if !routeAdded {
+			t.Error("expected ephemeral route to be added")
+		}
+		if setAdditionalCalled {
+			t.Error("expected no networksetup -setadditionalroutes call when no service is available")
+		}
+	})
+
+	t.Run("SkipsPersistenceWhenAlreadyPersistent", func(t *testing.T) {
+		// Given the route is already in the kernel and already persistent
+		manager, mocks := setup(t)
+		mocks.ConfigHandler.Set("network.cidr_block", "192.168.5.0/24")
+		mocks.ConfigHandler.Set("workstation.address", "192.168.5.1")
+		mocks.Shell.ExecSilentFunc = func(command string, args ...string) (string, error) {
+			if command == "route" && len(args) >= 2 && args[0] == "-n" && args[1] == "get" {
+				return "   route to: 192.168.5.0\ndestination: 192.168.5.0\n    gateway: 192.168.5.1\n", nil
+			}
+			if command == "networksetup" && len(args) > 0 && args[0] == "-listallnetworkservices" {
+				return "Wi-Fi\n", nil
+			}
+			if command == "networksetup" && len(args) > 0 && args[0] == "-getadditionalroutes" {
+				return "192.168.5.0 255.255.255.0 192.168.5.1\n", nil
+			}
+			return "", nil
+		}
+		var anySudoCall bool
+		mocks.Shell.ExecSudoFunc = func(_, _ string, _ ...string) (string, error) {
+			anySudoCall = true
+			return "", nil
+		}
+
+		if err := manager.ConfigureHostRoute(); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then no sudo invocation occurred (route + persistence both already in place)
+		if anySudoCall {
+			t.Error("expected zero sudo calls when route is both live and persistent")
+		}
+	})
 }
 
 func TestDarwinNetworkManager_ConfigureDNS(t *testing.T) {

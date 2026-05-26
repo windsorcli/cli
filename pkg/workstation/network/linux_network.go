@@ -35,8 +35,12 @@ const systemdResolvedSymlinkHint = "systemd-resolved is active but /etc/resolv.c
 // Public Methods
 // =============================================================================
 
-// ConfigureHostRoute sets up the local development network for Linux.
-// Guest address is read from config (workstation.address).
+// ConfigureHostRoute sets up the local development network for Linux. Guest address is read from
+// config (workstation.address). Installs the route in the live routing table via `ip route add`
+// when missing, then writes a systemd-networkd drop-in at /etc/systemd/network/windsor-<context>.network
+// (or registers a persistent route via `nmcli` when NetworkManager owns the connection) so the
+// route survives reboot. When neither persistence mechanism is available the live route is left in
+// place and an actionable warning is printed.
 func (n *BaseNetworkManager) ConfigureHostRoute() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
@@ -47,39 +51,23 @@ func (n *BaseNetworkManager) ConfigureHostRoute() error {
 		return fmt.Errorf("guest address is required")
 	}
 
-	output, err := n.shell.ExecSilent("ip", "route", "show", networkCIDR)
+	routeInKernel, err := n.linuxRouteInKernel(networkCIDR, guestIP)
 	if err != nil {
-		return fmt.Errorf("failed to check if route exists: %w", err)
+		return err
 	}
 
-	routeExists := false
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, guestIP) {
-			routeExists = true
-			break
+	if !routeInKernel {
+		if os.Geteuid() != 0 {
+			tui.Pause()
+			fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
+		}
+		if out, err := n.shell.ExecSudo("Adding host route", "ip", "route", "add", networkCIDR, "via", guestIP); err != nil {
+			return fmt.Errorf("failed to add route: %w, output: %s", err, out)
 		}
 	}
 
-	if routeExists {
-		return nil
-	}
-
-	if os.Geteuid() != 0 {
-		tui.Pause()
-		fmt.Fprintf(os.Stderr, "\n\033[33m⚠\033[0m Network configuration may require elevated privileges\n")
-	}
-	output, err = n.shell.ExecSudo(
-		"Adding host route",
-		"ip",
-		"route",
-		"add",
-		networkCIDR,
-		"via",
-		guestIP,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to add route: %w, output: %s", err, output)
+	if err := n.persistLinuxHostRoute(networkCIDR, guestIP); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ host route to %s installed but will not survive reboot on this system (%v). After every reboot you'll need to re-run 'windsor configure network'. For persistent routes, see docs/guides/troubleshooting.md#persistent-routes-without-systemd-networkd.\n", guestIP, err)
 	}
 
 	return nil
@@ -151,19 +139,20 @@ func (n *BaseNetworkManager) ConfigureDNS() error {
 // =============================================================================
 
 // RevertHostRoute removes the host-to-guest route previously added by ConfigureHostRoute on Linux.
-// Idempotent: no-op when the network CIDR is unset, and tolerates "No such process" (the exit
-// signal from ip route del when the destination isn't in the table).
+// Idempotent: no-op when the network CIDR is unset, tolerates "No such process" for the live
+// delete, removes any matching systemd-networkd drop-in, and drops the NetworkManager persistent
+// route when one was installed via nmcli.
 func (n *BaseNetworkManager) RevertHostRoute() error {
 	networkCIDR := n.configHandler.GetString("network.cidr_block")
 	if networkCIDR == "" {
 		return nil
 	}
 	output, err := n.shell.ExecSudo("", "ip", "route", "del", networkCIDR)
-	if err != nil {
-		if strings.Contains(output, "No such process") {
-			return nil
-		}
+	if err != nil && !strings.Contains(output, "No such process") {
 		return fmt.Errorf("failed to delete host route: %w, output: %s", err, output)
+	}
+	if err := n.unpersistLinuxHostRoute(networkCIDR); err != nil {
+		return fmt.Errorf("failed to remove persistent host route: %w", err)
 	}
 	return nil
 }
@@ -282,6 +271,127 @@ func readNetworkManagerMainDNS(readFile func(string) ([]byte, error), path strin
 	return "", false
 }
 
+// linuxRouteInKernel reports whether the live routing table already has the configured CIDR
+// routed via guestIP. Backed by `ip route show <cidr>` parsed for the gateway.
+func (n *BaseNetworkManager) linuxRouteInKernel(networkCIDR, guestIP string) (bool, error) {
+	output, err := n.shell.ExecSilent("ip", "route", "show", networkCIDR)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if route exists: %w", err)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, guestIP) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// persistLinuxHostRoute installs a reboot-surviving host route via the host's network manager.
+// Tries systemd-networkd first (writes /etc/systemd/network/windsor-<context>.network and asks
+// networkctl to reload). Falls back to NetworkManager when nmcli is active (appends an ipv4.routes
+// entry on the first active connection). Returns an error when neither backend is available — the
+// caller surfaces that as a non-fatal "won't survive reboot" warning to the operator.
+func (n *BaseNetworkManager) persistLinuxHostRoute(networkCIDR, guestIP string) error {
+	if status, err := n.shell.ExecSilent("systemctl", "is-active", "systemd-networkd"); err == nil && strings.TrimSpace(status) == "active" {
+		return n.writeNetworkdHostRouteDropIn(networkCIDR, guestIP)
+	}
+	if status, err := n.shell.ExecSilent("systemctl", "is-active", "NetworkManager"); err == nil && strings.TrimSpace(status) == "active" {
+		return n.addNetworkManagerPersistentRoute(networkCIDR, guestIP)
+	}
+	return fmt.Errorf("no systemd-networkd or NetworkManager detected")
+}
+
+// writeNetworkdHostRouteDropIn writes a per-context drop-in to /etc/systemd/network/ that
+// declares the route, then asks `networkctl reload` to pick it up. The Match=* clause keeps the
+// drop-in interface-agnostic since the route is "via <guestIP>" — systemd-networkd resolves the
+// outgoing interface from the gateway at apply time.
+func (n *BaseNetworkManager) writeNetworkdHostRouteDropIn(networkCIDR, guestIP string) error {
+	contextName := n.configHandler.GetContext()
+	if contextName == "" {
+		contextName = "default"
+	}
+	path := fmt.Sprintf("/etc/systemd/network/windsor-%s.network", contextName)
+	content := fmt.Sprintf("[Match]\nName=*\n\n[Route]\nDestination=%s\nGateway=%s\n", networkCIDR, guestIP)
+	existing, readErr := n.shims.ReadFile(path)
+	if readErr == nil && string(existing) == content {
+		return nil
+	}
+	if err := n.writeFileWithSudo(path, []byte(content)); err != nil {
+		return fmt.Errorf("failed to write systemd-networkd drop-in: %w", err)
+	}
+	if _, err := n.shell.ExecSudo("", "networkctl", "reload"); err != nil {
+		return fmt.Errorf("failed to reload systemd-networkd: %w", err)
+	}
+	return nil
+}
+
+// addNetworkManagerPersistentRoute appends a persistent ipv4.routes entry on the first active
+// NetworkManager connection. Skips when an identical "<dest> <gateway>" entry already exists.
+func (n *BaseNetworkManager) addNetworkManagerPersistentRoute(networkCIDR, guestIP string) error {
+	conn, err := n.firstActiveNetworkManagerConnection()
+	if err != nil {
+		return err
+	}
+	current, err := n.shell.ExecSilent("nmcli", "-t", "-f", "ipv4.routes", "connection", "show", conn)
+	if err == nil {
+		needle := networkCIDR + " " + guestIP
+		if strings.Contains(current, needle) {
+			return nil
+		}
+	}
+	if _, err := n.shell.ExecSudo("", "nmcli", "connection", "modify", conn, "+ipv4.routes", networkCIDR+" "+guestIP); err != nil {
+		return fmt.Errorf("nmcli connection modify failed: %w", err)
+	}
+	return nil
+}
+
+// firstActiveNetworkManagerConnection returns the name of the first active NM connection
+// (terse output: NAME on the first column). Used to pick the connection profile that owns the
+// route we're persisting.
+func (n *BaseNetworkManager) firstActiveNetworkManagerConnection() (string, error) {
+	output, err := n.shell.ExecSilent("nmcli", "-t", "-f", "NAME", "connection", "show", "--active")
+	if err != nil {
+		return "", fmt.Errorf("nmcli connection show failed: %w", err)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no active NetworkManager connection")
+}
+
+// unpersistLinuxHostRoute removes whichever persistent route configuration ConfigureHostRoute
+// installed: the systemd-networkd drop-in if it exists (followed by a best-effort
+// `networkctl reload` whose failure does not break revert), and the matching nmcli ipv4.routes
+// entry if NetworkManager is active (mismatched entries return non-zero from nmcli but revert is
+// idempotent — that exit is intentionally swallowed). Both branches are no-ops when their backend
+// isn't in use.
+func (n *BaseNetworkManager) unpersistLinuxHostRoute(networkCIDR string) error {
+	contextName := n.configHandler.GetContext()
+	if contextName == "" {
+		contextName = "default"
+	}
+	path := fmt.Sprintf("/etc/systemd/network/windsor-%s.network", contextName)
+	if _, err := n.shims.Stat(path); err == nil {
+		if _, err := n.shell.ExecSudo("", "rm", "-f", path); err != nil {
+			return fmt.Errorf("failed to remove systemd-networkd drop-in: %w", err)
+		}
+		_, _ = n.shell.ExecSudo("", "networkctl", "reload")
+	}
+	if status, err := n.shell.ExecSilent("systemctl", "is-active", "NetworkManager"); err == nil && strings.TrimSpace(status) == "active" {
+		if conn, err := n.firstActiveNetworkManagerConnection(); err == nil {
+			guestIP := n.configHandler.GetString("workstation.address")
+			value := networkCIDR
+			if guestIP != "" {
+				value = networkCIDR + " " + guestIP
+			}
+			_, _ = n.shell.ExecSudo("", "nmcli", "connection", "modify", conn, "-ipv4.routes", value)
+		}
+	}
+	return nil
+}
+
 // needsPrivilegeForHostRoute reports whether sudo is required to add the host route for the guest.
 // It returns true when the route for network.cidr_block via guestAddress does not yet exist;
 // it returns false when the route exists, when CIDR or guest is unset, or when the route check fails.
@@ -290,14 +400,9 @@ func (n *BaseNetworkManager) needsPrivilegeForHostRoute(guestAddress string) boo
 	if networkCIDR == "" || guestAddress == "" {
 		return false
 	}
-	output, err := n.shell.ExecSilent("ip", "route", "show", networkCIDR)
+	inKernel, err := n.linuxRouteInKernel(networkCIDR, guestAddress)
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, guestAddress) {
-			return false
-		}
-	}
-	return true
+	return !inKernel
 }
