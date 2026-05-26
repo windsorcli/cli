@@ -27,8 +27,8 @@ var removedContextCmd = &cobra.Command{
 
 var getContextAliasCmd = &cobra.Command{
 	Use:          "get-context",
-	Short:        "Alias for 'get context'",
-	Long:         "Alias for 'get context'",
+	Short:        "Get the current context",
+	Long:         "Get the current context (alias for 'get context').",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return getContextCmd.RunE(cmd, args)
@@ -37,8 +37,8 @@ var getContextAliasCmd = &cobra.Command{
 
 var setContextAliasCmd = &cobra.Command{
 	Use:          "set-context [context]",
-	Short:        "Alias for 'set context'",
-	Long:         "Alias for 'set context'",
+	Short:        "Set the current context",
+	Long:         "Set the current context (alias for 'set context').",
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
