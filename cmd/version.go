@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/constants"
@@ -19,8 +20,26 @@ var versionCmd = &cobra.Command{
 	SilenceUsage: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		platform := fmt.Sprintf("%s/%s", Goos, runtime.GOARCH)
-		cmd.Printf("Version: %s\nCommit SHA: %s\nPlatform: %s\n", constants.Version, constants.CommitSHA, platform)
+		cmd.Printf("Version: %s\nCommit SHA: %s\nBuild Date: %s\nGo: %s\nPlatform: %s\n",
+			annotatedVersion(constants.Version),
+			constants.CommitSHA,
+			constants.BuildDate,
+			runtime.Version(),
+			platform,
+		)
 	},
+}
+
+// annotatedVersion appends a "(nightly build)" marker to goreleaser-snapshot
+// versions so operators reading `windsor version` can tell at a glance that the
+// binary is an unreleased main-branch build rather than a tagged release.
+// Goreleaser emits version strings like "0.0.0-SNAPSHOT-abc1234" in --snapshot
+// mode; tagged releases use clean semver and are returned unchanged.
+func annotatedVersion(v string) string {
+	if strings.Contains(strings.ToLower(v), "snapshot") {
+		return v + " (nightly build)"
+	}
+	return v
 }
 
 func init() {
