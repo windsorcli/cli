@@ -39,7 +39,7 @@ func generateCommands(outDir string) error {
 	if err := os.RemoveAll(outDir); err != nil {
 		return fmt.Errorf("clear output dir: %w", err)
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
