@@ -33,8 +33,8 @@ func commandsCmd() *cobra.Command {
 
 // generateCommands wipes outDir, then walks cmd.RootCmd() and emits one
 // markdown file per command. The destination is recreated empty each run so
-// renamed or removed commands do not leave stale pages behind — the CI gate
-// that runs `task docs:gen:commands && git diff --exit-code` relies on this.
+// renamed or removed commands do not leave stale pages behind — a future CI
+// gate that regenerates and asserts `git diff --exit-code` relies on this.
 func generateCommands(outDir string) error {
 	if err := os.RemoveAll(outDir); err != nil {
 		return fmt.Errorf("clear output dir: %w", err)
@@ -100,4 +100,3 @@ func lookupShort(root *cobra.Command, base string) string {
 	}
 	return c.Short
 }
-
