@@ -42,6 +42,15 @@ func Execute() error {
 	return rootCmd.ExecuteContext(ctx)
 }
 
+// RootCmd exposes the assembled cobra command tree for tooling that needs to
+// introspect commands without executing them — currently the reference-doc
+// generator under internal/gendocs. Importing the cmd package triggers the
+// init() blocks that register every subcommand, so this accessor reflects the
+// full tree by the time any caller invokes it.
+func RootCmd() *cobra.Command {
+	return rootCmd
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:               "windsor",
