@@ -46,28 +46,28 @@ func generateCommands(outDir string) error {
 	root := cliCmd.RootCmd()
 	root.DisableAutoGenTag = true
 
-	return doc.GenMarkdownTreeCustom(root, outDir, frontmatter, linkHandler)
-}
+	// frontmatter closes over root so the emitter and the per-file frontmatter
+	// always operate on the same pre-configured command tree. cobra's
+	// GenMarkdownTreeCustom passes the destination filename (basename only); we
+	// derive the command's full invocation by replacing underscores with spaces
+	// and stripping the .md suffix.
+	frontmatter := func(filename string) string {
+		base := strings.TrimSuffix(filepath.Base(filename), ".md")
+		invocation := strings.ReplaceAll(base, "_", " ")
+		short := lookupShort(root, base)
 
-// frontmatter returns the YAML frontmatter prepended to each generated
-// markdown file. cobra's GenMarkdownTreeCustom passes the destination
-// filename (basename only); we derive the command's full invocation by
-// replacing underscores with spaces and stripping the .md suffix.
-func frontmatter(filename string) string {
-	base := strings.TrimSuffix(filepath.Base(filename), ".md")
-	invocation := strings.ReplaceAll(base, "_", " ")
-	root := cliCmd.RootCmd()
-	short := lookupShort(root, base)
-
-	var b strings.Builder
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintf(&b, "title: %q\n", invocation)
-	if short != "" {
-		fmt.Fprintf(&b, "description: %q\n", short)
+		var b strings.Builder
+		fmt.Fprintln(&b, "---")
+		fmt.Fprintf(&b, "title: %q\n", invocation)
+		if short != "" {
+			fmt.Fprintf(&b, "description: %q\n", short)
+		}
+		fmt.Fprintln(&b, "---")
+		fmt.Fprintln(&b)
+		return b.String()
 	}
-	fmt.Fprintln(&b, "---")
-	fmt.Fprintln(&b)
-	return b.String()
+
+	return doc.GenMarkdownTreeCustom(root, outDir, frontmatter, linkHandler)
 }
 
 // linkHandler rewrites the inter-command links cobra emits at the bottom of
