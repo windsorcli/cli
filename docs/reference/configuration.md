@@ -172,7 +172,7 @@ system-managed and not covered here.
 |------|------|-------------|
 | `backend` | `object` | State backend configuration (type plus per-type fields). See api/v1alpha1/terraform/terraform_config.go for the full BackendConfig field set (s3, azurerm, kubernetes, local, oss). |
 | `enabled` | `boolean` | Whether terraform components are applied for this context. |
-| `lock` | `object` | State-lock policy (timeout, retry). See api/v1alpha1/terraform/terraform_config.go for LockConfig fields. |
+| `lock` | `object` | State-lock policy (timeout). See api/v1alpha1/terraform/terraform_config.go for LockConfig fields. |
 | `timeout` | `string` | Default per-operation timeout for terraform apply / destroy / plan, as a Go duration string (e.g. '20m'). |
 
 ### contexts{}.vm

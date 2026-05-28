@@ -293,7 +293,7 @@ $defs:
         type: object
         additionalProperties: true
         description: |
-          State-lock policy (timeout, retry). See
+          State-lock policy (timeout). See
           api/v1alpha1/terraform/terraform_config.go for LockConfig fields.
       timeout:
         type: string
