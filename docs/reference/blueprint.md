@@ -123,32 +123,32 @@ metadata:
   description: Local workstation blueprint
   name: local
 sources:
-- name: core
-  url: oci://ghcr.io/windsorcli/core:v0.3.0
-- name: modules
-  ref:
-    branch: main
-  url: github.com/org/terraform-modules
+  - name: core
+    url: oci://ghcr.io/windsorcli/core:v0.3.0
+  - name: modules
+    ref:
+      branch: main
+    url: github.com/org/terraform-modules
 terraform:
-- inputs:
-    cluster_name: local
-  name: cluster
-  path: cluster/talos
-  source: core
-- dependsOn:
-  - cluster
-  name: dns
-  path: dns/coredns
-  source: core
+  - inputs:
+      cluster_name: local
+    name: cluster
+    path: cluster/talos
+    source: core
+  - dependsOn:
+      - cluster
+    name: dns
+    path: dns/coredns
+    source: core
 kustomize:
-- name: flux-system
-  path: flux-system
-  source: core
-- dependsOn:
-  - flux-system
-  name: dns
-  path: dns
-  source: core
+  - name: flux-system
+    path: flux-system
+    source: core
+  - dependsOn:
+      - flux-system
+    name: dns
+    path: dns
+    source: core
 substitutions:
   external_domain: example.test
 ```

@@ -86,30 +86,30 @@ specific terraform components and kustomizations are present (or absent).
 
 ```yaml
 cases:
-- exclude:
-    terraform:
-    - name: vnet
-  expect:
-    terraform:
-    - dependsOn:
-      - network
-      name: vpc
-      source: core
-  name: aws-platform-includes-vpc
-  values:
-    platform: aws
-- expectError: true
-  name: missing-required-fails
-  values: {}
-- expect:
-    kustomize:
-    - name: dns
-      substitutions:
+  - exclude:
+      terraform:
+        - name: vnet
+    expect:
+      terraform:
+        - dependsOn:
+            - network
+          name: vpc
+          source: core
+    name: aws-platform-includes-vpc
+    values:
+      platform: aws
+  - expectError: true
+    name: missing-required-fails
+    values: {}
+  - expect:
+      kustomize:
+        - name: dns
+          substitutions:
+            external_dns_zone_id: Z123456
+    name: dns-substitution-uses-terraform-output
+    terraformOutputs:
+      network:
         external_dns_zone_id: Z123456
-  name: dns-substitution-uses-terraform-output
-  terraformOutputs:
-    network:
-      external_dns_zone_id: Z123456
 ```
 
 ## See also

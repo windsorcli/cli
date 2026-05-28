@@ -79,7 +79,7 @@ $defs:
       Terraform component matcher. The component is selected by 'name' (if
       set) or by 'path'; only the fields below are compared, with array
       fields ('dependsOn') matched by contains rather than equality.
-    additionalProperties: true
+    additionalProperties: false
     properties:
       name:
         type: string
@@ -107,7 +107,7 @@ $defs:
       Kustomization matcher. Selected by 'name'; only the fields below are
       compared, with array fields ('dependsOn', 'components') matched by
       contains rather than equality.
-    additionalProperties: true
+    additionalProperties: false
     properties:
       name:
         type: string
