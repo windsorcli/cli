@@ -13,6 +13,7 @@ import (
 var removedContextCmd = &cobra.Command{
 	Use:                "context",
 	Short:              "Removed: use 'windsor get context' / 'windsor set context'",
+	Hidden:             true,
 	SilenceUsage:       true,
 	DisableFlagParsing: true,
 	Args:               cobra.ArbitraryArgs,
@@ -29,6 +30,7 @@ var getContextAliasCmd = &cobra.Command{
 	Use:          "get-context",
 	Short:        "Get the current context",
 	Long:         "Get the current context (alias for 'get context').",
+	Hidden:       true,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return getContextCmd.RunE(cmd, args)
@@ -39,6 +41,7 @@ var setContextAliasCmd = &cobra.Command{
 	Use:          "set-context [context]",
 	Short:        "Set the current context",
 	Long:         "Set the current context (alias for 'set context').",
+	Hidden:       true,
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
