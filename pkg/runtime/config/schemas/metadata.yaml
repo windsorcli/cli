@@ -1,0 +1,53 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Metadata
+description: |
+  Optional metadata.yaml file that ships alongside a blueprint at
+  contexts/_template/metadata.yaml. Used by 'windsor bundle' and 'windsor push'
+  to derive the artifact name and tag, and by the CLI to validate version
+  compatibility before loading the blueprint.
+type: object
+required:
+  - name
+additionalProperties: false
+properties:
+  name:
+    type: string
+    description: Blueprint name. Required for bundling and pushing.
+  version:
+    type: string
+    description: Blueprint version. Used for artifact tagging when pushing to registries; serves as the default tag when --tag is omitted on 'windsor bundle' / 'windsor push'.
+  description:
+    type: string
+    description: One-line description of the blueprint.
+  author:
+    type: string
+    description: Author or maintainer of the blueprint.
+  tags:
+    type: array
+    items:
+      type: string
+    description: Tags for categorizing or organizing the blueprint.
+  homepage:
+    type: string
+    description: URL to the blueprint's homepage or documentation.
+  license:
+    type: string
+    description: License identifier (e.g., MIT, Apache-2.0).
+  cliVersion:
+    type: string
+    description: |
+      Semver constraint for the required CLI version. When set, the CLI validates
+      that its current version satisfies this constraint before loading the
+      blueprint. Examples: '>=0.7.1', '~0.7.0', '>=0.7.0 <0.8.0'. If the constraint
+      is not satisfied, blueprint loading fails with an explanatory error.
+examples:
+  - name: my-blueprint
+    version: 1.0.0
+    description: A sample blueprint
+    author: John Doe
+    tags:
+      - infrastructure
+      - kubernetes
+    homepage: https://example.com/my-blueprint
+    license: MIT
+    cliVersion: ">=0.7.1"
