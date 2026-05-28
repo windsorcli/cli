@@ -1,0 +1,3 @@
+- [`windsor test`](commands/test.md)
+- [Blueprint reference](blueprint.md), [Facets reference](facets.md)
+- [Blueprint testing](https://www.windsorcli.dev/docs/blueprints/testing)
