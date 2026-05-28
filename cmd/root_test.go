@@ -424,6 +424,27 @@ func TestRootCmd(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 	})
+
+	t.Run("RootCmdAccessor", func(t *testing.T) {
+		// Given the cmd package init() blocks have run
+
+		// When RootCmd is called
+		got := RootCmd()
+
+		// Then it returns the assembled root command with subcommands registered.
+		// Asserting via the version subcommand because it is one of the simplest,
+		// most stable commands; the precise list of subcommands is verified
+		// indirectly by the gendocs generator's own tests.
+		if got == nil {
+			t.Fatal("RootCmd returned nil")
+		}
+		if got.Use != "windsor" {
+			t.Errorf("expected Use=windsor, got %q", got.Use)
+		}
+		if _, _, err := got.Find([]string{"version"}); err != nil {
+			t.Errorf("expected to find 'version' subcommand: %v", err)
+		}
+	})
 }
 
 func TestRootCmd_PersistentPreRunE(t *testing.T) {
