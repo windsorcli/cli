@@ -1,0 +1,326 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Blueprint
+description: |
+  Top-level blueprint definition. Lives at contexts/<context>/blueprint.yaml and
+  declares the Terraform components and Flux kustomizations that windsor will
+  apply for that context, plus the sources those components come from and the
+  variable substitutions shared across them.
+type: object
+required:
+  - kind
+  - apiVersion
+  - metadata
+additionalProperties: false
+properties:
+  kind:
+    type: string
+    description: |
+      Resource kind, following Kubernetes conventions. Must be 'Blueprint'.
+    enum:
+      - Blueprint
+  apiVersion:
+    type: string
+    description: |
+      API schema version. Must be 'blueprints.windsorcli.dev/v1alpha1'.
+    enum:
+      - blueprints.windsorcli.dev/v1alpha1
+  metadata:
+    description: Identity for the blueprint.
+    type: object
+    required:
+      - name
+    additionalProperties: false
+    properties:
+      name:
+        type: string
+        description: Blueprint's unique identifier within the project.
+      description:
+        type: string
+        description: One-line overview of what this blueprint provisions.
+  backend:
+    type: string
+    description: |
+      Names the terraform component that terminates the backend tier. When set,
+      'windsor bootstrap' applies the backend component (and every component
+      declared before it) against local state first, then migrates state to the
+      configured remote backend before applying the rest of the graph.
+  repository:
+    description: Source repository this blueprint was bootstrapped from.
+    type: object
+    additionalProperties: false
+    properties:
+      url:
+        type: string
+        description: Repository URL.
+      ref:
+        $ref: '#/$defs/reference'
+      secretName:
+        type: string
+        description: Name of a Flux secret holding credentials for the repository.
+  sources:
+    type: array
+    description: |
+      External resources referenced by the blueprint. Each source is an OCI
+      blueprint artifact or a Git repository that contributes Terraform modules
+      and/or kustomize bases consumable by the components below.
+    items:
+      type: object
+      required:
+        - name
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: Identifier for the source; referenced by 'source:' on terraform / kustomize components.
+        url:
+          type: string
+          description: Source location. Accepts Git URLs and OCI URLs (oci://registry/repo:tag).
+        pathPrefix:
+          type: string
+          description: Path prefix applied to the source. Defaults to 'terraform' when unset.
+        ref:
+          $ref: '#/$defs/reference'
+        secretName:
+          type: string
+          description: Name of a Flux secret holding credentials for the source.
+        install:
+          type: [boolean, string]
+          description: |
+            For OCI sources, whether to merge this source's components into the
+            final blueprint. Accepts a boolean (true/false) or an expression
+            (e.g. '${some.condition ?? true}') evaluated against facet config.
+            Defaults to true. Has no effect on Git sources.
+  terraform:
+    type: array
+    description: |
+      Terraform components included in the blueprint, in declaration order.
+      Components are reordered topologically by dependsOn at apply time.
+    items:
+      type: object
+      required:
+        - path
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: |
+            Optional name. When set, becomes the unique identifier for the
+            component (used by dependsOn and context variables) instead of path.
+        source:
+          type: string
+          description: Name of the source (from the sources list) that provides this module.
+        path:
+          type: string
+          description: Path of the module within the source.
+        dependsOn:
+          type: array
+          items:
+            type: string
+          description: IDs of components that must apply before this one.
+        inputs:
+          type: object
+          additionalProperties: true
+          description: |
+            Module input values. Plain values pass through as literals; values
+            using '${expr}' syntax are evaluated against facet config at apply
+            time. Used to generate tfvars and not written to the final context
+            blueprint.yaml.
+        destroy:
+          type: [boolean, string]
+          description: |
+            Whether to destroy this component during 'windsor down' / 'windsor
+            destroy'. Boolean (true/false) or expression
+            (e.g. '${cluster.destroy ?? true}'). Defaults to true.
+        parallelism:
+          type: [integer, string]
+          description: |
+            Caps concurrent operations during 'terraform apply' / 'terraform
+            destroy' for this component (the -parallelism flag). Integer or
+            expression (e.g. '${cluster.parallelism ?? 10}').
+        enabled:
+          type: [boolean, string]
+          description: |
+            Whether to include this component in the final blueprint. Boolean
+            (true/false) or expression. Defaults to true.
+  kustomize:
+    type: array
+    description: |
+      Flux kustomizations included in the blueprint. Each entry maps to a
+      Kustomization resource the provisioner applies to the cluster, in
+      topologically sorted dependsOn order.
+    items:
+      type: object
+      required:
+        - name
+        - path
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: Identifier for the kustomization; referenced by dependsOn.
+        path:
+          type: string
+          description: Path within the source containing the kustomize base.
+        source:
+          type: string
+          description: Name of the source (from the sources list) that provides this kustomization. Defaults to the blueprint's primary source when unset.
+        namespace:
+          type: string
+          description: |
+            Namespace where the Flux Kustomization object itself lives. Defaults
+            to the gitops namespace. DependsOn references always resolve in the
+            gitops namespace; cross-namespace dependencies are not supported.
+        targetNamespace:
+          type: string
+          description: |
+            Populates spec.targetNamespace, instructing Flux to override the
+            namespace of every resource reconciled by this kustomization.
+        dependsOn:
+          type: array
+          items:
+            type: string
+          description: Names of kustomizations that must reconcile before this one.
+        interval:
+          type: string
+          description: |
+            Reconciliation interval, expressed as a Go duration string
+            (e.g. '5m', '1h'). Defaults to a mode-appropriate value chosen by
+            the provisioner (short poll for pull mode, long fallback for push).
+        retryInterval:
+          type: string
+          description: Duration to wait before retrying a failed reconciliation (e.g. '2m').
+        timeout:
+          type: string
+          description: Maximum duration for a single reconciliation attempt (e.g. '10m').
+        patches:
+          type: array
+          description: |
+            Strategic-merge or Flux-style patches applied to the kustomization.
+            Each entry is either a 'path:' to a patch file relative to the
+            kustomization, or a 'patch:' inline YAML body with an optional
+            'target:' selector (kind / name / namespace).
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              path:
+                type: string
+                description: Path to a patch file relative to the kustomization (blueprint format).
+              patch:
+                type: string
+                description: Inline patch body as YAML (Flux format).
+              target:
+                type: object
+                description: Selector for the patch (Flux format). Used with 'patch:'.
+                additionalProperties: true
+        wait:
+          type: boolean
+          description: Wait for resources to settle before declaring reconciliation complete.
+        force:
+          type: boolean
+          description: Force-apply resources Flux would otherwise refuse to update.
+        prune:
+          type: boolean
+          description: Garbage-collect resources removed from the source. Defaults to true.
+        components:
+          type: array
+          items:
+            type: string
+          description: Kustomize components to compose into this kustomization.
+        destroy:
+          type: [boolean, string]
+          description: |
+            Whether to delete this kustomization during 'windsor down' /
+            'windsor destroy'. Boolean or expression. Defaults to true.
+        destroyOnly:
+          type: boolean
+          description: |
+            When true, the kustomization only runs during destroy. Useful for
+            teardown-only resources (e.g. cleanup jobs).
+        enabled:
+          type: [boolean, string]
+          description: |
+            Whether to include this kustomization in the final blueprint.
+            Boolean or expression. Defaults to true.
+        substitutions:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            PostBuild variable substitutions for this kustomization. Collected
+            into a 'values-<name>' ConfigMap that Flux substitutes from.
+  substitutions:
+    type: object
+    additionalProperties:
+      type: string
+    description: |
+      Blueprint-level substitutions injected into 'values-common' and made
+      available to every kustomization via PostBuild substitution. Values may
+      use expression syntax (e.g. '${dns.domain}') resolved against facet
+      config blocks.
+  configMaps:
+    type: object
+    additionalProperties:
+      type: object
+      additionalProperties:
+        type: string
+    description: |
+      Standalone ConfigMaps to create. Each top-level key is a ConfigMap name;
+      its map-of-string value is the .data payload. These are referenced by
+      every kustomization in PostBuild substitution.
+$defs:
+  reference:
+    type: object
+    description: A specific version or state of a repository or source (one of branch / tag / semver / commit).
+    additionalProperties: false
+    properties:
+      branch:
+        type: string
+        description: Branch to follow.
+      tag:
+        type: string
+        description: Specific tag.
+      semver:
+        type: string
+        description: Semver constraint (e.g. '>=1.0.0').
+      name:
+        type: string
+        description: Named reference.
+      commit:
+        type: string
+        description: Specific commit SHA.
+examples:
+  - kind: Blueprint
+    apiVersion: blueprints.windsorcli.dev/v1alpha1
+    metadata:
+      name: local
+      description: Local workstation blueprint
+    sources:
+      - name: core
+        url: oci://ghcr.io/windsorcli/core:v0.3.0
+      - name: modules
+        url: github.com/org/terraform-modules
+        ref:
+          branch: main
+    terraform:
+      - name: cluster
+        source: core
+        path: cluster/talos
+        inputs:
+          cluster_name: local
+      - name: dns
+        source: core
+        path: dns/coredns
+        dependsOn:
+          - cluster
+    kustomize:
+      - name: flux-system
+        path: flux-system
+        source: core
+      - name: dns
+        path: dns
+        source: core
+        dependsOn:
+          - flux-system
+    substitutions:
+      external_domain: example.test
