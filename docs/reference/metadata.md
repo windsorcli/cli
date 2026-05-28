@@ -30,8 +30,8 @@ version: 1.0.0
 description: A sample blueprint
 author: John Doe
 tags:
-- infrastructure
-- kubernetes
+  - infrastructure
+  - kubernetes
 homepage: https://example.com/my-blueprint
 license: MIT
 cliVersion: ">=0.7.1"

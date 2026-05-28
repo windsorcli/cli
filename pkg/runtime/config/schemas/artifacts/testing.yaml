@@ -1,0 +1,163 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Testing
+description: |
+  Schema for windsor test files (*.test.yaml) consumed by 'windsor test'. Test
+  files live under contexts/_template/tests/ and define cases that apply input
+  values to configuration, compose the blueprint in isolation, and assert that
+  specific terraform components and kustomizations are present (or absent).
+type: object
+required:
+  - cases
+additionalProperties: false
+properties:
+  cases:
+    type: array
+    description: Test cases to execute.
+    items:
+      type: object
+      required:
+        - name
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: Unique identifier for the test case.
+        values:
+          type: object
+          additionalProperties: true
+          description: |
+            Configuration values to apply before composing the blueprint.
+            These override any existing configuration for the test. Dotted
+            keys are allowed (e.g. 'cluster.driver: talos').
+        terraformOutputs:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: true
+          description: |
+            Mock outputs for terraform_output() expressions. Keys are
+            component IDs; values are maps of output key to value. Example:
+            terraformOutputs.network.vpc_id = "vpc-123".
+        expect:
+          $ref: '#/$defs/expectation'
+          description: |
+            Components and kustomizations that must be present in the composed
+            blueprint. Partial matching: only fields you specify are checked.
+        exclude:
+          $ref: '#/$defs/expectation'
+          description: |
+            Components and kustomizations that must NOT be present in the
+            composed blueprint. Same partial-match semantics as 'expect'.
+        expectError:
+          type: boolean
+          description: |
+            When true, the test passes only if blueprint composition fails.
+            Use for testing invalid configurations that the framework should
+            reject. Defaults to false.
+$defs:
+  expectation:
+    type: object
+    description: |
+      A subset of the Blueprint shape, used for assertions. Additional
+      Blueprint fields are accepted but not checked — only the fields below
+      participate in matching.
+    additionalProperties: true
+    properties:
+      terraform:
+        type: array
+        description: Terraform components to assert on.
+        items:
+          $ref: '#/$defs/terraformMatch'
+      kustomize:
+        type: array
+        description: Kustomizations to assert on.
+        items:
+          $ref: '#/$defs/kustomizeMatch'
+  terraformMatch:
+    type: object
+    description: |
+      Terraform component matcher. The component is selected by 'name' (if
+      set) or by 'path'; only the fields below are compared, with array
+      fields ('dependsOn') matched by contains rather than equality.
+    additionalProperties: false
+    properties:
+      name:
+        type: string
+        description: Component name (or path-derived ID when name is omitted). Used as the match key.
+      path:
+        type: string
+        description: Module path. Used as the match key when 'name' is omitted.
+      source:
+        type: string
+        description: Expected source name. Asserted only when set.
+      dependsOn:
+        type: array
+        items:
+          type: string
+        description: Expected dependency IDs. Match is 'contains' — the actual list may have extras.
+      inputs:
+        type: object
+        additionalProperties: true
+        description: |
+          Expected input values. Strict equality per key — every specified
+          key must be present with the exact expected value.
+  kustomizeMatch:
+    type: object
+    description: |
+      Kustomization matcher. Selected by 'name'; only the fields below are
+      compared, with array fields ('dependsOn', 'components') matched by
+      contains rather than equality.
+    additionalProperties: false
+    properties:
+      name:
+        type: string
+        description: Kustomization name. Used as the match key.
+      path:
+        type: string
+        description: Expected path. Asserted only when set.
+      source:
+        type: string
+        description: Expected source name. Asserted only when set.
+      dependsOn:
+        type: array
+        items:
+          type: string
+        description: Expected dependency names. Match is 'contains'.
+      components:
+        type: array
+        items:
+          type: string
+        description: Expected kustomize components. Match is 'contains'.
+      substitutions:
+        type: object
+        additionalProperties:
+          type: string
+        description: |
+          Expected PostBuild substitutions. Strict equality per key — every
+          specified key must be present with the exact expected value.
+examples:
+  - cases:
+      - name: aws-platform-includes-vpc
+        values:
+          platform: aws
+        expect:
+          terraform:
+            - name: vpc
+              source: core
+              dependsOn:
+                - network
+        exclude:
+          terraform:
+            - name: vnet
+      - name: missing-required-fails
+        values: {}
+        expectError: true
+      - name: dns-substitution-uses-terraform-output
+        terraformOutputs:
+          network:
+            external_dns_zone_id: Z123456
+        expect:
+          kustomize:
+            - name: dns
+              substitutions:
+                external_dns_zone_id: Z123456

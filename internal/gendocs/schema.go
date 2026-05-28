@@ -331,6 +331,11 @@ func schemaFieldRow(name string, propSchema map[string]any, required bool, root 
 // fenced yaml code block. Each example is a yaml.MapSlice so author-defined
 // field order survives the round-trip and the rendered YAML matches the
 // source-of-truth format operators write.
+//
+// MarshalWithOptions(IndentSequence(true)) makes sequence items indent two
+// spaces beneath their parent key — without it, '- item' lands at the same
+// column as sibling mapping keys, which strict YAML 1.2 parsers may reject
+// (or read as a sibling key rather than a list value).
 func writeSchemaExamples(w io.Writer, examples []yaml.MapSlice) {
 	if len(examples) == 0 {
 		return
@@ -338,7 +343,7 @@ func writeSchemaExamples(w io.Writer, examples []yaml.MapSlice) {
 	fmt.Fprintln(w, "## Examples")
 	fmt.Fprintln(w)
 	for _, ex := range examples {
-		body, err := yaml.Marshal(ex)
+		body, err := yaml.MarshalWithOptions(ex, yaml.IndentSequence(true))
 		if err != nil {
 			continue
 		}
