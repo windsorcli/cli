@@ -5,8 +5,9 @@
 // Subcommands map 1:1 to reference-page categories:
 //
 //	commands  cobra → docs/reference/commands/
+//	schema    pkg/runtime/config/schemas/*.yaml → docs/reference/<name>.md
 //
-// Future subcommands (schema, env, contexts) follow the same pattern: one file
+// Future subcommands (env, contexts) follow the same pattern: one file
 // per generator, one entry under main(), one Taskfile target.
 
 package main
@@ -24,6 +25,7 @@ func main() {
 		Short: "Generate Windsor CLI reference documentation",
 	}
 	root.AddCommand(commandsCmd())
+	root.AddCommand(schemaCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -1,80 +1,44 @@
 ---
 title: "Metadata"
-description: "Reference for metadata.yaml file structure and fields"
+description: "Optional metadata.yaml file that ships alongside a blueprint at contexts/_template/metadata.yaml."
 ---
-# Blueprint Metadata
+# Metadata
 
-Blueprints can include a `_template/metadata.yaml` file that provides additional metadata about the blueprint, including CLI version compatibility requirements.
+Optional metadata.yaml file that ships alongside a blueprint at
+contexts/_template/metadata.yaml. Used by 'windsor bundle' and 'windsor push'
+to derive the artifact name and tag, and by the CLI to validate version
+compatibility before loading the blueprint.
 
-## Metadata File Structure
+## Fields
+
+| Field | Type | Description |
+|------|------|-------------|
+| `name` | `string` | Blueprint name. Required for bundling and pushing. **(required)** |
+| `author` | `string` | Author or maintainer of the blueprint. |
+| `cliVersion` | `string` | Semver constraint for the required CLI version. When set, the CLI validates that its current version satisfies this constraint before loading the blueprint. Examples: '>=0.7.1', '~0.7.0', '>=0.7.0 <0.8.0'. If the constraint is not satisfied, blueprint loading fails with an explanatory error. |
+| `description` | `string` | One-line description of the blueprint. |
+| `homepage` | `string` | URL to the blueprint's homepage or documentation. |
+| `license` | `string` | License identifier (e.g., MIT, Apache-2.0). |
+| `tags` | `array<string>` | Tags for categorizing or organizing the blueprint. |
+| `version` | `string` | Blueprint version. Used for artifact tagging when pushing to registries; serves as the default tag when --tag is omitted on 'windsor bundle' / 'windsor push'. |
+
+## Examples
 
 ```yaml
 name: my-blueprint
 version: 1.0.0
 description: A sample blueprint
-author: "John Doe"
+author: John Doe
 tags:
-  - infrastructure
-  - kubernetes
+- infrastructure
+- kubernetes
 homepage: https://example.com/my-blueprint
 license: MIT
 cliVersion: ">=0.7.1"
 ```
 
-| Field         | Type     | Description                                      |
-|---------------|----------|--------------------------------------------------|
-| `name`        | `string` | The blueprint name. Required for bundling and pushing. |
-| `version`     | `string` | The blueprint version. Used for artifact tagging when pushing to registries. |
-| `description` | `string` | A description of the blueprint.                  |
-| `author`      | `string` | The author or maintainer of the blueprint.       |
-| `tags`        | `[]string` | Tags for categorizing or organizing the blueprint. |
-| `homepage`    | `string` | URL to the blueprint's homepage or documentation. |
-| `license`     | `string` | License identifier (e.g., "MIT", "Apache-2.0"). |
-| `cliVersion`  | `string` | Semver constraint for required CLI version (e.g., ">=0.7.1", "~0.7.0"). If specified, the CLI validates that the current version satisfies the constraint before loading the blueprint. |
+## See also
 
-## CLI Version Compatibility
-
-The `cliVersion` field uses semantic versioning constraints. Examples:
-- `">=0.7.1"` - Requires CLI version 0.7.1 or higher
-- `"~0.7.0"` - Requires CLI version compatible with 0.7.x
-- `">=0.7.0 <0.8.0"` - Requires CLI version between 0.7.0 (inclusive) and 0.8.0 (exclusive)
-
-If the CLI version doesn't satisfy the constraint, blueprint loading will fail with an error.
-
-## Using Metadata in Bundling
-
-When using `windsor bundle` or `windsor push`, the metadata file is used to:
-
-1. **Automatic naming**: If both `name` and `version` are specified, you can bundle without providing a tag:
-   ```bash
-   windsor bundle  # Uses name and version from metadata.yaml
-   ```
-
-2. **Version tagging**: The `version` field is used for artifact tagging when pushing to registries.
-
-3. **Compatibility checking**: The `cliVersion` field ensures users have a compatible CLI version before attempting to use the blueprint.
-
-## Metadata Location
-
-The metadata file should be placed at:
-- `contexts/_template/metadata.yaml` - For local template directories
-- `_template/metadata.yaml` - In blueprint archives
-- Included in OCI artifacts as part of the template data
-
-## Best Practices
-
-1. **Always include `name`**: Makes bundling and sharing easier
-2. **Use semantic versioning**: Follow semver for the `version` field
-3. **Set `cliVersion` constraints**: Protect users from incompatible CLI versions
-4. **Keep descriptions clear**: Help users understand what the blueprint does
-
-<div>
-  {{ footer('Schema', '../schema/index.html', '', '') }}
-</div>
-
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../schema/index.html'; 
-  });
-</script>
-
+- [`windsor bundle`](commands/bundle.md), [`windsor push`](commands/push.md)
+- [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)
+- Source schema: [pkg/runtime/config/schemas/artifacts/metadata.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/metadata.yaml)

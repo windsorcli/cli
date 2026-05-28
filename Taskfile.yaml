@@ -131,6 +131,17 @@ tasks:
     cmds:
       - go run ./internal/gendocs commands
 
+  docs:gen:schema:
+    desc: Regenerate docs/reference/<name>.md from pkg/runtime/config/schemas/*.yaml. CI fails on any diff.
+    cmds:
+      - go run ./internal/gendocs schema
+
+  docs:gen:
+    desc: Regenerate every generated docs/reference page (commands + schemas).
+    cmds:
+      - task: docs:gen:commands
+      - task: docs:gen:schema
+
   run:
     desc: Run the Windsor CLI
     cmds:
