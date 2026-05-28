@@ -12,15 +12,28 @@ import (
 // setCmd represents the set command group
 var setCmd = &cobra.Command{
 	Use:   "set",
-	Short: "Set a resource",
-	Long:  "Set a resource",
+	Short: "Set a Windsor resource.",
+	Long:  `Set a Windsor resource. Currently supports 'context'.`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)\n" +
+			"[`init`](init.md), [`get`](get.md)",
+		"docs.source": "cmd/set.go",
+	},
 }
 
 // setContextCmd sets the current context
 var setContextCmd = &cobra.Command{
-	Use:          "context [context-name]",
-	Short:        "Set the current context",
-	Long:         "Set the current context in the configuration and save it",
+	Use:   "context [context-name]",
+	Short: "Switch the current context.",
+	Long:  `Switch the current context and persist the choice to the project config. The context directory must already exist (created by 'windsor init').`,
+	Example: `windsor set context staging
+windsor get context
+# → staging`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)\n" +
+			"[`init`](init.md), [`get context`](get-context.md)",
+		"docs.source": "cmd/set.go",
+	},
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

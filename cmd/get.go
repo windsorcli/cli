@@ -16,15 +16,31 @@ import (
 // getCmd represents the get command group
 var getCmd = &cobra.Command{
 	Use:   "get",
-	Short: "Display one or many resources",
-	Long:  "Display one or many resources",
+	Short: "Display Windsor resources.",
+	Long:  `Display Windsor resources. Currently supports listing contexts and printing the current context.`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)\n" +
+			"[`set`](set.md)",
+		"docs.source": "cmd/get.go",
+	},
 }
 
 // getContextsCmd lists all available contexts
 var getContextsCmd = &cobra.Command{
-	Use:          "contexts",
-	Short:        "List all available contexts",
-	Long:         "List all available contexts in the project. The current context is marked with an asterisk (*).",
+	Use:   "contexts",
+	Short: "List all available contexts.",
+	Long: `List contexts in the project. Output is a tab-aligned table with columns NAME, PROVIDER, BACKEND, CURRENT. The current context is marked with '*'. The PROVIDER column shows the configured platform (column header retained for backwards compatibility); BACKEND shows the configured terraform.backend.type or '<none>' when unset.`,
+	Example: `windsor get contexts
+
+# Sample output:
+#   NAME    PROVIDER  BACKEND  CURRENT
+#   local   docker    <none>   *
+#   prod    aws       s3`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)\n" +
+			"[`set`](set.md)",
+		"docs.source": "cmd/get.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var rtOpts []*runtime.Runtime
@@ -115,9 +131,16 @@ var getContextsCmd = &cobra.Command{
 
 // getContextCmd gets the current context
 var getContextCmd = &cobra.Command{
-	Use:          "context",
-	Short:        "Get the current context",
-	Long:         "Retrieve and display the current context from the configuration",
+	Use:   "context",
+	Short: "Print the current context.",
+	Long:  `Print the name of the current context to stdout.`,
+	Example: `windsor get context
+# → local`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)\n" +
+			"[`set context`](set-context.md)",
+		"docs.source": "cmd/get.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var rtOpts []*runtime.Runtime
