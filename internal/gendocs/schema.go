@@ -186,10 +186,15 @@ func writeSchemaFields(w io.Writer, schema map[string]any, headingPath string) {
 	if headingPath != "" {
 		heading = headingPath
 	}
-	level := "##"
-	if strings.Count(headingPath, ".") > 0 {
-		level = "###"
+	// Heading depth tracks nesting: top-level Fields and first-tier objects
+	// both render as ## (consistent with the cobra renderer's section style);
+	// every additional '.' in headingPath adds one #, capped at #### so a
+	// pathologically nested schema does not blow past readable hierarchy.
+	depth := strings.Count(headingPath, ".") + 2
+	if depth > 4 {
+		depth = 4
 	}
+	level := strings.Repeat("#", depth)
 	fmt.Fprintf(w, "%s %s\n\n", level, heading)
 	fmt.Fprintln(w, "| Field | Type | Description |")
 	fmt.Fprintln(w, "|------|------|-------------|")

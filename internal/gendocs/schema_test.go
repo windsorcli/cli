@@ -305,6 +305,62 @@ func TestRenderSchema(t *testing.T) {
 	})
 }
 
+func TestRenderSchemaHeadingDepthLadder(t *testing.T) {
+	t.Run("HeadingLevelTracksNestingDepthUpToH4", func(t *testing.T) {
+		// Given a schema with three levels of nested object properties:
+		//   root -> outer -> inner -> deepest
+		schema := map[string]any{
+			"title": "Nested",
+			"type":  "object",
+			"properties": map[string]any{
+				"outer": map[string]any{
+					"type":        "object",
+					"description": "outer object",
+					"properties": map[string]any{
+						"flat": map[string]any{"type": "string", "description": "flat field"},
+						"inner": map[string]any{
+							"type":        "object",
+							"description": "inner object",
+							"properties": map[string]any{
+								"deepest": map[string]any{
+									"type":        "object",
+									"description": "deepest object",
+									"properties": map[string]any{
+										"k": map[string]any{"type": "string", "description": "k"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		// When renderSchema runs
+		var buf bytes.Buffer
+		if err := renderSchema(&buf, schema, nil, "", ""); err != nil {
+			t.Fatalf("renderSchema: %v", err)
+		}
+		out := buf.String()
+
+		// Then each nesting depth gets a distinct heading level:
+		//   ## Fields           (top-level)
+		//   ## outer            (depth 1, same as top per design)
+		//   ### outer.inner     (depth 2)
+		//   #### outer.inner.deepest  (depth 3, capped at h4)
+		for _, want := range []string{
+			"## Fields\n",
+			"## outer\n",
+			"### outer.inner\n",
+			"#### outer.inner.deepest\n",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("expected heading %q in output", want)
+			}
+		}
+	})
+}
+
 func TestGenerateSchemaDocs(t *testing.T) {
 	t.Run("EmitsMarkdownForEachSchemaPlusSidecar", func(t *testing.T) {
 		// Given a temp schema directory with a schema and its sidecar
