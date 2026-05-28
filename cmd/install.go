@@ -10,8 +10,20 @@ import (
 var installWaitFlag bool
 
 var installCmd = &cobra.Command{
-	Use:          "install",
-	Short:        "Install the blueprint's cluster-level services",
+	Use:   "install",
+	Short: "Install the blueprint's Flux kustomizations.",
+	Long: `Apply only the Flux kustomizations to the cluster, skipping Terraform. Use this when Terraform has already been applied separately (e.g. by another tool or pipeline) and you only want to hand the cluster off to Flux.
+
+For most workflows, prefer 'windsor apply', which runs Terraform and Flux in the right order.
+
+Pass --wait to block until kustomizations report ready.`,
+	Example: `# Install kustomizations and wait for them to settle
+windsor install --wait`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Kustomize guide](https://www.windsorcli.dev/docs/guides/kustomize)\n" +
+			"[`apply`](apply.md), [`apply kustomize`](apply-kustomize.md)",
+		"docs.source": "cmd/install.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// `install` applies the blueprint to the cluster (Flux + kustomizations); it does not
@@ -40,6 +52,6 @@ var installCmd = &cobra.Command{
 }
 
 func init() {
-	installCmd.Flags().BoolVar(&installWaitFlag, "wait", false, "Wait for kustomizations to be ready")
+	installCmd.Flags().BoolVar(&installWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
 	rootCmd.AddCommand(installCmd)
 }
