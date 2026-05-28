@@ -15,14 +15,9 @@ is honoured for validation.
 
 ## Dialect
 
-The `$schema` field is required. The validator accepts two URIs:
-
-| URI | Status |
-|-----|--------|
-| `https://json-schema.org/draft/2020-12/schema` | Recommended for new schemas. |
-| `https://windsorcli.dev/schema/2026-02/schema` | Accepted for backwards compatibility; rewritten to the canonical 2020-12 URI at compile time. |
-
-Any other value is rejected at load time.
+The `$schema` field is required and must be
+`https://json-schema.org/draft/2020-12/schema`. Any other value is
+rejected at load time.
 
 ## Validation
 

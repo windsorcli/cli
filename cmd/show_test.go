@@ -495,7 +495,7 @@ func TestShowValuesCmd(t *testing.T) {
 		}
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetSchemaFunc = func() map[string]any {
 			return map[string]any{
-				"$schema": "https://windsorcli.dev/schema/2026-02/schema",
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
 				"type":    "object",
 				"properties": map[string]any{
 					"provider": map[string]any{
@@ -542,7 +542,7 @@ func TestShowValuesCmd(t *testing.T) {
 		}
 		mocks.ConfigHandler.(*config.MockConfigHandler).GetSchemaFunc = func() map[string]any {
 			return map[string]any{
-				"$schema": "https://windsorcli.dev/schema/2026-02/schema",
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
 				"type":    "object",
 				"properties": map[string]any{
 					"gateway": map[string]any{
