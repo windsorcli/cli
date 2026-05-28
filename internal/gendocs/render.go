@@ -23,16 +23,42 @@ import (
 
 const sourceURLPrefix = "https://github.com/windsorcli/cli/blob/main/"
 
+// errWriter wraps an io.Writer and captures the first write error encountered,
+// turning subsequent writes into no-ops that report success. This lets the
+// per-section helpers continue using the bare fmt.Fprintf style instead of
+// branching on errors after every call; renderCommand surfaces the captured
+// error at the end so a full disk or broken pipe during doc generation
+// produces a non-nil error rather than a silently truncated .md file.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (e *errWriter) Write(p []byte) (int, error) {
+	if e.err != nil {
+		// Report success after the first error so fmt.Fprintf doesn't loop
+		// retrying the rest of the format string. renderCommand checks e.err
+		// at the end of the section sequence.
+		return len(p), nil
+	}
+	n, err := e.w.Write(p)
+	if err != nil {
+		e.err = err
+	}
+	return n, err
+}
+
 func renderCommand(w io.Writer, cmd *cobra.Command) error {
-	writeFrontmatter(w, cmd)
-	fmt.Fprintf(w, "# %s\n\n", cmd.CommandPath())
-	writeSynopsis(w, cmd)
-	writeLong(w, cmd)
-	writeFlagsTable(w, cmd)
-	writeSubcommands(w, cmd)
-	writeExamples(w, cmd)
-	writeSeeAlso(w, cmd)
-	return nil
+	ew := &errWriter{w: w}
+	writeFrontmatter(ew, cmd)
+	fmt.Fprintf(ew, "# %s\n\n", cmd.CommandPath())
+	writeSynopsis(ew, cmd)
+	writeLong(ew, cmd)
+	writeFlagsTable(ew, cmd)
+	writeSubcommands(ew, cmd)
+	writeExamples(ew, cmd)
+	writeSeeAlso(ew, cmd)
+	return ew.err
 }
 
 func writeFrontmatter(w io.Writer, cmd *cobra.Command) {

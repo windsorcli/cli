@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,9 +13,109 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// brokenWriter fails every Write with the wrapped error. Used to exercise
+// the errWriter short-circuit path.
+type brokenWriter struct{ err error }
+
+func (b brokenWriter) Write(p []byte) (int, error) { return 0, b.err }
+
 // =============================================================================
 // Test Public Methods
 // =============================================================================
+
+func TestErrWriter(t *testing.T) {
+	t.Run("PassesWritesThroughWhenHealthy", func(t *testing.T) {
+		// Given an errWriter wrapping a healthy writer
+		var buf strings.Builder
+		ew := &errWriter{w: &buf}
+
+		// When several writes go through
+		n, err := fmt.Fprint(ew, "hello, ")
+		if err != nil || n != len("hello, ") {
+			t.Fatalf("first write: n=%d err=%v", n, err)
+		}
+		_, _ = fmt.Fprint(ew, "world")
+
+		// Then output reaches the underlying writer and no error is captured
+		if got := buf.String(); got != "hello, world" {
+			t.Errorf("buf = %q, want %q", got, "hello, world")
+		}
+		if ew.err != nil {
+			t.Errorf("expected ew.err to be nil, got %v", ew.err)
+		}
+	})
+
+	t.Run("CapturesFirstError", func(t *testing.T) {
+		// Given an errWriter wrapping a broken writer that always fails
+		sentinel := errors.New("disk full")
+		ew := &errWriter{w: brokenWriter{err: sentinel}}
+
+		// When the first write fails
+		_, err := fmt.Fprint(ew, "hello")
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("expected first write to surface sentinel, got %v", err)
+		}
+
+		// Then the captured error matches the sentinel
+		if !errors.Is(ew.err, sentinel) {
+			t.Errorf("ew.err = %v, want %v", ew.err, sentinel)
+		}
+	})
+
+	t.Run("ShortCircuitsAfterFirstErrorWithoutLooping", func(t *testing.T) {
+		// Given an errWriter that has already captured an error
+		ew := &errWriter{w: brokenWriter{err: errors.New("boom")}}
+		_, _ = fmt.Fprint(ew, "first")
+
+		// When subsequent writes happen
+		// (fmt.Fprintf would loop on partial writes; this confirms the n=len(p)
+		// short-circuit return prevents that)
+		n, err := fmt.Fprintf(ew, "second %s third", "value")
+
+		// Then the second write reports success so the caller doesn't retry
+		if err != nil {
+			t.Errorf("expected nil error from short-circuited write, got %v", err)
+		}
+		if n == 0 {
+			t.Errorf("expected non-zero byte count from short-circuited write, got 0")
+		}
+
+		// And the captured error is still the first one
+		if ew.err == nil || ew.err.Error() != "boom" {
+			t.Errorf("expected ew.err to remain the first error, got %v", ew.err)
+		}
+	})
+}
+
+func TestRenderCommandSurfacesWriteErrors(t *testing.T) {
+	t.Run("ReturnsErrorWhenWriterFails", func(t *testing.T) {
+		// Given a writer that always fails and any cobra command
+		sentinel := errors.New("write failed")
+		cmd := &cobra.Command{Use: "windsor", Short: "test"}
+
+		// When renderCommand runs against the broken writer
+		err := renderCommand(brokenWriter{err: sentinel}, cmd)
+
+		// Then the underlying write error surfaces — would silently truncate
+		// the .md file otherwise
+		if !errors.Is(err, sentinel) {
+			t.Errorf("renderCommand error = %v, want %v", err, sentinel)
+		}
+	})
+
+	t.Run("ReturnsNilWhenWriterSucceeds", func(t *testing.T) {
+		// Given a healthy writer
+		cmd := &cobra.Command{Use: "windsor", Short: "test"}
+
+		// When renderCommand runs
+		err := renderCommand(io.Discard, cmd)
+
+		// Then no error is returned
+		if err != nil {
+			t.Errorf("renderCommand error = %v, want nil", err)
+		}
+	})
+}
 
 func TestCommandFilename(t *testing.T) {
 	t.Run("RootCommand", func(t *testing.T) {
