@@ -8,9 +8,27 @@ import (
 )
 
 var hookCmd = &cobra.Command{
-	Use:          "hook",
-	Short:        "Print the shell hook for a target shell",
-	Long:         "Print the shell hook for the specified platform (zsh, bash, fish, tcsh, powershell).",
+	Use:   "hook <shell>",
+	Short: "Print shell init code for the given shell.",
+	Long: `Print init code that wires 'windsor env' into your shell. The hook re-runs 'windsor env --hook' whenever your prompt fires, exporting Windsor's per-context environment variables automatically when you cd into a project.
+
+Supported shells: zsh, bash, fish, tcsh, powershell.
+
+Add the output to your shell's rc file (or evaluate it directly during shell startup) so the hook installs on every new session.`,
+	Example: `# zsh / bash
+eval "$(windsor hook zsh)"
+eval "$(windsor hook bash)"
+
+# fish
+windsor hook fish | source
+
+# powershell
+windsor hook powershell | Out-String | Invoke-Expression`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Getting started](https://www.windsorcli.dev/docs/cli/getting-started)\n" +
+			"[`env`](env.md), [`exec`](exec.md)",
+		"docs.source": "cmd/hook.go",
+	},
 	SilenceUsage: true,
 	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

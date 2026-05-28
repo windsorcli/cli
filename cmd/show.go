@@ -23,14 +23,36 @@ var showValuesJSON bool
 
 var showCmd = &cobra.Command{
 	Use:   "show",
-	Short: "Display rendered resources",
-	Long:  "Display fully rendered resources to stdout, including all computed fields from blueprint composition.",
+	Short: "Display rendered resources.",
+	Long: `Print rendered Windsor resources to stdout. Reads the project state and runs blueprint composition without applying anything.
+
+Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 'kustomization' output; pass --raw to keep the original expression text instead.`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`explain`](explain.md), [`plan`](plan.md)\n" +
+			"[Blueprint reference](../blueprint.md), [Configuration reference](../configuration.md)",
+		"docs.source": "cmd/show.go",
+	},
 }
 
 var showBlueprintCmd = &cobra.Command{
-	Use:          "blueprint",
-	Short:        "Display the fully rendered blueprint",
-	Long:         "Display the fully rendered blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML, use --json for JSON. Unresolved deferred values are shown as <deferred> by default; use --raw to show expression text.",
+	Use:   "blueprint",
+	Short: "Display the fully rendered blueprint.",
+	Long:  `Print the fully composed blueprint to stdout, including all fields from underlying sources and computed values. Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.`,
+	Example: `# Print the composed blueprint as YAML
+windsor show blueprint
+
+# Same, but keep deferred expressions visible
+windsor show blueprint --raw
+
+# JSON output for tooling
+windsor show blueprint --json`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`explain`](explain.md), [`plan`](plan.md)\n" +
+			"[Blueprint reference](../blueprint.md)",
+		"docs.source": "cmd/show.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		_, blueprint, deferredPaths, validationErr := getBlueprint(cmd)
@@ -55,9 +77,20 @@ var showBlueprintCmd = &cobra.Command{
 }
 
 var showKustomizationCmd = &cobra.Command{
-	Use:          "kustomization <component-name>",
-	Short:        "Display the Flux Kustomization resource for a component",
-	Long:         "Display the Flux Kustomization resource for the specified component to stdout. Defaults to YAML, use --json for JSON. Unresolved deferred values are shown as <deferred> by default; use --raw to show expression text.",
+	Use:   "kustomization <component-name>",
+	Short: "Display the Flux Kustomization resource for a component.",
+	Long:  `Print the Flux Kustomization resource for the named component, including blueprint-level ConfigMaps in postBuild.substituteFrom. The output matches what 'windsor apply' would write to the cluster. Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.`,
+	Example: `# Inspect the Flux Kustomization for one component
+windsor show kustomization dns
+
+# JSON for tooling
+windsor show kustomization dns --json`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`apply`](apply.md), [`plan`](plan.md)\n" +
+			"[Blueprint reference](../blueprint.md)",
+		"docs.source": "cmd/show.go",
+	},
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -94,9 +127,20 @@ var showKustomizationCmd = &cobra.Command{
 }
 
 var showValuesCmd = &cobra.Command{
-	Use:          "values",
-	Short:        "Display the effective context values",
-	Long:         "Display the effective context values to stdout, combining schema defaults with values.yaml overrides. YAML output includes schema descriptions as comments. Use --json for plain JSON.",
+	Use:   "values",
+	Short: "Display the effective context values.",
+	Long:  `Print the effective context values, merging schema defaults with values.yaml overrides. YAML output includes schema descriptions as comments. Use --json for plain JSON.`,
+	Example: `# Effective values for the current context, with schema descriptions
+windsor show values
+
+# Plain JSON for tooling
+windsor show values --json`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`explain`](explain.md)\n" +
+			"[Configuration reference](../configuration.md)",
+		"docs.source": "cmd/show.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		values, schema, err := getValues(cmd)
@@ -114,11 +158,11 @@ var showValuesCmd = &cobra.Command{
 }
 
 func init() {
-	showBlueprintCmd.Flags().BoolVar(&showBlueprintJSON, "json", false, "Output as JSON instead of YAML")
-	showBlueprintCmd.Flags().BoolVar(&showBlueprintRaw, "raw", false, "Output unresolved deferred values as expression text instead of <deferred>")
-	showKustomizationCmd.Flags().BoolVar(&showKustomizationJSON, "json", false, "Output as JSON instead of YAML")
-	showKustomizationCmd.Flags().BoolVar(&showKustomizationRaw, "raw", false, "Output unresolved deferred values as expression text instead of <deferred>")
-	showValuesCmd.Flags().BoolVar(&showValuesJSON, "json", false, "Output as JSON instead of YAML")
+	showBlueprintCmd.Flags().BoolVar(&showBlueprintJSON, "json", false, "Output as JSON instead of YAML.")
+	showBlueprintCmd.Flags().BoolVar(&showBlueprintRaw, "raw", false, "Keep deferred expressions as text instead of <deferred>.")
+	showKustomizationCmd.Flags().BoolVar(&showKustomizationJSON, "json", false, "Output as JSON instead of YAML.")
+	showKustomizationCmd.Flags().BoolVar(&showKustomizationRaw, "raw", false, "Keep deferred expressions as text instead of <deferred>.")
+	showValuesCmd.Flags().BoolVar(&showValuesJSON, "json", false, "Output as JSON instead of YAML.")
 	showCmd.AddCommand(showBlueprintCmd)
 	showCmd.AddCommand(showKustomizationCmd)
 	showCmd.AddCommand(showValuesCmd)

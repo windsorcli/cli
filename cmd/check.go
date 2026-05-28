@@ -22,9 +22,18 @@ var (
 )
 
 var checkCmd = &cobra.Command{
-	Use:          "check",
-	Short:        "Check the tool versions",
-	Long:         "Check the tool versions required by the project",
+	Use:   "check",
+	Short: "Verify required tools are installed.",
+	Long: `Runs the standard preflight in two passes: tool version checks for local CLIs (terraform, kubectl, talosctl, etc.), then a credential check for the platform configured on the current context (e.g. 'aws sts get-caller-identity' for platform aws).
+
+Fails fast if a required tool is missing or at the wrong version, or if credentials don't resolve.`,
+	Example: `# Verify the toolchain and cloud credentials
+windsor check`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Getting started](https://www.windsorcli.dev/docs/cli/getting-started)\n" +
+			"[`upgrade`](upgrade.md), [`up`](up.md)",
+		"docs.source": "cmd/check.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var rtOpts []*runtime.Runtime
@@ -64,9 +73,24 @@ var checkCmd = &cobra.Command{
 }
 
 var checkNodeHealthCmd = &cobra.Command{
-	Use:          "node-health",
-	Short:        "Check the health of cluster nodes",
-	Long:         "Check the health status of specified cluster nodes",
+	Use:   "node-health",
+	Short: "Check the health of cluster nodes.",
+	Long: `Probe one or more cluster nodes for readiness. Useful after 'windsor upgrade' or for routine monitoring.
+
+At least one of --nodes or --k8s-endpoint must be set.`,
+	Example: `# Health-check one node, polling through a reboot
+windsor check node-health --nodes=10.0.0.5 --wait-for-reboot
+
+# Verify all nodes report Ready via the configured Kubernetes endpoint
+windsor check node-health --k8s-endpoint --ready
+
+# Check a specific Talos version on a set of nodes
+windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Getting started](https://www.windsorcli.dev/docs/cli/getting-started)\n" +
+			"[`upgrade`](upgrade.md), [`up`](up.md)",
+		"docs.source": "cmd/check.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 
@@ -133,12 +157,12 @@ func init() {
 	checkCmd.AddCommand(checkNodeHealthCmd)
 
 	// Add flags for node health check
-	checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready (default 5m)")
-	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Nodes to check (optional)")
-	checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected version to check against (optional)")
-	checkNodeHealthCmd.Flags().StringVar(&k8sEndpoint, "k8s-endpoint", "", "Perform Kubernetes API health check (use --k8s-endpoint or --k8s-endpoint=https://endpoint:6443)")
+	checkNodeHealthCmd.Flags().DurationVar(&nodeHealthTimeout, "timeout", 0, "Maximum time to wait for nodes to be ready. Default 5m.")
+	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthNodes, "nodes", []string{}, "Node addresses to check.")
+	checkNodeHealthCmd.Flags().StringVar(&nodeHealthVersion, "version", "", "Expected Talos version. Reports a mismatch if set.")
+	checkNodeHealthCmd.Flags().StringVar(&k8sEndpoint, "k8s-endpoint", "", "Probe the Kubernetes API at this URL, or pass without value to use the configured endpoint.")
 	checkNodeHealthCmd.Flags().Lookup("k8s-endpoint").NoOptDefVal = "true"
-	checkNodeHealthCmd.Flags().BoolVar(&checkNodeReady, "ready", false, "Check Kubernetes node readiness status")
-	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthSkipServices, "skip-services", []string{}, "Service names to ignore during health checks (e.g., dashboard)")
-	checkNodeHealthCmd.Flags().BoolVar(&nodeHealthWaitForReboot, "wait-for-reboot", false, "Poll until the Talos API goes offline (reboot started), then wait for it to come back up")
+	checkNodeHealthCmd.Flags().BoolVar(&checkNodeReady, "ready", false, "Check Kubernetes node readiness in addition to Talos.")
+	checkNodeHealthCmd.Flags().StringSliceVar(&nodeHealthSkipServices, "skip-services", []string{}, "Service names to ignore (e.g., dashboard).")
+	checkNodeHealthCmd.Flags().BoolVar(&nodeHealthWaitForReboot, "wait-for-reboot", false, "Poll until the Talos API goes offline (reboot started), then wait for it to come back.")
 }

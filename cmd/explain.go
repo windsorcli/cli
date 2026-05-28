@@ -12,10 +12,40 @@ import (
 
 var explainCmd = &cobra.Command{
 	Use:   "explain <path>",
-	Short: "Explain where a blueprint value comes from",
-	Long:  "Explain a value in the composed blueprint by path (e.g. terraform.cluster.inputs.common_config_patches, kustomize.dns.substitutions.external_domain, configMaps.values-common.DOMAIN). Prints the value and its contributions.",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runExplain,
+	Short: "Trace a blueprint value back to its sources.",
+	Long: `Print the value at the given dotted path and the contributions that produced it. Use explain to debug blueprint composition: when a value isn't what you expected, it tells you which facet, source, or expression set it (and which others were overridden).
+
+Path patterns:
+
+    terraform.<component>.inputs.<field>             A terraform input value.
+    terraform.<component>.inputs.<field>.components  List of contributions for a list field.
+    kustomize.<name>.substitutions.<key>             A Flux substitution.
+    kustomize.<name>.components                      List of components in a kustomization.
+    configMaps.<name>.<key>                          A blueprint-level ConfigMap entry.
+    substitutions.<key>                              A blueprint-level substitution.
+
+Status markers in the output:
+
+    (deferred)  value depends on a terraform output not yet available
+    (empty)     resolved to an empty string
+    (not set)   the referenced facet config was never provided
+    (cycle)     the expression chain forms a cycle`,
+	Example: `# Where does the cluster endpoint come from?
+windsor explain terraform.cluster.inputs.cluster_endpoint
+
+# Trace a Flux substitution
+windsor explain kustomize.dns.substitutions.external_domain
+
+# Inspect a list field's contributions
+windsor explain terraform.cluster.inputs.common_config_patches.components`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Explain guide](https://www.windsorcli.dev/docs/cli/explain)\n" +
+			"[`show`](show.md), [`plan`](plan.md)\n" +
+			"[Facets reference](../facets.md), [Blueprint reference](../blueprint.md)",
+		"docs.source": "cmd/explain.go",
+	},
+	Args: cobra.ExactArgs(1),
+	RunE: runExplain,
 }
 
 func init() {

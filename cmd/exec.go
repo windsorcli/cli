@@ -10,9 +10,26 @@ import (
 
 // execCmd represents the exec command
 var execCmd = &cobra.Command{
-	Use:          "exec [command] [args...]",
-	Short:        "Execute a command with environment variables",
-	Long:         "Execute a command with environment variables loaded from configuration and secrets",
+	Use:   "exec [--] <command> [args...]",
+	Short: "Run a command with project env vars injected.",
+	Long: `Run a command with the project's environment variables and decrypted secrets injected. Useful for one-off commands that need the full Windsor environment without sourcing it into your shell.
+
+exec is implicitly --decrypt: 1Password and SOPS secrets are dereferenced before the child process starts.
+
+If the command you're running takes flags of its own — long (--foo) or short (-x) — pass '--' first so they aren't parsed as 'windsor' flags. Without it, Cobra intercepts the flag and aborts with 'unknown flag'. The '--' is unnecessary only when the inner command takes no flags or only positional arguments.`,
+	Example: `# Inner command has its own flags — separate with --
+windsor exec -- terraform plan --var-file=staging.tfvars
+windsor exec -- kubectl logs my-pod --tail=50
+windsor exec -- helm install my-app ./chart --namespace=apps
+
+# A wrapper script that takes no flags itself
+windsor exec ./scripts/deploy.sh`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Environment reference](../environment.md), [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection)\n" +
+			"[Secrets Management](https://www.windsorcli.dev/docs/cli/secrets-management)\n" +
+			"[`env`](env.md), [`hook`](hook.md)",
+		"docs.source": "cmd/exec.go",
+	},
 	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

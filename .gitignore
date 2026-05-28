@@ -5,6 +5,10 @@
 *.so
 *.dylib
 
+# Local dev binary produced by `go build ./internal/gendocs`.
+# The dev workflow is `go run ./internal/gendocs ...`; this guards against accidental commits.
+/gendocs
+
 # Test binary, built with `go test -c`
 *.test
 

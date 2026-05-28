@@ -36,9 +36,26 @@ var (
 )
 
 var initCmd = &cobra.Command{
-	Use:          "init [context]",
-	Short:        "Initialize the application environment",
-	Long:         "Initialize the application environment with the specified context configuration",
+	Use:   "init [context]",
+	Short: "Scaffold or re-initialize a Windsor context.",
+	Long: `Scaffold a Windsor project. Writes windsor.yaml at the project root if missing, creates contexts/<context>/, and adds the current directory to the trusted-folders list. Re-running on an existing context updates configuration; pass --reset to overwrite generated files and clean .terraform.
+
+If no context is given, the current context is used; if none is set, 'local' is used.
+
+The directory must be a git repository — init refuses to run in an empty or non-git directory to prevent silently scaffolding against $HOME.`,
+	Example: `# Scaffold a local context with the docker VM driver
+windsor init local --vm-driver=docker
+
+# Re-initialize and overwrite generated files
+windsor init local --reset
+
+# Initialize an AWS staging context
+windsor init staging --platform=aws --aws-profile=staging`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Contexts reference](../contexts.md)\n" +
+			"[`up`](up.md), [`apply`](apply.md), [`bootstrap`](bootstrap.md)",
+		"docs.source": "cmd/init.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -178,21 +195,21 @@ var initCmd = &cobra.Command{
 }
 
 func init() {
-	initCmd.Flags().BoolVar(&initReset, "reset", false, "Reset/overwrite existing files and clean .terraform directory")
-	initCmd.Flags().StringVar(&initBackend, "backend", "", "Specify the backend to use")
-	initCmd.Flags().StringVar(&initAwsProfile, "aws-profile", "", "Specify the AWS profile to use")
-	initCmd.Flags().StringVar(&initAwsEndpointURL, "aws-endpoint-url", "", "Specify the AWS endpoint URL to use")
-	initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker).")
-	initCmd.Flags().IntVar(&initCpu, "vm-cpu", 0, "Specify the number of CPUs for Colima")
-	initCmd.Flags().IntVar(&initDisk, "vm-disk", 0, "Specify the disk size for Colima")
-	initCmd.Flags().IntVar(&initMemory, "vm-memory", 0, "Specify the memory size for Colima")
-	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "Specify the architecture for Colima")
-	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker")
-	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable Git Livereload")
-	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp|hyperv]")
-	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Specify the blueprint to use")
-	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Specify the kubernetes API endpoint")
-	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override configuration values. Example: --set cluster.endpoint=https://localhost:6443")
+	initCmd.Flags().BoolVar(&initReset, "reset", false, "Overwrite existing files and clean .terraform.")
+	initCmd.Flags().StringVar(&initBackend, "backend", "", "Terraform backend type.")
+	initCmd.Flags().StringVar(&initAwsProfile, "aws-profile", "", "AWS profile name.")
+	initCmd.Flags().StringVar(&initAwsEndpointURL, "aws-endpoint-url", "", "AWS endpoint URL.")
+	initCmd.Flags().StringVar(&initVmDriver, "vm-driver", "", "VM driver: colima, colima-incus, docker-desktop, docker.")
+	initCmd.Flags().IntVar(&initCpu, "vm-cpu", 0, "CPU count for the workstation VM.")
+	initCmd.Flags().IntVar(&initDisk, "vm-disk", 0, "Disk size for the workstation VM (GB).")
+	initCmd.Flags().IntVar(&initMemory, "vm-memory", 0, "Memory for the workstation VM (GB).")
+	initCmd.Flags().StringVar(&initArch, "vm-arch", "", "CPU architecture for the workstation VM.")
+	initCmd.Flags().BoolVar(&initDocker, "docker", false, "Enable Docker.")
+	initCmd.Flags().BoolVar(&initGitLivereload, "git-livereload", false, "Enable git livereload.")
+	initCmd.Flags().StringVar(&initPlatform, "platform", "", "Target platform: none, metal, docker, aws, azure, gcp, hyperv.")
+	initCmd.Flags().StringVar(&initBlueprint, "blueprint", "", "Blueprint OCI reference or local path.")
+	initCmd.Flags().StringVar(&initEndpoint, "endpoint", "", "Kubernetes API endpoint.")
+	initCmd.Flags().StringSliceVar(&initSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false. May be repeated.")
 
 	rootCmd.AddCommand(initCmd)
 }

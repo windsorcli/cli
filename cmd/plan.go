@@ -20,9 +20,31 @@ var planSummary bool
 var planJSON bool
 
 var planCmd = &cobra.Command{
-	Use:          "plan [component]",
-	Short:        "Plan infrastructure changes",
-	Long:         "Plan infrastructure changes for Windsor environment components.\n\nWith no argument, shows a summary plan across all Terraform components and Flux\nkustomizations. With a component name, runs a full streaming plan for every\nlayer (Terraform and/or Kustomize) that contains that component.",
+	Use:   "plan [component]",
+	Short: "Preview terraform and Flux changes.",
+	Long: `Preview pending changes across Terraform components and Flux kustomizations without applying them.
+
+With no argument, prints a compact summary across all components. Components that have never been applied show as '(new)' so you can distinguish first-time creates from updates.
+
+With a component name, runs a full streaming plan for every layer (Terraform and/or Kustomize) that contains that component. Use a subcommand to restrict to a single layer.
+
+The --summary, --json, and --no-color flags are persistent and apply to all subcommands.`,
+	Example: `# Compact summary across both layers
+windsor plan
+
+# Full streaming plan for one component (both layers)
+windsor plan cluster
+
+# JSON-formatted summary, suitable for CI parsing
+windsor plan --summary --json
+
+# Just terraform, just one component
+windsor plan terraform cluster`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`apply`](apply.md), [`show`](show.md), [`explain`](explain.md)",
+		"docs.source": "cmd/plan.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -124,10 +146,23 @@ var planCmd = &cobra.Command{
 }
 
 var planTerraformCmd = &cobra.Command{
-	Use:          "terraform [project]",
-	Aliases:      []string{"tf"},
-	Short:        "Plan Terraform changes",
-	Long:         "Stream terraform init and plan for a specific component, or all components when no argument is given. Use --summary for a compact table or --json for machine-readable counts.",
+	Use:     "terraform [component]",
+	Aliases: []string{"tf"},
+	Short:   "Plan Terraform changes.",
+	Long: `Stream 'terraform init' and 'terraform plan' for a specific component, or all components when no argument is given. Inherits --summary, --json, and --no-color from the parent 'plan' command.`,
+	Example: `# Stream the plan for one component
+windsor plan terraform cluster
+
+# Compact summary across all components
+windsor plan terraform --summary
+
+# Machine-readable JSON of all component plans
+windsor plan terraform --json`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`plan`](plan.md), [`apply terraform`](apply-terraform.md), [`destroy terraform`](destroy-terraform.md)",
+		"docs.source": "cmd/plan.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -192,10 +227,20 @@ var planTerraformCmd = &cobra.Command{
 }
 
 var planKustomizeCmd = &cobra.Command{
-	Use:          "kustomize [component]",
-	Aliases:      []string{"k8s"},
-	Short:        "Plan Flux kustomization changes",
-	Long:         "Stream flux diff for a specific kustomization, or all kustomizations when no argument is given. Use --summary for a compact table or --json for machine-readable counts.",
+	Use:     "kustomize [component]",
+	Aliases: []string{"k8s"},
+	Short:   "Plan Flux kustomization changes.",
+	Long: `Stream 'flux diff' for a specific kustomization, or all kustomizations when no argument is given. Inherits --summary, --json, and --no-color from the parent 'plan' command.`,
+	Example: `# Stream the diff for one kustomization
+windsor plan kustomize dns
+
+# Compact summary across all kustomizations
+windsor plan kustomize --summary`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`plan`](plan.md), [`apply kustomize`](apply-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
+		"docs.source": "cmd/plan.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -251,9 +296,9 @@ var planKustomizeCmd = &cobra.Command{
 
 // init registers plan subcommands and persistent flags on the plan command group.
 func init() {
-	planCmd.PersistentFlags().BoolVar(&planNoColor, "no-color", false, "Disable color output")
-	planCmd.PersistentFlags().BoolVar(&planSummary, "summary", false, "Show a compact summary table instead of streaming output")
-	planCmd.PersistentFlags().BoolVar(&planJSON, "json", false, "Output as JSON; on subcommands streams full plan JSON, on root 'plan' outputs summary as JSON")
+	planCmd.PersistentFlags().BoolVar(&planNoColor, "no-color", false, "Disable color output.")
+	planCmd.PersistentFlags().BoolVar(&planSummary, "summary", false, "Show a compact summary table instead of streaming output.")
+	planCmd.PersistentFlags().BoolVar(&planJSON, "json", false, "Output as JSON. Streams full plan JSON on subcommands; emits the summary as JSON on root 'plan'.")
 	planCmd.AddCommand(planTerraformCmd)
 	planCmd.AddCommand(planKustomizeCmd)
 	rootCmd.AddCommand(planCmd)

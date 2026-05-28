@@ -10,9 +10,27 @@ import (
 )
 
 var envCmd = &cobra.Command{
-	Use:          "env",
-	Short:        "Output commands to set environment variables",
-	Long:         "Output commands to set environment variables for the application.",
+	Use:   "env",
+	Short: "Print shell commands to export project env vars.",
+	Long: `Print shell commands that export the project's environment variables.
+Source the output, or rely on 'windsor hook' to do this automatically when you
+cd into a project.
+
+The variables include AWS, Kubernetes, Docker, Talos, and Terraform credentials
+and config paths derived from the current context.`,
+	Example: `# Source env vars manually
+eval "$(windsor env)"
+
+# Same, with secrets decrypted (1Password / SOPS)
+eval "$(windsor env --decrypt)"
+
+# Show what would be exported
+windsor env`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Environment reference](../environment.md), [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection)\n" +
+			"[`hook`](hook.md), [`exec`](exec.md)",
+		"docs.source": "cmd/env.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		hook, _ := cmd.Flags().GetBool("hook")
@@ -119,7 +137,7 @@ var envCmd = &cobra.Command{
 }
 
 func init() {
-	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before setting environment variables")
-	envCmd.Flags().Bool("hook", false, "Flag that indicates the command is being executed by the hook")
+	envCmd.Flags().Bool("decrypt", false, "Decrypt secrets before exporting env vars.")
+	envCmd.Flags().Bool("hook", false, "Non-fatal mode: suppress warnings and exit 0 on errors so a misconfigured project never breaks the prompt. The shell hook installed by 'windsor hook' invokes 'windsor env --decrypt --hook' automatically.")
 	rootCmd.AddCommand(envCmd)
 }
