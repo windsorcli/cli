@@ -77,8 +77,9 @@ type Facet struct {
 	// When nil, the loader derives ordinal from the facet file basename (e.g. config-* 100, provider-base/platform-base 199, provider-/platform- 200, options- 300, addon-/addons- 400).
 	Ordinal *int `yaml:"ordinal,omitempty"`
 
-	// When is a CEL expression that determines if this facet should be applied.
-	// The expression is evaluated against user configuration values.
+	// When is an expression that determines if this facet should be applied.
+	// The expression is evaluated against user configuration values via the
+	// expr-lang/expr library (NOT Google's CEL).
 	// Examples: "provider == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
 	When string `yaml:"when,omitempty"`
 
@@ -110,8 +111,9 @@ type Facet struct {
 type ConditionalTerraformComponent struct {
 	TerraformComponent `yaml:",inline"`
 
-	// When is a CEL expression that determines if this terraform component should be applied.
-	// If empty, the component is always applied when the parent facet matches.
+	// When is an expression (expr-lang/expr) that determines if this terraform
+	// component should be applied. If empty, the component is always applied
+	// when the parent facet matches.
 	When string `yaml:"when,omitempty"`
 
 	// Strategy determines how this component is merged into the blueprint.

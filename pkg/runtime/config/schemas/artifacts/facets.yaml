@@ -49,7 +49,7 @@ properties:
   when:
     type: string
     description: |
-      CEL expression that gates the facet. Evaluated against merged
+      Expression that gates the facet. Evaluated against merged
       configuration values; the facet is applied only when the expression
       yields true. Examples: "platform == 'aws'",
       "observability.enabled == true && observability.backend == 'quickwit'".
@@ -122,7 +122,7 @@ $defs:
       when:
         type: string
         description: |
-          Optional CEL expression that gates this block. Empty means the
+          Optional expression that gates this block. Empty means the
           block is always evaluated when the parent facet is active.
       value:
         description: |
@@ -165,7 +165,7 @@ $defs:
       when:
         type: string
         description: |
-          Optional CEL expression gating this requirement. Empty means the
+          Optional expression gating this requirement. Empty means the
           paths are required whenever the parent (facet, config block, or
           component) is active.
       paths:
@@ -193,7 +193,7 @@ $defs:
       when:
         type: string
         description: |
-          CEL expression that gates this component. Empty means the
+          Expression that gates this component. Empty means the
           component is always applied when the parent facet matches.
       strategy:
         type: string
@@ -231,7 +231,7 @@ $defs:
       when:
         type: string
         description: |
-          CEL expression that gates this kustomization. Empty means the
+          Expression that gates this kustomization. Empty means the
           kustomization is always applied when the parent facet matches.
       strategy:
         type: string

@@ -25,7 +25,7 @@ and are composed in ordinal order (lower-priority first).
 | `requires` | `array<object>` | Input-requirement blocks for the facet as a whole. When the facet is active and a block's optional 'when' holds, every path in that block must resolve to a present, non-empty value in the merged scope. Unsatisfied paths across every active facet are aggregated into a single user-facing error. |
 | `substitutions` | `object` | Top-level key/value pairs evaluated with facet scope and injected into 'values-common', making them available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against active facet config blocks. |
 | `terraform` | `array<object>` | Terraform components contributed by this facet. Each entry extends the blueprint's TerraformComponent shape with conditional fields (when, strategy, ordinal, requires). |
-| `when` | `string` | CEL expression that gates the facet. Evaluated against merged configuration values; the facet is applied only when the expression yields true. Examples: "platform == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'". Empty 'when' means the facet always applies. |
+| `when` | `string` | Expression that gates the facet. Evaluated against merged configuration values; the facet is applied only when the expression yields true. Examples: "platform == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'". Empty 'when' means the facet always applies. |
 
 ## metadata
 
@@ -43,7 +43,7 @@ and are composed in ordinal order (lower-priority first).
 | `ordinal` | `integer` | Per-block override of the facet's ordinal for merge precedence. Higher wins on conflict. When unset, the parent facet's ordinal is used. |
 | `requires` | `array<object>` | Requirement blocks scoped to this config block. Evaluated only when the parent facet is active AND this block's 'when' holds; missing paths surface under the effective AND condition. |
 | `strategy` | `string` | How this block merges with same-named blocks from other facets. 'merge' (default) deep-merges; 'replace' overwrites; 'remove' deletes the block from scope. One of: `merge`, `replace`, `remove`. |
-| `when` | `string` | Optional CEL expression that gates this block. Empty means the block is always evaluated when the parent facet is active. |
+| `when` | `string` | Optional expression that gates this block. Empty means the block is always evaluated when the parent facet is active. |
 
 ### config[].requires[]
 
@@ -51,7 +51,7 @@ and are composed in ordinal order (lower-priority first).
 |------|------|-------------|
 | `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
 | `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional CEL expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
+| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
 
 ## kustomize[]
 
@@ -60,7 +60,7 @@ and are composed in ordinal order (lower-priority first).
 | `ordinal` | `integer` | Per-kustomization override of the facet's ordinal for merge precedence. |
 | `requires` | `array<object>` | Requirement blocks scoped to this kustomization. Evaluated only when the parent facet is active and this kustomization's 'when' holds. |
 | `strategy` | `string` | How this kustomization is merged into the blueprint. 'merge' (default) deep-merges with existing kustomizations matching the same Name; 'replace' overwrites; 'remove' deletes the matching existing kustomization's non-index fields. Remove operations are always applied last. One of: `merge`, `replace`, `remove`. |
-| `when` | `string` | CEL expression that gates this kustomization. Empty means the kustomization is always applied when the parent facet matches. |
+| `when` | `string` | Expression that gates this kustomization. Empty means the kustomization is always applied when the parent facet matches. |
 
 ### kustomize[].requires[]
 
@@ -68,7 +68,7 @@ and are composed in ordinal order (lower-priority first).
 |------|------|-------------|
 | `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
 | `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional CEL expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
+| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
 
 ## requires[]
 
@@ -76,7 +76,7 @@ and are composed in ordinal order (lower-priority first).
 |------|------|-------------|
 | `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
 | `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional CEL expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
+| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
 
 ## terraform[]
 
@@ -85,7 +85,7 @@ and are composed in ordinal order (lower-priority first).
 | `ordinal` | `integer` | Per-component override of the facet's ordinal for merge precedence. |
 | `requires` | `array<object>` | Requirement blocks scoped to this component. Evaluated only when the parent facet is active and this component's 'when' holds. |
 | `strategy` | `string` | How this component is merged into the blueprint. 'merge' (default) deep-merges with existing components matching the same Path and Source; 'replace' overwrites; 'remove' deletes the matching existing component's non-index fields. Remove operations are always applied last. One of: `merge`, `replace`, `remove`. |
-| `when` | `string` | CEL expression that gates this component. Empty means the component is always applied when the parent facet matches. |
+| `when` | `string` | Expression that gates this component. Empty means the component is always applied when the parent facet matches. |
 
 ### terraform[].requires[]
 
@@ -93,7 +93,7 @@ and are composed in ordinal order (lower-priority first).
 |------|------|-------------|
 | `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
 | `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional CEL expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
+| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
 
 ## Examples
 
