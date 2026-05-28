@@ -23,7 +23,7 @@ specific terraform components and kustomizations are present (or absent).
 | `exclude` | `object` | Components and kustomizations that must NOT be present in the composed blueprint. Same partial-match semantics as 'expect'. |
 | `expect` | `object` | Components and kustomizations that must be present in the composed blueprint. Partial matching: only fields you specify are checked. |
 | `expectError` | `boolean` | When true, the test passes only if blueprint composition fails. Use for testing invalid configurations that the framework should reject. Defaults to false. |
-| `terraformOutputs` | `object` | Mock outputs for terraform_output() expressions. Keys are component IDs; values are maps of output key to value. Example: terraformOutputs.network.vpc_id = "vpc-123". |
+| `terraformOutputs` | `map<object>` | Mock outputs for terraform_output() expressions. Keys are component IDs; values are maps of output key to value. Example: terraformOutputs.network.vpc_id = "vpc-123". |
 | `values` | `object` | Configuration values to apply before composing the blueprint. These override any existing configuration for the test. Dotted keys are allowed (e.g. 'cluster.driver: talos'). |
 
 ### cases[].exclude
@@ -42,7 +42,7 @@ specific terraform components and kustomizations are present (or absent).
 | `name` | `string` | Kustomization name. Used as the match key. |
 | `path` | `string` | Expected path. Asserted only when set. |
 | `source` | `string` | Expected source name. Asserted only when set. |
-| `substitutions` | `object` | Expected PostBuild substitutions. Strict equality per key — every specified key must be present with the exact expected value. |
+| `substitutions` | `map<string>` | Expected PostBuild substitutions. Strict equality per key — every specified key must be present with the exact expected value. |
 
 #### cases[].exclude.terraform[]
 
@@ -70,7 +70,7 @@ specific terraform components and kustomizations are present (or absent).
 | `name` | `string` | Kustomization name. Used as the match key. |
 | `path` | `string` | Expected path. Asserted only when set. |
 | `source` | `string` | Expected source name. Asserted only when set. |
-| `substitutions` | `object` | Expected PostBuild substitutions. Strict equality per key — every specified key must be present with the exact expected value. |
+| `substitutions` | `map<string>` | Expected PostBuild substitutions. Strict equality per key — every specified key must be present with the exact expected value. |
 
 #### cases[].expect.terraform[]
 

@@ -438,6 +438,47 @@ func TestRenderSchemaResolvesRefAndExpandsArrayItems(t *testing.T) {
 		}
 	})
 
+	t.Run("MapOfObjectExpandedAsCurlySubsection", func(t *testing.T) {
+		// Given a schema where a top-level property is a map of named objects
+		// (additionalProperties points at an object schema) — the shape used
+		// by configuration.yaml for 'contexts' and similar maps.
+		schema := map[string]any{
+			"title": "Cfg",
+			"type":  "object",
+			"properties": map[string]any{
+				"contexts": map[string]any{
+					"type": "object",
+					"additionalProperties": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id":       map[string]any{"type": "string", "description": "Context ID."},
+							"platform": map[string]any{"type": "string", "description": "Platform."},
+						},
+					},
+				},
+			},
+		}
+
+		// When renderSchema runs
+		var buf bytes.Buffer
+		if err := renderSchema(&buf, schema, nil, "", ""); err != nil {
+			t.Fatalf("renderSchema: %v", err)
+		}
+		out := buf.String()
+
+		// Then the type column says 'map<object>' (parallel to array<object>)
+		if !strings.Contains(out, "| `contexts` | `map<object>` |") {
+			t.Error("expected contexts row to render as map<object>")
+		}
+		// And the value-schema fields appear under a '{}'-suffixed subsection
+		if !strings.Contains(out, "## contexts{}\n") {
+			t.Error("expected '## contexts{}' subsection for the map value type")
+		}
+		if !strings.Contains(out, "| `id` | `string` | Context ID. |") {
+			t.Error("expected map-value field row in contexts{} subsection")
+		}
+	})
+
 	t.Run("LocalRefResolvedFromDefs", func(t *testing.T) {
 		// Given a schema where a property uses '$ref: #/$defs/<name>' to point
 		// at a shared definition (DRY for reused types like Reference)
