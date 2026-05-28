@@ -29,7 +29,7 @@ var getCmd = &cobra.Command{
 var getContextsCmd = &cobra.Command{
 	Use:   "contexts",
 	Short: "List all available contexts.",
-	Long: `List contexts in the project. Output is a tab-aligned table with columns NAME, PROVIDER, BACKEND, CURRENT. The current context is marked with '*'. The PROVIDER column shows the configured platform (column header retained for backwards compatibility); BACKEND shows the configured terraform.backend.type or '<none>' when unset.`,
+	Long:  `List contexts in the project. Output is a tab-aligned table with columns NAME, PROVIDER, BACKEND, CURRENT. The current context is marked with '*'. The PROVIDER column shows the configured platform (column header retained for backwards compatibility); BACKEND shows the configured terraform.backend.type or '<none>' when unset.`,
 	Example: `windsor get contexts
 
 # Sample output:

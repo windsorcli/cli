@@ -16,17 +16,20 @@ var explainCmd = &cobra.Command{
 	Long: `Print the value at the given dotted path and the contributions that produced it. Use explain to debug blueprint composition: when a value isn't what you expected, it tells you which facet, source, or expression set it (and which others were overridden).
 
 Path patterns:
-  terraform.<component>.inputs.<field>             A terraform input value.
-  terraform.<component>.inputs.<field>.components  List of contributions for a list field.
-  kustomize.<name>.substitutions.<key>             A Flux substitution.
-  kustomize.<name>.patches                         Patches applied to a kustomization.
-  configMaps.<name>.<key>                          A blueprint-level ConfigMap entry.
+
+    terraform.<component>.inputs.<field>             A terraform input value.
+    terraform.<component>.inputs.<field>.components  List of contributions for a list field.
+    kustomize.<name>.substitutions.<key>             A Flux substitution.
+    kustomize.<name>.components                      List of components in a kustomization.
+    configMaps.<name>.<key>                          A blueprint-level ConfigMap entry.
+    substitutions.<key>                              A blueprint-level substitution.
 
 Status markers in the output:
-  (deferred)  value depends on a terraform output not yet available
-  (empty)     resolved to an empty string
-  (not set)   the referenced facet config was never provided
-  (cycle)     the expression chain forms a cycle`,
+
+    (deferred)  value depends on a terraform output not yet available
+    (empty)     resolved to an empty string
+    (not set)   the referenced facet config was never provided
+    (cycle)     the expression chain forms a cycle`,
 	Example: `# Where does the cluster endpoint come from?
 windsor explain terraform.cluster.inputs.cluster_endpoint
 
