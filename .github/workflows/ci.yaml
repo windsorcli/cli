@@ -192,9 +192,10 @@ jobs:
           # commands or new schema pages) are detected alongside modifications
           # and deletions. Generated paths checked: docs/reference/commands/
           # (cobra-driven) and each <schema>.md derived from a *.yaml file
-          # under pkg/runtime/config/schemas/ (common.yaml is the validator's
-          # merge fragment, not a standalone artifact).
-          schema_paths=$(find pkg/runtime/config/schemas -maxdepth 1 -name '*.yaml' ! -name 'common.yaml' \
+          # under pkg/runtime/config/schemas/artifacts/. Sibling
+          # pkg/runtime/config/schemas/*.yaml is the windsor.yaml runtime
+          # validator's go:embed source and is not documented as an artifact.
+          schema_paths=$(find pkg/runtime/config/schemas/artifacts -maxdepth 1 -name '*.yaml' \
             -exec basename {} .yaml \; | sed 's|^|docs/reference/|;s|$|.md|')
           changes=$(git status --porcelain docs/reference/commands/ $schema_paths)
           if [ -n "$changes" ]; then

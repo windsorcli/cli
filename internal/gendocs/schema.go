@@ -38,7 +38,13 @@ func schemaCmd() *cobra.Command {
 			return generateSchemaDocs(schemaDir, outDir)
 		},
 	}
-	cmd.Flags().StringVar(&schemaDir, "in", "pkg/runtime/config/schemas", "directory of *.yaml schemas to read")
+	// Default reads from schemas/artifacts/ — the public-artifact schemas
+	// (metadata.yaml, blueprint.yaml, etc.) live there so they don't collide
+	// with schemas/*.yaml, which is //go:embedded into the windsor.yaml
+	// runtime validator. Embedding an artifact schema there would silently
+	// merge its 'required' / 'properties' into windsor.yaml validation and
+	// reject otherwise-valid configs.
+	cmd.Flags().StringVar(&schemaDir, "in", "pkg/runtime/config/schemas/artifacts", "directory of *.yaml schemas to read")
 	cmd.Flags().StringVar(&outDir, "out", "docs/reference", "directory to write *.md output into")
 	return cmd
 }
@@ -63,13 +69,6 @@ func generateSchemaDocs(schemaDir, outDir string) error {
 		}
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".yaml") {
-			continue
-		}
-		// 'common.yaml' merges into windsor.yaml at validation time and is not
-		// a standalone artifact; skipping it keeps the docs/reference tree
-		// scoped to user-facing artifacts. Re-enable explicitly if we ever
-		// want a published fragment page.
-		if name == "common.yaml" {
 			continue
 		}
 

@@ -306,18 +306,14 @@ func TestRenderSchema(t *testing.T) {
 }
 
 func TestGenerateSchemaDocs(t *testing.T) {
-	t.Run("EmitsMarkdownForEachSchemaSkippingCommon", func(t *testing.T) {
-		// Given a temp schema directory with two schemas and a sidecar
+	t.Run("EmitsMarkdownForEachSchemaPlusSidecar", func(t *testing.T) {
+		// Given a temp schema directory with a schema and its sidecar
 		schemaDir := t.TempDir()
 		outDir := t.TempDir()
 		writeFile(t, filepath.Join(schemaDir, "metadata.yaml"),
 			"title: Metadata\ntype: object\nproperties:\n  name:\n    type: string\n    description: A name.\n")
 		writeFile(t, filepath.Join(schemaDir, "metadata.seealso.md"),
 			"- [`bundle`](commands/bundle.md)\n")
-		// common.yaml should be skipped (it is the validator merge fragment,
-		// not a standalone artifact)
-		writeFile(t, filepath.Join(schemaDir, "common.yaml"),
-			"title: Common\ntype: object\n")
 
 		// When generateSchemaDocs runs
 		if err := generateSchemaDocs(schemaDir, outDir); err != nil {
@@ -331,11 +327,6 @@ func TestGenerateSchemaDocs(t *testing.T) {
 		}
 		if !strings.Contains(body, "[`bundle`](commands/bundle.md)") {
 			t.Error("expected sidecar content in See also")
-		}
-
-		// And common.md is not emitted
-		if _, err := os.Stat(filepath.Join(outDir, "common.md")); !os.IsNotExist(err) {
-			t.Errorf("expected common.md to be skipped, got err=%v", err)
 		}
 	})
 

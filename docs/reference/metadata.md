@@ -41,4 +41,4 @@ cliVersion: ">=0.7.1"
 
 - [`windsor bundle`](commands/bundle.md), [`windsor push`](commands/push.md)
 - [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)
-- Source schema: [pkg/runtime/config/schemas/metadata.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/metadata.yaml)
+- Source schema: [pkg/runtime/config/schemas/artifacts/metadata.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/metadata.yaml)
