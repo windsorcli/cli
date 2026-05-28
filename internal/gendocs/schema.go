@@ -396,9 +396,26 @@ func collapseWhitespace(s string) string {
 // helpers
 // =============================================================================
 
+// typeOf returns the JSON Schema 'type' as a display string. Supports both the
+// single-type form ('type: string') and the JSON Schema 2020-12 array-of-types
+// form ('type: [boolean, string]'), which authors use when a field legitimately
+// accepts more than one shape (e.g. a literal or an expression). The array
+// form is joined with ' / ' rather than the conventional pipe so the result
+// doesn't break markdown table rendering downstream.
 func typeOf(schema map[string]any) string {
-	t, _ := schema["type"].(string)
-	return t
+	switch t := schema["type"].(type) {
+	case string:
+		return t
+	case []any:
+		parts := make([]string, 0, len(t))
+		for _, x := range t {
+			if s, ok := x.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, " / ")
+	}
+	return ""
 }
 
 func hasProperties(schema map[string]any) bool {

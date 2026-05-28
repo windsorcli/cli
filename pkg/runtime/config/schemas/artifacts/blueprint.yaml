@@ -84,7 +84,7 @@ properties:
           type: string
           description: Name of a Flux secret holding credentials for the source.
         install:
-          type: string
+          type: [boolean, string]
           description: |
             For OCI sources, whether to merge this source's components into the
             final blueprint. Accepts a boolean (true/false) or an expression
@@ -126,19 +126,19 @@ properties:
             time. Used to generate tfvars and not written to the final context
             blueprint.yaml.
         destroy:
-          type: string
+          type: [boolean, string]
           description: |
             Whether to destroy this component during 'windsor down' / 'windsor
             destroy'. Boolean (true/false) or expression
             (e.g. '${cluster.destroy ?? true}'). Defaults to true.
         parallelism:
-          type: string
+          type: [integer, string]
           description: |
             Caps concurrent operations during 'terraform apply' / 'terraform
             destroy' for this component (the -parallelism flag). Integer or
             expression (e.g. '${cluster.parallelism ?? 10}').
         enabled:
-          type: string
+          type: [boolean, string]
           description: |
             Whether to include this component in the final blueprint. Boolean
             (true/false) or expression. Defaults to true.
@@ -228,7 +228,7 @@ properties:
             type: string
           description: Kustomize components to compose into this kustomization.
         destroy:
-          type: string
+          type: [boolean, string]
           description: |
             Whether to delete this kustomization during 'windsor down' /
             'windsor destroy'. Boolean or expression. Defaults to true.
@@ -238,7 +238,7 @@ properties:
             When true, the kustomization only runs during destroy. Useful for
             teardown-only resources (e.g. cleanup jobs).
         enabled:
-          type: string
+          type: [boolean, string]
           description: |
             Whether to include this kustomization in the final blueprint.
             Boolean or expression. Defaults to true.

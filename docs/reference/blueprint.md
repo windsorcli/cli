@@ -39,9 +39,9 @@ variable substitutions shared across them.
 | `path` | `string` | Path within the source containing the kustomize base. **(required)** |
 | `components` | `array<string>` | Kustomize components to compose into this kustomization. |
 | `dependsOn` | `array<string>` | Names of kustomizations that must reconcile before this one. |
-| `destroy` | `string` | Whether to delete this kustomization during 'windsor down' / 'windsor destroy'. Boolean or expression. Defaults to true. |
+| `destroy` | `boolean / string` | Whether to delete this kustomization during 'windsor down' / 'windsor destroy'. Boolean or expression. Defaults to true. |
 | `destroyOnly` | `boolean` | When true, the kustomization only runs during destroy. Useful for teardown-only resources (e.g. cleanup jobs). |
-| `enabled` | `string` | Whether to include this kustomization in the final blueprint. Boolean or expression. Defaults to true. |
+| `enabled` | `boolean / string` | Whether to include this kustomization in the final blueprint. Boolean or expression. Defaults to true. |
 | `force` | `boolean` | Force-apply resources Flux would otherwise refuse to update. |
 | `interval` | `string` | Reconciliation interval, expressed as a Go duration string (e.g. '5m', '1h'). Defaults to a mode-appropriate value chosen by the provisioner (short poll for pull mode, long fallback for push). |
 | `namespace` | `string` | Namespace where the Flux Kustomization object itself lives. Defaults to the gitops namespace. DependsOn references always resolve in the gitops namespace; cross-namespace dependencies are not supported. |
@@ -85,7 +85,7 @@ variable substitutions shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `name` | `string` | Identifier for the source; referenced by 'source:' on terraform / kustomize components. **(required)** |
-| `install` | `string` | For OCI sources, whether to merge this source's components into the final blueprint. Accepts a boolean (true/false) or an expression (e.g. '${some.condition ?? true}') evaluated against facet config. Defaults to true. Has no effect on Git sources. |
+| `install` | `boolean / string` | For OCI sources, whether to merge this source's components into the final blueprint. Accepts a boolean (true/false) or an expression (e.g. '${some.condition ?? true}') evaluated against facet config. Defaults to true. Has no effect on Git sources. |
 | `pathPrefix` | `string` | Path prefix applied to the source. Defaults to 'terraform' when unset. |
 | `ref` | `object` | A specific version or state of a repository or source (one of branch / tag / semver / commit). |
 | `secretName` | `string` | Name of a Flux secret holding credentials for the source. |
@@ -107,11 +107,11 @@ variable substitutions shared across them.
 |------|------|-------------|
 | `path` | `string` | Path of the module within the source. **(required)** |
 | `dependsOn` | `array<string>` | IDs of components that must apply before this one. |
-| `destroy` | `string` | Whether to destroy this component during 'windsor down' / 'windsor destroy'. Boolean (true/false) or expression (e.g. '${cluster.destroy ?? true}'). Defaults to true. |
-| `enabled` | `string` | Whether to include this component in the final blueprint. Boolean (true/false) or expression. Defaults to true. |
+| `destroy` | `boolean / string` | Whether to destroy this component during 'windsor down' / 'windsor destroy'. Boolean (true/false) or expression (e.g. '${cluster.destroy ?? true}'). Defaults to true. |
+| `enabled` | `boolean / string` | Whether to include this component in the final blueprint. Boolean (true/false) or expression. Defaults to true. |
 | `inputs` | `object` | Module input values. Plain values pass through as literals; values using '${expr}' syntax are evaluated against facet config at apply time. Used to generate tfvars and not written to the final context blueprint.yaml. |
 | `name` | `string` | Optional name. When set, becomes the unique identifier for the component (used by dependsOn and context variables) instead of path. |
-| `parallelism` | `string` | Caps concurrent operations during 'terraform apply' / 'terraform destroy' for this component (the -parallelism flag). Integer or expression (e.g. '${cluster.parallelism ?? 10}'). |
+| `parallelism` | `integer / string` | Caps concurrent operations during 'terraform apply' / 'terraform destroy' for this component (the -parallelism flag). Integer or expression (e.g. '${cluster.parallelism ?? 10}'). |
 | `source` | `string` | Name of the source (from the sources list) that provides this module. |
 
 ## Examples

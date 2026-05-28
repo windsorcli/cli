@@ -223,6 +223,27 @@ func TestSchemaFieldRow(t *testing.T) {
 		}
 	})
 
+	t.Run("RendersUnionTypeWithSlashSeparator", func(t *testing.T) {
+		// Given a property with the JSON Schema 2020-12 array-of-types form
+		// (used for fields that accept e.g. a literal boolean or an expression string)
+		propSchema := map[string]any{
+			"type":        []any{"boolean", "string"},
+			"description": "Boolean or expression.",
+		}
+
+		// When schemaFieldRow is called
+		got := schemaFieldRow("destroy", propSchema, false, nil)
+
+		// Then the type column renders the union joined by ' / ' (not '|',
+		// which would break the markdown table layout)
+		if !strings.Contains(got, "`boolean / string`") {
+			t.Errorf("expected union type rendered with slash separator, got %q", got)
+		}
+		if strings.Contains(got, "|") && !strings.HasPrefix(got, "| `destroy`") {
+			t.Errorf("expected no stray pipes inside cells, got %q", got)
+		}
+	})
+
 	t.Run("EscapesPipesInDescription", func(t *testing.T) {
 		// Given a description containing a pipe character (enum-style)
 		propSchema := map[string]any{"type": "string", "description": "Format: a|b|c."}
