@@ -1,0 +1,294 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Facets
+description: |
+  Conditional blueprint fragments that compose into a base blueprint. A facet
+  declares terraform components, kustomizations, configuration blocks, and
+  substitutions that are merged into the blueprint only when the facet's
+  'when' expression evaluates to true against the operator's configuration.
+  Facets live under contexts/_template/facets/ as one .yaml file per facet
+  and are composed in ordinal order (lower-priority first).
+type: object
+required:
+  - kind
+  - apiVersion
+  - metadata
+additionalProperties: false
+properties:
+  kind:
+    type: string
+    description: Resource kind, following Kubernetes conventions. Must be 'Facet'.
+    enum:
+      - Facet
+  apiVersion:
+    type: string
+    description: API schema version. Must be 'blueprints.windsorcli.dev/v1alpha1'.
+    enum:
+      - blueprints.windsorcli.dev/v1alpha1
+  metadata:
+    description: Identity for the facet.
+    type: object
+    required:
+      - name
+    additionalProperties: false
+    properties:
+      name:
+        type: string
+        description: Facet's unique identifier within the template.
+      description:
+        type: string
+        description: One-line overview of what the facet contributes.
+  ordinal:
+    type: integer
+    description: |
+      Merge precedence relative to other facets. Higher ordinal wins on
+      conflict (processed later). When unset, the loader derives an ordinal
+      from the file basename: 'config-*' = 100; 'provider-*' or
+      'platform-*' with '-base' in the name = 199; other 'provider-*' /
+      'platform-*' = 200; 'option-*' / 'options-*' = 300; 'addon-*' /
+      'addons-*' = 400; no match = 0.
+  when:
+    type: string
+    description: |
+      CEL expression that gates the facet. Evaluated against merged
+      configuration values; the facet is applied only when the expression
+      yields true. Examples: "platform == 'aws'",
+      "observability.enabled == true && observability.backend == 'quickwit'".
+      Empty 'when' means the facet always applies.
+  backend:
+    type: string
+    description: |
+      Contributes to Blueprint.backend (the terraform component that
+      terminates the backend tier). The composer merges this across active
+      facets by ordinal precedence; the highest-ordinal non-empty value wins.
+  config:
+    type: array
+    description: |
+      Named configuration blocks exposed at scope root. Terraform inputs and
+      kustomize substitutions reference '<name>' (scalar/list values) or
+      '<name>.<key>' (map values), e.g. 'talos.controlplanes'.
+    items:
+      $ref: '#/$defs/configBlock'
+  requires:
+    type: array
+    description: |
+      Input-requirement blocks for the facet as a whole. When the facet is
+      active and a block's optional 'when' holds, every path in that block
+      must resolve to a present, non-empty value in the merged scope.
+      Unsatisfied paths across every active facet are aggregated into a
+      single user-facing error.
+    items:
+      $ref: '#/$defs/requirementBlock'
+  terraform:
+    type: array
+    description: |
+      Terraform components contributed by this facet. Each entry extends the
+      blueprint's TerraformComponent shape with conditional fields (when,
+      strategy, ordinal, requires).
+    items:
+      $ref: '#/$defs/conditionalTerraformComponent'
+  kustomize:
+    type: array
+    description: |
+      Kustomizations contributed by this facet. Each entry extends the
+      blueprint's Kustomization shape with conditional fields (when,
+      strategy, ordinal, requires).
+    items:
+      $ref: '#/$defs/conditionalKustomization'
+  substitutions:
+    type: object
+    additionalProperties:
+      type: string
+    description: |
+      Top-level key/value pairs evaluated with facet scope and injected into
+      'values-common', making them available to every kustomization via
+      PostBuild substitution. Values may use expression syntax (e.g.
+      '${dns.domain}') resolved against active facet config blocks.
+$defs:
+  configBlock:
+    type: object
+    required:
+      - name
+      - value
+    additionalProperties: false
+    description: |
+      A named configuration block. The body lives under 'value' and is
+      exposed at scope root under 'name' (scalar/list) or 'name.<key>'
+      (map). Only the fields below are permitted — extra keys raise a
+      parse-time error.
+    properties:
+      name:
+        type: string
+        description: Block identifier; exposed at scope root.
+      when:
+        type: string
+        description: |
+          Optional CEL expression that gates this block. Empty means the
+          block is always evaluated when the parent facet is active.
+      value:
+        description: |
+          The block's content. May be a scalar, list, or map. References
+          from terraform.inputs and kustomize.substitutions use the block
+          name for scalar/list, or '<name>.<key>' when value is a map.
+      strategy:
+        type: string
+        enum:
+          - merge
+          - replace
+          - remove
+        description: |
+          How this block merges with same-named blocks from other facets.
+          'merge' (default) deep-merges; 'replace' overwrites; 'remove'
+          deletes the block from scope.
+      ordinal:
+        type: integer
+        description: |
+          Per-block override of the facet's ordinal for merge precedence.
+          Higher wins on conflict. When unset, the parent facet's ordinal is
+          used.
+      requires:
+        type: array
+        description: |
+          Requirement blocks scoped to this config block. Evaluated only
+          when the parent facet is active AND this block's 'when' holds;
+          missing paths surface under the effective AND condition.
+        items:
+          $ref: '#/$defs/requirementBlock'
+  requirementBlock:
+    type: object
+    required:
+      - paths
+    additionalProperties: false
+    description: |
+      Declares scope paths that must resolve to present, non-empty values
+      for the parent facet's activation to be well-formed.
+    properties:
+      when:
+        type: string
+        description: |
+          Optional CEL expression gating this requirement. Empty means the
+          paths are required whenever the parent (facet, config block, or
+          component) is active.
+      paths:
+        type: array
+        minItems: 1
+        items:
+          type: string
+        description: |
+          Dotted scope keys whose values must be present and non-empty.
+          Required; the parser rejects an empty list.
+      message:
+        type: string
+        description: |
+          Optional author-supplied context surfaced under this block's
+          heading in the aggregated error.
+  conditionalTerraformComponent:
+    type: object
+    additionalProperties: true
+    description: |
+      Inherits every field from the blueprint's TerraformComponent shape
+      (name, source, path, dependsOn, inputs, destroy, parallelism,
+      enabled) and adds the conditional fields below. See the [Blueprint
+      reference](blueprint.md) for the inherited fields.
+    properties:
+      when:
+        type: string
+        description: |
+          CEL expression that gates this component. Empty means the
+          component is always applied when the parent facet matches.
+      strategy:
+        type: string
+        enum:
+          - merge
+          - replace
+          - remove
+        description: |
+          How this component is merged into the blueprint. 'merge' (default)
+          deep-merges with existing components matching the same Path and
+          Source; 'replace' overwrites; 'remove' deletes the matching
+          existing component's non-index fields. Remove operations are
+          always applied last.
+      ordinal:
+        type: integer
+        description: Per-component override of the facet's ordinal for merge precedence.
+      requires:
+        type: array
+        description: |
+          Requirement blocks scoped to this component. Evaluated only when
+          the parent facet is active and this component's 'when' holds.
+        items:
+          $ref: '#/$defs/requirementBlock'
+  conditionalKustomization:
+    type: object
+    additionalProperties: true
+    description: |
+      Inherits every field from the blueprint's Kustomization shape (name,
+      path, source, namespace, targetNamespace, dependsOn, interval,
+      retryInterval, timeout, patches, wait, force, prune, components,
+      destroy, destroyOnly, enabled, substitutions) and adds the conditional
+      fields below. See the [Blueprint reference](blueprint.md) for the
+      inherited fields.
+    properties:
+      when:
+        type: string
+        description: |
+          CEL expression that gates this kustomization. Empty means the
+          kustomization is always applied when the parent facet matches.
+      strategy:
+        type: string
+        enum:
+          - merge
+          - replace
+          - remove
+        description: |
+          How this kustomization is merged into the blueprint. 'merge'
+          (default) deep-merges with existing kustomizations matching the
+          same Name; 'replace' overwrites; 'remove' deletes the matching
+          existing kustomization's non-index fields. Remove operations are
+          always applied last.
+      ordinal:
+        type: integer
+        description: Per-kustomization override of the facet's ordinal for merge precedence.
+      requires:
+        type: array
+        description: |
+          Requirement blocks scoped to this kustomization. Evaluated only
+          when the parent facet is active and this kustomization's 'when'
+          holds.
+        items:
+          $ref: '#/$defs/requirementBlock'
+examples:
+  - kind: Facet
+    apiVersion: blueprints.windsorcli.dev/v1alpha1
+    metadata:
+      name: platform-aws
+      description: AWS platform components
+    when: "platform == 'aws'"
+    config:
+      - name: aws
+        value:
+          region: us-east-1
+    terraform:
+      - name: vpc
+        source: core
+        path: aws/vpc
+        inputs:
+          cidr: "${aws.cidr ?? '10.0.0.0/16'}"
+    kustomize:
+      - name: aws-load-balancer-controller
+        path: addons/aws-lb-controller
+        source: core
+  - kind: Facet
+    apiVersion: blueprints.windsorcli.dev/v1alpha1
+    metadata:
+      name: addon-observability
+      description: Adds observability stack when enabled
+    when: "observability.enabled == true"
+    requires:
+      - paths:
+          - observability.backend
+        message: Observability is enabled; choose a backend (quickwit, victoriametrics).
+    kustomize:
+      - name: observability
+        path: addons/observability
+        source: core
+        when: "observability.backend == 'quickwit'"

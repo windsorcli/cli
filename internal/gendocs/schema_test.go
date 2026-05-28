@@ -223,6 +223,20 @@ func TestSchemaFieldRow(t *testing.T) {
 		}
 	})
 
+	t.Run("RendersAnyForUntypedField", func(t *testing.T) {
+		// Given a property with no 'type' constraint (JSON Schema accepts
+		// any value — used for polymorphic fields like ConfigBlock.value)
+		propSchema := map[string]any{"description": "Polymorphic body."}
+
+		// When schemaFieldRow is called
+		got := schemaFieldRow("value", propSchema, false, nil)
+
+		// Then the type column renders 'any' rather than an empty backtick
+		if !strings.Contains(got, "`any`") {
+			t.Errorf("expected untyped field to render as 'any', got %q", got)
+		}
+	})
+
 	t.Run("RendersUnionTypeWithSlashSeparator", func(t *testing.T) {
 		// Given a property with the JSON Schema 2020-12 array-of-types form
 		// (used for fields that accept e.g. a literal boolean or an expression string)

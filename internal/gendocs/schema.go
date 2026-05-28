@@ -301,6 +301,14 @@ type nestedSection struct {
 // reads 'array<object>' rather than 'array<>' when items use a local ref.
 func schemaFieldRow(name string, propSchema map[string]any, required bool, root map[string]any) string {
 	typeName := typeOf(propSchema)
+	if typeName == "" {
+		// JSON Schema permits omitting 'type' to mean "any value" (scalar,
+		// list, map, etc. — used for fields like ConfigBlock.value where
+		// the body is intentionally polymorphic). Rendering this as 'any'
+		// keeps the type column readable rather than emitting an empty
+		// backtick cell.
+		typeName = "any"
+	}
 	if typeName == "array" {
 		if items, ok := propSchema["items"].(map[string]any); ok {
 			items = resolveRef(items, root)
