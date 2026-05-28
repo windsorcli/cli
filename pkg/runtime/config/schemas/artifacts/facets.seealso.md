@@ -1,0 +1,3 @@
+- [Blueprint reference](blueprint.md) — for the inherited TerraformComponent and Kustomization fields
+- [`apply`](commands/apply.md), [`up`](commands/up.md), [`explain`](commands/explain.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
