@@ -214,8 +214,9 @@ contexts:
     platform: aws
     terraform:
       backend:
-        bucket: my-org-tf-state
-        region: us-east-1
+        s3:
+          bucket: my-org-tf-state
+          region: us-east-1
         type: s3
       enabled: true
 ```

@@ -423,5 +423,6 @@ examples:
           enabled: true
           backend:
             type: s3
-            bucket: my-org-tf-state
-            region: us-east-1
+            s3:
+              bucket: my-org-tf-state
+              region: us-east-1
