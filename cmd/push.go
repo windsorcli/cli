@@ -12,23 +12,27 @@ import (
 
 // pushCmd represents the push command
 var pushCmd = &cobra.Command{
-	Use:   "push [registry/repo:tag]",
-	Short: "Push blueprints to an OCI registry",
-	Long: `Push your Windsor blueprints to an OCI registry for sharing and deployment.
+	Use:   "push <registry/repo[:tag]>",
+	Short: "Push the blueprint to an OCI registry.",
+	Long: `Bundle the current blueprint and push it to an OCI-compatible registry (Docker Hub, GHCR, ECR, etc.). The pushed artifact is consumable by FluxCD's OCIRepository.
 
-This command packages your blueprint and pushes it to any OCI-compatible registry
-like Docker Hub, GitHub Container Registry, or AWS ECR. The artifacts are compatible
-with FluxCD's OCIRepository.
+The registry argument is required. When the tag is omitted, metadata.yaml ('name', 'version') is used to derive it.
 
-Examples:
-  # Push to Docker Hub
-  windsor push docker.io/myuser/myblueprint:v1.0.0
+Authentication uses your existing Docker credential helper. If push fails with an auth error, the CLI suggests 'docker login <registry>'.`,
+	Example: `# Docker Hub
+windsor push docker.io/myorg/myblueprint:v1.0.0
 
-  # Push to GitHub Container Registry  
-  windsor push ghcr.io/myorg/myblueprint:v1.0.0
+# GitHub Container Registry
+windsor push ghcr.io/myorg/myblueprint:v1.0.0
 
-  # Push using metadata.yaml for name/version
-  windsor push registry.example.com/blueprints`,
+# Tag derived from metadata.yaml
+windsor push registry.example.com/myorg/myblueprint`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)\n" +
+			"[Metadata reference](../metadata.md)\n" +
+			"[`bundle`](bundle.md)",
+		"docs.source": "cmd/push.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {

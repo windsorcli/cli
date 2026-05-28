@@ -11,24 +11,29 @@ import (
 // bundleCmd represents the bundle command
 var bundleCmd = &cobra.Command{
 	Use:   "bundle",
-	Short: "Bundle blueprints into a .tar.gz archive",
-	Long: `Bundle your Windsor blueprints into a compressed archive for distribution.
+	Short: "Bundle the blueprint into a .tar.gz archive.",
+	Long: `Bundle the current blueprint into a .tar.gz archive for sharing or offline deployment.
 
-This command packages your blueprints into a .tar.gz file that can be shared,
-stored, or deployed to target environments.
+Uses metadata.yaml ('name', 'version') to derive the output filename when --tag is not given. If neither is set, --tag is required.
 
-Examples:
-  # Bundle with automatic naming
-  windsor bundle -t myapp:v1.0.0
+When --output is a directory, the filename is derived from the tag.`,
+	Example: `# Bundle using metadata.yaml for name/version, into the current directory
+windsor bundle
 
-  # Bundle to specific file
-  windsor bundle -t myapp:v1.0.0 -o myapp-v1.0.0.tar.gz
+# Explicit tag, auto-generated filename
+windsor bundle -t myapp:v1.0.0
 
-  # Bundle to directory (filename auto-generated)
-  windsor bundle -t myapp:v1.0.0 -o ./dist/
+# Explicit tag, explicit output path
+windsor bundle -t myapp:v1.0.0 -o ./dist/myapp-v1.0.0.tar.gz
 
-  # Bundle using metadata.yaml for name/version
-  windsor bundle`,
+# Tag set, output is a directory (filename auto-generated)
+windsor bundle -t myapp:v1.0.0 -o ./dist/`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)\n" +
+			"[Metadata reference](../metadata.md)\n" +
+			"[`push`](push.md)",
+		"docs.source": "cmd/bundle.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var rtOpts []*runtime.Runtime
@@ -61,6 +66,6 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(bundleCmd)
-	bundleCmd.Flags().StringP("output", "o", ".", "Output path for bundle archive (file or directory)")
-	bundleCmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' format (required if no metadata.yaml or missing name/version)")
+	bundleCmd.Flags().StringP("output", "o", ".", "Output path for the archive. May be a file or a directory.")
+	bundleCmd.Flags().StringP("tag", "t", "", "Tag in 'name:version' form. Required when metadata.yaml lacks name or version.")
 }
