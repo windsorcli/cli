@@ -194,6 +194,9 @@ jobs:
             echo "::error::Run 'task docs:gen:commands' locally and commit the result."
             echo "Changes:"
             echo "$changes"
+            # Intent-to-add the new pages so 'git diff' shows their full content
+            # as additions, not just '?? new-file.md' lines in the status output.
+            git add -N docs/reference/commands/
             git --no-pager diff docs/reference/commands/
             exit 1
           fi
