@@ -181,23 +181,31 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Regenerate command reference
-        run: go run ./internal/gendocs commands
+      - name: Regenerate command and schema reference
+        run: |
+          go run ./internal/gendocs commands
+          go run ./internal/gendocs schema
 
       - name: Fail if regen produced a diff
         run: |
-          # Use git status (not git diff) so untracked files (new cobra commands)
-          # are detected alongside modifications and deletions.
-          changes=$(git status --porcelain docs/reference/commands/)
+          # Use git status (not git diff) so untracked files (new cobra
+          # commands or new schema pages) are detected alongside modifications
+          # and deletions. Generated paths checked: docs/reference/commands/
+          # (cobra-driven) and each <schema>.md derived from a *.yaml file
+          # under pkg/runtime/config/schemas/ (common.yaml is the validator's
+          # merge fragment, not a standalone artifact).
+          schema_paths=$(find pkg/runtime/config/schemas -maxdepth 1 -name '*.yaml' ! -name 'common.yaml' \
+            -exec basename {} .yaml \; | sed 's|^|docs/reference/|;s|$|.md|')
+          changes=$(git status --porcelain docs/reference/commands/ $schema_paths)
           if [ -n "$changes" ]; then
-            echo "::error::docs/reference/commands/ is out of sync with cmd/*.go."
-            echo "::error::Run 'task docs:gen:commands' locally and commit the result."
+            echo "::error::Generated docs are out of sync with their source-of-truth."
+            echo "::error::Run 'task docs:gen' locally and commit the result."
             echo "Changes:"
             echo "$changes"
-            # Intent-to-add the new pages so 'git diff' shows their full content
+            # Intent-to-add new pages so 'git diff' shows their full content
             # as additions, not just '?? new-file.md' lines in the status output.
-            git add -N docs/reference/commands/
-            git --no-pager diff docs/reference/commands/
+            git add -N docs/reference/commands/ $schema_paths 2>/dev/null || true
+            git --no-pager diff docs/reference/commands/ $schema_paths
             exit 1
           fi
 
