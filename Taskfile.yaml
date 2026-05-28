@@ -126,6 +126,11 @@ tasks:
       - go install github.com/securego/gosec/v2/cmd/gosec@latest
       - gosec ./...
 
+  docs:gen:commands:
+    desc: Regenerate docs/reference/commands/ from the cobra command tree. CI fails on any diff.
+    cmds:
+      - go run ./internal/gendocs commands
+
   run:
     desc: Run the Windsor CLI
     cmds:
