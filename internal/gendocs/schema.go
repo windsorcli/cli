@@ -153,7 +153,10 @@ func renderSchema(w io.Writer, schema map[string]any, examples []yaml.MapSlice, 
 		fmt.Fprintln(ew)
 	}
 
-	writeSchemaFields(ew, schema, "")
+	// The root schema is passed through every recursion so writeSchemaFields
+	// can resolve local '$ref: #/$defs/<name>' lookups without re-reading the
+	// source file.
+	writeSchemaFields(ew, schema, "", schema)
 	writeSchemaExamples(ew, examples)
 	writeSchemaSeeAlso(ew, seealso, sourcePath)
 	return ew.err
@@ -169,10 +172,14 @@ func writeSchemaFrontmatter(w io.Writer, title, description string) {
 }
 
 // writeSchemaFields renders the top-level field table for an object schema,
-// then recurses into nested object properties as h2/h3 subsections. headingPath
-// tracks the breadcrumb so nested headings read like "## Workstation" rather
-// than just "## (object)".
-func writeSchemaFields(w io.Writer, schema map[string]any, headingPath string) {
+// then recurses into nested object properties and array<object> items as
+// subsections. headingPath tracks the breadcrumb so nested headings read like
+// "## repository" rather than just "## (object)"; array<object> subsections
+// get a trailing "[]" so it's clear the fields describe each item rather than
+// the array itself. root is the document root, passed through so local
+// '$ref: #/$defs/<name>' references resolve at any depth.
+func writeSchemaFields(w io.Writer, schema map[string]any, headingPath string, root map[string]any) {
+	schema = resolveRef(schema, root)
 	if typeOf(schema) != "object" {
 		return
 	}
@@ -206,20 +213,79 @@ func writeSchemaFields(w io.Writer, schema map[string]any, headingPath string) {
 		if propSchema == nil {
 			continue
 		}
-		fmt.Fprintln(w, schemaFieldRow(name, propSchema, required[name]))
-		if typeOf(propSchema) == "object" && hasProperties(propSchema) {
-			label := name
-			if headingPath != "" {
-				label = headingPath + "." + name
-			}
-			nested = append(nested, nestedSection{label: label, schema: propSchema})
+		propSchema = resolveRef(propSchema, root)
+		fmt.Fprintln(w, schemaFieldRow(name, propSchema, required[name], root))
+		if sub, label := nestedSchemaFor(propSchema, name, headingPath, root); sub != nil {
+			nested = append(nested, nestedSection{label: label, schema: sub})
 		}
 	}
 	fmt.Fprintln(w)
 
 	for _, n := range nested {
-		writeSchemaFields(w, n.schema, n.label)
+		writeSchemaFields(w, n.schema, n.label, root)
 	}
+}
+
+// nestedSchemaFor returns the schema to recurse into (and its heading label)
+// when a property warrants a subsection. Object schemas with properties
+// recurse directly; array<object> schemas recurse into items with a "[]"
+// suffix on the label so the reader can tell the field table describes each
+// item rather than the array itself. Returns nil when no subsection should be
+// emitted (primitive, array of primitives, empty object).
+func nestedSchemaFor(propSchema map[string]any, name, headingPath string, root map[string]any) (map[string]any, string) {
+	base := name
+	if headingPath != "" {
+		base = headingPath + "." + name
+	}
+	if typeOf(propSchema) == "object" && hasProperties(propSchema) {
+		return propSchema, base
+	}
+	if typeOf(propSchema) == "array" {
+		items, _ := propSchema["items"].(map[string]any)
+		if items == nil {
+			return nil, ""
+		}
+		items = resolveRef(items, root)
+		if typeOf(items) == "object" && hasProperties(items) {
+			return items, base + "[]"
+		}
+	}
+	return nil, ""
+}
+
+// resolveRef looks up '$ref: #/$defs/<name>' against root and returns the
+// referenced schema merged with any sibling fields on the original (description,
+// etc. — JSON Schema 2020-12 allows siblings to $ref). Returns the input
+// schema unchanged when no local $ref is present or the lookup fails. Only
+// handles the local '#/$defs/<name>' form; external/remote refs aren't
+// supported because our schemas don't use them.
+func resolveRef(schema, root map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+	ref, _ := schema["$ref"].(string)
+	if ref == "" || !strings.HasPrefix(ref, "#/$defs/") {
+		return schema
+	}
+	defs, _ := root["$defs"].(map[string]any)
+	if defs == nil {
+		return schema
+	}
+	target, _ := defs[strings.TrimPrefix(ref, "#/$defs/")].(map[string]any)
+	if target == nil {
+		return schema
+	}
+	merged := make(map[string]any, len(target)+len(schema))
+	for k, v := range target {
+		merged[k] = v
+	}
+	for k, v := range schema {
+		if k == "$ref" {
+			continue
+		}
+		merged[k] = v
+	}
+	return merged
 }
 
 type nestedSection struct {
@@ -230,18 +296,26 @@ type nestedSection struct {
 // schemaFieldRow renders one row of the field table. The Type column uses
 // 'array<string>' for typed arrays, the bare type name otherwise. Required
 // fields get a bold "**(required)**" suffix in Description; defaults get
-// "Default: `<value>`"; enums get "One of: `a`, `b`, `c`".
-func schemaFieldRow(name string, propSchema map[string]any, required bool) string {
+// "Default: `<value>`"; enums get "One of: `a`, `b`, `c`". root is the
+// document root, used to resolve '$ref' on array items so the Type column
+// reads 'array<object>' rather than 'array<>' when items use a local ref.
+func schemaFieldRow(name string, propSchema map[string]any, required bool, root map[string]any) string {
 	typeName := typeOf(propSchema)
 	if typeName == "array" {
 		if items, ok := propSchema["items"].(map[string]any); ok {
+			items = resolveRef(items, root)
 			if itemType := typeOf(items); itemType != "" {
 				typeName = "array<" + itemType + ">"
 			}
 		}
 	}
 	desc := collapseWhitespace(stringField(propSchema, "description"))
-	if enum, ok := propSchema["enum"].([]any); ok && len(enum) > 0 {
+	if enum, ok := propSchema["enum"].([]any); ok && len(enum) > 1 {
+		// Single-value enums are effectively constants — the field's description
+		// already names the required value (e.g. "Must be 'Blueprint'"), so the
+		// extra "One of: `Blueprint`." reads as redundant noise. Two-or-more
+		// values still get the listing since the description usually can't
+		// enumerate them all inline.
 		desc = appendSentence(desc, "One of: "+formatEnum(enum)+".")
 	}
 	if def, ok := propSchema["default"]; ok {

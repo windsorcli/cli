@@ -150,7 +150,7 @@ func TestSchemaFieldRow(t *testing.T) {
 		propSchema := map[string]any{"type": "string", "description": "Blueprint name."}
 
 		// When schemaFieldRow is called for a non-required field
-		got := schemaFieldRow("name", propSchema, false)
+		got := schemaFieldRow("name", propSchema, false, nil)
 
 		// Then the row contains the name, type, and description
 		want := "| `name` | `string` | Blueprint name. |"
@@ -164,7 +164,7 @@ func TestSchemaFieldRow(t *testing.T) {
 		propSchema := map[string]any{"type": "string", "description": "Blueprint name."}
 
 		// When schemaFieldRow is called with required=true
-		got := schemaFieldRow("name", propSchema, true)
+		got := schemaFieldRow("name", propSchema, true, nil)
 
 		// Then the description ends with the bold (required) marker
 		if !strings.Contains(got, "**(required)**") {
@@ -181,7 +181,7 @@ func TestSchemaFieldRow(t *testing.T) {
 		}
 
 		// When schemaFieldRow is called
-		got := schemaFieldRow("platform", propSchema, false)
+		got := schemaFieldRow("platform", propSchema, false, nil)
 
 		// Then the description includes the enum values in backticks
 		if !strings.Contains(got, "One of: `aws`, `azure`, `gcp`.") {
@@ -198,7 +198,7 @@ func TestSchemaFieldRow(t *testing.T) {
 		}
 
 		// When schemaFieldRow is called
-		got := schemaFieldRow("dns", propSchema, false)
+		got := schemaFieldRow("dns", propSchema, false, nil)
 
 		// Then the description includes the default in backticks
 		if !strings.Contains(got, "Default: `true`.") {
@@ -215,7 +215,7 @@ func TestSchemaFieldRow(t *testing.T) {
 		}
 
 		// When schemaFieldRow is called
-		got := schemaFieldRow("tags", propSchema, false)
+		got := schemaFieldRow("tags", propSchema, false, nil)
 
 		// Then the type column shows the element type
 		if !strings.Contains(got, "`array<string>`") {
@@ -228,7 +228,7 @@ func TestSchemaFieldRow(t *testing.T) {
 		propSchema := map[string]any{"type": "string", "description": "Format: a|b|c."}
 
 		// When schemaFieldRow is called
-		got := schemaFieldRow("fmt", propSchema, false)
+		got := schemaFieldRow("fmt", propSchema, false, nil)
 
 		// Then pipes are escaped so the markdown table layout survives
 		if strings.Contains(got, "a|b|c") {
@@ -357,6 +357,91 @@ func TestRenderSchemaHeadingDepthLadder(t *testing.T) {
 			if !strings.Contains(out, want) {
 				t.Errorf("expected heading %q in output", want)
 			}
+		}
+	})
+}
+
+func TestRenderSchemaResolvesRefAndExpandsArrayItems(t *testing.T) {
+	t.Run("ArrayItemsExpandedAsSubsection", func(t *testing.T) {
+		// Given a schema with an array-of-objects property — the most common
+		// shape for blueprint sources, terraform components, etc.
+		schema := map[string]any{
+			"title": "Blueprint",
+			"type":  "object",
+			"properties": map[string]any{
+				"sources": map[string]any{
+					"type":        "array",
+					"description": "Sources.",
+					"items": map[string]any{
+						"type":     "object",
+						"required": []any{"name"},
+						"properties": map[string]any{
+							"name": map[string]any{"type": "string", "description": "Source name."},
+							"url":  map[string]any{"type": "string", "description": "Source URL."},
+						},
+					},
+				},
+			},
+		}
+
+		// When renderSchema runs
+		var buf bytes.Buffer
+		if err := renderSchema(&buf, schema, nil, "", ""); err != nil {
+			t.Fatalf("renderSchema: %v", err)
+		}
+		out := buf.String()
+
+		// Then the array property gets a "[]"-suffixed subsection listing each item's fields
+		if !strings.Contains(out, "## sources[]\n") {
+			t.Error("expected '## sources[]' subsection heading for array<object> items")
+		}
+		if !strings.Contains(out, "| `name` | `string` | Source name. **(required)** |") {
+			t.Error("expected items.name field row in sources[] subsection")
+		}
+		if !strings.Contains(out, "| `url` | `string` | Source URL. |") {
+			t.Error("expected items.url field row in sources[] subsection")
+		}
+	})
+
+	t.Run("LocalRefResolvedFromDefs", func(t *testing.T) {
+		// Given a schema where a property uses '$ref: #/$defs/<name>' to point
+		// at a shared definition (DRY for reused types like Reference)
+		schema := map[string]any{
+			"title": "Repo",
+			"type":  "object",
+			"properties": map[string]any{
+				"ref": map[string]any{"$ref": "#/$defs/reference"},
+			},
+			"$defs": map[string]any{
+				"reference": map[string]any{
+					"type":        "object",
+					"description": "A repo reference.",
+					"properties": map[string]any{
+						"branch": map[string]any{"type": "string", "description": "Branch."},
+						"tag":    map[string]any{"type": "string", "description": "Tag."},
+					},
+				},
+			},
+		}
+
+		// When renderSchema runs
+		var buf bytes.Buffer
+		if err := renderSchema(&buf, schema, nil, "", ""); err != nil {
+			t.Fatalf("renderSchema: %v", err)
+		}
+		out := buf.String()
+
+		// Then the top table reports the property as 'object' (resolved type),
+		// not the empty string that an unresolved $ref would produce
+		if !strings.Contains(out, "| `ref` | `object` |") {
+			t.Error("expected 'ref' row to show resolved 'object' type")
+		}
+		// And the referenced schema's fields render as a subsection
+		if !strings.Contains(out, "## ref\n") {
+			t.Error("expected '## ref' subsection from resolved $ref")
+		}
+		if !strings.Contains(out, "| `branch` | `string` | Branch. |") {
+			t.Error("expected resolved $ref branch field")
 		}
 	})
 }
