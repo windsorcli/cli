@@ -1,370 +1,230 @@
 ---
 title: "Configuration"
-description: "Configuration settings for the Windsor workstation using the windsor.yaml file."
+description: "Operator-authored windsor.yaml schema."
 ---
 # Configuration
-A `windsor.yaml` file should exist at the base of your project, and will be created for you on running `windsor init`.
 
-The majority of options available in the Windsor config relate to the local cloud setup. Additionally, each context configured in `windsor.yaml` allows for configuring details about cloud service providers or Kubernetes cluster drivers.
+Operator-authored windsor.yaml schema. Lives at the project root and
+declares the per-context settings every Windsor command reads. The system
+also writes ephemeral state (workstation, computed defaults) into
+.windsor/contexts/<name>/workstation.yaml at runtime — that file is
+system-managed and not covered here.
 
-The configuration details are outlined as follows.
+## Fields
 
-```yaml
-version: v1alpha1
-contexts: #...
-```
+| Field | Type | Description |
+|------|------|-------------|
+| `version` | `string` | Config schema version. Currently 'v1alpha1'. **(required)** |
+| `contexts` | `map<object>` | Map of context name to per-context configuration. Most projects have 'local' (workstation context) plus one or more deployment contexts (staging, prod, etc.). **(required)** |
+| `terraform` | `object` | Root-level Terraform settings shared across every context. |
+| `toolsManager` | `string` | Name of the tool manager whose configuration governs binary versions for this project. Currently the only supported value is 'aqua'. |
 
-| Field     | Type                   | Description                           |
-|-----------|------------------------|---------------------------------------|
-| `version` | `string`               | Specifies the configuration version.  |
-| `contexts`| `map[string]Context`   | A map of Context configurations.      |
+## contexts{}
 
-## Context
-The context sections configure details related to each context. These configurations include cloud service providers, Kubernetes cluster drivers, and a variety of configurations involving the local cloud virtualization. Further details about these sub-configurations follow.
+| Field | Type | Description |
+|------|------|-------------|
+| `aws` | `object` | AWS integration. Activates whenever this block is present (or when platform is 'aws'); there is no separate 'enabled' flag. |
+| `azure` | `object` | Azure integration. |
+| `cluster` | `object` | Kubernetes cluster configuration. Node-group sub-types (NodeGroupConfig) are authored in api/v1alpha1/cluster/cluster_config.go; expansion to full field detail is a planned follow-up. |
+| `dns` | `object` | DNS configuration. |
+| `docker` | `object` | Docker / container-registry configuration. |
+| `environment` | `map<string>` | Static environment variables exported into every command run in this context. Plain string-to-string map; no expression evaluation. |
+| `gcp` | `object` | GCP integration. |
+| `git` | `object` | Git / livereload configuration. |
+| `id` | `string` | Stable identifier for the context, distinct from its map key. Used for cross-context references where the key may change. |
+| `network` | `object` | Cluster network configuration. |
+| `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. One of: `none`, `docker`, `incus`, `metal`, `aws`, `azure`, `gcp`, `hyperv`. |
+| `provider` | `string` | Deprecated alias for 'platform'. New configs should use 'platform'; the loader still reads 'provider' for backwards compatibility. |
+| `secrets` | `object` | Secrets provider configuration. Currently 1Password is the only supported provider. |
+| `terraform` | `object` | Per-context Terraform settings (state backend, lock policy, timeout). The runtime-validator sub-types (BackendConfig, LockConfig) are authored in api/v1alpha1/terraform/terraform_config.go; expansion to full field detail is a planned follow-up. |
+| `vm` | `object` | Workstation VM settings. Applies to colima / colima-incus / docker- desktop driver choices; ignored when the workstation runs directly on Docker without a VM. |
 
-### Default Values
+### contexts{}.aws
 
-Windsor applies default values for various configuration options when they are not explicitly specified:
+| Field | Type | Description |
+|------|------|-------------|
+| `endpoint_url` | `string` | Custom AWS endpoint URL (e.g. when targeting Localstack). |
+| `localstack` | `object` | Configuration for Localstack, a local AWS cloud emulator. |
+| `mwaa_endpoint` | `string` | Endpoint for Managed Workflows for Apache Airflow (MWAA). |
+| `profile` | `string` | AWS CLI profile to use for authentication. |
+| `region` | `string` | AWS region. Exported to downstream tools as AWS_REGION. |
+| `s3_hostname` | `string` | Custom hostname for the S3 service. |
 
-- **Cluster**: `cluster.driver` is derived from platform defaults (for example, local and omni platforms use `talos`).
-- **Terraform**: `terraform.enabled` defaults to `true` with a `local` backend.
-- **Docker**: `docker.enabled` defaults to `false` and is **deprecated**; internal workstation is determined by provider and `workstation.runtime`. Registry configuration is still used.
-- **Provider**: Defaults to `"none"` for non-dev contexts, `"docker"` for dev contexts (or `"incus"` when using colima-incus vm-driver).
+#### contexts{}.aws.localstack
 
-These defaults ensure that basic functionality is available without requiring explicit configuration. You can override any default by explicitly setting the value in your `windsor.yaml` file.
+| Field | Type | Description |
+|------|------|-------------|
+| `enabled` | `boolean` | Whether to enable Localstack for this context. |
+| `services` | `array<string>` | AWS services Localstack should emulate. |
 
-### AWS
-Configuration details specific to the AWS cloud provider. AWS integration activates whenever this block is present in a context (or when `platform: aws` is set); there is no separate `enabled` flag. Additionally, configures a Localstack service to simulate AWS resources locally.
+### contexts{}.azure
 
-```yaml
-aws:
-  profile: local
-  region: us-east-2
-  endpoint_url: http://aws.test:4566
-  localstack: #...
-```
+| Field | Type | Description |
+|------|------|-------------|
+| `environment` | `string` | Azure environment name (AzurePublicCloud, AzureChinaCloud, etc.). |
+| `kubelogin_mode` | `string` | kubelogin auth mode (e.g. 'azurecli', 'workloadidentity'). |
+| `subscription_id` | `string` | Azure subscription ID for API calls. |
+| `tenant_id` | `string` | Azure tenant ID for authentication. |
 
-| Field            | Type     | Description                                                                 |
-|------------------|----------|-----------------------------------------------------------------------------|
-| `profile`        | `string` | AWS CLI profile to use for authentication. Defaults to the context name, so `aws configure sso --profile <context>` lines up with what Windsor exports. Set this when your existing profile name differs from the context name. |
-| `region`         | `string` | AWS region for API calls. Emitted as `AWS_REGION` to every tool run inside the context. |
-| `endpoint_url`   | `string` | Custom endpoint URL for AWS services (for example, LocalStack).              |
-| `s3_hostname`    | `string` | Custom hostname for the S3 service.                                         |
-| `mwaa_endpoint`  | `string` | Endpoint for Managed Workflows for Apache Airflow.                          |
-| `localstack`     | `LocalstackConfig` | Configuration for Localstack, a local AWS cloud emulator.          |
+### contexts{}.cluster
 
-#### Localstack
-Configures details specific to the Localstack service container. This service is available at `aws.test:4566`.
+| Field | Type | Description |
+|------|------|-------------|
+| `controlplanes` | `object` | Controlplane node group settings (count, cpu, memory, image, per- node overrides). See api/v1alpha1/cluster/cluster_config.go for full NodeGroupConfig fields. |
+| `driver` | `string` | Cluster driver name (e.g. 'talos'). |
+| `enabled` | `boolean` | Whether the cluster integration is active for this context. |
+| `endpoint` | `string` | Kubernetes API endpoint URL. |
+| `image` | `string` | Default node image (typically a Talos image reference). |
+| `workers` | `object` | Worker node group settings. Same shape as controlplanes; see api/v1alpha1/cluster/cluster_config.go. |
 
-```yaml
-aws:
-  localstack:
-    enabled: true
-    services:
-      - iam
-      - kms
-      - s3
-      - dynamodb
-```
+### contexts{}.dns
 
-| Field     | Type       | Description                                                      |
-|-----------|------------|------------------------------------------------------------------|
-| `enabled` | `bool`     | Indicates whether Localstack is enabled to emulate AWS services.|
-| `services`| `[]string` | Lists the AWS services to be emulated by Localstack. For more details, see [Localstack AWS Feature Coverage](https://docs.localstack.cloud/user-guide/aws/feature-coverage/). |
+| Field | Type | Description |
+|------|------|-------------|
+| `address` | `string` | DNS server address that downstream services should resolve against. |
+| `domain` | `string` | Primary DNS domain for the context (e.g. 'example.test'). |
+| `forward` | `array<string>` | Upstream DNS servers the cluster's CoreDNS forwards unresolved queries to. |
+| `records` | `array<string>` | Static DNS records to register in the cluster's CoreDNS. |
 
-### Cluster
-Configures details specific to the local Kubernetes cluster. These nodes are available at `worker-{1..n}.test` and `controlplane-{1..n}.test`.
+### contexts{}.docker
 
-```yaml
-cluster:
-  enabled: true
-  driver: talos
-  controlplanes:
-    count: 1
-    cpu: 2
-    memory: 2
-  workers:
-    count: 1
-    cpu: 4
-    memory: 4
-    hostports:
-      - 80:30080/tcp
-      - 443:30443/tcp
-      - 9292:30292/tcp
-      - 8053:30053/udp
-    volumes:
-      - ${project_root}/.volumes:/var/mnt/local
-```
+| Field | Type | Description |
+|------|------|-------------|
+| `enabled` | `boolean` | Whether to start Docker-managed services (DNS, git livereload, registry proxies) on workstation up. |
+| `registries` | `map<object>` | Map of registry alias to local-proxy configuration. The runtime creates a registry proxy container per entry when the workstation is enabled. |
+| `registry_url` | `string` | Primary container registry URL. |
 
-Use `${project_root}` for volume sources; it is templated into Terraform and, when using the internal workstation (docker-compose), rewritten to `${WINDSOR_PROJECT_ROOT}` at compose generation time.
+#### contexts{}.docker.registries{}
 
-| Field                        | Type       | Description                                                        |
-|------------------------------|------------|--------------------------------------------------------------------|
-| `enabled`                    | `bool`     | Specifies whether the cluster is active.                           |
-| `driver`                     | `string`   | Specifies the cluster driver. Currently, only 'talos' is supported.|
-| `controlplanes`              | `struct`   | Configuration for control plane nodes.                             |
-| `controlplanes.count`        | `int`      | Number of control plane nodes.                                     |
-| `controlplanes.cpu`          | `int`      | CPU resources per control plane node.                              |
-| `controlplanes.memory`       | `int`      | Memory resources per control plane node.                           |
-| `controlplanes.hostports`    | `[]string` | Nodeports to forward to the host machine.                          |
-| `controlplanes.volumes`      | `[]string` | Volume maps for mounting node volumes onto the host.               |
-| `workers`                    | `struct`   | Configuration for worker nodes.                                    |
-| `workers.count`              | `int`      | Number of worker nodes.                                            |
-| `workers.cpu`                | `int`      | CPU resources per worker node.                                     |
-| `workers.memory`             | `int`      | Memory resources per worker node.                                  |
-| `workers.hostports`          | `[]string` | Nodeports to forward to the host machine.                          |
-| `workers.volumes`            | `[]string` | Volume maps for mounting node volumes onto the host.               |
+| Field | Type | Description |
+|------|------|-------------|
+| `hostname` | `string` | Local hostname for the proxy container. |
+| `hostport` | `integer` | Local port for the proxy container. |
+| `local` | `string` | Local proxy URL. |
+| `remote` | `string` | Remote (upstream) registry URL. |
 
-### Network
-Configures details related to local networking. This includes both the CIDR block range used by the network, as well as the range of IPs to be used when acquiring load balancer IP addresses.
+### contexts{}.gcp
 
-```yaml
-network:
-  cidr_block: 10.5.0.0/16
-  loadbalancer_ips:
-    start: 10.5.1.1
-    end: 10.5.1.10
-```
+| Field | Type | Description |
+|------|------|-------------|
+| `credentials_path` | `string` | Filesystem path to a GCP service-account credentials JSON file. |
+| `enabled` | `boolean` | Whether to activate the GCP integration. |
+| `project_id` | `string` | GCP project ID for API calls. |
+| `quota_project` | `string` | Project to bill quota usage against. |
 
-### DNS
-Configures details related to the local DNS service. The service is available at `dns.test:53`. Presently, the local DNS server runs CoreDNS.
+### contexts{}.git
 
-```yaml
-dns:
-  enabled: true
-  domain: test
-  records:
-    - 127.0.0.1 flux-webhook.test
-```
+| Field | Type | Description |
+|------|------|-------------|
+| `livereload` | `object` | Git livereload service settings. When 'enabled', the workstation runs a container that mirrors local changes into the cluster's gitops source for fast iteration. |
 
-| Field     | Type       | Description                                                |
-|-----------|------------|------------------------------------------------------------|
-| `enabled` | `bool`     | Specifies if the DNS service is active.                    |
-| `domain`  | `string`   | Defines the domain name used by the DNS service.           |
-| `address` | `string`   | Custom address for the DNS service, overriding the default.|
-| `records` | `[]string` | Additional DNS records to include in the Corefile.         |
+#### contexts{}.git.livereload
 
-### Docker
-Configures details related to using Docker locally (registries, etc.). Internal workstation (compose) is controlled by provider and `workstation.runtime`.
+| Field | Type | Description |
+|------|------|-------------|
+| `enabled` | `boolean` | Whether to run the git livereload container. |
+| `image` | `string` | Container image used for the livereload service. |
+| `password` | `string` | Basic-auth password for the livereload endpoint. |
+| `rsync_exclude` | `string` | Rsync exclude pattern. |
+| `rsync_include` | `string` | Rsync include pattern for the mirrored directory. |
+| `rsync_protect` | `string` | Rsync protect pattern (paths preserved during sync). |
+| `username` | `string` | Basic-auth username for the livereload endpoint. |
+| `verify_ssl` | `boolean` | Whether to verify TLS certificates on the webhook URL. |
+| `webhook_url` | `string` | Webhook URL the livereload container pings on commit. |
 
-```yaml
-docker:
-  registries: #...
-```
+### contexts{}.network
 
-| Field          | Type                       | Description                                                                 |
-|----------------|----------------------------|-----------------------------------------------------------------------------|
-| `enabled`      | `bool`                     | **Deprecated.** When true, uses internal workstation (docker-compose). Defaults to false; omit or set to false. Use provider and `workstation.runtime` instead. |
-| `registries`   | `map[string]RegistryConfig`| Configuration for Docker registries, mapping registry names to their config.|
+| Field | Type | Description |
+|------|------|-------------|
+| `cidr_block` | `string` | CIDR block for the cluster network. |
+| `loadbalancer_ips` | `object` | IP address range to reserve for load-balancer services. |
 
-#### RegistryConfig
-Configures details related to local Docker registries and registry mirrors.
+#### contexts{}.network.loadbalancer_ips
 
-```yaml
-docker:
-  registries:
-    # Mirrors ghcr.io locally as ghcr.io
-    ghcr.io:
-      remote: https://ghcr.io
+| Field | Type | Description |
+|------|------|-------------|
+| `end` | `string` | Last IP in the range (inclusive). |
+| `start` | `string` | First IP in the range (inclusive). |
 
-    # Mirrors registry-1.docker.io as docker.io locally
-    registry-1.docker.io:
-      remote: https://registry-1.docker.io
-      local: https://docker.io
+### contexts{}.secrets
 
-    # A generic local registry used while developing
-    registry.test: {}
-```
+| Field | Type | Description |
+|------|------|-------------|
+| `onepassword` | `object` |  |
 
-| Field      | Type     | Description                                      |
-|------------|----------|--------------------------------------------------|
-| `remote`   | `string` | URL of the remote registry to mirror.            |
-| `local`    | `string` | Local URL where the registry is mirrored.        |
-| `hostname` | `string` | Hostname used for accessing the registry.        |
+#### contexts{}.secrets.onepassword
 
-### Git
+| Field | Type | Description |
+|------|------|-------------|
+| `vaults` | `map<object>` | Map of vault alias to vault configuration. The alias is used in 'op://<alias>/...' references throughout other configs. |
 
-#### Livereload
-Configures details related to the local git livereload server
+#### contexts{}.secrets.onepassword.vaults{}
 
-```yaml
-git:
-  livereload:
-    enabled: true
-    rsync_include: ""
-    rsync_exclude: .windsor,.terraform,data,.volumes,.venv
-    rsync_protect: flux-system
-    username: local
-    password: local
-    webhook_url: http://flux-webhook.local.test
-    verify_ssl: false
-    image: ghcr.io/windsorcli/git-livereload-server:v0.2.1
-```
+| Field | Type | Description |
+|------|------|-------------|
+| `id` | `string` | 1Password vault ID. |
+| `name` | `string` | Human-readable vault name (defaults to the map key). |
+| `url` | `string` | 1Password instance URL. |
 
-| Field          | Type     | Description                                                  |
-|----------------|----------|--------------------------------------------------------------|
-| `enabled`      | `bool`   | Indicates whether the livereload feature is enabled.         |
-| `rsync_include`| `string` | Comma-separated list of patterns to include in rsync. When set, only files matching these patterns will be synchronized. |
-| `rsync_exclude`| `string` | Comma-separated list of patterns to exclude from rsync.      |
-| `rsync_protect`| `string` | Specifies files or directories to protect during rsync.      |
-| `username`     | `string` | Username for authentication with the livereload server.      |
-| `password`     | `string` | Password for authentication with the livereload server.      |
-| `webhook_url`  | `string` | URL for the webhook to trigger livereload actions.           |
-| `verify_ssl`   | `bool`   | Determines if SSL verification is required for connections.  |
-| `image`        | `string` | Docker image used for the livereload server.                 |
+### contexts{}.terraform
 
-### Environment Variables
+| Field | Type | Description |
+|------|------|-------------|
+| `backend` | `object` | State backend configuration (type plus per-type fields). See api/v1alpha1/terraform/terraform_config.go for the full BackendConfig field set (s3, azurerm, kubernetes, local, oss). |
+| `enabled` | `boolean` | Whether terraform components are applied for this context. |
+| `lock` | `object` | State-lock policy (timeout). See api/v1alpha1/terraform/terraform_config.go for LockConfig fields. |
 
-You can specify environment variables in your `windsor.yaml` configuration under the `environment` key. These variables are custom key-value pairs that the CLI makes available at runtime using a custom environment printer.
+### contexts{}.vm
 
-**Example:**
+| Field | Type | Description |
+|------|------|-------------|
+| `address` | `string` | VM address used for SSH and workstation networking. |
+| `arch` | `string` | CPU architecture for the VM. One of: `amd64`, `arm64`. |
+| `cpu` | `integer` | Virtual CPU count. |
+| `disk` | `integer` | Disk size in GB. |
+| `driver` | `string` | VM driver. One of 'colima', 'colima-incus', 'docker-desktop', 'docker'. |
+| `memory` | `integer` | Memory in GB. |
+| `runtime` | `string` | Container runtime inside the VM (typically 'docker'). |
+
+## terraform
+
+| Field | Type | Description |
+|------|------|-------------|
+| `driver` | `string` | Terraform driver to use ('terraform' or 'tofu'). |
+
+## Examples
 
 ```yaml
-environment:
-  API_KEY: {% raw %}${{ op.my.api-key }}{% endraw %}
-  DEBUG: "true"
-  CUSTOM_VAR: "some-value"
-```
-
-You can also reference secrets, outlined in the next section.
-
-### Secrets
-
-The Windsor CLI supports integrating multiple secrets providers, enabling secure management of sensitive values in your project configurations. Within a context in your windsor.yaml file, you can define a secrets block to configure providers such as 1Password and SOPS.
-
-#### 1Password CLI
-
-Configure 1Password secrets by adding a onepassword block under the secrets key. For example:
-
-```yaml
-secrets:
-  onepassword:
-    vaults:
-      personal:
-        url: my.1password.com
-        name: "Personal"
-      development:
-        url: my-company.1password.com
-        name: "Development"
-```
-
-| Field          | Type   | Description                                         |
-|----------------|--------|-----------------------------------------------------|
-| onepassword    | object | Configuration for the 1Password secrets provider.   |
-
-**onepassword.vaults.&lt;key&gt;**
-
-| Field       | Type   | Description                                           |
-|-------------|--------|-------------------------------------------------------|
-| url         | string | The endpoint URL for the 1Password service.           |
-| name        | string | The name of the vault from which secrets are retrieved. |
-
-## Terraform
-Configures details related to working with Terraform in the context
-
-```
-terraform:
-  enabled: true
-  backend: s3
-```
-
-| Field    | Type     | Description                                      |
-|----------|----------|--------------------------------------------------|
-| `enabled`| `bool`   | Indicates whether the Terraform feature is enabled. |
-| `backend`| `string` | Specifies the backend type used for Terraform state management. |
-
-## VM
-Configures details related to configuring the local cloud virtualization.
-
-```
-vm:
-  driver: colima
-  cpu: 8
-  disk: 60
-  memory: 8
-```
-
-| Field    | Type     | Description                                                                 |
-|----------|----------|-----------------------------------------------------------------------------|
-| `driver` | `string` | Specifies the virtualization driver to use. Options include "colima", "docker-desktop", or "docker". |
-| `cpu`    | `int`    | Number of CPU cores allocated to the VM. Defaults to half of the system's CPU cores. |
-| `disk`   | `int`    | Disk space allocated to the VM in GB. Defaults to half of the system's memory. |
-| `memory` | `int`    | Memory allocated to the VM in GB. Defaults to 60GB. |
-
-## Example: Local Context
-This is the default local `windsor.yaml` file created when running `windsor init local`:
-
-```
 version: v1alpha1
 contexts:
   local:
+    dns:
+      domain: local.test
     docker:
       enabled: true
-      registries:
-        gcr.io:
-          remote: https://gcr.io
-        ghcr.io:
-          remote: https://ghcr.io
-        quay.io:
-          remote: https://quay.io
-        registry-1.docker.io:
-          remote: https://registry-1.docker.io
-          local: https://docker.io
-        registry.k8s.io:
-          remote: https://registry.k8s.io
-        registry.test: {}
-    git:
-      livereload:
-        enabled: true
-        rsync_include: ""
-        rsync_exclude: .windsor,.terraform,data,.volumes,.venv
-        rsync_protect: flux-system
-        username: local
-        password: local
-        webhook_url: http://worker-1.test:30292/hook/5dc88e45e809fb0872b749c0969067e2c1fd142e17aed07573fad20553cc0c59
-        verify_ssl: false
-        image: ghcr.io/windsorcli/git-livereload:v0.1.1
-    terraform:
-      enabled: true
-      backend: local
-    vm:
-      driver: docker-desktop
+    platform: docker
+  staging:
+    aws:
+      profile: staging
+      region: us-east-1
     cluster:
-      enabled: true
       driver: talos
-      controlplanes:
-        count: 1
-        cpu: 2
-        memory: 2
-      workers:
-        count: 1
-        cpu: 4
-        memory: 4
-        hostports:
-        - 80:30080/tcp
-        - 443:30443/tcp
-        - 9292:30292/tcp
-        - 8053:30053/udp
-        volumes:
-        - ${project_root}/.volumes:/var/mnt/local
-    network:
-      cidr_block: 10.5.0.0/16
-    dns:
       enabled: true
-      domain: test
-      forward:
-      - 10.5.0.1:8053
+      endpoint: https://staging-cp.example.test:6443
+    platform: aws
+    terraform:
+      backend:
+        s3:
+          bucket: my-org-tf-state
+          region: us-east-1
+        type: s3
+      enabled: true
 ```
 
-<div>
-  {{ footer('Blueprint', '../../reference/blueprint/index.html', 'Contexts', '../../reference/contexts/index.html') }}
-</div>
+## See also
 
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../../reference/blueprint/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../../reference/contexts/index.html'; 
-  });
-</script>
+- [Contexts reference](contexts.md) — context layout, on-disk files, and lifecycle
+- [Blueprint reference](blueprint.md), [Facets reference](facets.md)
+- [`init`](commands/init.md), [`show values`](commands/show-values.md), [`get contexts`](commands/get-contexts.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Contexts guide](https://www.windsorcli.dev/docs/cli/contexts)
+- Source schema: [pkg/runtime/config/schemas/artifacts/configuration.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/configuration.yaml)

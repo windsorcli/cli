@@ -1,0 +1,4 @@
+- [Contexts reference](contexts.md) — context layout, on-disk files, and lifecycle
+- [Blueprint reference](blueprint.md), [Facets reference](facets.md)
+- [`init`](commands/init.md), [`show values`](commands/show-values.md), [`get contexts`](commands/get-contexts.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Contexts guide](https://www.windsorcli.dev/docs/cli/contexts)

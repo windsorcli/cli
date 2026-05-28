@@ -1,0 +1,428 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Configuration
+description: |
+  Operator-authored windsor.yaml schema. Lives at the project root and
+  declares the per-context settings every Windsor command reads. The system
+  also writes ephemeral state (workstation, computed defaults) into
+  .windsor/contexts/<name>/workstation.yaml at runtime — that file is
+  system-managed and not covered here.
+type: object
+required:
+  - version
+  - contexts
+additionalProperties: false
+properties:
+  version:
+    type: string
+    description: Config schema version. Currently 'v1alpha1'.
+  toolsManager:
+    type: string
+    description: |
+      Name of the tool manager whose configuration governs binary
+      versions for this project. Currently the only supported value is
+      'aqua'.
+  terraform:
+    type: object
+    additionalProperties: false
+    description: Root-level Terraform settings shared across every context.
+    properties:
+      driver:
+        type: string
+        description: Terraform driver to use ('terraform' or 'tofu').
+  contexts:
+    type: object
+    description: |
+      Map of context name to per-context configuration. Most projects have
+      'local' (workstation context) plus one or more deployment contexts
+      (staging, prod, etc.).
+    additionalProperties:
+      $ref: '#/$defs/context'
+$defs:
+  context:
+    type: object
+    additionalProperties: false
+    description: |
+      Per-context configuration. Every sub-block (aws, azure, cluster, etc.)
+      is independently optional; presence of a block typically activates
+      that integration.
+    properties:
+      id:
+        type: string
+        description: |
+          Stable identifier for the context, distinct from its map key.
+          Used for cross-context references where the key may change.
+      platform:
+        type: string
+        enum:
+          - none
+          - docker
+          - incus
+          - metal
+          - aws
+          - azure
+          - gcp
+          - hyperv
+        description: |
+          Target deployment platform. Selects platform-specific facets and
+          drives backend type inference.
+      provider:
+        type: string
+        description: |
+          Deprecated alias for 'platform'. New configs should use 'platform';
+          the loader still reads 'provider' for backwards compatibility.
+        deprecated: true
+      environment:
+        type: object
+        additionalProperties:
+          type: string
+        description: |
+          Static environment variables exported into every command run in
+          this context. Plain string-to-string map; no expression
+          evaluation.
+      secrets:
+        $ref: '#/$defs/secrets'
+      aws:
+        $ref: '#/$defs/aws'
+      azure:
+        $ref: '#/$defs/azure'
+      gcp:
+        $ref: '#/$defs/gcp'
+      docker:
+        $ref: '#/$defs/docker'
+      git:
+        $ref: '#/$defs/git'
+      terraform:
+        $ref: '#/$defs/terraform'
+      vm:
+        $ref: '#/$defs/vm'
+      cluster:
+        $ref: '#/$defs/cluster'
+      network:
+        $ref: '#/$defs/network'
+      dns:
+        $ref: '#/$defs/dns'
+  secrets:
+    type: object
+    additionalProperties: false
+    description: Secrets provider configuration. Currently 1Password is the only supported provider.
+    properties:
+      onepassword:
+        type: object
+        additionalProperties: false
+        properties:
+          vaults:
+            type: object
+            additionalProperties:
+              type: object
+              additionalProperties: false
+              properties:
+                id:
+                  type: string
+                  description: 1Password vault ID.
+                url:
+                  type: string
+                  description: 1Password instance URL.
+                name:
+                  type: string
+                  description: Human-readable vault name (defaults to the map key).
+            description: |
+              Map of vault alias to vault configuration. The alias is used
+              in 'op://<alias>/...' references throughout other configs.
+  aws:
+    type: object
+    additionalProperties: false
+    description: |
+      AWS integration. Activates whenever this block is present (or when
+      platform is 'aws'); there is no separate 'enabled' flag.
+    properties:
+      endpoint_url:
+        type: string
+        description: Custom AWS endpoint URL (e.g. when targeting Localstack).
+      profile:
+        type: string
+        description: AWS CLI profile to use for authentication.
+      region:
+        type: string
+        description: AWS region. Exported to downstream tools as AWS_REGION.
+      s3_hostname:
+        type: string
+        description: Custom hostname for the S3 service.
+      mwaa_endpoint:
+        type: string
+        description: Endpoint for Managed Workflows for Apache Airflow (MWAA).
+      localstack:
+        type: object
+        additionalProperties: false
+        description: Configuration for Localstack, a local AWS cloud emulator.
+        properties:
+          enabled:
+            type: boolean
+            description: Whether to enable Localstack for this context.
+          services:
+            type: array
+            items:
+              type: string
+            description: AWS services Localstack should emulate.
+  azure:
+    type: object
+    additionalProperties: false
+    description: Azure integration.
+    properties:
+      subscription_id:
+        type: string
+        description: Azure subscription ID for API calls.
+      tenant_id:
+        type: string
+        description: Azure tenant ID for authentication.
+      environment:
+        type: string
+        description: Azure environment name (AzurePublicCloud, AzureChinaCloud, etc.).
+      kubelogin_mode:
+        type: string
+        description: kubelogin auth mode (e.g. 'azurecli', 'workloadidentity').
+  gcp:
+    type: object
+    additionalProperties: false
+    description: GCP integration.
+    properties:
+      enabled:
+        type: boolean
+        description: Whether to activate the GCP integration.
+      project_id:
+        type: string
+        description: GCP project ID for API calls.
+      credentials_path:
+        type: string
+        description: Filesystem path to a GCP service-account credentials JSON file.
+      quota_project:
+        type: string
+        description: Project to bill quota usage against.
+  docker:
+    type: object
+    additionalProperties: false
+    description: Docker / container-registry configuration.
+    properties:
+      enabled:
+        type: boolean
+        description: Whether to start Docker-managed services (DNS, git livereload, registry proxies) on workstation up.
+      registry_url:
+        type: string
+        description: Primary container registry URL.
+      registries:
+        type: object
+        description: |
+          Map of registry alias to local-proxy configuration. The runtime
+          creates a registry proxy container per entry when the workstation
+          is enabled.
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          properties:
+            remote:
+              type: string
+              description: Remote (upstream) registry URL.
+            local:
+              type: string
+              description: Local proxy URL.
+            hostname:
+              type: string
+              description: Local hostname for the proxy container.
+            hostport:
+              type: integer
+              description: Local port for the proxy container.
+  git:
+    type: object
+    additionalProperties: false
+    description: Git / livereload configuration.
+    properties:
+      livereload:
+        type: object
+        additionalProperties: false
+        description: |
+          Git livereload service settings. When 'enabled', the workstation
+          runs a container that mirrors local changes into the cluster's
+          gitops source for fast iteration.
+        properties:
+          enabled:
+            type: boolean
+            description: Whether to run the git livereload container.
+          rsync_include:
+            type: string
+            description: Rsync include pattern for the mirrored directory.
+          rsync_exclude:
+            type: string
+            description: Rsync exclude pattern.
+          rsync_protect:
+            type: string
+            description: Rsync protect pattern (paths preserved during sync).
+          username:
+            type: string
+            description: Basic-auth username for the livereload endpoint.
+          password:
+            type: string
+            description: Basic-auth password for the livereload endpoint.
+          webhook_url:
+            type: string
+            description: Webhook URL the livereload container pings on commit.
+          verify_ssl:
+            type: boolean
+            description: Whether to verify TLS certificates on the webhook URL.
+          image:
+            type: string
+            description: Container image used for the livereload service.
+  terraform:
+    type: object
+    additionalProperties: false
+    description: |
+      Per-context Terraform settings (state backend, lock policy, timeout).
+      The runtime-validator sub-types (BackendConfig, LockConfig) are
+      authored in api/v1alpha1/terraform/terraform_config.go; expansion to
+      full field detail is a planned follow-up.
+    properties:
+      enabled:
+        type: boolean
+        description: Whether terraform components are applied for this context.
+      backend:
+        type: object
+        additionalProperties: true
+        description: |
+          State backend configuration (type plus per-type fields).
+          See api/v1alpha1/terraform/terraform_config.go for the full
+          BackendConfig field set (s3, azurerm, kubernetes, local, oss).
+      lock:
+        type: object
+        additionalProperties: true
+        description: |
+          State-lock policy (timeout). See
+          api/v1alpha1/terraform/terraform_config.go for LockConfig fields.
+  vm:
+    type: object
+    additionalProperties: false
+    description: |
+      Workstation VM settings. Applies to colima / colima-incus / docker-
+      desktop driver choices; ignored when the workstation runs directly on
+      Docker without a VM.
+    properties:
+      address:
+        type: string
+        description: VM address used for SSH and workstation networking.
+      arch:
+        type: string
+        enum:
+          - amd64
+          - arm64
+        description: CPU architecture for the VM.
+      cpu:
+        type: integer
+        description: Virtual CPU count.
+      disk:
+        type: integer
+        description: Disk size in GB.
+      driver:
+        type: string
+        description: VM driver. One of 'colima', 'colima-incus', 'docker-desktop', 'docker'.
+      memory:
+        type: integer
+        description: Memory in GB.
+      runtime:
+        type: string
+        description: Container runtime inside the VM (typically 'docker').
+  cluster:
+    type: object
+    additionalProperties: false
+    description: |
+      Kubernetes cluster configuration. Node-group sub-types
+      (NodeGroupConfig) are authored in
+      api/v1alpha1/cluster/cluster_config.go; expansion to full field
+      detail is a planned follow-up.
+    properties:
+      enabled:
+        type: boolean
+        description: Whether the cluster integration is active for this context.
+      driver:
+        type: string
+        description: Cluster driver name (e.g. 'talos').
+      endpoint:
+        type: string
+        description: Kubernetes API endpoint URL.
+      image:
+        type: string
+        description: Default node image (typically a Talos image reference).
+      controlplanes:
+        type: object
+        additionalProperties: true
+        description: |
+          Controlplane node group settings (count, cpu, memory, image, per-
+          node overrides). See api/v1alpha1/cluster/cluster_config.go for
+          full NodeGroupConfig fields.
+      workers:
+        type: object
+        additionalProperties: true
+        description: |
+          Worker node group settings. Same shape as controlplanes; see
+          api/v1alpha1/cluster/cluster_config.go.
+  network:
+    type: object
+    additionalProperties: false
+    description: Cluster network configuration.
+    properties:
+      cidr_block:
+        type: string
+        description: CIDR block for the cluster network.
+      loadbalancer_ips:
+        type: object
+        additionalProperties: false
+        description: IP address range to reserve for load-balancer services.
+        properties:
+          start:
+            type: string
+            description: First IP in the range (inclusive).
+          end:
+            type: string
+            description: Last IP in the range (inclusive).
+  dns:
+    type: object
+    additionalProperties: false
+    description: DNS configuration.
+    properties:
+      domain:
+        type: string
+        description: Primary DNS domain for the context (e.g. 'example.test').
+      address:
+        type: string
+        description: DNS server address that downstream services should resolve against.
+      forward:
+        type: array
+        items:
+          type: string
+        description: Upstream DNS servers the cluster's CoreDNS forwards unresolved queries to.
+      records:
+        type: array
+        items:
+          type: string
+        description: Static DNS records to register in the cluster's CoreDNS.
+examples:
+  - version: v1alpha1
+    contexts:
+      local:
+        platform: docker
+        dns:
+          domain: local.test
+        docker:
+          enabled: true
+      staging:
+        platform: aws
+        aws:
+          region: us-east-1
+          profile: staging
+        cluster:
+          enabled: true
+          driver: talos
+          endpoint: https://staging-cp.example.test:6443
+        terraform:
+          enabled: true
+          backend:
+            type: s3
+            s3:
+              bucket: my-org-tf-state
+              region: us-east-1

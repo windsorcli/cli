@@ -17,11 +17,11 @@ variable substitutions shared across them.
 | `apiVersion` | `string` | API schema version. Must be 'blueprints.windsorcli.dev/v1alpha1'. **(required)** |
 | `metadata` | `object` | Identity for the blueprint. **(required)** |
 | `backend` | `string` | Names the terraform component that terminates the backend tier. When set, 'windsor bootstrap' applies the backend component (and every component declared before it) against local state first, then migrates state to the configured remote backend before applying the rest of the graph. |
-| `configMaps` | `object` | Standalone ConfigMaps to create. Each top-level key is a ConfigMap name; its map-of-string value is the .data payload. These are referenced by every kustomization in PostBuild substitution. |
+| `configMaps` | `map<object>` | Standalone ConfigMaps to create. Each top-level key is a ConfigMap name; its map-of-string value is the .data payload. These are referenced by every kustomization in PostBuild substitution. |
 | `kustomize` | `array<object>` | Flux kustomizations included in the blueprint. Each entry maps to a Kustomization resource the provisioner applies to the cluster, in topologically sorted dependsOn order. |
 | `repository` | `object` | Source repository this blueprint was bootstrapped from. |
 | `sources` | `array<object>` | External resources referenced by the blueprint. Each source is an OCI blueprint artifact or a Git repository that contributes Terraform modules and/or kustomize bases consumable by the components below. |
-| `substitutions` | `object` | Blueprint-level substitutions injected into 'values-common' and made available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against facet config blocks. |
+| `substitutions` | `map<string>` | Blueprint-level substitutions injected into 'values-common' and made available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against facet config blocks. |
 | `terraform` | `array<object>` | Terraform components included in the blueprint, in declaration order. Components are reordered topologically by dependsOn at apply time. |
 
 ## metadata
@@ -49,7 +49,7 @@ variable substitutions shared across them.
 | `prune` | `boolean` | Garbage-collect resources removed from the source. Defaults to true. |
 | `retryInterval` | `string` | Duration to wait before retrying a failed reconciliation (e.g. '2m'). |
 | `source` | `string` | Name of the source (from the sources list) that provides this kustomization. Defaults to the blueprint's primary source when unset. |
-| `substitutions` | `object` | PostBuild variable substitutions for this kustomization. Collected into a 'values-<name>' ConfigMap that Flux substitutes from. |
+| `substitutions` | `map<string>` | PostBuild variable substitutions for this kustomization. Collected into a 'values-<name>' ConfigMap that Flux substitutes from. |
 | `targetNamespace` | `string` | Populates spec.targetNamespace, instructing Flux to override the namespace of every resource reconciled by this kustomization. |
 | `timeout` | `string` | Maximum duration for a single reconciliation attempt (e.g. '10m'). |
 | `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |

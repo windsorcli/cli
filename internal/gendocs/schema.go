@@ -230,15 +230,28 @@ func writeSchemaFields(w io.Writer, schema map[string]any, headingPath string, r
 // when a property warrants a subsection. Object schemas with properties
 // recurse directly; array<object> schemas recurse into items with a "[]"
 // suffix on the label so the reader can tell the field table describes each
-// item rather than the array itself. Returns nil when no subsection should be
-// emitted (primitive, array of primitives, empty object).
+// item rather than the array itself; map<object> schemas
+// (additionalProperties pointing at an object schema) recurse into the value
+// schema with a "{}" suffix on the label, parallel to the array convention.
+// Returns nil when no subsection should be emitted (primitive, array of
+// primitives, empty object).
 func nestedSchemaFor(propSchema map[string]any, name, headingPath string, root map[string]any) (map[string]any, string) {
 	base := name
 	if headingPath != "" {
 		base = headingPath + "." + name
 	}
-	if typeOf(propSchema) == "object" && hasProperties(propSchema) {
-		return propSchema, base
+	if typeOf(propSchema) == "object" {
+		if hasProperties(propSchema) {
+			return propSchema, base
+		}
+		// Map-of-object: surface the value schema as a "{}"-suffixed
+		// subsection so readers see the per-value field table.
+		if addProps, ok := propSchema["additionalProperties"].(map[string]any); ok {
+			addProps = resolveRef(addProps, root)
+			if typeOf(addProps) == "object" && hasProperties(addProps) {
+				return addProps, base + "{}"
+			}
+		}
 	}
 	if typeOf(propSchema) == "array" {
 		items, _ := propSchema["items"].(map[string]any)
@@ -314,6 +327,20 @@ func schemaFieldRow(name string, propSchema map[string]any, required bool, root 
 			items = resolveRef(items, root)
 			if itemType := typeOf(items); itemType != "" {
 				typeName = "array<" + itemType + ">"
+			}
+		}
+	}
+	if typeName == "object" {
+		// 'object' with a schema-shaped 'additionalProperties' is JSON
+		// Schema's idiomatic 'map<K, V>': any string key, value matches the
+		// nested schema. Surface this in the type column as 'map<valueType>'
+		// (parallel to 'array<itemType>') so readers can distinguish a fixed-
+		// shape object from a map. Plain bool 'additionalProperties' (open or
+		// closed) keeps the bare 'object' label.
+		if addProps, ok := propSchema["additionalProperties"].(map[string]any); ok {
+			addProps = resolveRef(addProps, root)
+			if valType := typeOf(addProps); valType != "" {
+				typeName = "map<" + valType + ">"
 			}
 		}
 	}
