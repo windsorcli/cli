@@ -23,9 +23,27 @@ var (
 )
 
 var upCmd = &cobra.Command{
-	Use:          "up",
-	Short:        "Bring up the local workstation environment",
-	Long:         "Bring up the local workstation environment by starting the VM, applying Terraform, and installing the blueprint.",
+	Use:   "up",
+	Short: "Bring up the local workstation environment.",
+	Long: `Start the workstation VM, run Terraform components, then install the Flux blueprint. Workstation contexts only — for non-workstation contexts, use 'windsor apply'. If the current context has no workstation, up exits with a hint and does no work.
+
+Returns once the install request has been issued. Pass --wait to block until kustomizations report ready.
+
+If any host-side network or DNS configuration was deferred (because it requires sudo / elevation), up prints a follow-up command at the end so the operator knows what to run next.`,
+	Example: `# Bring up the workstation and wait for everything to be ready
+windsor up --wait
+
+# Override an inline config value at startup
+windsor up --set cluster.workers.count=3
+
+# Initialize and bring up with a specific blueprint
+windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)\n" +
+			"[`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)",
+		"docs.source": "cmd/up.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var opts []*project.Project
@@ -180,10 +198,10 @@ func buildUpFlagOverrides() (map[string]any, error) {
 }
 
 func init() {
-	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready")
-	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver (colima, colima-incus, docker-desktop, docker)")
-	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Specify the platform to use [none|metal|docker|aws|azure|gcp|hyperv]")
-	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Specify the blueprint to use")
-	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override configuration values. Example: --set cluster.endpoint=https://localhost:6443")
+	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver: colima, colima-incus, docker-desktop, docker.")
+	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Target platform: none, metal, docker, aws, azure, gcp, hyperv.")
+	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Blueprint OCI reference or local path.")
+	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false. May be repeated.")
 	rootCmd.AddCommand(upCmd)
 }

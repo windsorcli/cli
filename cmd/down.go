@@ -10,9 +10,22 @@ import (
 )
 
 var downCmd = &cobra.Command{
-	Use:          "down",
-	Short:        "Stop the local workstation environment",
-	Long:         "Stop the local workstation environment by tearing down the VM, stopping container runtimes, and cleaning up context artifacts.",
+	Use:   "down",
+	Short: "Stop the local workstation environment.",
+	Long: `Tear down the workstation VM, stop container runtimes, and clear local context artifacts (.kube, .talos, generated terraform stubs, etc.). Live infrastructure is NOT destroyed by down — run 'windsor destroy' first if you need to remove cloud resources. Workstation contexts only.
+
+If any host-side network or DNS configuration was previously installed by 'windsor configure network', down prints a follow-up command at the end so the operator can clean up leftover host state.`,
+	Example: `# Standard teardown
+windsor down
+
+# Full teardown including cloud infrastructure
+windsor destroy --confirm=local
+windsor down`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`up`](up.md), [`destroy`](destroy.md), [`configure network`](configure-network.md)",
+		"docs.source": "cmd/down.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// `windsor down` stops the local workstation (container runtime + colima VM if

@@ -43,9 +43,30 @@ var (
 // first-run / subsequent-run branching. Without an in-blueprint backend tier, bootstrap
 // forwards to a single Up pass against the configured backend.
 var bootstrapCmd = &cobra.Command{
-	Use:          "bootstrap [context]",
-	Short:        "Bootstrap a fresh environment end-to-end",
-	Long:         "First-run setup for a context: applies Terraform, installs the Flux blueprint, and migrates state to the configured remote backend. Use `windsor apply` for everything after.",
+	Use:   "bootstrap [context]",
+	Short: "Bootstrap a fresh environment end-to-end.",
+	Long: `First-run setup for a context: applies Terraform, installs the Flux blueprint, migrates state to the configured remote backend, and waits for kustomizations.
+
+When the blueprint declares a backend Terraform component, bootstrap runs a two-phase apply to resolve the chicken-and-egg case where the remote backend (S3 bucket, DynamoDB table, etc.) lives in infrastructure Terraform must create first:
+
+    1. Override terraform.backend.type to 'local' in memory and apply only the backend component.
+    2. Restore the configured backend type and migrate the backend component's state.
+    3. Subsequent components init directly against the remote backend.
+
+When no backend component exists, bootstrap falls through to a single apply against whatever backend is configured.
+
+Re-running on an existing context prompts for confirmation. Pass --yes (or -y) to skip the prompt in CI.`,
+	Example: `# Bootstrap a new staging context on AWS
+windsor bootstrap staging --platform=aws --blueprint=ghcr.io/myorg/blueprint:v1.0.0
+
+# Re-bootstrap an existing context, scripted (skip the prompt)
+windsor bootstrap prod --yes`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[Terraform components](https://www.windsorcli.dev/docs/components/terraform)\n" +
+			"[`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)",
+		"docs.source": "cmd/bootstrap.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -350,9 +371,9 @@ func confirmBootstrapIfContextExists(in io.Reader, configRoot, contextName strin
 }
 
 func init() {
-	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Target platform [none|metal|docker|aws|azure|gcp|hyperv]")
-	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Blueprint OCI reference (oci://ghcr.io/org/repo:tag, ghcr.io/org/repo:tag, or org/repo:tag — host defaults to ghcr.io; tag is required)")
-	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override config values, e.g. --set cluster.endpoint=https://localhost:6443")
-	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip all confirmation prompts")
+	bootstrapCmd.Flags().StringVar(&bootstrapPlatform, "platform", "", "Target platform: none, metal, docker, aws, azure, gcp, hyperv.")
+	bootstrapCmd.Flags().StringVar(&bootstrapBlueprint, "blueprint", "", "Blueprint OCI reference. Accepts oci://host/org/repo:tag, host/org/repo:tag, or org/repo:tag (host defaults to ghcr.io). Tag is required.")
+	bootstrapCmd.Flags().StringSliceVar(&bootstrapSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false. May be repeated.")
+	bootstrapCmd.Flags().BoolVarP(&bootstrapYes, "yes", "y", false, "Skip all confirmation prompts.")
 	rootCmd.AddCommand(bootstrapCmd)
 }
