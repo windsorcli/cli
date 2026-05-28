@@ -1,139 +1,106 @@
 ---
 title: "Schema"
-description: "Reference for JSON Schema file structure and supported features"
+description: "Blueprint input-schema file (contexts/_template/schema.yaml)."
 ---
-# Input Schema Validation
+# Schema
 
-Blueprints can include a JSON Schema file (`_template/schema.yaml`) that defines the expected structure and default values for configuration.
+`contexts/_template/schema.yaml` is the input-schema file for a blueprint
+template. It validates the merged values that `windsor` passes into
+rendering and supplies the default values surfaced by `windsor values`.
 
-## Schema File Structure
+The file is a JSON Schema document written in YAML. Validation runs
+through [`kaptinlin/jsonschema`](https://github.com/kaptinlin/jsonschema),
+a full JSON Schema 2020-12 compiler — every keyword in the 2020-12 spec
+is honoured for validation.
 
-The schema file must use the Windsor schema dialect. The schema is located at `_template/schema.yaml` in blueprint templates.
+## Dialect
 
-```yaml
-$schema: https://windsorcli.dev/schema/2026-02/schema
-type: object
-properties:
-  # ... property definitions
-```
+The `$schema` field is required. The validator accepts two URIs:
 
-## Supported Types
+| URI | Status |
+|-----|--------|
+| `https://json-schema.org/draft/2020-12/schema` | Recommended for new schemas. |
+| `https://windsorcli.dev/schema/2026-02/schema` | Accepted for backwards compatibility; rewritten to the canonical 2020-12 URI at compile time. |
 
-Windsor supports the following JSON Schema types:
+Any other value is rejected at load time.
 
-| Type | Description |
-|------|-------------|
-| `object` | Key-value pairs |
-| `string` | Text values |
-| `array` | Ordered lists |
-| `integer` | Whole numbers |
-| `boolean` | True/false values |
-| `null` | Null values |
+## Validation
 
-## Supported Validation Keywords
+The compiled schema validates the merged values object — composer
+defaults overlaid with user-supplied values from `windsor set` and from
+`values.yaml` files. Validation failures surface as
+`<instance-path>: <keyword>: <message>` per leaf and abort the command
+that triggered the load.
 
-### Type Keywords
+All JSON Schema 2020-12 keywords work: structural (`type`,
+`properties`, `required`, `additionalProperties`, `items`),
+composition (`allOf`, `anyOf`, `oneOf`, `not`), references (`$ref`,
+`$defs`), constraints (`minLength`, `maxLength`, `minimum`, `maximum`,
+`pattern`, `format`, `const`, `enum`), and conditional
+(`if`/`then`/`else`, `dependentSchemas`, `dependentRequired`).
 
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `type` | `string` | Data type of the value |
+## Defaults
 
-### Object Keywords
+A separate pass walks `properties` recursively and collects every
+`default:` it encounters. The collected map is what `GetSchemaDefaults`
+returns and what `windsor values` displays under the "defaults" layer.
 
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `properties` | `object` | Object property definitions |
-| `required` | `array` | Required property names |
-| `additionalProperties` | `boolean` or `object` | Control additional properties. `false` disallows, object validates |
+The walk only descends through nested objects declared as
+`type: object` with their own `properties`. Defaults declared inside
+the following constructs are validated but are **not** extracted into
+the defaults layer:
 
-### String Keywords
+- `array` schemas (`items.default`, `prefixItems[*].default`)
+- composition branches (`allOf`/`anyOf`/`oneOf`/`not`)
+- `$ref` targets and `$defs` entries
+- conditional branches (`if`/`then`/`else`)
+- `additionalProperties` and `patternProperties` schemas
 
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `enum` | `array` | Allowed values |
-| `pattern` | `string` | Regex pattern for validation |
-
-### Array Keywords
-
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `items` | `object` | Schema for array items |
-
-### Default Values
-
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `default` | `any` | Default value when property is missing |
-
-## Nested Objects
-
-Nested object structures are supported recursively. Each nested object can have its own `properties`, `required`, `additionalProperties`, and `default` values.
-
-## Unsupported Features
-
-The following JSON Schema Draft 2020-12 features are **not** supported:
-
-- **Numeric constraints**: `minimum`, `maximum`, `multipleOf`
-- **String length constraints**: `minLength`, `maxLength`
-- **Array constraints**: `minItems`, `maxItems`, `uniqueItems`
-- **Composition keywords**: `allOf`, `anyOf`, `oneOf`, `not`
-- **References**: `$ref`, `$defs`
-- **Format validation**: `format` keyword
-- **Constants**: `const` keyword
-- **Conditional validation**: `if`, `then`, `else`
-- **Dependent schemas**: `dependentSchemas`, `dependentRequired`
-
-## Schema File Location
-
-The schema file must be located at `contexts/_template/schema.yaml` in your blueprint template directory.
+Place defaults directly under each leaf property of a nested
+`properties` tree to make sure they surface.
 
 ## Example
 
 ```yaml
-$schema: https://windsorcli.dev/schema/2026-02/schema
+$schema: https://json-schema.org/draft/2020-12/schema
 type: object
+additionalProperties: false
 properties:
-  provider:
+  platform:
     type: string
-    default: "none"
-    enum: ["none", "metal", "docker", "aws", "azure", "gcp"]
+    enum: [none, metal, docker, aws, azure, gcp]
+    default: none
   observability:
     type: object
+    additionalProperties: false
     properties:
       enabled:
         type: boolean
         default: false
       backend:
         type: string
-        default: "quickwit"
-        enum: ["quickwit", "loki", "elasticsearch"]
-    additionalProperties: false
+        enum: [quickwit, loki, elasticsearch]
+        default: quickwit
   cluster:
     type: object
+    additionalProperties: false
     properties:
       enabled:
         type: boolean
         default: true
       workers:
         type: object
+        additionalProperties: false
         properties:
           count:
             type: integer
+            minimum: 1
             default: 1
-        additionalProperties: false
-    additionalProperties: false
-additionalProperties: false
 ```
 
-<div>
-  {{ footer('Facets', '../facets/index.html', 'Metadata', '../metadata/index.html') }}
-</div>
+## See also
 
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../facets/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../metadata/index.html'; 
-  });
-</script>
+- [Blueprint reference](blueprint.md) — top-level blueprint definition
+- [Metadata reference](metadata.md), [Facets reference](facets.md)
+- [`show values`](commands/show-values.md), [`set`](commands/set.md)
+- Source loader: [pkg/runtime/config/schema_validator.go](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schema_validator.go)
