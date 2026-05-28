@@ -24,14 +24,39 @@ var configureNetworkPreflight = workstation.PreflightConfigureNetwork
 
 var configureCmd = &cobra.Command{
 	Use:   "configure",
-	Short: "Configure Windsor resources",
-	Long:  "Configure Windsor resources such as workstation host/guest networking and DNS.",
+	Short: "Configure workstation resources.",
+	Long:  `Configure workstation host/guest resources. Currently supports networking and DNS via the 'network' subcommand.`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)\n" +
+			"[`up`](up.md)",
+		"docs.source": "cmd/configure.go",
+	},
 }
 
 var configureNetworkCmd = &cobra.Command{
-	Use:          "network",
-	Short:        "Configure workstation host/guest networking and DNS",
-	Long:         "Run after 'windsor up' has provisioned the workstation. Installs the host route + in-VM forwarding required for cluster reachability on VM-backed runtimes, and writes the per-domain DNS resolver entry so '*.<dns.domain>' resolves to the cluster's DNS service. Prompts for sudo on macOS/Linux; must be run from an Administrator PowerShell on Windows. Use --dns-address to override the DNS service address; --dry-run to describe what would change without invoking sudo; --revert to remove the host configuration this command previously installed.",
+	Use:   "network",
+	Short: "Configure workstation host/guest networking and DNS.",
+	Long: `Run after 'windsor up' has provisioned the workstation. Installs the host route and in-VM forwarding required for cluster reachability on VM-backed runtimes, and writes the per-domain DNS resolver entry so '*.<dns.domain>' resolves to the cluster's DNS service.
+
+Prompts for sudo on macOS/Linux; must be run from an Administrator PowerShell on Windows. Use --dry-run to preview without modifying host state, or --revert to remove the host configuration this command previously installed.
+
+If the current context has no workstation enabled, the command is a no-op and prints 'workstation disabled'.`,
+	Example: `# Wire network using the DNS address from Terraform workstation output
+windsor configure network
+
+# Preview the changes without invoking sudo
+windsor configure network --dry-run
+
+# Wire network and explicitly set the DNS service address
+windsor configure network --dns-address=10.5.0.2
+
+# Remove the host configuration installed by this command
+windsor configure network --revert`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)\n" +
+			"[`up`](up.md)",
+		"docs.source": "cmd/configure.go",
+	},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var opts []*project.Project
