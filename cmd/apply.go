@@ -12,9 +12,26 @@ import (
 var applyWaitFlag bool // Wait for kustomization resources to be ready after applying
 
 var applyCmd = &cobra.Command{
-	Use:          "apply",
-	Short:        "Apply infrastructure changes",
-	Long:         "Apply infrastructure changes for Windsor environment components by running Terraform and installing the blueprint.",
+	Use:   "apply",
+	Short: "Apply terraform and install the blueprint.",
+	Long: `Run Terraform components, then install the Flux blueprint. Use the 'terraform' or 'kustomize' subcommand to scope to a single layer.
+
+For workstation contexts, prefer 'windsor up' — it does the same work plus VM management.
+
+Pass --wait to block until kustomizations report ready.`,
+	Example: `# Apply everything and block until ready
+windsor apply --wait
+
+# Apply only the cluster terraform component
+windsor apply terraform cluster
+
+# Apply just the dns kustomization
+windsor apply kustomize dns`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`plan`](plan.md), [`destroy`](destroy.md), [`up`](up.md), [`bootstrap`](bootstrap.md)",
+		"docs.source": "cmd/apply.go",
+	},
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -67,10 +84,20 @@ var applyCmd = &cobra.Command{
 }
 
 var applyTerraformCmd = &cobra.Command{
-	Use:          "terraform <project>",
-	Aliases:      []string{"tf"},
-	Short:        "Apply Terraform changes for a specific project",
-	Long:         "Apply Terraform changes for a specific project layer.",
+	Use:     "terraform <component>",
+	Aliases: []string{"tf"},
+	Short:   "Apply Terraform changes for a single component.",
+	Long:    `Run terraform apply for a single component. The <component> argument is required and must match a terraform component declared in the blueprint.`,
+	Example: `# Apply the cluster component
+windsor apply terraform cluster
+
+# Same, using the 'tf' alias
+windsor apply tf cluster`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`apply`](apply.md), [`plan terraform`](plan-terraform.md), [`destroy terraform`](destroy-terraform.md)",
+		"docs.source": "cmd/apply.go",
+	},
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -99,9 +126,24 @@ var applyTerraformCmd = &cobra.Command{
 }
 
 var applyKustomizeCmd = &cobra.Command{
-	Use:          "kustomize [name]",
-	Short:        "Apply Flux kustomization(s) to the cluster",
-	Long:         "Apply a single Flux kustomization to the cluster by name, or all kustomizations when no argument is given.",
+	Use:   "kustomize [name]",
+	Short: "Apply Flux kustomization(s) to the cluster.",
+	Long: `Apply a single Flux kustomization to the cluster by name, or all kustomizations when no argument is given.
+
+When a name is supplied with --wait, the wait scope is narrowed to only that kustomization.`,
+	Example: `# Apply all kustomizations
+windsor apply kustomize
+
+# Apply just the dns kustomization
+windsor apply kustomize dns
+
+# Apply and wait for one kustomization to be ready
+windsor apply kustomize dns --wait`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`apply`](apply.md), [`plan kustomize`](plan-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
+		"docs.source": "cmd/apply.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -152,8 +194,8 @@ var applyKustomizeCmd = &cobra.Command{
 }
 
 func init() {
-	applyCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready")
-	applyKustomizeCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready")
+	applyCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	applyKustomizeCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
 	applyCmd.AddCommand(applyTerraformCmd)
 	applyCmd.AddCommand(applyKustomizeCmd)
 	rootCmd.AddCommand(applyCmd)

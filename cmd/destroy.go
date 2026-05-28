@@ -25,11 +25,26 @@ var destroyConfirm string
 
 var destroyCmd = &cobra.Command{
 	Use:   "destroy [component]",
-	Short: "Destroy infrastructure components",
-	Long: `Destroy infrastructure components for Windsor environment.
+	Short: "Destroy live infrastructure.",
+	Long: `Destroy live infrastructure. With no argument, removes every Flux kustomization, then every Terraform component. With a component name, destroys that component across both layers (Terraform and/or Kustomize).
 
-With no argument, destroys all Flux kustomizations then all Terraform components.
-With a component name, destroys every layer (Terraform and/or Kustomize) that contains that component.`,
+Every form requires confirmation. Either type the context or component name at the prompt, or pass --confirm=<expected> to satisfy the gate non-interactively (CI-safe). The --confirm value must match the prompt token exactly; mismatches abort the operation.
+
+If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.`,
+	Example: `# Destroy everything in the current context (interactive)
+windsor destroy
+# → prompts: Type "local" to confirm:
+
+# Same, scripted
+windsor destroy --confirm=local
+
+# Destroy just the dns component (across both layers)
+windsor destroy dns --confirm=dns`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)",
+		"docs.source": "cmd/destroy.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -146,10 +161,20 @@ With a component name, destroys every layer (Terraform and/or Kustomize) that co
 }
 
 var destroyTerraformCmd = &cobra.Command{
-	Use:          "terraform [project]",
-	Aliases:      []string{"tf"},
-	Short:        "Destroy Terraform component(s)",
-	Long:         "Destroy a specific Terraform component, or all components when no argument is given.",
+	Use:     "terraform [component]",
+	Aliases: []string{"tf"},
+	Short:   "Destroy Terraform component(s).",
+	Long: `Destroy a specific Terraform component, or all components when no argument is given. Inherits --confirm from the parent 'destroy' command.`,
+	Example: `# Destroy a single terraform component
+windsor destroy terraform cluster --confirm=cluster
+
+# Destroy every terraform component in the current context
+windsor destroy terraform --confirm=local`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`destroy`](destroy.md), [`apply terraform`](apply-terraform.md), [`plan terraform`](plan-terraform.md)",
+		"docs.source": "cmd/destroy.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -228,10 +253,20 @@ var destroyTerraformCmd = &cobra.Command{
 }
 
 var destroyKustomizeCmd = &cobra.Command{
-	Use:          "kustomize [name]",
-	Aliases:      []string{"k8s"},
-	Short:        "Destroy Flux kustomization(s)",
-	Long:         "Delete a specific Flux kustomization from the cluster, or all kustomizations when no argument is given.",
+	Use:     "kustomize [name]",
+	Aliases: []string{"k8s"},
+	Short:   "Destroy Flux kustomization(s).",
+	Long: `Delete a specific Flux kustomization from the cluster, or all kustomizations when no argument is given. Inherits --confirm from the parent 'destroy' command.`,
+	Example: `# Delete a single kustomization
+windsor destroy kustomize dns --confirm=dns
+
+# Delete every kustomization in the current context
+windsor destroy kustomize --confirm=local`,
+	Annotations: map[string]string{
+		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
+			"[`destroy`](destroy.md), [`apply kustomize`](apply-kustomize.md), [`plan kustomize`](plan-kustomize.md)",
+		"docs.source": "cmd/destroy.go",
+	},
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -375,7 +410,7 @@ func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected 
 // context name (for layer-wide destroy) or component name (for targeted destroy); this is the
 // CI-safe equivalent of the interactive prompt. There is no flag that skips confirmation entirely.
 func init() {
-	destroyCmd.PersistentFlags().StringVar(&destroyConfirm, "confirm", "", "Context or component name to confirm destruction (bypasses interactive prompt)")
+	destroyCmd.PersistentFlags().StringVar(&destroyConfirm, "confirm", "", "Context or component name to confirm destruction. Must match the prompt token exactly; mismatches abort.")
 	destroyCmd.AddCommand(destroyTerraformCmd)
 	destroyCmd.AddCommand(destroyKustomizeCmd)
 	rootCmd.AddCommand(destroyCmd)

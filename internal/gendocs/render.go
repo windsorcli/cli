@@ -60,13 +60,18 @@ func writeLong(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w)
 }
 
-// writeFlagsTable renders only the command's own flags (cmd.Flags()), excluding
-// inherited persistent flags from parents. This matches the hand-written
-// reference convention — globals like --verbose / --no-cache are documented
-// once at the root rather than duplicated on every page. Cobra's auto-added
-// --help is also skipped as boilerplate.
+// writeFlagsTable renders only the command's own flags via cmd.LocalFlags() —
+// the local non-persistent flagset plus any persistent flags declared on this
+// command. Inherited persistent flags from ancestors are excluded so globals
+// like --verbose / --no-cache aren't duplicated on every page; a parent
+// command's persistent flags are documented on the parent page and noted as
+// inherited in the subcommand's Long. Cobra's auto-added --help is also
+// skipped as boilerplate.
+//
+// We use LocalFlags() rather than Flags() because Flags() relies on cobra's
+// Execute() to merge persistent flags, which never runs during doc generation.
 func writeFlagsTable(w io.Writer, cmd *cobra.Command) {
-	rows := flagRows(cmd.Flags())
+	rows := flagRows(cmd.LocalFlags())
 	if len(rows) == 0 {
 		return
 	}
