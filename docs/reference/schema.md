@@ -1,139 +1,92 @@
 ---
 title: "Schema"
-description: "Reference for JSON Schema file structure and supported features"
+description: "Blueprint input-schema file (contexts/_template/schema.yaml)."
 ---
-# Input Schema Validation
+# Schema
 
-Blueprints can include a JSON Schema file (`_template/schema.yaml`) that defines the expected structure and default values for configuration.
+`contexts/_template/schema.yaml` is the input-schema file for a blueprint
+template. It validates the values your blueprint receives — defaults
+plus anything the user set via `windsor set` or `values.yaml` files —
+and supplies the default values shown by `windsor values`.
 
-## Schema File Structure
+The file is a JSON Schema document written in YAML.
 
-The schema file must use the Windsor schema dialect. The schema is located at `_template/schema.yaml` in blueprint templates.
+## Dialect
 
-```yaml
-$schema: https://windsorcli.dev/schema/2026-02/schema
-type: object
-properties:
-  # ... property definitions
-```
+The `$schema` field is required and must be
+`https://json-schema.org/draft/2020-12/schema`. Any other value is
+rejected at load time.
 
-## Supported Types
+## Validation
 
-Windsor supports the following JSON Schema types:
+The schema validates against the full JSON Schema 2020-12 specification.
+Structural keywords (`type`, `properties`, `required`,
+`additionalProperties`, `items`), composition (`allOf`, `anyOf`,
+`oneOf`, `not`), references (`$ref`, `$defs`), constraints
+(`minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `format`,
+`const`, `enum`), and conditional logic (`if`/`then`/`else`,
+`dependentSchemas`, `dependentRequired`) all work.
 
-| Type | Description |
-|------|-------------|
-| `object` | Key-value pairs |
-| `string` | Text values |
-| `array` | Ordered lists |
-| `integer` | Whole numbers |
-| `boolean` | True/false values |
-| `null` | Null values |
+Validation failures abort the command that triggered the load and
+report each violation with its instance path and the keyword that
+failed.
 
-## Supported Validation Keywords
+## Defaults
 
-### Type Keywords
+A `default:` declared on a property surfaces in `windsor values` and
+seeds the value the blueprint receives if the user did not override it.
 
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `type` | `string` | Data type of the value |
+Defaults only surface when declared directly on a property under a
+nested `properties:` tree. Defaults declared inside the following
+constructs are validated but do **not** seed any value:
 
-### Object Keywords
-
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `properties` | `object` | Object property definitions |
-| `required` | `array` | Required property names |
-| `additionalProperties` | `boolean` or `object` | Control additional properties. `false` disallows, object validates |
-
-### String Keywords
-
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `enum` | `array` | Allowed values |
-| `pattern` | `string` | Regex pattern for validation |
-
-### Array Keywords
-
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `items` | `object` | Schema for array items |
-
-### Default Values
-
-| Keyword | Type | Description |
-|---------|------|-------------|
-| `default` | `any` | Default value when property is missing |
-
-## Nested Objects
-
-Nested object structures are supported recursively. Each nested object can have its own `properties`, `required`, `additionalProperties`, and `default` values.
-
-## Unsupported Features
-
-The following JSON Schema Draft 2020-12 features are **not** supported:
-
-- **Numeric constraints**: `minimum`, `maximum`, `multipleOf`
-- **String length constraints**: `minLength`, `maxLength`
-- **Array constraints**: `minItems`, `maxItems`, `uniqueItems`
-- **Composition keywords**: `allOf`, `anyOf`, `oneOf`, `not`
-- **References**: `$ref`, `$defs`
-- **Format validation**: `format` keyword
-- **Constants**: `const` keyword
-- **Conditional validation**: `if`, `then`, `else`
-- **Dependent schemas**: `dependentSchemas`, `dependentRequired`
-
-## Schema File Location
-
-The schema file must be located at `contexts/_template/schema.yaml` in your blueprint template directory.
+- `array` schemas (`items.default`, `prefixItems[*].default`)
+- composition branches (`allOf`/`anyOf`/`oneOf`/`not`)
+- `$ref` targets and `$defs` entries
+- conditional branches (`if`/`then`/`else`)
+- `additionalProperties` and `patternProperties` schemas
 
 ## Example
 
 ```yaml
-$schema: https://windsorcli.dev/schema/2026-02/schema
+$schema: https://json-schema.org/draft/2020-12/schema
 type: object
+additionalProperties: false
 properties:
-  provider:
+  platform:
     type: string
-    default: "none"
-    enum: ["none", "metal", "docker", "aws", "azure", "gcp"]
+    enum: [none, metal, docker, aws, azure, gcp]
+    default: none
   observability:
     type: object
+    additionalProperties: false
     properties:
       enabled:
         type: boolean
         default: false
       backend:
         type: string
-        default: "quickwit"
-        enum: ["quickwit", "loki", "elasticsearch"]
-    additionalProperties: false
+        enum: [quickwit, loki, elasticsearch]
+        default: quickwit
   cluster:
     type: object
+    additionalProperties: false
     properties:
       enabled:
         type: boolean
         default: true
       workers:
         type: object
+        additionalProperties: false
         properties:
           count:
             type: integer
+            minimum: 1
             default: 1
-        additionalProperties: false
-    additionalProperties: false
-additionalProperties: false
 ```
 
-<div>
-  {{ footer('Facets', '../facets/index.html', 'Metadata', '../metadata/index.html') }}
-</div>
+## See also
 
-<script>
-  document.getElementById('previousButton').addEventListener('click', function() {
-    window.location.href = '../facets/index.html'; 
-  });
-  document.getElementById('nextButton').addEventListener('click', function() {
-    window.location.href = '../metadata/index.html'; 
-  });
-</script>
+- [Blueprint reference](blueprint.md) — top-level blueprint definition
+- [Metadata reference](metadata.md), [Facets reference](facets.md)
+- [`show values`](commands/show-values.md), [`set`](commands/set.md)

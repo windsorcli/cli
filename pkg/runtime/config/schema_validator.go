@@ -130,10 +130,8 @@ func (sv *SchemaValidator) GetSchemaDefaults() (map[string]any, error) {
 // =============================================================================
 
 // ensureCompiled lazily marshals the merged in-memory schema to JSON and compiles it with
-// kaptinlin. The custom windsorcli $schema URI is rewritten to the canonical draft 2020-12
-// URI on the marshaled copy so the compiler picks the right vocabulary; the in-memory
-// Schema map is left untouched. Subsequent calls return the cached compiled schema until
-// LoadSchemaFromBytes invalidates it.
+// kaptinlin. Subsequent calls return the cached compiled schema until LoadSchemaFromBytes
+// invalidates it.
 func (sv *SchemaValidator) ensureCompiled() (*jsonschema.Schema, error) {
 	if sv.Schema == nil {
 		return nil, fmt.Errorf("config schema has not been loaded")
@@ -142,13 +140,7 @@ func (sv *SchemaValidator) ensureCompiled() (*jsonschema.Schema, error) {
 		return sv.compiled, nil
 	}
 
-	forCompile := make(map[string]any, len(sv.Schema))
-	for k, v := range sv.Schema {
-		forCompile[k] = v
-	}
-	forCompile["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-
-	schemaJSON, err := json.Marshal(forCompile)
+	schemaJSON, err := json.Marshal(sv.Schema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal merged schema to JSON: %w", err)
 	}
@@ -161,9 +153,8 @@ func (sv *SchemaValidator) ensureCompiled() (*jsonschema.Schema, error) {
 	return compiled, nil
 }
 
-// validateSchemaStructure verifies the loaded fragment carries a recognized $schema URI.
-// Recognized values are the custom windsorcli URI (rewritten to draft 2020-12 at compile
-// time) and the canonical draft 2020-12 URI itself.
+// validateSchemaStructure verifies the loaded fragment carries the canonical draft 2020-12
+// $schema URI.
 func (sv *SchemaValidator) validateSchemaStructure(schema map[string]any) error {
 	schemaVersion, ok := schema["$schema"]
 	if !ok {
@@ -171,8 +162,7 @@ func (sv *SchemaValidator) validateSchemaStructure(schema map[string]any) error 
 	}
 
 	if schemaStr, ok := schemaVersion.(string); ok {
-		if schemaStr != "https://windsorcli.dev/schema/2026-02/schema" &&
-			schemaStr != "https://json-schema.org/draft/2020-12/schema" {
+		if schemaStr != "https://json-schema.org/draft/2020-12/schema" {
 			return fmt.Errorf("unsupported schema version: %s", schemaStr)
 		}
 	}

@@ -45,7 +45,7 @@ func TestSchemaValidator_LoadSchema(t *testing.T) {
 
 		// And a valid schema file
 		schemaContent := `
-$schema: https://windsorcli.dev/schema/2026-02/schema
+$schema: https://json-schema.org/draft/2020-12/schema
 title: Test Schema
 type: object
 properties:
