@@ -48,22 +48,23 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 // =============================================================================
 
 // GetEnvVars returns the AWS env vars for the current context. In project mode
-// AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE point at the context's .aws/
-// so `aws configure` stays scoped to the context instead of ~/.aws/. AWS_PROFILE
-// defaults to the context name (or aws.profile if set). When the parent env
-// already carries AWS credentials, project mode suppresses AWS_PROFILE and the
-// two file vars so the AWS CLI does not chase a [profile <context>] block
-// against the empty context .aws/; global mode keeps AWS_PROFILE flowing.
+// AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at the context's
+// .aws/ so `aws configure` stays scoped to the context. AWS_PROFILE is emitted
+// only when the named profile is actually defined in those files (or always in
+// global mode) — when the context has no matching profile, the var is omitted
+// so the AWS SDK falls through to env keys, IMDS, ECS task creds, or the
+// operator's ambient ~/.aws/ rather than failing with "profile not found".
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
-	ambient := hasAmbientAWSCredentials()
 
-	if !global && !ambient {
-		configRoot, err := e.configHandler.GetConfigRoot()
+	var configRoot string
+	if !global {
+		root, err := e.configHandler.GetConfigRoot()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 		}
+		configRoot = root
 		awsConfigDir := filepath.Join(configRoot, ".aws")
 		envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "config"))
 		envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
@@ -89,35 +90,15 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	if !ambient || global {
-		if awsProfileOverride != "" {
-			envVars["AWS_PROFILE"] = awsProfileOverride
-		} else if ctx := e.configHandler.GetContext(); ctx != "" {
-			envVars["AWS_PROFILE"] = ctx
-		}
+	profileName := awsProfileOverride
+	if profileName == "" {
+		profileName = e.configHandler.GetContext()
+	}
+	if profileName != "" && (global || contextHasAWSProfile(configRoot, profileName)) {
+		envVars["AWS_PROFILE"] = profileName
 	}
 
 	return envVars, nil
-}
-
-// hasAmbientAWSCredentials reports whether the parent env carries AWS
-// credentials via IRSA, ECS container creds, or static access keys. Callers
-// use it to skip context-scoped overrides that would otherwise mask the
-// native credential chain. IMDS is not covered — no env var detects it.
-func hasAmbientAWSCredentials() bool {
-	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" {
-		return true
-	}
-	if os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" {
-		return true
-	}
-	if os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
-		return true
-	}
-	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
-		return true
-	}
-	return false
 }
 
 // contextHasAWSProfile reports whether the named profile is defined in the

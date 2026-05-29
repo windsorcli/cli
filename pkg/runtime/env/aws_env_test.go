@@ -20,18 +20,6 @@ import (
 func setupAwsEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
 
-	// Clear ambient AWS credential env vars so tests run deterministically
-	// regardless of the operator's shell. Individual tests opt back in via t.Setenv.
-	for _, key := range []string{
-		"AWS_ACCESS_KEY_ID",
-		"AWS_SECRET_ACCESS_KEY",
-		"AWS_WEB_IDENTITY_TOKEN_FILE",
-		"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
-		"AWS_CONTAINER_CREDENTIALS_FULL_URI",
-	} {
-		t.Setenv(key, "")
-	}
-
 	mocks := setupEnvMocks(t, overrides...)
 
 	// If ConfigHandler wasn't overridden, use MockConfigHandler
@@ -113,43 +101,64 @@ contexts:
 
 // TestAwsEnv_GetEnvVars tests the GetEnvVars method of the AwsEnvPrinter
 func TestAwsEnv_GetEnvVars(t *testing.T) {
-	setup := func() (*AwsEnvPrinter, *EnvTestMocks) {
-		mocks := setupAwsEnvMocks(t)
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
-		return env, mocks
+	// withProfile rewires the config-root mock to a real temp dir and writes
+	// the supplied AWS config + credentials bodies into <root>/.aws/. Used by
+	// project-mode tests that need contextHasAWSProfile to return true.
+	withProfile := func(t *testing.T, mocks *EnvTestMocks, configBody, credentialsBody string) string {
+		t.Helper()
+		root := t.TempDir()
+		awsDir := filepath.Join(root, ".aws")
+		if err := os.MkdirAll(awsDir, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if configBody != "" {
+			if err := os.WriteFile(filepath.Join(awsDir, "config"), []byte(configBody), 0644); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+		}
+		if credentialsBody != "" {
+			if err := os.WriteFile(filepath.Join(awsDir, "credentials"), []byte(credentialsBody), 0644); err != nil {
+				t.Fatalf("write credentials: %v", err)
+			}
+		}
+		mocks.ConfigHandler.(*config.MockConfigHandler).GetConfigRootFunc = func() (string, error) {
+			return root, nil
+		}
+		return root
 	}
 
-	t.Run("Success", func(t *testing.T) {
-		// Given an AWS env printer with configuration
-		env, _ := setup()
+	t.Run("EmitsAWSProfileWhenContextHasMatchingProfile", func(t *testing.T) {
+		// Given the context's .aws/config contains the [default] profile section
+		// that aws.profile resolves to
+		mocks := setupAwsEnvMocks(t)
+		root := withProfile(t, mocks, "[default]\nregion = us-west-2\n", "")
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
 
 		// When GetEnvVars is called
 		envVars, err := env.GetEnvVars()
-
-		// Then environment variables should match expected values
 		if err != nil {
-			t.Errorf("GetEnvVars returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
+		// Then AWS_PROFILE flows alongside the file paths and destination vars
 		expected := map[string]string{
 			"AWS_PROFILE":                 "default",
 			"AWS_REGION":                  "us-west-2",
 			"AWS_ENDPOINT_URL":            "https://aws.endpoint",
 			"S3_HOSTNAME":                 "s3.amazonaws.com",
 			"MWAA_ENDPOINT":               "https://mwaa.endpoint",
-			"AWS_CONFIG_FILE":             "/mock/config/root/.aws/config",
-			"AWS_SHARED_CREDENTIALS_FILE": "/mock/config/root/.aws/credentials",
+			"AWS_CONFIG_FILE":             filepath.ToSlash(filepath.Join(root, ".aws", "config")),
+			"AWS_SHARED_CREDENTIALS_FILE": filepath.ToSlash(filepath.Join(root, ".aws", "credentials")),
 		}
-
 		if !reflect.DeepEqual(envVars, expected) {
 			t.Errorf("GetEnvVars returned %v, want %v", envVars, expected)
 		}
 	})
 
-	t.Run("EmitsConfigPathsEvenWhenFilesAbsent", func(t *testing.T) {
-		// Given a fresh AWS-platform context where .aws/config and .aws/credentials
-		// have not been created yet (operator hasn't run `aws configure`)
+	t.Run("OmitsAWSProfileWhenContextHasNoProfile", func(t *testing.T) {
+		// Given a project-mode context whose .aws/ is empty (operator has not
+		// run `aws configure` yet, or is relying on env-key / IMDS / IRSA creds)
 		mocks := setupAwsEnvMocks(t)
 		configStr := `
 version: v1alpha1
@@ -164,28 +173,25 @@ contexts:
 
 		// When GetEnvVars is called
 		envVars, err := env.GetEnvVars()
-
-		// Then AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE still point at the
-		// context-scoped paths so a subsequent `aws configure` writes into the context
-		// folder rather than ~/.aws. AWS_PROFILE defaults to the context name so the
-		// freshly-created profile section matches.
 		if err != nil {
-			t.Errorf("GetEnvVars returned an error: %v", err)
+			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
+		// Then file paths still flow (so a future `aws configure` writes into the
+		// context), but AWS_PROFILE is suppressed so the AWS SDK's credential
+		// chain runs naturally instead of erroring on a missing profile section
 		expected := map[string]string{
 			"AWS_CONFIG_FILE":             "/mock/config/root/.aws/config",
 			"AWS_SHARED_CREDENTIALS_FILE": "/mock/config/root/.aws/credentials",
-			"AWS_PROFILE":                 "test-context",
 		}
-
 		if !reflect.DeepEqual(envVars, expected) {
 			t.Errorf("GetEnvVars returned %v, want %v", envVars, expected)
 		}
 	})
 
 	t.Run("ExplicitAWSProfileOverridesContextDefault", func(t *testing.T) {
-		// Given an AWS block that pins a specific profile name
+		// Given an AWS block that pins a specific profile name, and a context
+		// .aws/config that defines that profile
 		mocks := setupAwsEnvMocks(t)
 		configStr := `
 version: v1alpha1
@@ -197,16 +203,17 @@ contexts:
 		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
 			t.Fatalf("Failed to load config: %v", err)
 		}
+		withProfile(t, mocks, "[profile shared-ops]\nregion = us-east-1\n", "")
 		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		env.shims = mocks.Shims
 
 		// When GetEnvVars is called
 		envVars, err := env.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
 
 		// Then AWS_PROFILE reflects the override, not the context name
-		if err != nil {
-			t.Errorf("GetEnvVars returned an error: %v", err)
-		}
 		if got := envVars["AWS_PROFILE"]; got != "shared-ops" {
 			t.Errorf("AWS_PROFILE = %q, want %q", got, "shared-ops")
 		}
@@ -279,78 +286,6 @@ contexts:
 		}
 		if _, ok := envVars["AWS_SHARED_CREDENTIALS_FILE"]; ok {
 			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", envVars["AWS_SHARED_CREDENTIALS_FILE"])
-		}
-	})
-
-	t.Run("GlobalModeKeepsAWSProfileEvenWithAmbientCredentials", func(t *testing.T) {
-		// Given an operator running windsor in global mode with ambient AWS
-		// credentials in the parent environment (common on developer laptops
-		// where AWS_ACCESS_KEY_ID coexists with an SSO-populated ~/.aws/config).
-		// AWS_PROFILE must still flow so the AWS SDK pins to the named profile
-		// the context targets rather than falling through to [default].
-		mocks := setupAwsEnvMocks(t)
-		mocks.Shell.IsGlobalFunc = func() bool { return true }
-		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
-		env.shims = mocks.Shims
-		t.Setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
-		t.Setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
-
-		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
-
-		// Then AWS_PROFILE survives — global mode trusts the operator's ambient
-		// ~/.aws/ to satisfy the lookup. The context-scoped file paths stay
-		// unset (global mode never emits them).
-		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
-		}
-		if got := envVars["AWS_PROFILE"]; got != "default" {
-			t.Errorf("AWS_PROFILE = %q, want %q (must survive global+ambient)", got, "default")
-		}
-		if _, ok := envVars["AWS_CONFIG_FILE"]; ok {
-			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", envVars["AWS_CONFIG_FILE"])
-		}
-		if _, ok := envVars["AWS_SHARED_CREDENTIALS_FILE"]; ok {
-			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", envVars["AWS_SHARED_CREDENTIALS_FILE"])
-		}
-	})
-
-	t.Run("AmbientCredentialsSuppressProfileAndConfigFiles", func(t *testing.T) {
-		// Given ambient AWS credentials are present in the parent environment
-		// (typical for CI runners using OIDC role assumption or static keys),
-		// AWS_PROFILE / AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE must NOT be
-		// emitted — otherwise AWS CLI v2 prefers the profile lookup over the
-		// ambient keys and fails with "config profile not found" when the
-		// referenced profile section does not exist on the runner.
-		env, _ := setup()
-		// Set ambient creds AFTER setup — the helper clears them so each test
-		// opts in explicitly.
-		t.Setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
-		t.Setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
-
-		// When GetEnvVars is called
-		envVars, err := env.GetEnvVars()
-
-		// Then the three credential-affecting vars are absent
-		if err != nil {
-			t.Fatalf("GetEnvVars returned an error: %v", err)
-		}
-		for _, key := range []string{"AWS_PROFILE", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"} {
-			if _, present := envVars[key]; present {
-				t.Errorf("expected %s to be suppressed when ambient credentials are set, got %q", key, envVars[key])
-			}
-		}
-
-		// And the destination/config vars still flow — they describe where
-		// windsor talks to AWS, not whose credentials are in play
-		expected := map[string]string{
-			"AWS_REGION":       "us-west-2",
-			"AWS_ENDPOINT_URL": "https://aws.endpoint",
-			"S3_HOSTNAME":      "s3.amazonaws.com",
-			"MWAA_ENDPOINT":    "https://mwaa.endpoint",
-		}
-		if !reflect.DeepEqual(envVars, expected) {
-			t.Errorf("GetEnvVars returned %v, want %v", envVars, expected)
 		}
 	})
 
