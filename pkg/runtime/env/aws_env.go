@@ -45,27 +45,13 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 // Public Methods
 // =============================================================================
 
-// GetEnvVars retrieves the environment variables for the AWS environment.
-// In project mode AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at
-// the context's .aws/config and .aws/credentials, even when those files do not
-// yet exist, so that `aws configure` (run inside a windsor-shell session) writes
-// into the context folder rather than contaminating the operator's global ~/.aws
-// files. Subsequent aws/terraform/SDK calls then read the same context-scoped
-// files. AWS_PROFILE defaults to the current context name so `aws configure sso`
-// creates a profile bound to the context; an explicit aws.profile in the
-// context's aws block overrides the default. AWS_REGION is emitted only when
-// aws.region is set; downstream tools otherwise fall back to the profile's own
-// `region =` line.
-//
-// In global mode (no windsor.yaml in the project tree) windsor defers on file
-// locations — AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE are not emitted so
-// the AWS SDK resolves against the operator's ambient ~/.aws/. AWS_PROFILE is
-// still emitted (from aws.profile if set, otherwise the context name) so the
-// SDK checks the profile the context actually targets; without it, calls would
-// fall through to [default] even when the right profile is logged in. The
-// non-credential project parameters (region, endpoint, s3 hostname, mwaa
-// endpoint) flow through unchanged because they describe where windsor talks to
-// AWS, not whose credentials it uses.
+// GetEnvVars returns the AWS env vars for the current context. In project mode
+// AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE point at the context's .aws/
+// so `aws configure` stays scoped to the context instead of ~/.aws/. AWS_PROFILE
+// defaults to the context name (or aws.profile if set). When the parent env
+// already carries AWS credentials, project mode suppresses AWS_PROFILE and the
+// two file vars so the AWS CLI does not chase a [profile <context>] block
+// against the empty context .aws/; global mode keeps AWS_PROFILE flowing.
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
@@ -101,7 +87,7 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	if !ambient {
+	if !ambient || global {
 		if awsProfileOverride != "" {
 			envVars["AWS_PROFILE"] = awsProfileOverride
 		} else if ctx := e.configHandler.GetContext(); ctx != "" {
@@ -112,14 +98,10 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	return envVars, nil
 }
 
-// hasAmbientAWSCredentials reports whether the parent env already carries AWS credentials
-// via a native SDK mechanism (IRSA web identity, ECS container creds, or static keys).
-// When true, GetEnvVars suppresses AWS_PROFILE, AWS_CONFIG_FILE, and AWS_SHARED_CREDENTIALS_FILE
-// so windsor's context-scoped settings do not mask the operator's native credential chain —
-// e.g. forcing the AWS CLI to look up a [profile <context>] block that does not exist in CI.
-// Destination/config vars (AWS_REGION, AWS_ENDPOINT_URL, S3_HOSTNAME, MWAA_ENDPOINT) still
-// flow through because they describe where windsor talks to AWS, not whose credentials it uses.
-// IMDS is not covered — there is no env var to detect it.
+// hasAmbientAWSCredentials reports whether the parent env carries AWS
+// credentials via IRSA, ECS container creds, or static access keys. Callers
+// use it to skip context-scoped overrides that would otherwise mask the
+// native credential chain. IMDS is not covered — no env var detects it.
 func hasAmbientAWSCredentials() bool {
 	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" {
 		return true

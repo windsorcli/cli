@@ -280,6 +280,39 @@ contexts:
 		}
 	})
 
+	t.Run("GlobalModeKeepsAWSProfileEvenWithAmbientCredentials", func(t *testing.T) {
+		// Given an operator running windsor in global mode with ambient AWS
+		// credentials in the parent environment (common on developer laptops
+		// where AWS_ACCESS_KEY_ID coexists with an SSO-populated ~/.aws/config).
+		// AWS_PROFILE must still flow so the AWS SDK pins to the named profile
+		// the context targets rather than falling through to [default].
+		mocks := setupAwsEnvMocks(t)
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+		t.Setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+
+		// Then AWS_PROFILE survives — global mode trusts the operator's ambient
+		// ~/.aws/ to satisfy the lookup. The context-scoped file paths stay
+		// unset (global mode never emits them).
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+		if got := envVars["AWS_PROFILE"]; got != "default" {
+			t.Errorf("AWS_PROFILE = %q, want %q (must survive global+ambient)", got, "default")
+		}
+		if _, ok := envVars["AWS_CONFIG_FILE"]; ok {
+			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", envVars["AWS_CONFIG_FILE"])
+		}
+		if _, ok := envVars["AWS_SHARED_CREDENTIALS_FILE"]; ok {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", envVars["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+
 	t.Run("AmbientCredentialsSuppressProfileAndConfigFiles", func(t *testing.T) {
 		// Given ambient AWS credentials are present in the parent environment
 		// (typical for CI runners using OIDC role assumption or static keys),
