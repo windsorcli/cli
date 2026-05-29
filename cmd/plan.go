@@ -41,8 +41,7 @@ windsor plan --summary --json
 # Just terraform, just one component
 windsor plan terraform cluster`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`apply`](apply.md), [`show`](show.md), [`explain`](explain.md)",
+		"docs.seealso": "[`apply`](apply.md), [`show`](show.md), [`explain`](explain.md)",
 		"docs.source": "cmd/plan.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
@@ -159,8 +158,7 @@ windsor plan terraform --summary
 # Machine-readable JSON of all component plans
 windsor plan terraform --json`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`plan`](plan.md), [`apply terraform`](apply-terraform.md), [`destroy terraform`](destroy-terraform.md)",
+		"docs.seealso": "[`plan`](plan.md), [`apply terraform`](apply-terraform.md), [`destroy terraform`](destroy-terraform.md)",
 		"docs.source": "cmd/plan.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
@@ -237,8 +235,7 @@ windsor plan kustomize dns
 # Compact summary across all kustomizations
 windsor plan kustomize --summary`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`plan`](plan.md), [`apply kustomize`](apply-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
+		"docs.seealso": "[`plan`](plan.md), [`apply kustomize`](apply-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
 		"docs.source": "cmd/plan.go",
 	},
 	Args:         cobra.MaximumNArgs(1),

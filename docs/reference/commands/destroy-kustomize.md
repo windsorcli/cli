@@ -22,6 +22,5 @@ windsor destroy kustomize --confirm=local
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`destroy`](destroy.md), [`apply kustomize`](apply-kustomize.md), [`plan kustomize`](plan-kustomize.md)
 - Source: [cmd/destroy.go](https://github.com/windsorcli/cli/blob/main/cmd/destroy.go)

@@ -22,6 +22,5 @@ windsor destroy terraform --confirm=local
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`destroy`](destroy.md), [`apply terraform`](apply-terraform.md), [`plan terraform`](plan-terraform.md)
 - Source: [cmd/destroy.go](https://github.com/windsorcli/cli/blob/main/cmd/destroy.go)

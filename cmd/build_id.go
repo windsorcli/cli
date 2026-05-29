@@ -25,8 +25,7 @@ windsor build-id
 BUILD_ID=$(windsor build-id --new)
 docker build -t myapp:$BUILD_ID .`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)\n" +
-			"[`env`](env.md)",
+		"docs.seealso": "[`env`](env.md)",
 		"docs.source": "cmd/build_id.go",
 	},
 	SilenceUsage: true,

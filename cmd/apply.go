@@ -28,8 +28,7 @@ windsor apply terraform cluster
 # Apply just the dns kustomization
 windsor apply kustomize dns`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`plan`](plan.md), [`destroy`](destroy.md), [`up`](up.md), [`bootstrap`](bootstrap.md)",
+		"docs.seealso": "[`plan`](plan.md), [`destroy`](destroy.md), [`up`](up.md), [`bootstrap`](bootstrap.md)",
 		"docs.source": "cmd/apply.go",
 	},
 	Args:         cobra.NoArgs,
@@ -94,8 +93,7 @@ windsor apply terraform cluster
 # Same, using the 'tf' alias
 windsor apply tf cluster`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`apply`](apply.md), [`plan terraform`](plan-terraform.md), [`destroy terraform`](destroy-terraform.md)",
+		"docs.seealso": "[`apply`](apply.md), [`plan terraform`](plan-terraform.md), [`destroy terraform`](destroy-terraform.md)",
 		"docs.source": "cmd/apply.go",
 	},
 	Args:         cobra.ExactArgs(1),
@@ -140,8 +138,7 @@ windsor apply kustomize dns
 # Apply and wait for one kustomization to be ready
 windsor apply kustomize dns --wait`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`apply`](apply.md), [`plan kustomize`](plan-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
+		"docs.seealso": "[`apply`](apply.md), [`plan kustomize`](plan-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)",
 		"docs.source": "cmd/apply.go",
 	},
 	Args:         cobra.MaximumNArgs(1),

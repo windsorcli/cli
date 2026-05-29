@@ -28,7 +28,5 @@ windsor exec ./scripts/deploy.sh
 
 ## See also
 
-- [Environment reference](../environment.md), [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection)
-- [Secrets Management](https://www.windsorcli.dev/docs/cli/secrets-management)
 - [`env`](env.md), [`hook`](hook.md)
 - Source: [cmd/exec.go](https://github.com/windsorcli/cli/blob/main/cmd/exec.go)

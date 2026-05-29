@@ -20,7 +20,6 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`explain`](explain.md), [`plan`](plan.md)
 - [Blueprint reference](../blueprint.md), [Configuration reference](../configuration.md)
 - Source: [cmd/show.go](https://github.com/windsorcli/cli/blob/main/cmd/show.go)

@@ -16,6 +16,5 @@ Configure workstation host/guest resources. Currently supports networking and DN
 
 ## See also
 
-- [Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)
 - [`up`](up.md)
 - Source: [cmd/configure.go](https://github.com/windsorcli/cli/blob/main/cmd/configure.go)

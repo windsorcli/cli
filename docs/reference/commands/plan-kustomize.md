@@ -22,6 +22,5 @@ windsor plan kustomize --summary
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`plan`](plan.md), [`apply kustomize`](apply-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)
 - Source: [cmd/plan.go](https://github.com/windsorcli/cli/blob/main/cmd/plan.go)

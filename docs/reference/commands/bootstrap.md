@@ -41,7 +41,5 @@ windsor bootstrap prod --yes
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
-- [Terraform components](https://www.windsorcli.dev/docs/components/terraform)
 - [`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)
 - Source: [cmd/bootstrap.go](https://github.com/windsorcli/cli/blob/main/cmd/bootstrap.go)

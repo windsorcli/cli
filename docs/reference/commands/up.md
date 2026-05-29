@@ -39,7 +39,5 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
-- [Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)
 - [`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)
 - Source: [cmd/up.go](https://github.com/windsorcli/cli/blob/main/cmd/up.go)

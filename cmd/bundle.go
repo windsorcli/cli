@@ -29,8 +29,7 @@ windsor bundle -t myapp:v1.0.0 -o ./dist/myapp-v1.0.0.tar.gz
 # Tag set, output is a directory (filename auto-generated)
 windsor bundle -t myapp:v1.0.0 -o ./dist/`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)\n" +
-			"[Metadata reference](../metadata.md)\n" +
+		"docs.seealso": "[Metadata reference](../metadata.md)\n" +
 			"[`push`](push.md)",
 		"docs.source": "cmd/bundle.go",
 	},

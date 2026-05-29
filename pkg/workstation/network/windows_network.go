@@ -278,7 +278,7 @@ func (n *BaseNetworkManager) gpoOverridesNrptRuleWarning(env map[string]string, 
 	if effectiveIP == "" || effectiveIP == desiredIP {
 		return ""
 	}
-	return fmt.Sprintf("\n⚠ NRPT rule for *.%s was added locally, but the effective rule resolves to a different name server (%s). This usually means a Group Policy is overriding the local rule. Contact your IT administrator to permit per-machine NRPT for *.%s, or use the IP-based access pattern documented in docs/guides/troubleshooting.md#windows-nrpt-gpo-conflict.", env["WINDSOR_NRPT_DOMAIN"], effectiveIP, env["WINDSOR_NRPT_DOMAIN"])
+	return fmt.Sprintf("\n⚠ NRPT rule for *.%s was added locally, but the effective rule resolves to a different name server (%s). This usually means a Group Policy is overriding the local rule. Contact your IT administrator to permit per-machine NRPT for *.%s.", env["WINDSOR_NRPT_DOMAIN"], effectiveIP, env["WINDSOR_NRPT_DOMAIN"])
 }
 
 // needsPrivilegeForHostRoute reports whether a host route for the configured network CIDR and guest IP

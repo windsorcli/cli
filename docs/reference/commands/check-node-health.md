@@ -39,6 +39,5 @@ windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3
 
 ## See also
 
-- [Getting started](https://www.windsorcli.dev/docs/cli/getting-started)
 - [`upgrade`](upgrade.md), [`up`](up.md)
 - Source: [cmd/check.go](https://github.com/windsorcli/cli/blob/main/cmd/check.go)

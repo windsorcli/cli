@@ -29,7 +29,6 @@ windsor show kustomization dns --json
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`apply`](apply.md), [`plan`](plan.md)
 - [Blueprint reference](../blueprint.md)
 - Source: [cmd/show.go](https://github.com/windsorcli/cli/blob/main/cmd/show.go)

@@ -25,6 +25,5 @@ windsor down
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`up`](up.md), [`destroy`](destroy.md), [`configure network`](configure-network.md)
 - Source: [cmd/down.go](https://github.com/windsorcli/cli/blob/main/cmd/down.go)

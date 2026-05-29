@@ -41,7 +41,6 @@ windsor explain terraform.cluster.inputs.common_config_patches.components
 
 ## See also
 
-- [Explain guide](https://www.windsorcli.dev/docs/cli/explain)
 - [`show`](show.md), [`plan`](plan.md)
 - [Facets reference](../facets.md), [Blueprint reference](../blueprint.md)
 - Source: [cmd/explain.go](https://github.com/windsorcli/cli/blob/main/cmd/explain.go)

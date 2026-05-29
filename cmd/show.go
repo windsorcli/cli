@@ -28,8 +28,7 @@ var showCmd = &cobra.Command{
 
 Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 'kustomization' output; pass --raw to keep the original expression text instead.`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`explain`](explain.md), [`plan`](plan.md)\n" +
+		"docs.seealso": "[`explain`](explain.md), [`plan`](plan.md)\n" +
 			"[Blueprint reference](../blueprint.md), [Configuration reference](../configuration.md)",
 		"docs.source": "cmd/show.go",
 	},
@@ -48,8 +47,7 @@ windsor show blueprint --raw
 # JSON output for tooling
 windsor show blueprint --json`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`explain`](explain.md), [`plan`](plan.md)\n" +
+		"docs.seealso": "[`explain`](explain.md), [`plan`](plan.md)\n" +
 			"[Blueprint reference](../blueprint.md)",
 		"docs.source": "cmd/show.go",
 	},
@@ -86,8 +84,7 @@ windsor show kustomization dns
 # JSON for tooling
 windsor show kustomization dns --json`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`apply`](apply.md), [`plan`](plan.md)\n" +
+		"docs.seealso": "[`apply`](apply.md), [`plan`](plan.md)\n" +
 			"[Blueprint reference](../blueprint.md)",
 		"docs.source": "cmd/show.go",
 	},
@@ -136,8 +133,7 @@ windsor show values
 # Plain JSON for tooling
 windsor show values --json`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`explain`](explain.md)\n" +
+		"docs.seealso": "[`explain`](explain.md)\n" +
 			"[Configuration reference](../configuration.md)",
 		"docs.source": "cmd/show.go",
 	},
