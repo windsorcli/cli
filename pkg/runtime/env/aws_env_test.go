@@ -103,7 +103,8 @@ contexts:
 func TestAwsEnv_GetEnvVars(t *testing.T) {
 	// withProfile rewires the config-root mock to a real temp dir and writes
 	// the supplied AWS config + credentials bodies into <root>/.aws/. Used by
-	// project-mode tests that need ContextHasAWSProfile to return true.
+	// project-mode tests that need awsprofile.ForContext(...).HasProfile to
+	// return true.
 	withProfile := func(t *testing.T, mocks *EnvTestMocks, configBody, credentialsBody string) string {
 		t.Helper()
 		root := t.TempDir()
