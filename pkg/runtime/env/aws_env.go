@@ -7,6 +7,7 @@ package env
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -68,8 +69,9 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
+	ambient := hasAmbientAWSCredentials()
 
-	if !global {
+	if !global && !ambient {
 		configRoot, err := e.configHandler.GetConfigRoot()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
@@ -99,13 +101,39 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	if awsProfileOverride != "" {
-		envVars["AWS_PROFILE"] = awsProfileOverride
-	} else if ctx := e.configHandler.GetContext(); ctx != "" {
-		envVars["AWS_PROFILE"] = ctx
+	if !ambient {
+		if awsProfileOverride != "" {
+			envVars["AWS_PROFILE"] = awsProfileOverride
+		} else if ctx := e.configHandler.GetContext(); ctx != "" {
+			envVars["AWS_PROFILE"] = ctx
+		}
 	}
 
 	return envVars, nil
+}
+
+// hasAmbientAWSCredentials reports whether the parent env already carries AWS credentials
+// via a native SDK mechanism (IRSA web identity, ECS container creds, or static keys).
+// When true, GetEnvVars suppresses AWS_PROFILE, AWS_CONFIG_FILE, and AWS_SHARED_CREDENTIALS_FILE
+// so windsor's context-scoped settings do not mask the operator's native credential chain —
+// e.g. forcing the AWS CLI to look up a [profile <context>] block that does not exist in CI.
+// Destination/config vars (AWS_REGION, AWS_ENDPOINT_URL, S3_HOSTNAME, MWAA_ENDPOINT) still
+// flow through because they describe where windsor talks to AWS, not whose credentials it uses.
+// IMDS is not covered — there is no env var to detect it.
+func hasAmbientAWSCredentials() bool {
+	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" {
+		return true
+	}
+	if os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" {
+		return true
+	}
+	if os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
+		return true
+	}
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
+		return true
+	}
+	return false
 }
 
 // =============================================================================

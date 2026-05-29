@@ -18,6 +18,18 @@ import (
 func setupAwsEnvMocks(t *testing.T, overrides ...*EnvTestMocks) *EnvTestMocks {
 	t.Helper()
 
+	// Clear ambient AWS credential env vars so tests run deterministically
+	// regardless of the operator's shell. Individual tests opt back in via t.Setenv.
+	for _, key := range []string{
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+		"AWS_WEB_IDENTITY_TOKEN_FILE",
+		"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI",
+	} {
+		t.Setenv(key, "")
+	}
+
 	mocks := setupEnvMocks(t, overrides...)
 
 	// If ConfigHandler wasn't overridden, use MockConfigHandler
@@ -265,6 +277,45 @@ contexts:
 		}
 		if _, ok := envVars["AWS_SHARED_CREDENTIALS_FILE"]; ok {
 			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", envVars["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+
+	t.Run("AmbientCredentialsSuppressProfileAndConfigFiles", func(t *testing.T) {
+		// Given ambient AWS credentials are present in the parent environment
+		// (typical for CI runners using OIDC role assumption or static keys),
+		// AWS_PROFILE / AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE must NOT be
+		// emitted — otherwise AWS CLI v2 prefers the profile lookup over the
+		// ambient keys and fails with "config profile not found" when the
+		// referenced profile section does not exist on the runner.
+		env, _ := setup()
+		// Set ambient creds AFTER setup — the helper clears them so each test
+		// opts in explicitly.
+		t.Setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+
+		// Then the three credential-affecting vars are absent
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+		for _, key := range []string{"AWS_PROFILE", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"} {
+			if _, present := envVars[key]; present {
+				t.Errorf("expected %s to be suppressed when ambient credentials are set, got %q", key, envVars[key])
+			}
+		}
+
+		// And the destination/config vars still flow — they describe where
+		// windsor talks to AWS, not whose credentials are in play
+		expected := map[string]string{
+			"AWS_REGION":       "us-west-2",
+			"AWS_ENDPOINT_URL": "https://aws.endpoint",
+			"S3_HOSTNAME":      "s3.amazonaws.com",
+			"MWAA_ENDPOINT":    "https://mwaa.endpoint",
+		}
+		if !reflect.DeepEqual(envVars, expected) {
+			t.Errorf("GetEnvVars returned %v, want %v", envVars, expected)
 		}
 	})
 
