@@ -113,7 +113,7 @@ type: object
 
 		// And a schema file using the retired windsorcli dialect URI
 		schemaContent := `
-$schema: https://windsorcli.dev/schema/2026-02/schema
+$schema: https://windsorcli.dev/draft/2026-02/schema
 title: Test Schema
 type: object
 `
@@ -130,7 +130,7 @@ type: object
 			t.Fatal("Expected error for legacy windsorcli schema URI")
 		}
 
-		expected := "invalid schema structure: the 'https://windsorcli.dev/schema/2026-02/schema' dialect was removed in v0.9.0; replace '$schema' with 'https://json-schema.org/draft/2020-12/schema'"
+		expected := "invalid schema structure: the 'https://windsorcli.dev/draft/2026-02/schema' dialect was removed in v0.9.0; replace '$schema' with 'https://json-schema.org/draft/2020-12/schema'"
 		if err.Error() != expected {
 			t.Errorf("Expected migration-hint error, got: %v", err)
 		}

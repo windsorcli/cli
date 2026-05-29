@@ -154,13 +154,13 @@ func (sv *SchemaValidator) ensureCompiled() (*jsonschema.Schema, error) {
 }
 
 // validateSchemaStructure verifies the loaded fragment carries the canonical draft 2020-12
-// $schema URI. The legacy windsorcli dialect URI returns a migration hint pointing at
+// $schema URI. The retired windsorcli dialect URI returns a migration hint pointing at
 // the canonical replacement so operators upgrading from v0.8 get an actionable error
 // instead of a stock "unsupported schema version".
 func (sv *SchemaValidator) validateSchemaStructure(schema map[string]any) error {
 	const (
 		canonicalSchemaURI = "https://json-schema.org/draft/2020-12/schema"
-		legacyWindsorURI   = "https://windsorcli.dev/schema/2026-02/schema"
+		legacyWindsorURI   = "https://windsorcli.dev/draft/2026-02/schema"
 	)
 
 	schemaVersion, ok := schema["$schema"]
