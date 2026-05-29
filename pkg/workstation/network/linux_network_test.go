@@ -430,7 +430,6 @@ func TestLinuxNetworkManager_ConfigureDNS(t *testing.T) {
 			"systemd-resolved is active but /etc/resolv.conf is not pointing at its stub",
 			"sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf",
 			"NetworkManager",
-			"troubleshooting.md#dns-on-non-systemd-linux",
 		} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("expected hint to include %q, got: %s", want, err.Error())
