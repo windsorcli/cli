@@ -2,6 +2,8 @@ package env
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -386,6 +388,113 @@ contexts:
 		}
 		if !strings.Contains(err.Error(), "error retrieving configuration root directory") {
 			t.Errorf("GetEnvVars returned error %v, want error containing 'error retrieving configuration root directory'", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// TestContextHasAWSProfile covers the presence check that gates AWS_PROFILE
+// emission. Each case writes a fresh .aws/ directory layout into a temp dir
+// and asserts whether the helper finds the named profile.
+func TestContextHasAWSProfile(t *testing.T) {
+	writeAWSDir := func(t *testing.T, configBody, credentialsBody string) string {
+		t.Helper()
+		root := t.TempDir()
+		awsDir := filepath.Join(root, ".aws")
+		if err := os.MkdirAll(awsDir, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if configBody != "" {
+			if err := os.WriteFile(filepath.Join(awsDir, "config"), []byte(configBody), 0644); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+		}
+		if credentialsBody != "" {
+			if err := os.WriteFile(filepath.Join(awsDir, "credentials"), []byte(credentialsBody), 0644); err != nil {
+				t.Fatalf("write credentials: %v", err)
+			}
+		}
+		return root
+	}
+
+	t.Run("ReturnsFalseWhenAWSDirMissing", func(t *testing.T) {
+		// Given a fresh context root with no .aws/ subdirectory
+		root := t.TempDir()
+
+		// When asking whether a named profile exists
+		got := contextHasAWSProfile(root, "prod")
+
+		// Then the helper returns false without erroring on the missing files
+		if got {
+			t.Errorf("expected false for missing .aws/, got true")
+		}
+	})
+
+	t.Run("ReturnsTrueForNamedProfileInConfig", func(t *testing.T) {
+		// Given a config file that declares [profile prod] alongside another section
+		root := writeAWSDir(t, "[profile staging]\nregion = us-east-1\n\n[profile prod]\nregion = us-west-2\n", "")
+
+		// When asking for prod
+		got := contextHasAWSProfile(root, "prod")
+
+		// Then the helper finds it
+		if !got {
+			t.Errorf("expected true for [profile prod] in config, got false")
+		}
+	})
+
+	t.Run("ReturnsTrueForNamedProfileInCredentials", func(t *testing.T) {
+		// Given a credentials file using the unprefixed [prod] section header
+		root := writeAWSDir(t, "", "[prod]\naws_access_key_id = AKIA...\naws_secret_access_key = secret\n")
+
+		// When asking for prod
+		got := contextHasAWSProfile(root, "prod")
+
+		// Then the helper finds it
+		if !got {
+			t.Errorf("expected true for [prod] in credentials, got false")
+		}
+	})
+
+	t.Run("ReturnsTrueForDefaultProfileInConfig", func(t *testing.T) {
+		// Given a config file containing the [default] section (no "profile " prefix)
+		root := writeAWSDir(t, "[default]\nregion = us-west-2\n", "")
+
+		// When asking for default
+		got := contextHasAWSProfile(root, "default")
+
+		// Then the helper finds it via the [default] header form
+		if !got {
+			t.Errorf("expected true for [default] in config, got false")
+		}
+	})
+
+	t.Run("ReturnsFalseWhenOnlyOtherProfilesPresent", func(t *testing.T) {
+		// Given a config that defines other profiles but not the one we ask about
+		root := writeAWSDir(t, "[profile staging]\nregion = us-east-1\n", "[other]\naws_access_key_id = AKIA\n")
+
+		// When asking for prod
+		got := contextHasAWSProfile(root, "prod")
+
+		// Then the helper returns false — neither file contains the named section
+		if got {
+			t.Errorf("expected false when prod absent from both files, got true")
+		}
+	})
+
+	t.Run("IgnoresLookAlikeHeadersInsideConfigFile", func(t *testing.T) {
+		// Given a config that names "prod" in unrelated positions but never as a section header
+		root := writeAWSDir(t, "[profile staging]\n# comment about [profile prod]\nrole_arn = arn:aws:iam::1:role/prod\n", "")
+
+		// When asking for prod
+		got := contextHasAWSProfile(root, "prod")
+
+		// Then the helper does not false-positive on the comment or the role arn
+		if got {
+			t.Errorf("expected false when prod appears only inside other sections, got true")
 		}
 	})
 }

@@ -6,9 +6,11 @@
 package env
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -114,6 +116,42 @@ func hasAmbientAWSCredentials() bool {
 	}
 	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
 		return true
+	}
+	return false
+}
+
+// contextHasAWSProfile reports whether the named profile is defined in the
+// context's .aws/config or .aws/credentials. The check is a line scan for the
+// expected section header — "[profile <name>]" in config (or "[default]" for the
+// default profile) and "[<name>]" in credentials. The AWS SDK treats a profile
+// found in either file as satisfying the lookup, so a single match is enough.
+func contextHasAWSProfile(configRoot, profileName string) bool {
+	awsDir := filepath.Join(configRoot, ".aws")
+	configHeader := "[profile " + profileName + "]"
+	if profileName == "default" {
+		configHeader = "[default]"
+	}
+	if iniContainsSection(filepath.Join(awsDir, "config"), configHeader) {
+		return true
+	}
+	return iniContainsSection(filepath.Join(awsDir, "credentials"), "["+profileName+"]")
+}
+
+// iniContainsSection scans the file at path for a line whose trimmed contents
+// match section exactly. Returns false on any read error so a missing or
+// unreadable file is treated as "no section present" rather than fatal.
+func iniContainsSection(path, section string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) == section {
+			return true
+		}
 	}
 	return false
 }
