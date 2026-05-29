@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -494,46 +495,55 @@ func (t *BaseToolsManager) checkAWSAuth() error {
 	return nil
 }
 
-// awsContextEnv returns env vars pointing the AWS CLI/SDK at the right profile (and in
-// project mode, the context-scoped .aws/ dir). Returns (nil, nil) when ambient SDK
-// credentials are present — overriding AWS_PROFILE there would mask the native credential
-// chain. In global mode AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE are not emitted so
-// the SDK resolves against the operator's ambient ~/.aws/, but AWS_PROFILE is still
-// emitted (from aws.profile if set, otherwise the context name) so sts checks the profile
-// the operator actually meant — without it sts would fall through to [default] and fail
-// even though the right profile is logged in.
+// awsContextEnv returns env vars pointing the AWS CLI/SDK at the context's profile.
+// In project mode AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE always point at the
+// context's .aws/ — they keep `aws configure` scoped to the context and are safe to emit
+// even when the files are empty (the SDK simply doesn't find a profile and falls through).
+// AWS_PROFILE is emitted only when the named profile is actually defined in the context's
+// files (or always in global mode) — when the context has no matching profile, the var is
+// omitted so the SDK's credential chain runs naturally (env keys, IMDS, IRSA, ECS, SSO)
+// rather than failing with "profile not found" against an empty context.
 func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
-	if hasAmbientAWSCredentials() {
-		return nil, nil
-	}
 	env := map[string]string{}
-	if !t.shell.IsGlobal() {
-		configRoot, err := t.configHandler.GetConfigRoot()
+	global := t.shell.IsGlobal()
+	var configRoot string
+	if !global {
+		root, err := t.configHandler.GetConfigRoot()
 		if err != nil {
 			return nil, err
 		}
+		configRoot = root
 		awsConfigDir := filepath.Join(configRoot, ".aws")
 		env["AWS_CONFIG_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "config"))
 		env["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
 	}
+
 	cfg := t.configHandler.GetConfig()
-	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil && *cfg.AWS.AWSProfile != "" {
-		env["AWS_PROFILE"] = *cfg.AWS.AWSProfile
-	} else if ctx := t.configHandler.GetContext(); ctx != "" {
-		env["AWS_PROFILE"] = ctx
+	profileName := ""
+	if cfg != nil && cfg.AWS != nil && cfg.AWS.AWSProfile != nil {
+		profileName = *cfg.AWS.AWSProfile
 	}
+	if profileName == "" {
+		profileName = t.configHandler.GetContext()
+	}
+	if profileName != "" && (global || contextHasAWSProfile(configRoot, profileName)) {
+		env["AWS_PROFILE"] = profileName
+	}
+
 	if len(env) == 0 {
 		return nil, nil
 	}
 	return env, nil
 }
 
-// hasAmbientAWSCredentials reports whether the parent env already carries AWS credentials
-// via a native SDK mechanism (IRSA web identity, ECS container creds, or static keys) that
-// must not be overridden by context-scoped profile/config vars. IMDS is not covered — there
-// is no env var to detect it.
+// hasAmbientAWSCredentials reports whether the parent env carries AWS credentials via
+// IRSA (token file plus role ARN), ECS container creds, or a complete static keypair.
+// checkAWSAuth uses it to decide whether a missing aws CLI should be treated as a no-op
+// rather than a hard error — terraform's SDK will exercise the native chain at apply
+// time. The IRSA check requires both AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN because
+// the SDK's web identity provider needs both halves to assume the role.
 func hasAmbientAWSCredentials() bool {
-	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" {
+	if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
 		return true
 	}
 	if os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" {
@@ -544,6 +554,42 @@ func hasAmbientAWSCredentials() bool {
 	}
 	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
 		return true
+	}
+	return false
+}
+
+// contextHasAWSProfile reports whether the named profile is defined in the context's
+// .aws/config (as "[profile <name>]" or "[default]" for the default profile) or
+// .aws/credentials (as "[<name>]"). The AWS SDK treats a profile found in either file
+// as satisfying the lookup, so a single match is enough.
+func contextHasAWSProfile(configRoot, profileName string) bool {
+	awsDir := filepath.Join(configRoot, ".aws")
+	configHeader := "[profile " + profileName + "]"
+	if profileName == "default" {
+		configHeader = "[default]"
+	}
+	if iniContainsSection(filepath.Join(awsDir, "config"), configHeader) {
+		return true
+	}
+	return iniContainsSection(filepath.Join(awsDir, "credentials"), "["+profileName+"]")
+}
+
+// iniContainsSection scans the file at path for a line whose trimmed contents match
+// section exactly. Returns false on any read error so a missing or unreadable file is
+// treated as "no section present" rather than fatal.
+func iniContainsSection(path, section string) bool {
+	// #nosec G304 - path is composed from the trusted context configRoot, not user-supplied input
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) == section {
+			return true
+		}
 	}
 	return false
 }

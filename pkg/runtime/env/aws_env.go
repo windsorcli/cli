@@ -122,6 +122,7 @@ func contextHasAWSProfile(configRoot, profileName string) bool {
 // match section exactly. Returns false on any read error so a missing or
 // unreadable file is treated as "no section present" rather than fatal.
 func iniContainsSection(path, section string) bool {
+	// #nosec G304 - path is composed from the trusted context configRoot, not user-supplied input
 	f, err := os.Open(path)
 	if err != nil {
 		return false
