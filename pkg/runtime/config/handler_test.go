@@ -1140,7 +1140,38 @@ func TestConfigHandler_GetWindsorScratchPath(t *testing.T) {
 }
 
 func TestConfigHandler_Clean(t *testing.T) {
-	t.Run("RemovesConfigDirectories", func(t *testing.T) {
+	t.Run("RemovesTerraformScratchCaches", func(t *testing.T) {
+		// Given a context with .terraform and .tfstate caches in the scratch path
+		mocks := setupConfigMocks(t)
+		tmpDir, _ := mocks.Shell.GetProjectRoot()
+
+		handler := NewConfigHandler(mocks.Shell)
+		handler.SetContext("test-context")
+
+		scratchRoot := filepath.Join(tmpDir, ".windsor", "contexts", "test-context")
+		terraformDir := filepath.Join(scratchRoot, ".terraform")
+		tfstateDir := filepath.Join(scratchRoot, ".tfstate")
+		os.MkdirAll(terraformDir, 0755)
+		os.MkdirAll(tfstateDir, 0755)
+		os.WriteFile(filepath.Join(terraformDir, "lock"), []byte("test"), 0644)
+
+		// When Clean is called
+		err := handler.Clean()
+
+		// Then both cache directories are removed
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, err := os.Stat(terraformDir); !os.IsNotExist(err) {
+			t.Error("Expected .terraform directory to be removed")
+		}
+		if _, err := os.Stat(tfstateDir); !os.IsNotExist(err) {
+			t.Error("Expected .tfstate directory to be removed")
+		}
+	})
+
+	t.Run("PreservesCredentialDirectories", func(t *testing.T) {
+		// Given a context with operator-managed CLI auth state under contexts/<name>/
 		mocks := setupConfigMocks(t)
 		tmpDir, _ := mocks.Shell.GetProjectRoot()
 
@@ -1148,25 +1179,30 @@ func TestConfigHandler_Clean(t *testing.T) {
 		handler.SetContext("test-context")
 
 		configRoot := filepath.Join(tmpDir, "contexts", "test-context")
-		os.MkdirAll(configRoot, 0755)
+		credentialDirs := []string{".kube", ".aws", ".azure", ".gcp", ".talos", ".omni"}
+		for _, dir := range credentialDirs {
+			path := filepath.Join(configRoot, dir)
+			os.MkdirAll(path, 0755)
+			os.WriteFile(filepath.Join(path, "config"), []byte("test"), 0644)
+		}
 
-		kubeDir := filepath.Join(configRoot, ".kube")
-		os.MkdirAll(kubeDir, 0755)
-		os.WriteFile(filepath.Join(kubeDir, "config"), []byte("test"), 0644)
-
+		// When Clean is called
 		err := handler.Clean()
 
+		// Then every credential directory remains intact
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-
-		if _, err := os.Stat(kubeDir); !os.IsNotExist(err) {
-			t.Error("Expected .kube directory to be removed")
+		for _, dir := range credentialDirs {
+			path := filepath.Join(configRoot, dir)
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				t.Errorf("Expected %s to be preserved, but it was removed", dir)
+			}
 		}
 	})
 
-	t.Run("ReturnsErrorWhenGetConfigRootFails", func(t *testing.T) {
-		// Given a handler with shell that fails
+	t.Run("ReturnsErrorWhenScratchPathFails", func(t *testing.T) {
+		// Given a handler whose project root lookup fails
 		mockShell := shell.NewMockShell()
 		mockShell.GetProjectRootFunc = func() (string, error) {
 			return "", os.ErrPermission
@@ -1178,7 +1214,7 @@ func TestConfigHandler_Clean(t *testing.T) {
 		// When cleaning
 		err := handler.Clean()
 
-		// Then it should return error when GetProjectRoot fails
+		// Then the underlying error propagates
 		if err == nil {
 			t.Error("Expected error when GetProjectRoot fails")
 		}

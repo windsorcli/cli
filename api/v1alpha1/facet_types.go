@@ -80,7 +80,7 @@ type Facet struct {
 	// When is an expression that determines if this facet should be applied.
 	// The expression is evaluated against user configuration values via the
 	// expr-lang/expr library (NOT Google's CEL).
-	// Examples: "provider == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
+	// Examples: "platform == 'aws'", "observability.enabled == true && observability.backend == 'quickwit'"
 	When string `yaml:"when,omitempty"`
 
 	// Backend contributes Blueprint.Backend; the composer merges by ordinal precedence.
