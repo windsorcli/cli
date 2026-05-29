@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/internal/awsprofile"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -499,10 +499,12 @@ func (t *BaseToolsManager) checkAWSAuth() error {
 // In project mode AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE always point at the
 // context's .aws/ — they keep `aws configure` scoped to the context and are safe to emit
 // even when the files are empty (the SDK simply doesn't find a profile and falls through).
-// AWS_PROFILE is emitted only when the named profile is actually defined in the context's
-// files (or always in global mode) — when the context has no matching profile, the var is
-// omitted so the SDK's credential chain runs naturally (env keys, IMDS, IRSA, ECS, SSO)
-// rather than failing with "profile not found" against an empty context.
+// AWS_PROFILE is emitted only when the named profile is actually defined in the AWS config
+// the SDK will read: the context's .aws/ in project mode, or the operator's ambient
+// ~/.aws/ (or AWS_CONFIG_FILE override) in global mode. When the profile is absent the
+// var is omitted so the SDK's credential chain runs naturally (env keys, IMDS, IRSA, ECS,
+// SSO) rather than failing with "profile not found" against a file the named profile
+// was never in.
 func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
 	env := map[string]string{}
 	global := t.shell.IsGlobal()
@@ -526,8 +528,14 @@ func (t *BaseToolsManager) awsContextEnv() (map[string]string, error) {
 	if profileName == "" {
 		profileName = t.configHandler.GetContext()
 	}
-	if profileName != "" && (global || contextHasAWSProfile(configRoot, profileName)) {
-		env["AWS_PROFILE"] = profileName
+	if profileName != "" {
+		resolver := awsprofile.ForContext(configRoot)
+		if global {
+			resolver = awsprofile.Ambient()
+		}
+		if resolver.HasProfile(profileName) {
+			env["AWS_PROFILE"] = profileName
+		}
 	}
 
 	if len(env) == 0 {
@@ -554,46 +562,6 @@ func hasAmbientAWSCredentials() bool {
 	}
 	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
 		return true
-	}
-	return false
-}
-
-// contextHasAWSProfile reports whether the named profile is defined in the context's
-// .aws/config (as "[profile <name>]" or "[default]" for the default profile) or
-// .aws/credentials (as "[<name>]"). The AWS SDK treats a profile found in either file
-// as satisfying the lookup, so a single match is enough.
-func contextHasAWSProfile(configRoot, profileName string) bool {
-	awsDir := filepath.Join(configRoot, ".aws")
-	configHeader := "[profile " + profileName + "]"
-	if profileName == "default" {
-		configHeader = "[default]"
-	}
-	if iniContainsSection(filepath.Join(awsDir, "config"), configHeader) {
-		return true
-	}
-	return iniContainsSection(filepath.Join(awsDir, "credentials"), "["+profileName+"]")
-}
-
-// iniContainsSection scans the file at path for a line whose trimmed contents match
-// section exactly. Returns false on any read error so a missing or unreadable file is
-// treated as "no section present" rather than fatal.
-func iniContainsSection(path, section string) bool {
-	// #nosec G304 - path is composed from the trusted context configRoot, not user-supplied input
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if i := strings.IndexAny(line, "#;"); i >= 0 {
-			line = line[:i]
-		}
-		if strings.TrimSpace(line) == section {
-			return true
-		}
 	}
 	return false
 }
