@@ -106,6 +106,36 @@ type: object
 		}
 	})
 
+	t.Run("ErrorLegacyWindsorURIPointsAtMigration", func(t *testing.T) {
+		// Given a schema validator
+		mockShell := shell.NewMockShell()
+		validator := NewSchemaValidator(mockShell)
+
+		// And a schema file using the retired windsorcli dialect URI
+		schemaContent := `
+$schema: https://windsorcli.dev/schema/2026-02/schema
+title: Test Schema
+type: object
+`
+
+		validator.Shims.ReadFile = func(path string) ([]byte, error) {
+			return []byte(schemaContent), nil
+		}
+
+		// When loading the schema
+		err := validator.LoadSchema("/test/schema.yaml")
+
+		// Then the error names the removed URI and points at the canonical replacement
+		if err == nil {
+			t.Fatal("Expected error for legacy windsorcli schema URI")
+		}
+
+		expected := "invalid schema structure: the 'https://windsorcli.dev/schema/2026-02/schema' dialect was removed in v0.9.0; replace '$schema' with 'https://json-schema.org/draft/2020-12/schema'"
+		if err.Error() != expected {
+			t.Errorf("Expected migration-hint error, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorMissingSchemaField", func(t *testing.T) {
 		// Given a schema validator
 		mockShell := shell.NewMockShell()

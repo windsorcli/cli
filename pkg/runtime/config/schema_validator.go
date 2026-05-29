@@ -154,15 +154,25 @@ func (sv *SchemaValidator) ensureCompiled() (*jsonschema.Schema, error) {
 }
 
 // validateSchemaStructure verifies the loaded fragment carries the canonical draft 2020-12
-// $schema URI.
+// $schema URI. The legacy windsorcli dialect URI returns a migration hint pointing at
+// the canonical replacement so operators upgrading from v0.8 get an actionable error
+// instead of a stock "unsupported schema version".
 func (sv *SchemaValidator) validateSchemaStructure(schema map[string]any) error {
+	const (
+		canonicalSchemaURI = "https://json-schema.org/draft/2020-12/schema"
+		legacyWindsorURI   = "https://windsorcli.dev/schema/2026-02/schema"
+	)
+
 	schemaVersion, ok := schema["$schema"]
 	if !ok {
 		return fmt.Errorf("missing required '$schema' field")
 	}
 
 	if schemaStr, ok := schemaVersion.(string); ok {
-		if schemaStr != "https://json-schema.org/draft/2020-12/schema" {
+		if schemaStr == legacyWindsorURI {
+			return fmt.Errorf("the '%s' dialect was removed in v0.9.0; replace '$schema' with '%s'", legacyWindsorURI, canonicalSchemaURI)
+		}
+		if schemaStr != canonicalSchemaURI {
 			return fmt.Errorf("unsupported schema version: %s", schemaStr)
 		}
 	}
