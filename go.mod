@@ -18,7 +18,7 @@ require (
 	github.com/google/go-containerregistry v0.21.6
 	github.com/google/go-jsonnet v0.22.0
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/kaptinlin/jsonschema v0.7.14
+	github.com/kaptinlin/jsonschema v0.7.15
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/siderolabs/talos/pkg/machinery v1.13.3
 	github.com/spf13/cobra v1.10.2
@@ -45,7 +45,6 @@ require (
 	github.com/containernetworking/cni v1.3.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/cosi-project/runtime v1.14.1 // indirect
-	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/docker/cli v29.4.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.4 // indirect
@@ -57,7 +56,7 @@ require (
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gertd/go-pluralize v0.2.1 // indirect
-	github.com/go-json-experiment/json v0.0.0-20260505212615-e40f80bf6836 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260520185125-572e7c383686 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.22.4 // indirect
@@ -86,8 +85,8 @@ require (
 	github.com/ianlancetaylor/demangle v0.0.0-20251118225945-96ee0021ea0f // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kaptinlin/go-i18n v0.4.8 // indirect
-	github.com/kaptinlin/jsonpointer v0.4.23 // indirect
+	github.com/kaptinlin/go-i18n v0.4.9 // indirect
+	github.com/kaptinlin/jsonpointer v0.4.25 // indirect
 	github.com/kaptinlin/messageformat-go v0.6.4 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -103,7 +102,6 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20250313105119-ba97887b0a25 // indirect
-	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.6 // indirect
 	github.com/siderolabs/crypto v0.6.5 // indirect
 	github.com/siderolabs/gen v0.8.6 // indirect
