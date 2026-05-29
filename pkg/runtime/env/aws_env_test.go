@@ -103,7 +103,7 @@ contexts:
 func TestAwsEnv_GetEnvVars(t *testing.T) {
 	// withProfile rewires the config-root mock to a real temp dir and writes
 	// the supplied AWS config + credentials bodies into <root>/.aws/. Used by
-	// project-mode tests that need contextHasAWSProfile to return true.
+	// project-mode tests that need ContextHasAWSProfile to return true.
 	withProfile := func(t *testing.T, mocks *EnvTestMocks, configBody, credentialsBody string) string {
 		t.Helper()
 		root := t.TempDir()
@@ -219,11 +219,35 @@ contexts:
 		}
 	})
 
+	// withAmbientProfile writes the named profile section into a tmp file and
+	// points AWS_CONFIG_FILE at it so global-mode tests get deterministic
+	// behavior regardless of whatever the developer's real ~/.aws/config has.
+	// AWS_SHARED_CREDENTIALS_FILE is also redirected to a separate empty file
+	// so the credentials-side check never accidentally matches the developer's
+	// real credentials file. Pass empty configBody to test the "no profile in
+	// ambient" case (CI runners with OIDC env keys but no ~/.aws/config).
+	withAmbientProfile := func(t *testing.T, configBody string) {
+		t.Helper()
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		credentialsPath := filepath.Join(dir, "credentials")
+		if err := os.WriteFile(configPath, []byte(configBody), 0644); err != nil {
+			t.Fatalf("write ambient config: %v", err)
+		}
+		if err := os.WriteFile(credentialsPath, nil, 0644); err != nil {
+			t.Fatalf("write ambient credentials: %v", err)
+		}
+		t.Setenv("AWS_CONFIG_FILE", configPath)
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", credentialsPath)
+	}
+
 	t.Run("GlobalModeDefersToAmbientAWSConfig", func(t *testing.T) {
-		// Given an AWS-platform context running in global mode (no project root —
-		// operator is invoking windsor outside of a windsor.yaml-anchored tree)
+		// Given an AWS-platform context running in global mode whose named
+		// profile is present in the operator's ambient ~/.aws/config (the
+		// classic case: operator already ran `aws sso login --profile default`)
 		mocks := setupAwsEnvMocks(t)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		withAmbientProfile(t, "[default]\nregion = us-west-2\n")
 		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		env.shims = mocks.Shims
 
@@ -233,11 +257,10 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// Then AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE are NOT emitted, so
-		// the AWS CLI/SDK fall through to the operator's ambient ~/.aws/. AWS_PROFILE
-		// is still emitted because aws.profile is set explicitly in the context — the
-		// user asked for that profile, even in global mode. Region/endpoint and the
-		// other project-level identifiers continue to flow through.
+		// Then AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE are NOT emitted
+		// (the SDK falls through to the operator's ambient ~/.aws/), AWS_PROFILE
+		// flows because the ambient config has the section, and the destination
+		// vars continue through unchanged
 		if _, ok := envVars["AWS_CONFIG_FILE"]; ok {
 			t.Errorf("AWS_CONFIG_FILE should not be set in global mode, got %q", envVars["AWS_CONFIG_FILE"])
 		}
@@ -253,7 +276,8 @@ contexts:
 	})
 
 	t.Run("GlobalModeFallsBackToContextNameForAWSProfile", func(t *testing.T) {
-		// Given a context with no aws.profile override, running in global mode
+		// Given a context with no aws.profile override, running in global mode,
+		// and the operator's ambient config defines [profile test-context]
 		mocks := setupAwsEnvMocks(t)
 		configStr := `
 version: v1alpha1
@@ -264,6 +288,7 @@ contexts:
 			t.Fatalf("Failed to load config: %v", err)
 		}
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		withAmbientProfile(t, "[profile test-context]\nregion = us-east-1\n")
 		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
 		env.shims = mocks.Shims
 
@@ -273,11 +298,8 @@ contexts:
 			t.Fatalf("GetEnvVars returned an error: %v", err)
 		}
 
-		// Then AWS_PROFILE defaults to the context name so the AWS SDK resolves
-		// the right profile in the operator's ambient ~/.aws/config — without it,
-		// calls fall through to [default] even when the matching profile is logged
-		// in. AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE remain unset so the
-		// SDK uses the user-managed config locations.
+		// Then AWS_PROFILE flows from the context name so the SDK pins to the
+		// matching ambient profile instead of falling through to [default]
 		if got := envVars["AWS_PROFILE"]; got != "test-context" {
 			t.Errorf("AWS_PROFILE = %q, want %q", got, "test-context")
 		}
@@ -286,6 +308,43 @@ contexts:
 		}
 		if _, ok := envVars["AWS_SHARED_CREDENTIALS_FILE"]; ok {
 			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", envVars["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+
+	t.Run("GlobalModeOmitsAWSProfileWhenAmbientLacksProfile", func(t *testing.T) {
+		// Given a CI runner in global mode with OIDC-issued env-var credentials
+		// and no ~/.aws/config at all. Emitting AWS_PROFILE=<context> in this
+		// state pins the AWS CLI at a profile that does not exist, fails with
+		// "config profile (X) could not be found", and masks the working
+		// ambient credentials behind a misleading auth error.
+		mocks := setupAwsEnvMocks(t)
+		configStr := `
+version: v1alpha1
+contexts:
+  aws: {}
+`
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		if err := mocks.ConfigHandler.SetContext("aws"); err != nil {
+			t.Fatalf("SetContext: %v", err)
+		}
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		// Empty ambient config — the runner has no profile defined anywhere
+		withAmbientProfile(t, "")
+		env := NewAwsEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		env.shims = mocks.Shims
+
+		// When GetEnvVars is called
+		envVars, err := env.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars returned an error: %v", err)
+		}
+
+		// Then AWS_PROFILE is absent — the SDK falls through to env-var
+		// credentials, IMDS, or whatever else the credential chain finds
+		if _, ok := envVars["AWS_PROFILE"]; ok {
+			t.Errorf("AWS_PROFILE should be absent when ambient config lacks the profile, got %q", envVars["AWS_PROFILE"])
 		}
 	})
 
@@ -327,125 +386,3 @@ contexts:
 	})
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-// TestContextHasAWSProfile covers the presence check that gates AWS_PROFILE
-// emission. Each case writes a fresh .aws/ directory layout into a temp dir
-// and asserts whether the helper finds the named profile.
-func TestContextHasAWSProfile(t *testing.T) {
-	writeAWSDir := func(t *testing.T, configBody, credentialsBody string) string {
-		t.Helper()
-		root := t.TempDir()
-		awsDir := filepath.Join(root, ".aws")
-		if err := os.MkdirAll(awsDir, 0755); err != nil {
-			t.Fatalf("mkdir: %v", err)
-		}
-		if configBody != "" {
-			if err := os.WriteFile(filepath.Join(awsDir, "config"), []byte(configBody), 0644); err != nil {
-				t.Fatalf("write config: %v", err)
-			}
-		}
-		if credentialsBody != "" {
-			if err := os.WriteFile(filepath.Join(awsDir, "credentials"), []byte(credentialsBody), 0644); err != nil {
-				t.Fatalf("write credentials: %v", err)
-			}
-		}
-		return root
-	}
-
-	t.Run("ReturnsFalseWhenAWSDirMissing", func(t *testing.T) {
-		// Given a fresh context root with no .aws/ subdirectory
-		root := t.TempDir()
-
-		// When asking whether a named profile exists
-		got := contextHasAWSProfile(root, "prod")
-
-		// Then the helper returns false without erroring on the missing files
-		if got {
-			t.Errorf("expected false for missing .aws/, got true")
-		}
-	})
-
-	t.Run("ReturnsTrueForNamedProfileInConfig", func(t *testing.T) {
-		// Given a config file that declares [profile prod] alongside another section
-		root := writeAWSDir(t, "[profile staging]\nregion = us-east-1\n\n[profile prod]\nregion = us-west-2\n", "")
-
-		// When asking for prod
-		got := contextHasAWSProfile(root, "prod")
-
-		// Then the helper finds it
-		if !got {
-			t.Errorf("expected true for [profile prod] in config, got false")
-		}
-	})
-
-	t.Run("ReturnsTrueForNamedProfileInCredentials", func(t *testing.T) {
-		// Given a credentials file using the unprefixed [prod] section header
-		root := writeAWSDir(t, "", "[prod]\naws_access_key_id = AKIA...\naws_secret_access_key = secret\n")
-
-		// When asking for prod
-		got := contextHasAWSProfile(root, "prod")
-
-		// Then the helper finds it
-		if !got {
-			t.Errorf("expected true for [prod] in credentials, got false")
-		}
-	})
-
-	t.Run("ReturnsTrueForDefaultProfileInConfig", func(t *testing.T) {
-		// Given a config file containing the [default] section (no "profile " prefix)
-		root := writeAWSDir(t, "[default]\nregion = us-west-2\n", "")
-
-		// When asking for default
-		got := contextHasAWSProfile(root, "default")
-
-		// Then the helper finds it via the [default] header form
-		if !got {
-			t.Errorf("expected true for [default] in config, got false")
-		}
-	})
-
-	t.Run("ReturnsFalseWhenOnlyOtherProfilesPresent", func(t *testing.T) {
-		// Given a config that defines other profiles but not the one we ask about
-		root := writeAWSDir(t, "[profile staging]\nregion = us-east-1\n", "[other]\naws_access_key_id = AKIA\n")
-
-		// When asking for prod
-		got := contextHasAWSProfile(root, "prod")
-
-		// Then the helper returns false — neither file contains the named section
-		if got {
-			t.Errorf("expected false when prod absent from both files, got true")
-		}
-	})
-
-	t.Run("MatchesSectionHeaderWithTrailingInlineComment", func(t *testing.T) {
-		// Given a hand-edited config where the section header carries an inline
-		// comment after the closing bracket — the aws CLI never writes these but
-		// nothing stops an operator from adding one. The match should strip the
-		// trailing #/; comment before comparing so the profile is still found.
-		root := writeAWSDir(t, "[profile prod] # auto-generated by terraform\nregion = us-west-2\n", "")
-
-		// When asking for prod
-		got := contextHasAWSProfile(root, "prod")
-
-		// Then the helper still finds the section despite the trailing comment
-		if !got {
-			t.Errorf("expected true for [profile prod] with trailing inline comment, got false")
-		}
-	})
-
-	t.Run("IgnoresLookAlikeHeadersInsideConfigFile", func(t *testing.T) {
-		// Given a config that names "prod" in unrelated positions but never as a section header
-		root := writeAWSDir(t, "[profile staging]\n# comment about [profile prod]\nrole_arn = arn:aws:iam::1:role/prod\n", "")
-
-		// When asking for prod
-		got := contextHasAWSProfile(root, "prod")
-
-		// Then the helper does not false-positive on the comment or the role arn
-		if got {
-			t.Errorf("expected false when prod appears only inside other sections, got true")
-		}
-	})
-}

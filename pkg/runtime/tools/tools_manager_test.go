@@ -1633,12 +1633,18 @@ func TestToolsManager_CheckAuth(t *testing.T) {
 		// escape hatch in checkAWSAuth behaves identically on a dev laptop, an EKS pod,
 		// and a GitHub Actions runner. AWS_ROLE_ARN is included because the IRSA path
 		// requires both the token-file and role-ARN env vars to count as ambient.
+		// AWS_CONFIG_FILE / AWS_SHARED_CREDENTIALS_FILE redirect ambientAWSProfileExists
+		// to a non-existent path so global-mode tests don't accidentally read the
+		// developer's real ~/.aws/config — tests opt in to a populated ambient config
+		// via the withAmbientProfile helper.
 		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
 		t.Setenv("AWS_ROLE_ARN", "")
 		t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
 		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
 		t.Setenv("AWS_ACCESS_KEY_ID", "")
 		t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+		t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "no-ambient-config"))
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "no-ambient-credentials"))
 		mocks := setupMocks(t, &SetupOptions{ConfigStr: configStr})
 		toolsManager := NewToolsManager(mocks.ConfigHandler, mocks.Shell)
 		return mocks, toolsManager
@@ -1763,6 +1769,25 @@ contexts:
 			t.Errorf("Expected the redundant 'aws credentials did not resolve' prefix to be removed, got: %v", err)
 		}
 	})
+
+	// withAmbientProfile writes configBody to a tmp file and points
+	// AWS_CONFIG_FILE at it so ambientAWSProfileExists has a deterministic
+	// ambient config to read. Pass empty configBody to test the "ambient has
+	// no profile" case (CI runner with OIDC env keys and no ~/.aws/config).
+	withAmbientProfile := func(t *testing.T, configBody string) {
+		t.Helper()
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		credentialsPath := filepath.Join(dir, "credentials")
+		if err := os.WriteFile(configPath, []byte(configBody), 0644); err != nil {
+			t.Fatalf("write ambient config: %v", err)
+		}
+		if err := os.WriteFile(credentialsPath, nil, 0644); err != nil {
+			t.Fatalf("write ambient credentials: %v", err)
+		}
+		t.Setenv("AWS_CONFIG_FILE", configPath)
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", credentialsPath)
+	}
 
 	// writeContextProfile seeds the named profile into the handler's reported
 	// config root so contextHasAWSProfile returns true. Uses the existing
@@ -2207,8 +2232,9 @@ contexts:
 	})
 
 	t.Run("GlobalModeDefersStsToAmbientAWSConfigButKeepsProfile", func(t *testing.T) {
-		// Given platform: aws and the shell reports global mode (no windsor.yaml in
-		// the project tree — operator is invoking windsor outside of a project)
+		// Given platform: aws, global mode, and the operator's ambient
+		// ~/.aws/config carries the matching [profile test] section so the
+		// SDK can satisfy the pin
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
@@ -2216,6 +2242,7 @@ contexts:
 `)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		awsBinaryMock(t)
+		withAmbientProfile(t, "[profile test]\nregion = us-west-2\n")
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
@@ -2245,7 +2272,8 @@ contexts:
 	})
 
 	t.Run("GlobalModeWithExplicitProfileStillInjectsAWSProfile", func(t *testing.T) {
-		// Given platform: aws, global mode, and an explicit aws.profile override
+		// Given platform: aws, global mode, an explicit aws.profile override,
+		// and the operator's ambient config defines that profile
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
@@ -2255,6 +2283,7 @@ contexts:
 `)
 		mocks.Shell.IsGlobalFunc = func() bool { return true }
 		awsBinaryMock(t)
+		withAmbientProfile(t, "[profile company-prod]\nregion = us-east-1\n")
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
@@ -2342,9 +2371,21 @@ func Test_awsContextEnv(t *testing.T) {
 	})
 
 	t.Run("GlobalModeFallsBackToContextNameWhenNoProfile", func(t *testing.T) {
-		// Given a tools manager in global mode with no aws.profile override but a non-empty
-		// context name. Global mode always emits AWS_PROFILE — there is no context .aws/ to
-		// check against, and the SDK needs the pin to avoid falling through to [default].
+		// Given a tools manager in global mode with no aws.profile override but a
+		// non-empty context name, and the operator's ambient ~/.aws/config defines
+		// [profile local] (the typical local-dev case where the operator has
+		// authenticated against the matching profile already).
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		credentialsPath := filepath.Join(dir, "credentials")
+		if err := os.WriteFile(configPath, []byte("[profile local]\nregion = us-west-2\n"), 0644); err != nil {
+			t.Fatalf("write ambient config: %v", err)
+		}
+		if err := os.WriteFile(credentialsPath, nil, 0644); err != nil {
+			t.Fatalf("write ambient credentials: %v", err)
+		}
+		t.Setenv("AWS_CONFIG_FILE", configPath)
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", credentialsPath)
 		mockConfig := &config.MockConfigHandler{
 			GetContextFunc: func() string { return "local" },
 		}
@@ -2355,7 +2396,9 @@ func Test_awsContextEnv(t *testing.T) {
 		// When awsContextEnv is invoked
 		env, err := toolsManager.awsContextEnv()
 
-		// Then AWS_PROFILE is set from the context name and config-file paths are omitted
+		// Then AWS_PROFILE flows from the context name (matched against the
+		// ambient profile) and config-file paths are omitted (global mode
+		// defers to the operator's ambient locations)
 		if err != nil {
 			t.Fatalf("awsContextEnv returned error: %v", err)
 		}
@@ -2367,6 +2410,36 @@ func Test_awsContextEnv(t *testing.T) {
 		}
 		if _, ok := env["AWS_SHARED_CREDENTIALS_FILE"]; ok {
 			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", env["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+
+	t.Run("GlobalModeOmitsAWSProfileWhenAmbientLacksProfile", func(t *testing.T) {
+		// Given a tools manager in global mode on a CI runner: OIDC env-var
+		// credentials are exported in the parent env but there is no
+		// ~/.aws/config at all. Emitting AWS_PROFILE=<context> here would
+		// pin the aws CLI at a profile that does not exist, fail with
+		// "config profile (X) could not be found", and mask the working
+		// ambient credentials behind a misleading auth error.
+		dir := t.TempDir()
+		t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "missing-config"))
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "missing-credentials"))
+		mockConfig := &config.MockConfigHandler{
+			GetContextFunc: func() string { return "aws" },
+		}
+		mockShell := sh.NewMockShell()
+		mockShell.IsGlobalFunc = func() bool { return true }
+		toolsManager := NewToolsManager(mockConfig, mockShell)
+
+		// When awsContextEnv is invoked
+		env, err := toolsManager.awsContextEnv()
+
+		// Then (nil, nil) is returned — STS gets no override and the SDK's
+		// credential chain runs naturally against the env-var keys / IMDS
+		if err != nil {
+			t.Fatalf("awsContextEnv returned error: %v", err)
+		}
+		if env != nil {
+			t.Errorf("expected nil env when ambient config lacks the named profile, got %v", env)
 		}
 	})
 
