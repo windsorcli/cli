@@ -39,8 +39,7 @@ windsor explain kustomize.dns.substitutions.external_domain
 # Inspect a list field's contributions
 windsor explain terraform.cluster.inputs.common_config_patches.components`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Explain guide](https://www.windsorcli.dev/docs/cli/explain)\n" +
-			"[`show`](show.md), [`plan`](plan.md)\n" +
+		"docs.seealso": "[`show`](show.md), [`plan`](plan.md)\n" +
 			"[Facets reference](../facets.md), [Blueprint reference](../blueprint.md)",
 		"docs.source": "cmd/explain.go",
 	},

@@ -39,9 +39,7 @@ windsor up --set cluster.workers.count=3
 # Initialize and bring up with a specific blueprint
 windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)\n" +
-			"[`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)",
+		"docs.seealso": "[`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)",
 		"docs.source": "cmd/up.go",
 	},
 	SilenceUsage: true,

@@ -16,6 +16,5 @@ Set a Windsor resource. Currently supports 'context'.
 
 ## See also
 
-- [Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)
 - [`init`](init.md), [`get`](get.md)
 - Source: [cmd/set.go](https://github.com/windsorcli/cli/blob/main/cmd/set.go)

@@ -27,8 +27,7 @@ eval "$(windsor env --decrypt)"
 # Show what would be exported
 windsor env`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Environment reference](../environment.md), [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection)\n" +
-			"[`hook`](hook.md), [`exec`](exec.md)",
+		"docs.seealso": "[`hook`](hook.md), [`exec`](exec.md)",
 		"docs.source": "cmd/env.go",
 	},
 	SilenceUsage: true,

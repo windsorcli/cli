@@ -62,9 +62,7 @@ windsor bootstrap staging --platform=aws --blueprint=ghcr.io/myorg/blueprint:v1.
 # Re-bootstrap an existing context, scripted (skip the prompt)
 windsor bootstrap prod --yes`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[Terraform components](https://www.windsorcli.dev/docs/components/terraform)\n" +
-			"[`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)",
+		"docs.seealso": "[`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)",
 		"docs.source": "cmd/bootstrap.go",
 	},
 	Args:         cobra.MaximumNArgs(1),

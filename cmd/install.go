@@ -20,8 +20,7 @@ Pass --wait to block until kustomizations report ready.`,
 	Example: `# Install kustomizations and wait for them to settle
 windsor install --wait`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Kustomize guide](https://www.windsorcli.dev/docs/guides/kustomize)\n" +
-			"[`apply`](apply.md), [`apply kustomize`](apply-kustomize.md)",
+		"docs.seealso": "[`apply`](apply.md), [`apply kustomize`](apply-kustomize.md)",
 		"docs.source": "cmd/install.go",
 	},
 	SilenceUsage: true,

@@ -19,8 +19,7 @@ var getCmd = &cobra.Command{
 	Short: "Display Windsor resources.",
 	Long:  `Display Windsor resources. Currently supports listing contexts and printing the current context.`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)\n" +
-			"[`set`](set.md)",
+		"docs.seealso": "[`set`](set.md)",
 		"docs.source": "cmd/get.go",
 	},
 }
@@ -37,8 +36,7 @@ var getContextsCmd = &cobra.Command{
 #   local   docker    <none>   *
 #   prod    aws       s3`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)\n" +
-			"[`set`](set.md)",
+		"docs.seealso": "[`set`](set.md)",
 		"docs.source": "cmd/get.go",
 	},
 	SilenceUsage: true,
@@ -137,8 +135,7 @@ var getContextCmd = &cobra.Command{
 	Example: `windsor get context
 # → local`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)\n" +
-			"[`set context`](set-context.md)",
+		"docs.seealso": "[`set context`](set-context.md)",
 		"docs.source": "cmd/get.go",
 	},
 	SilenceUsage: true,

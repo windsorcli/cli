@@ -25,9 +25,7 @@ windsor exec -- helm install my-app ./chart --namespace=apps
 # A wrapper script that takes no flags itself
 windsor exec ./scripts/deploy.sh`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Environment reference](../environment.md), [Environment Injection](https://www.windsorcli.dev/docs/cli/environment-injection)\n" +
-			"[Secrets Management](https://www.windsorcli.dev/docs/cli/secrets-management)\n" +
-			"[`env`](env.md), [`hook`](hook.md)",
+		"docs.seealso": "[`env`](env.md), [`hook`](hook.md)",
 		"docs.source": "cmd/exec.go",
 	},
 	Args:         cobra.MinimumNArgs(1),

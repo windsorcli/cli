@@ -22,8 +22,7 @@ windsor down
 windsor destroy --confirm=local
 windsor down`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`up`](up.md), [`destroy`](destroy.md), [`configure network`](configure-network.md)",
+		"docs.seealso": "[`up`](up.md), [`destroy`](destroy.md), [`configure network`](configure-network.md)",
 		"docs.source": "cmd/down.go",
 	},
 	SilenceUsage: true,

@@ -608,7 +608,6 @@ func TestWindowsNetworkManager_ConfigureDNS(t *testing.T) {
 			"NRPT rule for *.corp.test",
 			"10.0.0.1",
 			"Group Policy",
-			"troubleshooting.md#windows-nrpt-gpo-conflict",
 		} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("expected warning to include %q, got: %s", want, msg)

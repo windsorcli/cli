@@ -22,6 +22,5 @@ windsor apply tf cluster
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`apply`](apply.md), [`plan terraform`](plan-terraform.md), [`destroy terraform`](destroy-terraform.md)
 - Source: [cmd/apply.go](https://github.com/windsorcli/cli/blob/main/cmd/apply.go)

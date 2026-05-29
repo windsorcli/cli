@@ -25,6 +25,5 @@ windsor plan terraform --json
 
 ## See also
 
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - [`plan`](plan.md), [`apply terraform`](apply-terraform.md), [`destroy terraform`](destroy-terraform.md)
 - Source: [cmd/plan.go](https://github.com/windsorcli/cli/blob/main/cmd/plan.go)

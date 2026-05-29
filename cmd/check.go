@@ -30,8 +30,7 @@ Fails fast if a required tool is missing or at the wrong version, or if credenti
 	Example: `# Verify the toolchain and cloud credentials
 windsor check`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Getting started](https://www.windsorcli.dev/docs/cli/getting-started)\n" +
-			"[`upgrade`](upgrade.md), [`up`](up.md)",
+		"docs.seealso": "[`upgrade`](upgrade.md), [`up`](up.md)",
 		"docs.source": "cmd/check.go",
 	},
 	SilenceUsage: true,
@@ -87,8 +86,7 @@ windsor check node-health --k8s-endpoint --ready
 # Check a specific Talos version on a set of nodes
 windsor check node-health --nodes=10.0.0.5,10.0.0.6 --version=v1.13.3`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Getting started](https://www.windsorcli.dev/docs/cli/getting-started)\n" +
-			"[`upgrade`](upgrade.md), [`up`](up.md)",
+		"docs.seealso": "[`upgrade`](upgrade.md), [`up`](up.md)",
 		"docs.source": "cmd/check.go",
 	},
 	SilenceUsage: true,

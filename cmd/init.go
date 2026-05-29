@@ -52,8 +52,7 @@ windsor init local --reset
 # Initialize an AWS staging context
 windsor init staging --platform=aws --aws-profile=staging`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Contexts reference](../contexts.md)\n" +
-			"[`up`](up.md), [`apply`](apply.md), [`bootstrap`](bootstrap.md)",
+		"docs.seealso": "[`up`](up.md), [`apply`](apply.md), [`bootstrap`](bootstrap.md)",
 		"docs.source": "cmd/init.go",
 	},
 	Args:         cobra.MaximumNArgs(1),

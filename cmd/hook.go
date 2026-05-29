@@ -25,8 +25,7 @@ windsor hook fish | source
 # powershell
 windsor hook powershell | Out-String | Invoke-Expression`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Getting started](https://www.windsorcli.dev/docs/cli/getting-started)\n" +
-			"[`env`](env.md), [`exec`](exec.md)",
+		"docs.seealso": "[`env`](env.md), [`exec`](exec.md)",
 		"docs.source": "cmd/hook.go",
 	},
 	SilenceUsage: true,

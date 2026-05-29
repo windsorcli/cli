@@ -17,6 +17,5 @@ Display Windsor resources. Currently supports listing contexts and printing the 
 
 ## See also
 
-- [Contexts guide](https://www.windsorcli.dev/docs/cli/contexts), [Contexts reference](../contexts.md)
 - [`set`](set.md)
 - Source: [cmd/get.go](https://github.com/windsorcli/cli/blob/main/cmd/get.go)

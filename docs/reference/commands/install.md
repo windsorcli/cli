@@ -29,6 +29,5 @@ windsor install --wait
 
 ## See also
 
-- [Kustomize guide](https://www.windsorcli.dev/docs/guides/kustomize)
 - [`apply`](apply.md), [`apply kustomize`](apply-kustomize.md)
 - Source: [cmd/install.go](https://github.com/windsorcli/cli/blob/main/cmd/install.go)

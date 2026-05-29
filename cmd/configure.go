@@ -27,8 +27,7 @@ var configureCmd = &cobra.Command{
 	Short: "Configure workstation resources.",
 	Long:  `Configure workstation host/guest resources. Currently supports networking and DNS via the 'network' subcommand.`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)\n" +
-			"[`up`](up.md)",
+		"docs.seealso": "[`up`](up.md)",
 		"docs.source": "cmd/configure.go",
 	},
 }
@@ -53,8 +52,7 @@ windsor configure network --dns-address=10.5.0.2
 # Remove the host configuration installed by this command
 windsor configure network --revert`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Workstation overview](https://www.windsorcli.dev/docs/workstation/overview)\n" +
-			"[`up`](up.md)",
+		"docs.seealso": "[`up`](up.md)",
 		"docs.source": "cmd/configure.go",
 	},
 	SilenceUsage: true,

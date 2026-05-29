@@ -29,7 +29,6 @@ windsor push registry.example.com/myorg/myblueprint
 
 ## See also
 
-- [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)
 - [Metadata reference](../metadata.md)
 - [`bundle`](bundle.md)
 - Source: [cmd/push.go](https://github.com/windsorcli/cli/blob/main/cmd/push.go)

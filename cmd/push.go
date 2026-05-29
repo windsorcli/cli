@@ -28,8 +28,7 @@ windsor push ghcr.io/myorg/myblueprint:v1.0.0
 # Tag derived from metadata.yaml
 windsor push registry.example.com/myorg/myblueprint`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)\n" +
-			"[Metadata reference](../metadata.md)\n" +
+		"docs.seealso": "[Metadata reference](../metadata.md)\n" +
 			"[`bundle`](bundle.md)",
 		"docs.source": "cmd/push.go",
 	},

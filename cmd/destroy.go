@@ -41,8 +41,7 @@ windsor destroy --confirm=local
 # Destroy just the dns component (across both layers)
 windsor destroy dns --confirm=dns`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)",
+		"docs.seealso": "[`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)",
 		"docs.source": "cmd/destroy.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
@@ -171,8 +170,7 @@ windsor destroy terraform cluster --confirm=cluster
 # Destroy every terraform component in the current context
 windsor destroy terraform --confirm=local`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`destroy`](destroy.md), [`apply terraform`](apply-terraform.md), [`plan terraform`](plan-terraform.md)",
+		"docs.seealso": "[`destroy`](destroy.md), [`apply terraform`](apply-terraform.md), [`plan terraform`](plan-terraform.md)",
 		"docs.source": "cmd/destroy.go",
 	},
 	Args:         cobra.MaximumNArgs(1),
@@ -263,8 +261,7 @@ windsor destroy kustomize dns --confirm=dns
 # Delete every kustomization in the current context
 windsor destroy kustomize --confirm=local`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)\n" +
-			"[`destroy`](destroy.md), [`apply kustomize`](apply-kustomize.md), [`plan kustomize`](plan-kustomize.md)",
+		"docs.seealso": "[`destroy`](destroy.md), [`apply kustomize`](apply-kustomize.md), [`plan kustomize`](plan-kustomize.md)",
 		"docs.source": "cmd/destroy.go",
 	},
 	Args:         cobra.MaximumNArgs(1),

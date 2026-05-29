@@ -23,8 +23,7 @@ windsor test
 # Run a single named test
 windsor test cluster-defaults`,
 	Annotations: map[string]string{
-		"docs.seealso": "[Blueprint testing](https://www.windsorcli.dev/docs/blueprints/testing)\n" +
-			"[Testing reference](../testing.md)",
+		"docs.seealso": "[Testing reference](../testing.md)",
 		"docs.source": "cmd/test.go",
 	},
 	SilenceUsage: true,
