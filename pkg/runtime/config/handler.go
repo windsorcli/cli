@@ -458,7 +458,10 @@ func (c *configHandler) GetWindsorScratchPath() (string, error) {
 	return windsorScratchPath, nil
 }
 
-// Clean cleans up context specific artifacts
+// Clean removes runtime caches from .windsor/contexts/<name>/. Operator-managed
+// state in contexts/<name>/ — credentials, kubeconfig, hand-edited tfvars — is
+// preserved so that `windsor down` followed by `windsor up` does not force the
+// operator to re-authenticate or restore config.
 func (c *configHandler) Clean() error {
 	windsorScratchPath, err := c.GetWindsorScratchPath()
 	if err != nil {
@@ -469,22 +472,6 @@ func (c *configHandler) Clean() error {
 
 	for _, dir := range dirsToDelete {
 		path := filepath.Join(windsorScratchPath, dir)
-		if _, err := c.shims.Stat(path); err == nil {
-			if err := c.shims.RemoveAll(path); err != nil {
-				return fmt.Errorf("error deleting %s: %w", path, err)
-			}
-		}
-	}
-
-	configRoot, err := c.GetConfigRoot()
-	if err != nil {
-		return fmt.Errorf("error getting config root: %w", err)
-	}
-
-	dirsToDeleteFromConfigRoot := []string{".kube", ".talos", ".omni", ".aws", ".gcp"}
-
-	for _, dir := range dirsToDeleteFromConfigRoot {
-		path := filepath.Join(configRoot, dir)
 		if _, err := c.shims.Stat(path); err == nil {
 			if err := c.shims.RemoveAll(path); err != nil {
 				return fmt.Errorf("error deleting %s: %w", path, err)
