@@ -6,8 +6,11 @@
 package env
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -44,36 +47,24 @@ func NewAwsEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *Aw
 // Public Methods
 // =============================================================================
 
-// GetEnvVars retrieves the environment variables for the AWS environment.
-// In project mode AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at
-// the context's .aws/config and .aws/credentials, even when those files do not
-// yet exist, so that `aws configure` (run inside a windsor-shell session) writes
-// into the context folder rather than contaminating the operator's global ~/.aws
-// files. Subsequent aws/terraform/SDK calls then read the same context-scoped
-// files. AWS_PROFILE defaults to the current context name so `aws configure sso`
-// creates a profile bound to the context; an explicit aws.profile in the
-// context's aws block overrides the default. AWS_REGION is emitted only when
-// aws.region is set; downstream tools otherwise fall back to the profile's own
-// `region =` line.
-//
-// In global mode (no windsor.yaml in the project tree) windsor defers on file
-// locations — AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE are not emitted so
-// the AWS SDK resolves against the operator's ambient ~/.aws/. AWS_PROFILE is
-// still emitted (from aws.profile if set, otherwise the context name) so the
-// SDK checks the profile the context actually targets; without it, calls would
-// fall through to [default] even when the right profile is logged in. The
-// non-credential project parameters (region, endpoint, s3 hostname, mwaa
-// endpoint) flow through unchanged because they describe where windsor talks to
-// AWS, not whose credentials it uses.
+// GetEnvVars returns the AWS env vars for the current context. In project mode
+// AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE always point at the context's
+// .aws/ so `aws configure` stays scoped to the context. AWS_PROFILE is emitted
+// only when the named profile is actually defined in those files (or always in
+// global mode) — when the context has no matching profile, the var is omitted
+// so the AWS SDK falls through to env keys, IMDS, ECS task creds, or the
+// operator's ambient ~/.aws/ rather than failing with "profile not found".
 func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
 
+	var configRoot string
 	if !global {
-		configRoot, err := e.configHandler.GetConfigRoot()
+		root, err := e.configHandler.GetConfigRoot()
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving configuration root directory: %w", err)
 		}
+		configRoot = root
 		awsConfigDir := filepath.Join(configRoot, ".aws")
 		envVars["AWS_CONFIG_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "config"))
 		envVars["AWS_SHARED_CREDENTIALS_FILE"] = filepath.ToSlash(filepath.Join(awsConfigDir, "credentials"))
@@ -99,13 +90,56 @@ func (e *AwsEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 	}
 
-	if awsProfileOverride != "" {
-		envVars["AWS_PROFILE"] = awsProfileOverride
-	} else if ctx := e.configHandler.GetContext(); ctx != "" {
-		envVars["AWS_PROFILE"] = ctx
+	profileName := awsProfileOverride
+	if profileName == "" {
+		profileName = e.configHandler.GetContext()
+	}
+	if profileName != "" && (global || contextHasAWSProfile(configRoot, profileName)) {
+		envVars["AWS_PROFILE"] = profileName
 	}
 
 	return envVars, nil
+}
+
+// contextHasAWSProfile reports whether the named profile is defined in the
+// context's .aws/config or .aws/credentials. The check is a line scan for the
+// expected section header — "[profile <name>]" in config (or "[default]" for the
+// default profile) and "[<name>]" in credentials. The AWS SDK treats a profile
+// found in either file as satisfying the lookup, so a single match is enough.
+func contextHasAWSProfile(configRoot, profileName string) bool {
+	awsDir := filepath.Join(configRoot, ".aws")
+	configHeader := "[profile " + profileName + "]"
+	if profileName == "default" {
+		configHeader = "[default]"
+	}
+	if iniContainsSection(filepath.Join(awsDir, "config"), configHeader) {
+		return true
+	}
+	return iniContainsSection(filepath.Join(awsDir, "credentials"), "["+profileName+"]")
+}
+
+// iniContainsSection scans the file at path for a line whose trimmed contents
+// match section exactly. Returns false on any read error so a missing or
+// unreadable file is treated as "no section present" rather than fatal.
+func iniContainsSection(path, section string) bool {
+	// #nosec G304 - path is composed from the trusted context configRoot, not user-supplied input
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if i := strings.IndexAny(line, "#;"); i >= 0 {
+			line = line[:i]
+		}
+		if strings.TrimSpace(line) == section {
+			return true
+		}
+	}
+	return false
 }
 
 // =============================================================================

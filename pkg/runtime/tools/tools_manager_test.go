@@ -1629,12 +1629,12 @@ func TestToolsManager_checkAWSBinary(t *testing.T) {
 func TestToolsManager_CheckAuth(t *testing.T) {
 	setup := func(t *testing.T, configStr string) (*Mocks, *BaseToolsManager) {
 		t.Helper()
-		// Clear every env var the ambient-credentials guard consults so CheckAuth behaves
-		// identically on a dev laptop, an EKS pod, and a GitHub Actions runner. Without
-		// this, tests that assume context-env injection will intermittently skip injection
-		// on machines where a stray AWS_ACCESS_KEY_ID or AWS_WEB_IDENTITY_TOKEN_FILE
-		// happens to be exported.
+		// Clear every env var hasAmbientAWSCredentials consults so the binary-missing
+		// escape hatch in checkAWSAuth behaves identically on a dev laptop, an EKS pod,
+		// and a GitHub Actions runner. AWS_ROLE_ARN is included because the IRSA path
+		// requires both the token-file and role-ARN env vars to count as ambient.
 		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
+		t.Setenv("AWS_ROLE_ARN", "")
 		t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
 		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
 		t.Setenv("AWS_ACCESS_KEY_ID", "")
@@ -1764,14 +1764,43 @@ contexts:
 		}
 	})
 
+	// writeContextProfile seeds the named profile into the handler's reported
+	// config root so contextHasAWSProfile returns true. Uses the existing
+	// configHandler (which points at the per-test temp dir set up by setupMocks)
+	// rather than overriding GetConfigRoot, so the path the env vars get is the
+	// same path the test asserts against.
+	writeContextProfile := func(t *testing.T, mocks *Mocks, profileName string) string {
+		t.Helper()
+		root, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("GetConfigRoot: %v", err)
+		}
+		awsDir := filepath.Join(root, ".aws")
+		if err := os.MkdirAll(awsDir, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		header := "[profile " + profileName + "]"
+		if profileName == "default" {
+			header = "[default]"
+		}
+		body := header + "\nregion = us-west-2\n"
+		if err := os.WriteFile(filepath.Join(awsDir, "config"), []byte(body), 0644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		return root
+	}
+
 	t.Run("AWSPlatformInjectsContextEnvForSts", func(t *testing.T) {
-		// Given platform: aws and the aws CLI is installed
+		// Given platform: aws, the aws CLI is installed, and the context's
+		// .aws/config already declares the [profile test] section that
+		// windsor would pin sts against
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: aws
 `)
 		awsBinaryMock(t)
+		root := writeContextProfile(t, mocks, "test")
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "aws" && len(args) == 1 && args[0] == "--version" {
@@ -1794,12 +1823,8 @@ contexts:
 		// .aws/config and AWS_PROFILE rather than whatever happens to be active in the parent
 		// shell — without this, CheckAuth could green-light bootstrap using stale [default]
 		// credentials that terraform apply would later fail with
-		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
-		if err != nil {
-			t.Fatalf("GetConfigRoot failed: %v", err)
-		}
-		wantConfig := filepath.ToSlash(filepath.Join(configRoot, ".aws", "config"))
-		wantCreds := filepath.ToSlash(filepath.Join(configRoot, ".aws", "credentials"))
+		wantConfig := filepath.ToSlash(filepath.Join(root, ".aws", "config"))
+		wantCreds := filepath.ToSlash(filepath.Join(root, ".aws", "credentials"))
 		if capturedEnv["AWS_CONFIG_FILE"] != wantConfig {
 			t.Errorf("AWS_CONFIG_FILE = %q, want %q", capturedEnv["AWS_CONFIG_FILE"], wantConfig)
 		}
@@ -1812,7 +1837,8 @@ contexts:
 	})
 
 	t.Run("AWSPlatformWithProfileOverrideUsesAwsProfile", func(t *testing.T) {
-		// Given platform: aws and an explicit aws.profile that differs from the context name
+		// Given platform: aws, an explicit aws.profile override, and the
+		// context's .aws/config declares that override profile
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
@@ -1821,6 +1847,7 @@ contexts:
       profile: company-prod
 `)
 		awsBinaryMock(t)
+		writeContextProfile(t, mocks, "company-prod")
 		var capturedEnv map[string]string
 		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
 			if command == "aws" && len(args) == 1 && args[0] == "--version" {
@@ -2096,107 +2123,13 @@ contexts:
 		}
 	})
 
-	t.Run("AWSPlatformWebIdentitySkipsProfileInjection", func(t *testing.T) {
-		// Given an IRSA/OIDC environment — AWS_WEB_IDENTITY_TOKEN_FILE is set by the EKS
-		// pod-identity webhook or a GitHub Actions OIDC step — and aws CLI is installed
-		mocks, toolsManager := setup(t, `
-contexts:
-  test:
-    platform: aws
-`)
-		awsBinaryMock(t)
-		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
-		t.Setenv("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/my-role")
-		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
-			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
-		}
-		var capturedEnv map[string]string
-		var capturedEnvSeen bool
-		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
-			capturedEnv = env
-			capturedEnvSeen = true
-			return `{"Arn":"arn:aws:sts::123456789012:assumed-role/my-role/session"}`, nil
-		}
-		// When CheckAuth runs
-		if err := toolsManager.CheckAuth(); err != nil {
-			t.Fatalf("Expected CheckAuth to succeed under IRSA, got %v", err)
-		}
-		// Then the shell receives a nil env map — overriding AWS_PROFILE in an IRSA pod
-		// would point aws at a profile that does not exist on the pod filesystem and
-		// surface a spurious "profile not found" before the SDK's web-identity provider
-		// ever runs
-		if !capturedEnvSeen {
-			t.Fatal("Expected sts to be invoked")
-		}
-		if capturedEnv != nil {
-			t.Errorf("Expected nil env under IRSA (SDK native chain must win), got %v", capturedEnv)
-		}
-	})
-
-	t.Run("AWSPlatformEcsContainerRoleSkipsProfileInjection", func(t *testing.T) {
-		// Given an ECS task with a task role — AWS_CONTAINER_CREDENTIALS_RELATIVE_URI is
-		// injected by the ECS agent and points at the 169.254.170.2 metadata endpoint
-		mocks, toolsManager := setup(t, `
-contexts:
-  test:
-    platform: aws
-`)
-		awsBinaryMock(t)
-		t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/credentials/abc123")
-		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
-			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
-		}
-		var capturedEnv map[string]string
-		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
-			capturedEnv = env
-			return `{"Arn":"arn:aws:sts::123456789012:assumed-role/task-role/session"}`, nil
-		}
-		// When CheckAuth runs
-		if err := toolsManager.CheckAuth(); err != nil {
-			t.Fatalf("Expected CheckAuth to succeed under ECS container role, got %v", err)
-		}
-		// Then the shell receives a nil env map so the SDK's container-credentials provider
-		// (169.254.170.2) is consulted rather than getting short-circuited by a profile
-		// lookup for a config file that doesn't exist in the task
-		if capturedEnv != nil {
-			t.Errorf("Expected nil env under ECS container role, got %v", capturedEnv)
-		}
-	})
-
-	t.Run("AWSPlatformEcsAnywhereFullUriSkipsProfileInjection", func(t *testing.T) {
-		// Given an ECS-Anywhere / externally-hosted container — AWS_CONTAINER_CREDENTIALS_FULL_URI
-		// is set (rather than the RELATIVE_URI the in-cluster agent injects) because the creds
-		// endpoint lives on a non-link-local host. The SDK treats FULL_URI identically to
-		// RELATIVE_URI for credential resolution; the guard must treat it the same way too.
-		mocks, toolsManager := setup(t, `
-contexts:
-  test:
-    platform: aws
-`)
-		awsBinaryMock(t)
-		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "https://credentials.example.com/role/abc123")
-		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
-			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
-		}
-		var capturedEnv map[string]string
-		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
-			capturedEnv = env
-			return `{"Arn":"arn:aws:sts::123456789012:assumed-role/ecs-anywhere-role/session"}`, nil
-		}
-		// When CheckAuth runs
-		if err := toolsManager.CheckAuth(); err != nil {
-			t.Fatalf("Expected CheckAuth to succeed under ECS-Anywhere FULL_URI, got %v", err)
-		}
-		// Then the shell receives a nil env map so the SDK resolves credentials from the
-		// externally-hosted endpoint rather than getting short-circuited by a profile lookup
-		if capturedEnv != nil {
-			t.Errorf("Expected nil env under ECS-Anywhere FULL_URI, got %v", capturedEnv)
-		}
-	})
-
-	t.Run("AWSPlatformStaticEnvKeysSkipProfileInjection", func(t *testing.T) {
-		// Given a CI environment that exports AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
-		// directly (no profile file involved)
+	t.Run("AWSPlatformOmitsAWSProfileWhenContextHasNoProfile", func(t *testing.T) {
+		// Given a project-mode context whose .aws/ has no profile defined —
+		// the operator has not run `aws configure` here and is relying on
+		// ambient creds (static keys / IRSA / ECS / IMDS / whatever). Path X
+		// must not pin AWS_PROFILE in this state, because the pin would point
+		// at a profile section that doesn't exist and abort the SDK's chain
+		// with "profile not found" before any provider gets a chance to run.
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
@@ -2209,65 +2142,45 @@ contexts:
 			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
 		}
 		var capturedEnv map[string]string
+		var capturedEnvSeen bool
 		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
 			capturedEnv = env
+			capturedEnvSeen = true
 			return `{"Arn":"arn:aws:iam::123456789012:user/ci"}`, nil
-		}
-		// When CheckAuth runs
-		if err := toolsManager.CheckAuth(); err != nil {
-			t.Fatalf("Expected CheckAuth to succeed with static env keys, got %v", err)
-		}
-		// Then the shell receives a nil env map — the static keys already in the parent env
-		// are the intended credentials and injecting AWS_PROFILE would route the aws CLI
-		// through a profile lookup that ignores them
-		if capturedEnv != nil {
-			t.Errorf("Expected nil env with static credentials, got %v", capturedEnv)
-		}
-	})
-
-	t.Run("AWSPlatformAccessKeyWithoutSecretStillInjects", func(t *testing.T) {
-		// Given only AWS_ACCESS_KEY_ID (no AWS_SECRET_ACCESS_KEY) — an incomplete
-		// credential export that is NOT a working native chain
-		mocks, toolsManager := setup(t, `
-contexts:
-  test:
-    platform: aws
-`)
-		awsBinaryMock(t)
-		t.Setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
-		mocks.Shell.ExecSilentWithTimeoutFunc = func(command string, args []string, timeout time.Duration) (string, error) {
-			return fmt.Sprintf("aws-cli/%s Python/3.11.8 Linux", constants.MinimumVersionAWS), nil
-		}
-		var capturedEnv map[string]string
-		mocks.Shell.ExecSilentWithEnvAndTimeoutFunc = func(command string, env map[string]string, args []string, timeout time.Duration) (string, error) {
-			capturedEnv = env
-			return `{"Arn":"arn:aws:iam::123456789012:user/x"}`, nil
 		}
 		// When CheckAuth runs
 		if err := toolsManager.CheckAuth(); err != nil {
 			t.Fatalf("Expected CheckAuth to succeed, got %v", err)
 		}
-		// Then context env is still injected — the guard requires BOTH halves of the static
-		// keypair before declaring the native chain ready, so a stray AWS_ACCESS_KEY_ID
-		// doesn't accidentally disable the context-scoped profile lookup
-		if capturedEnv == nil {
-			t.Fatal("Expected context env injection when static keypair is incomplete")
+		// Then AWS_PROFILE is absent so the SDK chain runs naturally, but the
+		// file paths still flow so a future `aws configure` writes into the
+		// context's .aws/ rather than contaminating ~/.aws/
+		if !capturedEnvSeen {
+			t.Fatal("Expected sts to be invoked")
 		}
-		if capturedEnv["AWS_PROFILE"] != "test" {
-			t.Errorf("AWS_PROFILE = %q, want %q", capturedEnv["AWS_PROFILE"], "test")
+		if _, ok := capturedEnv["AWS_PROFILE"]; ok {
+			t.Errorf("Expected AWS_PROFILE to be absent when context has no profile, got %q", capturedEnv["AWS_PROFILE"])
+		}
+		if capturedEnv["AWS_CONFIG_FILE"] == "" {
+			t.Errorf("Expected AWS_CONFIG_FILE to still flow (write redirection), got empty")
+		}
+		if capturedEnv["AWS_SHARED_CREDENTIALS_FILE"] == "" {
+			t.Errorf("Expected AWS_SHARED_CREDENTIALS_FILE to still flow (write redirection), got empty")
 		}
 	})
 
 	t.Run("AWSPlatformAmbientCredsWithoutAwsCliIsNoOp", func(t *testing.T) {
 		// Given a lean CI image that has IRSA creds exported but no aws CLI binary —
 		// typical of a minimal GitHub Actions runner using OIDC federation where
-		// awscli was never added to the image
+		// awscli was never added to the image. IRSA requires both AWS_WEB_IDENTITY_TOKEN_FILE
+		// and AWS_ROLE_ARN to count as ambient.
 		mocks, toolsManager := setup(t, `
 contexts:
   test:
     platform: aws
 `)
 		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
+		t.Setenv("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/my-role")
 		originalExecLookPath := execLookPath
 		execLookPath = func(name string) (string, error) {
 			return "", exec.ErrNotFound
@@ -2402,24 +2315,13 @@ contexts:
 }
 
 func Test_awsContextEnv(t *testing.T) {
-	clearAmbientAWS := func(t *testing.T) {
-		t.Helper()
-		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
-		t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
-		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
-		t.Setenv("AWS_ACCESS_KEY_ID", "")
-		t.Setenv("AWS_SECRET_ACCESS_KEY", "")
-	}
-
 	t.Run("GlobalModeWithoutContextOrProfileReturnsNil", func(t *testing.T) {
 		// Given a tools manager in global mode with no aws.profile override AND no context
 		// name. This degenerate state is only reachable through a configHandler that
 		// returns "" from GetContext — the production handler always falls back to "local",
 		// so this path cannot be hit in production. The test pins the contract: when there
 		// is nothing to override, return (nil, nil) so the caller passes no env to STS
-		// and STS resolves against the ambient environment, the same effective behavior
-		// as when ambient SDK credentials are detected at the top of awsContextEnv.
-		clearAmbientAWS(t)
+		// and STS resolves against the ambient environment.
 		mockConfig := &config.MockConfigHandler{
 			GetContextFunc: func() string { return "" },
 		}
@@ -2441,11 +2343,8 @@ func Test_awsContextEnv(t *testing.T) {
 
 	t.Run("GlobalModeFallsBackToContextNameWhenNoProfile", func(t *testing.T) {
 		// Given a tools manager in global mode with no aws.profile override but a non-empty
-		// context name — the production-reachable path, since configHandler.GetContext()
-		// falls back to "local" even when nothing else is set. This pins that the (nil, nil)
-		// degenerate branch is unreachable when GetContext() honors its "local" fallback,
-		// so AWS_PROFILE is always populated and STS does not silently drop to [default].
-		clearAmbientAWS(t)
+		// context name. Global mode always emits AWS_PROFILE — there is no context .aws/ to
+		// check against, and the SDK needs the pin to avoid falling through to [default].
 		mockConfig := &config.MockConfigHandler{
 			GetContextFunc: func() string { return "local" },
 		}
@@ -2468,6 +2367,76 @@ func Test_awsContextEnv(t *testing.T) {
 		}
 		if _, ok := env["AWS_SHARED_CREDENTIALS_FILE"]; ok {
 			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should not be set in global mode, got %q", env["AWS_SHARED_CREDENTIALS_FILE"])
+		}
+	})
+
+	t.Run("ProjectModeEmitsAWSProfileWhenContextHasProfile", func(t *testing.T) {
+		// Given a project-mode context whose .aws/config defines [profile local]
+		root := t.TempDir()
+		awsDir := filepath.Join(root, ".aws")
+		if err := os.MkdirAll(awsDir, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(awsDir, "config"), []byte("[profile local]\nregion = us-west-2\n"), 0644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		mockConfig := &config.MockConfigHandler{
+			GetContextFunc:    func() string { return "local" },
+			GetConfigRootFunc: func() (string, error) { return root, nil },
+		}
+		mockShell := sh.NewMockShell()
+		mockShell.IsGlobalFunc = func() bool { return false }
+		toolsManager := NewToolsManager(mockConfig, mockShell)
+
+		// When awsContextEnv is invoked
+		env, err := toolsManager.awsContextEnv()
+
+		// Then all three vars flow: file paths for write redirection + AWS_PROFILE
+		// because contextHasAWSProfile found the [profile local] section
+		if err != nil {
+			t.Fatalf("awsContextEnv returned error: %v", err)
+		}
+		if got := env["AWS_PROFILE"]; got != "local" {
+			t.Errorf("AWS_PROFILE = %q, want %q", got, "local")
+		}
+		if got := env["AWS_CONFIG_FILE"]; got != filepath.ToSlash(filepath.Join(awsDir, "config")) {
+			t.Errorf("AWS_CONFIG_FILE = %q, unexpected", got)
+		}
+		if got := env["AWS_SHARED_CREDENTIALS_FILE"]; got != filepath.ToSlash(filepath.Join(awsDir, "credentials")) {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE = %q, unexpected", got)
+		}
+	})
+
+	t.Run("ProjectModeOmitsAWSProfileWhenContextHasNoProfile", func(t *testing.T) {
+		// Given a project-mode context with no .aws/ files written yet — the
+		// operator has not run `aws configure` here. Path X must still emit the
+		// file paths (write redirection) but suppress AWS_PROFILE so the SDK's
+		// chain can run against env keys / IMDS / IRSA / ECS without tripping
+		// "profile not found" on the empty context.
+		root := t.TempDir()
+		mockConfig := &config.MockConfigHandler{
+			GetContextFunc:    func() string { return "local" },
+			GetConfigRootFunc: func() (string, error) { return root, nil },
+		}
+		mockShell := sh.NewMockShell()
+		mockShell.IsGlobalFunc = func() bool { return false }
+		toolsManager := NewToolsManager(mockConfig, mockShell)
+
+		// When awsContextEnv is invoked
+		env, err := toolsManager.awsContextEnv()
+
+		// Then file paths flow but AWS_PROFILE is absent
+		if err != nil {
+			t.Fatalf("awsContextEnv returned error: %v", err)
+		}
+		if _, ok := env["AWS_PROFILE"]; ok {
+			t.Errorf("AWS_PROFILE should be absent when context has no profile, got %q", env["AWS_PROFILE"])
+		}
+		if _, ok := env["AWS_CONFIG_FILE"]; !ok {
+			t.Errorf("AWS_CONFIG_FILE should still flow for write redirection")
+		}
+		if _, ok := env["AWS_SHARED_CREDENTIALS_FILE"]; !ok {
+			t.Errorf("AWS_SHARED_CREDENTIALS_FILE should still flow for write redirection")
 		}
 	})
 }
