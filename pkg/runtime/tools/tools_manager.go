@@ -587,7 +587,11 @@ func iniContainsSection(path, section string) bool {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		if strings.TrimSpace(scanner.Text()) == section {
+		line := scanner.Text()
+		if i := strings.IndexAny(line, "#;"); i >= 0 {
+			line = line[:i]
+		}
+		if strings.TrimSpace(line) == section {
 			return true
 		}
 	}
