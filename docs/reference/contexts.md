@@ -71,16 +71,6 @@ Hidden subdirectories (`.aws/`, `.azure/`, `.gcp/`, `.kube/`,
 invoked through the windsor shell never touch the operator's global
 config under `~/`.
 
-## Reset behaviour
-
-`windsor init <context> --reset` removes the per-context credential and
-config directories (`.aws/`, `.gcp/`, `.kube/`, `.talos/`, `.omni/`)
-along with the runtime caches under `.windsor/contexts/<name>/`.
-`.azure/` is **not** cleaned — operators wiping Azure credentials must
-remove that directory by hand. User-authored files (`blueprint.yaml`,
-`values.yaml`, hand-edited `terraform/*.tfvars`,
-`terraform/backend.tfvars`) are preserved.
-
 ## See also
 
 - [Windsor state directory](windsor-dir.md) — system-managed `.windsor/` layout
