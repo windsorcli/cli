@@ -175,7 +175,9 @@ func TestAmbient_HasProfile(t *testing.T) {
 
 	t.Run("FallsBackToHomeDotAwsWhenEnvUnset", func(t *testing.T) {
 		// Given neither AWS_CONFIG_FILE nor AWS_SHARED_CREDENTIALS_FILE is set,
-		// and HOME points at a controlled temp dir containing a profile
+		// and the home dir points at a controlled temp dir containing a profile.
+		// HOME and USERPROFILE are both set so os.UserHomeDir resolves to the
+		// fixture on Unix (HOME) and Windows (USERPROFILE) alike.
 		home := t.TempDir()
 		awsDir := filepath.Join(home, ".aws")
 		if err := os.MkdirAll(awsDir, 0755); err != nil {
@@ -187,11 +189,12 @@ func TestAmbient_HasProfile(t *testing.T) {
 		t.Setenv("AWS_CONFIG_FILE", "")
 		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
 		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
 
 		// When asking for localdev
 		got := Ambient().HasProfile("localdev")
 
-		// Then the fallback path resolves to $HOME/.aws/config and finds it
+		// Then the fallback path resolves to <home>/.aws/config and finds it
 		if !got {
 			t.Errorf("expected true when profile defined in $HOME/.aws/config, got false")
 		}
