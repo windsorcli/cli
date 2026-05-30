@@ -89,7 +89,9 @@ func TestBootstrap_PersistsSetValues(t *testing.T) {
 // back to global mode, prints a plan, and prompts to apply. Empty stdin (non-
 // interactive without --yes) is treated as "no" and exits cleanly — the context
 // has already been configured by this point, so declining the apply is a valid
-// no-op rather than a failure exit.
+// no-op rather than a failure exit. aws.region is required by the aws platform
+// facets (validator added in core after this test was written); supply it via
+// --set so the plan can render without tripping the required-values gate.
 func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
 	t.Parallel()
 	workDir := t.TempDir()
@@ -99,7 +101,7 @@ func TestBootstrap_GlobalModeExitsCleanlyWhenPlanDeclined(t *testing.T) {
 		"USERPROFILE=" + homeDir,
 		"PATH=" + os.Getenv("PATH"),
 	}
-	stdout, stderr, err := helpers.RunCLI(workDir, []string{"bootstrap", "--platform", "aws"}, env)
+	stdout, stderr, err := helpers.RunCLI(workDir, []string{"bootstrap", "--platform", "aws", "--set", "aws.region=us-east-1"}, env)
 	if err != nil {
 		t.Fatalf("expected clean exit when plan-confirm is declined, got %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
