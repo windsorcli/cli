@@ -416,7 +416,7 @@ func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected 
 // the existing per-error abort already surfaces failures, so no extra output
 // is needed; this only fires when the operator opted into best-effort mode.
 // Returns nil when destroyContinue is false or when no failures were recorded.
-func finishContinueDestroy(w io.Writer, result terraforminfra.DestroyResult) error {
+func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error {
 	if !destroyContinue {
 		return nil
 	}

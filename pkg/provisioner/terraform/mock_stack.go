@@ -23,7 +23,7 @@ type MockStack struct {
 	InitComponentFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalStateFunc           func(componentID string) error
 	PostApplyFunc             func(fns ...func(id string) error)
-	DestroyAllFunc            func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error)
+	DestroyAllFunc            func(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	PlanFunc                  func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAllFunc               func(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSONFunc              func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -113,11 +113,11 @@ func (m *MockStack) PostApply(fns ...func(id string) error) {
 }
 
 // DestroyAll is a mock implementation of the DestroyAll method.
-func (m *MockStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+func (m *MockStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
 	if m.DestroyAllFunc != nil {
 		return m.DestroyAllFunc(blueprint, continueOnError, excludeIDs...)
 	}
-	return DestroyResult{}, nil
+	return DestroyOutcome{}, nil
 }
 
 // Plan is a mock implementation of the Plan method.

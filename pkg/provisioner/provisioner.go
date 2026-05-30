@@ -375,8 +375,8 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 // applied, fully torn down already, or upstream destroy collapsed their cloud objects out from
 // under them); cmd-layer callers surface them in the user-facing summary so an operator can see
 // "these were no-ops" alongside "these were destroyed".
-func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
-	var result terraforminfra.DestroyResult
+func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+	var result DestroyResult
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
 	}
@@ -386,7 +386,10 @@ func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint
 	if i.TerraformStack == nil {
 		return result, fmt.Errorf("terraform is disabled")
 	}
-	result, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
+	outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
+	result.Destroyed = outcome.Destroyed
+	result.Skipped = outcome.Skipped
+	result.Failed = outcome.Failed
 	if err != nil {
 		return result, fmt.Errorf("failed to run terraform destroy: %w", err)
 	}
@@ -479,8 +482,8 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 // was empty (never applied, already torn down) alongside any error from either step —
 // paired with the error so callers see what was no-op'd even when a later step fails.
 // Returns an error if either step fails.
-func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
-	var result terraforminfra.DestroyResult
+func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
+	var result DestroyResult
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
 	}
@@ -490,7 +493,7 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 			if !continueOnError {
 				return result, err
 			}
-			result.Failed = append(result.Failed, terraforminfra.ComponentFailure{ID: "kustomize", Err: err})
+			result.Failed = append(result.Failed, ComponentFailure{ID: "kustomize", Err: err})
 		}
 	}
 
@@ -498,10 +501,10 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 		return result, err
 	}
 	if i.TerraformStack != nil {
-		tfResult, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
-		result.Destroyed = append(result.Destroyed, tfResult.Destroyed...)
-		result.Skipped = append(result.Skipped, tfResult.Skipped...)
-		result.Failed = append(result.Failed, tfResult.Failed...)
+		outcome, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
+		result.Destroyed = append(result.Destroyed, outcome.Destroyed...)
+		result.Skipped = append(result.Skipped, outcome.Skipped...)
+		result.Failed = append(result.Failed, outcome.Failed...)
 		if err != nil {
 			return result, fmt.Errorf("failed to run terraform destroy: %w", err)
 		}

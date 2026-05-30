@@ -165,17 +165,16 @@ type ComponentFailure struct {
 	Err error
 }
 
-// DestroyResult tallies the outcome of a destroy pass. Destroyed lists
-// component IDs whose terraform destroy ran to completion. Skipped lists
-// component IDs whose state was empty (no-op). Failed lists per-component
-// failures from continue-on-error mode. TierDeferred is true when the backend
-// tier was not attempted because the non-tier pass left at least one
-// destroy unresolved.
-type DestroyResult struct {
-	Destroyed    []string
-	Skipped      []string
-	Failed       []ComponentFailure
-	TierDeferred bool
+// DestroyOutcome tallies what a single terraform destroy pass produced.
+// Destroyed lists component IDs whose terraform destroy ran to completion;
+// Skipped lists component IDs whose state was empty (no-op); Failed lists
+// per-component failures collected when continue-on-error is true. Aggregate
+// cross-layer concerns (backend-tier deferral, kustomize counts) live on the
+// provisioner-layer result type, not here.
+type DestroyOutcome struct {
+	Destroyed []string
+	Skipped   []string
+	Failed    []ComponentFailure
 }
 
 // =============================================================================
@@ -199,7 +198,7 @@ type Stack interface {
 	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalState(componentID string) error
 	PostApply(fns ...func(id string) error)
-	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error)
+	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -560,10 +559,10 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 // excludeIDs are skipped entirely (used by symmetric-destroy flow at the cmd layer to peel
 // off the backend component from the bulk pass — it gets destroyed last, after its state
 // is migrated to local). When continueOnError is true, per-component destroy errors are
-// collected in DestroyResult.Failed and the loop proceeds to the next component; when
-// false, the first error aborts and is returned alongside a partial DestroyResult.
-func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyResult, error) {
-	var result DestroyResult
+// collected in DestroyOutcome.Failed and the loop proceeds to the next component; when
+// false, the first error aborts and is returned alongside a partial DestroyOutcome.
+func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
+	var result DestroyOutcome
 	if blueprint == nil {
 		return result, fmt.Errorf("blueprint not provided")
 	}

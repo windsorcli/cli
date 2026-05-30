@@ -40,9 +40,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		destroyAllCalled := false
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalled = true
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
@@ -82,9 +82,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		destroyAllCalls := 0
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
@@ -128,9 +128,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		var seenExclude []string
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			seenExclude = excludeIDs
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		migrateCalled := false
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -187,11 +187,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 		var destroyAllBlueprints []*blueprintv1alpha1.Blueprint
 		var destroyAllExcludes [][]string
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			ops = append(ops, fmt.Sprintf("destroyAll:exclude=%v", excludeIDs))
 			destroyAllBlueprints = append(destroyAllBlueprints, b)
 			destroyAllExcludes = append(destroyAllExcludes, excludeIDs)
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate")
@@ -259,10 +259,10 @@ func TestProvisioner_Teardown(t *testing.T) {
 		var destroyAllBlueprints []*blueprintv1alpha1.Blueprint
 		var destroyAllExcludes [][]string
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllBlueprints = append(destroyAllBlueprints, b)
 			destroyAllExcludes = append(destroyAllExcludes, excludeIDs)
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		var migrateBlueprints []*blueprintv1alpha1.Blueprint
 		mockStack.MigrateStateFunc = func(b *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -326,8 +326,8 @@ func TestProvisioner_Teardown(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
-			return terraforminfra.DestroyResult{}, fmt.Errorf("non-tier destroy failed")
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, fmt.Errorf("non-tier destroy failed")
 		}
 		migrateCalled := false
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -385,10 +385,10 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		destroyAllCalls := 0
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
 			ops = append(ops, "destroyAll")
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate-fail")
@@ -449,7 +449,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) { return terraforminfra.DestroyResult{}, nil }
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
 
 		r, w, pipeErr := os.Pipe()
@@ -505,12 +505,12 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockCH.SetFunc = func(_ string, _ any) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
 		destroyAllCalls := 0
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
 			if destroyAllCalls == 1 {
-				return terraforminfra.DestroyResult{Skipped: []string{"gitops"}}, nil
+				return terraforminfra.DestroyOutcome{Skipped: []string{"gitops"}}, nil
 			}
-			return terraforminfra.DestroyResult{Skipped: []string{"backend"}}, nil
+			return terraforminfra.DestroyOutcome{Skipped: []string{"backend"}}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return []string{"backend"}, nil
@@ -561,8 +561,8 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		migrateCalled := false
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
-			return terraforminfra.DestroyResult{
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{
 				Failed: []terraforminfra.ComponentFailure{{ID: "cluster", Err: fmt.Errorf("cluster destroy failed")}},
 			}, nil
 		}
@@ -619,9 +619,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockStack := terraforminfra.NewMockStack()
 		migrateCalled := false
 		destroyAllCalls := 0
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
-			return terraforminfra.DestroyResult{Destroyed: []string{fmt.Sprintf("pass%d", destroyAllCalls)}}, nil
+			return terraforminfra.DestroyOutcome{Destroyed: []string{fmt.Sprintf("pass%d", destroyAllCalls)}}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			migrateCalled = true
@@ -662,11 +662,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 			return ""
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, continueOnError bool, _ ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, continueOnError bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			if !continueOnError {
 				t.Error("Expected continueOnError=true to be propagated to stack")
 			}
-			return terraforminfra.DestroyResult{
+			return terraforminfra.DestroyOutcome{
 				Destroyed: []string{"vpc"},
 				Failed:    []terraforminfra.ComponentFailure{{ID: "iam", Err: fmt.Errorf("permission denied")}},
 			}, nil

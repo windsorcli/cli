@@ -135,7 +135,7 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 
 	terraformStack := terraforminfra.NewMockStack()
 	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
-	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) { return terraforminfra.DestroyResult{}, nil }
+	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 
 	fluxStack := fluxinfra.NewMockStack()
 
@@ -726,7 +726,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) { return terraforminfra.DestroyResult{}, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
@@ -778,8 +778,8 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 	t.Run("ErrorDestroyAllFails", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
-			return terraforminfra.DestroyResult{}, fmt.Errorf("terraform destroy all failed")
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform destroy all failed")
 		}
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
@@ -1733,7 +1733,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) { return terraforminfra.DestroyResult{}, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
@@ -1747,7 +1747,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	t.Run("SuccessNoKubernetesManager", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) { return terraforminfra.DestroyResult{}, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 		provisioner.KubernetesManager = nil
@@ -1795,8 +1795,8 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
-			return terraforminfra.DestroyResult{}, fmt.Errorf("terraform down failed")
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform down failed")
 		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
@@ -1827,9 +1827,9 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			terraformDestroyCalled = true
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
@@ -1857,7 +1857,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) { return terraforminfra.DestroyResult{}, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 

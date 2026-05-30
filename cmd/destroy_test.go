@@ -105,7 +105,7 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) { return terraforminfra.DestroyResult{}, nil }
+	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 	mockTerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
@@ -470,9 +470,9 @@ func TestDestroyCmd(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		destroyAllCalled := false
-		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalled = true
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -561,9 +561,9 @@ func TestDestroyCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyCalled = true
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -597,9 +597,9 @@ func TestDestroyCmd(t *testing.T) {
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
-		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyCalled = true
-			return terraforminfra.DestroyResult{}, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -626,9 +626,9 @@ func TestDestroyCmd(t *testing.T) {
 		// render the one-line summary on stderr.
 		mocks := setupDestroyTest(t)
 		var seenContinue bool
-		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, continueOnError bool, _ ...string) (terraforminfra.DestroyResult, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, continueOnError bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			seenContinue = continueOnError
-			return terraforminfra.DestroyResult{Destroyed: []string{"cluster"}}, nil
+			return terraforminfra.DestroyOutcome{Destroyed: []string{"cluster"}}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -663,8 +663,8 @@ func TestDestroyCmd(t *testing.T) {
 		// the cmd layer must return a non-zero exit error after printing the summary
 		// (so re-running converges; CI sees the failure).
 		mocks := setupDestroyTest(t)
-		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
-			return terraforminfra.DestroyResult{
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{
 				Destroyed: []string{"vpc"},
 				Failed:    []terraforminfra.ComponentFailure{{ID: "iam", Err: fmt.Errorf("permission denied")}},
 			}, nil
@@ -695,8 +695,8 @@ func TestDestroyCmd(t *testing.T) {
 		// Given the operator did not pass --continue, the summary line must not
 		// appear (current behavior is unchanged; opt-in only).
 		mocks := setupDestroyTest(t)
-		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
-			return terraforminfra.DestroyResult{Destroyed: []string{"cluster"}}, nil
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{Destroyed: []string{"cluster"}}, nil
 		}
 		proj := newDestroyProject(mocks)
 

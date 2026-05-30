@@ -8,6 +8,28 @@ import (
 )
 
 // =============================================================================
+// Types
+// =============================================================================
+
+// ComponentFailure is a per-component error captured during continue-on-error
+// destroy. Aliased from the terraform package so callers can use a single
+// type identity across the layer boundary without duplication.
+type ComponentFailure = terraforminfra.ComponentFailure
+
+// DestroyResult is the cmd-facing aggregate of a destroy pass. Destroyed,
+// Skipped, and Failed roll up every component the provisioner attempted —
+// kustomize plus terraform — and TierDeferred records the provisioner-layer
+// decision to leave the backend tier alone when a non-tier component still
+// needs work. Fields for additional destroy layers (e.g. Helm) belong on
+// this type, not on the terraform-package outcome.
+type DestroyResult struct {
+	Destroyed    []string
+	Skipped      []string
+	Failed       []ComponentFailure
+	TierDeferred bool
+}
+
+// =============================================================================
 // Public Methods
 // =============================================================================
 
@@ -21,8 +43,8 @@ import (
 // when Stage 1 produced zero failures, to avoid destroying the state store
 // while other components still depend on it. The tier-deferred flag on the
 // result signals when Stage 2 was skipped for this reason.
-func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (terraforminfra.DestroyResult, error) {
-	var result terraforminfra.DestroyResult
+func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (DestroyResult, error) {
+	var result DestroyResult
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	if backendType == "kubernetes" && blueprint.Backend == "" {
 		return result, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
