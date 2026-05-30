@@ -21,6 +21,8 @@ config:
     common_config_patches: "${string(block_a.common_patch)}"
 
 terraform:
+- name: workstation
+  path: workstation/test
 - name: cluster
   path: cluster/test
   inputs:

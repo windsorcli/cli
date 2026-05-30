@@ -1,0 +1,14 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+  description: cluster eagerly references dns-zone outputs; dns-zone is gated by dns.public_domain
+
+terraform:
+  - name: dns-zone
+    path: dns/zone
+    when: (dns.public_domain ?? '') != ''
+  - name: cluster
+    path: cluster
+    inputs:
+      cert_manager_hosted_zone_ids: "${(terraform_output('dns-zone', 'zone_id') ?? '') != '' ? [terraform_output('dns-zone', 'zone_id')] : []}"
