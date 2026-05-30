@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/goccy/go-yaml"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -210,7 +212,6 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 			}
 		}
 
-		// Validate after the loop, not per-Set: Go-map iteration order is random.
 		if err := rt.ConfigHandler.ValidateContextValues(); err != nil {
 			return nil, err
 		}
@@ -218,6 +219,11 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 		if err := rt.InitializeComponents(); err != nil {
 			return nil, fmt.Errorf("failed to initialize components: %w", err)
 		}
+
+		testBlueprintHandler := blueprint.NewBlueprintHandler(rt, r.artifactBuilder)
+
+		referencedComponents := make(map[string]struct{})
+		var referencedMu sync.Mutex
 
 		if len(terraformOutputs) > 0 {
 			mockProvider := &terraform.MockTerraformProvider{
@@ -231,10 +237,13 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 			if rt.ConfigHandler.GetBool("terraform.enabled", false) {
 				rt.TerraformProvider = mockProvider
 			}
-			registerTerraformOutputHelperForMock(mockProvider, rt.Evaluator)
+			recordReference := func(componentID string) {
+				referencedMu.Lock()
+				referencedComponents[componentID] = struct{}{}
+				referencedMu.Unlock()
+			}
+			registerTerraformOutputHelperForMock(mockProvider, rt.Evaluator, recordReference)
 		}
-
-		testBlueprintHandler := blueprint.NewBlueprintHandler(rt, r.artifactBuilder)
 
 		defaultURL := r.DefaultBlueprintURL
 		if defaultURL == "" {
@@ -263,8 +272,52 @@ func (r *TestRunner) createGenerator(terraformOutputs map[string]map[string]any)
 			return nil, fmt.Errorf("failed to generate blueprint")
 		}
 
+		if err := validateTerraformOutputReferences(bp, referencedComponents, &referencedMu); err != nil {
+			return nil, err
+		}
+
 		return bp, nil
 	}
+}
+
+// validateTerraformOutputReferences fails composition when a terraform_output() expression named a
+// component that the composed blueprint does not contain. This mirrors the live runtime error raised
+// at env-var build time ("component not found: <name>") so the failure surfaces in windsor test rather
+// than leaking into windsor bootstrap. Missing names are sorted and joined into a single error so the
+// operator sees every offending reference in one pass rather than fixing one and re-running.
+func validateTerraformOutputReferences(bp *blueprintv1alpha1.Blueprint, referenced map[string]struct{}, mu *sync.Mutex) error {
+	if bp == nil || len(referenced) == 0 {
+		return nil
+	}
+
+	registered := make(map[string]struct{}, len(bp.TerraformComponents)*2)
+	for _, c := range bp.TerraformComponents {
+		if c.Path != "" {
+			registered[c.Path] = struct{}{}
+		}
+		if c.Name != "" {
+			registered[c.Name] = struct{}{}
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	var missing []string
+	for ref := range referenced {
+		if _, ok := registered[ref]; !ok {
+			missing = append(missing, ref)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	sort.Strings(missing)
+	if len(missing) == 1 {
+		return fmt.Errorf("component not found: %s", missing[0])
+	}
+	return fmt.Errorf("component not found: %s", strings.Join(missing, ", "))
 }
 
 // normalizeTestValue converts YAML-unmarshaled values (e.g. map[interface{}]interface{}) to
@@ -787,10 +840,18 @@ func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint
 // for use in test scenarios. This allows tests to provide mock Terraform output values without requiring actual
 // Terraform state or infrastructure. The helper validates that exactly two string arguments (component ID and output key)
 // are provided. Unlike production, it always evaluates immediately (ignores the deferred flag) since mock outputs
-// are always available during test execution. If the key exists in the component's outputs, it returns the value
-// (which can be any type: string, array, object, etc.). If the key does not exist, it returns nil (not an error),
-// enabling the ?? fallback operator to work correctly in expressions.
-func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformProvider, eval evaluator.ExpressionEvaluator) {
+// are always available during test execution.
+//
+// The recordReference callback (when non-nil) is invoked with each component ID the expression references. The runner
+// uses this to collect a deferred validation set: after composition completes, any referenced component absent from the
+// composed blueprint surfaces as "component not found: <name>", matching the live runtime error raised at env-var
+// building time. Validation must run after Generate() because facet processing and the composer evaluate inputs before
+// any single facet's components reach the composedBlueprint; an inline check inside the helper would false-positive on
+// same-facet sibling references. The callback is optional so helper-level unit tests need not wire it.
+//
+// If the key exists in the supplied mock outputs, the value is returned; if not, nil is returned (not an error) so the
+// ?? fallback operator continues to work for deferred wiring patterns (key absent on a registered component).
+func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformProvider, eval evaluator.ExpressionEvaluator, recordReference func(componentID string)) {
 	eval.Register("terraform_output", func(params []any, deferred bool) (any, error) {
 		if len(params) != 2 {
 			return nil, fmt.Errorf("terraform_output() requires exactly 2 arguments (component, key), got %d", len(params))
@@ -802,6 +863,10 @@ func registerTerraformOutputHelperForMock(mockProvider *terraform.MockTerraformP
 		key, ok := params[1].(string)
 		if !ok {
 			return nil, fmt.Errorf("terraform_output() key must be a string, got %T", params[1])
+		}
+
+		if recordReference != nil {
+			recordReference(component)
 		}
 
 		outputs, err := mockProvider.GetTerraformOutputs(component)

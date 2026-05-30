@@ -1,0 +1,5 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: test-tf-output-unregistered
+  description: Exercises the windsor test gap where terraform_output() against an unregistered component used to resolve silently

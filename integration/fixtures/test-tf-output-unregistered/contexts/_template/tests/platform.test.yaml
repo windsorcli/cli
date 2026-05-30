@@ -1,0 +1,27 @@
+# Cases for the windsor test harness exercising the gap between windsor test and windsor
+# bootstrap: an eager terraform_output() referencing an unregistered component must surface
+# the same "component not found" failure that the live runtime raises at env-var build time.
+
+cases:
+
+  # dns.public_domain set: dns-zone is registered and the cluster input resolves cleanly.
+  - name: dns_zone_registered_resolves
+    values:
+      terraform:
+        enabled: true
+      dns:
+        public_domain: example.com
+    terraformOutputs:
+      dns-zone:
+        zone_id: Z123ABC
+
+  # dns.public_domain unset: dns-zone is filtered out, but cluster eagerly calls
+  # terraform_output('dns-zone', ...). windsor test must fail to match windsor bootstrap.
+  - name: dns_zone_unregistered_fails
+    values:
+      terraform:
+        enabled: true
+    terraformOutputs:
+      cluster:
+        endpoint: https://cluster.local
+    expectError: true

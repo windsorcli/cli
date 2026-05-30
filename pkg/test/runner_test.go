@@ -2181,6 +2181,88 @@ func TestTestRunner_createGenerator(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorsWhenFacetTerraformInputReferencesUnregisteredComponent", func(t *testing.T) {
+		// Given a facet whose terraform component eagerly references terraform_output()
+		// for a sibling component that is gated by a `when:` condition the test disables.
+		// This mirrors the failure mode the bug report describes: windsor bootstrap errors
+		// at env-var time with "component not found: dns-zone" but windsor test silently
+		// resolved the expression to empty, hiding the failure until live runs.
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "platform.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+terraform:
+  - name: dns-zone
+    path: dns/zone
+    when: (dns.public_domain ?? '') != ''
+  - name: cluster
+    path: cluster
+    inputs:
+      cert_manager_hosted_zone_ids: "${(terraform_output('dns-zone', 'zone_id') ?? '') != '' ? [terraform_output('dns-zone', 'zone_id')] : []}"
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		terraformOutputs := map[string]map[string]any{
+			"cluster": {"endpoint": "https://cluster.local"},
+		}
+		generator := runner.createGenerator(terraformOutputs)
+
+		// When the generator composes a config where dns.public_domain is unset so dns-zone is filtered out
+		_, err := generator(map[string]any{
+			"terraform.enabled": true,
+		})
+
+		// Then composition fails with the same "component not found" message the live
+		// runtime raises, so the test loop catches the regression locally
+		if err == nil {
+			t.Fatal("Expected error when terraform input references unregistered component, got nil")
+		}
+		if !strings.Contains(err.Error(), "component not found: dns-zone") {
+			t.Errorf("Expected error to contain 'component not found: dns-zone', got: %v", err)
+		}
+	})
+
+	t.Run("ResolvesWhenFacetTerraformInputReferencesRegisteredComponent", func(t *testing.T) {
+		// Given the same facet but a config that enables the dns-zone component
+		mocks := setupTestRunnerMocks(t)
+		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
+		facetsDir := filepath.Join(templateDir, "facets")
+		createTestFile(t, facetsDir, "platform.yaml", `kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: platform
+terraform:
+  - name: dns-zone
+    path: dns/zone
+    when: (dns.public_domain ?? '') != ''
+  - name: cluster
+    path: cluster
+    inputs:
+      cert_manager_hosted_zone_ids: "${(terraform_output('dns-zone', 'zone_id') ?? '') != '' ? [terraform_output('dns-zone', 'zone_id')] : []}"
+`)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		// And terraformOutputs supplies dns-zone.zone_id
+		terraformOutputs := map[string]map[string]any{
+			"dns-zone": {"zone_id": "Z123ABC"},
+		}
+		generator := runner.createGenerator(terraformOutputs)
+
+		// When the generator composes with dns.public_domain set so dns-zone is registered
+		_, err := generator(map[string]any{
+			"terraform.enabled": true,
+			"dns":               map[string]any{"public_domain": "example.com"},
+		})
+
+		// Then composition succeeds: dns-zone is in the composition and its output resolves
+		if err != nil {
+			t.Fatalf("Expected no error when component is registered, got: %v", err)
+		}
+	})
+
 	t.Run("CrossFieldRuleSpanningStaticAndDynamicFires", func(t *testing.T) {
 		mocks := setupTestRunnerMocks(t)
 		templateDir := filepath.Join(mocks.TmpDir, "contexts", "_template")
@@ -2315,7 +2397,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		result, err := eval.Evaluate(`${terraform_output("compute", "controlplanes")}`, "", nil, true)
 
@@ -2346,7 +2428,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		result, err := eval.Evaluate(`${terraform_output("network", "nonexistent") ?? "default"}`, "", nil, true)
 
@@ -2359,13 +2441,16 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 	})
 
 	t.Run("ReturnsNilWhenComponentDoesNotExist", func(t *testing.T) {
+		// The helper itself never errors on an unknown component — it resolves to nil so the ??
+		// fallback can apply. The runner performs the registration check after Generate() returns
+		// using the references collected by the recordReference callback.
 		mockProvider := &terraform.MockTerraformProvider{
 			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
 				return make(map[string]any), nil
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		result, err := eval.Evaluate(`${terraform_output("nonexistent", "key") ?? "fallback"}`, "", nil, true)
 
@@ -2377,6 +2462,37 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 		}
 	})
 
+	t.Run("InvokesRecordReferenceForEveryComponentReference", func(t *testing.T) {
+		// Given a helper wired with a recordReference callback
+		mockProvider := &terraform.MockTerraformProvider{
+			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
+				if componentID == "network" {
+					return map[string]any{"vpc_id": "vpc-123"}, nil
+				}
+				return make(map[string]any), nil
+			},
+		}
+		eval := setupEvaluatorForHelperTest(t)
+		var recorded []string
+		registerTerraformOutputHelperForMock(mockProvider, eval, func(componentID string) {
+			recorded = append(recorded, componentID)
+		})
+
+		// When expressions reference multiple components, including one that has no supplied outputs
+		if _, err := eval.Evaluate(`${terraform_output("network", "vpc_id")}`, "", nil, true); err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if _, err := eval.Evaluate(`${terraform_output("dns-zone", "zone_id") ?? ""}`, "", nil, true); err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		// Then every referenced component ID is recorded so the runner can validate registration
+		// against the composed blueprint after Generate() returns
+		if len(recorded) != 2 || recorded[0] != "network" || recorded[1] != "dns-zone" {
+			t.Errorf("Expected recorded references [network dns-zone], got %v", recorded)
+		}
+	})
+
 	t.Run("EvaluatesImmediatelyEvenWhenDeferredIsFalse", func(t *testing.T) {
 		mockProvider := &terraform.MockTerraformProvider{
 			GetTerraformOutputsFunc: func(componentID string) (map[string]any, error) {
@@ -2384,7 +2500,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		result, err := eval.Evaluate(`prefix-${terraform_output("component", "key")}-suffix`, "", nil, false)
 
@@ -2411,7 +2527,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		result, err := eval.Evaluate(`${terraform_output("compute", "controlplanes")}`, "", nil, true)
 
@@ -2436,7 +2552,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		result, err := eval.Evaluate(`${terraform_output("network", "vpc_id")}`, "", nil, true)
 
@@ -2455,7 +2571,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		_, err := eval.Evaluate(`${terraform_output("component")}`, "", nil, true)
 
@@ -2474,7 +2590,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		_, err := eval.Evaluate(`${terraform_output(123, "key")}`, "", nil, true)
 
@@ -2493,7 +2609,7 @@ func TestRegisterTerraformOutputHelperForMock(t *testing.T) {
 			},
 		}
 		eval := setupEvaluatorForHelperTest(t)
-		registerTerraformOutputHelperForMock(mockProvider, eval)
+		registerTerraformOutputHelperForMock(mockProvider, eval, nil)
 
 		_, err := eval.Evaluate(`${terraform_output("component", 456)}`, "", nil, true)
 
