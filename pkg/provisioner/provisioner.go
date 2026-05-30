@@ -493,7 +493,7 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 			if !continueOnError {
 				return result, err
 			}
-			result.Failed = append(result.Failed, ComponentFailure{ID: "kustomize", Err: err})
+			result.Failed = append(result.Failed, ComponentFailure{ID: KustomizeFailureID, Err: err})
 		} else {
 			for _, k := range blueprint.Kustomizations {
 				if fluxinfra.KustomizationDestroyEligible(k) {

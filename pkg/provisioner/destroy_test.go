@@ -687,6 +687,80 @@ func TestProvisioner_Teardown(t *testing.T) {
 			t.Errorf("Expected Destroyed=[vpc], got %v", result.Destroyed)
 		}
 	})
+
+	t.Run("ContinueAttemptsTierWhenOnlyKustomizeFailed", func(t *testing.T) {
+		// Given a tier blueprint where kustomize Uninstall fails but every
+		// non-tier terraform component destroys cleanly. Kustomize does not
+		// depend on terraform state, so the backend tier MUST still be
+		// attempted — otherwise the tier is permanently deferred on every
+		// rerun (kustomize is most likely to fail against a cluster that's
+		// already partially gone).
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend:  "backend",
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(_ string, _ any) error { return nil }
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			return fmt.Errorf("cluster API unreachable")
+		}
+		mockStack := terraforminfra.NewMockStack()
+		migrateCalled := false
+		destroyAllCalls := 0
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalls++
+			return terraforminfra.DestroyOutcome{Destroyed: []string{fmt.Sprintf("pass%d", destroyAllCalls)}}, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			migrateCalled = true
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mockStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
+		result, err := provisioner.Teardown(bp, false, true)
+
+		// Then the kustomize failure is recorded, but the tier is NOT deferred —
+		// terraform component failures are the only thing that should defer the tier.
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb kustomize failure, got %v", err)
+		}
+		if result.TierDeferred {
+			t.Error("Expected TierDeferred=false when only kustomize failed (kustomize does not depend on terraform state)")
+		}
+		if !migrateCalled {
+			t.Error("Expected MigrateState to run when terraform stage 1 was clean")
+		}
+		if destroyAllCalls != 2 {
+			t.Errorf("Expected Stage 1 + Stage 2 DestroyAll calls (2), got %d", destroyAllCalls)
+		}
+		var foundKustomize bool
+		for _, f := range result.Failed {
+			if f.ID == KustomizeFailureID {
+				foundKustomize = true
+			}
+		}
+		if !foundKustomize {
+			t.Errorf("Expected kustomize failure to remain in result.Failed, got %v", result.Failed)
+		}
+	})
 }
 
 func TestProvisioner_TeardownComponent(t *testing.T) {

@@ -8,6 +8,17 @@ import (
 )
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+// KustomizeFailureID is the sentinel ID used when the kustomize Uninstall step
+// fails under continue-on-error mode. The kustomize layer surfaces a single
+// aggregate failure rather than per-Kustomization entries, so the tier-gate
+// logic in Teardown can distinguish kustomize failures (which do not block
+// the terraform backend tier) from terraform-component failures (which do).
+const KustomizeFailureID = "kustomize"
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -72,7 +83,7 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 		return result, stage1Err
 	}
 
-	if len(result.Failed) > 0 {
+	if hasTerraformFailure(result.Failed) {
 		result.TierDeferred = true
 		return result, nil
 	}
@@ -108,6 +119,22 @@ func (i *Provisioner) TeardownComponent(blueprint *blueprintv1alpha1.Blueprint, 
 // =============================================================================
 // Private Helpers
 // =============================================================================
+
+// hasTerraformFailure reports whether the failure list contains any entry
+// that belongs to a terraform component (i.e., not the kustomize-aggregate
+// sentinel). Used by Teardown's tier gate: kustomize failures do not block
+// the backend terraform tier because kustomize resources do not depend on
+// terraform state. Without this filter, a kustomize Uninstall error would
+// permanently defer the tier on every rerun, because the cluster is the
+// thing kustomize most often fails against.
+func hasTerraformFailure(failed []ComponentFailure) bool {
+	for _, f := range failed {
+		if f.ID != KustomizeFailureID {
+			return true
+		}
+	}
+	return false
+}
 
 // mergeSkipped returns the union of two skipped-component lists in input order
 // without duplicates. MigrateState and DestroyAll both report dir-missing
