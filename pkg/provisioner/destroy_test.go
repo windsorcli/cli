@@ -40,13 +40,13 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		destroyAllCalled := false
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalled = true
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(bp, true)
+		_, err := provisioner.Teardown(bp, true, false)
 		if err == nil {
 			t.Fatal("Expected error for kubernetes backend without Blueprint.Backend, got nil")
 		}
@@ -82,13 +82,13 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		destroyAllCalls := 0
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(createTestBlueprint(), true); err != nil {
+		if _, err := provisioner.Teardown(createTestBlueprint(), true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if destroyAllCalls != 1 {
@@ -128,9 +128,9 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		var seenExclude []string
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			seenExclude = excludeIDs
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		migrateCalled := false
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -139,7 +139,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(bp, true); err != nil {
+		if _, err := provisioner.Teardown(bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		if setCalled {
@@ -187,11 +187,11 @@ func TestProvisioner_Teardown(t *testing.T) {
 		var destroyAllBlueprints []*blueprintv1alpha1.Blueprint
 		var destroyAllExcludes [][]string
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			ops = append(ops, fmt.Sprintf("destroyAll:exclude=%v", excludeIDs))
 			destroyAllBlueprints = append(destroyAllBlueprints, b)
 			destroyAllExcludes = append(destroyAllExcludes, excludeIDs)
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate")
@@ -199,7 +199,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(bp, true); err != nil {
+		if _, err := provisioner.Teardown(bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -259,10 +259,10 @@ func TestProvisioner_Teardown(t *testing.T) {
 		var destroyAllBlueprints []*blueprintv1alpha1.Blueprint
 		var destroyAllExcludes [][]string
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+		mockStack.DestroyAllFunc = func(b *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllBlueprints = append(destroyAllBlueprints, b)
 			destroyAllExcludes = append(destroyAllExcludes, excludeIDs)
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		var migrateBlueprints []*blueprintv1alpha1.Blueprint
 		mockStack.MigrateStateFunc = func(b *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -271,7 +271,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		if _, err := provisioner.Teardown(bp, true); err != nil {
+		if _, err := provisioner.Teardown(bp, true, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -326,8 +326,8 @@ func TestProvisioner_Teardown(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
-			return nil, fmt.Errorf("non-tier destroy failed")
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, fmt.Errorf("non-tier destroy failed")
 		}
 		migrateCalled := false
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
@@ -336,7 +336,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(bp, true)
+		_, err := provisioner.Teardown(bp, true, false)
 		if err == nil {
 			t.Fatal("Expected error from Stage 1 failure, got nil")
 		}
@@ -385,10 +385,10 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		mockStack := terraforminfra.NewMockStack()
 		destroyAllCalls := 0
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
 			ops = append(ops, "destroyAll")
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			ops = append(ops, "migrate-fail")
@@ -396,7 +396,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		_, err := provisioner.Teardown(bp, true)
+		_, err := provisioner.Teardown(bp, true, false)
 		if err == nil {
 			t.Fatal("Expected error from Stage 2 migration failure, got nil")
 		}
@@ -449,7 +449,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) { return nil, nil }
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) { return nil, nil }
 
 		r, w, pipeErr := os.Pipe()
@@ -461,7 +461,7 @@ func TestProvisioner_Teardown(t *testing.T) {
 		defer func() { os.Stderr = origStderr }()
 
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
-		_, err := provisioner.Teardown(bp, true)
+		_, err := provisioner.Teardown(bp, true, false)
 
 		w.Close()
 		stderrBytes, _ := io.ReadAll(r)
@@ -505,30 +505,260 @@ func TestProvisioner_Teardown(t *testing.T) {
 		mockCH.SetFunc = func(_ string, _ any) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
 		destroyAllCalls := 0
-		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalls++
 			if destroyAllCalls == 1 {
-				return []string{"gitops"}, nil
+				return terraforminfra.DestroyOutcome{Skipped: []string{"gitops"}}, nil
 			}
-			return []string{"backend"}, nil
+			return terraforminfra.DestroyOutcome{Skipped: []string{"backend"}}, nil
 		}
 		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
 			return []string{"backend"}, nil
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
 
-		skipped, err := provisioner.Teardown(bp, true)
+		result, err := provisioner.Teardown(bp, true, false)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		expected := []string{"gitops", "backend"}
-		if len(skipped) != len(expected) {
-			t.Fatalf("Expected %v, got %v", expected, skipped)
+		if len(result.Skipped) != len(expected) {
+			t.Fatalf("Expected %v, got %v", expected, result.Skipped)
 		}
 		for i, want := range expected {
-			if skipped[i] != want {
-				t.Errorf("skipped[%d]: got %q, want %q", i, skipped[i], want)
+			if result.Skipped[i] != want {
+				t.Errorf("skipped[%d]: got %q, want %q", i, result.Skipped[i], want)
 			}
+		}
+	})
+
+	t.Run("ContinueDefersTierWhenNonTierHasFailures", func(t *testing.T) {
+		// Given a blueprint with a backend tier and a non-tier component whose
+		// Stage 1 destroy reported a failure under continueOnError mode
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend:  "backend",
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		setCalled := false
+		mockCH.SetFunc = func(_ string, _ any) error {
+			setCalled = true
+			return nil
+		}
+		mockStack := terraforminfra.NewMockStack()
+		migrateCalled := false
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{
+				Failed: []terraforminfra.ComponentFailure{{ID: "cluster", Err: fmt.Errorf("cluster destroy failed")}},
+			}, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			migrateCalled = true
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		// When Teardown runs with continueOnError=true
+		result, err := provisioner.Teardown(bp, true, true)
+
+		// Then no error is returned (failure is collected), the tier is deferred,
+		// and Stage 2 backend migration never engages
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
+		}
+		if !result.TierDeferred {
+			t.Error("Expected TierDeferred=true when non-tier destroy left a failure")
+		}
+		if len(result.Failed) != 1 || result.Failed[0].ID != "cluster" {
+			t.Errorf("Expected failures to include cluster, got %v", result.Failed)
+		}
+		if migrateCalled {
+			t.Error("MigrateState must not run when non-tier failures left the tier deferred")
+		}
+		if setCalled {
+			t.Error("Backend override must not engage when tier is deferred")
+		}
+	})
+
+	t.Run("ContinueAttemptsTierWhenStage1Clean", func(t *testing.T) {
+		// Given a Stage 1 destroy that completes with zero failures
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend:  "backend",
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(_ string, _ any) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		migrateCalled := false
+		destroyAllCalls := 0
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalls++
+			return terraforminfra.DestroyOutcome{Destroyed: []string{fmt.Sprintf("pass%d", destroyAllCalls)}}, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			migrateCalled = true
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		// When Teardown runs with continueOnError=true
+		result, err := provisioner.Teardown(bp, true, true)
+
+		// Then the backend tier is attempted (Stage 2 runs) and TierDeferred stays false
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if result.TierDeferred {
+			t.Error("Expected TierDeferred=false when Stage 1 was clean")
+		}
+		if !migrateCalled {
+			t.Error("Expected MigrateState to run when Stage 1 produced no failures")
+		}
+		if destroyAllCalls != 2 {
+			t.Errorf("Expected Stage 1 + Stage 2 DestroyAll calls (2), got %d", destroyAllCalls)
+		}
+	})
+
+	t.Run("ContinueCollectsLocalBackendFailures", func(t *testing.T) {
+		// Given a local backend (no tier) and a stack that reports per-component
+		// failures via DestroyResult.Failed in continueOnError mode
+		mocks := setupProvisionerMocks(t)
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "local"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, continueOnError bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			if !continueOnError {
+				t.Error("Expected continueOnError=true to be propagated to stack")
+			}
+			return terraforminfra.DestroyOutcome{
+				Destroyed: []string{"vpc"},
+				Failed:    []terraforminfra.ComponentFailure{{ID: "iam", Err: fmt.Errorf("permission denied")}},
+			}, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{TerraformStack: mockStack})
+
+		// When Teardown runs with continueOnError=true
+		result, err := provisioner.Teardown(createTestBlueprint(), true, true)
+
+		// Then per-component failures surface in result.Failed without aborting
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
+		}
+		if len(result.Failed) != 1 || result.Failed[0].ID != "iam" {
+			t.Errorf("Expected failure list to contain iam, got %v", result.Failed)
+		}
+		if len(result.Destroyed) != 1 || result.Destroyed[0] != "vpc" {
+			t.Errorf("Expected Destroyed=[vpc], got %v", result.Destroyed)
+		}
+	})
+
+	t.Run("ContinueAttemptsTierWhenOnlyKustomizeFailed", func(t *testing.T) {
+		// Given a tier blueprint where kustomize Uninstall fails but every
+		// non-tier terraform component destroys cleanly. Kustomize does not
+		// depend on terraform state, so the backend tier MUST still be
+		// attempted — otherwise the tier is permanently deferred on every
+		// rerun (kustomize is most likely to fail against a cluster that's
+		// already partially gone).
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Backend:  "backend",
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			TerraformComponents: []blueprintv1alpha1.TerraformComponent{
+				{Path: "backend"},
+				{Path: "cluster"},
+			},
+		}
+		mockCH := mocks.ConfigHandler.(*config.MockConfigHandler)
+		mockCH.GetStringFunc = func(key string, defaultValue ...string) string {
+			if key == "terraform.backend.type" {
+				return "s3"
+			}
+			if len(defaultValue) > 0 {
+				return defaultValue[0]
+			}
+			return ""
+		}
+		mockCH.SetFunc = func(_ string, _ any) error { return nil }
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error {
+			return fmt.Errorf("cluster API unreachable")
+		}
+		mockStack := terraforminfra.NewMockStack()
+		migrateCalled := false
+		destroyAllCalls := 0
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			destroyAllCalls++
+			return terraforminfra.DestroyOutcome{Destroyed: []string{fmt.Sprintf("pass%d", destroyAllCalls)}}, nil
+		}
+		mockStack.MigrateStateFunc = func(_ *blueprintv1alpha1.Blueprint) ([]string, error) {
+			migrateCalled = true
+			return nil, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			TerraformStack:    mockStack,
+			KubernetesManager: mocks.KubernetesManager,
+		})
+
+		// When Teardown runs the full destroy (terraformOnly=false) with continueOnError=true
+		result, err := provisioner.Teardown(bp, false, true)
+
+		// Then the kustomize failure is recorded, but the tier is NOT deferred —
+		// terraform component failures are the only thing that should defer the tier.
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb kustomize failure, got %v", err)
+		}
+		if result.TierDeferred {
+			t.Error("Expected TierDeferred=false when only kustomize failed (kustomize does not depend on terraform state)")
+		}
+		if !migrateCalled {
+			t.Error("Expected MigrateState to run when terraform stage 1 was clean")
+		}
+		if destroyAllCalls != 2 {
+			t.Errorf("Expected Stage 1 + Stage 2 DestroyAll calls (2), got %d", destroyAllCalls)
+		}
+		var foundKustomize bool
+		for _, f := range result.Failed {
+			if f.ID == KustomizeFailureID {
+				foundKustomize = true
+			}
+		}
+		if !foundKustomize {
+			t.Errorf("Expected kustomize failure to remain in result.Failed, got %v", result.Failed)
 		}
 	})
 }

@@ -1076,7 +1076,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		stack, _ := setup(t)
 		blueprint := createTestBlueprint()
 
-		if _, err := stack.DestroyAll(blueprint); err != nil {
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 	})
@@ -1088,7 +1088,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.DestroyAll(blueprint)
+		_, err := stack.DestroyAll(blueprint, false)
 		expectedError := "error getting current directory"
 		if !strings.Contains(err.Error(), expectedError) {
 			t.Fatalf("Expected error to contain %q, got %q", expectedError, err.Error())
@@ -1104,15 +1104,15 @@ func TestStack_DestroyAll(t *testing.T) {
 
 		// When DestroyAll runs against a blueprint with two components
 		blueprint := createTestBlueprint()
-		skipped, err := stack.DestroyAll(blueprint)
+		skipped, err := stack.DestroyAll(blueprint, false)
 
 		// Then no error is returned and both components appear in the skipped list,
 		// matching MigrateState's contract for missing-on-disk components.
 		if err != nil {
 			t.Fatalf("Expected no error when directory doesn't exist, got %v", err)
 		}
-		if len(skipped) != len(blueprint.TerraformComponents) {
-			t.Fatalf("Expected %d skipped components, got %d: %v", len(blueprint.TerraformComponents), len(skipped), skipped)
+		if len(skipped.Skipped) != len(blueprint.TerraformComponents) {
+			t.Fatalf("Expected %d skipped components, got %d: %v", len(blueprint.TerraformComponents), len(skipped.Skipped), skipped.Skipped)
 		}
 	})
 
@@ -1150,7 +1150,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.DestroyAll(blueprint, "backend"); err != nil {
+		if _, err := stack.DestroyAll(blueprint, false, "backend"); err != nil {
 			t.Errorf("Expected DestroyAll to return nil, got %v", err)
 		}
 
@@ -1209,7 +1209,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.DestroyAll(blueprint); err != nil {
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 
@@ -1273,7 +1273,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		if _, err := stack.DestroyAll(blueprint); err != nil {
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
 			t.Errorf("Expected Down to return nil, got %v", err)
 		}
 
@@ -1322,7 +1322,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		blueprint := createTestBlueprint()
-		_, err := stack.DestroyAll(blueprint)
+		_, err := stack.DestroyAll(blueprint, false)
 		expectedError := "error running terraform destroy for"
 		if err == nil {
 			t.Fatalf("Expected destroy error, got nil")
@@ -1338,7 +1338,7 @@ func TestStack_DestroyAll(t *testing.T) {
 
 	t.Run("NilBlueprint", func(t *testing.T) {
 		stack, _ := setup(t)
-		_, err := stack.DestroyAll(nil)
+		_, err := stack.DestroyAll(nil, false)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1351,7 +1351,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		stack, mocks := setup(t)
 		mocks.Runtime.ProjectRoot = ""
 		blueprint := createTestBlueprint()
-		_, err := stack.DestroyAll(blueprint)
+		_, err := stack.DestroyAll(blueprint, false)
 		if err == nil {
 			t.Error("Expected error, got nil")
 		}
@@ -1377,7 +1377,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		blueprint := createTestBlueprint()
 
 		// When running Down
-		_, err := stack.DestroyAll(blueprint)
+		_, err := stack.DestroyAll(blueprint, false)
 
 		// Then it should succeed (cleanup errors are ignored)
 		if err != nil {
@@ -1410,7 +1410,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			},
 		}
 
-		if _, err := stack.DestroyAll(blueprint); err != nil {
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
 			t.Errorf("Expected Down to succeed with named component, got %v", err)
 		}
 	})
@@ -1447,7 +1447,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			},
 		}
 
-		if _, err := stack.DestroyAll(blueprint); err != nil {
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
 			t.Errorf("Expected Down to succeed with named component with source, got %v", err)
 		}
 	})
@@ -1474,7 +1474,7 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		_, _ = stack.DestroyAll(blueprint)
+		_, _ = stack.DestroyAll(blueprint, false)
 
 		// Then TF_VAR_operation is "destroy"
 		if capturedEnv == nil {
@@ -1540,7 +1540,7 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 
 		// When destroying all components
-		if _, err := stack.DestroyAll(blueprint); err != nil {
+		if _, err := stack.DestroyAll(blueprint, false); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1630,14 +1630,14 @@ func TestStack_DestroyAll(t *testing.T) {
 			return "", nil
 		}
 
-		skipped, err := stack.DestroyAll(blueprint)
+		skipped, err := stack.DestroyAll(blueprint, false)
 		warningOutput := captured.String()
 
 		if err != nil {
 			t.Fatalf("Expected DestroyAll to tolerate refresh failure on one component, got %v", err)
 		}
-		if len(skipped) != 0 {
-			t.Errorf("Expected no skipped components (state was non-empty), got %v", skipped)
+		if len(skipped.Skipped) != 0 {
+			t.Errorf("Expected no skipped components (state was non-empty), got %v", skipped.Skipped)
 		}
 
 		// local/path (refresh failed) must have used -refresh=true on destroy.
@@ -1683,6 +1683,161 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 		if strings.Contains(warningOutput, "warning: terraform refresh failed for remote/path") {
 			t.Errorf("No warning expected for remote/path (refresh succeeded), got: %q", warningOutput)
+		}
+	})
+
+	t.Run("ContinueOnErrorCollectsPerComponentFailures", func(t *testing.T) {
+		// Given a blueprint with two components where the first-processed component's
+		// terraform destroy returns an error, continueOnError=true must record the
+		// failure and move on rather than aborting the loop.
+		stack, mocks := setup(t)
+		mocks.Runtime.TerraformProvider.ClearCache()
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Source: "source1", Path: "first"},
+			{Source: "source1", Path: "second"},
+		}
+		for _, p := range []string{"first", "second"} {
+			dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", p)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatalf("Failed to create directory %s: %v", dir, err)
+			}
+		}
+
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				if strings.Contains(filepath.ToSlash(args[0]), "/second") {
+					return "boom", fmt.Errorf("mock destroy failure for second")
+				}
+				return "", nil
+			}
+			return "", nil
+		}
+
+		// When DestroyAll runs with continueOnError=true
+		result, err := stack.DestroyAll(blueprint, true)
+
+		// Then the failure is collected and the follow-up component still destroys
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb per-component failure, got %v", err)
+		}
+		if len(result.Failed) != 1 || result.Failed[0].ID != "second" {
+			t.Errorf("Expected exactly one failure for \"second\", got %v", result.Failed)
+		}
+		if len(result.Destroyed) != 1 || result.Destroyed[0] != "first" {
+			t.Errorf("Expected \"first\" to destroy successfully after \"second\" failed, got %v", result.Destroyed)
+		}
+	})
+
+	t.Run("NoContinueAbortsOnFirstFailure", func(t *testing.T) {
+		// Given the same two-component blueprint where the first-processed (reverse
+		// order: "second") destroy fails, continueOnError=false must abort and the
+		// follow-up component must not be attempted.
+		stack, mocks := setup(t)
+		mocks.Runtime.TerraformProvider.ClearCache()
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Source: "source1", Path: "first"},
+			{Source: "source1", Path: "second"},
+		}
+		for _, p := range []string{"first", "second"} {
+			dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", p)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatalf("Failed to create directory %s: %v", dir, err)
+			}
+		}
+
+		var destroyAttempts []string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			if command == "terraform" && len(args) > 1 && args[1] == "destroy" {
+				normalized := filepath.ToSlash(args[0])
+				switch {
+				case strings.Contains(normalized, "/second"):
+					destroyAttempts = append(destroyAttempts, "second")
+					return "boom", fmt.Errorf("mock destroy failure for second")
+				case strings.Contains(normalized, "/first"):
+					destroyAttempts = append(destroyAttempts, "first")
+				}
+			}
+			return "", nil
+		}
+
+		// When DestroyAll runs with continueOnError=false
+		_, err := stack.DestroyAll(blueprint, false)
+
+		// Then the first failure aborts and the follow-up component is not attempted
+		if err == nil {
+			t.Fatal("Expected destroy to abort on first error")
+		}
+		if len(destroyAttempts) != 1 || destroyAttempts[0] != "second" {
+			t.Errorf("Expected only \"second\" to have been attempted before abort, got %v", destroyAttempts)
+		}
+	})
+
+	t.Run("ContinueOnErrorAbsorbsSetupEnvironmentFailure", func(t *testing.T) {
+		// Given a stack whose TerraformProvider.GetEnvVars fails for one
+		// component (e.g. malformed provider alias, missing env var) and
+		// succeeds for another. Before the fix, setupTerraformEnvironment
+		// returned mid-loop with the error and the entire continueOnError
+		// loop aborted, silently skipping all subsequent components.
+		stack, mocks := setup(t)
+		mocks.Runtime.TerraformProvider.ClearCache()
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Source: "source1", Path: "first"},
+			{Source: "source1", Path: "broken"},
+		}
+		for _, p := range []string{"first", "broken"} {
+			dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", p)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatalf("Failed to create directory %s: %v", dir, err)
+			}
+		}
+
+		// Inject a TerraformProvider whose GetEnvVars fails for "broken" only.
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, *terraformRuntime.TerraformArgs, error) {
+				if strings.Contains(componentID, "broken") {
+					return nil, nil, fmt.Errorf("mock setup failure for %s", componentID)
+				}
+				return map[string]string{}, &terraformRuntime.TerraformArgs{}, nil
+			},
+		}
+
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+
+		// When DestroyAll runs with continueOnError=true
+		result, err := stack.DestroyAll(blueprint, true)
+
+		// Then the setup failure is collected and the follow-up component still destroys
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb setup failure, got %v", err)
+		}
+		if len(result.Failed) != 1 || result.Failed[0].ID != "broken" {
+			t.Errorf("Expected exactly one failure for \"broken\", got %v", result.Failed)
+		}
+		if len(result.Destroyed) != 1 || result.Destroyed[0] != "first" {
+			t.Errorf("Expected \"first\" to destroy successfully after \"broken\" failed setup, got %v", result.Destroyed)
 		}
 	})
 

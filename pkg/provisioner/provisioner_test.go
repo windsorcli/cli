@@ -135,7 +135,7 @@ func setupProvisionerMocks(t *testing.T, opts ...func(*ProvisionerTestMocks)) *P
 
 	terraformStack := terraforminfra.NewMockStack()
 	terraformStack.UpFunc = func(blueprint *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) { return false, nil }
-	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+	terraformStack.DestroyAllFunc = func(blueprint *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 
 	fluxStack := fluxinfra.NewMockStack()
 
@@ -726,11 +726,11 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAllTerraform(createTestBlueprint())
+		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -741,7 +741,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAllTerraform(nil)
+		_, err := provisioner.DestroyAllTerraform(nil, false)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -765,7 +765,7 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 		}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAllTerraform(createTestBlueprint())
+		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
 
 		if err == nil {
 			t.Error("Expected error when terraform is disabled")
@@ -778,13 +778,13 @@ func TestProvisioner_DestroyAllTerraform(t *testing.T) {
 	t.Run("ErrorDestroyAllFails", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
-			return nil, fmt.Errorf("terraform destroy all failed")
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform destroy all failed")
 		}
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAllTerraform(createTestBlueprint())
+		_, err := provisioner.DestroyAllTerraform(createTestBlueprint(), false)
 
 		if err == nil {
 			t.Error("Expected error for terraform destroy all failure")
@@ -1733,11 +1733,11 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint())
+		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1747,12 +1747,12 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 	t.Run("SuccessNoKubernetesManager", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		opts := &Provisioner{TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 		provisioner.KubernetesManager = nil
 
-		_, err := provisioner.DestroyAll(createTestBlueprint())
+		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
 
 		if err != nil {
 			t.Errorf("Expected no error when kubernetes manager is nil, got: %v", err)
@@ -1763,7 +1763,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		_, err := provisioner.DestroyAll(nil)
+		_, err := provisioner.DestroyAll(nil, false)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -1781,7 +1781,7 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint())
+		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
 
 		if err == nil {
 			t.Error("Expected error when uninstall fails")
@@ -1795,13 +1795,13 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		mocks.KubernetesManager.DeleteBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
-			return nil, fmt.Errorf("terraform down failed")
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, fmt.Errorf("terraform down failed")
 		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint())
+		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
 
 		if err == nil {
 			t.Error("Expected error when terraform down fails")
@@ -1827,14 +1827,14 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			terraformDestroyCalled = true
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		_, err := provisioner.DestroyAll(createTestBlueprint())
+		_, err := provisioner.DestroyAll(createTestBlueprint(), false)
 		if err != nil {
 			t.Fatalf("expected no error when kubeconfig missing, got: %v", err)
 		}
@@ -1857,15 +1857,93 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			return nil
 		}
 		mockStack := terraforminfra.NewMockStack()
-		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+		mockStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
-		if _, err := provisioner.DestroyAll(createTestBlueprint()); err != nil {
+		if _, err := provisioner.DestroyAll(createTestBlueprint(), false); err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
 		if !uninstallCalled {
 			t.Error("expected DeleteBlueprint to run when kubeconfig is present")
+		}
+	})
+
+	t.Run("CountsEligibleKustomizationsInDestroyedOnSuccess", func(t *testing.T) {
+		// Given a blueprint with multiple eligible kustomizations and a successful Uninstall
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "dns"},
+				{Name: "ingress"},
+				{Name: "cert-manager"},
+			},
+		}
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When DestroyAll runs and Uninstall succeeds
+		result, err := provisioner.DestroyAll(bp, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then each eligible kustomization name appears in result.Destroyed so the
+		// summary count reflects the work that actually happened (not zero, as it did
+		// before — undercounting on mixed kustomize+terraform contexts).
+		want := map[string]bool{"dns": false, "ingress": false, "cert-manager": false}
+		for _, name := range result.Destroyed {
+			if _, ok := want[name]; ok {
+				want[name] = true
+			}
+		}
+		for name, seen := range want {
+			if !seen {
+				t.Errorf("Expected kustomization %q in result.Destroyed, got %v", name, result.Destroyed)
+			}
+		}
+	})
+
+	t.Run("SkipsIneligibleKustomizationsFromDestroyedCount", func(t *testing.T) {
+		// Given a blueprint with three kustomizations: one eligible, one pinned
+		// Destroy=false, and one DestroyOnly=true — DeleteBlueprint would only
+		// process the eligible one, so the count must match.
+		mocks := setupProvisionerMocks(t)
+		destroyFalse := false
+		destroyOnly := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "dns"},
+				{Name: "keep-me", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse, IsExpr: false}},
+				{Name: "hook-only", DestroyOnly: &destroyOnly},
+			},
+		}
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When DestroyAll runs
+		result, err := provisioner.DestroyAll(bp, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then only the eligible kustomization name appears in result.Destroyed;
+		// the pinned-skip and destroy-only entries are excluded to mirror what
+		// DeleteBlueprint actually processes.
+		if len(result.Destroyed) != 1 || result.Destroyed[0] != "dns" {
+			t.Errorf("Expected result.Destroyed=[dns], got %v", result.Destroyed)
 		}
 	})
 }

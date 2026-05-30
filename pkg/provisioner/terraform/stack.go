@@ -157,6 +157,26 @@ type tfState struct {
 	} `json:"values"`
 }
 
+// ComponentFailure is a per-component error captured during continue-on-error
+// destroy. ID is the terraform component's blueprint identifier; Err is the
+// terraform destroy error that the operator can use to diagnose.
+type ComponentFailure struct {
+	ID  string
+	Err error
+}
+
+// DestroyOutcome tallies what a single terraform destroy pass produced.
+// Destroyed lists component IDs whose terraform destroy ran to completion;
+// Skipped lists component IDs whose state was empty (no-op); Failed lists
+// per-component failures collected when continue-on-error is true. Aggregate
+// cross-layer concerns (backend-tier deferral, kustomize counts) live on the
+// provisioner-layer result type, not here.
+type DestroyOutcome struct {
+	Destroyed []string
+	Skipped   []string
+	Failed    []ComponentFailure
+}
+
 // =============================================================================
 // Interfaces
 // =============================================================================
@@ -178,7 +198,7 @@ type Stack interface {
 	InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	RemoveLocalState(componentID string) error
 	PostApply(fns ...func(id string) error)
-	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error)
+	DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error)
 	Plan(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
 	PlanAll(blueprint *blueprintv1alpha1.Blueprint) error
 	PlanJSON(blueprint *blueprintv1alpha1.Blueprint, componentID string) error
@@ -538,15 +558,18 @@ func (s *TerraformStack) MigrateComponentState(blueprint *blueprintv1alpha1.Blue
 // the rest when state is empty at either check. Components with Destroy=false are skipped.
 // excludeIDs are skipped entirely (used by symmetric-destroy flow at the cmd layer to peel
 // off the backend component from the bulk pass — it gets destroyed last, after its state
-// is migrated to local). Returns IDs skipped due to empty state, paired with any error.
-func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+// is migrated to local). When continueOnError is true, per-component destroy errors are
+// collected in DestroyOutcome.Failed and the loop proceeds to the next component; when
+// false, the first error aborts and is returned alongside a partial DestroyOutcome.
+func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (DestroyOutcome, error) {
+	var result DestroyOutcome
 	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
+		return result, fmt.Errorf("blueprint not provided")
 	}
 
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return nil, fmt.Errorf("error getting current directory: %v", err)
+		return result, fmt.Errorf("error getting current directory: %v", err)
 	}
 
 	defer func() {
@@ -555,7 +578,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 
 	projectRoot := s.runtime.ProjectRoot
 	if projectRoot == "" {
-		return nil, fmt.Errorf("error getting project root: project root is empty")
+		return result, fmt.Errorf("error getting project root: project root is empty")
 	}
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
 
@@ -571,7 +594,6 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 		}
 	}()
 
-	var skipped []string
 	for i := len(components) - 1; i >= 0; i-- {
 		component := components[i]
 
@@ -587,7 +609,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 		}
 
 		if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-			skipped = append(skipped, component.GetID())
+			result.Skipped = append(result.Skipped, component.GetID())
 			continue
 		}
 
@@ -597,7 +619,11 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
 		}
 		if err != nil {
-			return skipped, err
+			if continueOnError {
+				result.Failed = append(result.Failed, ComponentFailure{ID: component.GetID(), Err: err})
+				continue
+			}
+			return result, err
 		}
 
 		componentSkipped := false
@@ -670,15 +696,22 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excl
 			}
 			return nil
 		}); err != nil {
-			return skipped, err
+			if continueOnError {
+				result.Failed = append(result.Failed, ComponentFailure{ID: component.GetID(), Err: err})
+				s.clearBackendPointer(terraformVars)
+				continue
+			}
+			return result, err
 		}
 		if componentSkipped {
-			skipped = append(skipped, component.GetID())
+			result.Skipped = append(result.Skipped, component.GetID())
+		} else {
+			result.Destroyed = append(result.Destroyed, component.GetID())
 		}
 		s.clearBackendPointer(terraformVars)
 	}
 
-	return skipped, nil
+	return result, nil
 }
 
 // Plan runs terraform init and plan for a single component identified by componentID.

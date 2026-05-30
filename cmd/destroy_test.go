@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -104,7 +105,7 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) { return terraforminfra.DestroyOutcome{}, nil }
 	mockTerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
@@ -259,6 +260,7 @@ func TestWarnPreventDestroy(t *testing.T) {
 func TestDestroyCmd(t *testing.T) {
 	createTestDestroyCmd := func() *cobra.Command {
 		destroyConfirm = ""
+		destroyContinue = false
 		cmd := &cobra.Command{
 			Use:  "destroy",
 			RunE: destroyCmd.RunE,
@@ -468,9 +470,9 @@ func TestDestroyCmd(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		destroyAllCalled := false
-		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyAllCalled = true
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -559,9 +561,9 @@ func TestDestroyCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyCalled = true
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -595,9 +597,9 @@ func TestDestroyCmd(t *testing.T) {
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
-		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyOutcome, error) {
 			destroyCalled = true
-			return nil, nil
+			return terraforminfra.DestroyOutcome{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -617,11 +619,132 @@ func TestDestroyCmd(t *testing.T) {
 			t.Error("DestroyAll must not run after a plan error")
 		}
 	})
+
+	t.Run("ContinueFlagPropagatesAndPrintsSummaryOnSuccess", func(t *testing.T) {
+		// Given --continue is passed and the stack reports a clean destroy,
+		// the cmd layer must forward continueOnError=true to Teardown and
+		// render the one-line summary on stderr.
+		mocks := setupDestroyTest(t)
+		var seenContinue bool
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, continueOnError bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			seenContinue = continueOnError
+			return terraforminfra.DestroyOutcome{Destroyed: []string{"cluster"}}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		var stderr bytes.Buffer
+		cmd := createTestDestroyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context", "--continue"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Fatalf("Expected --continue with clean result to succeed, got %v", err)
+		}
+		if !seenContinue {
+			t.Error("Expected --continue to propagate continueOnError=true to Teardown")
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "windsor destroy:") {
+			t.Errorf("Expected summary line on stderr, got: %q", out)
+		}
+		// Fixture blueprint has 1 kustomization ("my-app") + 1 terraform component
+		// stub returns ("cluster"); the summary counts both layers.
+		if !strings.Contains(out, "2 destroyed") {
+			t.Errorf("Expected summary to report 2 destroyed (1 kustomize + 1 terraform), got: %q", out)
+		}
+		if !strings.Contains(out, "0 failed") {
+			t.Errorf("Expected summary to report 0 failed, got: %q", out)
+		}
+	})
+
+	t.Run("ContinueFlagReturnsErrorAndNamesFailures", func(t *testing.T) {
+		// Given --continue is passed and the stack reports per-component failures,
+		// the cmd layer must return a non-zero exit error after printing the summary
+		// (so re-running converges; CI sees the failure).
+		mocks := setupDestroyTest(t)
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{
+				Destroyed: []string{"vpc"},
+				Failed:    []terraforminfra.ComponentFailure{{ID: "iam", Err: fmt.Errorf("permission denied")}},
+			}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		var stderr bytes.Buffer
+		cmd := createTestDestroyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context", "--continue"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected non-zero exit when --continue surfaces failures")
+		}
+		if !strings.Contains(err.Error(), "destroy completed with 1 failure") {
+			t.Errorf("Expected error to report failure count, got: %v", err)
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "1 failed (iam)") {
+			t.Errorf("Expected summary to name failed component, got: %q", out)
+		}
+	})
+
+	t.Run("NoSummaryWithoutContinueFlag", func(t *testing.T) {
+		// Given the operator did not pass --continue, the summary line must not
+		// appear (current behavior is unchanged; opt-in only).
+		mocks := setupDestroyTest(t)
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{Destroyed: []string{"cluster"}}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		var stderr bytes.Buffer
+		cmd := createTestDestroyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if strings.Contains(stderr.String(), "windsor destroy:") {
+			t.Errorf("Summary must not print without --continue, got: %q", stderr.String())
+		}
+	})
+
+	t.Run("ContinueRejectedWithComponentArgument", func(t *testing.T) {
+		// Given --continue is combined with a component argument, the cmd must
+		// refuse instead of silently ignoring the flag — TeardownComponent does
+		// not honor continueOnError and there is nothing to continue past on a
+		// single component anyway.
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=my-app", "--continue", "my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected --continue with component arg to be rejected")
+		}
+		if !strings.Contains(err.Error(), "--continue applies to layer-wide destroy only") {
+			t.Errorf("Expected scope-mismatch error, got: %v", err)
+		}
+	})
 }
 
 func TestDestroyTerraformCmd(t *testing.T) {
 	createTestDestroyTerraformCmd := func() *cobra.Command {
 		destroyConfirm = ""
+		destroyContinue = false
 		cmd := &cobra.Command{
 			Use:  "terraform",
 			RunE: destroyTerraformCmd.RunE,
@@ -782,11 +905,33 @@ func TestDestroyTerraformCmd(t *testing.T) {
 			t.Errorf("Expected destroy error, got: %v", err)
 		}
 	})
+
+	t.Run("ContinueRejectedWithComponentArgument", func(t *testing.T) {
+		// Inherits --continue from the parent destroy command but the terraform
+		// single-component path also calls TeardownComponent which ignores the
+		// flag — refuse rather than silently accept.
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=cluster", "--continue", "cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected --continue with component arg to be rejected")
+		}
+		if !strings.Contains(err.Error(), "--continue applies to layer-wide destroy only") {
+			t.Errorf("Expected scope-mismatch error, got: %v", err)
+		}
+	})
 }
 
 func TestDestroyKustomizeCmd(t *testing.T) {
 	createTestDestroyKustomizeCmd := func() *cobra.Command {
 		destroyConfirm = ""
+		destroyContinue = false
 		cmd := &cobra.Command{
 			Use:  "kustomize",
 			RunE: destroyKustomizeCmd.RunE,
@@ -945,6 +1090,27 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error destroying kustomization") {
 			t.Errorf("Expected destroy error, got: %v", err)
+		}
+	})
+
+	t.Run("ContinueRejectedWithComponentArgument", func(t *testing.T) {
+		// `destroy kustomize` inherits --continue from the parent; the
+		// single-name path does not honor it either, so refuse rather than
+		// silently accept.
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=my-app", "--continue", "my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected --continue with component arg to be rejected")
+		}
+		if !strings.Contains(err.Error(), "--continue applies to layer-wide destroy only") {
+			t.Errorf("Expected scope-mismatch error, got: %v", err)
 		}
 	})
 }
