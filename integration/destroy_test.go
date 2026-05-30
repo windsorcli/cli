@@ -79,6 +79,24 @@ func TestDestroyTerraform_ContinueFlagSucceedsAndPrintsSummary(t *testing.T) {
 	}
 }
 
+func TestDestroy_ContinueFlagRefusedWithComponentArgument(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--confirm=null", "--continue", "terraform", "null"}, env)
+	if err == nil {
+		t.Fatal("expected --continue with component arg to be rejected")
+	}
+	if !strings.Contains(string(stderr), "layer-wide destroy only") {
+		t.Errorf("expected stderr to mention the scope restriction, got: %s", stderr)
+	}
+}
+
 func TestDestroy_ContinueFlagAcceptedWithoutConfirmMatch(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")

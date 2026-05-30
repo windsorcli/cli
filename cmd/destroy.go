@@ -35,7 +35,7 @@ Every form requires confirmation. Either type the context or component name at t
 
 If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
 
-The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.`,
+The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). --continue is layer-wide only and is refused when combined with a component argument — on a single component there is nothing to continue past. When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.`,
 	Example: `# Destroy everything in the current context (interactive)
 windsor destroy
 # → prompts: Type "local" to confirm:
@@ -55,6 +55,9 @@ windsor destroy --confirm=local --continue`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireContinueScope(args); err != nil {
+			return err
+		}
 		// `destroy` (no args, or with a component name that may live in either layer) can
 		// dispatch to terraform or kustomize destroy paths depending on blueprint contents.
 		// Layer choice is data-driven so requirements can't be statically narrowed; request
@@ -184,6 +187,9 @@ windsor destroy terraform --confirm=local`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireContinueScope(args); err != nil {
+			return err
+		}
 		// `destroy terraform` only invokes terraform; kustomize/k8s/docker tools are not used.
 		// Skip-validation tolerates a deployed-but-misordered blueprint so teardown can run
 		// against a setup the validator would otherwise reject.
@@ -275,6 +281,9 @@ windsor destroy kustomize --confirm=local`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := requireContinueScope(args); err != nil {
+			return err
+		}
 		// `destroy kustomize` only talks to the cluster API; terraform/docker tools are not used.
 		// Skip-validation tolerates a deployed-but-misordered blueprint.
 		proj, err := prepareProjectSkipValidation(cmd, tools.Requirements{Secrets: true, Kubelogin: true})
@@ -411,6 +420,19 @@ func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected 
 	return confirmDestroy(r, w, description, expected)
 }
 
+// requireContinueScope refuses --continue when a component argument is also
+// present. The flag's contract (best-effort across multiple components plus a
+// summary line) only makes sense for a layer-wide destroy; on a single
+// component there is nothing to continue past. Without this guard the flag
+// is silently ignored, which gives the operator the default abort-on-error
+// behaviour while believing they opted into best-effort.
+func requireContinueScope(args []string) error {
+	if destroyContinue && len(args) > 0 {
+		return fmt.Errorf("--continue applies to layer-wide destroy only; omit the component argument or drop --continue")
+	}
+	return nil
+}
+
 // finishContinueDestroy emits the one-line --continue summary on stderr and
 // returns a non-zero exit error when any component failed. Without --continue
 // the existing per-error abort already surfaces failures, so no extra output
@@ -450,7 +472,7 @@ func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error 
 // tier is deferred when any non-tier component is left un-destroyed (rerun to converge).
 func init() {
 	destroyCmd.PersistentFlags().StringVar(&destroyConfirm, "confirm", "", "Context or component name to confirm destruction. Must match the prompt token exactly; mismatches abort.")
-	destroyCmd.PersistentFlags().BoolVar(&destroyContinue, "continue", false, "Continue past per-component destroy failures and report a summary at the end. Backend tier is deferred when any non-tier component fails.")
+	destroyCmd.PersistentFlags().BoolVar(&destroyContinue, "continue", false, "Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only — refuses when combined with a component argument. Backend tier is deferred when any non-tier component fails.")
 	destroyCmd.AddCommand(destroyTerraformCmd)
 	destroyCmd.AddCommand(destroyKustomizeCmd)
 	rootCmd.AddCommand(destroyCmd)

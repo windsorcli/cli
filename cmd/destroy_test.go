@@ -717,11 +717,34 @@ func TestDestroyCmd(t *testing.T) {
 			t.Errorf("Summary must not print without --continue, got: %q", stderr.String())
 		}
 	})
+
+	t.Run("ContinueRejectedWithComponentArgument", func(t *testing.T) {
+		// Given --continue is combined with a component argument, the cmd must
+		// refuse instead of silently ignoring the flag — TeardownComponent does
+		// not honor continueOnError and there is nothing to continue past on a
+		// single component anyway.
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=my-app", "--continue", "my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected --continue with component arg to be rejected")
+		}
+		if !strings.Contains(err.Error(), "--continue applies to layer-wide destroy only") {
+			t.Errorf("Expected scope-mismatch error, got: %v", err)
+		}
+	})
 }
 
 func TestDestroyTerraformCmd(t *testing.T) {
 	createTestDestroyTerraformCmd := func() *cobra.Command {
 		destroyConfirm = ""
+		destroyContinue = false
 		cmd := &cobra.Command{
 			Use:  "terraform",
 			RunE: destroyTerraformCmd.RunE,
@@ -882,11 +905,33 @@ func TestDestroyTerraformCmd(t *testing.T) {
 			t.Errorf("Expected destroy error, got: %v", err)
 		}
 	})
+
+	t.Run("ContinueRejectedWithComponentArgument", func(t *testing.T) {
+		// Inherits --continue from the parent destroy command but the terraform
+		// single-component path also calls TeardownComponent which ignores the
+		// flag — refuse rather than silently accept.
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyTerraformCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=cluster", "--continue", "cluster"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected --continue with component arg to be rejected")
+		}
+		if !strings.Contains(err.Error(), "--continue applies to layer-wide destroy only") {
+			t.Errorf("Expected scope-mismatch error, got: %v", err)
+		}
+	})
 }
 
 func TestDestroyKustomizeCmd(t *testing.T) {
 	createTestDestroyKustomizeCmd := func() *cobra.Command {
 		destroyConfirm = ""
+		destroyContinue = false
 		cmd := &cobra.Command{
 			Use:  "kustomize",
 			RunE: destroyKustomizeCmd.RunE,
@@ -1045,6 +1090,27 @@ func TestDestroyKustomizeCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "error destroying kustomization") {
 			t.Errorf("Expected destroy error, got: %v", err)
+		}
+	})
+
+	t.Run("ContinueRejectedWithComponentArgument", func(t *testing.T) {
+		// `destroy kustomize` inherits --continue from the parent; the
+		// single-name path does not honor it either, so refuse rather than
+		// silently accept.
+		mocks := setupDestroyTest(t)
+		proj := newDestroyProject(mocks)
+
+		cmd := createTestDestroyKustomizeCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=my-app", "--continue", "my-app"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected --continue with component arg to be rejected")
+		}
+		if !strings.Contains(err.Error(), "--continue applies to layer-wide destroy only") {
+			t.Errorf("Expected scope-mismatch error, got: %v", err)
 		}
 	})
 }

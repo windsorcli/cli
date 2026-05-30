@@ -14,14 +14,14 @@ Every form requires confirmation. Either type the context or component name at t
 
 If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
 
-The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.
+The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). --continue is layer-wide only and is refused when combined with a component argument — on a single component there is nothing to continue past. When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--confirm` | `""` | Context or component name to confirm destruction. Must match the prompt token exactly; mismatches abort. |
-| `--continue` | `false` | Continue past per-component destroy failures and report a summary at the end. Backend tier is deferred when any non-tier component fails. |
+| `--continue` | `false` | Continue past per-component destroy failures and report a summary at the end. Layer-wide destroy only — refuses when combined with a component argument. Backend tier is deferred when any non-tier component fails. |
 
 ## Subcommands
 
