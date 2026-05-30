@@ -33,7 +33,9 @@ var destroyCmd = &cobra.Command{
 
 Every form requires confirmation. Either type the context or component name at the prompt, or pass --confirm=<expected> to satisfy the gate non-interactively (CI-safe). The --confirm value must match the prompt token exactly; mismatches abort the operation.
 
-If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.`,
+If terraform reports resources protected by 'lifecycle { prevent_destroy = true }', destroy warns up front so the operator knows the destroy may halt partway through. Resources whose state is empty are skipped with a warning naming any potentially orphaned cloud resources.
+
+The default behavior is to abort on the first per-component destroy failure. Pass --continue to keep going past individual failures, collect them, and print a one-line summary at the end (windsor destroy: N destroyed, N no-op (empty state), N failed (...), backend tier deferred). When --continue leaves any non-tier component un-destroyed, the backend tier is NOT attempted — this prevents destroying the state store while other components still depend on it. Rerun 'windsor destroy --continue' after resolving the underlying failures; the second pass picks up where the first left off and converges on a clean slate.`,
 	Example: `# Destroy everything in the current context (interactive)
 windsor destroy
 # → prompts: Type "local" to confirm:
@@ -42,7 +44,10 @@ windsor destroy
 windsor destroy --confirm=local
 
 # Destroy just the dns component (across both layers)
-windsor destroy dns --confirm=dns`,
+windsor destroy dns --confirm=dns
+
+# Continue past per-component failures and converge by rerunning
+windsor destroy --confirm=local --continue`,
 	Annotations: map[string]string{
 		"docs.seealso": "[`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)",
 		"docs.source": "cmd/destroy.go",
