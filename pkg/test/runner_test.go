@@ -2197,7 +2197,7 @@ metadata:
 terraform:
   - name: dns-zone
     path: dns/zone
-    when: dns.public_domain != null
+    when: (dns.public_domain ?? '') != ''
   - name: cluster
     path: cluster
     inputs:
@@ -2237,7 +2237,7 @@ metadata:
 terraform:
   - name: dns-zone
     path: dns/zone
-    when: dns.public_domain != null
+    when: (dns.public_domain ?? '') != ''
   - name: cluster
     path: cluster
     inputs:
