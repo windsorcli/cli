@@ -619,6 +619,10 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
 		}
 		if err != nil {
+			if continueOnError {
+				result.Failed = append(result.Failed, ComponentFailure{ID: component.GetID(), Err: err})
+				continue
+			}
 			return result, err
 		}
 

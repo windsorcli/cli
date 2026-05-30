@@ -1786,6 +1786,61 @@ func TestStack_DestroyAll(t *testing.T) {
 		}
 	})
 
+	t.Run("ContinueOnErrorAbsorbsSetupEnvironmentFailure", func(t *testing.T) {
+		// Given a stack whose TerraformProvider.GetEnvVars fails for one
+		// component (e.g. malformed provider alias, missing env var) and
+		// succeeds for another. Before the fix, setupTerraformEnvironment
+		// returned mid-loop with the error and the entire continueOnError
+		// loop aborted, silently skipping all subsequent components.
+		stack, mocks := setup(t)
+		mocks.Runtime.TerraformProvider.ClearCache()
+
+		projectRoot := os.Getenv("WINDSOR_PROJECT_ROOT")
+		contextName := mocks.Runtime.ContextName
+		blueprint := createTestBlueprint()
+		blueprint.TerraformComponents = []blueprintv1alpha1.TerraformComponent{
+			{Source: "source1", Path: "first"},
+			{Source: "source1", Path: "broken"},
+		}
+		for _, p := range []string{"first", "broken"} {
+			dir := filepath.Join(projectRoot, ".windsor", "contexts", contextName, "terraform", p)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatalf("Failed to create directory %s: %v", dir, err)
+			}
+		}
+
+		// Inject a TerraformProvider whose GetEnvVars fails for "broken" only.
+		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
+			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, *terraformRuntime.TerraformArgs, error) {
+				if strings.Contains(componentID, "broken") {
+					return nil, nil, fmt.Errorf("mock setup failure for %s", componentID)
+				}
+				return map[string]string{}, &terraformRuntime.TerraformArgs{}, nil
+			},
+		}
+
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[{"address":"aws_s3_bucket.example"}]}}}`, nil
+			}
+			return "", nil
+		}
+
+		// When DestroyAll runs with continueOnError=true
+		result, err := stack.DestroyAll(blueprint, true)
+
+		// Then the setup failure is collected and the follow-up component still destroys
+		if err != nil {
+			t.Fatalf("Expected continueOnError to absorb setup failure, got %v", err)
+		}
+		if len(result.Failed) != 1 || result.Failed[0].ID != "broken" {
+			t.Errorf("Expected exactly one failure for \"broken\", got %v", result.Failed)
+		}
+		if len(result.Destroyed) != 1 || result.Destroyed[0] != "first" {
+			t.Errorf("Expected \"first\" to destroy successfully after \"broken\" failed setup, got %v", result.Destroyed)
+		}
+	})
+
 }
 
 func TestNewShims(t *testing.T) {
