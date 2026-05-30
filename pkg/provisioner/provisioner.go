@@ -494,6 +494,12 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 				return result, err
 			}
 			result.Failed = append(result.Failed, ComponentFailure{ID: "kustomize", Err: err})
+		} else {
+			for _, k := range blueprint.Kustomizations {
+				if fluxinfra.KustomizationDestroyEligible(k) {
+					result.Destroyed = append(result.Destroyed, k.Name)
+				}
+			}
 		}
 	}
 

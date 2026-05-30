@@ -650,8 +650,10 @@ func TestDestroyCmd(t *testing.T) {
 		if !strings.Contains(out, "windsor destroy:") {
 			t.Errorf("Expected summary line on stderr, got: %q", out)
 		}
-		if !strings.Contains(out, "1 destroyed") {
-			t.Errorf("Expected summary to report 1 destroyed, got: %q", out)
+		// Fixture blueprint has 1 kustomization ("my-app") + 1 terraform component
+		// stub returns ("cluster"); the summary counts both layers.
+		if !strings.Contains(out, "2 destroyed") {
+			t.Errorf("Expected summary to report 2 destroyed (1 kustomize + 1 terraform), got: %q", out)
 		}
 		if !strings.Contains(out, "0 failed") {
 			t.Errorf("Expected summary to report 0 failed, got: %q", out)

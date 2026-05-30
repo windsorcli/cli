@@ -1868,6 +1868,84 @@ func TestProvisioner_DestroyAll(t *testing.T) {
 			t.Error("expected DeleteBlueprint to run when kubeconfig is present")
 		}
 	})
+
+	t.Run("CountsEligibleKustomizationsInDestroyedOnSuccess", func(t *testing.T) {
+		// Given a blueprint with multiple eligible kustomizations and a successful Uninstall
+		mocks := setupProvisionerMocks(t)
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "dns"},
+				{Name: "ingress"},
+				{Name: "cert-manager"},
+			},
+		}
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When DestroyAll runs and Uninstall succeeds
+		result, err := provisioner.DestroyAll(bp, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then each eligible kustomization name appears in result.Destroyed so the
+		// summary count reflects the work that actually happened (not zero, as it did
+		// before — undercounting on mixed kustomize+terraform contexts).
+		want := map[string]bool{"dns": false, "ingress": false, "cert-manager": false}
+		for _, name := range result.Destroyed {
+			if _, ok := want[name]; ok {
+				want[name] = true
+			}
+		}
+		for name, seen := range want {
+			if !seen {
+				t.Errorf("Expected kustomization %q in result.Destroyed, got %v", name, result.Destroyed)
+			}
+		}
+	})
+
+	t.Run("SkipsIneligibleKustomizationsFromDestroyedCount", func(t *testing.T) {
+		// Given a blueprint with three kustomizations: one eligible, one pinned
+		// Destroy=false, and one DestroyOnly=true — DeleteBlueprint would only
+		// process the eligible one, so the count must match.
+		mocks := setupProvisionerMocks(t)
+		destroyFalse := false
+		destroyOnly := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "dns"},
+				{Name: "keep-me", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse, IsExpr: false}},
+				{Name: "hook-only", DestroyOnly: &destroyOnly},
+			},
+		}
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(_ *blueprintv1alpha1.Blueprint, _ string) error { return nil }
+		mockStack := terraforminfra.NewMockStack()
+		mockStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyOutcome, error) {
+			return terraforminfra.DestroyOutcome{}, nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager, TerraformStack: mockStack}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When DestroyAll runs
+		result, err := provisioner.DestroyAll(bp, false)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then only the eligible kustomization name appears in result.Destroyed;
+		// the pinned-skip and destroy-only entries are excluded to mirror what
+		// DeleteBlueprint actually processes.
+		if len(result.Destroyed) != 1 || result.Destroyed[0] != "dns" {
+			t.Errorf("Expected result.Destroyed=[dns], got %v", result.Destroyed)
+		}
+	})
 }
 
 func TestProvisioner_Close(t *testing.T) {

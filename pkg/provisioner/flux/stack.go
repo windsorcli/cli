@@ -309,7 +309,7 @@ func (s *FluxStack) PlanDestroySummary(blueprint *blueprintv1alpha1.Blueprint) (
 
 	var results []KustomizePlan
 	for _, k := range blueprint.Kustomizations {
-		if !kustomizationDestroyEligible(k) {
+		if !KustomizationDestroyEligible(k) {
 			continue
 		}
 		result, err := s.planOneKustomizeDestroySummary(k, namespace)
@@ -351,27 +351,6 @@ func (s *FluxStack) PlanDestroyComponentSummary(blueprint *blueprintv1alpha1.Blu
 		resolved.Err = err
 	}
 	return resolved
-}
-
-// kustomizationDestroyEligible mirrors the gate inside DeleteBlueprint so the
-// destroy-plan set matches the destroy-execute set. DestroyOnly kustomizations
-// are skipped (they're hooks applied during destroy, not user-visible
-// resources to preview), and any pinned destroy=false are skipped. The
-// explicit nil check on Destroy mirrors componentDestroyEnabled on the
-// terraform side: ToBool happens to handle a nil receiver today, but the
-// guard reads more clearly at the call site and survives future refactors of
-// ToBool without breakage.
-func kustomizationDestroyEligible(k blueprintv1alpha1.Kustomization) bool {
-	if k.DestroyOnly != nil && *k.DestroyOnly {
-		return false
-	}
-	if k.Destroy == nil {
-		return true
-	}
-	if d := k.Destroy.ToBool(); d != nil && !*d {
-		return false
-	}
-	return true
 }
 
 // planOneKustomizeDestroySummary computes the destroy preview for one
@@ -962,4 +941,29 @@ func findKustomization(blueprint *blueprintv1alpha1.Blueprint, name string) (blu
 		}
 	}
 	return blueprintv1alpha1.Kustomization{}, false
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// KustomizationDestroyEligible mirrors the gate inside DeleteBlueprint so the
+// destroy-plan set matches the destroy-execute set. DestroyOnly kustomizations
+// are skipped (they're hooks applied during destroy, not user-visible
+// resources to preview), and any pinned destroy=false are skipped. The
+// explicit nil check on Destroy mirrors componentDestroyEnabled on the
+// terraform side: ToBool happens to handle a nil receiver today, but the
+// guard reads more clearly at the call site and survives future refactors of
+// ToBool without breakage.
+func KustomizationDestroyEligible(k blueprintv1alpha1.Kustomization) bool {
+	if k.DestroyOnly != nil && *k.DestroyOnly {
+		return false
+	}
+	if k.Destroy == nil {
+		return true
+	}
+	if d := k.Destroy.ToBool(); d != nil && !*d {
+		return false
+	}
+	return true
 }
