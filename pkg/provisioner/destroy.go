@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 )
 
 // =============================================================================
@@ -14,19 +15,24 @@ import (
 // (or DestroyAllTerraform when terraformOnly). With a tier declared via
 // Blueprint.Backend, Stage 1 destroys non-tier components against the
 // configured backend, then Stage 2 pins local, pulls every tier member's state
-// to local, and destroys the tier in reverse declaration order. Returns the
-// IDs of components skipped because their state was empty.
-func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool) ([]string, error) {
+// to local, and destroys the tier in reverse declaration order. When
+// continueOnError is true, per-component destroy errors in Stage 1 are
+// collected rather than aborting the loop; the backend tier is only attempted
+// when Stage 1 produced zero failures, to avoid destroying the state store
+// while other components still depend on it. The tier-deferred flag on the
+// result signals when Stage 2 was skipped for this reason.
+func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraformOnly bool, continueOnError bool) (terraforminfra.DestroyResult, error) {
+	var result terraforminfra.DestroyResult
 	backendType := i.configHandler.GetString("terraform.backend.type", "local")
 	if backendType == "kubernetes" && blueprint.Backend == "" {
-		return nil, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
+		return result, fmt.Errorf("blueprint configures terraform.backend.type=kubernetes but does not declare Blueprint.Backend; set `backend: <cluster-component-id>` at the blueprint top level to name the terraform component that provisions the cluster")
 	}
 	tier := blueprint.BackendTier()
 	if backendType == "" || backendType == "local" || len(tier) == 0 {
 		if terraformOnly {
-			return i.DestroyAllTerraform(blueprint)
+			return i.DestroyAllTerraform(blueprint, continueOnError)
 		}
-		return i.DestroyAll(blueprint)
+		return i.DestroyAll(blueprint, continueOnError)
 	}
 
 	tierIDs := make([]string, 0, len(tier))
@@ -34,15 +40,19 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 		tierIDs = append(tierIDs, c.GetID())
 	}
 
-	var skipped []string
 	var stage1Err error
 	if terraformOnly {
-		skipped, stage1Err = i.DestroyAllTerraform(blueprint, tierIDs...)
+		result, stage1Err = i.DestroyAllTerraform(blueprint, continueOnError, tierIDs...)
 	} else {
-		skipped, stage1Err = i.DestroyAll(blueprint, tierIDs...)
+		result, stage1Err = i.DestroyAll(blueprint, continueOnError, tierIDs...)
 	}
 	if stage1Err != nil {
-		return skipped, stage1Err
+		return result, stage1Err
+	}
+
+	if len(result.Failed) > 0 {
+		result.TierDeferred = true
+		return result, nil
 	}
 
 	tierBP := blueprintWithComponents(blueprint, tier)
@@ -51,11 +61,13 @@ func (i *Provisioner) Teardown(blueprint *blueprintv1alpha1.Blueprint, terraform
 		if err != nil {
 			return err
 		}
-		destroySkipped, destroyErr := i.DestroyAllTerraform(tierBP)
-		skipped = mergeSkipped(skipped, mergeSkipped(migrationSkipped, destroySkipped))
+		tierResult, destroyErr := i.DestroyAllTerraform(tierBP, continueOnError)
+		result.Destroyed = append(result.Destroyed, tierResult.Destroyed...)
+		result.Skipped = mergeSkipped(result.Skipped, mergeSkipped(migrationSkipped, tierResult.Skipped))
+		result.Failed = append(result.Failed, tierResult.Failed...)
 		return destroyErr
 	})
-	return skipped, err
+	return result, err
 }
 
 // TeardownComponent destroys a single terraform component. Targeting any

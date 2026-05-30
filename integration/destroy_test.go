@@ -54,6 +54,49 @@ func TestDestroyTerraform_SucceedsAllWithMinimalLocalConfig(t *testing.T) {
 	}
 }
 
+func TestDestroyTerraform_ContinueFlagSucceedsAndPrintsSummary(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null"}, env)
+	if err != nil {
+		t.Fatalf("apply terraform null: %v\nstderr: %s", err, stderr)
+	}
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--confirm=local", "--continue", "terraform"}, env)
+	if err != nil {
+		t.Fatalf("destroy --continue terraform: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(string(stderr), "windsor destroy:") {
+		t.Errorf("expected --continue summary line on stderr, got: %s", stderr)
+	}
+	if !strings.Contains(string(stderr), "0 failed") {
+		t.Errorf("expected summary to report 0 failed on a clean run, got: %s", stderr)
+	}
+}
+
+func TestDestroy_ContinueFlagAcceptedWithoutConfirmMatch(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"destroy", "--continue", "--confirm=wrong", "terraform"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if !strings.Contains(string(stderr), "confirmation failed") {
+		t.Errorf("expected stderr to mention 'confirmation failed', got: %s", stderr)
+	}
+}
+
 func TestDestroyTerraform_FailsWhenNotInTrustedDirectory(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")

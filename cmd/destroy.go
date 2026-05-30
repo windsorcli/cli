@@ -21,7 +21,10 @@ import (
 // Destroy Commands
 // =============================================================================
 
-var destroyConfirm string
+var (
+	destroyConfirm  string
+	destroyContinue bool
+)
 
 var destroyCmd = &cobra.Command{
 	Use:   "destroy [component]",
@@ -84,12 +87,12 @@ windsor destroy dns --confirm=dns`,
 				return err
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", func() error {
-				skipped, err := proj.Provisioner.Teardown(blueprint, false)
-				reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+				result, err := proj.Provisioner.Teardown(blueprint, false, destroyContinue)
+				reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
 				if err != nil {
 					return fmt.Errorf("error destroying all components: %w", err)
 				}
-				return nil
+				return finishContinueDestroy(cmd.ErrOrStderr(), result)
 			})
 		}
 
@@ -208,12 +211,12 @@ windsor destroy terraform --confirm=local`,
 				return err
 			}
 			return stacklock.With(cmd.Context(), proj.Runtime, "destroy", func() error {
-				skipped, err := proj.Provisioner.Teardown(blueprint, true)
-				reportSkippedDestroyComponents(cmd.ErrOrStderr(), skipped)
+				result, err := proj.Provisioner.Teardown(blueprint, true, destroyContinue)
+				reportSkippedDestroyComponents(cmd.ErrOrStderr(), result.Skipped)
 				if err != nil {
 					return fmt.Errorf("error destroying all terraform: %w", err)
 				}
-				return nil
+				return finishContinueDestroy(cmd.ErrOrStderr(), result)
 			})
 		}
 
@@ -403,11 +406,46 @@ func resolveDestroyConfirmation(r io.Reader, w io.Writer, description, expected 
 	return confirmDestroy(r, w, description, expected)
 }
 
-// init registers destroy subcommands and the --confirm flag. --confirm must exactly match the
+// finishContinueDestroy emits the one-line --continue summary on stderr and
+// returns a non-zero exit error when any component failed. Without --continue
+// the existing per-error abort already surfaces failures, so no extra output
+// is needed; this only fires when the operator opted into best-effort mode.
+// Returns nil when destroyContinue is false or when no failures were recorded.
+func finishContinueDestroy(w io.Writer, result terraforminfra.DestroyResult) error {
+	if !destroyContinue {
+		return nil
+	}
+	parts := []string{
+		fmt.Sprintf("%d destroyed", len(result.Destroyed)),
+		fmt.Sprintf("%d no-op (empty state)", len(result.Skipped)),
+	}
+	if len(result.Failed) > 0 {
+		failedIDs := make([]string, 0, len(result.Failed))
+		for _, f := range result.Failed {
+			failedIDs = append(failedIDs, f.ID)
+		}
+		parts = append(parts, fmt.Sprintf("%d failed (%s)", len(result.Failed), strings.Join(failedIDs, ", ")))
+	} else {
+		parts = append(parts, "0 failed")
+	}
+	if result.TierDeferred {
+		parts = append(parts, "backend tier deferred")
+	}
+	fmt.Fprintf(w, "windsor destroy: %s\n", strings.Join(parts, ", "))
+	if len(result.Failed) > 0 {
+		return fmt.Errorf("destroy completed with %d failure(s); rerun `windsor destroy --continue` after resolving them", len(result.Failed))
+	}
+	return nil
+}
+
+// init registers destroy subcommands and persistent flags. --confirm must exactly match the
 // context name (for layer-wide destroy) or component name (for targeted destroy); this is the
-// CI-safe equivalent of the interactive prompt. There is no flag that skips confirmation entirely.
+// CI-safe equivalent of the interactive prompt. --continue switches the bulk destroy passes
+// to best-effort: per-component failures are collected rather than aborting, and the backend
+// tier is deferred when any non-tier component is left un-destroyed (rerun to converge).
 func init() {
 	destroyCmd.PersistentFlags().StringVar(&destroyConfirm, "confirm", "", "Context or component name to confirm destruction. Must match the prompt token exactly; mismatches abort.")
+	destroyCmd.PersistentFlags().BoolVar(&destroyContinue, "continue", false, "Continue past per-component destroy failures and report a summary at the end. Backend tier is deferred when any non-tier component fails.")
 	destroyCmd.AddCommand(destroyTerraformCmd)
 	destroyCmd.AddCommand(destroyKustomizeCmd)
 	rootCmd.AddCommand(destroyCmd)

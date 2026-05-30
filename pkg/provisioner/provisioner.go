@@ -375,21 +375,22 @@ func (i *Provisioner) Down(blueprint *blueprintv1alpha1.Blueprint) error {
 // applied, fully torn down already, or upstream destroy collapsed their cloud objects out from
 // under them); cmd-layer callers surface them in the user-facing summary so an operator can see
 // "these were no-ops" alongside "these were destroyed".
-func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+func (i *Provisioner) DestroyAllTerraform(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
+	var result terraforminfra.DestroyResult
 	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
+		return result, fmt.Errorf("blueprint not provided")
 	}
 	if err := i.ensureTerraformStack(); err != nil {
-		return nil, err
+		return result, err
 	}
 	if i.TerraformStack == nil {
-		return nil, fmt.Errorf("terraform is disabled")
+		return result, fmt.Errorf("terraform is disabled")
 	}
-	skipped, err := i.TerraformStack.DestroyAll(blueprint, excludeIDs...)
+	result, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
 	if err != nil {
-		return skipped, fmt.Errorf("failed to run terraform destroy: %w", err)
+		return result, fmt.Errorf("failed to run terraform destroy: %w", err)
 	}
-	return skipped, nil
+	return result, nil
 }
 
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.
@@ -478,30 +479,35 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 // was empty (never applied, already torn down) alongside any error from either step —
 // paired with the error so callers see what was no-op'd even when a later step fails.
 // Returns an error if either step fails.
-func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continueOnError bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
+	var result terraforminfra.DestroyResult
 	if blueprint == nil {
-		return nil, fmt.Errorf("blueprint not provided")
+		return result, fmt.Errorf("blueprint not provided")
 	}
 
 	if i.KubernetesManager != nil && i.kubeconfigPresent() {
 		if err := i.Uninstall(blueprint); err != nil {
-			return nil, err
+			if !continueOnError {
+				return result, err
+			}
+			result.Failed = append(result.Failed, terraforminfra.ComponentFailure{ID: "kustomize", Err: err})
 		}
 	}
 
 	if err := i.ensureTerraformStack(); err != nil {
-		return nil, err
+		return result, err
 	}
-	var skipped []string
 	if i.TerraformStack != nil {
-		s, err := i.TerraformStack.DestroyAll(blueprint, excludeIDs...)
-		skipped = s
+		tfResult, err := i.TerraformStack.DestroyAll(blueprint, continueOnError, excludeIDs...)
+		result.Destroyed = append(result.Destroyed, tfResult.Destroyed...)
+		result.Skipped = append(result.Skipped, tfResult.Skipped...)
+		result.Failed = append(result.Failed, tfResult.Failed...)
 		if err != nil {
-			return skipped, fmt.Errorf("failed to run terraform destroy: %w", err)
+			return result, fmt.Errorf("failed to run terraform destroy: %w", err)
 		}
 	}
 
-	return skipped, nil
+	return result, nil
 }
 
 // Plan runs terraform init and plan for a single component identified by componentID.

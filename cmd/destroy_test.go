@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -104,7 +105,7 @@ func setupDestroyTest(t *testing.T, opts ...*SetupOptions) *DestroyMocks {
 	mockBlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return testBlueprint }
 
 	mockTerraformStack := terraforminfra.NewMockStack()
-	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) { return nil, nil }
+	mockTerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) { return terraforminfra.DestroyResult{}, nil }
 	mockTerraformStack.DestroyFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) (bool, error) { return false, nil }
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
@@ -259,6 +260,7 @@ func TestWarnPreventDestroy(t *testing.T) {
 func TestDestroyCmd(t *testing.T) {
 	createTestDestroyCmd := func() *cobra.Command {
 		destroyConfirm = ""
+		destroyContinue = false
 		cmd := &cobra.Command{
 			Use:  "destroy",
 			RunE: destroyCmd.RunE,
@@ -468,9 +470,9 @@ func TestDestroyCmd(t *testing.T) {
 		mocks := setupDestroyTest(t)
 		mocks.ToolsManager.CheckAuthFunc = func() error { return fmt.Errorf("aws credentials did not resolve") }
 		destroyAllCalled := false
-		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ ...string) ([]string, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
 			destroyAllCalled = true
-			return nil, nil
+			return terraforminfra.DestroyResult{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -559,9 +561,9 @@ func TestDestroyCmd(t *testing.T) {
 			}
 			return nil
 		}
-		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
 			destroyCalled = true
-			return nil, nil
+			return terraforminfra.DestroyResult{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -595,9 +597,9 @@ func TestDestroyCmd(t *testing.T) {
 		mocks.KubernetesManager.GetKustomizationInventoryFunc = func(name, namespace string) ([]kubernetes.InventoryEntry, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
-		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, excludeIDs ...string) ([]string, error) {
+		mocks.TerraformStack.DestroyAllFunc = func(bp *blueprintv1alpha1.Blueprint, _ bool, excludeIDs ...string) (terraforminfra.DestroyResult, error) {
 			destroyCalled = true
-			return nil, nil
+			return terraforminfra.DestroyResult{}, nil
 		}
 		proj := newDestroyProject(mocks)
 
@@ -615,6 +617,102 @@ func TestDestroyCmd(t *testing.T) {
 		}
 		if destroyCalled {
 			t.Error("DestroyAll must not run after a plan error")
+		}
+	})
+
+	t.Run("ContinueFlagPropagatesAndPrintsSummaryOnSuccess", func(t *testing.T) {
+		// Given --continue is passed and the stack reports a clean destroy,
+		// the cmd layer must forward continueOnError=true to Teardown and
+		// render the one-line summary on stderr.
+		mocks := setupDestroyTest(t)
+		var seenContinue bool
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, continueOnError bool, _ ...string) (terraforminfra.DestroyResult, error) {
+			seenContinue = continueOnError
+			return terraforminfra.DestroyResult{Destroyed: []string{"cluster"}}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		var stderr bytes.Buffer
+		cmd := createTestDestroyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context", "--continue"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Fatalf("Expected --continue with clean result to succeed, got %v", err)
+		}
+		if !seenContinue {
+			t.Error("Expected --continue to propagate continueOnError=true to Teardown")
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "windsor destroy:") {
+			t.Errorf("Expected summary line on stderr, got: %q", out)
+		}
+		if !strings.Contains(out, "1 destroyed") {
+			t.Errorf("Expected summary to report 1 destroyed, got: %q", out)
+		}
+		if !strings.Contains(out, "0 failed") {
+			t.Errorf("Expected summary to report 0 failed, got: %q", out)
+		}
+	})
+
+	t.Run("ContinueFlagReturnsErrorAndNamesFailures", func(t *testing.T) {
+		// Given --continue is passed and the stack reports per-component failures,
+		// the cmd layer must return a non-zero exit error after printing the summary
+		// (so re-running converges; CI sees the failure).
+		mocks := setupDestroyTest(t)
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
+			return terraforminfra.DestroyResult{
+				Destroyed: []string{"vpc"},
+				Failed:    []terraforminfra.ComponentFailure{{ID: "iam", Err: fmt.Errorf("permission denied")}},
+			}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		var stderr bytes.Buffer
+		cmd := createTestDestroyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context", "--continue"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected non-zero exit when --continue surfaces failures")
+		}
+		if !strings.Contains(err.Error(), "destroy completed with 1 failure") {
+			t.Errorf("Expected error to report failure count, got: %v", err)
+		}
+		out := stderr.String()
+		if !strings.Contains(out, "1 failed (iam)") {
+			t.Errorf("Expected summary to name failed component, got: %q", out)
+		}
+	})
+
+	t.Run("NoSummaryWithoutContinueFlag", func(t *testing.T) {
+		// Given the operator did not pass --continue, the summary line must not
+		// appear (current behavior is unchanged; opt-in only).
+		mocks := setupDestroyTest(t)
+		mocks.TerraformStack.DestroyAllFunc = func(_ *blueprintv1alpha1.Blueprint, _ bool, _ ...string) (terraforminfra.DestroyResult, error) {
+			return terraforminfra.DestroyResult{Destroyed: []string{"cluster"}}, nil
+		}
+		proj := newDestroyProject(mocks)
+
+		var stderr bytes.Buffer
+		cmd := createTestDestroyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--confirm=test-context"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if strings.Contains(stderr.String(), "windsor destroy:") {
+			t.Errorf("Summary must not print without --continue, got: %q", stderr.String())
 		}
 	})
 }
