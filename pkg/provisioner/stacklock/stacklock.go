@@ -290,6 +290,7 @@ func writeHolderInfo(path string, info LockInfo) {
 // LockBusyError.Holder on contention; callers must not depend on a non-nil
 // result for correctness.
 func readHolderInfo(path string) *LockInfo {
+	// #nosec G304 - path is the lock's sidecar location configured by the runtime, not user-supplied at call time
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
