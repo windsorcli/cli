@@ -278,6 +278,7 @@ func writeHolderInfo(path string, info LockInfo) {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, lockInfoPerm); err != nil {
+		_ = os.Remove(tmp)
 		return
 	}
 	if err := os.Rename(tmp, path); err != nil {
