@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -46,6 +47,14 @@ const lockDirPerm = 0o755
 // stackLockFilename is the basename written under WindsorScratchPath.
 const stackLockFilename = ".stacklock"
 
+// stackLockInfoSuffix is appended to the lock-file path to produce the
+// sidecar holder-info file. Kept as a sidecar (rather than written into the
+// flock'd file body) to avoid interacting with byte-range locking on Windows.
+const stackLockInfoSuffix = ".info"
+
+// lockInfoPerm is the mode used when writing the holder-info sidecar.
+const lockInfoPerm = 0o644
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -60,8 +69,9 @@ const (
 	Shared
 )
 
-// LockInfo records who holds a stack lock and why. Serialised into the lock-file body
-// for inspection by future --inspect (§7.6) tooling; not load-bearing for correctness.
+// LockInfo records who holds a stack lock and why. Persisted into a sidecar
+// file next to the lock so a blocked contender can name the holder in its
+// busy error and operators can identify the holding process.
 type LockInfo struct {
 	ID        string    `json:"id"`
 	Operation string    `json:"operation"`
@@ -71,6 +81,7 @@ type LockInfo struct {
 	ProjectID string    `json:"project_id"`
 	Context   string    `json:"context"`
 	Created   time.Time `json:"created"`
+	PID       int       `json:"pid"`
 }
 
 // Release frees a previously-acquired lock. Implementations must be idempotent:
@@ -90,8 +101,8 @@ func (e *LockBusyError) Error() string {
 	if e.Holder == nil {
 		return fmt.Sprintf("stack lock at %s is held by another windsor process", e.Path)
 	}
-	return fmt.Sprintf("stack lock at %s is held by %s (operation=%s, started=%s)",
-		e.Path, e.Holder.Who, e.Holder.Operation, e.Holder.Created.Format(time.RFC3339))
+	return fmt.Sprintf("stack lock at %s is held by %s (PID=%d, operation=%s, started=%s)",
+		e.Path, e.Holder.Who, e.Holder.PID, e.Holder.Operation, e.Holder.Created.Format(time.RFC3339))
 }
 
 // =============================================================================
@@ -143,9 +154,10 @@ func With(ctx context.Context, rt *runtime.Runtime, operation string, fn func() 
 	return fn()
 }
 
-// NewInfo constructs the LockInfo persisted into the lock-file body for a given
-// runtime and operation label. The result is diagnostic only — Acquire writes it
-// into the body so the next contender's busy error can name the holder.
+// NewInfo constructs the LockInfo persisted into the holder-info sidecar for a
+// given runtime and operation label. The result is diagnostic only — Acquire
+// writes it next to the lock so the next contender's busy error can name the
+// holder and the holding PID.
 func NewInfo(rt *runtime.Runtime, operation string) LockInfo {
 	return LockInfo{
 		ID:        newLockID(),
@@ -156,6 +168,7 @@ func NewInfo(rt *runtime.Runtime, operation string) LockInfo {
 		ProjectID: hashProjectRoot(rt.ProjectRoot),
 		Context:   rt.ContextName,
 		Created:   time.Now().UTC(),
+		PID:       os.Getpid(),
 	}
 }
 
@@ -178,10 +191,11 @@ type localFlockLock struct {
 
 // Acquire takes the lock, retrying every acquireRetryInterval until it is held,
 // the timeout elapses, or ctx is cancelled. Cancellation returns ctx.Err();
-// timeout returns *LockBusyError with Holder=nil — the local-flock backend does
-// not persist holder identity (the body-write would race with the flock on
-// Windows). Future backends with their own metadata stores can populate Holder.
-// info is accepted for interface stability but is ignored by this implementation.
+// timeout returns *LockBusyError, populating Holder from the sidecar info file
+// when one is present. After flock succeeds, info is persisted to a sidecar
+// (<path>.info) via atomic temp+rename so a future contender's busy error can
+// name the holder and PID. The sidecar is removed by Release; it is diagnostic
+// only and a missing or partial file is not load-bearing for correctness.
 func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout time.Duration) (Release, error) {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -190,6 +204,7 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 		return nil, fmt.Errorf("create lock directory: %w", err)
 	}
 	flk := flock.New(s.path)
+	infoPath := s.path + stackLockInfoSuffix
 	deadline := time.Now().Add(timeout)
 	for {
 		locked, err := flk.TryLock()
@@ -200,7 +215,7 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 			break
 		}
 		if time.Now().After(deadline) {
-			return nil, &LockBusyError{Path: s.path}
+			return nil, &LockBusyError{Path: s.path, Holder: readHolderInfo(infoPath)}
 		}
 		select {
 		case <-ctx.Done():
@@ -208,7 +223,11 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 		case <-time.After(acquireRetryInterval):
 		}
 	}
-	return makeRelease(flk), nil
+	if info.PID == 0 {
+		info.PID = os.Getpid()
+	}
+	writeHolderInfo(infoPath, info)
+	return makeRelease(flk, infoPath), nil
 }
 
 // Inspect is reserved for the operator-facing `windsor stack lock --inspect`
@@ -223,17 +242,21 @@ func (s *localFlockLock) ForceRelease(ctx context.Context, lockID string, reason
 	return errOperationNotSupported
 }
 
-// makeRelease returns the closure handed back from Acquire. flk and the once
-// guard are scoped to this Release, not to the localFlockLock receiver, so
-// reusing the same lock instance for a second Acquire produces an independent
-// Release that does not interfere with this one. The first call returns the
+// makeRelease returns the closure handed back from Acquire. flk, infoPath,
+// and the once guard are scoped to this Release, not to the localFlockLock
+// receiver, so reusing the same lock instance for a second Acquire produces
+// an independent Release that does not interfere with this one. The first
+// call removes the holder-info sidecar (best-effort) and returns the
 // underlying Unlock result; subsequent calls return nil so callers may safely
 // defer release alongside an explicit earlier release without double-unlocking.
-func makeRelease(flk *flock.Flock) Release {
+func makeRelease(flk *flock.Flock, infoPath string) Release {
 	var once sync.Once
 	return func() error {
 		var err error
 		once.Do(func() {
+			if infoPath != "" {
+				_ = os.Remove(infoPath)
+			}
 			err = flk.Unlock()
 		})
 		return err
@@ -243,6 +266,40 @@ func makeRelease(flk *flock.Flock) Release {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// writeHolderInfo persists the holder LockInfo to the sidecar path via an
+// atomic temp+rename so a concurrent reader never observes a partial file.
+// Failures are swallowed because the sidecar is diagnostic only — losing it
+// degrades busy-error detail but does not affect lock correctness.
+func writeHolderInfo(path string, info LockInfo) {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, lockInfoPerm); err != nil {
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+	}
+}
+
+// readHolderInfo returns the LockInfo recorded by the current holder, or nil
+// when the sidecar is absent or unparseable. Used by Acquire to populate
+// LockBusyError.Holder on contention; callers must not depend on a non-nil
+// result for correctness.
+func readHolderInfo(path string) *LockInfo {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var info LockInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil
+	}
+	return &info
+}
 
 // newLockID generates a 128-bit random ID rendered as 32 hex characters.
 // Used only to identify lock holders in audit messages; collision risk is negligible.

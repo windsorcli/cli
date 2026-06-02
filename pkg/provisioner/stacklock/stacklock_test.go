@@ -2,6 +2,7 @@ package stacklock
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gofrs/flock"
 
 	"github.com/windsorcli/cli/pkg/runtime"
 )
@@ -144,11 +147,15 @@ func TestLocalFlockLock_Acquire(t *testing.T) {
 		}
 	})
 
-	t.Run("returns a busy error with nil Holder for the local-flock backend", func(t *testing.T) {
-		// Given a held lock
+	t.Run("populates Holder from the sidecar info file on contention", func(t *testing.T) {
+		// Given a held lock whose holder wrote a populated LockInfo to the sidecar
 		path := filepath.Join(t.TempDir(), ".stacklock")
 		first := NewLocalFlockLock(path)
-		release1, err := first.Acquire(context.Background(), newTestLockInfo(), time.Second)
+		holderInfo := newTestLockInfo()
+		holderInfo.Who = "ci@runner-9"
+		holderInfo.Operation = "bootstrap"
+		holderInfo.PID = 4242
+		release1, err := first.Acquire(context.Background(), holderInfo, time.Second)
 		if err != nil {
 			t.Fatalf("first acquire: %v", err)
 		}
@@ -158,17 +165,109 @@ func TestLocalFlockLock_Acquire(t *testing.T) {
 		second := NewLocalFlockLock(path)
 		_, err = second.Acquire(context.Background(), newTestLockInfo(), 100*time.Millisecond)
 
-		// Then a *LockBusyError surfaces with Path set and Holder nil
-		// (this backend does not persist holder identity into the lock file)
+		// Then a *LockBusyError surfaces with Path set and Holder populated from the sidecar
+		var busy *LockBusyError
+		if !errors.As(err, &busy) {
+			t.Fatalf("expected *LockBusyError, got %T: %v", err, err)
+		}
+		if busy.Path != path {
+			t.Fatalf("expected Path %q, got %q", path, busy.Path)
+		}
+		if busy.Holder == nil {
+			t.Fatal("expected non-nil Holder populated from sidecar")
+		}
+		if busy.Holder.Who != "ci@runner-9" || busy.Holder.Operation != "bootstrap" || busy.Holder.PID != 4242 {
+			t.Fatalf("expected holder ci@runner-9/bootstrap/PID=4242, got %+v", busy.Holder)
+		}
+	})
+
+	t.Run("returns a busy error with nil Holder when no sidecar is present", func(t *testing.T) {
+		// Given a lock file held by an external flock with no sidecar written
+		// (simulates a non-windsor flock holder or a holder that died mid-write)
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		external := flock.New(path)
+		locked, err := external.TryLock()
+		if err != nil || !locked {
+			t.Fatalf("external flock: locked=%v err=%v", locked, err)
+		}
+		t.Cleanup(func() { _ = external.Unlock() })
+
+		// When a windsor instance times out
+		sl := NewLocalFlockLock(path)
+		_, err = sl.Acquire(context.Background(), newTestLockInfo(), 100*time.Millisecond)
+
+		// Then a *LockBusyError surfaces with Holder nil — no diagnostic data available
 		var busy *LockBusyError
 		if !errors.As(err, &busy) {
 			t.Fatalf("expected *LockBusyError, got %T: %v", err, err)
 		}
 		if busy.Holder != nil {
-			t.Fatalf("expected nil Holder for local-flock backend, got %+v", busy.Holder)
+			t.Fatalf("expected nil Holder without sidecar, got %+v", busy.Holder)
 		}
-		if busy.Path != path {
-			t.Fatalf("expected Path %q, got %q", path, busy.Path)
+	})
+
+	t.Run("writes the holder-info sidecar on acquire and removes it on release", func(t *testing.T) {
+		// Given an acquired lock
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		sidecar := path + ".info"
+		sl := NewLocalFlockLock(path)
+		info := newTestLockInfo()
+		info.PID = 9999
+		release, err := sl.Acquire(context.Background(), info, time.Second)
+		if err != nil {
+			t.Fatalf("acquire: %v", err)
+		}
+
+		// Then the sidecar exists and decodes to the holder's LockInfo
+		data, err := os.ReadFile(sidecar)
+		if err != nil {
+			t.Fatalf("read sidecar: %v", err)
+		}
+		var got LockInfo
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("decode sidecar: %v", err)
+		}
+		if got.Who != info.Who || got.PID != 9999 {
+			t.Fatalf("sidecar contents: got %+v want Who=%s PID=9999", got, info.Who)
+		}
+
+		// When the lock is released
+		if err := release(); err != nil {
+			t.Fatalf("release: %v", err)
+		}
+
+		// Then the sidecar is removed
+		if _, err := os.Stat(sidecar); !os.IsNotExist(err) {
+			t.Fatalf("expected sidecar removed, stat err=%v", err)
+		}
+	})
+
+	t.Run("populates PID with os.Getpid when caller passes 0", func(t *testing.T) {
+		// Given a lock acquired with info.PID unset (the With code path doesn't
+		// always go through NewInfo, so Acquire defends against a zero PID)
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		sl := NewLocalFlockLock(path)
+		info := newTestLockInfo()
+		info.PID = 0
+		release, err := sl.Acquire(context.Background(), info, time.Second)
+		if err != nil {
+			t.Fatalf("acquire: %v", err)
+		}
+		t.Cleanup(func() { _ = release() })
+
+		// When the sidecar is read back
+		data, err := os.ReadFile(path + ".info")
+		if err != nil {
+			t.Fatalf("read sidecar: %v", err)
+		}
+		var got LockInfo
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("decode sidecar: %v", err)
+		}
+
+		// Then PID reflects the running process
+		if got.PID != os.Getpid() {
+			t.Fatalf("expected PID=%d, got %d", os.Getpid(), got.PID)
 		}
 	})
 
@@ -297,18 +396,19 @@ func TestLockBusyError_Error(t *testing.T) {
 		}
 	})
 
-	t.Run("includes who and operation when the holder is known", func(t *testing.T) {
+	t.Run("includes who, PID, and operation when the holder is known", func(t *testing.T) {
 		// Given a busy error with a populated holder
 		info := newTestLockInfo()
 		info.Who = "ci@runner-7"
 		info.Operation = "apply"
+		info.PID = 12345
 		e := &LockBusyError{Path: "/tmp/x.stacklock", Holder: &info}
 
 		// When formatting
 		msg := e.Error()
 
-		// Then both fields appear
-		for _, want := range []string{"ci@runner-7", "apply"} {
+		// Then who, PID, and operation all appear so operators can identify the blocker
+		for _, want := range []string{"ci@runner-7", "PID=12345", "apply"} {
 			if !strings.Contains(msg, want) {
 				t.Fatalf("expected %q in message, got %q", want, msg)
 			}
@@ -427,16 +527,19 @@ func TestWith(t *testing.T) {
 			return nil
 		})
 
-		// Then a LockBusyError surfaces (Holder is nil for the local-flock backend)
+		// Then a LockBusyError surfaces with Holder populated from the peer's sidecar
 		var busy *LockBusyError
 		if !errors.As(err, &busy) {
 			t.Fatalf("expected *LockBusyError, got %T: %v", err, err)
+		}
+		if busy.Holder == nil || busy.Holder.Who != "peer@host" || busy.Holder.Operation != "destroy" {
+			t.Fatalf("expected holder peer@host/destroy, got %+v", busy.Holder)
 		}
 	})
 }
 
 func TestNewInfo(t *testing.T) {
-	t.Run("populates operation, mode, context and a non-empty ID", func(t *testing.T) {
+	t.Run("populates operation, mode, context, PID, and a non-empty ID", func(t *testing.T) {
 		// Given a runtime with a context and project root
 		rt := &runtime.Runtime{ContextName: "ctx-A", ProjectRoot: "/some/root"}
 
@@ -461,6 +564,9 @@ func TestNewInfo(t *testing.T) {
 		}
 		if info.ProjectID == "" {
 			t.Fatal("expected non-empty ProjectID")
+		}
+		if info.PID != os.Getpid() {
+			t.Fatalf("expected PID=%d, got %d", os.Getpid(), info.PID)
 		}
 	})
 
