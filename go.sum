@@ -10,8 +10,8 @@ github.com/ProtonMail/go-mime v0.0.0-20230322103455-7d82a3887f2f h1:tCbYj7/299ek
 github.com/ProtonMail/go-mime v0.0.0-20230322103455-7d82a3887f2f/go.mod h1:gcr0kNtGBqin9zDW9GOHcVntrwnjrK+qdJ06mWYBybw=
 github.com/ProtonMail/gopenpgp/v2 v2.10.0 h1:llCzLvntC9+iH+if/na4AgKTef/Zm4vpaRrR3+JdKvo=
 github.com/ProtonMail/gopenpgp/v2 v2.10.0/go.mod h1:dc0h9Pg3ftfN0U4pfRzujilfh61A2R52wgMkZWcWm2I=
-github.com/abiosoft/colima v0.10.1 h1:q4QhAEDjctxlfrrwlCx4ulcMQks2UVrwlJG9VppD2yQ=
-github.com/abiosoft/colima v0.10.1/go.mod h1:+Y3hsgx56w7dWtQcs209F6ehg2/SUi81frx87dai5Ns=
+github.com/abiosoft/colima v0.10.2 h1:p/GKPRDJoqwrcozUZir/5QRFYLxQHxOBVCw3fVPcikc=
+github.com/abiosoft/colima v0.10.2/go.mod h1:CwNWQJ5ZDXSZo4LfiBsnoGiSr8LoAhWNOE+ddSIrBMw=
 github.com/adrg/xdg v0.5.3 h1:xRnxJXne7+oWDatRhR1JLnvuccuIeCoBu2rtuLqQB78=
 github.com/adrg/xdg v0.5.3/go.mod h1:nlTsY+NNiCBGCK2tpm09vRqfVzrc2fLmXGpBLF0zlTQ=
 github.com/agext/levenshtein v1.2.3 h1:YB2fHEn0UJagG8T1rrWknE3ZQzWM06O8AMAatNn7lmo=
@@ -59,8 +59,8 @@ github.com/expr-lang/expr v1.17.8 h1:W1loDTT+0PQf5YteHSTpju2qfUfNoBt4yw9+wOEU9VM
 github.com/expr-lang/expr v1.17.8/go.mod h1:8/vRC7+7HBzESEqt5kKpYXxrxkr31SaO8r40VO/1IT4=
 github.com/extism/go-sdk v1.7.1 h1:lWJos6uY+tRFdlIHR+SJjwFDApY7OypS/2nMhiVQ9Sw=
 github.com/extism/go-sdk v1.7.1/go.mod h1:IT+Xdg5AZM9hVtpFUA+uZCJMge/hbvshl8bwzLtFyKA=
-github.com/fatih/color v1.18.0 h1:S8gINlzdQ840/4pfAwic/ZE0djQEH3wM94VfqLTZcOM=
-github.com/fatih/color v1.18.0/go.mod h1:4FelSpRwEGDpQ12mAdzqdOukCy4u8WUtOY6lkT/6HfU=
+github.com/fatih/color v1.19.0 h1:Zp3PiM21/9Ld6FzSKyL5c/BULoe/ONr9KlbYVOfG8+w=
+github.com/fatih/color v1.19.0/go.mod h1:zNk67I0ZUT1bEGsSGyCZYZNrHuTkJJB+r6Q9VuMi0LE=
 github.com/fluxcd/helm-controller/api v1.5.5 h1:xQA/9gbifMvZPGhSNKHsrkq829dI/yTBASVdYp9/s4Y=
 github.com/fluxcd/helm-controller/api v1.5.5/go.mod h1:lTgeUmtVYExMKp7mRDncsr4JwHTz3LFtLjRJZeR98lI=
 github.com/fluxcd/kustomize-controller/api v1.8.5 h1:4fGPh6foGVKUUbt5OjVzbC5iTyX+Q+NS50atPboDC4w=
