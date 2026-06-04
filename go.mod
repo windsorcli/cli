@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/1password/onepassword-sdk-go v0.3.1
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/abiosoft/colima v0.10.1
+	github.com/abiosoft/colima v0.10.2
 	github.com/briandowns/spinner v1.23.2
 	github.com/expr-lang/expr v1.17.8
 	github.com/fluxcd/helm-controller/api v1.5.5
@@ -52,7 +52,7 @@ require (
 	github.com/dylibso/observe-sdk/go v0.0.0-20240828172851-9145d8ad07e1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/extism/go-sdk v1.7.1 // indirect
-	github.com/fatih/color v1.18.0 // indirect
+	github.com/fatih/color v1.19.0 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gertd/go-pluralize v0.2.1 // indirect
