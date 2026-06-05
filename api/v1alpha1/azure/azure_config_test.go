@@ -18,18 +18,21 @@ func TestAzureConfig(t *testing.T) {
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
+					Region:         stringPtr("eastus"),
 					KubeloginMode:  stringPtr("azurecli"),
 				},
 				overlay: &AzureConfig{
 					SubscriptionID: stringPtr("new-sub"),
 					TenantID:       stringPtr("new-tenant"),
 					Environment:    stringPtr("new-env"),
+					Region:         stringPtr("eastus2"),
 					KubeloginMode:  stringPtr("workloadidentity"),
 				},
 				expected: &AzureConfig{
 					SubscriptionID: stringPtr("new-sub"),
 					TenantID:       stringPtr("new-tenant"),
 					Environment:    stringPtr("new-env"),
+					Region:         stringPtr("eastus2"),
 					KubeloginMode:  stringPtr("workloadidentity"),
 				},
 			},
@@ -39,6 +42,7 @@ func TestAzureConfig(t *testing.T) {
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
+					Region:         stringPtr("eastus"),
 				},
 				overlay: &AzureConfig{
 					KubeloginMode: stringPtr("msi"),
@@ -47,7 +51,22 @@ func TestAzureConfig(t *testing.T) {
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
+					Region:         stringPtr("eastus"),
 					KubeloginMode:  stringPtr("msi"),
+				},
+			},
+			{
+				name: "RegionOverlayOnly",
+				base: &AzureConfig{
+					SubscriptionID: stringPtr("old-sub"),
+					Region:         stringPtr("eastus"),
+				},
+				overlay: &AzureConfig{
+					Region: stringPtr("westus2"),
+				},
+				expected: &AzureConfig{
+					SubscriptionID: stringPtr("old-sub"),
+					Region:         stringPtr("westus2"),
 				},
 			},
 			{
@@ -56,12 +75,14 @@ func TestAzureConfig(t *testing.T) {
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
+					Region:         stringPtr("eastus"),
 				},
 				overlay: nil,
 				expected: &AzureConfig{
 					SubscriptionID: stringPtr("old-sub"),
 					TenantID:       stringPtr("old-tenant"),
 					Environment:    stringPtr("old-env"),
+					Region:         stringPtr("eastus"),
 				},
 			},
 		}
@@ -73,6 +94,7 @@ func TestAzureConfig(t *testing.T) {
 				assertStringPtrEq(t, "SubscriptionID", tt.base.SubscriptionID, tt.expected.SubscriptionID)
 				assertStringPtrEq(t, "TenantID", tt.base.TenantID, tt.expected.TenantID)
 				assertStringPtrEq(t, "Environment", tt.base.Environment, tt.expected.Environment)
+				assertStringPtrEq(t, "Region", tt.base.Region, tt.expected.Region)
 				assertStringPtrEq(t, "KubeloginMode", tt.base.KubeloginMode, tt.expected.KubeloginMode)
 			})
 		}
@@ -89,12 +111,14 @@ func TestAzureConfig(t *testing.T) {
 					SubscriptionID: stringPtr("sub"),
 					TenantID:       stringPtr("tenant"),
 					Environment:    stringPtr("env"),
+					Region:         stringPtr("eastus2"),
 					KubeloginMode:  stringPtr("azurecli"),
 				},
 			},
 			{
 				name: "SomeFields",
 				original: &AzureConfig{
+					Region:        stringPtr("westeurope"),
 					KubeloginMode: stringPtr("workloadidentity"),
 				},
 			},
@@ -126,6 +150,7 @@ func TestAzureConfig(t *testing.T) {
 				assertStringPtrEq(t, "SubscriptionID", copy.SubscriptionID, tt.original.SubscriptionID)
 				assertStringPtrEq(t, "TenantID", copy.TenantID, tt.original.TenantID)
 				assertStringPtrEq(t, "Environment", copy.Environment, tt.original.Environment)
+				assertStringPtrEq(t, "Region", copy.Region, tt.original.Region)
 				assertStringPtrEq(t, "KubeloginMode", copy.KubeloginMode, tt.original.KubeloginMode)
 			})
 		}

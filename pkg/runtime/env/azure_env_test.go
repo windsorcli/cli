@@ -416,3 +416,115 @@ contexts:
 		}
 	})
 }
+
+// TestAzureEnv_Region pins how azure.region flows into TF_VAR_region, the
+// variable consumed by core's azure-aks / azure-vnet terraform modules.
+// Mirrors the aws.region → AWS_REGION surface so config keys stay symmetric.
+func TestAzureEnv_Region(t *testing.T) {
+	setupPrinter := func(t *testing.T, configStr string) *AzureEnvPrinter {
+		t.Helper()
+		baseMocks := setupEnvMocks(t)
+		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
+		})
+		mocks.ConfigHandler.SetContext("test-context")
+		if err := mocks.ConfigHandler.LoadConfigString(configStr); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+		return printer
+	}
+
+	t.Run("EmittedWhenAzureRegionSet", func(t *testing.T) {
+		// Given azure.region=eastus2 in values.yaml
+		printer := setupPrinter(t, `
+version: v1alpha1
+contexts:
+  test-context:
+    azure:
+      region: eastus2
+`)
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars: %v", err)
+		}
+
+		// Then TF_VAR_region carries the value verbatim
+		if got := envVars["TF_VAR_region"]; got != "eastus2" {
+			t.Errorf("TF_VAR_region = %q, want %q", got, "eastus2")
+		}
+	})
+
+	t.Run("OmittedWhenAzureRegionUnset", func(t *testing.T) {
+		// Given an azure block with no region key
+		printer := setupPrinter(t, `
+version: v1alpha1
+contexts:
+  test-context:
+    azure:
+      tenant_id: 11111111-2222-3333-4444-555555555555
+`)
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars: %v", err)
+		}
+
+		// Then TF_VAR_region is not emitted at all — consuming modules fall back to
+		// their own var defaults rather than receiving an empty string
+		if got, ok := envVars["TF_VAR_region"]; ok {
+			t.Errorf("TF_VAR_region should be absent when azure.region unset, got %q", got)
+		}
+	})
+
+	t.Run("OmittedWhenAzureBlockAbsent", func(t *testing.T) {
+		// Given a context with no azure block at all
+		printer := setupPrinter(t, `
+version: v1alpha1
+contexts:
+  test-context: {}
+`)
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars: %v", err)
+		}
+
+		if got, ok := envVars["TF_VAR_region"]; ok {
+			t.Errorf("TF_VAR_region should be absent when azure: block missing, got %q", got)
+		}
+	})
+
+	t.Run("EmittedInGlobalMode", func(t *testing.T) {
+		// Given azure.region=westeurope and global mode — TF_VAR_region must still
+		// flow through because terraform runs from global shells too
+		baseMocks := setupEnvMocks(t)
+		mocks := setupAzureEnvMocks(t, &EnvTestMocks{
+			ConfigHandler: config.NewConfigHandler(baseMocks.Shell),
+		})
+		mocks.ConfigHandler.SetContext("test-context")
+		if err := mocks.ConfigHandler.LoadConfigString(`
+version: v1alpha1
+contexts:
+  test-context:
+    azure:
+      region: westeurope
+`); err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+		mocks.Shell.IsGlobalFunc = func() bool { return true }
+		printer := NewAzureEnvPrinter(mocks.Shell, mocks.ConfigHandler)
+		printer.shims = mocks.Shims
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars: %v", err)
+		}
+
+		if got := envVars["TF_VAR_region"]; got != "westeurope" {
+			t.Errorf("TF_VAR_region = %q, want %q (global mode must still emit)", got, "westeurope")
+		}
+	})
+}

@@ -587,3 +587,28 @@ func TestInit_WritesLocalGitignoresAndLeavesProjectRootAlone(t *testing.T) {
 		t.Errorf("project-root .gitignore was modified; before=%q after=%q", userRootContent, string(rootAfter))
 	}
 }
+
+// TestInit_AzureRegionPersistsAcrossInit verifies that `--set azure.region=...`
+// flows through init and lands in values.yaml as azure.region. The runtime
+// env printer reads this key to emit TF_VAR_region for terraform's
+// azure-aks / azure-vnet modules — the parity surface that matches aws.region.
+func TestInit_AzureRegionPersistsAcrossInit(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "azure-test", "--platform", "azure", "--set", "azure.region=eastus2", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Fatalf("init azure-test --set azure.region=eastus2: %v\nstderr: %s", err, stderr)
+	}
+
+	valuesPath := filepath.Join(dir, "contexts", "azure-test", "values.yaml")
+	values := readYAMLFile(t, valuesPath)
+	region, ok := getPathValue(values, "azure", "region")
+	if !ok {
+		t.Fatalf("expected azure.region in values.yaml, got nothing\nvalues=%v", values)
+	}
+	if region != "eastus2" {
+		t.Errorf("expected azure.region=eastus2 in values.yaml, got %v", region)
+	}
+}
