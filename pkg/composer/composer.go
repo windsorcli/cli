@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -162,8 +161,8 @@ func (r *Composer) Generate(overwrite ...bool) error {
 		return fmt.Errorf("failed to process terraform modules: %w", err)
 	}
 
-	if err := r.generateGitignore(); err != nil {
-		return fmt.Errorf("failed to generate .gitignore: %w", err)
+	if err := r.writeLocalGitignores(); err != nil {
+		return fmt.Errorf("failed to write local gitignores: %w", err)
 	}
 
 	if r.configHandler.GetBool("terraform.enabled", true) {
@@ -179,93 +178,67 @@ func (r *Composer) Generate(overwrite ...bool) error {
 // Private Methods
 // =============================================================================
 
-// generateGitignore creates or updates the .gitignore file with Windsor-specific entries.
-// It ensures Windsor-specific paths are excluded from version control while preserving user-defined entries.
-func (r *Composer) generateGitignore() error {
-	gitIgnoreLines := []string{
-		"# managed by windsor cli",
-		".windsor/",
-		".volumes/",
-		"terraform/**/backend_override.tf",
-		"contexts/**/.kube/",
-		"contexts/**/.talos/",
-		"contexts/**/.omni/",
-		"contexts/**/.aws/",
-		"contexts/**/.azure/",
-		"contexts/**/.gcp/",
+// windsorMarkerContent is written to .gitignore inside Windsor-owned folders
+// (.windsor/, .volumes/). The pattern ignores every file in the folder including
+// the .gitignore itself, which keeps the folder invisible to `git status` so
+// users never have to commit Windsor-managed scaffolding.
+const windsorMarkerContent = "*\n"
+
+// contextIgnoreContent is written to contexts/<ctx>/.gitignore to keep
+// per-context credential and state directories out of version control.
+const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n"
+
+// writeLocalGitignores writes self-contained .gitignore files into Windsor-owned
+// folders so re-running Windsor never touches the project-root .gitignore.
+// Each file is written once: if a target .gitignore already exists, it is left
+// alone. .volumes/ and contexts/ are skipped silently when the directory itself
+// is absent; .windsor/ is created if missing.
+func (r *Composer) writeLocalGitignores() error {
+	windsorDir := filepath.Join(r.projectRoot, ".windsor")
+	if err := os.MkdirAll(windsorDir, 0750); err != nil {
+		return fmt.Errorf("failed to ensure .windsor directory: %w", err)
+	}
+	if err := writeIfMissing(filepath.Join(windsorDir, ".gitignore"), windsorMarkerContent); err != nil {
+		return fmt.Errorf("failed to write .windsor/.gitignore: %w", err)
 	}
 
-	gitignorePath := filepath.Join(r.projectRoot, ".gitignore")
-
-	// #nosec G304 - gitignorePath is constructed from trusted project root
-	content, err := os.ReadFile(gitignorePath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read .gitignore: %w", err)
-	}
-
-	if os.IsNotExist(err) {
-		content = []byte{}
-	}
-
-	existingLines := make(map[string]struct{})
-	commentedNormalized := make(map[string]struct{})
-	var unmanagedLines []string
-	lines := strings.Split(string(content), "\n")
-	for i, line := range lines {
-		existingLines[line] = struct{}{}
-
-		trimmed := strings.TrimLeft(line, " \t")
-		if strings.HasPrefix(trimmed, "#") {
-			norm := normalizeGitignoreComment(trimmed)
-			if norm != "" {
-				commentedNormalized[norm] = struct{}{}
-			}
+	volumesDir := filepath.Join(r.projectRoot, ".volumes")
+	if _, err := os.Stat(volumesDir); err == nil {
+		if err := writeIfMissing(filepath.Join(volumesDir, ".gitignore"), windsorMarkerContent); err != nil {
+			return fmt.Errorf("failed to write .volumes/.gitignore: %w", err)
 		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to stat .volumes: %w", err)
+	}
 
-		if i == len(lines)-1 && line == "" {
+	contextsDir := filepath.Join(r.projectRoot, "contexts")
+	entries, err := os.ReadDir(contextsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read contexts directory: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == "_template" {
 			continue
 		}
-		unmanagedLines = append(unmanagedLines, line)
-	}
-
-	for _, line := range gitIgnoreLines {
-		if line == "# managed by windsor cli" {
-			if _, exists := existingLines[line]; !exists {
-				unmanagedLines = append(unmanagedLines, "")
-				unmanagedLines = append(unmanagedLines, line)
-			}
-			continue
-		}
-
-		if _, exists := existingLines[line]; !exists {
-			if _, commentedExists := commentedNormalized[line]; !commentedExists {
-				unmanagedLines = append(unmanagedLines, line)
-			}
+		target := filepath.Join(contextsDir, entry.Name(), ".gitignore")
+		if err := writeIfMissing(target, contextIgnoreContent); err != nil {
+			return fmt.Errorf("failed to write contexts/%s/.gitignore: %w", entry.Name(), err)
 		}
 	}
-
-	finalContent := strings.Join(unmanagedLines, "\n")
-
-	if !strings.HasSuffix(finalContent, "\n") {
-		finalContent += "\n"
-	}
-
-	// #nosec G306,G703 - .gitignore files use standard 0644 permissions; gitignorePath is constructed from trusted project root
-	if err := os.WriteFile(gitignorePath, []byte(finalContent), 0644); err != nil {
-		return fmt.Errorf("failed to write to .gitignore: %w", err)
-	}
-
 	return nil
 }
 
-// normalizeGitignoreComment normalizes a commented .gitignore line to its uncommented form.
-// It removes all leading #, whitespace, and trailing whitespace.
-func normalizeGitignoreComment(line string) string {
-	trimmed := strings.TrimLeft(line, " \t")
-	if !strings.HasPrefix(trimmed, "#") {
-		return ""
+// writeIfMissing writes content to path with 0644 perms only when the file
+// does not yet exist. Existing files are left untouched.
+func writeIfMissing(path, content string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
 	}
-	noHash := strings.TrimLeft(trimmed, "#")
-	noHash = strings.TrimLeft(noHash, " \t")
-	return strings.TrimSpace(noHash)
+	// #nosec G306 - .gitignore files use standard 0644 permissions
+	return os.WriteFile(path, []byte(content), 0644)
 }
