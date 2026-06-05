@@ -50,10 +50,12 @@ func NewAzureEnvPrinter(shell shell.Shell, configHandler config.ConfigHandler) *
 // In project mode AZURE_CONFIG_DIR always points at the context's .azure dir,
 // matching how the AWS env printer scopes AWS_CONFIG_FILE — keeps `az login`
 // from contaminating the operator's global ~/.azure. In global mode it is not
-// emitted; ARM_SUBSCRIPTION_ID / ARM_TENANT_ID / ARM_ENVIRONMENT and
-// TF_VAR_kubelogin_mode are emitted in both modes — the ARM_* vars describe
-// the target account/tenant and TF_VAR_kubelogin_mode feeds terraform, which
-// runs from global shells too.
+// emitted; ARM_SUBSCRIPTION_ID / ARM_TENANT_ID / ARM_ENVIRONMENT,
+// TF_VAR_region (when set), and TF_VAR_kubelogin_mode are emitted in both
+// modes — the ARM_* vars describe the target account/tenant and the TF_VAR_*
+// vars feed terraform, which runs from global shells too. TF_VAR_region is
+// omitted when azure.region is unset so consuming modules fall back to their
+// own variable defaults rather than receiving an empty string.
 func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 	envVars := make(map[string]string)
 	global := e.shell.IsGlobal()
@@ -78,6 +80,9 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 		}
 		if config.Azure.Environment != nil {
 			envVars["ARM_ENVIRONMENT"] = *config.Azure.Environment
+		}
+		if config.Azure.Region != nil {
+			envVars["TF_VAR_region"] = *config.Azure.Region
 		}
 	}
 

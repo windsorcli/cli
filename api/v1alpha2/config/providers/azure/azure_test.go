@@ -11,12 +11,14 @@ func TestAzureConfig_Merge(t *testing.T) {
 			SubscriptionID: stringPtr("old-sub"),
 			TenantID:       stringPtr("old-tenant"),
 			Environment:    stringPtr("old-env"),
+			Region:         stringPtr("eastus"),
 			KubeloginMode:  stringPtr("old-mode"),
 		}
 		overlay := &AzureConfig{
 			SubscriptionID: stringPtr("new-sub"),
 			TenantID:       stringPtr("new-tenant"),
 			Environment:    stringPtr("new-env"),
+			Region:         stringPtr("eastus2"),
 			KubeloginMode:  stringPtr("msi"),
 		}
 
@@ -31,6 +33,9 @@ func TestAzureConfig_Merge(t *testing.T) {
 		if base.Environment == nil || *base.Environment != "new-env" {
 			t.Errorf("Expected Environment to be 'new-env', got %v", base.Environment)
 		}
+		if base.Region == nil || *base.Region != "eastus2" {
+			t.Errorf("Expected Region to be 'eastus2', got %v", base.Region)
+		}
 		if base.KubeloginMode == nil || *base.KubeloginMode != "msi" {
 			t.Errorf("Expected KubeloginMode to be 'msi', got %v", base.KubeloginMode)
 		}
@@ -41,6 +46,7 @@ func TestAzureConfig_Merge(t *testing.T) {
 			SubscriptionID: stringPtr("old-sub"),
 			TenantID:       stringPtr("old-tenant"),
 			Environment:    stringPtr("old-env"),
+			Region:         stringPtr("eastus"),
 			KubeloginMode:  stringPtr("old-mode"),
 		}
 		overlay := &AzureConfig{
@@ -58,8 +64,30 @@ func TestAzureConfig_Merge(t *testing.T) {
 		if base.Environment == nil || *base.Environment != "old-env" {
 			t.Errorf("Expected Environment to remain 'old-env', got %v", base.Environment)
 		}
+		if base.Region == nil || *base.Region != "eastus" {
+			t.Errorf("Expected Region to remain 'eastus', got %v", base.Region)
+		}
 		if base.KubeloginMode == nil || *base.KubeloginMode != "old-mode" {
 			t.Errorf("Expected KubeloginMode to remain 'old-mode', got %v", base.KubeloginMode)
+		}
+	})
+
+	t.Run("MergeRegionOnlyOverlay", func(t *testing.T) {
+		base := &AzureConfig{
+			SubscriptionID: stringPtr("old-sub"),
+			Region:         stringPtr("eastus"),
+		}
+		overlay := &AzureConfig{
+			Region: stringPtr("westus2"),
+		}
+
+		base.Merge(overlay)
+
+		if base.SubscriptionID == nil || *base.SubscriptionID != "old-sub" {
+			t.Errorf("Expected SubscriptionID to remain 'old-sub', got %v", base.SubscriptionID)
+		}
+		if base.Region == nil || *base.Region != "westus2" {
+			t.Errorf("Expected Region to be 'westus2', got %v", base.Region)
 		}
 	})
 
@@ -68,6 +96,7 @@ func TestAzureConfig_Merge(t *testing.T) {
 			SubscriptionID: stringPtr("old-sub"),
 			TenantID:       stringPtr("old-tenant"),
 			Environment:    stringPtr("old-env"),
+			Region:         stringPtr("eastus"),
 			KubeloginMode:  stringPtr("old-mode"),
 		}
 		original := base.DeepCopy()
@@ -83,6 +112,9 @@ func TestAzureConfig_Merge(t *testing.T) {
 		if base.Environment == nil || *base.Environment != *original.Environment {
 			t.Errorf("Expected Environment to remain unchanged")
 		}
+		if base.Region == nil || *base.Region != *original.Region {
+			t.Errorf("Expected Region to remain unchanged")
+		}
 		if base.KubeloginMode == nil || *base.KubeloginMode != *original.KubeloginMode {
 			t.Errorf("Expected KubeloginMode to remain unchanged")
 		}
@@ -96,6 +128,7 @@ func TestAzureConfig_Copy(t *testing.T) {
 			SubscriptionID: stringPtr("sub"),
 			TenantID:       stringPtr("tenant"),
 			Environment:    stringPtr("env"),
+			Region:         stringPtr("eastus2"),
 			KubeloginMode:  stringPtr("msi"),
 		}
 
@@ -116,6 +149,12 @@ func TestAzureConfig_Copy(t *testing.T) {
 		if copy.Environment == nil || *copy.Environment != *original.Environment {
 			t.Errorf("Expected Environment to be copied correctly")
 		}
+		if copy.Region == nil || *copy.Region != *original.Region {
+			t.Errorf("Expected Region to be copied correctly")
+		}
+		if copy.Region == original.Region {
+			t.Error("Expected Region pointer to be a new allocation")
+		}
 		if copy.KubeloginMode == nil || *copy.KubeloginMode != *original.KubeloginMode {
 			t.Errorf("Expected KubeloginMode to be copied correctly")
 		}
@@ -127,6 +166,7 @@ func TestAzureConfig_Copy(t *testing.T) {
 	t.Run("CopySomeFields", func(t *testing.T) {
 		original := &AzureConfig{
 			TenantID: stringPtr("tenant"),
+			Region:   stringPtr("westeurope"),
 		}
 
 		copy := original.DeepCopy()
@@ -136,6 +176,9 @@ func TestAzureConfig_Copy(t *testing.T) {
 		}
 		if copy.TenantID == nil || *copy.TenantID != *original.TenantID {
 			t.Errorf("Expected TenantID to be copied correctly")
+		}
+		if copy.Region == nil || *copy.Region != *original.Region {
+			t.Errorf("Expected Region to be copied correctly")
 		}
 		if copy.SubscriptionID != nil {
 			t.Error("Expected SubscriptionID to be nil")

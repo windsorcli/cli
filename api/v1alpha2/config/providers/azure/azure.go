@@ -12,6 +12,11 @@ type AzureConfig struct {
 	// Environment specifies the Azure cloud environment (e.g. "public", "usgovernment")
 	Environment *string `yaml:"environment,omitempty"`
 
+	// Region is the Azure location used for resource deployment, exported to terraform
+	// as TF_VAR_region so consuming modules (azure-aks, azure-vnet) honor it instead of
+	// falling back to their own variable defaults. Mirrors aws.region symmetrically.
+	Region *string `yaml:"region,omitempty"`
+
 	// KubeloginMode overrides the kubelogin login mode for AAD-enabled AKS kubeconfigs.
 	// Empty (default) auto-detects from the active credential chain. Set to "msi" on
 	// managed-identity runners; other values match kubelogin's own modes.
@@ -31,6 +36,9 @@ func (base *AzureConfig) Merge(overlay *AzureConfig) {
 	}
 	if overlay.Environment != nil {
 		base.Environment = overlay.Environment
+	}
+	if overlay.Region != nil {
+		base.Region = overlay.Region
 	}
 	if overlay.KubeloginMode != nil {
 		base.KubeloginMode = overlay.KubeloginMode
@@ -55,6 +63,10 @@ func (c *AzureConfig) DeepCopy() *AzureConfig {
 	if c.Environment != nil {
 		environmentCopy := *c.Environment
 		copied.Environment = &environmentCopy
+	}
+	if c.Region != nil {
+		regionCopy := *c.Region
+		copied.Region = &regionCopy
 	}
 	if c.KubeloginMode != nil {
 		kubeloginModeCopy := *c.KubeloginMode
