@@ -810,7 +810,8 @@ func TestComposer_Generate(t *testing.T) {
 	})
 
 	t.Run("ErrorFromWriteLocalGitignores", func(t *testing.T) {
-		// Given mocks with writeLocalGitignores failing (simulated via file system error)
+		// Given mocks with writeLocalGitignores failing because ProjectRoot points
+		// inside a regular file (MkdirAll of any child path returns ENOTDIR on all OSes)
 		mocks := setupComposerMocks(t)
 		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
@@ -821,7 +822,11 @@ func TestComposer_Generate(t *testing.T) {
 		mocks.TerraformResolver.ProcessModulesFunc = func() error {
 			return nil
 		}
-		mocks.Runtime.ProjectRoot = "/nonexistent/path/that/cannot/be/written"
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte{}, 0644); err != nil {
+			t.Fatalf("Failed to create blocker file: %v", err)
+		}
+		mocks.Runtime.ProjectRoot = blocker
 		composer := createComposerWithMocks(mocks)
 
 		// When generating
@@ -1071,9 +1076,14 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 	})
 
 	t.Run("ErrorWhenWindsorParentUncreatable", func(t *testing.T) {
-		// Given a composer whose project root cannot be created (parent unwritable)
+		// Given a composer whose ProjectRoot points inside a regular file, so
+		// MkdirAll of any child path fails with ENOTDIR on every supported OS
 		mocks := setupComposerMocks(t)
-		mocks.Runtime.ProjectRoot = "/nonexistent/path/that/cannot/be/written"
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte{}, 0644); err != nil {
+			t.Fatalf("Failed to create blocker file: %v", err)
+		}
+		mocks.Runtime.ProjectRoot = blocker
 		composer := createComposerWithMocks(mocks)
 
 		// When writing local gitignores
