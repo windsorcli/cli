@@ -534,3 +534,56 @@ func TestInit_UnmappedPlatformDoesNotDefaultBackendType(t *testing.T) {
 		t.Errorf("expected no platform-default backend type for --platform gcp, got values.yaml:\n%s", body)
 	}
 }
+
+// TestInit_WritesLocalGitignoresAndLeavesProjectRootAlone verifies that
+// `windsor init` drops self-contained .gitignore files into the Windsor-owned
+// folders it creates (.windsor/, contexts/<ctx>/) and never modifies the
+// project-root .gitignore.
+func TestInit_WritesLocalGitignoresAndLeavesProjectRootAlone(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "default")
+	helpers.MarkAsGitRepo(t, dir)
+
+	rootGitignore := filepath.Join(dir, ".gitignore")
+	userRootContent := "node_modules/\n*.log\n"
+	if err := os.WriteFile(rootGitignore, []byte(userRootContent), 0644); err != nil {
+		t.Fatalf("expected no error seeding project-root .gitignore, got %v", err)
+	}
+
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local", "--set", "dns.enabled=false"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+
+	windsorIgnore := filepath.Join(dir, ".windsor", ".gitignore")
+	content, readErr := os.ReadFile(windsorIgnore)
+	if readErr != nil {
+		t.Fatalf("expected .windsor/.gitignore at %s, got %v", windsorIgnore, readErr)
+	}
+	if string(content) != "*\n" {
+		t.Errorf("expected .windsor/.gitignore to contain self-ignore marker, got: %q", string(content))
+	}
+
+	contextIgnore := filepath.Join(dir, "contexts", "local", ".gitignore")
+	content, readErr = os.ReadFile(contextIgnore)
+	if readErr != nil {
+		t.Fatalf("expected contexts/local/.gitignore at %s, got %v", contextIgnore, readErr)
+	}
+	expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n"
+	if string(content) != expected {
+		t.Errorf("expected contexts/local/.gitignore to contain credential dirs, got: %q", string(content))
+	}
+
+	templateIgnore := filepath.Join(dir, "contexts", "_template", ".gitignore")
+	if _, err := os.Stat(templateIgnore); !os.IsNotExist(err) {
+		t.Errorf("expected contexts/_template/.gitignore to not exist, got stat err: %v", err)
+	}
+
+	rootAfter, readErr := os.ReadFile(rootGitignore)
+	if readErr != nil {
+		t.Fatalf("expected project-root .gitignore to still exist, got %v", readErr)
+	}
+	if string(rootAfter) != userRootContent {
+		t.Errorf("project-root .gitignore was modified; before=%q after=%q", userRootContent, string(rootAfter))
+	}
+}

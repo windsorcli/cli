@@ -809,8 +809,8 @@ func TestComposer_Generate(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorFromGenerateGitignore", func(t *testing.T) {
-		// Given mocks with generateGitignore failing (simulated via file system error)
+	t.Run("ErrorFromWriteLocalGitignores", func(t *testing.T) {
+		// Given mocks with writeLocalGitignores failing (simulated via file system error)
 		mocks := setupComposerMocks(t)
 		mocks.BlueprintHandler.LoadBlueprintFunc = func(...string) error {
 			return nil
@@ -832,8 +832,8 @@ func TestComposer_Generate(t *testing.T) {
 			t.Fatal("Expected error, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "failed to generate .gitignore") {
-			t.Errorf("Expected error about generating .gitignore, got: %v", err)
+		if !strings.Contains(err.Error(), "failed to write local gitignores") {
+			t.Errorf("Expected error about writing local gitignores, got: %v", err)
 		}
 	})
 
@@ -884,397 +884,207 @@ func TestComposer_Generate(t *testing.T) {
 // Test Private Methods
 // =============================================================================
 
-func TestComposer_generateGitignore(t *testing.T) {
-	t.Run("CreatesNewFile", func(t *testing.T) {
-		// Given a composer with temporary project root
+func TestComposer_writeLocalGitignores(t *testing.T) {
+	t.Run("WritesWindsorMarkerWhenMissing", func(t *testing.T) {
+		// Given a composer with no pre-existing .windsor/.gitignore
 		mocks := setupComposerMocks(t)
 		composer := createComposerWithMocks(mocks)
 
-		// When generating gitignore
-		err := composer.generateGitignore()
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And .gitignore file should be created
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		content, readErr := os.ReadFile(gitignorePath)
+		// And .windsor/.gitignore should exist with self-ignore content
+		path := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor", ".gitignore")
+		content, readErr := os.ReadFile(path)
 		if readErr != nil {
-			t.Fatalf("Expected .gitignore to be created, got error: %v", readErr)
+			t.Fatalf("Expected .windsor/.gitignore to be created, got error: %v", readErr)
 		}
-
-		// And file should contain Windsor entries
-		contentStr := string(content)
-		if !strings.Contains(contentStr, "# managed by windsor cli") {
-			t.Error("Expected .gitignore to contain Windsor header")
-		}
-
-		if !strings.Contains(contentStr, ".windsor/") {
-			t.Error("Expected .gitignore to contain .windsor/ entry")
+		if string(content) != "*\n" {
+			t.Errorf("Expected self-ignore marker content, got: %q", string(content))
 		}
 	})
 
-	t.Run("UpdatesExistingFile", func(t *testing.T) {
-		// Given a composer with existing .gitignore
+	t.Run("LeavesExistingWindsorGitignoreUntouched", func(t *testing.T) {
+		// Given a composer with a pre-existing .windsor/.gitignore the user edited
 		mocks := setupComposerMocks(t)
-		existingContent := "existing-entry\n"
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing .gitignore: %v", err)
+		windsorDir := filepath.Join(mocks.Runtime.ProjectRoot, ".windsor")
+		if err := os.MkdirAll(windsorDir, 0750); err != nil {
+			t.Fatalf("Failed to create .windsor: %v", err)
+		}
+		path := filepath.Join(windsorDir, ".gitignore")
+		existing := "# user wrote this\n*.log\n"
+		if err := os.WriteFile(path, []byte(existing), 0644); err != nil {
+			t.Fatalf("Failed to seed .windsor/.gitignore: %v", err)
 		}
 		composer := createComposerWithMocks(mocks)
 
-		// When generating gitignore
-		err := composer.generateGitignore()
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And file should contain both existing and new entries
-		content, readErr := os.ReadFile(gitignorePath)
+		// And the user's file should be unchanged
+		content, readErr := os.ReadFile(path)
 		if readErr != nil {
-			t.Fatalf("Failed to read .gitignore: %v", readErr)
+			t.Fatalf("Failed to read .windsor/.gitignore: %v", readErr)
 		}
-
-		contentStr := string(content)
-		if !strings.Contains(contentStr, "existing-entry") {
-			t.Error("Expected .gitignore to preserve existing entry")
-		}
-
-		if !strings.Contains(contentStr, ".windsor/") {
-			t.Error("Expected .gitignore to contain new Windsor entry")
+		if string(content) != existing {
+			t.Errorf("Expected user content preserved, got: %q", string(content))
 		}
 	})
 
-	t.Run("PreservesUserEntries", func(t *testing.T) {
-		// Given a composer with existing .gitignore with user entries
+	t.Run("SkipsVolumesWhenAbsent", func(t *testing.T) {
+		// Given a composer with no .volumes/ directory
 		mocks := setupComposerMocks(t)
-		existingContent := "user-entry-1\nuser-entry-2\n"
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing .gitignore: %v", err)
-		}
 		composer := createComposerWithMocks(mocks)
 
-		// When generating gitignore
-		err := composer.generateGitignore()
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And file should contain all user entries
-		content, readErr := os.ReadFile(gitignorePath)
-		if readErr != nil {
-			t.Fatalf("Failed to read .gitignore: %v", readErr)
-		}
-
-		contentStr := string(content)
-		if !strings.Contains(contentStr, "user-entry-1") {
-			t.Error("Expected .gitignore to preserve user-entry-1")
-		}
-
-		if !strings.Contains(contentStr, "user-entry-2") {
-			t.Error("Expected .gitignore to preserve user-entry-2")
+		// And .volumes/.gitignore should not be created
+		path := filepath.Join(mocks.Runtime.ProjectRoot, ".volumes", ".gitignore")
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("Expected .volumes/.gitignore to not exist, got stat err: %v", err)
 		}
 	})
 
-	t.Run("HandlesCommentedEntries", func(t *testing.T) {
-		// Given a composer with existing .gitignore with commented Windsor entry
+	t.Run("WritesVolumesMarkerWhenPresent", func(t *testing.T) {
+		// Given a composer with .volumes/ pre-existing
 		mocks := setupComposerMocks(t)
-		existingContent := "# .windsor/\nuser-entry\n"
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing .gitignore: %v", err)
+		volumesDir := filepath.Join(mocks.Runtime.ProjectRoot, ".volumes")
+		if err := os.MkdirAll(volumesDir, 0750); err != nil {
+			t.Fatalf("Failed to create .volumes: %v", err)
 		}
 		composer := createComposerWithMocks(mocks)
 
-		// When generating gitignore
-		err := composer.generateGitignore()
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And file should not duplicate the entry (commented entry stays commented)
-		content, readErr := os.ReadFile(gitignorePath)
+		// And .volumes/.gitignore should exist with self-ignore content
+		path := filepath.Join(volumesDir, ".gitignore")
+		content, readErr := os.ReadFile(path)
 		if readErr != nil {
-			t.Fatalf("Failed to read .gitignore: %v", readErr)
+			t.Fatalf("Expected .volumes/.gitignore to be created, got error: %v", readErr)
 		}
+		if string(content) != "*\n" {
+			t.Errorf("Expected self-ignore marker content, got: %q", string(content))
+		}
+	})
 
-		contentStr := string(content)
-		if !strings.Contains(contentStr, "# .windsor/") {
-			t.Error("Expected commented entry # .windsor/ to remain in file")
-		}
-		lines := strings.Split(contentStr, "\n")
-		uncommentedCount := 0
-		for _, line := range lines {
-			if strings.TrimSpace(line) == ".windsor/" {
-				uncommentedCount++
+	t.Run("WritesContextGitignoresForEachContext", func(t *testing.T) {
+		// Given a composer with two contexts and a _template
+		mocks := setupComposerMocks(t)
+		root := mocks.Runtime.ProjectRoot
+		for _, name := range []string{"local", "prod", "_template"} {
+			if err := os.MkdirAll(filepath.Join(root, "contexts", name), 0750); err != nil {
+				t.Fatalf("Failed to create context dir %s: %v", name, err)
 			}
 		}
-		if uncommentedCount > 0 {
-			t.Errorf("Expected .windsor/ to not be added when commented, got %d uncommented occurrences", uncommentedCount)
-		}
-	})
-
-	t.Run("AddsMissingEntries", func(t *testing.T) {
-		// Given a composer with existing .gitignore missing some Windsor entries
-		mocks := setupComposerMocks(t)
-		existingContent := "# managed by windsor cli\n.windsor/\n"
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing .gitignore: %v", err)
-		}
 		composer := createComposerWithMocks(mocks)
 
-		// When generating gitignore
-		err := composer.generateGitignore()
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And file should contain all Windsor entries
-		content, readErr := os.ReadFile(gitignorePath)
-		if readErr != nil {
-			t.Fatalf("Failed to read .gitignore: %v", readErr)
-		}
-
-		contentStr := string(content)
-		requiredEntries := []string{".windsor/", ".volumes/", "terraform/**/backend_override.tf"}
-		for _, entry := range requiredEntries {
-			if !strings.Contains(contentStr, entry) {
-				t.Errorf("Expected .gitignore to contain %s", entry)
+		// And each non-template context should have a .gitignore with cred dirs
+		expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n"
+		for _, name := range []string{"local", "prod"} {
+			path := filepath.Join(root, "contexts", name, ".gitignore")
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatalf("Expected contexts/%s/.gitignore, got error: %v", name, readErr)
+			}
+			if string(content) != expected {
+				t.Errorf("contexts/%s/.gitignore content mismatch: got %q", name, string(content))
 			}
 		}
+
+		// And _template should have no .gitignore created
+		templatePath := filepath.Join(root, "contexts", "_template", ".gitignore")
+		if _, err := os.Stat(templatePath); !os.IsNotExist(err) {
+			t.Errorf("Expected contexts/_template/.gitignore to not exist, got stat err: %v", err)
+		}
 	})
 
-	t.Run("HandlesTrailingNewline", func(t *testing.T) {
-		// Given a composer with existing .gitignore without trailing newline
+	t.Run("SkipsContextsWhenDirectoryAbsent", func(t *testing.T) {
+		// Given a composer with no contexts/ directory
 		mocks := setupComposerMocks(t)
-		existingContent := "user-entry"
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing .gitignore: %v", err)
+		composer := createComposerWithMocks(mocks)
+
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("DoesNotTouchProjectRootGitignore", func(t *testing.T) {
+		// Given a composer with a project-root .gitignore containing user content
+		mocks := setupComposerMocks(t)
+		rootGitignore := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
+		userContent := "node_modules/\n*.log\n"
+		if err := os.WriteFile(rootGitignore, []byte(userContent), 0644); err != nil {
+			t.Fatalf("Failed to seed project root .gitignore: %v", err)
 		}
 		composer := createComposerWithMocks(mocks)
 
-		// When generating gitignore
-		err := composer.generateGitignore()
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
 
 		// Then no error should occur
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// And file should end with newline
-		content, readErr := os.ReadFile(gitignorePath)
+		// And the project-root .gitignore should be byte-identical to what the user wrote
+		content, readErr := os.ReadFile(rootGitignore)
 		if readErr != nil {
-			t.Fatalf("Failed to read .gitignore: %v", readErr)
+			t.Fatalf("Failed to read project-root .gitignore: %v", readErr)
 		}
-
-		if len(content) > 0 && content[len(content)-1] != '\n' {
-			t.Error("Expected .gitignore to end with newline")
+		if string(content) != userContent {
+			t.Errorf("Project-root .gitignore was modified; got: %q", string(content))
 		}
 	})
 
-	t.Run("ErrorFromWriteFile", func(t *testing.T) {
-		// Given a composer with existing .gitignore that can be read
+	t.Run("ErrorWhenWindsorParentUncreatable", func(t *testing.T) {
+		// Given a composer whose project root cannot be created (parent unwritable)
 		mocks := setupComposerMocks(t)
-		existingContent := "existing-entry\n"
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing .gitignore: %v", err)
-		}
+		mocks.Runtime.ProjectRoot = "/nonexistent/path/that/cannot/be/written"
 		composer := createComposerWithMocks(mocks)
 
-		// Make the .gitignore file itself read-only to simulate write failure
-		if err := os.Chmod(gitignorePath, 0444); err != nil {
-			t.Fatalf("Failed to make .gitignore read-only: %v", err)
-		}
-		defer func() {
-			os.Chmod(gitignorePath, 0644)
-		}()
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
 
-		// When generating gitignore
-		err := composer.generateGitignore()
-
-		// Then error should be returned (write will fail due to read-only file)
+		// Then an error should be returned
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-
-		if !strings.Contains(err.Error(), "failed to write to .gitignore") && !strings.Contains(err.Error(), "permission denied") {
-			t.Errorf("Expected error about writing .gitignore or permission denied, got: %v", err)
-		}
-	})
-
-	t.Run("HandlesEmptyExistingFile", func(t *testing.T) {
-		// Given a composer with empty existing .gitignore
-		mocks := setupComposerMocks(t)
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		if err := os.WriteFile(gitignorePath, []byte(""), 0644); err != nil {
-			t.Fatalf("Failed to create empty .gitignore: %v", err)
-		}
-		composer := createComposerWithMocks(mocks)
-
-		// When generating gitignore
-		err := composer.generateGitignore()
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And file should contain Windsor entries
-		content, readErr := os.ReadFile(gitignorePath)
-		if readErr != nil {
-			t.Fatalf("Failed to read .gitignore: %v", readErr)
-		}
-
-		contentStr := string(content)
-		if !strings.Contains(contentStr, "# managed by windsor cli") {
-			t.Error("Expected .gitignore to contain Windsor header")
-		}
-	})
-
-	t.Run("HandlesFileWithOnlyComments", func(t *testing.T) {
-		// Given a composer with existing .gitignore with only comments
-		mocks := setupComposerMocks(t)
-		existingContent := "# comment 1\n# comment 2\n"
-		gitignorePath := filepath.Join(mocks.Runtime.ProjectRoot, ".gitignore")
-		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
-			t.Fatalf("Failed to create existing .gitignore: %v", err)
-		}
-		composer := createComposerWithMocks(mocks)
-
-		// When generating gitignore
-		err := composer.generateGitignore()
-
-		// Then no error should occur
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		// And file should contain both comments and Windsor entries
-		content, readErr := os.ReadFile(gitignorePath)
-		if readErr != nil {
-			t.Fatalf("Failed to read .gitignore: %v", readErr)
-		}
-
-		contentStr := string(content)
-		if !strings.Contains(contentStr, "# comment 1") {
-			t.Error("Expected .gitignore to preserve comment 1")
-		}
-
-		if !strings.Contains(contentStr, ".windsor/") {
-			t.Error("Expected .gitignore to contain Windsor entry")
-		}
-	})
-}
-
-func TestComposer_normalizeGitignoreComment(t *testing.T) {
-	t.Run("SimpleCommentFormat", func(t *testing.T) {
-		// Given a simple comment line
-		line := "# .windsor/"
-
-		// When normalizing
-		result := normalizeGitignoreComment(line)
-
-		// Then result should be the uncommented entry
-		expected := ".windsor/"
-		if result != expected {
-			t.Errorf("Expected %s, got %s", expected, result)
-		}
-	})
-
-	t.Run("MultipleHashSymbols", func(t *testing.T) {
-		// Given a comment line with multiple hash symbols
-		line := "## .windsor/"
-
-		// When normalizing
-		result := normalizeGitignoreComment(line)
-
-		// Then result should be the uncommented entry
-		expected := ".windsor/"
-		if result != expected {
-			t.Errorf("Expected %s, got %s", expected, result)
-		}
-	})
-
-	t.Run("CommentWithLeadingWhitespace", func(t *testing.T) {
-		// Given a comment line with leading whitespace
-		line := "  # .windsor/"
-
-		// When normalizing
-		result := normalizeGitignoreComment(line)
-
-		// Then result should be the uncommented entry
-		expected := ".windsor/"
-		if result != expected {
-			t.Errorf("Expected %s, got %s", expected, result)
-		}
-	})
-
-	t.Run("CommentWithTrailingWhitespace", func(t *testing.T) {
-		// Given a comment line with trailing whitespace
-		line := "# .windsor/  "
-
-		// When normalizing
-		result := normalizeGitignoreComment(line)
-
-		// Then result should be the uncommented entry without trailing whitespace
-		expected := ".windsor/"
-		if result != expected {
-			t.Errorf("Expected %s, got %s", expected, result)
-		}
-	})
-
-	t.Run("NonCommentLine", func(t *testing.T) {
-		// Given a non-comment line
-		line := ".windsor/"
-
-		// When normalizing
-		result := normalizeGitignoreComment(line)
-
-		// Then result should be empty string
-		if result != "" {
-			t.Errorf("Expected empty string, got %s", result)
-		}
-	})
-
-	t.Run("OnlyHashSymbol", func(t *testing.T) {
-		// Given a line with only hash symbol
-		line := "#"
-
-		// When normalizing
-		result := normalizeGitignoreComment(line)
-
-		// Then result should be empty string
-		if result != "" {
-			t.Errorf("Expected empty string, got %s", result)
-		}
-	})
-
-	t.Run("CommentWithMultipleSpaces", func(t *testing.T) {
-		// Given a comment line with multiple spaces
-		line := "#   .windsor/  "
-
-		// When normalizing
-		result := normalizeGitignoreComment(line)
-
-		// Then result should be the uncommented entry
-		expected := ".windsor/"
-		if result != expected {
-			t.Errorf("Expected %s, got %s", expected, result)
+		if !strings.Contains(err.Error(), "failed to ensure .windsor directory") {
+			t.Errorf("Expected error about ensuring .windsor directory, got: %v", err)
 		}
 	})
 }
