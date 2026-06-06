@@ -94,8 +94,9 @@ func (e *AzureEnvPrinter) GetEnvVars() (map[string]string, error) {
 // resolveKubeloginMode returns the kubelogin login mode for the AKS
 // kubeconfig, in precedence order: azure.kubelogin_mode (operator override,
 // the only path that handles managed-identity since MI has no env signal) →
-// AZURE_FEDERATED_TOKEN_FILE → workloadidentity → AZURE_CLIENT_SECRET /
-// AZURE_CLIENT_CERTIFICATE_PATH → spn → otherwise → azurecli.
+// AZURE_FEDERATED_TOKEN_FILE / GitHub Actions OIDC → workloadidentity →
+// AZURE_CLIENT_SECRET / AZURE_CLIENT_CERTIFICATE_PATH → spn → otherwise →
+// azurecli.
 func (e *AzureEnvPrinter) resolveKubeloginMode(config *v1alpha1.Context) string {
 	if config != nil && config.Azure != nil && config.Azure.KubeloginMode != nil {
 		if v := *config.Azure.KubeloginMode; v != "" {
@@ -103,6 +104,10 @@ func (e *AzureEnvPrinter) resolveKubeloginMode(config *v1alpha1.Context) string 
 		}
 	}
 	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+		return "workloadidentity"
+	}
+	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") != "" &&
+		os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") != "" {
 		return "workloadidentity"
 	}
 	if os.Getenv("AZURE_CLIENT_SECRET") != "" || os.Getenv("AZURE_CLIENT_CERTIFICATE_PATH") != "" {
