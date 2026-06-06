@@ -312,11 +312,23 @@ contexts:
 	})
 
 	t.Run("IgnoresPartialGitHubActionsOIDC", func(t *testing.T) {
-		// Given only the Actions OIDC token without the request URL — kubelogin
-		// can't fetch a token, so this is not a workload-identity runner.
-		clearAmbient(t)
-		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "actions-oidc-bearer")
-		printer, _ := setupPrinter(t, `
+		// Given only one half of the Actions OIDC pair — kubelogin can't fetch a
+		// token from the endpoint, so neither direction is a workload-identity
+		// runner. Both single-var cases must fall through to azurecli; this also
+		// guards the && in resolveKubeloginMode against a regression to ||.
+		partial := []struct {
+			name  string
+			key   string
+			value string
+		}{
+			{"TokenWithoutUrl", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "actions-oidc-bearer"},
+			{"UrlWithoutToken", "ACTIONS_ID_TOKEN_REQUEST_URL", "https://pipelines.actions.githubusercontent.com/..."},
+		}
+		for _, tc := range partial {
+			t.Run(tc.name, func(t *testing.T) {
+				clearAmbient(t)
+				t.Setenv(tc.key, tc.value)
+				printer, _ := setupPrinter(t, `
 version: v1alpha1
 contexts:
   test-context:
@@ -324,13 +336,15 @@ contexts:
       tenant_id: 11111111-2222-3333-4444-555555555555
 `)
 
-		envVars, err := printer.GetEnvVars()
-		if err != nil {
-			t.Fatalf("GetEnvVars: %v", err)
-		}
+				envVars, err := printer.GetEnvVars()
+				if err != nil {
+					t.Fatalf("GetEnvVars: %v", err)
+				}
 
-		if got := envVars["TF_VAR_kubelogin_mode"]; got != "azurecli" {
-			t.Errorf("TF_VAR_kubelogin_mode = %q, want %q when only ACTIONS_ID_TOKEN_REQUEST_TOKEN is set", got, "azurecli")
+				if got := envVars["TF_VAR_kubelogin_mode"]; got != "azurecli" {
+					t.Errorf("TF_VAR_kubelogin_mode = %q, want %q when only %s is set", got, "azurecli", tc.key)
+				}
+			})
 		}
 	})
 
