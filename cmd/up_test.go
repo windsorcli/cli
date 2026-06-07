@@ -687,20 +687,49 @@ func TestPrintDeferredWork(t *testing.T) {
 		}
 	})
 
-	t.Run("RequiredItemEmitsHaltSentenceFirstThenOptionalOutcomes", func(t *testing.T) {
-		// Given a halt (cluster-privilege) paired with an optional outcome (DNS hint) — the
-		// typical first-run colima case where 'configure network' will produce both. The
-		// operator must see BOTH: the halt instruction (with re-run guidance) AND the
-		// follow-up outcome they'll get from the same command.
+	t.Run("RequiredItemFoldsMatchingOptionalOutcomeIntoSingleLine", func(t *testing.T) {
+		// Given a halt (cluster-privilege) paired with an optional outcome (DNS hint) sharing
+		// the same command — the typical first-run colima case where 'configure network' will
+		// produce both. The operator must see one line that names the outcome AND the re-run
+		// guidance, not the same command printed twice.
 		var buf strings.Builder
 		printDeferredWork(&buf, []workstation.DeferredWorkItem{
 			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
 			{Required: true, Command: "windsor configure network"},
 		}, "darwin")
-		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n" +
-			"Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser.\n"
+		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser, then re-run 'windsor up'.\n"
 		if buf.String() != want {
-			t.Errorf("Expected halt + optional output %q, got %q", want, buf.String())
+			t.Errorf("Expected folded output %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("OptionalItemWithDistinctCommandStillRendersSeparatelyAlongsideHalt", func(t *testing.T) {
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: true, Command: "windsor configure network"},
+			{Required: false, Command: "windsor configure network --revert", Outcome: "remove host configuration"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo), then re-run 'windsor up'.\n" +
+			"Run 'windsor configure network --revert' (asks for sudo) to remove host configuration.\n"
+		if buf.String() != want {
+			t.Errorf("Expected halt + distinct optional %q, got %q", want, buf.String())
+		}
+	})
+
+	t.Run("SecondOptionalOutcomeSharingRequiredCommandStillRenders", func(t *testing.T) {
+		// Given a required halt plus TWO optional outcomes sharing its command — only the first
+		// folds into the halt line; the second must still render on its own line rather than
+		// being silently dropped.
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: true, Command: "windsor configure network"},
+			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
+			{Required: false, Command: "windsor configure network", Outcome: "reach the cluster ingress"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser, then re-run 'windsor up'.\n" +
+			"Run 'windsor configure network' (asks for sudo) to reach the cluster ingress.\n"
+		if buf.String() != want {
+			t.Errorf("Expected second outcome preserved %q, got %q", want, buf.String())
 		}
 	})
 
