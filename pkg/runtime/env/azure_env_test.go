@@ -219,6 +219,8 @@ func TestAzureEnv_KubeloginMode(t *testing.T) {
 		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "")
 		t.Setenv("AZURE_CLIENT_SECRET", "")
 		t.Setenv("AZURE_CLIENT_CERTIFICATE_PATH", "")
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
 	}
 
 	setupPrinter := func(t *testing.T, configStr string) (*AzureEnvPrinter, config.ConfigHandler) {
@@ -283,11 +285,73 @@ contexts:
 		}
 	})
 
+	t.Run("DetectsWorkloadIdentityFromGitHubActionsOIDC", func(t *testing.T) {
+		// Given a hosted GitHub Actions runner with id-token: write — kubelogin
+		// fetches the federated token from the Actions endpoint, so no
+		// AZURE_FEDERATED_TOKEN_FILE exists.
+		clearAmbient(t)
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "actions-oidc-bearer")
+		t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://pipelines.actions.githubusercontent.com/...")
+		printer, _ := setupPrinter(t, `
+version: v1alpha1
+contexts:
+  test-context:
+    azure:
+      tenant_id: 11111111-2222-3333-4444-555555555555
+`)
+
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Fatalf("GetEnvVars: %v", err)
+		}
+
+		// Then TF_VAR_kubelogin_mode = workloadidentity (kubelogin pulls the token from Actions)
+		if got := envVars["TF_VAR_kubelogin_mode"]; got != "workloadidentity" {
+			t.Errorf("TF_VAR_kubelogin_mode = %q, want %q under GitHub Actions OIDC", got, "workloadidentity")
+		}
+	})
+
+	t.Run("IgnoresPartialGitHubActionsOIDC", func(t *testing.T) {
+		// Given only one half of the Actions OIDC pair — kubelogin can't fetch a
+		// token from the endpoint, so neither direction is a workload-identity
+		// runner. Both single-var cases must fall through to azurecli; this also
+		// guards the && in resolveKubeloginMode against a regression to ||.
+		partial := []struct {
+			name  string
+			key   string
+			value string
+		}{
+			{"TokenWithoutUrl", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "actions-oidc-bearer"},
+			{"UrlWithoutToken", "ACTIONS_ID_TOKEN_REQUEST_URL", "https://pipelines.actions.githubusercontent.com/..."},
+		}
+		for _, tc := range partial {
+			t.Run(tc.name, func(t *testing.T) {
+				clearAmbient(t)
+				t.Setenv(tc.key, tc.value)
+				printer, _ := setupPrinter(t, `
+version: v1alpha1
+contexts:
+  test-context:
+    azure:
+      tenant_id: 11111111-2222-3333-4444-555555555555
+`)
+
+				envVars, err := printer.GetEnvVars()
+				if err != nil {
+					t.Fatalf("GetEnvVars: %v", err)
+				}
+
+				if got := envVars["TF_VAR_kubelogin_mode"]; got != "azurecli" {
+					t.Errorf("TF_VAR_kubelogin_mode = %q, want %q when only %s is set", got, "azurecli", tc.key)
+				}
+			})
+		}
+	})
+
 	t.Run("DetectsSpnFromClientSecret", func(t *testing.T) {
 		// Given a CI runner with SPN secret env
-		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "")
+		clearAmbient(t)
 		t.Setenv("AZURE_CLIENT_SECRET", "spn-secret-value")
-		t.Setenv("AZURE_CLIENT_CERTIFICATE_PATH", "")
 		printer, _ := setupPrinter(t, `
 version: v1alpha1
 contexts:
@@ -308,8 +372,7 @@ contexts:
 
 	t.Run("DetectsSpnFromCertificatePath", func(t *testing.T) {
 		// Given a runner with SPN cert auth — same kubelogin mode as secret-based SPN
-		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "")
-		t.Setenv("AZURE_CLIENT_SECRET", "")
+		clearAmbient(t)
 		t.Setenv("AZURE_CLIENT_CERTIFICATE_PATH", "/secrets/spn.pem")
 		printer, _ := setupPrinter(t, `
 version: v1alpha1
