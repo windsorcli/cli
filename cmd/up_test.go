@@ -716,6 +716,23 @@ func TestPrintDeferredWork(t *testing.T) {
 		}
 	})
 
+	t.Run("SecondOptionalOutcomeSharingRequiredCommandStillRenders", func(t *testing.T) {
+		// Given a required halt plus TWO optional outcomes sharing its command — only the first
+		// folds into the halt line; the second must still render on its own line rather than
+		// being silently dropped.
+		var buf strings.Builder
+		printDeferredWork(&buf, []workstation.DeferredWorkItem{
+			{Required: true, Command: "windsor configure network"},
+			{Required: false, Command: "windsor configure network", Outcome: "use *.local.test in your browser"},
+			{Required: false, Command: "windsor configure network", Outcome: "reach the cluster ingress"},
+		}, "darwin")
+		want := "Run 'windsor configure network' (asks for sudo) to use *.local.test in your browser, then re-run 'windsor up'.\n" +
+			"Run 'windsor configure network' (asks for sudo) to reach the cluster ingress.\n"
+		if buf.String() != want {
+			t.Errorf("Expected second outcome preserved %q, got %q", want, buf.String())
+		}
+	})
+
 	t.Run("MultipleOptionalItemsEachRenderOnTheirOwnLine", func(t *testing.T) {
 		var buf strings.Builder
 		printDeferredWork(&buf, []workstation.DeferredWorkItem{

@@ -153,11 +153,13 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0`,
 
 // printDeferredWork renders the end-of-run summary for items the apply skipped because they
 // require elevation Up() will not request. Required items render as halt sentences ("then
-// re-run 'windsor up'"); optional items render as outcome sentences below. An optional item
-// whose command matches a required item is folded into that required line ("Run 'X' to <outcome>,
-// then re-run 'windsor up'.") rather than repeated on its own line, so the same command is never
-// printed twice. Empty items produce no output. goos selects the OS-specific elevation
-// parenthetical: "(Administrator PowerShell)" on windows, "(asks for sudo)" elsewhere.
+// re-run 'windsor up'"); optional items render as outcome sentences below. Each required item
+// folds in the first not-yet-folded optional item that shares its command ("Run 'X' to <outcome>,
+// then re-run 'windsor up'.") so the same command is never printed twice for the same outcome.
+// Any optional item not folded into a required line — including a second outcome sharing a folded
+// command — still renders on its own line, so no outcome is silently dropped. Empty items produce
+// no output. goos selects the OS-specific elevation parenthetical: "(Administrator PowerShell)" on
+// windows, "(asks for sudo)" elsewhere.
 func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos string) {
 	if len(items) == 0 {
 		return
@@ -166,20 +168,16 @@ func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos s
 	if goos == "windows" {
 		paren = "(Administrator PowerShell)"
 	}
-	required := make(map[string]bool)
-	for _, item := range items {
-		if item.Required {
-			required[item.Command] = true
-		}
-	}
+	folded := make(map[int]bool)
 	for _, item := range items {
 		if !item.Required {
 			continue
 		}
 		outcome := ""
-		for _, other := range items {
-			if !other.Required && other.Command == item.Command && other.Outcome != "" {
+		for j, other := range items {
+			if !other.Required && !folded[j] && other.Command == item.Command && other.Outcome != "" {
 				outcome = other.Outcome
+				folded[j] = true
 				break
 			}
 		}
@@ -189,8 +187,8 @@ func printDeferredWork(w io.Writer, items []workstation.DeferredWorkItem, goos s
 			fmt.Fprintf(w, "Run '%s' %s, then re-run 'windsor up'.\n", item.Command, paren)
 		}
 	}
-	for _, item := range items {
-		if !item.Required && !required[item.Command] {
+	for j, item := range items {
+		if !item.Required && !folded[j] {
 			fmt.Fprintf(w, "Run '%s' %s to %s.\n", item.Command, paren, item.Outcome)
 		}
 	}
