@@ -460,6 +460,14 @@ func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error 
 	}
 	fmt.Fprintf(w, "windsor destroy: %s\n", strings.Join(parts, ", "))
 	if len(result.Failed) > 0 {
+		// The summary line names which components failed but not why. Print each
+		// underlying error so the operator can diagnose the failure (e.g. a stuck
+		// kustomization finalizer) without re-running under a debugger.
+		for _, f := range result.Failed {
+			if f.Err != nil {
+				fmt.Fprintf(w, "  %s: %v\n", f.ID, f.Err)
+			}
+		}
 		return fmt.Errorf("destroy completed with %d failure(s); rerun `windsor destroy --continue` after resolving them", len(result.Failed))
 	}
 	return nil

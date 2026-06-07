@@ -300,6 +300,48 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutSurfacesStatusCondition", func(t *testing.T) {
+		// Given a kustomization that never disappears and whose status reports the
+		// real reason it is stuck (Flux records the prune failure in a condition)
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"status": map[string]any{
+					"conditions": []any{
+						map[string]any{
+							"type":    "Ready",
+							"status":  "False",
+							"reason":  "PruneFailed",
+							"message": "ServiceAccount/telemetry/collector still has finalizer",
+						},
+					},
+				},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the error surfaces the Flux condition reason and message inline so the
+		// operator sees why without a manual kubectl round-trip
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "PruneFailed") {
+			t.Errorf("Expected error to surface the condition reason, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "still has finalizer") {
+			t.Errorf("Expected error to surface the condition message, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorCheckingDeletionStatus", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()

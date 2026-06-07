@@ -177,18 +177,79 @@ func (k *BaseKubernetesManager) DeleteKustomization(name, namespace string) erro
 	}
 
 	timeout := time.Now().Add(k.kustomizationReconcileTimeout)
+	var lastObj *unstructured.Unstructured
 	for time.Now().Before(timeout) {
-		_, err := k.client.GetResource(gvr, namespace, name)
+		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil && isNotFoundError(err) {
 			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("error checking kustomization deletion status: %w", err)
 		}
+		lastObj = obj
 		time.Sleep(k.kustomizationWaitPollInterval)
 	}
 
-	return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted; an inventory item is likely stuck on a cloud-controller finalizer — inspect with `kubectl get kustomization %s -n %s -o yaml` (status.conditions, status.inventory) and `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` to find the stuck object", namespace, name, name, namespace)
+	reason := describeStuckKustomization(lastObj)
+	return fmt.Errorf("timeout waiting for kustomization %s/%s to be deleted%s; an inventory item is likely stuck on a cloud-controller finalizer — inspect with `kubectl get kustomization %s -n %s -o yaml` (status.conditions, status.inventory) and `kubectl get pvc,svc,ingress,certificate -A | grep Terminating` to find the stuck object", namespace, name, reason, name, namespace)
+}
+
+// describeStuckKustomization extracts the most diagnostic status condition from a
+// Kustomization that failed to delete in time, formatted as " (Type=Status Reason: message)"
+// for inline inclusion in the timeout error. Flux records the real failure cause
+// (prune failure, healthcheck failure, dependency-not-ready) in status.conditions,
+// so surfacing it here saves the operator a manual kubectl round-trip. Preference
+// order is Stalled, then non-True Ready, then any other non-True condition — these
+// carry the actionable reason; a bare Ready=True (rare during a stuck delete) is not
+// reported. Returns an empty string when no object was captured or no condition
+// carries a usable message, so the caller's sentence reads cleanly without it.
+func describeStuckKustomization(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
+		return ""
+	}
+	var ready, stalled, other map[string]any
+	for _, c := range conditions {
+		cond, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		condType, _ := cond["type"].(string)
+		condStatus, _ := cond["status"].(string)
+		switch {
+		case condType == "Stalled" && condStatus == "True":
+			stalled = cond
+		case condType == "Ready" && condStatus != "True":
+			ready = cond
+		case condStatus != "True" && other == nil:
+			other = cond
+		}
+	}
+	pick := stalled
+	if pick == nil {
+		pick = ready
+	}
+	if pick == nil {
+		pick = other
+	}
+	if pick == nil {
+		return ""
+	}
+	condType, _ := pick["type"].(string)
+	condStatus, _ := pick["status"].(string)
+	reason, _ := pick["reason"].(string)
+	message, _ := pick["message"].(string)
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return ""
+	}
+	if reason != "" {
+		return fmt.Sprintf(" (%s=%s %s: %s)", condType, condStatus, reason, message)
+	}
+	return fmt.Sprintf(" (%s=%s: %s)", condType, condStatus, message)
 }
 
 // WaitForKustomizations waits for kustomizations to be ready, calculating the timeout
