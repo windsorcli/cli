@@ -691,6 +691,10 @@ func TestDestroyCmd(t *testing.T) {
 		if !strings.Contains(out, "1 failed (iam)") {
 			t.Errorf("Expected summary to name failed component, got: %q", out)
 		}
+		// The summary names the component; the operator also needs the reason.
+		if !strings.Contains(out, "iam: permission denied") {
+			t.Errorf("Expected failure detail to surface the underlying error, got: %q", out)
+		}
 	})
 
 	t.Run("NoSummaryWithoutContinueFlag", func(t *testing.T) {
