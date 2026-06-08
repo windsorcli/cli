@@ -139,19 +139,31 @@ func NewLocalFlockLock(lockPath string) StackLock {
 // "apply", "destroy", "bootstrap", "plan") so concurrent operators see the
 // holder's intent in busy-error messages.
 func With(ctx context.Context, rt *runtime.Runtime, operation string, fn func() error) error {
-	if rt == nil {
-		return errors.New("stacklock: runtime is required")
+	lock, err := ForRuntime(rt)
+	if err != nil {
+		return err
 	}
-	if rt.WindsorScratchPath == "" {
-		return errors.New("stacklock: scratch path is empty (Configure must run first)")
-	}
-	lock := NewLocalFlockLock(filepath.Join(rt.WindsorScratchPath, stackLockFilename))
 	release, err := lock.Acquire(ctx, NewInfo(rt, operation), DefaultTimeout)
 	if err != nil {
 		return err
 	}
 	defer release()
 	return fn()
+}
+
+// ForRuntime returns the StackLock for the runtime's context — the same lock that
+// With acquires. It is exposed so operator-facing recovery (windsor unlock) can
+// inspect and force-release a stuck lock without duplicating the path derivation.
+// Returns an error when the runtime is nil or has not been configured yet (empty
+// scratch path).
+func ForRuntime(rt *runtime.Runtime) (StackLock, error) {
+	if rt == nil {
+		return nil, errors.New("stacklock: runtime is required")
+	}
+	if rt.WindsorScratchPath == "" {
+		return nil, errors.New("stacklock: scratch path is empty (Configure must run first)")
+	}
+	return NewLocalFlockLock(filepath.Join(rt.WindsorScratchPath, stackLockFilename)), nil
 }
 
 // NewInfo constructs the LockInfo persisted into the holder-info sidecar for a
@@ -175,11 +187,6 @@ func NewInfo(rt *runtime.Runtime, operation string) LockInfo {
 // =============================================================================
 // Private Methods
 // =============================================================================
-
-// errOperationNotSupported is returned by Inspect and ForceRelease, which are
-// reserved for the operator-facing `windsor stack lock --inspect`/`--force`
-// commands that are not yet wired up.
-var errOperationNotSupported = errors.New("stacklock: operation not supported")
 
 // localFlockLock is the single-host implementation of StackLock. The struct
 // itself owns no per-Acquire state — flk and the once-guard are scoped to each
@@ -230,16 +237,39 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 	return makeRelease(flk, infoPath), nil
 }
 
-// Inspect is reserved for the operator-facing `windsor stack lock --inspect`
-// command; the CLI entry point is not yet wired up.
+// Inspect returns the current holder recorded in the sidecar, or (nil, nil) when
+// no lock is held (or the sidecar is absent/unreadable). It backs windsor unlock's
+// "who holds this?" report. The sidecar is diagnostic, so a missing file is not an
+// error — it simply means there is nothing to release.
 func (s *localFlockLock) Inspect(ctx context.Context) (*LockInfo, error) {
-	return nil, errOperationNotSupported
+	return readHolderInfo(s.path + stackLockInfoSuffix), nil
 }
 
-// ForceRelease is reserved for the operator-facing `windsor stack lock --force`
-// command; the CLI entry point is not yet wired up.
+// ForceRelease clears a stuck lock by removing the lock file and its holder-info
+// sidecar, so the next Acquire starts from a clean slate. It is the operator-facing
+// recovery path (windsor unlock) for a holder that died without releasing. When
+// lockID is non-empty it guards against a race: if a different holder has acquired
+// the lock since the caller inspected it, the release is refused rather than yanking
+// a lock that is now legitimately held. reason is included in any failure message
+// for diagnostics. Missing files are not an error — the lock is already clear.
 func (s *localFlockLock) ForceRelease(ctx context.Context, lockID string, reason string) error {
-	return errOperationNotSupported
+	infoPath := s.path + stackLockInfoSuffix
+	if lockID != "" {
+		if info := readHolderInfo(infoPath); info != nil && info.ID != lockID {
+			return fmt.Errorf("stacklock: refusing to force-release: lock is now held by a different holder (%q, not %q) — a new windsor process acquired it", info.ID, lockID)
+		}
+	}
+	var errs []error
+	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, err)
+	}
+	if err := os.Remove(infoPath); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("stacklock: force-release (%s): %w", reason, errors.Join(errs...))
+	}
+	return nil
 }
 
 // makeRelease returns the closure handed back from Acquire. flk, infoPath,
