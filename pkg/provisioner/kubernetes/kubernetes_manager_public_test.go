@@ -519,6 +519,57 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
+		// The timeout error names which kustomization is still not Ready so the
+		// operator isn't left with a bare "timeout waiting for kustomizations".
+		if err != nil && !strings.Contains(err.Error(), "test-kustomization") {
+			t.Errorf("Expected timeout error to name the stuck kustomization, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutSurfacesNotReadyCondition", func(t *testing.T) {
+		// Given a kustomization stuck not-Ready with a diagnostic Flux condition
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
+								"type":    "Ready",
+								"status":  "False",
+								"reason":  "ReconciliationFailed",
+								"message": "dependency 'flux-system/pki-base' is not ready",
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "dns",
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 50 * time.Millisecond},
+				},
+			},
+		}
+
+		// When the wait times out
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+
+		// Then the error names the kustomization and surfaces the condition reason+message
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "dns") {
+			t.Errorf("Expected error to name the stuck kustomization, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "ReconciliationFailed") || !strings.Contains(err.Error(), "is not ready") {
+			t.Errorf("Expected error to surface the condition reason and message, got: %v", err)
+		}
 	})
 
 	t.Run("MissingStatus", func(t *testing.T) {
