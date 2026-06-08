@@ -783,15 +783,17 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 		pollInterval = 10 * time.Second
 	}
 
+	var lastErr error
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+			return healthyTimeoutError(lastErr)
 		default:
 			if err := k.client.CheckHealth(ctx, endpoint); err != nil {
+				lastErr = fmt.Errorf("health check for API endpoint %s failed: %w", endpoint, err)
 				select {
 				case <-ctx.Done():
-					return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+					return healthyTimeoutError(lastErr)
 				case <-time.After(pollInterval):
 					continue
 				}
@@ -799,9 +801,10 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 
 			if len(nodeNames) > 0 {
 				if err := k.waitForNodesReady(ctx, nodeNames, outputFunc); err != nil {
+					lastErr = err
 					select {
 					case <-ctx.Done():
-						return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+						return healthyTimeoutError(lastErr)
 					case <-time.After(pollInterval):
 						continue
 					}
@@ -812,7 +815,19 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 		}
 	}
 
-	return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+	return healthyTimeoutError(lastErr)
+}
+
+// healthyTimeoutError builds the WaitForKubernetesHealthy timeout error. When a
+// health-check or node-readiness failure was seen on the final attempt it is
+// appended so the operator learns why the wait gave up (a failed API health
+// check, or specific nodes that never reached Ready) rather than only that it
+// did. Falls back to the bare message when no underlying cause was recorded.
+func healthyTimeoutError(lastErr error) error {
+	if lastErr == nil {
+		return fmt.Errorf("timeout waiting for Kubernetes API to be healthy")
+	}
+	return fmt.Errorf("timeout waiting for Kubernetes API to be healthy: %w", lastErr)
 }
 
 // GetNodeReadyStatus returns a map of node names to their Ready condition status.
