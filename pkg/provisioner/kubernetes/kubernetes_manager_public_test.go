@@ -342,6 +342,51 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("TimeoutFlattensMultilineConditionMessage", func(t *testing.T) {
+		// Given a stuck kustomization whose condition message spans multiple lines
+		// (Flux records YAML snippets and chained failures this way)
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"status": map[string]any{
+					"conditions": []any{
+						map[string]any{
+							"type":    "Stalled",
+							"status":  "True",
+							"reason":  "ReconciliationFailed",
+							"message": "prune failed:\nSecret/telemetry/token dependency not ready\nretrying",
+						},
+					},
+				},
+			}}, nil
+		}
+		manager.client = kubernetesClient
+		manager.kustomizationReconcileTimeout = 100 * time.Millisecond
+		manager.kustomizationWaitPollInterval = 50 * time.Millisecond
+
+		// When DeleteKustomization times out
+		err := manager.DeleteKustomization("test-kustomization", "test-namespace")
+
+		// Then the embedded newlines are flattened so the error stays on one line
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		condPart := err.Error()
+		if i := strings.Index(condPart, "(Stalled"); i >= 0 {
+			condPart = condPart[i:]
+		}
+		if strings.Contains(condPart, "\n") {
+			t.Errorf("Expected condition detail to be single-line, got embedded newline: %q", err)
+		}
+		if !strings.Contains(err.Error(), "prune failed: Secret/telemetry/token dependency not ready retrying") {
+			t.Errorf("Expected flattened message, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorCheckingDeletionStatus", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()

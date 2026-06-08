@@ -242,7 +242,7 @@ func describeStuckKustomization(obj *unstructured.Unstructured) string {
 	condStatus, _ := pick["status"].(string)
 	reason, _ := pick["reason"].(string)
 	message, _ := pick["message"].(string)
-	message = strings.TrimSpace(message)
+	message = strings.ReplaceAll(strings.TrimSpace(message), "\n", " ")
 	if message == "" {
 		return ""
 	}
