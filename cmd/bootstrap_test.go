@@ -98,7 +98,7 @@ func setupBootstrapTest(t *testing.T, opts ...*SetupOptions) *BootstrapMocks {
 
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-	mockKubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	mockKubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 	rt := runtime.NewRuntime(&runtime.Runtime{
 		Shell:         baseMocks.Shell,
@@ -175,7 +175,7 @@ func TestBootstrapCmd(t *testing.T) {
 			return nil
 		}
 		waitCalled := false
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 			waitCalled = true
 			return nil
 		}

@@ -97,7 +97,7 @@ func setupUpTest(t *testing.T, opts ...*SetupOptions) *UpMocks {
 	// Add kubernetes manager mock
 	mockKubernetesManager := kubernetes.NewMockKubernetesManager()
 	mockKubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error { return nil }
-	mockKubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
+	mockKubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error { return nil }
 
 	// Create runtime with all mocked dependencies
 	rt := runtime.NewRuntime(&runtime.Runtime{
@@ -452,7 +452,7 @@ func TestUpCmd(t *testing.T) {
 	t.Run("ProvisionerWaitError", func(t *testing.T) {
 		// Given a kubernetes manager whose WaitForKustomizations fails
 		mocks := setupUpTest(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("wait for kustomizations failed")
 		}
 		proj := newUpTestProject(mocks, true)

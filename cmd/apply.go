@@ -72,7 +72,7 @@ windsor apply kustomize dns`,
 			}
 
 			if applyWaitFlag {
-				if err := proj.Provisioner.Wait(blueprint); err != nil {
+				if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
 					return fmt.Errorf("error waiting for kustomizations: %w", err)
 				}
 			}
@@ -180,7 +180,7 @@ windsor apply kustomize dns --wait`,
 			}
 
 			if applyWaitFlag {
-				if err := proj.Provisioner.Wait(waitBlueprint); err != nil {
+				if err := proj.Provisioner.Wait(cmd.Context(), waitBlueprint); err != nil {
 					return fmt.Errorf("error waiting for kustomizations: %w", err)
 				}
 			}

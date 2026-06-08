@@ -507,9 +507,47 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ContextCancelledInterruptsWait", func(t *testing.T) {
+		// Given a kustomization that never becomes Ready and a long internal timeout
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{"type": "Ready", "status": "False"},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "test-kustomization",
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 10 * time.Minute},
+				},
+			},
+		}
+
+		// When the parent context is cancelled
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// Then the wait returns promptly with the context error instead of blocking
+		// until the (long) internal timeout, so a caller's SIGTERM/deadline can end it.
+		err := manager.WaitForKustomizations(ctx, "Waiting for kustomizations", blueprint)
+		if err != context.Canceled {
+			t.Errorf("expected context.Canceled, got: %v", err)
 		}
 	})
 
@@ -543,7 +581,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -586,7 +624,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 
 		// When the wait times out
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 
 		// Then the error names the kustomization and surfaces the condition reason+message
 		if err == nil {
@@ -621,7 +659,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -661,7 +699,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -690,7 +728,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -726,7 +764,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -762,7 +800,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
 		}
@@ -807,7 +845,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
@@ -820,7 +858,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 
 	t.Run("WithBlueprintNilReturnsError", func(t *testing.T) {
 		manager := setup(t)
-		err := manager.WaitForKustomizations("Waiting for kustomizations", nil)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", nil)
 		if err == nil {
 			t.Error("Expected error for nil blueprint, got nil")
 		}
@@ -870,7 +908,7 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 			},
 		}
 
-		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
