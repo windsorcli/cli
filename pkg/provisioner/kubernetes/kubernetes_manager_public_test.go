@@ -2524,6 +2524,46 @@ func TestBaseKubernetesManager_WaitForKubernetesHealthy(t *testing.T) {
 		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
 			t.Errorf("Expected timeout error, got: %v", err)
 		}
+		// The timeout surfaces the underlying health-check failure and the endpoint
+		// so the operator isn't left guessing why the API never came up.
+		if !strings.Contains(err.Error(), "health check failed") || !strings.Contains(err.Error(), "test-endpoint:6443") {
+			t.Errorf("Expected timeout error to surface the underlying cause, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutDistinguishesNodeReadinessPhase", func(t *testing.T) {
+		// Given an API that is healthy but a node that never reaches Ready
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.CheckHealthFunc = func(ctx context.Context, endpoint string) error {
+			return nil
+		}
+		kubernetesClient.GetNodeReadyStatusFunc = func(ctx context.Context, nodeNames []string) (map[string]bool, error) {
+			return map[string]bool{"worker-1": false}, nil
+		}
+		manager.client = kubernetesClient
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		// When the wait times out on node readiness
+		err := manager.WaitForKubernetesHealthy(ctx, "https://test-endpoint:6443", nil, "worker-1")
+
+		// Then the error attributes the failure to node readiness rather than the
+		// API endpoint, so a healthy-API-but-stuck-nodes timeout is distinguishable
+		// from an unreachable endpoint (both were previously the same bare message).
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout waiting for Kubernetes API to be healthy") {
+			t.Errorf("Expected health timeout error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "nodes") {
+			t.Errorf("Expected error to attribute the failure to node readiness, got: %v", err)
+		}
+		if strings.Contains(err.Error(), "endpoint") {
+			t.Errorf("Did not expect the node-phase failure to mention the API endpoint, got: %v", err)
+		}
 	})
 
 	t.Run("SuccessWithNodeNames", func(t *testing.T) {
