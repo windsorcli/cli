@@ -81,6 +81,8 @@ type BaseKubernetesManager struct {
 	kustomizationReconcileTimeout time.Duration
 	kustomizationReconcileSleep   time.Duration
 
+	notReadyDescribeBudget time.Duration
+
 	healthCheckPollInterval time.Duration
 	nodeReadyPollInterval   time.Duration
 }
@@ -102,6 +104,7 @@ func NewKubernetesManager(kubernetesClient client.KubernetesClient, configHandle
 		kustomizationWaitPollInterval: 2 * time.Second,
 		kustomizationReconcileTimeout: 5 * time.Minute,
 		kustomizationReconcileSleep:   2 * time.Second,
+		notReadyDescribeBudget:        10 * time.Second,
 		healthCheckPollInterval:       10 * time.Second,
 		nodeReadyPollInterval:         5 * time.Second,
 	}
@@ -261,14 +264,25 @@ func describeStuckKustomization(obj *unstructured.Unstructured) string {
 // kubectl round-trip. A kustomization that cannot be read is listed by name
 // alone. Returns an empty string when every kustomization reads back Ready, so
 // the caller's sentence stays clean.
+//
+// Because this runs only after a wait already timed out, the API may be slow or
+// unreachable. Each GetResource is individually bounded by the client's request
+// timeout, but probing every kustomization serially could still compound into
+// minutes; total probing is therefore capped at notReadyDescribeBudget. Once the
+// budget is spent the remaining kustomizations are named without condition detail.
 func (k *BaseKubernetesManager) describeNotReadyKustomizations(names []string, namespace string) string {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
 		Version:  "v1",
 		Resource: "kustomizations",
 	}
+	start := time.Now()
 	var stuck []string
 	for _, name := range names {
+		if time.Since(start) >= k.notReadyDescribeBudget {
+			stuck = append(stuck, name)
+			continue
+		}
 		obj, err := k.client.GetResource(gvr, namespace, name)
 		if err != nil {
 			stuck = append(stuck, name)

@@ -437,6 +437,34 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	})
 }
 
+func TestBaseKubernetesManager_describeNotReadyKustomizations(t *testing.T) {
+	t.Run("ExhaustedBudgetNamesWithoutProbing", func(t *testing.T) {
+		// Given a diagnostic budget that is already spent before the first probe
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.notReadyDescribeBudget = 0
+		kubernetesClient := client.NewMockKubernetesClient()
+		called := false
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			called = true
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When describing not-ready kustomizations
+		got := manager.describeNotReadyKustomizations([]string{"dns", "pki-base"}, "flux-system")
+
+		// Then the API is never probed and every kustomization is named plainly,
+		// bounding the diagnostic when the API is the thing that's unresponsive.
+		if called {
+			t.Error("Expected no GetResource calls once the budget is exhausted")
+		}
+		if !strings.Contains(got, "dns") || !strings.Contains(got, "pki-base") {
+			t.Errorf("Expected both kustomizations named, got: %q", got)
+		}
+	})
+}
+
 func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
