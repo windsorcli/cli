@@ -174,6 +174,11 @@ func TestOnePasswordSDKProvider_Resolve(t *testing.T) {
 		if !handled || err == nil || !strings.Contains(err.Error(), "resolve failed") {
 			t.Errorf("expected resolve error, got handled=%v err=%v", handled, err)
 		}
+		// The error names the secret reference that failed so the operator knows
+		// which vault/item/field to check rather than only that some secret failed.
+		if err == nil || !strings.Contains(err.Error(), "op://SDK Vault/item/field") {
+			t.Errorf("expected error to name the secret reference, got: %v", err)
+		}
 	})
 
 	t.Run("ReusesGlobalClientOnSecondCall", func(t *testing.T) {

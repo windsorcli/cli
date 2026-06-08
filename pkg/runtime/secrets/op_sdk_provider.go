@@ -94,7 +94,7 @@ func (s *OnePasswordSDKProvider) Resolve(ref SecretRef) (string, bool, error) {
 
 	value, err := s.shims.ResolveSecret(globalClient, globalCtx, secretRefURI)
 	if err != nil {
-		return "", true, fmt.Errorf("failed to resolve secret: %w", err)
+		return "", true, fmt.Errorf("failed to resolve secret %q: %w", secretRefURI, err)
 	}
 
 	return value, true, nil

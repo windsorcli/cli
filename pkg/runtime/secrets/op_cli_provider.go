@@ -57,7 +57,8 @@ func (s *OnePasswordCLIProvider) Resolve(ref SecretRef) (string, bool, error) {
 	cmd := s.shims.Command("op", args...)
 	output, err := s.shims.CmdOutput(cmd)
 	if err != nil {
-		return "", true, fmt.Errorf("failed to retrieve secret from 1Password: %w", err)
+		secretRef := fmt.Sprintf("op://%s/%s/%s", s.vault.Name, ref.Item, ref.Field)
+		return "", true, fmt.Errorf("failed to retrieve secret %q from 1Password: %w", secretRef, err)
 	}
 
 	value := strings.TrimSpace(string(output))
