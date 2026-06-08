@@ -437,7 +437,10 @@ func requireContinueScope(args []string) error {
 // returns a non-zero exit error when any component failed. Without --continue
 // the existing per-error abort already surfaces failures, so no extra output
 // is needed; this only fires when the operator opted into best-effort mode.
-// Returns nil when destroyContinue is false or when no failures were recorded.
+// After the summary, each failure's underlying error is printed so the operator
+// can diagnose the cause (e.g. a stuck kustomization finalizer) without re-running
+// under a debugger. Returns nil when destroyContinue is false or when no failures
+// were recorded.
 func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error {
 	if !destroyContinue {
 		return nil
@@ -460,9 +463,6 @@ func finishContinueDestroy(w io.Writer, result provisioner.DestroyResult) error 
 	}
 	fmt.Fprintf(w, "windsor destroy: %s\n", strings.Join(parts, ", "))
 	if len(result.Failed) > 0 {
-		// The summary line names which components failed but not why. Print each
-		// underlying error so the operator can diagnose the failure (e.g. a stuck
-		// kustomization finalizer) without re-running under a debugger.
 		for _, f := range result.Failed {
 			if f.Err != nil {
 				fmt.Fprintf(w, "  %s: %v\n", f.ID, f.Err)
