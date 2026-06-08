@@ -3148,6 +3148,11 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		if !strings.Contains(err.Error(), "did not become ready within timeout") {
 			t.Errorf("Expected timeout error, got %v", err)
 		}
+		// The timeout names which destroy-only kustomization is still not Ready
+		// rather than leaving the operator with a bare "cleanup may not have completed".
+		if !strings.Contains(err.Error(), "cleanup may not have completed: destroy-only") {
+			t.Errorf("Expected timeout error to name the stuck kustomization, got: %v", err)
+		}
 	})
 
 	t.Run("DestroyOnlyWithSubstitutions", func(t *testing.T) {
