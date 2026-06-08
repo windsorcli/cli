@@ -790,7 +790,7 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 			return healthyTimeoutError(lastErr)
 		default:
 			if err := k.client.CheckHealth(ctx, endpoint); err != nil {
-				lastErr = fmt.Errorf("API endpoint %s unreachable: %w", endpoint, err)
+				lastErr = fmt.Errorf("health check for API endpoint %s failed: %w", endpoint, err)
 				select {
 				case <-ctx.Done():
 					return healthyTimeoutError(lastErr)
@@ -820,8 +820,8 @@ func (k *BaseKubernetesManager) WaitForKubernetesHealthy(ctx context.Context, en
 
 // healthyTimeoutError builds the WaitForKubernetesHealthy timeout error. When a
 // health-check or node-readiness failure was seen on the final attempt it is
-// appended so the operator learns why the wait gave up (an unreachable API
-// endpoint, or specific nodes that never reached Ready) rather than only that it
+// appended so the operator learns why the wait gave up (a failed API health
+// check, or specific nodes that never reached Ready) rather than only that it
 // did. Falls back to the bare message when no underlying cause was recorded.
 func healthyTimeoutError(lastErr error) error {
 	if lastErr == nil {
