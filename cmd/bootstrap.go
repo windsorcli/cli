@@ -229,7 +229,7 @@ windsor bootstrap prod --yes`,
 				return fmt.Errorf("error installing blueprint: %w", err)
 			}
 
-			if err := proj.Provisioner.Wait(blueprint); err != nil {
+			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error waiting for kustomizations: %w", err)
 			}
 			return nil

@@ -41,7 +41,7 @@ windsor install --wait`,
 		}
 
 		if installWaitFlag {
-			if err := proj.Provisioner.Wait(blueprint); err != nil {
+			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error waiting for kustomizations: %w", err)
 			}
 		}

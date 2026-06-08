@@ -1276,7 +1276,7 @@ func TestProvisioner_Install(t *testing.T) {
 func TestProvisioner_Wait(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 			return nil
 		}
 		opts := &Provisioner{
@@ -1285,7 +1285,7 @@ func TestProvisioner_Wait(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Wait(blueprint)
+		err := provisioner.Wait(context.Background(), blueprint)
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
@@ -1296,7 +1296,7 @@ func TestProvisioner_Wait(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)
 
-		err := provisioner.Wait(nil)
+		err := provisioner.Wait(context.Background(), nil)
 
 		if err == nil {
 			t.Error("Expected error for nil blueprint")
@@ -1313,7 +1313,7 @@ func TestProvisioner_Wait(t *testing.T) {
 		provisioner.KubernetesManager = nil
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Wait(blueprint)
+		err := provisioner.Wait(context.Background(), blueprint)
 
 		if err == nil {
 			t.Error("Expected error for nil kubernetes manager")
@@ -1326,7 +1326,7 @@ func TestProvisioner_Wait(t *testing.T) {
 
 	t.Run("ErrorWaitForKustomizations", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
-		mocks.KubernetesManager.WaitForKustomizationsFunc = func(message string, blueprint *blueprintv1alpha1.Blueprint) error {
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 			return fmt.Errorf("wait failed")
 		}
 		opts := &Provisioner{
@@ -1335,7 +1335,7 @@ func TestProvisioner_Wait(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		blueprint := createTestBlueprint()
-		err := provisioner.Wait(blueprint)
+		err := provisioner.Wait(context.Background(), blueprint)
 
 		if err == nil {
 			t.Error("Expected error for wait for kustomizations failure")

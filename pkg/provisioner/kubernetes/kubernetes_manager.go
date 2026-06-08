@@ -37,7 +37,7 @@ import (
 type KubernetesManager interface {
 	ApplyKustomization(kustomization kustomizev1.Kustomization) error
 	DeleteKustomization(name, namespace string) error
-	WaitForKustomizations(message string, blueprint *blueprintv1alpha1.Blueprint) error
+	WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error
 	CreateNamespace(name string) error
 	DeleteNamespace(name string) error
 	ApplyConfigMap(name, namespace string, data map[string]string) error
@@ -320,8 +320,11 @@ func kustomizationReady(obj *unstructured.Unstructured) bool {
 
 // WaitForKustomizations waits for kustomizations to be ready, calculating the timeout
 // from the longest dependency chain in the blueprint. Outputs a debug message describing
-// the total wait timeout being used before beginning polling.
-func (k *BaseKubernetesManager) WaitForKustomizations(message string, blueprint *blueprintv1alpha1.Blueprint) error {
+// the total wait timeout being used before beginning polling. The wait also honors ctx:
+// a cancelled or deadline-exceeded context ends the wait immediately and returns ctx.Err(),
+// so a parent SIGTERM/Ctrl+C or command deadline can interrupt it (rather than requiring a
+// SIGKILL that bypasses the caller's defer cleanup).
+func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
 	}
@@ -343,6 +346,9 @@ func (k *BaseKubernetesManager) WaitForKustomizations(message string, blueprint 
 
 	for {
 		select {
+		case <-ctx.Done():
+			tui.Pause()
+			return ctx.Err()
 		case <-timeoutChan:
 			tui.Fail()
 			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
