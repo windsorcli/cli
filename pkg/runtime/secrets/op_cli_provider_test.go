@@ -106,6 +106,11 @@ func TestOnePasswordCLIProvider_Resolve(t *testing.T) {
 		if !handled || err == nil || !strings.Contains(err.Error(), "op command failed") {
 			t.Errorf("expected handled error, got handled=%v err=%v", handled, err)
 		}
+		// The error names the secret reference that failed so the operator knows
+		// which vault/item/field to check rather than only that some secret failed.
+		if err != nil && !strings.Contains(err.Error(), "op://My Vault/item/password") {
+			t.Errorf("expected error to name the secret reference, got: %v", err)
+		}
 	})
 
 	t.Run("TrimsWhitespaceFromOutput", func(t *testing.T) {
