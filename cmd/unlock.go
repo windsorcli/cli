@@ -47,20 +47,25 @@ windsor unlock --force`,
 			return err
 		}
 
-		holder, err := lock.Inspect(cmd.Context())
-		if err != nil {
-			return fmt.Errorf("error inspecting stack lock: %w", err)
-		}
-
 		contextName := proj.Runtime.ContextName
 		w := cmd.ErrOrStderr()
-		if holder == nil {
+
+		// A missing sidecar means nothing is held. A corrupt/unreadable one (e.g. a
+		// partial write from a killed holder) is exactly the debris unlock clears, so
+		// warn and proceed rather than treating it as "nothing to release".
+		holder, inspectErr := lock.Inspect(cmd.Context())
+		lockID := ""
+		switch {
+		case inspectErr != nil:
+			fmt.Fprintf(w, "Stack lock for context %q has unreadable holder info (%v); clearing it.\n", contextName, inspectErr)
+		case holder == nil:
 			fmt.Fprintf(w, "No stack lock held for context %q; nothing to release.\n", contextName)
 			return nil
+		default:
+			lockID = holder.ID
+			fmt.Fprintf(w, "Stack lock for context %q is held by %s (PID=%d, operation=%s, started=%s).\n",
+				contextName, holder.Who, holder.PID, holder.Operation, holder.Created.Format(time.RFC3339))
 		}
-
-		fmt.Fprintf(w, "Stack lock for context %q is held by %s (PID=%d, operation=%s, started=%s).\n",
-			contextName, holder.Who, holder.PID, holder.Operation, holder.Created.Format(time.RFC3339))
 
 		if !unlockForce {
 			desc := fmt.Sprintf("This will force-release the stack lock for context %q. Only proceed if no other windsor process is operating on it.", contextName)
@@ -69,7 +74,7 @@ windsor unlock --force`,
 			}
 		}
 
-		if err := lock.ForceRelease(cmd.Context(), holder.ID, "windsor unlock"); err != nil {
+		if err := lock.ForceRelease(cmd.Context(), lockID, "windsor unlock"); err != nil {
 			return fmt.Errorf("error releasing stack lock: %w", err)
 		}
 		fmt.Fprintf(w, "Released stack lock for context %q.\n", contextName)

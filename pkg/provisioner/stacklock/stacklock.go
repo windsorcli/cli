@@ -237,12 +237,26 @@ func (s *localFlockLock) Acquire(ctx context.Context, info LockInfo, timeout tim
 	return makeRelease(flk, infoPath), nil
 }
 
-// Inspect returns the current holder recorded in the sidecar, or (nil, nil) when
-// no lock is held (or the sidecar is absent/unreadable). It backs windsor unlock's
-// "who holds this?" report. The sidecar is diagnostic, so a missing file is not an
-// error — it simply means there is nothing to release.
+// Inspect returns the current holder recorded in the sidecar. A missing sidecar
+// returns (nil, nil) — the normal clean state, nothing to release. A sidecar that
+// is present but unreadable or corrupt (e.g. a partial write from a killed holder)
+// returns an error: that is debris windsor unlock should still clear, so the caller
+// must not mistake it for "no lock held". It backs unlock's "who holds this?" report.
 func (s *localFlockLock) Inspect(ctx context.Context) (*LockInfo, error) {
-	return readHolderInfo(s.path + stackLockInfoSuffix), nil
+	infoPath := s.path + stackLockInfoSuffix
+	// #nosec G304 - infoPath is the lock's sidecar location configured by the runtime, not user-supplied
+	data, err := os.ReadFile(infoPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("stacklock: reading holder info at %s: %w", infoPath, err)
+	}
+	var info LockInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, fmt.Errorf("stacklock: holder info at %s is corrupt: %w", infoPath, err)
+	}
+	return &info, nil
 }
 
 // ForceRelease clears a stuck lock by removing the lock file and its holder-info

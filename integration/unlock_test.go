@@ -69,3 +69,41 @@ func TestUnlock_ReleasesOrphanedLock(t *testing.T) {
 		t.Errorf("expected sidecar removed, stat err=%v", statErr)
 	}
 }
+
+// TestUnlock_ClearsCorruptSidecar verifies that a torn/partial holder-info sidecar
+// (a holder killed mid-write) is treated as clearable debris — unlock --force warns
+// that the holder info is unreadable and still removes the lock files, rather than
+// reporting "nothing to release" and leaving the operator stuck.
+func TestUnlock_ClearsCorruptSidecar(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "default")
+	env = append(env, "WINDSOR_CONTEXT=default")
+
+	scratch := filepath.Join(dir, ".windsor", "contexts", "default")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatalf("mkdir scratch: %v", err)
+	}
+	lockPath := filepath.Join(scratch, ".stacklock")
+	if err := os.WriteFile(lockPath, nil, 0o644); err != nil {
+		t.Fatalf("write lock file: %v", err)
+	}
+	// A partial JSON write — what a SIGKILL mid-sidecar-write leaves behind.
+	if err := os.WriteFile(lockPath+".info", []byte(`{"id":"orphan`), 0o644); err != nil {
+		t.Fatalf("write corrupt sidecar: %v", err)
+	}
+
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"unlock", "--force"}, env)
+	if err != nil {
+		t.Fatalf("unlock --force: %v\nstderr: %s", err, stderr)
+	}
+	out := string(stdout) + string(stderr)
+	if !strings.Contains(out, "unreadable") || !strings.Contains(out, "Released stack lock") {
+		t.Errorf("expected unreadable-holder warning and release confirmation, got:\n%s", out)
+	}
+	if _, statErr := os.Stat(lockPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected lock file removed, stat err=%v", statErr)
+	}
+	if _, statErr := os.Stat(lockPath + ".info"); !os.IsNotExist(statErr) {
+		t.Errorf("expected corrupt sidecar removed, stat err=%v", statErr)
+	}
+}

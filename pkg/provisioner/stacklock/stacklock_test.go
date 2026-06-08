@@ -696,6 +696,26 @@ func TestLocalFlockLock_Inspect(t *testing.T) {
 			t.Fatalf("expected populated holder, got %+v", info)
 		}
 	})
+
+	t.Run("errors when the sidecar is present but corrupt", func(t *testing.T) {
+		// Given a sidecar with a partial/corrupt write (e.g. a holder killed mid-write)
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		if err := os.WriteFile(path+stackLockInfoSuffix, []byte(`{"id":"orphan`), lockInfoPerm); err != nil {
+			t.Fatalf("write corrupt sidecar: %v", err)
+		}
+
+		// When inspecting
+		info, err := NewLocalFlockLock(path).Inspect(context.Background())
+
+		// Then it reports corruption rather than masquerading as "no lock held", so
+		// the caller can still clear the debris instead of short-circuiting.
+		if err == nil || !strings.Contains(err.Error(), "corrupt") {
+			t.Fatalf("expected corrupt-sidecar error, got info=%+v err=%v", info, err)
+		}
+		if info != nil {
+			t.Fatalf("expected nil holder on corrupt sidecar, got %+v", info)
+		}
+	})
 }
 
 // =============================================================================
