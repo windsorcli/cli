@@ -108,7 +108,7 @@ func TestOnePasswordCLIProvider_Resolve(t *testing.T) {
 		}
 		// The error names the secret reference that failed so the operator knows
 		// which vault/item/field to check rather than only that some secret failed.
-		if err != nil && !strings.Contains(err.Error(), "op://My Vault/item/password") {
+		if err == nil || !strings.Contains(err.Error(), "op://My Vault/item/password") {
 			t.Errorf("expected error to name the secret reference, got: %v", err)
 		}
 	})

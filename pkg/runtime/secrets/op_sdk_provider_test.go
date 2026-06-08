@@ -176,7 +176,7 @@ func TestOnePasswordSDKProvider_Resolve(t *testing.T) {
 		}
 		// The error names the secret reference that failed so the operator knows
 		// which vault/item/field to check rather than only that some secret failed.
-		if err != nil && !strings.Contains(err.Error(), "op://SDK Vault/item/field") {
+		if err == nil || !strings.Contains(err.Error(), "op://SDK Vault/item/field") {
 			t.Errorf("expected error to name the secret reference, got: %v", err)
 		}
 	})
