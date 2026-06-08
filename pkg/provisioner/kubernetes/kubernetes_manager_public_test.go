@@ -437,6 +437,34 @@ func TestBaseKubernetesManager_DeleteKustomization(t *testing.T) {
 	})
 }
 
+func TestBaseKubernetesManager_describeNotReadyKustomizations(t *testing.T) {
+	t.Run("ExhaustedBudgetNamesWithoutProbing", func(t *testing.T) {
+		// Given a diagnostic budget that is already spent before the first probe
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.notReadyDescribeBudget = 0
+		kubernetesClient := client.NewMockKubernetesClient()
+		called := false
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			called = true
+			return &unstructured.Unstructured{}, nil
+		}
+		manager.client = kubernetesClient
+
+		// When describing not-ready kustomizations
+		got := manager.describeNotReadyKustomizations([]string{"dns", "pki-base"}, "flux-system")
+
+		// Then the API is never probed and every kustomization is named plainly,
+		// bounding the diagnostic when the API is the thing that's unresponsive.
+		if called {
+			t.Error("Expected no GetResource calls once the budget is exhausted")
+		}
+		if !strings.Contains(got, "dns") || !strings.Contains(got, "pki-base") {
+			t.Errorf("Expected both kustomizations named, got: %q", got)
+		}
+	})
+}
+
 func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()
@@ -518,6 +546,57 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
 		if err == nil {
 			t.Error("Expected timeout error, got nil")
+		}
+		// The timeout error names which kustomization is still not Ready so the
+		// operator isn't left with a bare "timeout waiting for kustomizations".
+		if err != nil && !strings.Contains(err.Error(), "test-kustomization") {
+			t.Errorf("Expected timeout error to name the stuck kustomization, got: %v", err)
+		}
+	})
+
+	t.Run("TimeoutSurfacesNotReadyCondition", func(t *testing.T) {
+		// Given a kustomization stuck not-Ready with a diagnostic Flux condition
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{
+								"type":    "Ready",
+								"status":  "False",
+								"reason":  "ReconciliationFailed",
+								"message": "dependency 'flux-system/pki-base' is not ready",
+							},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{
+					Name:    "dns",
+					Timeout: &blueprintv1alpha1.DurationString{Duration: 50 * time.Millisecond},
+				},
+			},
+		}
+
+		// When the wait times out
+		err := manager.WaitForKustomizations("Waiting for kustomizations", blueprint)
+
+		// Then the error names the kustomization and surfaces the condition reason+message
+		if err == nil {
+			t.Fatal("Expected timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "dns") {
+			t.Errorf("Expected error to name the stuck kustomization, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "ReconciliationFailed") || !strings.Contains(err.Error(), "is not ready") {
+			t.Errorf("Expected error to surface the condition reason and message, got: %v", err)
 		}
 	})
 
