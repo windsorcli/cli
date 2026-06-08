@@ -347,7 +347,7 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 	for {
 		select {
 		case <-ctx.Done():
-			tui.Fail()
+			tui.Pause()
 			return ctx.Err()
 		case <-timeoutChan:
 			tui.Fail()
