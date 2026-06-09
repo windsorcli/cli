@@ -3045,19 +3045,23 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 
 		firstDelete := -1
+		lastSuspend := -1
 		for i, e := range events {
-			if len(e) >= 7 && e[:7] == "delete:" {
+			switch {
+			case strings.HasPrefix(e, "delete:") && firstDelete == -1:
 				firstDelete = i
-				break
+			case strings.HasPrefix(e, "suspend:"):
+				lastSuspend = i
 			}
 		}
 		if firstDelete == -1 {
 			t.Fatalf("Expected at least one delete, got events %v", events)
 		}
-		for _, e := range events[:firstDelete] {
-			if len(e) >= 7 && e[:7] == "delete:" {
-				t.Fatalf("Expected all suspends before any delete, got events %v", events)
-			}
+		if lastSuspend == -1 {
+			t.Fatalf("Expected at least one suspend, got events %v", events)
+		}
+		if lastSuspend >= firstDelete {
+			t.Fatalf("Expected all suspends before any delete, got events %v", events)
 		}
 	})
 
