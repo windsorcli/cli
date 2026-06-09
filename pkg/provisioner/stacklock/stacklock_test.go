@@ -608,3 +608,178 @@ func TestHashProjectRoot(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Test ForRuntime
+// =============================================================================
+
+func TestForRuntime(t *testing.T) {
+	t.Run("returns a usable lock for a configured runtime", func(t *testing.T) {
+		// Given a runtime with a scratch path
+		rt := newTestRuntime(t)
+
+		// When deriving the lock
+		lock, err := ForRuntime(rt)
+
+		// Then a usable lock is returned
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if lock == nil {
+			t.Fatal("expected non-nil StackLock")
+		}
+	})
+
+	t.Run("errors when the runtime is nil", func(t *testing.T) {
+		// When deriving a lock from a nil runtime
+		_, err := ForRuntime(nil)
+
+		// Then it reports the missing runtime
+		if err == nil || !strings.Contains(err.Error(), "runtime is required") {
+			t.Fatalf("expected runtime-required error, got %v", err)
+		}
+	})
+
+	t.Run("errors when the scratch path is empty", func(t *testing.T) {
+		// Given a runtime that has not been configured yet
+		rt := &runtime.Runtime{}
+
+		// When deriving the lock
+		_, err := ForRuntime(rt)
+
+		// Then it reports the unconfigured scratch path
+		if err == nil || !strings.Contains(err.Error(), "scratch path is empty") {
+			t.Fatalf("expected scratch-path error, got %v", err)
+		}
+	})
+}
+
+// =============================================================================
+// Test Inspect
+// =============================================================================
+
+func TestLocalFlockLock_Inspect(t *testing.T) {
+	t.Run("returns nil when no lock is held", func(t *testing.T) {
+		// Given a fresh lock path with no sidecar
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		sl := NewLocalFlockLock(path)
+
+		// When inspecting
+		info, err := sl.Inspect(context.Background())
+
+		// Then there is no holder and no error
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if info != nil {
+			t.Fatalf("expected nil holder, got %+v", info)
+		}
+	})
+
+	t.Run("returns the holder recorded in the sidecar", func(t *testing.T) {
+		// Given a sidecar describing the current holder
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		holder := newTestLockInfo()
+		holder.Who = "ci@runner-9"
+		holder.Operation = "bootstrap"
+		holder.PID = 4242
+		writeHolderInfo(path+stackLockInfoSuffix, holder)
+
+		// When inspecting
+		info, err := NewLocalFlockLock(path).Inspect(context.Background())
+
+		// Then the recorded holder is returned
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if info == nil || info.PID != 4242 || info.Operation != "bootstrap" {
+			t.Fatalf("expected populated holder, got %+v", info)
+		}
+	})
+
+	t.Run("errors when the sidecar is present but corrupt", func(t *testing.T) {
+		// Given a sidecar with a partial/corrupt write (e.g. a holder killed mid-write)
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		if err := os.WriteFile(path+stackLockInfoSuffix, []byte(`{"id":"orphan`), lockInfoPerm); err != nil {
+			t.Fatalf("write corrupt sidecar: %v", err)
+		}
+
+		// When inspecting
+		info, err := NewLocalFlockLock(path).Inspect(context.Background())
+
+		// Then it reports corruption rather than masquerading as "no lock held", so
+		// the caller can still clear the debris instead of short-circuiting.
+		if err == nil || !strings.Contains(err.Error(), "corrupt") {
+			t.Fatalf("expected corrupt-sidecar error, got info=%+v err=%v", info, err)
+		}
+		if info != nil {
+			t.Fatalf("expected nil holder on corrupt sidecar, got %+v", info)
+		}
+	})
+}
+
+// =============================================================================
+// Test ForceRelease
+// =============================================================================
+
+func TestLocalFlockLock_ForceRelease(t *testing.T) {
+	// orphanedLock writes a lock file and sidecar with no process holding the flock,
+	// mirroring a holder that was SIGKILL'd before it could release. Files are created
+	// directly (not via Acquire) so no open fd lingers — os.Remove of an fd-held file
+	// fails on Windows, and the recovery scenario is precisely a dead holder.
+	orphanedLock := func(t *testing.T, info LockInfo) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), ".stacklock")
+		if err := os.WriteFile(path, nil, lockInfoPerm); err != nil {
+			t.Fatalf("write lock file: %v", err)
+		}
+		writeHolderInfo(path+stackLockInfoSuffix, info)
+		return path
+	}
+
+	t.Run("removes the lock file and sidecar", func(t *testing.T) {
+		// Given an orphaned lock with both files present
+		path := orphanedLock(t, newTestLockInfo())
+
+		// When force-releasing without an ID guard
+		if err := NewLocalFlockLock(path).ForceRelease(context.Background(), "", "test recovery"); err != nil {
+			t.Fatalf("force-release: %v", err)
+		}
+
+		// Then both the lock file and the sidecar are gone
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected lock file removed, stat err=%v", err)
+		}
+		if _, err := os.Stat(path + stackLockInfoSuffix); !os.IsNotExist(err) {
+			t.Fatalf("expected sidecar removed, stat err=%v", err)
+		}
+	})
+
+	t.Run("is a no-op when no lock files exist", func(t *testing.T) {
+		// Given a path with no lock files
+		path := filepath.Join(t.TempDir(), ".stacklock")
+
+		// When force-releasing, then it succeeds (already clear)
+		if err := NewLocalFlockLock(path).ForceRelease(context.Background(), "", "test"); err != nil {
+			t.Fatalf("expected nil error for absent files, got %v", err)
+		}
+	})
+
+	t.Run("refuses when a different holder has acquired the lock", func(t *testing.T) {
+		// Given a lock now held by a holder whose ID differs from the caller's target
+		current := newTestLockInfo()
+		current.ID = "new-holder-id"
+		path := orphanedLock(t, current)
+
+		// When force-releasing against a stale target ID
+		err := NewLocalFlockLock(path).ForceRelease(context.Background(), "stale-target-id", "test")
+
+		// Then it refuses and leaves the files intact
+		if err == nil || !strings.Contains(err.Error(), "different holder") {
+			t.Fatalf("expected refusal error, got %v", err)
+		}
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("expected lock file preserved on refusal, got %v", statErr)
+		}
+	})
+}
