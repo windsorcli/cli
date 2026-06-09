@@ -985,7 +985,7 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 	}
 	for _, kustomization := range eligible {
 		if err := k.suspendKustomization(kustomization.Name, namespace); err != nil {
-			return fmt.Errorf("destroy aborted: failed to suspend kustomization %q before teardown: %w (suspension keeps a still-active kustomization from re-creating a resource that another component's Helm uninstall is mid-way through deleting, which would deadlock the uninstall on its fluxcd finalizer)", kustomization.Name, err)
+			return fmt.Errorf("destroy aborted: failed to suspend kustomization %q: %w", kustomization.Name, err)
 		}
 	}
 
