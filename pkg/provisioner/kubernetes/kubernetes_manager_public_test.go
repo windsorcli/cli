@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // KubernetesTestMocks contains all the mock dependencies for testing the KubernetesManager
@@ -2994,6 +2995,135 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 		if deleteCalls[0] != "test-kustomization-2" {
 			t.Errorf("Expected delete call for 'test-kustomization-2', got %s", deleteCalls[0])
+		}
+	})
+
+	t.Run("SuspendsEligibleKustomizationsBeforeDeleting", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var events []string
+		var suspendPatches []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			if string(data) == `{"spec":{"suspend":true}}` {
+				suspendPatches = append(suspendPatches, name)
+				events = append(events, "suspend:"+name)
+			}
+			return nil, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			events = append(events, "delete:"+name)
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		destroyFalse := false
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "test-kustomization-1"},
+				{Name: "test-kustomization-2"},
+				{Name: "pinned-keep", Destroy: &blueprintv1alpha1.BoolExpression{Value: &destroyFalse, IsExpr: false}},
+			},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if len(suspendPatches) != 2 {
+			t.Fatalf("Expected 2 suspend patches, got %d (%v)", len(suspendPatches), suspendPatches)
+		}
+		for _, name := range suspendPatches {
+			if name == "pinned-keep" {
+				t.Errorf("Expected destroy=false kustomization not to be suspended, but %q was", name)
+			}
+		}
+
+		firstDelete := -1
+		lastSuspend := -1
+		for i, e := range events {
+			switch {
+			case strings.HasPrefix(e, "delete:") && firstDelete == -1:
+				firstDelete = i
+			case strings.HasPrefix(e, "suspend:"):
+				lastSuspend = i
+			}
+		}
+		if firstDelete == -1 {
+			t.Fatalf("Expected at least one delete, got events %v", events)
+		}
+		if lastSuspend == -1 {
+			t.Fatalf("Expected at least one suspend, got events %v", events)
+		}
+		if lastSuspend >= firstDelete {
+			t.Fatalf("Expected all suspends before any delete, got events %v", events)
+		}
+	})
+
+	t.Run("AbortsWhenSuspendFails", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var deleteCalls []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleteCalls = append(deleteCalls, name)
+			return nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "test-kustomization-1"}},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err == nil {
+			t.Fatal("Expected error when suspend fails, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to suspend kustomization") {
+			t.Errorf("Expected suspend-failure error, got %v", err)
+		}
+		if len(deleteCalls) != 0 {
+			t.Errorf("Expected no delete calls when suspend fails, got %v", deleteCalls)
+		}
+	})
+
+	t.Run("ToleratesNotFoundOnSuspend", func(t *testing.T) {
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var deleteCalls []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			deleteCalls = append(deleteCalls, name)
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:       blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "test-kustomization-1"}},
+		}
+
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Fatalf("Expected NotFound on suspend to be tolerated, got %v", err)
+		}
+		if len(deleteCalls) != 1 {
+			t.Errorf("Expected 1 delete call, got %v", deleteCalls)
 		}
 	})
 

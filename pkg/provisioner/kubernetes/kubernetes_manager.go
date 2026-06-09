@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // =============================================================================
@@ -982,6 +983,12 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		}
 		eligible = append(eligible, kustomization)
 	}
+	for _, kustomization := range eligible {
+		if err := k.suspendKustomization(kustomization.Name, namespace); err != nil {
+			return fmt.Errorf("destroy aborted: failed to suspend kustomization %q: %w", kustomization.Name, err)
+		}
+	}
+
 	for _, kustomization := range orderForDestroy(eligible, "destroy") {
 		tui.Start(fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
 		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
@@ -1184,9 +1191,33 @@ func (k *BaseKubernetesManager) applyBlueprintSource(source blueprintv1alpha1.So
 	return k.applyBlueprintGitRepository(source, namespace)
 }
 
-// =============================================================================
-// Private Methods
-// =============================================================================
+// suspendKustomization sets spec.suspend=true so the kustomize-controller stops
+// reconciling the Kustomization. DeleteBlueprint suspends every eligible
+// Kustomization before the ordered delete walk: an un-deleted Kustomization that
+// keeps reconciling can re-create a (often cluster-scoped) resource that another
+// component's Helm uninstall is mid-way through deleting, deadlocking it — Helm
+// waits for the resource to disappear while Flux restores it, so the HelmRelease
+// never drops its finalizers.fluxcd.io finalizer and the namespace hangs in
+// Terminating until destroy times out. Suspension does not block the later
+// delete: the controller's deletion branch runs ahead of the suspend
+// short-circuit, so the finalizer still prunes (WaitForTermination) when the
+// Kustomization is removed. A NotFound Kustomization is treated as success.
+func (k *BaseKubernetesManager) suspendKustomization(name, namespace string) error {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+	patch := []byte(`{"spec":{"suspend":true}}`)
+	opts := metav1.PatchOptions{FieldManager: "windsor-cli"}
+	if _, err := k.client.PatchResource(context.Background(), gvr, namespace, name, types.MergePatchType, patch, opts); err != nil {
+		if isNotFoundError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
 
 // gitopsMode returns the configured gitops mode, defaulting to pull. Centralising
 // the "gitops.mode" config read here keeps the several call sites below in sync:
