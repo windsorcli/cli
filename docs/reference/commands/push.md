@@ -29,6 +29,6 @@ windsor push registry.example.com/myorg/myblueprint
 
 ## See also
 
-- [Metadata reference](../metadata.md)
-- [`bundle`](bundle.md)
+- [Metadata reference](/reference/cli/metadata)
+- [`bundle`](/reference/cli/commands/bundle)
 - Source: [cmd/push.go](https://github.com/windsorcli/cli/blob/main/cmd/push.go)

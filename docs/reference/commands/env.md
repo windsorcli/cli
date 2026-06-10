@@ -37,5 +37,5 @@ windsor env
 
 ## See also
 
-- [`hook`](hook.md), [`exec`](exec.md)
+- [`hook`](/reference/cli/commands/hook), [`exec`](/reference/cli/commands/exec)
 - Source: [cmd/env.go](https://github.com/windsorcli/cli/blob/main/cmd/env.go)

@@ -39,5 +39,5 @@ windsor up --blueprint=ghcr.io/myorg/blueprint:v1.0.0
 
 ## See also
 
-- [`down`](down.md), [`apply`](apply.md), [`destroy`](destroy.md)
+- [`down`](/reference/cli/commands/down), [`apply`](/reference/cli/commands/apply), [`destroy`](/reference/cli/commands/destroy)
 - Source: [cmd/up.go](https://github.com/windsorcli/cli/blob/main/cmd/up.go)

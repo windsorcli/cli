@@ -40,5 +40,5 @@ windsor configure network --revert
 
 ## See also
 
-- [`up`](up.md)
+- [`up`](/reference/cli/commands/up)
 - Source: [cmd/configure.go](https://github.com/windsorcli/cli/blob/main/cmd/configure.go)

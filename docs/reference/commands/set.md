@@ -12,9 +12,9 @@ Set a Windsor resource. Currently supports 'context'.
 
 ## Subcommands
 
-- [`windsor set context`](set-context.md) — Switch the current context.
+- [`windsor set context`](/reference/cli/commands/set-context) — Switch the current context.
 
 ## See also
 
-- [`init`](init.md), [`get`](get.md)
+- [`init`](/reference/cli/commands/init), [`get`](/reference/cli/commands/get)
 - Source: [cmd/set.go](https://github.com/windsorcli/cli/blob/main/cmd/set.go)

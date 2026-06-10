@@ -14,7 +14,7 @@ Fails fast if a required tool is missing or at the wrong version, or if credenti
 
 ## Subcommands
 
-- [`windsor check node-health`](check-node-health.md) — Check the health of cluster nodes.
+- [`windsor check node-health`](/reference/cli/commands/check-node-health) — Check the health of cluster nodes.
 
 ## Examples
 
@@ -25,5 +25,5 @@ windsor check
 
 ## See also
 
-- [`upgrade`](upgrade.md), [`up`](up.md)
+- [`upgrade`](/reference/cli/commands/upgrade), [`up`](/reference/cli/commands/up)
 - Source: [cmd/check.go](https://github.com/windsorcli/cli/blob/main/cmd/check.go)

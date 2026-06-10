@@ -223,8 +223,8 @@ contexts:
 
 ## See also
 
-- [Contexts reference](contexts.md) — context layout, on-disk files, and lifecycle
-- [Blueprint reference](blueprint.md), [Facets reference](facets.md)
-- [`init`](commands/init.md), [`show values`](commands/show-values.md), [`get contexts`](commands/get-contexts.md)
-- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Contexts guide](https://www.windsorcli.dev/docs/cli/contexts)
+- [Contexts reference](/reference/cli/contexts) — context layout, on-disk files, and lifecycle
+- [Blueprint reference](/reference/cli/blueprint), [Facets reference](/reference/cli/facets)
+- [`init`](/reference/cli/commands/init), [`show values`](/reference/cli/commands/show-values), [`get contexts`](/reference/cli/commands/get-contexts)
+- [Lifecycle guide](/contexts/lifecycle), [Contexts guide](/contexts/overview)
 - Source schema: [pkg/runtime/config/schemas/artifacts/configuration.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/configuration.yaml)

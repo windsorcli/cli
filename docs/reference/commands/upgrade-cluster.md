@@ -30,6 +30,6 @@ windsor upgrade cluster \
 
 ## See also
 
-- [`upgrade node`](upgrade-node.md)
-- [`check node-health`](check-node-health.md)
+- [`upgrade node`](/reference/cli/commands/upgrade-node)
+- [`check node-health`](/reference/cli/commands/check-node-health)
 - Source: [cmd/upgrade.go](https://github.com/windsorcli/cli/blob/main/cmd/upgrade.go)

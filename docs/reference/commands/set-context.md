@@ -20,5 +20,5 @@ windsor get context
 
 ## See also
 
-- [`init`](init.md), [`get context`](get-context.md)
+- [`init`](/reference/cli/commands/init), [`get context`](/reference/cli/commands/get-context)
 - Source: [cmd/set.go](https://github.com/windsorcli/cli/blob/main/cmd/set.go)

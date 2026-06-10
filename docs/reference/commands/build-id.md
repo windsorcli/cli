@@ -34,5 +34,5 @@ docker build -t myapp:$BUILD_ID .
 
 ## See also
 
-- [`env`](env.md)
+- [`env`](/reference/cli/commands/env)
 - Source: [cmd/build_id.go](https://github.com/windsorcli/cli/blob/main/cmd/build_id.go)

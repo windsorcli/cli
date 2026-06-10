@@ -33,5 +33,5 @@ windsor apply kustomize dns --wait
 
 ## See also
 
-- [`apply`](apply.md), [`plan kustomize`](plan-kustomize.md), [`destroy kustomize`](destroy-kustomize.md)
+- [`apply`](/reference/cli/commands/apply), [`plan kustomize`](/reference/cli/commands/plan-kustomize), [`destroy kustomize`](/reference/cli/commands/destroy-kustomize)
 - Source: [cmd/apply.go](https://github.com/windsorcli/cli/blob/main/cmd/apply.go)

@@ -29,6 +29,6 @@ windsor show kustomization dns --json
 
 ## See also
 
-- [`apply`](apply.md), [`plan`](plan.md)
-- [Blueprint reference](../blueprint.md)
+- [`apply`](/reference/cli/commands/apply), [`plan`](/reference/cli/commands/plan)
+- [Blueprint reference](/reference/cli/blueprint)
 - Source: [cmd/show.go](https://github.com/windsorcli/cli/blob/main/cmd/show.go)
