@@ -41,5 +41,5 @@ windsor bootstrap prod --yes
 
 ## See also
 
-- [`init`](/reference/cli/commands/init), [`apply`](/reference/cli/commands/apply), [`destroy`](/reference/cli/commands/destroy)
+- [`init`](init.md), [`apply`](apply.md), [`destroy`](destroy.md)
 - Source: [cmd/bootstrap.go](https://github.com/windsorcli/cli/blob/main/cmd/bootstrap.go)

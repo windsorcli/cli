@@ -49,5 +49,5 @@ windsor init staging --platform=aws --aws-profile=staging
 
 ## See also
 
-- [`up`](/reference/cli/commands/up), [`apply`](/reference/cli/commands/apply), [`bootstrap`](/reference/cli/commands/bootstrap)
+- [`up`](up.md), [`apply`](apply.md), [`bootstrap`](bootstrap.md)
 - Source: [cmd/init.go](https://github.com/windsorcli/cli/blob/main/cmd/init.go)

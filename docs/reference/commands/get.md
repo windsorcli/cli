@@ -12,10 +12,10 @@ Display Windsor resources. Currently supports listing contexts and printing the 
 
 ## Subcommands
 
-- [`windsor get context`](/reference/cli/commands/get-context) — Print the current context.
-- [`windsor get contexts`](/reference/cli/commands/get-contexts) — List all available contexts.
+- [`windsor get context`](get-context.md) — Print the current context.
+- [`windsor get contexts`](get-contexts.md) — List all available contexts.
 
 ## See also
 
-- [`set`](/reference/cli/commands/set)
+- [`set`](set.md)
 - Source: [cmd/get.go](https://github.com/windsorcli/cli/blob/main/cmd/get.go)

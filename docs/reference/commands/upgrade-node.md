@@ -30,6 +30,6 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 
 ## See also
 
-- [`upgrade cluster`](/reference/cli/commands/upgrade-cluster)
-- [`check node-health`](/reference/cli/commands/check-node-health)
+- [`upgrade cluster`](upgrade-cluster.md)
+- [`check node-health`](check-node-health.md)
 - Source: [cmd/upgrade.go](https://github.com/windsorcli/cli/blob/main/cmd/upgrade.go)

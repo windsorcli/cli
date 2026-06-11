@@ -25,5 +25,5 @@ windsor down
 
 ## See also
 
-- [`up`](/reference/cli/commands/up), [`destroy`](/reference/cli/commands/destroy), [`configure network`](/reference/cli/commands/configure-network)
+- [`up`](up.md), [`destroy`](destroy.md), [`configure network`](configure-network.md)
 - Source: [cmd/down.go](https://github.com/windsorcli/cli/blob/main/cmd/down.go)

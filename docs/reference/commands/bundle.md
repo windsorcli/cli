@@ -39,6 +39,6 @@ windsor bundle -t myapp:v1.0.0 -o ./dist/
 
 ## See also
 
-- [Metadata reference](/reference/cli/metadata)
-- [`push`](/reference/cli/commands/push)
+- [Metadata reference](../metadata.md)
+- [`push`](push.md)
 - Source: [cmd/bundle.go](https://github.com/windsorcli/cli/blob/main/cmd/bundle.go)

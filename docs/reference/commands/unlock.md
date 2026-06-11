@@ -31,5 +31,5 @@ windsor unlock --force
 
 ## See also
 
-- [`destroy`](/reference/cli/commands/destroy), [`up`](/reference/cli/commands/up)
+- [`destroy`](destroy.md), [`up`](up.md)
 - Source: [cmd/unlock.go](https://github.com/windsorcli/cli/blob/main/cmd/unlock.go)

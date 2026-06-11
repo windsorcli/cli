@@ -12,10 +12,10 @@ Upgrade cluster components. Currently supports Talos node upgrades via the 'clus
 
 ## Subcommands
 
-- [`windsor upgrade cluster`](/reference/cli/commands/upgrade-cluster) — Upgrade cluster nodes in parallel.
-- [`windsor upgrade node`](/reference/cli/commands/upgrade-node) — Upgrade a single cluster node and wait for it to rejoin.
+- [`windsor upgrade cluster`](upgrade-cluster.md) — Upgrade cluster nodes in parallel.
+- [`windsor upgrade node`](upgrade-node.md) — Upgrade a single cluster node and wait for it to rejoin.
 
 ## See also
 
-- [`check node-health`](/reference/cli/commands/check-node-health)
+- [`check node-health`](check-node-health.md)
 - Source: [cmd/upgrade.go](https://github.com/windsorcli/cli/blob/main/cmd/upgrade.go)

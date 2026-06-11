@@ -140,7 +140,7 @@ kustomize:
 
 ## See also
 
-- [Blueprint reference](/reference/cli/blueprint) — for the inherited TerraformComponent and Kustomization fields
-- [`apply`](/reference/cli/commands/apply), [`up`](/reference/cli/commands/up), [`explain`](/reference/cli/commands/explain)
-- [Lifecycle guide](/contexts/lifecycle)
+- [Blueprint reference](blueprint.md) — for the inherited TerraformComponent and Kustomization fields
+- [`apply`](commands/apply.md), [`up`](commands/up.md), [`explain`](commands/explain.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle)
 - Source schema: [pkg/runtime/config/schemas/artifacts/facets.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/facets.yaml)

@@ -28,6 +28,6 @@ windsor show values --json
 
 ## See also
 
-- [`explain`](/reference/cli/commands/explain)
-- [Configuration reference](/reference/cli/configuration)
+- [`explain`](explain.md)
+- [Configuration reference](../configuration.md)
 - Source: [cmd/show.go](https://github.com/windsorcli/cli/blob/main/cmd/show.go)

@@ -14,12 +14,12 @@ Unresolved deferred values render as '<deferred>' by default in 'blueprint' and 
 
 ## Subcommands
 
-- [`windsor show blueprint`](/reference/cli/commands/show-blueprint) — Display the fully rendered blueprint.
-- [`windsor show kustomization`](/reference/cli/commands/show-kustomization) — Display the Flux Kustomization resource for a component.
-- [`windsor show values`](/reference/cli/commands/show-values) — Display the effective context values.
+- [`windsor show blueprint`](show-blueprint.md) — Display the fully rendered blueprint.
+- [`windsor show kustomization`](show-kustomization.md) — Display the Flux Kustomization resource for a component.
+- [`windsor show values`](show-values.md) — Display the effective context values.
 
 ## See also
 
-- [`explain`](/reference/cli/commands/explain), [`plan`](/reference/cli/commands/plan)
-- [Blueprint reference](/reference/cli/blueprint), [Configuration reference](/reference/cli/configuration)
+- [`explain`](explain.md), [`plan`](plan.md)
+- [Blueprint reference](../blueprint.md), [Configuration reference](../configuration.md)
 - Source: [cmd/show.go](https://github.com/windsorcli/cli/blob/main/cmd/show.go)

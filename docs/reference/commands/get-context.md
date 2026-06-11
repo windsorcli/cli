@@ -19,5 +19,5 @@ windsor get context
 
 ## See also
 
-- [`set context`](/reference/cli/commands/set-context)
+- [`set context`](set-context.md)
 - Source: [cmd/get.go](https://github.com/windsorcli/cli/blob/main/cmd/get.go)

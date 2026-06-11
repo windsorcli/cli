@@ -39,10 +39,10 @@ contexts/
 
 | Path | Type | Description |
 |------|------|-------------|
-| `blueprint.yaml` | YAML | Blueprint definition: kind, apiVersion, metadata, terraform components, kustomizations. See [Blueprint reference](/reference/cli/blueprint). |
-| `metadata.yaml` | YAML | Artifact metadata used by `windsor bundle` and `windsor push`. See [Metadata reference](/reference/cli/metadata). |
+| `blueprint.yaml` | YAML | Blueprint definition: kind, apiVersion, metadata, terraform components, kustomizations. See [Blueprint reference](blueprint.md). |
+| `metadata.yaml` | YAML | Artifact metadata used by `windsor bundle` and `windsor push`. See [Metadata reference](metadata.md). |
 | `schema.yaml` | YAML (JSON Schema 2020-12) | Validates the merged values object before render. Also supplies the defaults shown by `windsor values`. |
-| `tests/<name>.test.yaml` | YAML | Composition tests run by `windsor test`. See [Testing reference](/reference/cli/testing). |
+| `tests/<name>.test.yaml` | YAML | Composition tests run by `windsor test`. See [Testing reference](testing.md). |
 | `terraform/<path>/` | Directory | Local Terraform modules referenced by blueprint components. |
 | `kustomize/<path>/` | Directory | Kustomization bases and patches referenced by blueprint kustomizations. |
 
@@ -73,7 +73,7 @@ config under `~/`.
 
 ## See also
 
-- [Windsor state directory](/reference/cli/windsor-dir) — system-managed `.windsor/` layout
-- [Blueprint reference](/reference/cli/blueprint), [Configuration reference](/reference/cli/configuration)
-- [Metadata reference](/reference/cli/metadata), [Testing reference](/reference/cli/testing)
-- [`init`](/reference/cli/commands/init), [`set`](/reference/cli/commands/set), [`get`](/reference/cli/commands/get), [`bootstrap`](/reference/cli/commands/bootstrap)
+- [Windsor state directory](windsor-dir.md) — system-managed `.windsor/` layout
+- [Blueprint reference](blueprint.md), [Configuration reference](configuration.md)
+- [Metadata reference](metadata.md), [Testing reference](testing.md)
+- [`init`](commands/init.md), [`set`](commands/set.md), [`get`](commands/get.md), [`bootstrap`](commands/bootstrap.md)

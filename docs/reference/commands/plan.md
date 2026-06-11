@@ -26,8 +26,8 @@ The --summary, --json, and --no-color flags are persistent and apply to all subc
 
 ## Subcommands
 
-- [`windsor plan kustomize`](/reference/cli/commands/plan-kustomize) — Plan Flux kustomization changes.
-- [`windsor plan terraform`](/reference/cli/commands/plan-terraform) — Plan Terraform changes.
+- [`windsor plan kustomize`](plan-kustomize.md) — Plan Flux kustomization changes.
+- [`windsor plan terraform`](plan-terraform.md) — Plan Terraform changes.
 
 ## Examples
 
@@ -47,5 +47,5 @@ windsor plan terraform cluster
 
 ## See also
 
-- [`apply`](/reference/cli/commands/apply), [`show`](/reference/cli/commands/show), [`explain`](/reference/cli/commands/explain)
+- [`apply`](apply.md), [`show`](show.md), [`explain`](explain.md)
 - Source: [cmd/plan.go](https://github.com/windsorcli/cli/blob/main/cmd/plan.go)

@@ -25,8 +25,8 @@ The default behavior is to abort on the first per-component destroy failure. Pas
 
 ## Subcommands
 
-- [`windsor destroy kustomize`](/reference/cli/commands/destroy-kustomize) — Destroy Flux kustomization(s).
-- [`windsor destroy terraform`](/reference/cli/commands/destroy-terraform) — Destroy Terraform component(s).
+- [`windsor destroy kustomize`](destroy-kustomize.md) — Destroy Flux kustomization(s).
+- [`windsor destroy terraform`](destroy-terraform.md) — Destroy Terraform component(s).
 
 ## Examples
 
@@ -47,5 +47,5 @@ windsor destroy --confirm=local --continue
 
 ## See also
 
-- [`apply`](/reference/cli/commands/apply), [`down`](/reference/cli/commands/down), [`plan`](/reference/cli/commands/plan)
+- [`apply`](apply.md), [`down`](down.md), [`plan`](plan.md)
 - Source: [cmd/destroy.go](https://github.com/windsorcli/cli/blob/main/cmd/destroy.go)

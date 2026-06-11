@@ -30,5 +30,5 @@ windsor hook powershell | Out-String | Invoke-Expression
 
 ## See also
 
-- [`env`](/reference/cli/commands/env), [`exec`](/reference/cli/commands/exec)
+- [`env`](env.md), [`exec`](exec.md)
 - Source: [cmd/hook.go](https://github.com/windsorcli/cli/blob/main/cmd/hook.go)

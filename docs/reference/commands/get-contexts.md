@@ -23,5 +23,5 @@ windsor get contexts
 
 ## See also
 
-- [`set`](/reference/cli/commands/set)
+- [`set`](set.md)
 - Source: [cmd/get.go](https://github.com/windsorcli/cli/blob/main/cmd/get.go)

@@ -155,8 +155,8 @@ substitutions:
 
 ## See also
 
-- [Facets reference](/reference/cli/facets), [Metadata reference](/reference/cli/metadata), [Schema reference](/blueprints/schema)
-- [`apply`](/reference/cli/commands/apply), [`up`](/reference/cli/commands/up), [`bootstrap`](/reference/cli/commands/bootstrap), [`destroy`](/reference/cli/commands/destroy)
-- [`show blueprint`](/reference/cli/commands/show-blueprint), [`explain`](/reference/cli/commands/explain)
-- [Lifecycle guide](/contexts/lifecycle), [Sharing blueprints](/blueprints/sharing)
+- [Facets reference](facets.md), [Metadata reference](metadata.md), [Schema reference](schema.md)
+- [`apply`](commands/apply.md), [`up`](commands/up.md), [`bootstrap`](commands/bootstrap.md), [`destroy`](commands/destroy.md)
+- [`show blueprint`](commands/show-blueprint.md), [`explain`](commands/explain.md)
+- [Lifecycle guide](https://www.windsorcli.dev/docs/cli/lifecycle), [Sharing blueprints](https://www.windsorcli.dev/docs/blueprints/sharing)
 - Source schema: [pkg/runtime/config/schemas/artifacts/blueprint.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/blueprint.yaml)

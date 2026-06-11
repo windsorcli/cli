@@ -32,6 +32,6 @@ windsor show blueprint --json
 
 ## See also
 
-- [`explain`](/reference/cli/commands/explain), [`plan`](/reference/cli/commands/plan)
-- [Blueprint reference](/reference/cli/blueprint)
+- [`explain`](explain.md), [`plan`](plan.md)
+- [Blueprint reference](../blueprint.md)
 - Source: [cmd/show.go](https://github.com/windsorcli/cli/blob/main/cmd/show.go)

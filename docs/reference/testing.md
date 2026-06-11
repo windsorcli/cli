@@ -114,7 +114,7 @@ cases:
 
 ## See also
 
-- [`windsor test`](/reference/cli/commands/test)
-- [Blueprint reference](/reference/cli/blueprint), [Facets reference](/reference/cli/facets)
-- [Blueprint testing](/blueprints/testing)
+- [`windsor test`](commands/test.md)
+- [Blueprint reference](blueprint.md), [Facets reference](facets.md)
+- [Blueprint testing](https://www.windsorcli.dev/docs/blueprints/testing)
 - Source schema: [pkg/runtime/config/schemas/artifacts/testing.yaml](https://github.com/windsorcli/cli/blob/main/pkg/runtime/config/schemas/artifacts/testing.yaml)

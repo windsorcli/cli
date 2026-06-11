@@ -28,5 +28,5 @@ windsor exec ./scripts/deploy.sh
 
 ## See also
 
-- [`env`](/reference/cli/commands/env), [`hook`](/reference/cli/commands/hook)
+- [`env`](env.md), [`hook`](hook.md)
 - Source: [cmd/exec.go](https://github.com/windsorcli/cli/blob/main/cmd/exec.go)

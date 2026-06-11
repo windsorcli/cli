@@ -12,9 +12,9 @@ Configure workstation host/guest resources. Currently supports networking and DN
 
 ## Subcommands
 
-- [`windsor configure network`](/reference/cli/commands/configure-network) — Configure workstation host/guest networking and DNS.
+- [`windsor configure network`](configure-network.md) — Configure workstation host/guest networking and DNS.
 
 ## See also
 
-- [`up`](/reference/cli/commands/up)
+- [`up`](up.md)
 - Source: [cmd/configure.go](https://github.com/windsorcli/cli/blob/main/cmd/configure.go)

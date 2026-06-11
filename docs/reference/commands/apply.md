@@ -22,8 +22,8 @@ Pass --wait to block until kustomizations report ready.
 
 ## Subcommands
 
-- [`windsor apply kustomize`](/reference/cli/commands/apply-kustomize) — Apply Flux kustomization(s) to the cluster.
-- [`windsor apply terraform`](/reference/cli/commands/apply-terraform) — Apply Terraform changes for a single component.
+- [`windsor apply kustomize`](apply-kustomize.md) — Apply Flux kustomization(s) to the cluster.
+- [`windsor apply terraform`](apply-terraform.md) — Apply Terraform changes for a single component.
 
 ## Examples
 
@@ -40,5 +40,5 @@ windsor apply kustomize dns
 
 ## See also
 
-- [`plan`](/reference/cli/commands/plan), [`destroy`](/reference/cli/commands/destroy), [`up`](/reference/cli/commands/up), [`bootstrap`](/reference/cli/commands/bootstrap)
+- [`plan`](plan.md), [`destroy`](destroy.md), [`up`](up.md), [`bootstrap`](bootstrap.md)
 - Source: [cmd/apply.go](https://github.com/windsorcli/cli/blob/main/cmd/apply.go)

@@ -26,5 +26,5 @@ windsor test cluster-defaults
 
 ## See also
 
-- [Testing reference](/reference/cli/testing)
+- [Testing reference](../testing.md)
 - Source: [cmd/test.go](https://github.com/windsorcli/cli/blob/main/cmd/test.go)
