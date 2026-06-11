@@ -3127,6 +3127,83 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("ResumesEachKustomizationImmediatelyBeforeDeletingIt", func(t *testing.T) {
+		// Given a blueprint with two eligible kustomizations and a client that
+		// records the ordered sequence of suspend/resume patches and deletes
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var events []string
+		kubernetesClient.PatchResourceFunc = func(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions) (*unstructured.Unstructured, error) {
+			switch string(data) {
+			case `{"spec":{"suspend":true}}`:
+				events = append(events, "suspend:"+name)
+			case `{"spec":{"suspend":false}}`:
+				events = append(events, "resume:"+name)
+			}
+			return nil, nil
+		}
+		kubernetesClient.DeleteResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string, opts metav1.DeleteOptions) error {
+			events = append(events, "delete:"+name)
+			return nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("the server could not find the requested resource")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "test-kustomization-1"},
+				{Name: "test-kustomization-2"},
+			},
+		}
+
+		// When the blueprint is deleted
+		err := manager.DeleteBlueprint(blueprint, "test-namespace")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then every eligible kustomization is suspended before any delete starts
+		// (the freeze that prevents a still-active kustomization from re-creating
+		// resources mid-teardown), and each is resumed immediately before its own
+		// delete so the Flux finalizer prunes its inventory rather than orphaning it
+		firstResume, lastSuspend := -1, -1
+		for i, e := range events {
+			if strings.HasPrefix(e, "suspend:") {
+				lastSuspend = i
+			}
+			if strings.HasPrefix(e, "resume:") && firstResume == -1 {
+				firstResume = i
+			}
+		}
+		if lastSuspend == -1 || firstResume == -1 {
+			t.Fatalf("Expected both suspend and resume patches, got events %v", events)
+		}
+		if lastSuspend >= firstResume {
+			t.Fatalf("Expected all suspends before any resume (freeze-all-first), got events %v", events)
+		}
+		for _, name := range []string{"test-kustomization-1", "test-kustomization-2"} {
+			resumeIdx, deleteIdx := -1, -1
+			for i, e := range events {
+				switch e {
+				case "resume:" + name:
+					resumeIdx = i
+				case "delete:" + name:
+					deleteIdx = i
+				}
+			}
+			if resumeIdx == -1 || deleteIdx == -1 {
+				t.Fatalf("Expected %q to be both resumed and deleted, got events %v", name, events)
+			}
+			if resumeIdx != deleteIdx-1 {
+				t.Fatalf("Expected resume of %q immediately before its delete, got events %v", name, events)
+			}
+		}
+	})
+
 	t.Run("SuccessWithDestroyOnlyKustomizations", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
