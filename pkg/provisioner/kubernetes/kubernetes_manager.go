@@ -984,13 +984,17 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 		eligible = append(eligible, kustomization)
 	}
 	for _, kustomization := range eligible {
-		if err := k.suspendKustomization(kustomization.Name, namespace); err != nil {
+		if err := k.setKustomizationSuspend(kustomization.Name, namespace, true); err != nil {
 			return fmt.Errorf("destroy aborted: failed to suspend kustomization %q: %w", kustomization.Name, err)
 		}
 	}
 
 	for _, kustomization := range orderForDestroy(eligible, "destroy") {
 		tui.Start(fmt.Sprintf("Destroying kustomization %s", kustomization.Name))
+		if err := k.setKustomizationSuspend(kustomization.Name, namespace, false); err != nil {
+			tui.Fail()
+			return fmt.Errorf("destroy aborted: failed to resume kustomization %q before delete: %w", kustomization.Name, err)
+		}
 		if err := k.DeleteKustomization(kustomization.Name, namespace); err != nil {
 			tui.Fail()
 			return fmt.Errorf("destroy aborted: failed to delete kustomization %q: %w (further deletions skipped to avoid cascading orphans)", kustomization.Name, err)
@@ -1191,24 +1195,27 @@ func (k *BaseKubernetesManager) applyBlueprintSource(source blueprintv1alpha1.So
 	return k.applyBlueprintGitRepository(source, namespace)
 }
 
-// suspendKustomization sets spec.suspend=true so the kustomize-controller stops
-// reconciling the Kustomization. DeleteBlueprint suspends every eligible
-// Kustomization before the ordered delete walk: an un-deleted Kustomization that
-// keeps reconciling can re-create a (often cluster-scoped) resource that another
-// component's Helm uninstall is mid-way through deleting, deadlocking it — Helm
-// waits for the resource to disappear while Flux restores it, so the HelmRelease
-// never drops its finalizers.fluxcd.io finalizer and the namespace hangs in
-// Terminating until destroy times out. Suspension does not block the later
-// delete: the controller's deletion branch runs ahead of the suspend
-// short-circuit, so the finalizer still prunes (WaitForTermination) when the
-// Kustomization is removed. A NotFound Kustomization is treated as success.
-func (k *BaseKubernetesManager) suspendKustomization(name, namespace string) error {
+// setKustomizationSuspend patches spec.suspend on a Kustomization. DeleteBlueprint
+// suspends every eligible Kustomization up front to freeze reconciliation: an
+// un-deleted Kustomization that keeps reconciling can re-create a (often
+// cluster-scoped) resource that another component's Helm uninstall is mid-way
+// through deleting, deadlocking it — Helm waits for the resource to disappear while
+// Flux restores it, so the HelmRelease never drops its finalizers.fluxcd.io
+// finalizer and the namespace hangs in Terminating until destroy times out. The
+// frozen Kustomizations are then resumed (suspend=false) one at a time, each
+// immediately before its own delete: the kustomize-controller's finalizer prunes
+// managed inventory only when the object is NOT suspended, so deleting a still-
+// suspended Kustomization strips its finalizer without garbage-collecting its
+// resources, orphaning them and letting destroy race ahead. Resuming just before
+// delete keeps every other Kustomization frozen while letting the one being deleted
+// prune. A NotFound Kustomization is treated as success.
+func (k *BaseKubernetesManager) setKustomizationSuspend(name, namespace string, suspend bool) error {
 	gvr := schema.GroupVersionResource{
 		Group:    "kustomize.toolkit.fluxcd.io",
 		Version:  "v1",
 		Resource: "kustomizations",
 	}
-	patch := []byte(`{"spec":{"suspend":true}}`)
+	patch := fmt.Appendf(nil, `{"spec":{"suspend":%t}}`, suspend)
 	opts := metav1.PatchOptions{FieldManager: "windsor-cli"}
 	if _, err := k.client.PatchResource(context.Background(), gvr, namespace, name, types.MergePatchType, patch, opts); err != nil {
 		if isNotFoundError(err) {
