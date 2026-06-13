@@ -311,7 +311,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		}
 	}
 
-	addCrdKustomizations(kustomizationByName, crdRefs, sourceName)
+	addCrdKustomizations(target, kustomizationByName, crdRefs, sourceName)
 
 	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {
 		return nil, err
@@ -1015,11 +1015,16 @@ func appendCrdDependencies(dependsOn []string, crds []string, self string) []str
 // addCrdKustomizations injects one synthesized kustomization per unique CRD reference into the
 // collected set, sourced at kustomize/crds/<ref>. Pruning is disabled because pruning a CRD
 // deletes every custom resource of that kind cluster-wide, and wait is enabled so dependents
-// block until the CRDs are Established. A reference that already names an authored kustomization
-// is left untouched so an explicit definition always wins.
-func addCrdKustomizations(kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, crdRefs map[string]struct{}, sourceName []string) {
+// block until the CRDs are Established. A reference that already names an authored kustomization —
+// whether contributed by a facet or carried by the base blueprint — is left untouched so an
+// explicit definition always wins.
+func addCrdKustomizations(target *blueprintv1alpha1.Blueprint, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, crdRefs map[string]struct{}, sourceName []string) {
 	if len(crdRefs) == 0 {
 		return
+	}
+	authored := make(map[string]struct{}, len(target.Kustomizations))
+	for _, k := range target.Kustomizations {
+		authored[k.Name] = struct{}{}
 	}
 	source := resolveSourceName(sourceName)
 	refs := make([]string, 0, len(crdRefs))
@@ -1029,6 +1034,9 @@ func addCrdKustomizations(kustomizationByName map[string]*blueprintv1alpha1.Cond
 	sort.Strings(refs)
 	for _, ref := range refs {
 		if _, exists := kustomizationByName[ref]; exists {
+			continue
+		}
+		if _, exists := authored[ref]; exists {
 			continue
 		}
 		prune := false

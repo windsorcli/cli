@@ -2413,6 +2413,39 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		}
 	})
 
+	t.Run("BaseBlueprintKustomizationTakesPrecedenceOverSynthesized", func(t *testing.T) {
+		// Given a base blueprint that already authors a kustomization named like a CRD ref,
+		// with prune explicitly enabled
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		prune := true
+		target := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "cert-manager-1.16.2", Path: "custom/crds", Prune: &prune},
+			},
+		}
+
+		facets := []blueprintv1alpha1.Facet{
+			{Metadata: blueprintv1alpha1.Metadata{Name: "pki"}, Crds: []string{"cert-manager-1.16.2"}},
+		}
+
+		// When a facet declares the same CRD reference
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then the base blueprint's entry is left untouched — its prune=true is not flipped to false
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		k := findKustomization(t, target, "cert-manager-1.16.2")
+		if k.Path != "custom/crds" {
+			t.Errorf("Expected base path 'custom/crds' to win, got %q", k.Path)
+		}
+		if k.Prune == nil || *k.Prune != true {
+			t.Errorf("Expected base prune=true to be preserved, got %v", k.Prune)
+		}
+	})
+
 	t.Run("RejectsPathTraversalCrdReference", func(t *testing.T) {
 		// Given a facet whose CRD reference contains path-traversal components
 		mocks := setupProcessorMocks(t)
