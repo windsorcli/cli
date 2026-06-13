@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,6 +61,61 @@ func TestWindsorTest_DerivedConfigFixture(t *testing.T) {
 	out := string(stdout) + string(stderr)
 	if !strings.Contains(out, "PASS") && !strings.Contains(out, "✓") {
 		t.Errorf("expected PASS or ✓ in output: %s", out)
+	}
+}
+
+// TestShowBlueprint_CrdsFacetSection verifies a facet's `crds:` section composes into the
+// blueprint: the referenced CRD becomes its own kustomization at kustomize/crds/<ref> with
+// pruning disabled and wait enabled, and the facet's own kustomization is wired to depend on it.
+func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-crds")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+
+	var bp struct {
+		Kustomize []struct {
+			Name      string   `yaml:"name"`
+			Path      string   `yaml:"path"`
+			Prune     *bool    `yaml:"prune"`
+			Wait      *bool    `yaml:"wait"`
+			DependsOn []string `yaml:"dependsOn"`
+		} `yaml:"kustomize"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+
+	byName := map[string]int{}
+	for i, k := range bp.Kustomize {
+		byName[k.Name] = i
+	}
+
+	crdIdx, ok := byName["cert-manager-1.16.2"]
+	if !ok {
+		t.Fatalf("expected synthesized CRD kustomization 'cert-manager-1.16.2', got %+v", bp.Kustomize)
+	}
+	crd := bp.Kustomize[crdIdx]
+	if crd.Path != "crds/cert-manager-1.16.2" {
+		t.Errorf("expected CRD path 'crds/cert-manager-1.16.2', got %q", crd.Path)
+	}
+	if crd.Prune == nil || *crd.Prune != false {
+		t.Errorf("expected CRD prune=false, got %v", crd.Prune)
+	}
+	if crd.Wait == nil || *crd.Wait != true {
+		t.Errorf("expected CRD wait=true, got %v", crd.Wait)
+	}
+
+	installIdx, ok := byName["cert-manager"]
+	if !ok {
+		t.Fatalf("expected facet kustomization 'cert-manager', got %+v", bp.Kustomize)
+	}
+	install := bp.Kustomize[installIdx]
+	if !slices.Contains(install.DependsOn, "cert-manager-1.16.2") {
+		t.Errorf("expected cert-manager to depend on cert-manager-1.16.2, got %v", install.DependsOn)
 	}
 }
 

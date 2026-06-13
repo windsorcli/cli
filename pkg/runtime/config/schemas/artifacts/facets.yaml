@@ -94,6 +94,17 @@ properties:
       strategy, ordinal, requires).
     items:
       $ref: '#/$defs/conditionalKustomization'
+  crds:
+    type: array
+    description: |
+      References into the vendored CRD catalog, version-pinned (e.g.
+      'cert-manager-1.16.2'). The composer emits one deduped kustomization
+      per reference at 'kustomize/crds/<ref>' with pruning disabled and wait
+      enabled, and makes every kustomization contributed by this facet depend
+      on it so the API surface is Established before any custom resource is
+      applied.
+    items:
+      type: string
   substitutions:
     type: object
     additionalProperties:

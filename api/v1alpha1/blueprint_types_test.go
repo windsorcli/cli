@@ -387,6 +387,40 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 		}
 	})
 
+	t.Run("MergesKustomizationPruneWaitForceFields", func(t *testing.T) {
+		// Given a base kustomization with prune/wait/force unset
+		base := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "crds"},
+			},
+		}
+
+		// And an overlay that sets prune=false, wait=true, force=true on the same name
+		prune := false
+		wait := true
+		force := true
+		overlay := &Blueprint{
+			Kustomizations: []Kustomization{
+				{Name: "crds", Prune: &prune, Wait: &wait, Force: &force},
+			},
+		}
+
+		// When strategic merging
+		base.StrategicMerge(overlay)
+
+		// Then the overlay's pointer fields are adopted (not silently dropped)
+		merged := base.Kustomizations[0]
+		if merged.Prune == nil || *merged.Prune != false {
+			t.Errorf("Expected prune=false to survive merge, got %v", merged.Prune)
+		}
+		if merged.Wait == nil || *merged.Wait != true {
+			t.Errorf("Expected wait=true to survive merge, got %v", merged.Wait)
+		}
+		if merged.Force == nil || *merged.Force != true {
+			t.Errorf("Expected force=true to survive merge, got %v", merged.Force)
+		}
+	})
+
 	t.Run("MergesKustomizationDestroyOnlyField", func(t *testing.T) {
 		base := &Blueprint{
 			Kustomizations: []Kustomization{
@@ -3009,7 +3043,7 @@ func TestBlueprint_BackendTier(t *testing.T) {
 		// when the named component is not found so a callsite that runs without
 		// validation does not panic.
 		bp := &Blueprint{
-			Backend: "ghost",
+			Backend:             "ghost",
 			TerraformComponents: []TerraformComponent{{Path: "vpc"}, {Path: "cluster"}},
 		}
 

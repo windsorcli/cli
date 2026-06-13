@@ -101,6 +101,11 @@ type Facet struct {
 	// Kustomizations are kustomization configs in the facet.
 	Kustomizations []ConditionalKustomization `yaml:"kustomize,omitempty"`
 
+	// Crds lists references into the vendored CRD catalog (e.g. "cert-manager-1.16.2").
+	// The composer emits one deduped kustomization per reference at kustomize/crds/<ref>
+	// and makes every kustomization in this facet depend on it.
+	Crds []string `yaml:"crds,omitempty"`
+
 	// Substitutions are top-level key/value pairs evaluated with facet scope and injected into
 	// values-common, making them available to all kustomizations via PostBuild substitution.
 	// Values may use expression syntax (e.g. "${dns.domain}") resolved against facet config blocks.
@@ -338,6 +343,7 @@ func (f *Facet) DeepCopy() *Facet {
 		Requires:            requiresCopy,
 		TerraformComponents: terraformComponentsCopy,
 		Kustomizations:      kustomizationsCopy,
+		Crds:                slices.Clone(f.Crds),
 		Substitutions:       maps.Clone(f.Substitutions),
 	}
 }
