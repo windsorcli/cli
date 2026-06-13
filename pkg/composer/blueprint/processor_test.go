@@ -2413,6 +2413,27 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		}
 	})
 
+	t.Run("RejectsPathTraversalCrdReference", func(t *testing.T) {
+		// Given a facet whose CRD reference contains path-traversal components
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		for _, ref := range []string{"../manifests/secrets", "nested/dir", "..", "a\\b"} {
+			facets := []blueprintv1alpha1.Facet{
+				{Metadata: blueprintv1alpha1.Metadata{Name: "bad"}, Crds: []string{ref}},
+			}
+
+			// When processing facets
+			target := &blueprintv1alpha1.Blueprint{}
+			_, err := processor.ProcessFacets(target, facets)
+
+			// Then composition fails rather than emitting a path outside crds/
+			if err == nil {
+				t.Errorf("Expected error for crd ref %q, got nil", ref)
+			}
+		}
+	})
+
 	t.Run("LeavesFacetsWithoutCrdsUnchanged", func(t *testing.T) {
 		// Given a facet with a kustomization and no CRD references
 		mocks := setupProcessorMocks(t)

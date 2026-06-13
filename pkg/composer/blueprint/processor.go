@@ -256,6 +256,14 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	}
 
 	for _, facet := range includedFacets {
+		for _, ref := range facet.Crds {
+			if ref == "" {
+				continue
+			}
+			if err := validateCrdRef(ref); err != nil {
+				return nil, fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
+			}
+		}
 		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, scope); err != nil {
 			return nil, err
 		}
@@ -979,6 +987,16 @@ func resolveSourceName(sourceName []string) string {
 		return sourceName[0]
 	}
 	return ""
+}
+
+// validateCrdRef rejects a CRD reference that would escape the kustomize/crds/ catalog when
+// concatenated into a path. A reference is a single directory segment, so any path separator or
+// parent-directory token is a malformed (or malicious) value.
+func validateCrdRef(ref string) error {
+	if strings.ContainsAny(ref, "/\\") || strings.Contains(ref, "..") {
+		return fmt.Errorf("invalid crd reference %q: must be a single path segment without '/', '\\', or '..'", ref)
+	}
+	return nil
 }
 
 // appendCrdDependencies appends a facet's CRD references to a kustomization's dependsOn so it
