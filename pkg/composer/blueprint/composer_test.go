@@ -1035,6 +1035,49 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 		}
 	})
 
+	t.Run("WiresRemainingCrdsWhenDependsOnNamesOnlyACrd", func(t *testing.T) {
+		// Given a kustomization whose only dependency is a single CRD authored by a facet
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
+				{Name: "envoy-gateway-1.7.1", Path: "crds/envoy-gateway-1.7.1"},
+				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"gateway-api-1.5.1"}},
+			},
+		}
+
+		composer.applyCrdLayerBarrier(bp)
+
+		// Then it is still a root (no non-CRD parent), so the rest of the layer is wired in too
+		gb := depsOf(bp, "gateway-base")
+		if !slices.Contains(gb, "gateway-api-1.5.1") || !slices.Contains(gb, "envoy-gateway-1.7.1") {
+			t.Errorf("expected gateway-base wired to the whole CRD layer, got %v", gb)
+		}
+		if got := len(gb); got != 2 {
+			t.Errorf("expected no duplicate of the pre-existing CRD dep, got %v", gb)
+		}
+	})
+
+	t.Run("SkipsKustomizationsWithANonCrdParent", func(t *testing.T) {
+		// Given a kustomization that depends on both a CRD and a non-CRD kustomization
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
+				{Name: "envoy-gateway-1.7.1", Path: "crds/envoy-gateway-1.7.1"},
+				{Name: "policy-base", Path: "policy/base"},
+				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"policy-base", "gateway-api-1.5.1"}},
+			},
+		}
+
+		composer.applyCrdLayerBarrier(bp)
+
+		// Then it inherits the rest of the layer transitively through its non-CRD parent, not directly
+		if slices.Contains(depsOf(bp, "gateway-base"), "envoy-gateway-1.7.1") {
+			t.Errorf("expected gateway-base to reach the layer transitively, got %v", depsOf(bp, "gateway-base"))
+		}
+	})
+
 	t.Run("NoopWhenNoCrdLayer", func(t *testing.T) {
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{

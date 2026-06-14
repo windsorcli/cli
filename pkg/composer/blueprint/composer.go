@@ -678,12 +678,14 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 }
 
 // applyCrdLayerBarrier orders the vendored CRD layer ahead of the whole stack by making every
-// non-CRD root (a kustomization with no dependencies of its own) depend on every CRD-layer
-// kustomization (those under the crds/ path). Dependents of those roots reach the layer
-// transitively, so the stack reconciles after the CRDs are Established — without any facet author
-// naming a CRD in dependsOn, and without the provisioner waiting: Flux honors the edges on every
-// reconcile. The CRD layer lives in Kustomizations and is split into its own crds: section only at
-// marshal time.
+// non-CRD root depend on every CRD-layer kustomization (those under the crds/ path). A root is a
+// kustomization with no non-CRD dependency: one with no dependsOn, or one whose dependsOn names
+// only CRDs. Such a kustomization has no parent in the stack DAG to inherit the barrier from, so it
+// is wired to the full layer (already-present CRDs are deduped, missing ones added). Kustomizations
+// with a non-CRD parent reach the layer transitively, so the stack reconciles after the CRDs are
+// Established — without any facet author naming a CRD in dependsOn, and without the provisioner
+// waiting: Flux honors the edges on every reconcile. The CRD layer lives in Kustomizations and is
+// split into its own crds: section only at marshal time.
 func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Blueprint) {
 	var crdNames []string
 	for i := range bp.Kustomizations {
@@ -697,11 +699,22 @@ func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Bluep
 	slices.Sort(crdNames)
 	for i := range bp.Kustomizations {
 		k := &bp.Kustomizations[i]
-		if k.IsCrdLayer() || len(k.DependsOn) > 0 {
+		if k.IsCrdLayer() || hasNonCrdDependency(k.DependsOn, crdNames) {
 			continue
 		}
 		k.DependsOn = appendCrdDependencies(k.DependsOn, crdNames, k.Name)
 	}
+}
+
+// hasNonCrdDependency reports whether dependsOn names at least one kustomization outside the CRD
+// layer — a real parent in the stack DAG that already carries the CRD barrier transitively.
+func hasNonCrdDependency(dependsOn, crdNames []string) bool {
+	for _, d := range dependsOn {
+		if !slices.Contains(crdNames, d) {
+			return true
+		}
+	}
+	return false
 }
 
 // appendCrdDependencies appends CRD-layer names to a kustomization's dependsOn, skipping empties,
