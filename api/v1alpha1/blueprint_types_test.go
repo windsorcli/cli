@@ -59,6 +59,15 @@ func TestBlueprint_AllKustomizations(t *testing.T) {
 			t.Errorf("expected [app], got %+v", all)
 		}
 	})
+
+	t.Run("ReturnsFreshSliceThatDoesNotAliasTheBlueprint", func(t *testing.T) {
+		bp := &Blueprint{Kustomizations: []Kustomization{{Name: "app"}}}
+		all := bp.AllKustomizations()
+		all[0].Name = "mutated"
+		if bp.Kustomizations[0].Name != "app" {
+			t.Errorf("expected blueprint untouched, got %q", bp.Kustomizations[0].Name)
+		}
+	})
 }
 
 func TestBlueprint_StrategicMerge_Crds(t *testing.T) {

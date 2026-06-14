@@ -729,11 +729,9 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 // AllKustomizations returns the CRD-layer kustomizations followed by the regular kustomizations.
 // Crds and Kustomizations are separate blueprint sections for presentation and phased apply; this
-// is the combined set for callers that need every kustomization (e.g. lookup by name).
+// is the combined set for callers that need every kustomization (e.g. lookup by name). The result
+// is always a fresh slice, so callers can mutate it without aliasing the blueprint's own slices.
 func (b *Blueprint) AllKustomizations() []Kustomization {
-	if len(b.Crds) == 0 {
-		return b.Kustomizations
-	}
 	combined := make([]Kustomization, 0, len(b.Crds)+len(b.Kustomizations))
 	combined = append(combined, b.Crds...)
 	combined = append(combined, b.Kustomizations...)
