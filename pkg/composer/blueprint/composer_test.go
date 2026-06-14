@@ -1001,6 +1001,58 @@ func TestComposer_setContextMetadata(t *testing.T) {
 	})
 }
 
+func TestComposer_partitionCrdLayer(t *testing.T) {
+	names := func(ks []blueprintv1alpha1.Kustomization) []string {
+		out := make([]string, len(ks))
+		for i, k := range ks {
+			out[i] = k.Name
+		}
+		return out
+	}
+
+	t.Run("MovesCrdLayerIntoCrdsSection", func(t *testing.T) {
+		// Given a blueprint with CRD-layer and regular kustomizations mixed together
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "policy-base", Path: "policy/base"},
+				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
+				{Name: "cert-manager", Path: "pki/cert-manager"},
+			},
+		}
+
+		// When partitioning
+		composer.partitionCrdLayer(bp)
+
+		// Then the CRD layer is in Crds and the rest stays in Kustomizations
+		if got := names(bp.Crds); len(got) != 1 || got[0] != "gateway-api-1.5.1" {
+			t.Errorf("expected Crds=[gateway-api-1.5.1], got %v", got)
+		}
+		if got := names(bp.Kustomizations); !slices.Equal(got, []string{"policy-base", "cert-manager"}) {
+			t.Errorf("expected Kustomizations=[policy-base, cert-manager], got %v", got)
+		}
+	})
+
+	t.Run("NoopWhenNoCrdLayer", func(t *testing.T) {
+		// Given a blueprint with no CRD-layer entries
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app", Path: "app"}},
+		}
+
+		// When partitioning
+		composer.partitionCrdLayer(bp)
+
+		// Then nothing moves
+		if len(bp.Crds) != 0 {
+			t.Errorf("expected no Crds, got %v", names(bp.Crds))
+		}
+		if got := names(bp.Kustomizations); !slices.Equal(got, []string{"app"}) {
+			t.Errorf("expected Kustomizations=[app], got %v", got)
+		}
+	})
+}
+
 func TestComposer_resolveTierDependencies(t *testing.T) {
 	depsOf := func(bp *blueprintv1alpha1.Blueprint, name string) []string {
 		for _, k := range bp.Kustomizations {

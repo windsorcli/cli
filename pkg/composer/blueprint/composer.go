@@ -166,6 +166,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	c.dropEmptyCompositionFragments(result)
 	c.resolveTierDependencies(result)
 	validationErr := errors.Join(c.validateSources(result), c.validateDependencies(result))
+	c.partitionCrdLayer(result)
 	return result, validationErr
 }
 
@@ -673,6 +674,28 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 	}
 
 	return nil
+}
+
+// partitionCrdLayer moves the vendored CRD layer (kustomizations under the crds/ path) out of
+// Kustomizations into the dedicated Crds blueprint section, preserving order within each group.
+// Runs after validation so dependsOn references still resolve against the unified Kustomizations
+// set; the provisioner applies the Crds section as its own phase ahead of the rest.
+func (c *BaseBlueprintComposer) partitionCrdLayer(bp *blueprintv1alpha1.Blueprint) {
+	crds := make([]blueprintv1alpha1.Kustomization, 0, len(bp.Crds)+len(bp.Kustomizations))
+	crds = append(crds, bp.Crds...)
+	rest := make([]blueprintv1alpha1.Kustomization, 0, len(bp.Kustomizations))
+	for _, k := range bp.Kustomizations {
+		if k.IsCrdLayer() {
+			crds = append(crds, k)
+		} else {
+			rest = append(rest, k)
+		}
+	}
+	if len(crds) == 0 {
+		return
+	}
+	bp.Crds = crds
+	bp.Kustomizations = rest
 }
 
 // resolveTierDependencies rewrites a dependsOn reference to a vendor's bare name into its install
