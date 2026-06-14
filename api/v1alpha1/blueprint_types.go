@@ -727,15 +727,45 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 	}
 }
 
-// AllKustomizations returns the CRD-layer kustomizations followed by the regular kustomizations.
-// Crds and Kustomizations are separate blueprint sections for presentation and phased apply; this
-// is the combined set for callers that need every kustomization (e.g. lookup by name). The result
-// is always a fresh slice, so callers can mutate it without aliasing the blueprint's own slices.
-func (b *Blueprint) AllKustomizations() []Kustomization {
-	combined := make([]Kustomization, 0, len(b.Crds)+len(b.Kustomizations))
-	combined = append(combined, b.Crds...)
-	combined = append(combined, b.Kustomizations...)
-	return combined
+// MarshalYAML renders the blueprint with the vendored CRD layer as its own top-level crds:
+// section: kustomizations whose path is under crds/ are emitted under crds:, the rest under
+// kustomize:. Internally the CRD layer lives in Kustomizations (first), so every consumer reads a
+// single list; the split is presentation only.
+func (b Blueprint) MarshalYAML() (any, error) {
+	type alias Blueprint
+	out := alias(b)
+	crds := make([]Kustomization, 0, len(b.Crds)+len(b.Kustomizations))
+	crds = append(crds, b.Crds...)
+	rest := make([]Kustomization, 0, len(b.Kustomizations))
+	for _, k := range b.Kustomizations {
+		if k.IsCrdLayer() {
+			crds = append(crds, k)
+		} else {
+			rest = append(rest, k)
+		}
+	}
+	out.Crds = crds
+	out.Kustomizations = rest
+	return out, nil
+}
+
+// UnmarshalYAML reads a blueprint, folding any top-level crds: section into Kustomizations (ahead of
+// the rest) so the whole pipeline sees a single list; MarshalYAML reapplies the crds: split.
+func (b *Blueprint) UnmarshalYAML(unmarshal func(any) error) error {
+	type alias Blueprint
+	var a alias
+	if err := unmarshal(&a); err != nil {
+		return err
+	}
+	*b = Blueprint(a)
+	if len(b.Crds) > 0 {
+		merged := make([]Kustomization, 0, len(b.Crds)+len(b.Kustomizations))
+		merged = append(merged, b.Crds...)
+		merged = append(merged, b.Kustomizations...)
+		b.Kustomizations = merged
+		b.Crds = nil
+	}
+	return nil
 }
 
 // StrategicMerge performs a strategic merge of the provided overlay Blueprints into the receiver Blueprint.

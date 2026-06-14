@@ -142,6 +142,18 @@ properties:
           description: |
             Whether to include this component in the final blueprint. Boolean
             (true/false) or expression. Defaults to true.
+  crds:
+    type: array
+    description: |
+      The vendored CRD layer: kustomizations under the crds/ path that the
+      provisioner applies as their own phase ahead of the kustomize: layer, so
+      every kustomization sees its CRDs Established first. Populated by the
+      composer from facet crds: declarations; each entry has the same shape as a
+      kustomize: entry (name, path, prune, wait, ...). Internally CRDs are part
+      of the kustomization set; this section is the presentation split.
+    items:
+      type: object
+      additionalProperties: true
   kustomize:
     type: array
     description: |

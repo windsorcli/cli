@@ -84,7 +84,8 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 			Wait  *bool  `yaml:"wait"`
 		} `yaml:"crds"`
 		Kustomize []struct {
-			Name string `yaml:"name"`
+			Name      string   `yaml:"name"`
+			DependsOn []string `yaml:"dependsOn"`
 		} `yaml:"kustomize"`
 	}
 	if err := yaml.Unmarshal(stdout, &bp); err != nil {
@@ -115,11 +116,25 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 		t.Errorf("expected CRD wait=true, got %v", crd.Wait)
 	}
 
-	// The CRD lives in crds:, not folded into kustomize:.
-	for _, k := range bp.Kustomize {
-		if k.Name == "cert-manager-1.16.2" {
+	// The CRD lives in crds:, not folded into kustomize: — and the stack's root depends on it
+	// (the barrier), so Flux orders the CRD layer first without the provisioner waiting.
+	var certManager *struct {
+		Name      string   `yaml:"name"`
+		DependsOn []string `yaml:"dependsOn"`
+	}
+	for i := range bp.Kustomize {
+		if bp.Kustomize[i].Name == "cert-manager-1.16.2" {
 			t.Errorf("did not expect the CRD in the kustomize: section, got %+v", bp.Kustomize)
 		}
+		if bp.Kustomize[i].Name == "cert-manager" {
+			certManager = &bp.Kustomize[i]
+		}
+	}
+	if certManager == nil {
+		t.Fatalf("expected cert-manager in the kustomize: section, got %+v", bp.Kustomize)
+	}
+	if !slices.Contains(certManager.DependsOn, "cert-manager-1.16.2") {
+		t.Errorf("expected cert-manager (a root) to depend on the CRD layer, got %v", certManager.DependsOn)
 	}
 }
 

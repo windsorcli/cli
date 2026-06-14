@@ -1001,54 +1001,50 @@ func TestComposer_setContextMetadata(t *testing.T) {
 	})
 }
 
-func TestComposer_partitionCrdLayer(t *testing.T) {
-	names := func(ks []blueprintv1alpha1.Kustomization) []string {
-		out := make([]string, len(ks))
-		for i, k := range ks {
-			out[i] = k.Name
+func TestComposer_applyCrdLayerBarrier(t *testing.T) {
+	depsOf := func(bp *blueprintv1alpha1.Blueprint, name string) []string {
+		for _, k := range bp.Kustomizations {
+			if k.Name == name {
+				return k.DependsOn
+			}
 		}
-		return out
+		return nil
 	}
 
-	t.Run("MovesCrdLayerIntoCrdsSection", func(t *testing.T) {
-		// Given a blueprint with CRD-layer and regular kustomizations mixed together
+	t.Run("WiresNonCrdRootsToTheLayer", func(t *testing.T) {
+		// Given a blueprint whose Kustomizations hold the CRD layer, a root, and a non-root
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "policy-base", Path: "policy/base"},
 				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
-				{Name: "cert-manager", Path: "pki/cert-manager"},
+				{Name: "envoy-gateway-1.7.1", Path: "crds/envoy-gateway-1.7.1"},
+				{Name: "policy-base", Path: "policy/base"},
+				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"policy-base"}},
 			},
 		}
 
-		// When partitioning
-		composer.partitionCrdLayer(bp)
+		composer.applyCrdLayerBarrier(bp)
 
-		// Then the CRD layer is in Crds and the rest stays in Kustomizations
-		if got := names(bp.Crds); len(got) != 1 || got[0] != "gateway-api-1.5.1" {
-			t.Errorf("expected Crds=[gateway-api-1.5.1], got %v", got)
+		// Then the root waits for the whole layer; the non-root reaches it transitively
+		pb := depsOf(bp, "policy-base")
+		if !slices.Contains(pb, "gateway-api-1.5.1") || !slices.Contains(pb, "envoy-gateway-1.7.1") {
+			t.Errorf("expected policy-base wired to the CRD layer, got %v", pb)
 		}
-		if got := names(bp.Kustomizations); !slices.Equal(got, []string{"policy-base", "cert-manager"}) {
-			t.Errorf("expected Kustomizations=[policy-base, cert-manager], got %v", got)
+		if slices.Contains(depsOf(bp, "gateway-base"), "gateway-api-1.5.1") {
+			t.Errorf("expected gateway-base to reach CRDs transitively, not directly, got %v", depsOf(bp, "gateway-base"))
 		}
 	})
 
 	t.Run("NoopWhenNoCrdLayer", func(t *testing.T) {
-		// Given a blueprint with no CRD-layer entries
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app", Path: "app"}},
 		}
 
-		// When partitioning
-		composer.partitionCrdLayer(bp)
+		composer.applyCrdLayerBarrier(bp)
 
-		// Then nothing moves
-		if len(bp.Crds) != 0 {
-			t.Errorf("expected no Crds, got %v", names(bp.Crds))
-		}
-		if got := names(bp.Kustomizations); !slices.Equal(got, []string{"app"}) {
-			t.Errorf("expected Kustomizations=[app], got %v", got)
+		if len(depsOf(bp, "app")) != 0 {
+			t.Errorf("expected no barrier without a CRD layer, got %v", depsOf(bp, "app"))
 		}
 	})
 }

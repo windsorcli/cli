@@ -40,32 +40,70 @@ func TestKustomization_IsCrdLayer(t *testing.T) {
 	})
 }
 
-func TestBlueprint_AllKustomizations(t *testing.T) {
-	t.Run("ReturnsCrdsThenKustomizations", func(t *testing.T) {
+func TestBlueprint_CrdsSerialization(t *testing.T) {
+	t.Run("MarshalSplitsCrdLayerIntoOwnSection", func(t *testing.T) {
+		// Given a blueprint whose Kustomizations include a CRD-layer entry
 		bp := &Blueprint{
-			Crds:           []Kustomization{{Name: "cert-manager-1.16.2", Path: "crds/cert-manager-1.16.2"}},
-			Kustomizations: []Kustomization{{Name: "cert-manager", Path: "pki/cert-manager"}},
+			Kind: "Blueprint",
+			Kustomizations: []Kustomization{
+				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
+				{Name: "policy-base", Path: "policy/base"},
+			},
 		}
-		all := bp.AllKustomizations()
-		if len(all) != 2 || all[0].Name != "cert-manager-1.16.2" || all[1].Name != "cert-manager" {
-			t.Errorf("expected [crd, kustomization], got %+v", all)
+
+		// When marshaled
+		out, err := yaml.Marshal(bp)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		// Then the CRD lands under crds: (before kustomize:) and the rest under kustomize:
+		text := string(out)
+		crdsIdx := strings.Index(text, "crds:")
+		kustomizeIdx := strings.Index(text, "kustomize:")
+		if crdsIdx == -1 || kustomizeIdx == -1 || crdsIdx > kustomizeIdx {
+			t.Fatalf("expected crds: before kustomize:, got:\n%s", text)
+		}
+		if !strings.Contains(text[crdsIdx:kustomizeIdx], "gateway-api-1.5.1") {
+			t.Errorf("expected gateway-api-1.5.1 under crds:, got:\n%s", text)
 		}
 	})
 
-	t.Run("ReturnsKustomizationsWhenNoCrds", func(t *testing.T) {
-		bp := &Blueprint{Kustomizations: []Kustomization{{Name: "app"}}}
-		all := bp.AllKustomizations()
-		if len(all) != 1 || all[0].Name != "app" {
-			t.Errorf("expected [app], got %+v", all)
+	t.Run("UnmarshalFoldsCrdsIntoKustomizations", func(t *testing.T) {
+		// Given a blueprint document with a top-level crds: section
+		doc := []byte("kind: Blueprint\ncrds:\n- name: gateway-api-1.5.1\n  path: crds/gateway-api-1.5.1\nkustomize:\n- name: policy-base\n  path: policy/base\n")
+
+		// When unmarshaled
+		var bp Blueprint
+		if err := yaml.Unmarshal(doc, &bp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then crds: is folded into Kustomizations (CRDs first) and Crds is cleared, so the rest
+		// of the pipeline reads one list
+		if len(bp.Crds) != 0 {
+			t.Errorf("expected Crds folded away, got %+v", bp.Crds)
+		}
+		if len(bp.Kustomizations) != 2 || bp.Kustomizations[0].Name != "gateway-api-1.5.1" || bp.Kustomizations[1].Name != "policy-base" {
+			t.Errorf("expected [gateway-api-1.5.1, policy-base] in Kustomizations, got %+v", bp.Kustomizations)
 		}
 	})
 
-	t.Run("ReturnsFreshSliceThatDoesNotAliasTheBlueprint", func(t *testing.T) {
-		bp := &Blueprint{Kustomizations: []Kustomization{{Name: "app"}}}
-		all := bp.AllKustomizations()
-		all[0].Name = "mutated"
-		if bp.Kustomizations[0].Name != "app" {
-			t.Errorf("expected blueprint untouched, got %q", bp.Kustomizations[0].Name)
+	t.Run("RoundTrips", func(t *testing.T) {
+		bp := &Blueprint{
+			Kind:           "Blueprint",
+			Kustomizations: []Kustomization{{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"}, {Name: "app", Path: "app"}},
+		}
+		out, err := yaml.Marshal(bp)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var got Blueprint
+		if err := yaml.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(got.Crds) != 0 || len(got.Kustomizations) != 2 {
+			t.Errorf("expected unified 2-entry Kustomizations after round-trip, got crds=%+v kustomize=%+v", got.Crds, got.Kustomizations)
 		}
 	})
 }

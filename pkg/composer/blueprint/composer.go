@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fluxcd/pkg/apis/kustomize"
@@ -165,8 +166,8 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	}
 	c.dropEmptyCompositionFragments(result)
 	c.resolveTierDependencies(result)
+	c.applyCrdLayerBarrier(result)
 	validationErr := errors.Join(c.validateSources(result), c.validateDependencies(result))
-	c.partitionCrdLayer(result)
 	return result, validationErr
 }
 
@@ -676,26 +677,43 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 	return nil
 }
 
-// partitionCrdLayer moves the vendored CRD layer (kustomizations under the crds/ path) out of
-// Kustomizations into the dedicated Crds blueprint section, preserving order within each group.
-// Runs after validation so dependsOn references still resolve against the unified Kustomizations
-// set; the provisioner applies the Crds section as its own phase ahead of the rest.
-func (c *BaseBlueprintComposer) partitionCrdLayer(bp *blueprintv1alpha1.Blueprint) {
-	crds := make([]blueprintv1alpha1.Kustomization, 0, len(bp.Crds)+len(bp.Kustomizations))
-	crds = append(crds, bp.Crds...)
-	rest := make([]blueprintv1alpha1.Kustomization, 0, len(bp.Kustomizations))
-	for _, k := range bp.Kustomizations {
-		if k.IsCrdLayer() {
-			crds = append(crds, k)
-		} else {
-			rest = append(rest, k)
+// applyCrdLayerBarrier orders the vendored CRD layer ahead of the whole stack by making every
+// non-CRD root (a kustomization with no dependencies of its own) depend on every CRD-layer
+// kustomization (those under the crds/ path). Dependents of those roots reach the layer
+// transitively, so the stack reconciles after the CRDs are Established — without any facet author
+// naming a CRD in dependsOn, and without the provisioner waiting: Flux honors the edges on every
+// reconcile. The CRD layer lives in Kustomizations and is split into its own crds: section only at
+// marshal time.
+func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Blueprint) {
+	var crdNames []string
+	for i := range bp.Kustomizations {
+		if bp.Kustomizations[i].IsCrdLayer() {
+			crdNames = append(crdNames, bp.Kustomizations[i].Name)
 		}
 	}
-	if len(crds) == 0 {
+	if len(crdNames) == 0 {
 		return
 	}
-	bp.Crds = crds
-	bp.Kustomizations = rest
+	slices.Sort(crdNames)
+	for i := range bp.Kustomizations {
+		k := &bp.Kustomizations[i]
+		if k.IsCrdLayer() || len(k.DependsOn) > 0 {
+			continue
+		}
+		k.DependsOn = appendCrdDependencies(k.DependsOn, crdNames, k.Name)
+	}
+}
+
+// appendCrdDependencies appends CRD-layer names to a kustomization's dependsOn, skipping empties,
+// self-references, and names already present.
+func appendCrdDependencies(dependsOn, crdNames []string, self string) []string {
+	for _, name := range crdNames {
+		if name == "" || name == self || slices.Contains(dependsOn, name) {
+			continue
+		}
+		dependsOn = append(dependsOn, name)
+	}
+	return dependsOn
 }
 
 // resolveTierDependencies rewrites a dependsOn reference to a vendor's bare name into its install
@@ -748,7 +766,7 @@ func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Bluep
 		tfIDs[tf.GetID()] = struct{}{}
 	}
 
-	kNames := make(map[string]struct{})
+	kNames := make(map[string]struct{}, len(bp.Kustomizations))
 	for _, k := range bp.Kustomizations {
 		kNames[k.Name] = struct{}{}
 	}
