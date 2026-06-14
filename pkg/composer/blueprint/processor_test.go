@@ -2446,6 +2446,60 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		}
 	})
 
+	t.Run("SelectsCrdsByDriverExpression", func(t *testing.T) {
+		// Given one facet that selects different CRDs per driver via inline expressions
+		cases := []struct{ driver, want, absent string }{
+			{"cilium", "gateway-api-1.5.1", "envoy-gateway-1.7.1"},
+			{"envoy", "envoy-gateway-1.7.1", "gateway-api-1.5.1"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.driver, func(t *testing.T) {
+				mocks := setupProcessorMocks(t)
+				processor := NewBlueprintProcessor(mocks.Runtime)
+				driver := tc.driver
+				mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+					return map[string]any{"gateway": map[string]any{"driver": driver}}, nil
+				}
+
+				facets := []blueprintv1alpha1.Facet{
+					{
+						Metadata: blueprintv1alpha1.Metadata{Name: "gateway"},
+						Crds: []string{
+							"${gateway.driver == 'cilium' ? 'gateway-api-1.5.1' : ''}",
+							"${gateway.driver == 'envoy' ? 'envoy-gateway-1.7.1' : ''}",
+						},
+						Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+							{
+								When:          "gateway.driver == '" + tc.driver + "'",
+								Kustomization: blueprintv1alpha1.Kustomization{Name: "gateway", Path: "gateway"},
+							},
+						},
+					},
+				}
+
+				// When processing facets for the selected driver
+				target := &blueprintv1alpha1.Blueprint{}
+				_, err := processor.ProcessFacets(target, facets)
+
+				// Then only the active driver's CRD is emitted, and the active kustomization
+				// is wired to it; the other driver's CRD never appears
+				if err != nil {
+					t.Fatalf("Expected no error, got %v", err)
+				}
+				findKustomization(t, target, tc.want)
+				for _, k := range target.Kustomizations {
+					if k.Name == tc.absent {
+						t.Errorf("Expected %q absent for driver %s, got %v", tc.absent, tc.driver, target.Kustomizations)
+					}
+				}
+				k := findKustomization(t, target, "gateway")
+				if !slices.Contains(k.DependsOn, tc.want) {
+					t.Errorf("Expected gateway to depend on %q, got %v", tc.want, k.DependsOn)
+				}
+			})
+		}
+	})
+
 	t.Run("RejectsPathTraversalCrdReference", func(t *testing.T) {
 		// Given a facet whose CRD reference contains path-traversal components
 		mocks := setupProcessorMocks(t)

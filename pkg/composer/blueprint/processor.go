@@ -256,12 +256,16 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	}
 
 	for _, facet := range includedFacets {
-		for _, ref := range facet.Crds {
-			if ref == "" {
-				continue
+		if len(facet.Crds) > 0 {
+			evaluated, err := p.evaluateStringSlice(facet.Crds, facet.Path, scope)
+			if err != nil {
+				return nil, fmt.Errorf("error evaluating crds for facet '%s': %w", facet.Metadata.Name, err)
 			}
-			if err := validateCrdRef(ref); err != nil {
-				return nil, fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
+			facet.Crds = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
+			for _, ref := range facet.Crds {
+				if err := validateCrdRef(ref); err != nil {
+					return nil, fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
+				}
 			}
 		}
 		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, scope); err != nil {
@@ -271,9 +275,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			return nil, err
 		}
 		for _, ref := range facet.Crds {
-			if ref != "" {
-				crdRefs[ref] = struct{}{}
-			}
+			crdRefs[ref] = struct{}{}
 		}
 		if facet.Backend != "" {
 			target.Backend = facet.Backend

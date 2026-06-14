@@ -1,3 +1,5 @@
 version: v1alpha1
 contexts:
   default: {}
+  cilium: {}
+  envoy: {}

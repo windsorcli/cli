@@ -119,6 +119,59 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 	}
 }
 
+// TestShowBlueprint_CrdsDriverSelection verifies a single facet selecting different CRDs per
+// driver via inline `${...}` expressions: only the active driver's CRD is emitted and its
+// kustomization is wired to it, while the other driver's CRD never appears.
+func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ context, want, absent string }{
+		{"cilium", "gateway-api-1.5.1", "envoy-gateway-1.7.1"},
+		{"envoy", "envoy-gateway-1.7.1", "gateway-api-1.5.1"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.context, func(t *testing.T) {
+			t.Parallel()
+			dir, env := helpers.PrepareFixture(t, "facet-crds")
+			env = append(env, "WINDSOR_CONTEXT="+tc.context)
+			stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+			if err != nil {
+				t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+			}
+
+			var bp struct {
+				Kustomize []struct {
+					Name      string   `yaml:"name"`
+					DependsOn []string `yaml:"dependsOn"`
+				} `yaml:"kustomize"`
+			}
+			if err := yaml.Unmarshal(stdout, &bp); err != nil {
+				t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+			}
+
+			var gatewayDeps []string
+			foundWant := false
+			for _, k := range bp.Kustomize {
+				if k.Name == tc.want {
+					foundWant = true
+				}
+				if k.Name == tc.absent {
+					t.Errorf("did not expect CRD %q for context %s, got %+v", tc.absent, tc.context, bp.Kustomize)
+				}
+				if k.Name == "gateway" {
+					gatewayDeps = k.DependsOn
+				}
+			}
+			if !foundWant {
+				t.Errorf("expected CRD %q for context %s, got %+v", tc.want, tc.context, bp.Kustomize)
+			}
+			if !slices.Contains(gatewayDeps, tc.want) {
+				t.Errorf("expected gateway to depend on %q, got %v", tc.want, gatewayDeps)
+			}
+		})
+	}
+}
+
 // TestShowBlueprint_FacetRequires_Satisfied verifies the success path: when every required
 // path resolves to a present, non-empty value, ProcessFacets returns no error and the
 // blueprint renders normally.

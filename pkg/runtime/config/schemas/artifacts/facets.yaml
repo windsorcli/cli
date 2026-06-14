@@ -102,12 +102,15 @@ properties:
       per reference at 'kustomize/crds/<ref>' with pruning disabled and wait
       enabled, and makes every kustomization contributed by this facet depend
       on it so the API surface is Established before any custom resource is
-      applied. Each reference must be a single path segment — values containing
-      '/', '\', or '..' are rejected at composition time because they would
-      escape the crds/ catalog directory.
+      applied. Entries may use '${...}' expressions that resolve against the
+      facet scope and prune to empty — e.g.
+      "${gateway.driver == 'envoy' ? 'envoy-gateway-1.7.1' : ''}" — so one
+      facet can select different CRDs per driver. Each resolved reference must
+      be a single path segment; values containing '/', '\', or '..' are
+      rejected at composition time because they would escape the crds/ catalog
+      directory.
     items:
       type: string
-      pattern: '^[^/\\]+$'
   substitutions:
     type: object
     additionalProperties:

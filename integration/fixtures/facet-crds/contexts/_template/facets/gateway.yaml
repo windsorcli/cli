@@ -1,0 +1,18 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: gateway
+  description: Selects gateway CRDs per driver via inline expressions
+
+crds:
+- "${(gateway.driver ?? '') == 'cilium' ? 'gateway-api-1.5.1' : ''}"
+- "${(gateway.driver ?? '') == 'envoy' ? 'envoy-gateway-1.7.1' : ''}"
+
+kustomize:
+
+- name: gateway
+  when: (gateway.driver ?? '') != ''
+  path: gateway
+  components: []
+  timeout: 5m
+  interval: 5m
