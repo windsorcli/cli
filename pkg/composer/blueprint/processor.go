@@ -180,6 +180,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	terraformByID := make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent)
 	kustomizationByName := make(map[string]*blueprintv1alpha1.ConditionalKustomization)
+	crdRefs := make(map[string]struct{})
 	scope := contextScope
 	var globalScope map[string]any
 	var cfgEntries map[string]*blueprintv1alpha1.ConfigBlock
@@ -255,11 +256,26 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 	}
 
 	for _, facet := range includedFacets {
+		if len(facet.Crds) > 0 {
+			evaluated, err := p.evaluateStringSlice(facet.Crds, facet.Path, scope)
+			if err != nil {
+				return nil, fmt.Errorf("error evaluating crds for facet '%s': %w", facet.Metadata.Name, err)
+			}
+			facet.Crds = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
+			for _, ref := range facet.Crds {
+				if err := validateCrdRef(ref); err != nil {
+					return nil, fmt.Errorf("facet %q: %w", facet.Metadata.Name, err)
+				}
+			}
+		}
 		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, scope); err != nil {
 			return nil, err
 		}
 		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
 			return nil, err
+		}
+		for _, ref := range facet.Crds {
+			crdRefs[ref] = struct{}{}
 		}
 		if facet.Backend != "" {
 			target.Backend = facet.Backend
@@ -296,6 +312,8 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			}
 		}
 	}
+
+	addCrdKustomizations(target, kustomizationByName, crdRefs, sourceName)
 
 	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {
 		return nil, err
@@ -788,8 +806,8 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			}
 			processed.Parallelism = &blueprintv1alpha1.IntExpression{Value: evaluated, IsExpr: false}
 		}
-		if processed.Source == "" && len(sourceName) > 0 && sourceName[0] != "" && sourceName[0] != "primary" {
-			processed.Source = sourceName[0]
+		if processed.Source == "" {
+			processed.Source = resolveSourceName(sourceName)
 		}
 
 		facetOrd := resolvedFacetOrdinal(facet)
@@ -898,6 +916,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			}
 			processed.Components = evaluated
 		}
+		processed.DependsOn = appendCrdDependencies(processed.DependsOn, facet.Crds, processed.Name)
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
 			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
@@ -905,8 +924,8 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			}
 			processed.Destroy = &blueprintv1alpha1.BoolExpression{Value: evaluated, IsExpr: false}
 		}
-		if processed.Source == "" && len(sourceName) > 0 && sourceName[0] != "" && sourceName[0] != "primary" {
-			processed.Source = sourceName[0]
+		if processed.Source == "" {
+			processed.Source = resolveSourceName(sourceName)
 		}
 
 		facetOrd := resolvedFacetOrdinal(facet)
@@ -960,6 +979,81 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		}
 	}
 	return nil
+}
+
+// resolveSourceName returns the explicit source for a facet-derived component: the loader's
+// source name, unless it is empty or the reserved "primary" sentinel, in which case the
+// component resolves against the default source (represented as an empty string).
+func resolveSourceName(sourceName []string) string {
+	if len(sourceName) > 0 && sourceName[0] != "" && sourceName[0] != "primary" {
+		return sourceName[0]
+	}
+	return ""
+}
+
+// validateCrdRef rejects a CRD reference that would escape the kustomize/crds/ catalog when
+// concatenated into a path. A reference is a single directory segment, so any path separator or
+// parent-directory token is a malformed (or malicious) value.
+func validateCrdRef(ref string) error {
+	if strings.ContainsAny(ref, "/\\") || strings.Contains(ref, "..") {
+		return fmt.Errorf("invalid crd reference %q: must be a single path segment without '/', '\\', or '..'", ref)
+	}
+	return nil
+}
+
+// appendCrdDependencies appends a facet's CRD references to a kustomization's dependsOn so it
+// waits for the vendored CRD layer it declares. Empty refs, the kustomization's own name (which
+// would form a cycle), and refs already present are skipped.
+func appendCrdDependencies(dependsOn []string, crds []string, self string) []string {
+	for _, ref := range crds {
+		if ref == "" || ref == self || slices.Contains(dependsOn, ref) {
+			continue
+		}
+		dependsOn = append(dependsOn, ref)
+	}
+	return dependsOn
+}
+
+// addCrdKustomizations injects one synthesized kustomization per unique CRD reference into the
+// collected set, sourced at kustomize/crds/<ref>. Pruning is disabled because pruning a CRD
+// deletes every custom resource of that kind cluster-wide, and wait is enabled so dependents
+// block until the CRDs are Established. A reference that already names an authored kustomization —
+// whether contributed by a facet or carried by the base blueprint — is left untouched so an
+// explicit definition always wins.
+func addCrdKustomizations(target *blueprintv1alpha1.Blueprint, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, crdRefs map[string]struct{}, sourceName []string) {
+	if len(crdRefs) == 0 {
+		return
+	}
+	authored := make(map[string]struct{}, len(target.Kustomizations))
+	for _, k := range target.Kustomizations {
+		authored[k.Name] = struct{}{}
+	}
+	source := resolveSourceName(sourceName)
+	refs := make([]string, 0, len(crdRefs))
+	for ref := range crdRefs {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	for _, ref := range refs {
+		if _, exists := kustomizationByName[ref]; exists {
+			continue
+		}
+		if _, exists := authored[ref]; exists {
+			continue
+		}
+		prune := false
+		wait := true
+		kustomizationByName[ref] = &blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{
+				Name:   ref,
+				Path:   "crds/" + ref,
+				Source: source,
+				Prune:  &prune,
+				Wait:   &wait,
+			},
+			Strategy: "merge",
+		}
+	}
 }
 
 // shouldIncludeFacet evaluates whether a facet should be included based on its 'when' condition.

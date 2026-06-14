@@ -1259,6 +1259,15 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 			if kustomization.Timeout != nil {
 				existing.Timeout = kustomization.Timeout
 			}
+			if kustomization.Wait != nil {
+				existing.Wait = kustomization.Wait
+			}
+			if kustomization.Force != nil {
+				existing.Force = kustomization.Force
+			}
+			if kustomization.Prune != nil {
+				existing.Prune = kustomization.Prune
+			}
 			if len(kustomization.Patches) > 0 {
 				existing.Patches = append(existing.Patches, kustomization.Patches...)
 			}

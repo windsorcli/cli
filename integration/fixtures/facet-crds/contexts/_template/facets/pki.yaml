@@ -1,0 +1,17 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: pki
+  description: Installs cert-manager and declares its vendored CRDs
+
+crds:
+- cert-manager-1.16.2
+
+kustomize:
+
+- name: cert-manager
+  path: pki/cert-manager
+  components:
+  - single-node
+  timeout: 5m
+  interval: 5m
