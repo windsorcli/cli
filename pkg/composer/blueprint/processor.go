@@ -1057,13 +1057,12 @@ func buildTierEntries(processed blueprintv1alpha1.ConditionalKustomization, inst
 	resourcesName := name + "-resources"
 
 	mk := func(tierName string, components, dependsOn []string) blueprintv1alpha1.ConditionalKustomization {
-		entry := processed
+		entry := *processed.DeepCopy()
 		entry.Name = tierName
 		entry.Components = components
 		entry.DependsOn = dependsOn
 		entry.Install = nil
 		entry.Resources = nil
-		entry.Substitutions = maps.Clone(processed.Substitutions)
 		return entry
 	}
 

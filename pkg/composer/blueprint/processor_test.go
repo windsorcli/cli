@@ -2744,6 +2744,30 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 	})
 
+	t.Run("TierEntriesDoNotSharePatchesBacking", func(t *testing.T) {
+		// Given a tiered entry that carries a patch
+		processed := blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{
+				Name:    "cert-manager",
+				Path:    "pki/cert-manager",
+				Patches: []blueprintv1alpha1.BlueprintPatch{{Patch: "original"}},
+			},
+		}
+
+		// When the entry is expanded into install and resources tiers
+		entries := buildTierEntries(processed, []string{"helm-release"}, []string{"ca"}, nil)
+		if len(entries) != 2 {
+			t.Fatalf("Expected install and resources entries, got %d", len(entries))
+		}
+
+		// Then mutating one tier's patches leaves the other tier untouched
+		entries[0].Patches[0].Patch = "mutated"
+		entries[0].Patches = append(entries[0].Patches, blueprintv1alpha1.BlueprintPatch{Patch: "added"})
+		if entries[1].Patches[0].Patch != "original" || len(entries[1].Patches) != 1 {
+			t.Errorf("Expected resources tier patches independent, got %+v", entries[1].Patches)
+		}
+	})
+
 	t.Run("PrunesConditionalTierToNothing", func(t *testing.T) {
 		// Given a tier whose only component is a false expression
 		mocks := setupProcessorMocks(t)
