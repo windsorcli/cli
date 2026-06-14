@@ -291,6 +291,11 @@ type Blueprint struct {
 	// TerraformComponents are Terraform modules in the blueprint.
 	TerraformComponents []TerraformComponent `yaml:"terraform,omitempty"`
 
+	// Crds is the vendored CRD layer: kustomizations under the crds/ path, surfaced as their own
+	// blueprint section and applied as a distinct phase ahead of Kustomizations. Populated by the
+	// composer from facet crds: declarations.
+	Crds []Kustomization `yaml:"crds,omitempty"`
+
 	// Kustomizations are kustomization configs in the blueprint.
 	Kustomizations []Kustomization `yaml:"kustomize,omitempty"`
 
@@ -690,6 +695,11 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		terraformComponentsCopy[i] = *component.DeepCopy()
 	}
 
+	crdsCopy := make([]Kustomization, len(b.Crds))
+	for i, crd := range b.Crds {
+		crdsCopy[i] = *crd.DeepCopy()
+	}
+
 	kustomizationsCopy := make([]Kustomization, len(b.Kustomizations))
 	for i, kustomization := range b.Kustomizations {
 		kustomizationsCopy[i] = *kustomization.DeepCopy()
@@ -710,10 +720,24 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		Repository:          repositoryCopy,
 		Sources:             sourcesCopy,
 		TerraformComponents: terraformComponentsCopy,
+		Crds:                crdsCopy,
 		Kustomizations:      kustomizationsCopy,
 		Substitutions:       maps.Clone(b.Substitutions),
 		ConfigMaps:          configMapsCopy,
 	}
+}
+
+// AllKustomizations returns the CRD-layer kustomizations followed by the regular kustomizations.
+// Crds and Kustomizations are separate blueprint sections for presentation and phased apply; this
+// is the combined set for callers that need every kustomization (e.g. lookup by name).
+func (b *Blueprint) AllKustomizations() []Kustomization {
+	if len(b.Crds) == 0 {
+		return b.Kustomizations
+	}
+	combined := make([]Kustomization, 0, len(b.Crds)+len(b.Kustomizations))
+	combined = append(combined, b.Crds...)
+	combined = append(combined, b.Kustomizations...)
+	return combined
 }
 
 // StrategicMerge performs a strategic merge of the provided overlay Blueprints into the receiver Blueprint.
@@ -772,6 +796,12 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 
 		for _, overlayComponent := range overlay.TerraformComponents {
 			if err := b.strategicMergeTerraformComponent(overlayComponent); err != nil {
+				return err
+			}
+		}
+
+		for _, overlayCrd := range overlay.Crds {
+			if err := b.strategicMergeKustomization(overlayCrd); err != nil {
 				return err
 			}
 		}
@@ -956,6 +986,13 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Install:         slices.Clone(k.Install),
 		Resources:       slices.Clone(k.Resources),
 	}
+}
+
+// IsCrdLayer reports whether this kustomization belongs to the vendored CRD layer, which lives
+// under the standard crds/ path. The composer partitions these into the blueprint's crds: section
+// and the provisioner applies them as their own phase ahead of the kustomize layer.
+func (k *Kustomization) IsCrdLayer() bool {
+	return k.Path == "crds" || strings.HasPrefix(k.Path, "crds/")
 }
 
 // ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
