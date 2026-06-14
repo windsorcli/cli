@@ -162,6 +162,10 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 				Crds []struct {
 					Name string `yaml:"name"`
 				} `yaml:"crds"`
+				Kustomize []struct {
+					Name      string   `yaml:"name"`
+					DependsOn []string `yaml:"dependsOn"`
+				} `yaml:"kustomize"`
 			}
 			if err := yaml.Unmarshal(stdout, &bp); err != nil {
 				t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
@@ -178,6 +182,25 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 			}
 			if !foundWant {
 				t.Errorf("expected CRD %q in crds: for context %s, got %+v", tc.want, tc.context, bp.Crds)
+			}
+
+			var gateway *struct {
+				Name      string   `yaml:"name"`
+				DependsOn []string `yaml:"dependsOn"`
+			}
+			for i := range bp.Kustomize {
+				if bp.Kustomize[i].Name == "gateway" {
+					gateway = &bp.Kustomize[i]
+				}
+			}
+			if gateway == nil {
+				t.Fatalf("expected gateway in the kustomize: section for context %s, got %+v", tc.context, bp.Kustomize)
+			}
+			if !slices.Contains(gateway.DependsOn, tc.want) {
+				t.Errorf("expected gateway wired to the active driver CRD %q via the barrier, got %v", tc.want, gateway.DependsOn)
+			}
+			if slices.Contains(gateway.DependsOn, tc.absent) {
+				t.Errorf("did not expect gateway wired to the inactive driver CRD %q, got %v", tc.absent, gateway.DependsOn)
 			}
 		})
 	}
