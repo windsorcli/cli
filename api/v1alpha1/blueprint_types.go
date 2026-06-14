@@ -291,6 +291,11 @@ type Blueprint struct {
 	// TerraformComponents are Terraform modules in the blueprint.
 	TerraformComponents []TerraformComponent `yaml:"terraform,omitempty"`
 
+	// Crds is the vendored CRD layer: kustomizations under the crds/ path, surfaced as their own
+	// blueprint section and applied as a distinct phase ahead of Kustomizations. Populated by the
+	// composer from facet crds: declarations.
+	Crds []Kustomization `yaml:"crds,omitempty"`
+
 	// Kustomizations are kustomization configs in the blueprint.
 	Kustomizations []Kustomization `yaml:"kustomize,omitempty"`
 
@@ -690,6 +695,11 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		terraformComponentsCopy[i] = *component.DeepCopy()
 	}
 
+	crdsCopy := make([]Kustomization, len(b.Crds))
+	for i, crd := range b.Crds {
+		crdsCopy[i] = *crd.DeepCopy()
+	}
+
 	kustomizationsCopy := make([]Kustomization, len(b.Kustomizations))
 	for i, kustomization := range b.Kustomizations {
 		kustomizationsCopy[i] = *kustomization.DeepCopy()
@@ -710,10 +720,52 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		Repository:          repositoryCopy,
 		Sources:             sourcesCopy,
 		TerraformComponents: terraformComponentsCopy,
+		Crds:                crdsCopy,
 		Kustomizations:      kustomizationsCopy,
 		Substitutions:       maps.Clone(b.Substitutions),
 		ConfigMaps:          configMapsCopy,
 	}
+}
+
+// MarshalYAML renders the blueprint with the vendored CRD layer as its own top-level crds:
+// section: kustomizations whose path is under crds/ are emitted under crds:, the rest under
+// kustomize:. Internally the CRD layer lives in Kustomizations (first), so every consumer reads a
+// single list; the split is presentation only.
+func (b Blueprint) MarshalYAML() (any, error) {
+	type alias Blueprint
+	out := alias(b)
+	crds := make([]Kustomization, 0, len(b.Crds)+len(b.Kustomizations))
+	crds = append(crds, b.Crds...)
+	rest := make([]Kustomization, 0, len(b.Kustomizations))
+	for _, k := range b.Kustomizations {
+		if k.IsCrdLayer() {
+			crds = append(crds, k)
+		} else {
+			rest = append(rest, k)
+		}
+	}
+	out.Crds = crds
+	out.Kustomizations = rest
+	return out, nil
+}
+
+// UnmarshalYAML reads a blueprint, folding any top-level crds: section into Kustomizations (ahead of
+// the rest) so the whole pipeline sees a single list; MarshalYAML reapplies the crds: split.
+func (b *Blueprint) UnmarshalYAML(unmarshal func(any) error) error {
+	type alias Blueprint
+	var a alias
+	if err := unmarshal(&a); err != nil {
+		return err
+	}
+	*b = Blueprint(a)
+	if len(b.Crds) > 0 {
+		merged := make([]Kustomization, 0, len(b.Crds)+len(b.Kustomizations))
+		merged = append(merged, b.Crds...)
+		merged = append(merged, b.Kustomizations...)
+		b.Kustomizations = merged
+		b.Crds = nil
+	}
+	return nil
 }
 
 // StrategicMerge performs a strategic merge of the provided overlay Blueprints into the receiver Blueprint.
@@ -772,6 +824,12 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 
 		for _, overlayComponent := range overlay.TerraformComponents {
 			if err := b.strategicMergeTerraformComponent(overlayComponent); err != nil {
+				return err
+			}
+		}
+
+		for _, overlayCrd := range overlay.Crds {
+			if err := b.strategicMergeKustomization(overlayCrd); err != nil {
 				return err
 			}
 		}
@@ -956,6 +1014,13 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Install:         slices.Clone(k.Install),
 		Resources:       slices.Clone(k.Resources),
 	}
+}
+
+// IsCrdLayer reports whether this kustomization belongs to the vendored CRD layer, which lives
+// under the standard crds/ path. The composer partitions these into the blueprint's crds: section
+// and the provisioner applies them as their own phase ahead of the kustomize layer.
+func (k *Kustomization) IsCrdLayer() bool {
+	return k.Path == "crds" || strings.HasPrefix(k.Path, "crds/")
 }
 
 // ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.

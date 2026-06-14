@@ -19,6 +19,121 @@ func intExprPtr(i int) *IntExpression {
 	return &IntExpression{Value: &i, IsExpr: false}
 }
 
+func TestKustomization_IsCrdLayer(t *testing.T) {
+	t.Run("ClassifiesByCrdsPath", func(t *testing.T) {
+		cases := []struct {
+			path string
+			want bool
+		}{
+			{"crds/cert-manager-1.16.2", true},
+			{"crds", true},
+			{"pki/cert-manager", false},
+			{"crdsly/oops", false},
+			{"", false},
+		}
+		for _, tc := range cases {
+			k := &Kustomization{Path: tc.path}
+			if got := k.IsCrdLayer(); got != tc.want {
+				t.Errorf("IsCrdLayer(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		}
+	})
+}
+
+func TestBlueprint_CrdsSerialization(t *testing.T) {
+	t.Run("MarshalSplitsCrdLayerIntoOwnSection", func(t *testing.T) {
+		// Given a blueprint whose Kustomizations include a CRD-layer entry
+		bp := &Blueprint{
+			Kind: "Blueprint",
+			Kustomizations: []Kustomization{
+				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
+				{Name: "policy-base", Path: "policy/base"},
+			},
+		}
+
+		// When marshaled
+		out, err := yaml.Marshal(bp)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		// Then the CRD lands under crds: (before kustomize:) and the rest under kustomize:
+		text := string(out)
+		crdsIdx := strings.Index(text, "crds:")
+		kustomizeIdx := strings.Index(text, "kustomize:")
+		if crdsIdx == -1 || kustomizeIdx == -1 || crdsIdx > kustomizeIdx {
+			t.Fatalf("expected crds: before kustomize:, got:\n%s", text)
+		}
+		if !strings.Contains(text[crdsIdx:kustomizeIdx], "gateway-api-1.5.1") {
+			t.Errorf("expected gateway-api-1.5.1 under crds:, got:\n%s", text)
+		}
+	})
+
+	t.Run("UnmarshalFoldsCrdsIntoKustomizations", func(t *testing.T) {
+		// Given a blueprint document with a top-level crds: section
+		doc := []byte("kind: Blueprint\ncrds:\n- name: gateway-api-1.5.1\n  path: crds/gateway-api-1.5.1\nkustomize:\n- name: policy-base\n  path: policy/base\n")
+
+		// When unmarshaled
+		var bp Blueprint
+		if err := yaml.Unmarshal(doc, &bp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then crds: is folded into Kustomizations (CRDs first) and Crds is cleared, so the rest
+		// of the pipeline reads one list
+		if len(bp.Crds) != 0 {
+			t.Errorf("expected Crds folded away, got %+v", bp.Crds)
+		}
+		if len(bp.Kustomizations) != 2 || bp.Kustomizations[0].Name != "gateway-api-1.5.1" || bp.Kustomizations[1].Name != "policy-base" {
+			t.Errorf("expected [gateway-api-1.5.1, policy-base] in Kustomizations, got %+v", bp.Kustomizations)
+		}
+	})
+
+	t.Run("RoundTrips", func(t *testing.T) {
+		bp := &Blueprint{
+			Kind:           "Blueprint",
+			Kustomizations: []Kustomization{{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"}, {Name: "app", Path: "app"}},
+		}
+		out, err := yaml.Marshal(bp)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var got Blueprint
+		if err := yaml.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(got.Crds) != 0 || len(got.Kustomizations) != 2 {
+			t.Errorf("expected unified 2-entry Kustomizations after round-trip, got crds=%+v kustomize=%+v", got.Crds, got.Kustomizations)
+		}
+	})
+}
+
+func TestBlueprint_StrategicMerge_Crds(t *testing.T) {
+	t.Run("RoutesOverlayCrdsThroughKustomizationMerge", func(t *testing.T) {
+		// Given an overlay that carries a crds: entry
+		base := &Blueprint{}
+		overlay := &Blueprint{
+			Crds: []Kustomization{{Name: "cert-manager-1.16.2", Path: "crds/cert-manager-1.16.2"}},
+		}
+
+		// When merged
+		if err := base.StrategicMerge(overlay); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then the entry is unified into Kustomizations; the composer's partition step re-separates it
+		found := false
+		for _, k := range base.Kustomizations {
+			if k.Name == "cert-manager-1.16.2" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected overlay crd routed into Kustomizations, got %+v", base.Kustomizations)
+		}
+	})
+}
+
 func TestBlueprint_StrategicMerge(t *testing.T) {
 	t.Run("MergesTerraformComponentsStrategically", func(t *testing.T) {
 		// Given a base blueprint with terraform components

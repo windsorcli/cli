@@ -64,9 +64,9 @@ func TestWindsorTest_DerivedConfigFixture(t *testing.T) {
 	}
 }
 
-// TestShowBlueprint_CrdsFacetSection verifies a facet's `crds:` section composes into the
-// blueprint: the referenced CRD becomes its own kustomization at kustomize/crds/<ref> with
-// pruning disabled and wait enabled, and the facet's own kustomization is wired to depend on it.
+// TestShowBlueprint_CrdsFacetSection verifies a facet's `crds:` declaration composes into the
+// blueprint's first-class `crds:` section: the reference becomes a kustomization at crds/<ref>
+// with pruning disabled and wait enabled, separate from the `kustomize:` layer.
 func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "facet-crds")
@@ -77,11 +77,14 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 	}
 
 	var bp struct {
+		Crds []struct {
+			Name  string `yaml:"name"`
+			Path  string `yaml:"path"`
+			Prune *bool  `yaml:"prune"`
+			Wait  *bool  `yaml:"wait"`
+		} `yaml:"crds"`
 		Kustomize []struct {
 			Name      string   `yaml:"name"`
-			Path      string   `yaml:"path"`
-			Prune     *bool    `yaml:"prune"`
-			Wait      *bool    `yaml:"wait"`
 			DependsOn []string `yaml:"dependsOn"`
 		} `yaml:"kustomize"`
 	}
@@ -89,16 +92,20 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
 	}
 
-	byName := map[string]int{}
-	for i, k := range bp.Kustomize {
-		byName[k.Name] = i
+	var crd *struct {
+		Name  string `yaml:"name"`
+		Path  string `yaml:"path"`
+		Prune *bool  `yaml:"prune"`
+		Wait  *bool  `yaml:"wait"`
 	}
-
-	crdIdx, ok := byName["cert-manager-1.16.2"]
-	if !ok {
-		t.Fatalf("expected synthesized CRD kustomization 'cert-manager-1.16.2', got %+v", bp.Kustomize)
+	for i := range bp.Crds {
+		if bp.Crds[i].Name == "cert-manager-1.16.2" {
+			crd = &bp.Crds[i]
+		}
 	}
-	crd := bp.Kustomize[crdIdx]
+	if crd == nil {
+		t.Fatalf("expected cert-manager-1.16.2 in the crds: section, got %+v", bp.Crds)
+	}
 	if crd.Path != "crds/cert-manager-1.16.2" {
 		t.Errorf("expected CRD path 'crds/cert-manager-1.16.2', got %q", crd.Path)
 	}
@@ -109,19 +116,31 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 		t.Errorf("expected CRD wait=true, got %v", crd.Wait)
 	}
 
-	installIdx, ok := byName["cert-manager"]
-	if !ok {
-		t.Fatalf("expected facet kustomization 'cert-manager', got %+v", bp.Kustomize)
+	// The CRD lives in crds:, not folded into kustomize: — and the stack's root depends on it
+	// (the barrier), so Flux orders the CRD layer first without the provisioner waiting.
+	var certManager *struct {
+		Name      string   `yaml:"name"`
+		DependsOn []string `yaml:"dependsOn"`
 	}
-	install := bp.Kustomize[installIdx]
-	if !slices.Contains(install.DependsOn, "cert-manager-1.16.2") {
-		t.Errorf("expected cert-manager to depend on cert-manager-1.16.2, got %v", install.DependsOn)
+	for i := range bp.Kustomize {
+		if bp.Kustomize[i].Name == "cert-manager-1.16.2" {
+			t.Errorf("did not expect the CRD in the kustomize: section, got %+v", bp.Kustomize)
+		}
+		if bp.Kustomize[i].Name == "cert-manager" {
+			certManager = &bp.Kustomize[i]
+		}
+	}
+	if certManager == nil {
+		t.Fatalf("expected cert-manager in the kustomize: section, got %+v", bp.Kustomize)
+	}
+	if !slices.Contains(certManager.DependsOn, "cert-manager-1.16.2") {
+		t.Errorf("expected cert-manager (a root) to depend on the CRD layer, got %v", certManager.DependsOn)
 	}
 }
 
 // TestShowBlueprint_CrdsDriverSelection verifies a single facet selecting different CRDs per
-// driver via inline `${...}` expressions: only the active driver's CRD is emitted and its
-// kustomization is wired to it, while the other driver's CRD never appears.
+// driver via inline `${...}` expressions: only the active driver's CRD lands in the crds: section,
+// while the other driver's CRD never appears.
 func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ context, want, absent string }{
@@ -140,6 +159,9 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 			}
 
 			var bp struct {
+				Crds []struct {
+					Name string `yaml:"name"`
+				} `yaml:"crds"`
 				Kustomize []struct {
 					Name      string   `yaml:"name"`
 					DependsOn []string `yaml:"dependsOn"`
@@ -149,24 +171,36 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 				t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
 			}
 
-			var gatewayDeps []string
 			foundWant := false
-			for _, k := range bp.Kustomize {
+			for _, k := range bp.Crds {
 				if k.Name == tc.want {
 					foundWant = true
 				}
 				if k.Name == tc.absent {
-					t.Errorf("did not expect CRD %q for context %s, got %+v", tc.absent, tc.context, bp.Kustomize)
-				}
-				if k.Name == "gateway" {
-					gatewayDeps = k.DependsOn
+					t.Errorf("did not expect CRD %q for context %s, got %+v", tc.absent, tc.context, bp.Crds)
 				}
 			}
 			if !foundWant {
-				t.Errorf("expected CRD %q for context %s, got %+v", tc.want, tc.context, bp.Kustomize)
+				t.Errorf("expected CRD %q in crds: for context %s, got %+v", tc.want, tc.context, bp.Crds)
 			}
-			if !slices.Contains(gatewayDeps, tc.want) {
-				t.Errorf("expected gateway to depend on %q, got %v", tc.want, gatewayDeps)
+
+			var gateway *struct {
+				Name      string   `yaml:"name"`
+				DependsOn []string `yaml:"dependsOn"`
+			}
+			for i := range bp.Kustomize {
+				if bp.Kustomize[i].Name == "gateway" {
+					gateway = &bp.Kustomize[i]
+				}
+			}
+			if gateway == nil {
+				t.Fatalf("expected gateway in the kustomize: section for context %s, got %+v", tc.context, bp.Kustomize)
+			}
+			if !slices.Contains(gateway.DependsOn, tc.want) {
+				t.Errorf("expected gateway wired to the active driver CRD %q via the barrier, got %v", tc.want, gateway.DependsOn)
+			}
+			if slices.Contains(gateway.DependsOn, tc.absent) {
+				t.Errorf("did not expect gateway wired to the inactive driver CRD %q, got %v", tc.absent, gateway.DependsOn)
 			}
 		})
 	}
