@@ -705,9 +705,9 @@ func (c *BaseBlueprintComposer) resolveTierDependencies(bp *blueprintv1alpha1.Bl
 // and reconciles only after the CRDs are Established — without any facet author naming a CRD.
 func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Blueprint) {
 	var crdNames []string
-	for _, k := range bp.Kustomizations {
-		if isCrdLayerPath(k.Path) {
-			crdNames = append(crdNames, k.Name)
+	for i := range bp.Kustomizations {
+		if bp.Kustomizations[i].IsCrdLayer() {
+			crdNames = append(crdNames, bp.Kustomizations[i].Name)
 		}
 	}
 	if len(crdNames) == 0 {
@@ -716,17 +716,11 @@ func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Bluep
 	slices.Sort(crdNames)
 	for i := range bp.Kustomizations {
 		k := &bp.Kustomizations[i]
-		if isCrdLayerPath(k.Path) || len(k.DependsOn) > 0 {
+		if k.IsCrdLayer() || len(k.DependsOn) > 0 {
 			continue
 		}
 		k.DependsOn = appendCrdDependencies(k.DependsOn, crdNames, k.Name)
 	}
-}
-
-// isCrdLayerPath reports whether a kustomization path belongs to the vendored CRD layer, which
-// lives under the standard crds/ location.
-func isCrdLayerPath(path string) bool {
-	return path == "crds" || strings.HasPrefix(path, "crds/")
 }
 
 // validateSources checks that install is only used on OCI sources. Git and other non-OCI sources

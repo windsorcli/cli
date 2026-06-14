@@ -2279,6 +2279,27 @@ func TestHasRemoteTemplateSource(t *testing.T) {
 	})
 }
 
+func TestKustomization_IsCrdLayer(t *testing.T) {
+	t.Run("ClassifiesByCrdsPath", func(t *testing.T) {
+		cases := []struct {
+			path string
+			want bool
+		}{
+			{"crds/cert-manager-1.16.2", true},
+			{"crds", true},
+			{"pki/cert-manager", false},
+			{"crdsly/oops", false},
+			{"", false},
+		}
+		for _, tc := range cases {
+			k := &Kustomization{Path: tc.path}
+			if got := k.IsCrdLayer(); got != tc.want {
+				t.Errorf("IsCrdLayer(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		}
+	})
+}
+
 func TestKustomization_ToFluxKustomization(t *testing.T) {
 	t.Run("BasicConversionWithDefaults", func(t *testing.T) {
 		kustomization := &Kustomization{

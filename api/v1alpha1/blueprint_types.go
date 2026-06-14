@@ -964,6 +964,13 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 // and the list of sources to determine the source kind (GitRepository or OCIRepository).
 // k.TargetNamespace is passed through to spec.targetNamespace so Flux rewrites the
 // namespace of every reconciled resource. DependsOn references are always resolved
+// IsCrdLayer reports whether this kustomization belongs to the vendored CRD layer, which lives
+// under the standard crds/ path. The composer orders that layer ahead of the stack and the
+// provisioner surfaces it as its own install step.
+func (k *Kustomization) IsCrdLayer() bool {
+	return k.Path == "crds" || strings.HasPrefix(k.Path, "crds/")
+}
+
 // in the default namespace.
 // The mode parameter selects the default Interval: pull mode uses the short
 // poll-friendly default; push mode uses a long fallback interval on the

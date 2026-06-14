@@ -330,79 +330,23 @@ func (k *BaseKubernetesManager) WaitForKustomizations(ctx context.Context, messa
 		return fmt.Errorf("blueprint not provided")
 	}
 
-	timeout := k.calculateTotalWaitTime(blueprint)
-	kustomizationNames := make([]string, 0, len(blueprint.Kustomizations))
+	var crdNames, restNames []string
 	for _, kustomization := range blueprint.Kustomizations {
 		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
 			continue
 		}
-		kustomizationNames = append(kustomizationNames, kustomization.Name)
-	}
-
-	tui.Start(message)
-
-	timeoutChan := time.After(timeout)
-	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			tui.Pause()
-			return ctx.Err()
-		case <-timeoutChan:
-			tui.Fail()
-			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(kustomizationNames, k.gitopsNamespace()))
-		case <-ticker.C:
-			allReady := true
-			for _, name := range kustomizationNames {
-				gvr := schema.GroupVersionResource{
-					Group:    "kustomize.toolkit.fluxcd.io",
-					Version:  "v1",
-					Resource: "kustomizations",
-				}
-				obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
-				if err != nil {
-					allReady = false
-					break
-				}
-				var kustomizationObj map[string]any
-				if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
-					allReady = false
-					break
-				}
-				status, ok := kustomizationObj["status"].(map[string]any)
-				if !ok {
-					allReady = false
-					break
-				}
-				conditions, ok := status["conditions"].([]any)
-				if !ok {
-					allReady = false
-					break
-				}
-				ready := false
-				for _, cond := range conditions {
-					condMap, ok := cond.(map[string]any)
-					if !ok {
-						continue
-					}
-					if condMap["type"] == "Ready" && condMap["status"] == "True" {
-						ready = true
-						break
-					}
-				}
-				if !ready {
-					allReady = false
-					break
-				}
-			}
-			if allReady {
-				tui.Done()
-				return nil
-			}
+		if kustomization.IsCrdLayer() {
+			crdNames = append(crdNames, kustomization.Name)
+		} else {
+			restNames = append(restNames, kustomization.Name)
 		}
 	}
+
+	deadline := time.After(k.calculateTotalWaitTime(blueprint))
+	if err := k.waitForKustomizationGroup(ctx, "Installing CRDs", crdNames, deadline); err != nil {
+		return err
+	}
+	return k.waitForKustomizationGroup(ctx, message, restNames, deadline)
 }
 
 // CreateNamespace creates a new namespace
@@ -935,10 +879,10 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 //     so DELETE blocks until every managed resource is fully gone from etcd. The chain
 //     for cloud resources is:
 //
-//         K8s DELETE → controller's finalizer holds the object in etcd
-//         → controller calls cloud API to release external state
-//         → finalizer lifts → object NotFound
-//         → WaitForTermination satisfied
+//     K8s DELETE → controller's finalizer holds the object in etcd
+//     → controller calls cloud API to release external state
+//     → finalizer lifts → object NotFound
+//     → WaitForTermination satisfied
 //
 //     This is what makes CSI volumes, LB Services, Ingresses, and cert-manager
 //     Certificates clean up cloud-side without the orchestrator ever calling a
@@ -1139,6 +1083,79 @@ waitLoop:
 // gitopsNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
 func (k *BaseKubernetesManager) gitopsNamespace() string {
 	return k.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+}
+
+// waitForKustomizationGroup polls the named kustomizations until every one reports Ready, sharing
+// the caller's deadline so the two install steps together honor the blueprint's total wait budget.
+// An empty group is a no-op with no progress line, so the CRD step appears only when the blueprint
+// carries a CRD layer.
+func (k *BaseKubernetesManager) waitForKustomizationGroup(ctx context.Context, message string, names []string, deadline <-chan time.Time) error {
+	if len(names) == 0 {
+		return nil
+	}
+
+	tui.Start(message)
+
+	ticker := time.NewTicker(k.kustomizationWaitPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			tui.Pause()
+			return ctx.Err()
+		case <-deadline:
+			tui.Fail()
+			return fmt.Errorf("timeout waiting for kustomizations%s", k.describeNotReadyKustomizations(names, k.gitopsNamespace()))
+		case <-ticker.C:
+			if k.kustomizationsReady(names) {
+				tui.Done()
+				return nil
+			}
+		}
+	}
+}
+
+// kustomizationsReady reports whether every named kustomization has a Ready=True status condition.
+func (k *BaseKubernetesManager) kustomizationsReady(names []string) bool {
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+	for _, name := range names {
+		obj, err := k.client.GetResource(gvr, k.gitopsNamespace(), name)
+		if err != nil {
+			return false
+		}
+		var kustomizationObj map[string]any
+		if err := k.shims.FromUnstructured(obj.UnstructuredContent(), &kustomizationObj); err != nil {
+			return false
+		}
+		status, ok := kustomizationObj["status"].(map[string]any)
+		if !ok {
+			return false
+		}
+		conditions, ok := status["conditions"].([]any)
+		if !ok {
+			return false
+		}
+		ready := false
+		for _, cond := range conditions {
+			condMap, ok := cond.(map[string]any)
+			if !ok {
+				continue
+			}
+			if condMap["type"] == "Ready" && condMap["status"] == "True" {
+				ready = true
+				break
+			}
+		}
+		if !ready {
+			return false
+		}
+	}
+	return true
 }
 
 // applyWithRetry applies a resource using SSA with minimal logic

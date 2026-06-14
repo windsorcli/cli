@@ -639,6 +639,46 @@ func TestBaseKubernetesManager_WaitForKustomizations(t *testing.T) {
 		}
 	})
 
+	t.Run("WaitsForCrdLayerBeforeRest", func(t *testing.T) {
+		// Given a CRD-layer kustomization stuck not-Ready and a normal one that is Ready
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			ready := "True"
+			if name == "gateway-api-1.5.1" {
+				ready = "False"
+			}
+			return &unstructured.Unstructured{
+				Object: map[string]any{
+					"status": map[string]any{
+						"conditions": []any{
+							map[string]any{"type": "Ready", "status": ready},
+						},
+					},
+				},
+			}, nil
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1", Timeout: &blueprintv1alpha1.DurationString{Duration: 50 * time.Millisecond}},
+				{Name: "app", Path: "app", Timeout: &blueprintv1alpha1.DurationString{Duration: 50 * time.Millisecond}},
+			},
+		}
+
+		// When the wait runs, it blocks in the CRD phase even though the app tier is Ready
+		err := manager.WaitForKustomizations(context.Background(), "Waiting for kustomizations", blueprint)
+
+		// Then the timeout names the stuck CRD layer, confirming CRDs are waited on first
+		if err == nil {
+			t.Fatal("Expected timeout in the CRD phase, got nil")
+		}
+		if !strings.Contains(err.Error(), "gateway-api-1.5.1") {
+			t.Errorf("Expected error to name the stuck CRD kustomization, got: %v", err)
+		}
+	})
+
 	t.Run("MissingStatus", func(t *testing.T) {
 		manager := setup(t)
 		kubernetesClient := client.NewMockKubernetesClient()
