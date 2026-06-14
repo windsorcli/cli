@@ -401,6 +401,35 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 			t.Error("Deep copy failed: requires message was not copied")
 		}
 	})
+
+	t.Run("CopiesInstallAndResourceTiersIndependently", func(t *testing.T) {
+		original := &ConditionalKustomization{
+			Kustomization: Kustomization{
+				Name:      "cert-manager",
+				Path:      "pki/cert-manager",
+				Install:   []string{"helm-release"},
+				Resources: []string{"private-issuer/ca"},
+			},
+		}
+
+		copy := original.DeepCopy()
+
+		if len(copy.Install) != 1 || copy.Install[0] != "helm-release" {
+			t.Fatalf("Expected install components copied, got %v", copy.Install)
+		}
+		if len(copy.Resources) != 1 || copy.Resources[0] != "private-issuer/ca" {
+			t.Fatalf("Expected resources components copied, got %v", copy.Resources)
+		}
+
+		original.Install[0] = "modified"
+		if copy.Install[0] == "modified" {
+			t.Error("Deep copy failed: install components slice was not copied")
+		}
+		original.Resources[0] = "modified"
+		if copy.Resources[0] == "modified" {
+			t.Error("Deep copy failed: resources components slice was not copied")
+		}
+	})
 }
 
 func TestConfigBlockDeepCopy(t *testing.T) {
