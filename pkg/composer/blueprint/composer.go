@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fluxcd/pkg/apis/kustomize"
@@ -165,6 +166,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	}
 	c.dropEmptyCompositionFragments(result)
 	c.resolveTierDependencies(result)
+	c.applyCrdLayerBarrier(result)
 	validationErr := errors.Join(c.validateSources(result), c.validateDependencies(result))
 	return result, validationErr
 }
@@ -695,6 +697,36 @@ func (c *BaseBlueprintComposer) resolveTierDependencies(bp *blueprintv1alpha1.Bl
 			}
 		}
 	}
+}
+
+// applyCrdLayerBarrier orders the vendored CRD layer ahead of the whole stack. The layer is every
+// kustomization under the crds/ path; each non-CRD root (one with no dependencies of its own) gains
+// a dependsOn on every CRD-layer kustomization, so the entire stack reaches the layer transitively
+// and reconciles only after the CRDs are Established — without any facet author naming a CRD.
+func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Blueprint) {
+	var crdNames []string
+	for _, k := range bp.Kustomizations {
+		if isCrdLayerPath(k.Path) {
+			crdNames = append(crdNames, k.Name)
+		}
+	}
+	if len(crdNames) == 0 {
+		return
+	}
+	slices.Sort(crdNames)
+	for i := range bp.Kustomizations {
+		k := &bp.Kustomizations[i]
+		if isCrdLayerPath(k.Path) || len(k.DependsOn) > 0 {
+			continue
+		}
+		k.DependsOn = appendCrdDependencies(k.DependsOn, crdNames, k.Name)
+	}
+}
+
+// isCrdLayerPath reports whether a kustomization path belongs to the vendored CRD layer, which
+// lives under the standard crds/ location.
+func isCrdLayerPath(path string) bool {
+	return path == "crds" || strings.HasPrefix(path, "crds/")
 }
 
 // validateSources checks that install is only used on OCI sources. Git and other non-OCI sources

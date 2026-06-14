@@ -950,9 +950,6 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			return fmt.Errorf("error evaluating resources for kustomization '%s': %w", processed.Name, err)
 		}
 		tiered := len(installComponents) > 0 || len(resourceComponents) > 0
-		if !tiered {
-			processed.DependsOn = appendCrdDependencies(processed.DependsOn, facet.Crds, processed.Name)
-		}
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
 			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
@@ -993,7 +990,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		}
 
 		if tiered {
-			for _, entry := range buildTierEntries(processed, installComponents, resourceComponents, facet.Crds) {
+			for _, entry := range buildTierEntries(processed, installComponents, resourceComponents) {
 				p.recordKustomizationTraces(entry.Name, entry.Components, entry.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
 				if err := addEntry(entry); err != nil {
 					return err
@@ -1048,9 +1045,10 @@ func appendCrdDependencies(dependsOn []string, crds []string, self string) []str
 // components and "<name>-resources" carries the resources components and depends on the install,
 // so the controller is reconciled before the custom resources it admits. A legacy "<name>" entry
 // is emitted when Components is also set. The install (and legacy) entries carry the entry's
-// explicit dependencies plus the facet's CRD references; resources reaches those transitively
-// through the install tier. Each entry gets its own Substitutions copy and clears the tier fields.
-func buildTierEntries(processed blueprintv1alpha1.ConditionalKustomization, install, resources, crds []string) []blueprintv1alpha1.ConditionalKustomization {
+// explicit dependencies; resources reaches those transitively through the install tier. The CRD
+// layer barrier orders the vendored CRDs ahead of all of them. Each entry gets its own
+// Substitutions copy and clears the tier fields.
+func buildTierEntries(processed blueprintv1alpha1.ConditionalKustomization, install, resources []string) []blueprintv1alpha1.ConditionalKustomization {
 	name := processed.Name
 	explicit := slices.Clone(processed.DependsOn)
 	installName := name + "-install"
@@ -1068,16 +1066,16 @@ func buildTierEntries(processed blueprintv1alpha1.ConditionalKustomization, inst
 
 	var entries []blueprintv1alpha1.ConditionalKustomization
 	if len(processed.Components) > 0 {
-		entries = append(entries, mk(name, slices.Clone(processed.Components), appendCrdDependencies(slices.Clone(explicit), crds, name)))
+		entries = append(entries, mk(name, slices.Clone(processed.Components), slices.Clone(explicit)))
 	}
 	if len(install) > 0 {
-		entries = append(entries, mk(installName, install, appendCrdDependencies(slices.Clone(explicit), crds, installName)))
+		entries = append(entries, mk(installName, install, slices.Clone(explicit)))
 	}
 	if len(resources) > 0 {
 		if len(install) > 0 {
 			entries = append(entries, mk(resourcesName, resources, []string{installName}))
 		} else {
-			entries = append(entries, mk(resourcesName, resources, appendCrdDependencies(slices.Clone(explicit), crds, resourcesName)))
+			entries = append(entries, mk(resourcesName, resources, slices.Clone(explicit)))
 		}
 	}
 	return entries

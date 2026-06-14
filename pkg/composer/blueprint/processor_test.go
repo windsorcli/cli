@@ -2178,64 +2178,6 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		}
 	})
 
-	t.Run("WiresFacetKustomizationsToDependOnCrds", func(t *testing.T) {
-		// Given a facet with both a CRD reference and a kustomization
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "addon-private-ca"},
-				Crds:     []string{"cert-manager-1.16.2"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{Name: "cert-manager", Path: "pki/cert-manager"}},
-				},
-			},
-		}
-
-		// When processing facets
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then the facet's kustomization depends on the CRD kustomization
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		k := findKustomization(t, target, "cert-manager")
-		if !slices.Contains(k.DependsOn, "cert-manager-1.16.2") {
-			t.Errorf("Expected cert-manager to depend on cert-manager-1.16.2, got %v", k.DependsOn)
-		}
-	})
-
-	t.Run("DoesNotWireKustomizationToItself", func(t *testing.T) {
-		// Given a facet whose kustomization name collides with its CRD reference
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "collide"},
-				Crds:     []string{"gateway-api-1.5.1"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"}},
-				},
-			},
-		}
-
-		// When processing facets
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then the authored kustomization is not made to depend on itself
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		k := findKustomization(t, target, "gateway-api-1.5.1")
-		if slices.Contains(k.DependsOn, "gateway-api-1.5.1") {
-			t.Errorf("Expected no self-dependency, got %v", k.DependsOn)
-		}
-	})
-
 	t.Run("AuthoredKustomizationTakesPrecedenceOverSynthesized", func(t *testing.T) {
 		// Given a facet that both declares a CRD reference and authors a kustomization of that name
 		mocks := setupProcessorMocks(t)
@@ -2332,16 +2274,12 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then both CRDs are emitted and the kustomization depends on both
+		// Then both CRDs are emitted into the layer
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		findKustomization(t, target, "cert-manager-1.16.2")
 		findKustomization(t, target, "gateway-api-1.5.1")
-		k := findKustomization(t, target, "app")
-		if !slices.Contains(k.DependsOn, "cert-manager-1.16.2") || !slices.Contains(k.DependsOn, "gateway-api-1.5.1") {
-			t.Errorf("Expected app to depend on both CRDs, got %v", k.DependsOn)
-		}
 	})
 
 	t.Run("SkipsEmptyCrdReference", func(t *testing.T) {
@@ -2353,9 +2291,6 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 			{
 				Metadata: blueprintv1alpha1.Metadata{Name: "sparse"},
 				Crds:     []string{"", "cert-manager-1.16.2"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "app"}},
-				},
 			},
 		}
 
@@ -2363,7 +2298,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then the empty reference produces no kustomization or dependency
+		// Then the empty reference produces no kustomization
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -2372,45 +2307,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 				t.Errorf("Expected no empty-named kustomization, got %v", target.Kustomizations)
 			}
 		}
-		k := findKustomization(t, target, "app")
-		if slices.Contains(k.DependsOn, "") {
-			t.Errorf("Expected no empty dependency, got %v", k.DependsOn)
-		}
-	})
-
-	t.Run("DoesNotDuplicateExplicitCrdDependency", func(t *testing.T) {
-		// Given a kustomization that already lists the CRD reference in dependsOn
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "explicit-dep"},
-				Crds:     []string{"cert-manager-1.16.2"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{Name: "app", Path: "app", DependsOn: []string{"cert-manager-1.16.2"}}},
-				},
-			},
-		}
-
-		// When processing facets
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then the dependency appears exactly once
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		k := findKustomization(t, target, "app")
-		count := 0
-		for _, dep := range k.DependsOn {
-			if dep == "cert-manager-1.16.2" {
-				count++
-			}
-		}
-		if count != 1 {
-			t.Errorf("Expected cert-manager-1.16.2 dependency exactly once, got %d in %v", count, k.DependsOn)
-		}
+		findKustomization(t, target, "cert-manager-1.16.2")
 	})
 
 	t.Run("BaseBlueprintKustomizationTakesPrecedenceOverSynthesized", func(t *testing.T) {
@@ -2468,12 +2365,6 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 							"${gateway.driver == 'cilium' ? 'gateway-api-1.5.1' : ''}",
 							"${gateway.driver == 'envoy' ? 'envoy-gateway-1.7.1' : ''}",
 						},
-						Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-							{
-								When:          "gateway.driver == '" + tc.driver + "'",
-								Kustomization: blueprintv1alpha1.Kustomization{Name: "gateway", Path: "gateway"},
-							},
-						},
 					},
 				}
 
@@ -2481,8 +2372,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 				target := &blueprintv1alpha1.Blueprint{}
 				_, err := processor.ProcessFacets(target, facets)
 
-				// Then only the active driver's CRD is emitted, and the active kustomization
-				// is wired to it; the other driver's CRD never appears
+				// Then only the active driver's CRD is emitted into the layer; the other never appears
 				if err != nil {
 					t.Fatalf("Expected no error, got %v", err)
 				}
@@ -2491,10 +2381,6 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 					if k.Name == tc.absent {
 						t.Errorf("Expected %q absent for driver %s, got %v", tc.absent, tc.driver, target.Kustomizations)
 					}
-				}
-				k := findKustomization(t, target, "gateway")
-				if !slices.Contains(k.DependsOn, tc.want) {
-					t.Errorf("Expected gateway to depend on %q, got %v", tc.want, k.DependsOn)
 				}
 			})
 		}
@@ -2614,43 +2500,6 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 	})
 
-	t.Run("WiresCrdsToInstallNotResources", func(t *testing.T) {
-		// Given a tiered facet that also declares a CRD reference
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "pki"},
-				Crds:     []string{"cert-manager-1.16.2"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{
-						Name:      "cert-manager",
-						Path:      "pki/cert-manager",
-						Install:   []string{"helm-release"},
-						Resources: []string{"private-issuer/ca"},
-					}},
-				},
-			},
-		}
-
-		// When processing facets
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then the CRD dep lands on install only; resources reaches it through install
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		install, _ := find(target, "cert-manager-install")
-		res, _ := find(target, "cert-manager-resources")
-		if !slices.Contains(install.DependsOn, "cert-manager-1.16.2") {
-			t.Errorf("Expected install to depend on the CRD, got %v", install.DependsOn)
-		}
-		if slices.Contains(res.DependsOn, "cert-manager-1.16.2") {
-			t.Errorf("Expected resources NOT to depend on the CRD directly, got %v", res.DependsOn)
-		}
-	})
-
 	t.Run("EmitsLegacyComponentsAlongsideTiers", func(t *testing.T) {
 		// Given an entry that sets components AND install AND resources
 		mocks := setupProcessorMocks(t)
@@ -2755,7 +2604,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 
 		// When the entry is expanded into install and resources tiers
-		entries := buildTierEntries(processed, []string{"helm-release"}, []string{"ca"}, nil)
+		entries := buildTierEntries(processed, []string{"helm-release"}, []string{"ca"})
 		if len(entries) != 2 {
 			t.Fatalf("Expected install and resources entries, got %d", len(entries))
 		}

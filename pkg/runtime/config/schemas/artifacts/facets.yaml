@@ -98,17 +98,17 @@ properties:
     type: array
     description: |
       References into the vendored CRD catalog, version-pinned (e.g.
-      'cert-manager-1.16.2'). The composer emits one deduped kustomization
-      per reference at 'kustomize/crds/<ref>' with pruning disabled and wait
-      enabled, and makes every kustomization contributed by this facet depend
-      on it so the API surface is Established before any custom resource is
-      applied. Entries may use '${...}' expressions that resolve against the
-      facet scope and prune to empty — e.g.
-      "${gateway.driver == 'envoy' ? 'envoy-gateway-1.7.1' : ''}" — so one
-      facet can select different CRDs per driver. Each resolved reference must
-      be a single path segment; values containing '/', '\', or '..' are
-      rejected at composition time because they would escape the crds/ catalog
-      directory.
+      'cert-manager-1.16.2'). Each reference registers one deduped kustomization
+      at 'kustomize/crds/<ref>' (pruning disabled, wait enabled) into the
+      cluster-wide CRD layer. The composer orders that layer ahead of the whole
+      stack — every non-CRD root gains a dependsOn on the layer, so the API
+      surface is Established before any custom resource is applied — so facet
+      authors never write a CRD dependsOn themselves. Entries may use '${...}'
+      expressions that resolve against the facet scope and prune to empty — e.g.
+      "${gateway.driver == 'envoy' ? 'envoy-gateway-1.7.1' : ''}" — so one facet
+      can select different CRDs per driver. Each resolved reference must be a
+      single path segment; values containing '/', '\', or '..' are rejected at
+      composition time because they would escape the crds/ catalog directory.
     items:
       type: string
   substitutions:

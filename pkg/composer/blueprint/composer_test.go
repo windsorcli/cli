@@ -1001,6 +1001,64 @@ func TestComposer_setContextMetadata(t *testing.T) {
 	})
 }
 
+func TestComposer_applyCrdLayerBarrier(t *testing.T) {
+	depsOf := func(bp *blueprintv1alpha1.Blueprint, name string) []string {
+		for _, k := range bp.Kustomizations {
+			if k.Name == name {
+				return k.DependsOn
+			}
+		}
+		return nil
+	}
+
+	t.Run("WiresNonCrdRootsToTheLayer", func(t *testing.T) {
+		// Given a CRD layer plus a root and a non-root in the normal stack
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
+				{Name: "envoy-gateway-1.7.1", Path: "crds/envoy-gateway-1.7.1"},
+				{Name: "policy-base", Path: "policy/base"},
+				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"policy-base"}},
+			},
+		}
+
+		// When applying the barrier
+		composer.applyCrdLayerBarrier(bp)
+
+		// Then the root waits for the whole layer, the non-root reaches it transitively,
+		// and the CRD kustomizations themselves gain no dependencies
+		pb := depsOf(bp, "policy-base")
+		if !slices.Contains(pb, "gateway-api-1.5.1") || !slices.Contains(pb, "envoy-gateway-1.7.1") {
+			t.Errorf("expected policy-base wired to the CRD layer, got %v", pb)
+		}
+		if slices.Contains(depsOf(bp, "gateway-base"), "gateway-api-1.5.1") {
+			t.Errorf("expected gateway-base to reach CRDs transitively, not directly, got %v", depsOf(bp, "gateway-base"))
+		}
+		if len(depsOf(bp, "gateway-api-1.5.1")) != 0 {
+			t.Errorf("expected CRD kustomization to have no dependencies, got %v", depsOf(bp, "gateway-api-1.5.1"))
+		}
+	})
+
+	t.Run("NoopWhenNoCrdLayer", func(t *testing.T) {
+		// Given a stack with no CRD layer
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", Path: "app"},
+			},
+		}
+
+		// When applying the barrier
+		composer.applyCrdLayerBarrier(bp)
+
+		// Then nothing is wired
+		if len(depsOf(bp, "app")) != 0 {
+			t.Errorf("expected no barrier without a CRD layer, got %v", depsOf(bp, "app"))
+		}
+	})
+}
+
 func TestComposer_resolveTierDependencies(t *testing.T) {
 	depsOf := func(bp *blueprintv1alpha1.Blueprint, name string) []string {
 		for _, k := range bp.Kustomizations {
