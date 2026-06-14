@@ -313,7 +313,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		}
 	}
 
-	addCrdKustomizations(target, kustomizationByName, crdRefs, sourceName)
+	setCrdLayer(target, crdRefs)
 
 	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {
 		return nil, err
@@ -1068,46 +1068,31 @@ func buildTierEntries(processed blueprintv1alpha1.ConditionalKustomization, inst
 	return entries
 }
 
-// addCrdKustomizations injects one synthesized kustomization per unique CRD reference into the
-// collected set, sourced at kustomize/crds/<ref>. Pruning is disabled because pruning a CRD
-// deletes every custom resource of that kind cluster-wide, and wait is enabled so dependents
-// block until the CRDs are Established. A reference that already names an authored kustomization —
-// whether contributed by a facet or carried by the base blueprint — is left untouched so an
-// explicit definition always wins.
-func addCrdKustomizations(target *blueprintv1alpha1.Blueprint, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, crdRefs map[string]struct{}, sourceName []string) {
+// setCrdLayer records the deduped, sorted CRD references on the blueprint's crds: layer, unioned
+// with any references the base blueprint already carries. The provisioner materializes these into a
+// single "crds" kustomization (components = the refs, pruning disabled, wait enabled) applied ahead
+// of the stack, so every kustomization sees its CRDs Established without a facet naming one in
+// dependsOn.
+func setCrdLayer(target *blueprintv1alpha1.Blueprint, crdRefs map[string]struct{}) {
 	if len(crdRefs) == 0 {
 		return
 	}
-	authored := make(map[string]struct{}, len(target.Kustomizations))
-	for _, k := range target.Kustomizations {
-		authored[k.Name] = struct{}{}
+	seen := make(map[string]struct{}, len(target.Crds)+len(crdRefs))
+	refs := make([]string, 0, len(target.Crds)+len(crdRefs))
+	for _, ref := range target.Crds {
+		if _, ok := seen[ref]; !ok {
+			seen[ref] = struct{}{}
+			refs = append(refs, ref)
+		}
 	}
-	source := resolveSourceName(sourceName)
-	refs := make([]string, 0, len(crdRefs))
 	for ref := range crdRefs {
-		refs = append(refs, ref)
+		if _, ok := seen[ref]; !ok {
+			seen[ref] = struct{}{}
+			refs = append(refs, ref)
+		}
 	}
 	sort.Strings(refs)
-	for _, ref := range refs {
-		if _, exists := kustomizationByName[ref]; exists {
-			continue
-		}
-		if _, exists := authored[ref]; exists {
-			continue
-		}
-		prune := false
-		wait := true
-		kustomizationByName[ref] = &blueprintv1alpha1.ConditionalKustomization{
-			Kustomization: blueprintv1alpha1.Kustomization{
-				Name:   ref,
-				Path:   "crds/" + ref,
-				Source: source,
-				Prune:  &prune,
-				Wait:   &wait,
-			},
-			Strategy: "merge",
-		}
-	}
+	target.Crds = refs
 }
 
 // shouldIncludeFacet evaluates whether a facet should be included based on its 'when' condition.

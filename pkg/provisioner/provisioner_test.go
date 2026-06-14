@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1215,6 +1216,47 @@ func TestProvisioner_Install(t *testing.T) {
 
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("MaterializesCrdLayerFromCrdsList", func(t *testing.T) {
+		// Given a blueprint whose crds: layer is a list of references
+		mocks := setupProvisionerMocks(t)
+		var applied *blueprintv1alpha1.Blueprint
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			applied = blueprint
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Crds:           []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", DependsOn: []string{"crds"}}},
+		}
+
+		// When installing
+		if err := provisioner.Install(context.Background(), blueprint); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then a single "crds" kustomization is materialized ahead of the stack, with the references
+		// as its components, pruning disabled and wait enabled
+		if applied == nil || len(applied.Kustomizations) != 2 {
+			t.Fatalf("expected crds kustomization prepended, got %+v", applied)
+		}
+		crd := applied.Kustomizations[0]
+		if crd.Name != "crds" || crd.Path != "crds" {
+			t.Errorf("expected name/path 'crds', got name=%q path=%q", crd.Name, crd.Path)
+		}
+		if !slices.Equal(crd.Components, []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"}) {
+			t.Errorf("expected components from crds: list, got %v", crd.Components)
+		}
+		if crd.Prune == nil || *crd.Prune != false || crd.Wait == nil || *crd.Wait != true {
+			t.Errorf("expected prune=false wait=true, got prune=%v wait=%v", crd.Prune, crd.Wait)
+		}
+		// And the caller's blueprint is not mutated
+		if len(blueprint.Kustomizations) != 1 {
+			t.Errorf("expected caller blueprint untouched, got %+v", blueprint.Kustomizations)
 		}
 	})
 

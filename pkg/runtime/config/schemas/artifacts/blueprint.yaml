@@ -145,15 +145,15 @@ properties:
   crds:
     type: array
     description: |
-      The vendored CRD layer: kustomizations under the crds/ path that the
-      provisioner applies as their own phase ahead of the kustomize: layer, so
-      every kustomization sees its CRDs Established first. Populated by the
-      composer from facet crds: declarations; each entry has the same shape as a
-      kustomize: entry (name, path, prune, wait, ...). Internally CRDs are part
-      of the kustomization set; this section is the presentation split.
+      The vendored CRD layer: a list of references into the crds/ catalog (e.g.
+      'cert-manager-1.16.2'). The provisioner materializes these into a single
+      'crds' kustomization (its components are these references, pruning disabled
+      and wait enabled) applied ahead of the kustomize: layer, so every
+      kustomization sees its CRDs Established first. Populated by the composer
+      from facet crds: declarations; the stack depends on the layer by the name
+      'crds'.
     items:
-      type: object
-      additionalProperties: true
+      type: string
   kustomize:
     type: array
     description: |

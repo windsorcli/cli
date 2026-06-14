@@ -2106,18 +2106,14 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 }
 
 func TestProcessor_ProcessFacets_Crds(t *testing.T) {
-	findKustomization := func(t *testing.T, bp *blueprintv1alpha1.Blueprint, name string) blueprintv1alpha1.Kustomization {
+	requireCrd := func(t *testing.T, bp *blueprintv1alpha1.Blueprint, ref string) {
 		t.Helper()
-		for _, k := range bp.Kustomizations {
-			if k.Name == name {
-				return k
-			}
+		if !slices.Contains(bp.Crds, ref) {
+			t.Fatalf("Expected crd reference %q in crds: layer, got %v", ref, bp.Crds)
 		}
-		t.Fatalf("Expected kustomization %q in target, got %v", name, bp.Kustomizations)
-		return blueprintv1alpha1.Kustomization{}
 	}
 
-	t.Run("EmitsSynthesizedCrdKustomization", func(t *testing.T) {
+	t.Run("RecordsCrdReference", func(t *testing.T) {
 		// Given a facet that declares a CRD reference
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
@@ -2133,19 +2129,15 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then a CRD kustomization is emitted at kustomize/crds/<ref> with safe defaults
+		// Then the reference lands on the crds: layer, not as a kustomization
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		k := findKustomization(t, target, "cert-manager-1.16.2")
-		if k.Path != "crds/cert-manager-1.16.2" {
-			t.Errorf("Expected path 'crds/cert-manager-1.16.2', got %q", k.Path)
-		}
-		if k.Prune == nil || *k.Prune != false {
-			t.Errorf("Expected prune=false, got %v", k.Prune)
-		}
-		if k.Wait == nil || *k.Wait != true {
-			t.Errorf("Expected wait=true, got %v", k.Wait)
+		requireCrd(t, target, "cert-manager-1.16.2")
+		for _, k := range target.Kustomizations {
+			if k.Name == "cert-manager-1.16.2" {
+				t.Errorf("Expected no synthesized kustomization for the CRD ref, got %v", target.Kustomizations)
+			}
 		}
 	})
 
@@ -2163,51 +2155,22 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then the shared CRD is emitted exactly once
+		// Then the shared CRD reference appears exactly once
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		count := 0
-		for _, k := range target.Kustomizations {
-			if k.Name == "gateway-api-1.5.1" {
+		for _, ref := range target.Crds {
+			if ref == "gateway-api-1.5.1" {
 				count++
 			}
 		}
 		if count != 1 {
-			t.Errorf("Expected exactly 1 gateway-api-1.5.1 kustomization, got %d", count)
+			t.Errorf("Expected exactly 1 gateway-api-1.5.1 reference, got %d (%v)", count, target.Crds)
 		}
 	})
 
-	t.Run("AuthoredKustomizationTakesPrecedenceOverSynthesized", func(t *testing.T) {
-		// Given a facet that both declares a CRD reference and authors a kustomization of that name
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "explicit"},
-				Crds:     []string{"gateway-api-1.5.1"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{Name: "gateway-api-1.5.1", Path: "custom/path"}},
-				},
-			},
-		}
-
-		// When processing facets
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then the authored path wins; the synthesized entry is not injected
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		k := findKustomization(t, target, "gateway-api-1.5.1")
-		if k.Path != "custom/path" {
-			t.Errorf("Expected authored path 'custom/path' to win, got %q", k.Path)
-		}
-	})
-
-	t.Run("EmitsCrdWithoutFacetKustomizations", func(t *testing.T) {
+	t.Run("RecordsCrdWithoutFacetKustomizations", func(t *testing.T) {
 		// Given a facet that declares a CRD reference but contributes no kustomizations
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
@@ -2220,11 +2183,11 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then the CRD layer is still emitted
+		// Then the CRD layer is still recorded
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		findKustomization(t, target, "cert-manager-1.16.2")
+		requireCrd(t, target, "cert-manager-1.16.2")
 	})
 
 	t.Run("ExcludesCrdsFromInactiveFacet", func(t *testing.T) {
@@ -2244,14 +2207,12 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then no CRD kustomization is emitted for the excluded facet
+		// Then no CRD reference is recorded for the excluded facet
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		for _, k := range target.Kustomizations {
-			if k.Name == "cert-manager-1.16.2" {
-				t.Errorf("Expected no CRD kustomization from excluded facet, got %v", target.Kustomizations)
-			}
+		if slices.Contains(target.Crds, "cert-manager-1.16.2") {
+			t.Errorf("Expected no CRD reference from excluded facet, got %v", target.Crds)
 		}
 	})
 
@@ -2274,12 +2235,12 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then both CRDs are emitted into the layer
+		// Then both CRD references are recorded
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		findKustomization(t, target, "cert-manager-1.16.2")
-		findKustomization(t, target, "gateway-api-1.5.1")
+		requireCrd(t, target, "cert-manager-1.16.2")
+		requireCrd(t, target, "gateway-api-1.5.1")
 	})
 
 	t.Run("SkipsEmptyCrdReference", func(t *testing.T) {
@@ -2298,48 +2259,38 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then the empty reference produces no kustomization
+		// Then the empty reference is dropped from the crds: layer
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		for _, k := range target.Kustomizations {
-			if k.Name == "" {
-				t.Errorf("Expected no empty-named kustomization, got %v", target.Kustomizations)
-			}
+		if slices.Contains(target.Crds, "") {
+			t.Errorf("Expected no empty crd reference, got %v", target.Crds)
 		}
-		findKustomization(t, target, "cert-manager-1.16.2")
+		requireCrd(t, target, "cert-manager-1.16.2")
 	})
 
-	t.Run("BaseBlueprintKustomizationTakesPrecedenceOverSynthesized", func(t *testing.T) {
-		// Given a base blueprint that already authors a kustomization named like a CRD ref,
-		// with prune explicitly enabled
+	t.Run("UnionsWithBaseBlueprintCrds", func(t *testing.T) {
+		// Given a base blueprint that already carries a crds: reference
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
-		prune := true
 		target := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "cert-manager-1.16.2", Path: "custom/crds", Prune: &prune},
-			},
+			Crds: []string{"cert-manager-1.16.2"},
 		}
 
 		facets := []blueprintv1alpha1.Facet{
-			{Metadata: blueprintv1alpha1.Metadata{Name: "pki"}, Crds: []string{"cert-manager-1.16.2"}},
+			{Metadata: blueprintv1alpha1.Metadata{Name: "gateway"}, Crds: []string{"gateway-api-1.5.1"}},
 		}
 
-		// When a facet declares the same CRD reference
+		// When a facet contributes another reference
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then the base blueprint's entry is left untouched — its prune=true is not flipped to false
+		// Then both are present, deduped and sorted
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		k := findKustomization(t, target, "cert-manager-1.16.2")
-		if k.Path != "custom/crds" {
-			t.Errorf("Expected base path 'custom/crds' to win, got %q", k.Path)
-		}
-		if k.Prune == nil || *k.Prune != true {
-			t.Errorf("Expected base prune=true to be preserved, got %v", k.Prune)
+		if !slices.Equal(target.Crds, []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}) {
+			t.Errorf("Expected unioned sorted crds, got %v", target.Crds)
 		}
 	})
 
@@ -2378,15 +2329,13 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 				target := &blueprintv1alpha1.Blueprint{}
 				_, err := processor.ProcessFacets(target, facets)
 
-				// Then only the active driver's CRD is emitted into the layer; the other never appears
+				// Then only the active driver's CRD is recorded; the other never appears
 				if err != nil {
 					t.Fatalf("Expected no error, got %v", err)
 				}
-				findKustomization(t, target, tc.want)
-				for _, k := range target.Kustomizations {
-					if k.Name == tc.absent {
-						t.Errorf("Expected %q absent for driver %s, got %v", tc.absent, tc.driver, target.Kustomizations)
-					}
+				requireCrd(t, target, tc.want)
+				if slices.Contains(target.Crds, tc.absent) {
+					t.Errorf("Expected %q absent for driver %s, got %v", tc.absent, tc.driver, target.Crds)
 				}
 			})
 		}
@@ -2431,14 +2380,17 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		target := &blueprintv1alpha1.Blueprint{}
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then no CRD kustomizations appear and dependsOn is untouched
+		// Then no crds: layer appears and dependsOn is untouched
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Crds) != 0 {
+			t.Errorf("Expected no crds: layer, got %v", target.Crds)
 		}
 		if len(target.Kustomizations) != 1 {
 			t.Fatalf("Expected exactly 1 kustomization, got %d", len(target.Kustomizations))
 		}
-		k := findKustomization(t, target, "app")
+		k := target.Kustomizations[0]
 		if len(k.DependsOn) != 1 || k.DependsOn[0] != "infra" {
 			t.Errorf("Expected dependsOn=[infra] unchanged, got %v", k.DependsOn)
 		}
