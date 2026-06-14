@@ -240,10 +240,10 @@ $defs:
     description: |
       Inherits every field from the blueprint's Kustomization shape (name,
       path, source, namespace, targetNamespace, dependsOn, interval,
-      retryInterval, timeout, patches, wait, force, prune, components,
-      destroy, destroyOnly, enabled, substitutions) and adds the conditional
-      fields below. See the [Blueprint reference](blueprint.md) for the
-      inherited fields.
+      retryInterval, timeout, patches, wait, force, prune, components, install,
+      resources, destroy, destroyOnly, enabled, substitutions) and adds the
+      conditional fields below. See the [Blueprint reference](blueprint.md) for
+      the inherited fields.
     properties:
       when:
         type: string

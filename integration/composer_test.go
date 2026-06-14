@@ -172,6 +172,72 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 	}
 }
 
+// TestShowBlueprint_InstallResourcesTiers verifies a tiered facet entry expands into separate
+// install and resources kustomizations sharing the entry's path, and that a consumer depending on
+// the vendor by its bare name resolves to the install tier.
+func TestShowBlueprint_InstallResourcesTiers(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+
+	var bp struct {
+		Kustomize []struct {
+			Name       string   `yaml:"name"`
+			Path       string   `yaml:"path"`
+			Components []string `yaml:"components"`
+			DependsOn  []string `yaml:"dependsOn"`
+		} `yaml:"kustomize"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+	byName := map[string]struct {
+		path       string
+		components []string
+		dependsOn  []string
+	}{}
+	for _, k := range bp.Kustomize {
+		byName[k.Name] = struct {
+			path       string
+			components []string
+			dependsOn  []string
+		}{k.Path, k.Components, k.DependsOn}
+	}
+
+	install, ok := byName["cert-manager-install"]
+	if !ok {
+		t.Fatalf("expected cert-manager-install, got %+v", bp.Kustomize)
+	}
+	res, ok := byName["cert-manager-resources"]
+	if !ok {
+		t.Fatalf("expected cert-manager-resources, got %+v", bp.Kustomize)
+	}
+	if install.path != "pki/cert-manager" || res.path != "pki/cert-manager" {
+		t.Errorf("expected both tiers at pki/cert-manager, got install=%q resources=%q", install.path, res.path)
+	}
+	if !slices.Contains(install.components, "helm-release") {
+		t.Errorf("expected install components [helm-release], got %v", install.components)
+	}
+	if !slices.Contains(res.components, "private-issuer/ca") {
+		t.Errorf("expected resources components [private-issuer/ca], got %v", res.components)
+	}
+	if !slices.Contains(res.dependsOn, "cert-manager-install") {
+		t.Errorf("expected resources to depend on cert-manager-install, got %v", res.dependsOn)
+	}
+
+	dns, ok := byName["dns"]
+	if !ok {
+		t.Fatalf("expected dns, got %+v", bp.Kustomize)
+	}
+	if !slices.Contains(dns.dependsOn, "cert-manager-install") {
+		t.Errorf("expected dns bare-name dependency to resolve to cert-manager-install, got %v", dns.dependsOn)
+	}
+}
+
 // TestShowBlueprint_FacetRequires_Satisfied verifies the success path: when every required
 // path resolves to a present, non-empty value, ProcessFacets returns no error and the
 // blueprint renders normally.

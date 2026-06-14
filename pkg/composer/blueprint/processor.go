@@ -858,6 +858,31 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 // is ordinal (higher wins), then strategy precedence (remove > replace > merge) when ordinals are equal.
 // If a kustomization has an empty 'when' condition, it inherits the facet-level condition.
 // Returns an error if condition evaluation or substitution processing fails.
+// recordKustomizationTraces records substitution and component provenance for a composed
+// kustomization so `windsor explain` can attribute each value to its facet, source, and line.
+func (p *BaseBlueprintProcessor) recordKustomizationTraces(name string, rawComponents []string, rawSubstitutions map[string]string, facetPath, sourceName string, ordinal int, strategy string) {
+	for sk, sv := range rawSubstitutions {
+		p.recordTrace("kustomize."+name+".substitutions."+sk, TraceContribution{
+			FacetPath:  facetPath,
+			SourceName: sourceName,
+			Ordinal:    ordinal,
+			Strategy:   strategy,
+			Line:       yamlNodeLine(facetPath, "kustomize", namedItem(name), "substitutions", sk),
+			RawValue:   deepCopyValue(sv),
+		})
+	}
+	if len(rawComponents) > 0 {
+		p.recordTrace("kustomize."+name+".components", TraceContribution{
+			FacetPath:     facetPath,
+			SourceName:    sourceName,
+			Ordinal:       ordinal,
+			Strategy:      strategy,
+			Line:          yamlNodeLine(facetPath, "kustomize", namedItem(name), "components"),
+			RawComponents: slices.Clone(rawComponents),
+		})
+	}
+}
+
 func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, facetScope map[string]any) error {
 	for _, k := range facet.Kustomizations {
 		componentWhen := k.When
@@ -916,7 +941,18 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			}
 			processed.Components = evaluated
 		}
-		processed.DependsOn = appendCrdDependencies(processed.DependsOn, facet.Crds, processed.Name)
+		installComponents, err := p.evaluateTierComponents(processed.Install, facet.Path, facetScope)
+		if err != nil {
+			return fmt.Errorf("error evaluating install for kustomization '%s': %w", processed.Name, err)
+		}
+		resourceComponents, err := p.evaluateTierComponents(processed.Resources, facet.Path, facetScope)
+		if err != nil {
+			return fmt.Errorf("error evaluating resources for kustomization '%s': %w", processed.Name, err)
+		}
+		tiered := len(installComponents) > 0 || len(resourceComponents) > 0
+		if !tiered {
+			processed.DependsOn = appendCrdDependencies(processed.DependsOn, facet.Crds, processed.Name)
+		}
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
 			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
@@ -944,38 +980,31 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 		if len(sourceName) > 0 {
 			sn = sourceName[0]
 		}
-		for sk, sv := range k.Substitutions {
-			composedPath := "kustomize." + processed.Name + ".substitutions." + sk
-			p.recordTrace(composedPath, TraceContribution{
-				FacetPath:  facet.Path,
-				SourceName: sn,
-				Ordinal:    effectiveOrdinal,
-				Strategy:   strategy,
-				Line:       yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name), "substitutions", sk),
-				RawValue:   deepCopyValue(sv),
-			})
-		}
-		if len(k.Components) > 0 {
-			componentsPath := "kustomize." + processed.Name + ".components"
-			p.recordTrace(componentsPath, TraceContribution{
-				FacetPath:     facet.Path,
-				SourceName:    sn,
-				Ordinal:       effectiveOrdinal,
-				Strategy:      strategy,
-				Line:          yamlNodeLine(facet.Path, "kustomize", namedItem(processed.Name), "components"),
-				RawComponents: slices.Clone(k.Components),
-			})
+
+		addEntry := func(entry blueprintv1alpha1.ConditionalKustomization) error {
+			if _, exists := kustomizationByName[entry.Name]; !exists {
+				entry.Strategy = strategy
+				stored := new(blueprintv1alpha1.ConditionalKustomization)
+				*stored = entry
+				kustomizationByName[entry.Name] = stored
+				return nil
+			}
+			return p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope)
 		}
 
-		if _, exists := kustomizationByName[processed.Name]; !exists {
-			processed.Strategy = strategy
-			entry := new(blueprintv1alpha1.ConditionalKustomization)
-			*entry = processed
-			kustomizationByName[processed.Name] = entry
-		} else {
-			if err := p.updateKustomizationEntry(processed.Name, &processed, strategy, kustomizationByName, facetScope); err != nil {
-				return err
+		if tiered {
+			for _, entry := range buildTierEntries(processed, installComponents, resourceComponents, facet.Crds) {
+				p.recordKustomizationTraces(entry.Name, entry.Components, entry.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
+				if err := addEntry(entry); err != nil {
+					return err
+				}
 			}
+			continue
+		}
+
+		p.recordKustomizationTraces(processed.Name, k.Components, k.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
+		if err := addEntry(processed); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1012,6 +1041,47 @@ func appendCrdDependencies(dependsOn []string, crds []string, self string) []str
 		dependsOn = append(dependsOn, ref)
 	}
 	return dependsOn
+}
+
+// buildTierEntries expands a processed kustomization that declares install/resources component
+// groups into separate entries sharing the entry's path: "<name>-install" carries the install
+// components and "<name>-resources" carries the resources components and depends on the install,
+// so the controller is reconciled before the custom resources it admits. A legacy "<name>" entry
+// is emitted when Components is also set. The install (and legacy) entries carry the entry's
+// explicit dependencies plus the facet's CRD references; resources reaches those transitively
+// through the install tier. Each entry gets its own Substitutions copy and clears the tier fields.
+func buildTierEntries(processed blueprintv1alpha1.ConditionalKustomization, install, resources, crds []string) []blueprintv1alpha1.ConditionalKustomization {
+	name := processed.Name
+	explicit := slices.Clone(processed.DependsOn)
+	installName := name + "-install"
+	resourcesName := name + "-resources"
+
+	mk := func(tierName string, components, dependsOn []string) blueprintv1alpha1.ConditionalKustomization {
+		entry := processed
+		entry.Name = tierName
+		entry.Components = components
+		entry.DependsOn = dependsOn
+		entry.Install = nil
+		entry.Resources = nil
+		entry.Substitutions = maps.Clone(processed.Substitutions)
+		return entry
+	}
+
+	var entries []blueprintv1alpha1.ConditionalKustomization
+	if len(processed.Components) > 0 {
+		entries = append(entries, mk(name, slices.Clone(processed.Components), appendCrdDependencies(slices.Clone(explicit), crds, name)))
+	}
+	if len(install) > 0 {
+		entries = append(entries, mk(installName, install, appendCrdDependencies(slices.Clone(explicit), crds, installName)))
+	}
+	if len(resources) > 0 {
+		if len(install) > 0 {
+			entries = append(entries, mk(resourcesName, resources, []string{installName}))
+		} else {
+			entries = append(entries, mk(resourcesName, resources, appendCrdDependencies(slices.Clone(explicit), crds, resourcesName)))
+		}
+	}
+	return entries
 }
 
 // addCrdKustomizations injects one synthesized kustomization per unique CRD reference into the
@@ -1633,6 +1703,20 @@ func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath s
 	}
 
 	return result, nil
+}
+
+// evaluateTierComponents evaluates a tier's component list (install or resources) the same way as
+// Components, then prunes entries that resolved to empty so a "${...}" expression that selects no
+// component leaves the tier — and the decision to emit it — empty.
+func (p *BaseBlueprintProcessor) evaluateTierComponents(components []string, facetPath string, scope map[string]any) ([]string, error) {
+	if len(components) == 0 {
+		return nil, nil
+	}
+	evaluated, err := p.evaluateStringSlice(components, facetPath, scope)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(evaluated, func(s string) bool { return s == "" }), nil
 }
 
 // evaluateBooleanExpression evaluates a boolean expression string. When scope is non-nil, it is

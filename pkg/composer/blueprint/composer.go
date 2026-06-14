@@ -164,6 +164,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 		return nil, fmt.Errorf("failed to apply per-kustomization substitutions: %w", err)
 	}
 	c.dropEmptyCompositionFragments(result)
+	c.resolveTierDependencies(result)
 	validationErr := errors.Join(c.validateSources(result), c.validateDependencies(result))
 	return result, validationErr
 }
@@ -672,6 +673,28 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 	}
 
 	return nil
+}
+
+// resolveTierDependencies rewrites a dependsOn reference to a vendor's bare name into its install
+// tier when the vendor was authored with install/resources tiers. A facet that depends on
+// "cert-manager" resolves to "cert-manager-install" when no kustomization named "cert-manager"
+// exists but "cert-manager-install" does, so "depend on cert-manager" means "wait for its
+// controller". An exact name match always wins, so the legacy flat form is unaffected.
+func (c *BaseBlueprintComposer) resolveTierDependencies(bp *blueprintv1alpha1.Blueprint) {
+	names := make(map[string]struct{}, len(bp.Kustomizations))
+	for _, k := range bp.Kustomizations {
+		names[k.Name] = struct{}{}
+	}
+	for i := range bp.Kustomizations {
+		for j, dep := range bp.Kustomizations[i].DependsOn {
+			if _, ok := names[dep]; ok {
+				continue
+			}
+			if _, ok := names[dep+"-install"]; ok {
+				bp.Kustomizations[i].DependsOn[j] = dep + "-install"
+			}
+		}
+	}
 }
 
 // validateSources checks that install is only used on OCI sources. Git and other non-OCI sources
