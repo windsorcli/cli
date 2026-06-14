@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -996,6 +997,75 @@ func TestComposer_setContextMetadata(t *testing.T) {
 		// Then metadata should remain unchanged
 		if bp.Metadata.Name != "original" {
 			t.Errorf("Expected name 'original', got '%s'", bp.Metadata.Name)
+		}
+	})
+}
+
+func TestComposer_resolveTierDependencies(t *testing.T) {
+	depsOf := func(bp *blueprintv1alpha1.Blueprint, name string) []string {
+		for _, k := range bp.Kustomizations {
+			if k.Name == name {
+				return k.DependsOn
+			}
+		}
+		return nil
+	}
+
+	t.Run("RewritesBareVendorNameToInstallTier", func(t *testing.T) {
+		// Given a consumer that depends on a vendor by its bare name, where the vendor was tiered
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "cert-manager-install"},
+				{Name: "cert-manager-resources", DependsOn: []string{"cert-manager-install"}},
+				{Name: "dns", DependsOn: []string{"cert-manager"}},
+			},
+		}
+
+		// When resolving tier dependencies
+		composer.resolveTierDependencies(bp)
+
+		// Then the bare-name dependency points at the install tier
+		if !slices.Contains(depsOf(bp, "dns"), "cert-manager-install") {
+			t.Errorf("Expected dns to depend on cert-manager-install, got %v", depsOf(bp, "dns"))
+		}
+	})
+
+	t.Run("ExactNameMatchWins", func(t *testing.T) {
+		// Given both a flat "foo" and a "foo-install" exist
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "foo"},
+				{Name: "foo-install"},
+				{Name: "bar", DependsOn: []string{"foo"}},
+			},
+		}
+
+		// When resolving
+		composer.resolveTierDependencies(bp)
+
+		// Then the exact flat name is preserved (legacy form unaffected)
+		if !slices.Contains(depsOf(bp, "bar"), "foo") || slices.Contains(depsOf(bp, "bar"), "foo-install") {
+			t.Errorf("Expected bar to keep dependency on foo, got %v", depsOf(bp, "bar"))
+		}
+	})
+
+	t.Run("LeavesUnresolvableDependencyUntouched", func(t *testing.T) {
+		// Given a dependency with neither an exact nor an install-tier match
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "app", DependsOn: []string{"missing"}},
+			},
+		}
+
+		// When resolving
+		composer.resolveTierDependencies(bp)
+
+		// Then the dependency is left as-is (validateDependencies surfaces the error later)
+		if !slices.Contains(depsOf(bp, "app"), "missing") {
+			t.Errorf("Expected unresolved dependency to be left untouched, got %v", depsOf(bp, "app"))
 		}
 	})
 }
@@ -2498,9 +2568,9 @@ func TestComposer_dropEmptyCompositionFragments(t *testing.T) {
 		composer := NewBlueprintComposer(mocks.Runtime)
 		blueprint := &blueprintv1alpha1.Blueprint{
 			Substitutions: map[string]string{
-				"keep":        "10.0.0.1",
-				"drop_empty":  "",
-				"":            "empty-key",
+				"keep":       "10.0.0.1",
+				"drop_empty": "",
+				"":           "empty-key",
 			},
 		}
 

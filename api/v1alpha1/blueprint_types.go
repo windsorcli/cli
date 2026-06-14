@@ -557,6 +557,19 @@ type Kustomization struct {
 	// All values are converted to strings as required by Flux variable substitution.
 	// These are used for generating ConfigMaps and are not written to the final context blueprint.yaml.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
+
+	// Install lists the components of the install (controller/operator) tier. Like Components, each
+	// entry is a component path and may be a '${...}' expression that prunes to empty. When Install
+	// and/or Resources are set, the composer expands this entry into two kustomizations sharing this
+	// entry's Path: an install named after the entry carrying the Install components, and a resources
+	// kustomization (named "<name>-resources") carrying the Resources components and depending on the
+	// install, so the controller is reconciled before the custom resources it admits. When both are
+	// empty the entry stays a single flat kustomization built from Components. Tiers desugar during
+	// composition and never appear in the composed blueprint.
+	Install []string `yaml:"install,omitempty"`
+
+	// Resources lists the components of the custom-resource tier. See Install.
+	Resources []string `yaml:"resources,omitempty"`
 }
 
 // PostBuild is a post-build step to run after the kustomization is applied.
@@ -940,6 +953,8 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		DestroyOnly:     k.DestroyOnly,
 		Enabled:         enabledCopy,
 		Substitutions:   maps.Clone(k.Substitutions),
+		Install:         slices.Clone(k.Install),
+		Resources:       slices.Clone(k.Resources),
 	}
 }
 

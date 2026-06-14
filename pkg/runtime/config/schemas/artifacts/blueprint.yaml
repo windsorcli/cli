@@ -227,6 +227,22 @@ properties:
           items:
             type: string
           description: Kustomize components to compose into this kustomization.
+        install:
+          type: array
+          items:
+            type: string
+          description: |
+            Components of the install (controller/operator) tier. Like
+            components, each entry may be a '${...}' expression that prunes to
+            empty. When install and/or resources are set, the entry expands into
+            separate kustomizations sharing this path: '<name>-install' carrying
+            these components and '<name>-resources' depending on it, so the
+            controller is reconciled before the custom resources it admits.
+        resources:
+          type: array
+          items:
+            type: string
+          description: Components of the custom-resource tier. See install.
         destroy:
           type: [boolean, string]
           description: |

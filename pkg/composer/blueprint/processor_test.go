@@ -2553,6 +2553,255 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 	})
 }
 
+func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
+	find := func(bp *blueprintv1alpha1.Blueprint, name string) (blueprintv1alpha1.Kustomization, bool) {
+		for _, k := range bp.Kustomizations {
+			if k.Name == name {
+				return k, true
+			}
+		}
+		return blueprintv1alpha1.Kustomization{}, false
+	}
+
+	t.Run("ExpandsInstallAndResourcesSharingThePath", func(t *testing.T) {
+		// Given an entry that partitions a vendor's components into install and resources tiers
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "pki"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{
+						Name:      "cert-manager",
+						Path:      "pki/cert-manager",
+						Install:   []string{"helm-release"},
+						Resources: []string{"private-issuer/ca"},
+					}},
+				},
+			},
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then two kustomizations are emitted at the same path, resources depending on install
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		install, ok := find(target, "cert-manager-install")
+		if !ok {
+			t.Fatalf("Expected cert-manager-install, got %+v", target.Kustomizations)
+		}
+		res, ok := find(target, "cert-manager-resources")
+		if !ok {
+			t.Fatalf("Expected cert-manager-resources, got %+v", target.Kustomizations)
+		}
+		if _, ok := find(target, "cert-manager"); ok {
+			t.Errorf("Did not expect a bare cert-manager kustomization without components")
+		}
+		if install.Path != "pki/cert-manager" || res.Path != "pki/cert-manager" {
+			t.Errorf("Expected both tiers at pki/cert-manager, got install=%q resources=%q", install.Path, res.Path)
+		}
+		if !slices.Contains(install.Components, "helm-release") {
+			t.Errorf("Expected install components [helm-release], got %v", install.Components)
+		}
+		if !slices.Contains(res.Components, "private-issuer/ca") {
+			t.Errorf("Expected resources components [private-issuer/ca], got %v", res.Components)
+		}
+		if !slices.Contains(res.DependsOn, "cert-manager-install") {
+			t.Errorf("Expected resources to depend on cert-manager-install, got %v", res.DependsOn)
+		}
+	})
+
+	t.Run("WiresCrdsToInstallNotResources", func(t *testing.T) {
+		// Given a tiered facet that also declares a CRD reference
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "pki"},
+				Crds:     []string{"cert-manager-1.16.2"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{
+						Name:      "cert-manager",
+						Path:      "pki/cert-manager",
+						Install:   []string{"helm-release"},
+						Resources: []string{"private-issuer/ca"},
+					}},
+				},
+			},
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then the CRD dep lands on install only; resources reaches it through install
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		install, _ := find(target, "cert-manager-install")
+		res, _ := find(target, "cert-manager-resources")
+		if !slices.Contains(install.DependsOn, "cert-manager-1.16.2") {
+			t.Errorf("Expected install to depend on the CRD, got %v", install.DependsOn)
+		}
+		if slices.Contains(res.DependsOn, "cert-manager-1.16.2") {
+			t.Errorf("Expected resources NOT to depend on the CRD directly, got %v", res.DependsOn)
+		}
+	})
+
+	t.Run("EmitsLegacyComponentsAlongsideTiers", func(t *testing.T) {
+		// Given an entry that sets components AND install AND resources
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "vendor"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{
+						Name:       "vendor",
+						Path:       "vendor",
+						Components: []string{"legacy"},
+						Install:    []string{"helm-release"},
+						Resources:  []string{"cr"},
+					}},
+				},
+			},
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then all three kustomizations exist
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		for _, name := range []string{"vendor", "vendor-install", "vendor-resources"} {
+			if _, ok := find(target, name); !ok {
+				t.Errorf("Expected kustomization %q, got %+v", name, target.Kustomizations)
+			}
+		}
+	})
+
+	t.Run("InstallOnlyEmitsSingleTier", func(t *testing.T) {
+		// Given an entry with only an install tier
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "metallb"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "metallb", Path: "lb/metallb", Install: []string{"helm-release"}}},
+				},
+			},
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then only the install tier is emitted
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, ok := find(target, "metallb-install"); !ok {
+			t.Fatalf("Expected metallb-install, got %+v", target.Kustomizations)
+		}
+		if _, ok := find(target, "metallb-resources"); ok {
+			t.Errorf("Did not expect a resources tier")
+		}
+	})
+
+	t.Run("ResourcesOnlyHasNoInstallDependency", func(t *testing.T) {
+		// Given an entry with only a resources tier
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "issuers"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "issuers", Path: "pki/issuers", Resources: []string{"public-issuer"}}},
+				},
+			},
+		}
+
+		// When processing facets
+		target := &blueprintv1alpha1.Blueprint{}
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then the resources tier exists and depends on no install tier
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		res, ok := find(target, "issuers-resources")
+		if !ok {
+			t.Fatalf("Expected issuers-resources, got %+v", target.Kustomizations)
+		}
+		if slices.Contains(res.DependsOn, "issuers-install") {
+			t.Errorf("Expected no install dependency, got %v", res.DependsOn)
+		}
+	})
+
+	t.Run("TierEntriesDoNotSharePatchesBacking", func(t *testing.T) {
+		// Given a tiered entry that carries a patch
+		processed := blueprintv1alpha1.ConditionalKustomization{
+			Kustomization: blueprintv1alpha1.Kustomization{
+				Name:    "cert-manager",
+				Path:    "pki/cert-manager",
+				Patches: []blueprintv1alpha1.BlueprintPatch{{Patch: "original"}},
+			},
+		}
+
+		// When the entry is expanded into install and resources tiers
+		entries := buildTierEntries(processed, []string{"helm-release"}, []string{"ca"}, nil)
+		if len(entries) != 2 {
+			t.Fatalf("Expected install and resources entries, got %d", len(entries))
+		}
+
+		// Then mutating one tier's patches leaves the other tier untouched
+		entries[0].Patches[0].Patch = "mutated"
+		entries[0].Patches = append(entries[0].Patches, blueprintv1alpha1.BlueprintPatch{Patch: "added"})
+		if entries[1].Patches[0].Patch != "original" || len(entries[1].Patches) != 1 {
+			t.Errorf("Expected resources tier patches independent, got %+v", entries[1].Patches)
+		}
+	})
+
+	t.Run("PrunesConditionalTierToNothing", func(t *testing.T) {
+		// Given a tier whose only component is a false expression
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
+			return map[string]any{"gateway": map[string]any{"driver": "cilium"}}, nil
+		}
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway"},
+				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
+					{Kustomization: blueprintv1alpha1.Kustomization{
+						Name:    "gateway-envoy",
+						Path:    "gateway/envoy",
+						Install: []string{"${gateway.driver == 'envoy' ? 'helm-release' : ''}"},
+					}},
+				},
+			},
+		}
+
+		// When processing facets with a non-matching driver
+		target := &blueprintv1alpha1.Blueprint{}
+		_, err := processor.ProcessFacets(target, facets)
+
+		// Then the install tier prunes to empty and is not emitted
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, ok := find(target, "gateway-envoy-install"); ok {
+			t.Errorf("Expected no install tier when its components prune to empty, got %+v", target.Kustomizations)
+		}
+	})
+}
+
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
 		base := map[string]any{"a": 1, "b": map[string]any{"x": 10}}
