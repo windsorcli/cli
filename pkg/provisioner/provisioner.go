@@ -918,11 +918,13 @@ func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.
 	return nil
 }
 
-// Wait waits for kustomizations from the blueprint to be ready. It initializes the kubernetes manager
-// if needed and polls the status of all kustomizations until they are ready or a timeout occurs.
-// The timeout is calculated from the longest dependency chain in the blueprint. The wait honors ctx,
-// so a cancelled context (caller SIGTERM/Ctrl+C or command deadline) ends it promptly. Returns an
-// error if the kubernetes manager is not configured, initialization fails, or waiting times out.
+// Wait waits for kustomizations from the blueprint to be ready, polling status until ready or a
+// timeout calculated from the longest dependency chain. When the blueprint carries a CRD layer it
+// waits for those kustomizations first under their own progress line ("Waiting for CRDs to be
+// ready"), then the rest — matching the dependsOn barrier that brings the CRDs up ahead of the
+// stack; blueprints with no CRD layer wait in a single phase as before. The wait honors ctx, so a
+// cancelled context (caller SIGTERM/Ctrl+C or command deadline) ends it promptly. Returns an error
+// if the kubernetes manager is not configured or waiting times out.
 func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blueprint) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
@@ -932,7 +934,17 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	if err := i.KubernetesManager.WaitForKustomizations(ctx, "Waiting for kustomizations to be ready", blueprint); err != nil {
+	crds, rest := splitCrdLayer(blueprint)
+	if crds != nil {
+		if err := i.KubernetesManager.WaitForKustomizations(ctx, "Waiting for CRDs to be ready", crds); err != nil {
+			return fmt.Errorf("failed waiting for CRDs: %w", err)
+		}
+		if len(rest.Kustomizations) == 0 {
+			return nil
+		}
+	}
+
+	if err := i.KubernetesManager.WaitForKustomizations(ctx, "Waiting for kustomizations to be ready", rest); err != nil {
 		return fmt.Errorf("failed waiting for kustomizations: %w", err)
 	}
 
@@ -1246,6 +1258,29 @@ func (i *Provisioner) ensureClusterClient() error {
 		return fmt.Errorf("no cluster client found; ensure cluster.driver is configured")
 	}
 	return nil
+}
+
+// splitCrdLayer partitions a blueprint's kustomizations into the CRD layer and the rest, returning
+// shallow blueprint copies that share everything but the kustomization slice. When the blueprint has
+// no CRD-layer kustomization, crds is nil and rest is the original blueprint untouched, so callers
+// fall back to single-phase handling.
+func splitCrdLayer(blueprint *blueprintv1alpha1.Blueprint) (crds, rest *blueprintv1alpha1.Blueprint) {
+	var crdK, restK []blueprintv1alpha1.Kustomization
+	for _, k := range blueprint.Kustomizations {
+		if k.IsCrdLayer() {
+			crdK = append(crdK, k)
+		} else {
+			restK = append(restK, k)
+		}
+	}
+	if len(crdK) == 0 {
+		return nil, blueprint
+	}
+	crdsCopy := *blueprint
+	crdsCopy.Kustomizations = crdK
+	restCopy := *blueprint
+	restCopy.Kustomizations = restK
+	return &crdsCopy, &restCopy
 }
 
 // versionFromImage extracts the Talos version from an image URI tag.

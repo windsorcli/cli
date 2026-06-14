@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1343,6 +1344,121 @@ func TestProvisioner_Wait(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "failed waiting for kustomizations") {
 			t.Errorf("Expected specific error message, got: %v", err)
+		}
+	})
+
+	t.Run("WaitsForCrdLayerFirstUnderItsOwnMessage", func(t *testing.T) {
+		// Given a blueprint with a CRD-layer kustomization and a regular one
+		mocks := setupProvisionerMocks(t)
+		type call struct {
+			message string
+			names   []string
+		}
+		var calls []call
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			names := make([]string, 0, len(blueprint.Kustomizations))
+			for _, k := range blueprint.Kustomizations {
+				names = append(names, k.Name)
+			}
+			calls = append(calls, call{message, names})
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "cert-manager-1.16.2", Path: "crds/cert-manager-1.16.2"},
+				{Name: "cert-manager", Path: "pki/cert-manager"},
+			},
+		}
+
+		// When waiting
+		if err := provisioner.Wait(context.Background(), blueprint); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the CRD layer is waited first under its own message, then the rest
+		if len(calls) != 2 {
+			t.Fatalf("expected 2 wait phases, got %d: %+v", len(calls), calls)
+		}
+		if calls[0].message != "Waiting for CRDs to be ready" || !slices.Equal(calls[0].names, []string{"cert-manager-1.16.2"}) {
+			t.Errorf("expected CRD phase first, got %+v", calls[0])
+		}
+		if calls[1].message != "Waiting for kustomizations to be ready" || !slices.Equal(calls[1].names, []string{"cert-manager"}) {
+			t.Errorf("expected stack phase second, got %+v", calls[1])
+		}
+	})
+
+	t.Run("SkipsEmptyStackPhaseWhenAllCrds", func(t *testing.T) {
+		// Given a blueprint whose only kustomizations are CRD-layer entries
+		mocks := setupProvisionerMocks(t)
+		var messages []string
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			messages = append(messages, message)
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "cert-manager-1.16.2", Path: "crds/cert-manager-1.16.2"},
+			},
+		}
+
+		// When waiting
+		if err := provisioner.Wait(context.Background(), blueprint); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then only the CRD phase runs — no empty stack-phase line
+		if !slices.Equal(messages, []string{"Waiting for CRDs to be ready"}) {
+			t.Errorf("expected only the CRD phase, got %v", messages)
+		}
+	})
+
+	t.Run("SinglePhaseWhenNoCrdLayer", func(t *testing.T) {
+		// Given a blueprint with no CRD-layer kustomization
+		mocks := setupProvisionerMocks(t)
+		var messages []string
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			messages = append(messages, message)
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When waiting
+		if err := provisioner.Wait(context.Background(), createTestBlueprint()); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then it waits in a single phase under the original message
+		if !slices.Equal(messages, []string{"Waiting for kustomizations to be ready"}) {
+			t.Errorf("expected single stack phase, got %v", messages)
+		}
+	})
+
+	t.Run("ErrorWaitingForCrdLayer", func(t *testing.T) {
+		// Given the CRD-layer wait fails
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx context.Context, message string, blueprint *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("crd wait failed")
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "cert-manager-1.16.2", Path: "crds/cert-manager-1.16.2"},
+				{Name: "cert-manager", Path: "pki/cert-manager"},
+			},
+		}
+
+		// When waiting
+		err := provisioner.Wait(context.Background(), blueprint)
+
+		// Then the failure is surfaced as a CRD wait error
+		if err == nil || !strings.Contains(err.Error(), "failed waiting for CRDs") {
+			t.Errorf("expected CRD wait error, got: %v", err)
 		}
 	})
 }
