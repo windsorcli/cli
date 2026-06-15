@@ -1001,6 +1001,28 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		}
 	})
 
+	t.Run("AppliesCrdLayerByName", func(t *testing.T) {
+		// Given a blueprint whose only kustomize layer is the crds: list
+		mocks := setupProvisionerMocks(t)
+		var applied *blueprintv1alpha1.Blueprint
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			applied = bp
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When applying the crds layer by name
+		if err := provisioner.ApplyKustomize(context.Background(), &blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the synthesized crds kustomization is the one applied
+		if applied == nil || len(applied.Kustomizations) != 1 || applied.Kustomizations[0].Name != "crds" {
+			t.Errorf("expected crds kustomization applied, got %+v", applied)
+		}
+	})
+
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		// Given a provisioner with no blueprint
 		mocks := setupProvisionerMocks(t)
@@ -2822,6 +2844,31 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 		// Then no error is returned
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("MaterializesCrdLayerForTheStack", func(t *testing.T) {
+		// Given a blueprint whose only kustomize layer is the crds: list
+		mocks := setupProvisionerMocks(t)
+		var planned *blueprintv1alpha1.Blueprint
+		mocks.FluxStack.PlanFunc = func(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
+			planned = blueprint
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{
+			FluxStack:         mocks.FluxStack,
+			KubernetesManager: mocks.KubernetesManager,
+			KubernetesClient:  mocks.KubernetesClient,
+		})
+
+		// When planning the crds component directly
+		if err := provisioner.PlanKustomization(&blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		// Then the synthesized crds kustomization is present so the stack can resolve "crds"
+		if planned == nil || len(planned.Kustomizations) != 1 || planned.Kustomizations[0].Name != "crds" {
+			t.Errorf("expected crds kustomization materialized for plan, got %+v", planned)
 		}
 	})
 

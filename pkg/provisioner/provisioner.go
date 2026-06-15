@@ -597,7 +597,7 @@ func (i *Provisioner) PlanKustomizeJSON(blueprint *blueprintv1alpha1.Blueprint, 
 	if err := i.ensureFluxStack(); err != nil {
 		return err
 	}
-	return i.FluxStack.PlanJSON(blueprint, componentID)
+	return i.FluxStack.PlanJSON(withCrdLayer(blueprint), componentID)
 }
 
 // PlanTerraformComponentSummary plans a single Terraform component and returns its
@@ -624,7 +624,7 @@ func (i *Provisioner) PlanKustomizeComponentSummary(blueprint *blueprintv1alpha1
 	if err := i.ensureFluxStack(); err != nil {
 		return fluxinfra.KustomizePlan{}, err
 	}
-	return i.FluxStack.PlanComponentSummary(blueprint, name), nil
+	return i.FluxStack.PlanComponentSummary(withCrdLayer(blueprint), name), nil
 }
 
 // PlanDestroyTerraformComponentSummary previews the destroy plan for a single
@@ -830,7 +830,7 @@ func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, 
 	if err := i.ensureFluxStack(); err != nil {
 		return err
 	}
-	if err := i.FluxStack.Plan(blueprint, componentID); err != nil {
+	if err := i.FluxStack.Plan(withCrdLayer(blueprint), componentID); err != nil {
 		return fmt.Errorf("error planning kustomize for %s: %w", componentID, err)
 	}
 	return nil
@@ -849,6 +849,8 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 	if i.KubernetesManager == nil {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
+
+	blueprint = withCrdLayer(blueprint)
 
 	var found *blueprintv1alpha1.Kustomization
 	for _, k := range blueprint.Kustomizations {
