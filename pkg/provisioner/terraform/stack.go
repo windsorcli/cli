@@ -1237,7 +1237,7 @@ func (s *TerraformStack) clearBackendPointer(terraformVars map[string]string) {
 func (s *TerraformStack) hasStateResources(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string) (bool, error) {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	stateShowArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "show", "-json"}
-	stateJSON, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, selectTerraformCommandEnv(terraformVars, true), stateShowArgs...)
+	stateJSON, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, selectTerraformCommandEnv(terraformVars, true), stateShowArgs...)
 	if err != nil {
 		return false, fmt.Errorf("error reading terraform state JSON for %s: %w", component.Path, err)
 	}
@@ -1374,7 +1374,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
-	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
+	planOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
 		result.Err = fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		return result
@@ -1428,7 +1428,7 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
 	planEnv := selectTerraformCommandEnv(terraformVars, true)
-	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
+	planOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...)
 	// terraform exits non-zero when any resource has prevent_destroy = true,
 	// but still emits the diagnostic events naming them. Look for those addresses
 	// regardless of exec error so the warning can surface them; otherwise the

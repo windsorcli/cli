@@ -55,6 +55,7 @@ type Shell interface {
 	Exec(command string, args ...string) (string, error)
 	ExecSilent(command string, args ...string) (string, error)
 	ExecSilentWithEnv(command string, env map[string]string, args ...string) (string, error)
+	ExecCaptureWithEnv(command string, env map[string]string, args ...string) (string, error)
 	ExecSilentWithTimeout(command string, args []string, timeout time.Duration) (string, error)
 	ExecSilentWithEnvAndTimeout(command string, env map[string]string, args []string, timeout time.Duration) (string, error)
 	ExecSudo(message string, command string, args ...string) (string, error)
@@ -247,6 +248,26 @@ func (s *DefaultShell) ExecSilentWithEnv(command string, env map[string]string, 
 		cmd.Stdout = &stdoutBuf
 		cmd.Stderr = &stderrBuf
 	}
+	if err := s.shims.CmdRun(cmd); err != nil {
+		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
+	}
+	return s.scrubString(stdoutBuf.String()), nil
+}
+
+// ExecCaptureWithEnv runs a command with merged environment variables and captures its output,
+// never streaming to stdout or stderr even in verbose mode. Use it for internal, machine-only output
+// (e.g. `terraform show -json` state inspection) that is parsed rather than shown and may contain
+// sensitive material such as cluster PKI — unlike ExecSilentWithEnv, which echoes captured output
+// under verbose.
+func (s *DefaultShell) ExecCaptureWithEnv(command string, env map[string]string, args ...string) (string, error) {
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd := s.shims.Command(command, args...)
+	if cmd == nil {
+		return "", fmt.Errorf("failed to create command")
+	}
+	cmd.Env = mergeEnvVars(s.shims.Environ(), env)
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 	if err := s.shims.CmdRun(cmd); err != nil {
 		return s.scrubString(stdoutBuf.String()), fmt.Errorf("command execution failed: %w\n%s", err, s.scrubString(stderrBuf.String()))
 	}
