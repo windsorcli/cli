@@ -486,10 +486,11 @@ func (r *TestRunner) runTestCase(tc blueprintv1alpha1.TestCase) (TestResult, err
 // matchBlueprint compares the actual composed blueprint against expected blueprint structure and returns
 // a list of differences. It uses partial matching semantics: only fields explicitly specified in the expect
 // blueprint are validated, allowing tests to focus on specific aspects without asserting the entire structure.
-// The function validates both Terraform components and Kustomizations, checking for presence and matching
-// properties. For each expected component, it searches the actual blueprint, reports missing components,
-// and compares specified properties (source, path, dependsOn, etc.). Returns an empty slice if all
-// expectations are met, or a list of descriptive difference messages if mismatches are found.
+// The function validates Terraform components, Kustomizations, and the crds: layer, checking for presence
+// and matching properties. For each expected component, it searches the actual blueprint, reports missing
+// components, and compares specified properties (source, path, dependsOn, etc.); each expect.crds entry must
+// appear in the blueprint's crds: list. Returns an empty slice if all expectations are met, or a list of
+// descriptive difference messages if mismatches are found.
 func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blueprintv1alpha1.Blueprint) []string {
 	var diffs []string
 
@@ -523,6 +524,12 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 		diffs = append(diffs, kustomizeDiffs...)
 	}
 
+	for _, expectCrd := range expect.Crds {
+		if !contains(bp.Crds, expectCrd) {
+			diffs = append(diffs, fmt.Sprintf("crd reference not found: %s", expectCrd))
+		}
+	}
+
 	return diffs
 }
 
@@ -554,6 +561,12 @@ func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *b
 		found := r.findKustomization(bp, excludeK)
 		if found != nil {
 			diffs = append(diffs, fmt.Sprintf("kustomization should not exist: %s", excludeK.Name))
+		}
+	}
+
+	for _, excludeCrd := range exclude.Crds {
+		if contains(bp.Crds, excludeCrd) {
+			diffs = append(diffs, fmt.Sprintf("crd reference should not exist: %s", excludeCrd))
 		}
 	}
 
@@ -811,6 +824,9 @@ func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint
 	kNames := make(map[string]struct{})
 	for _, k := range bp.Kustomizations {
 		kNames[k.Name] = struct{}{}
+	}
+	if len(bp.Crds) > 0 {
+		kNames[blueprintv1alpha1.CrdLayerName] = struct{}{}
 	}
 
 	for _, tf := range bp.TerraformComponents {

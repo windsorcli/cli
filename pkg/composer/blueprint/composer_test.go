@@ -1011,13 +1011,12 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 		return nil
 	}
 
-	t.Run("WiresNonCrdRootsToTheLayer", func(t *testing.T) {
-		// Given a blueprint whose Kustomizations hold the CRD layer, a root, and a non-root
+	t.Run("WiresRootsToTheCrdLayer", func(t *testing.T) {
+		// Given a blueprint with a crds: layer, a root, and a non-root
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
+			Crds: []string{"gateway-api-1.5.1", "envoy-gateway-1.7.1"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
-				{Name: "envoy-gateway-1.7.1", Path: "crds/envoy-gateway-1.7.1"},
 				{Name: "policy-base", Path: "policy/base"},
 				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"policy-base"}},
 			},
@@ -1025,56 +1024,30 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 
 		composer.applyCrdLayerBarrier(bp)
 
-		// Then the root waits for the whole layer; the non-root reaches it transitively
-		pb := depsOf(bp, "policy-base")
-		if !slices.Contains(pb, "gateway-api-1.5.1") || !slices.Contains(pb, "envoy-gateway-1.7.1") {
-			t.Errorf("expected policy-base wired to the CRD layer, got %v", pb)
+		// Then the root waits on the crds layer; the non-root reaches it transitively
+		if !slices.Equal(depsOf(bp, "policy-base"), []string{"crds"}) {
+			t.Errorf("expected policy-base wired to crds, got %v", depsOf(bp, "policy-base"))
 		}
-		if slices.Contains(depsOf(bp, "gateway-base"), "gateway-api-1.5.1") {
-			t.Errorf("expected gateway-base to reach CRDs transitively, not directly, got %v", depsOf(bp, "gateway-base"))
+		if slices.Contains(depsOf(bp, "gateway-base"), "crds") {
+			t.Errorf("expected gateway-base to reach crds transitively, not directly, got %v", depsOf(bp, "gateway-base"))
 		}
 	})
 
-	t.Run("WiresRemainingCrdsWhenDependsOnNamesOnlyACrd", func(t *testing.T) {
-		// Given a kustomization whose only dependency is a single CRD authored by a facet
+	t.Run("LeavesKustomizationsThatAlreadyDependOnCrds", func(t *testing.T) {
+		// Given a facet-authored kustomization that already depends on crds
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
+			Crds: []string{"gateway-api-1.5.1"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
-				{Name: "envoy-gateway-1.7.1", Path: "crds/envoy-gateway-1.7.1"},
-				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"gateway-api-1.5.1"}},
+				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"crds"}},
 			},
 		}
 
 		composer.applyCrdLayerBarrier(bp)
 
-		// Then it is still a root (no non-CRD parent), so the rest of the layer is wired in too
-		gb := depsOf(bp, "gateway-base")
-		if !slices.Contains(gb, "gateway-api-1.5.1") || !slices.Contains(gb, "envoy-gateway-1.7.1") {
-			t.Errorf("expected gateway-base wired to the whole CRD layer, got %v", gb)
-		}
-		if got := len(gb); got != 2 {
-			t.Errorf("expected no duplicate of the pre-existing CRD dep, got %v", gb)
-		}
-	})
-
-	t.Run("SkipsKustomizationsWithANonCrdParent", func(t *testing.T) {
-		// Given a kustomization that depends on both a CRD and a non-CRD kustomization
-		composer := &BaseBlueprintComposer{}
-		bp := &blueprintv1alpha1.Blueprint{
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "gateway-api-1.5.1", Path: "crds/gateway-api-1.5.1"},
-				{Name: "envoy-gateway-1.7.1", Path: "crds/envoy-gateway-1.7.1"},
-				{Name: "policy-base", Path: "policy/base"},
-				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"policy-base", "gateway-api-1.5.1"}},
-			},
-		}
-
-		composer.applyCrdLayerBarrier(bp)
-
-		// Then it inherits the rest of the layer transitively through its non-CRD parent, not directly
-		if slices.Contains(depsOf(bp, "gateway-base"), "envoy-gateway-1.7.1") {
-			t.Errorf("expected gateway-base to reach the layer transitively, got %v", depsOf(bp, "gateway-base"))
+		// Then its dependency is untouched (no duplicate crds)
+		if !slices.Equal(depsOf(bp, "gateway-base"), []string{"crds"}) {
+			t.Errorf("expected gateway-base to keep its single crds dependency, got %v", depsOf(bp, "gateway-base"))
 		}
 	})
 

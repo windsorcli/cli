@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -596,7 +597,7 @@ func (i *Provisioner) PlanKustomizeJSON(blueprint *blueprintv1alpha1.Blueprint, 
 	if err := i.ensureFluxStack(); err != nil {
 		return err
 	}
-	return i.FluxStack.PlanJSON(blueprint, componentID)
+	return i.FluxStack.PlanJSON(withCrdLayer(blueprint), componentID)
 }
 
 // PlanTerraformComponentSummary plans a single Terraform component and returns its
@@ -623,7 +624,7 @@ func (i *Provisioner) PlanKustomizeComponentSummary(blueprint *blueprintv1alpha1
 	if err := i.ensureFluxStack(); err != nil {
 		return fluxinfra.KustomizePlan{}, err
 	}
-	return i.FluxStack.PlanComponentSummary(blueprint, name), nil
+	return i.FluxStack.PlanComponentSummary(withCrdLayer(blueprint), name), nil
 }
 
 // PlanDestroyTerraformComponentSummary previews the destroy plan for a single
@@ -689,7 +690,7 @@ func (i *Provisioner) PlanKustomizeSummary(blueprint *blueprintv1alpha1.Blueprin
 	if err := i.ensureFluxStack(); err != nil {
 		return nil, err
 	}
-	summary.Kustomize, summary.Hints = i.FluxStack.PlanSummary(blueprint)
+	summary.Kustomize, summary.Hints = i.FluxStack.PlanSummary(withCrdLayer(blueprint))
 
 	return summary, nil
 }
@@ -802,7 +803,7 @@ func (i *Provisioner) PlanKustomizeAll(blueprint *blueprintv1alpha1.Blueprint) e
 	if err := i.ensureFluxStack(); err != nil {
 		return err
 	}
-	if err := i.FluxStack.PlanAll(blueprint); err != nil {
+	if err := i.FluxStack.PlanAll(withCrdLayer(blueprint)); err != nil {
 		return fmt.Errorf("error planning kustomize: %w", err)
 	}
 	return nil
@@ -817,7 +818,7 @@ func (i *Provisioner) PlanKustomizeAllJSON(blueprint *blueprintv1alpha1.Blueprin
 	if err := i.ensureFluxStack(); err != nil {
 		return err
 	}
-	return i.FluxStack.PlanAllJSON(blueprint)
+	return i.FluxStack.PlanAllJSON(withCrdLayer(blueprint))
 }
 
 // PlanKustomization runs flux diff for a single kustomization identified by componentID.
@@ -829,7 +830,7 @@ func (i *Provisioner) PlanKustomization(blueprint *blueprintv1alpha1.Blueprint, 
 	if err := i.ensureFluxStack(); err != nil {
 		return err
 	}
-	if err := i.FluxStack.Plan(blueprint, componentID); err != nil {
+	if err := i.FluxStack.Plan(withCrdLayer(blueprint), componentID); err != nil {
 		return fmt.Errorf("error planning kustomize for %s: %w", componentID, err)
 	}
 	return nil
@@ -848,6 +849,8 @@ func (i *Provisioner) ApplyKustomize(ctx context.Context, blueprint *blueprintv1
 	if i.KubernetesManager == nil {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
+
+	blueprint = withCrdLayer(blueprint)
 
 	var found *blueprintv1alpha1.Kustomization
 	for _, k := range blueprint.Kustomizations {
@@ -905,6 +908,8 @@ func (i *Provisioner) Install(ctx context.Context, blueprint *blueprintv1alpha1.
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
+	blueprint = withCrdLayer(blueprint)
+
 	if err := tui.WithProgress("Installing blueprint resources", func() error {
 		if err := i.KubernetesManager.ApplyBlueprint(blueprint, i.fluxNamespace()); err != nil {
 			return err
@@ -931,6 +936,8 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 	if i.KubernetesManager == nil {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
+
+	blueprint = withCrdLayer(blueprint)
 
 	if err := i.KubernetesManager.WaitForKustomizations(ctx, "Waiting for kustomizations to be ready", blueprint); err != nil {
 		return fmt.Errorf("failed waiting for kustomizations: %w", err)
@@ -1246,6 +1253,30 @@ func (i *Provisioner) ensureClusterClient() error {
 		return fmt.Errorf("no cluster client found; ensure cluster.driver is configured")
 	}
 	return nil
+}
+
+// withCrdLayer returns a blueprint whose Kustomizations include the synthesized "crds" kustomization
+// built from bp.Crds — its components are the CRD references, pruning is disabled (pruning a CRD
+// deletes every custom resource of that kind cluster-wide), and wait is enabled so dependents block
+// until the CRDs are Established. The entry is prepended ahead of the stack. The composed blueprint
+// carries the CRD layer as the crds: string list; the provisioner materializes it here, at the point
+// it applies, waits on, or plans the kustomization set. Returns bp unchanged when it has no crds:.
+func withCrdLayer(bp *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint {
+	if bp == nil || len(bp.Crds) == 0 {
+		return bp
+	}
+	prune := false
+	wait := true
+	crd := blueprintv1alpha1.Kustomization{
+		Name:       blueprintv1alpha1.CrdLayerName,
+		Path:       blueprintv1alpha1.CrdLayerName,
+		Components: slices.Clone(bp.Crds),
+		Prune:      &prune,
+		Wait:       &wait,
+	}
+	out := *bp
+	out.Kustomizations = append([]blueprintv1alpha1.Kustomization{crd}, bp.Kustomizations...)
+	return &out
 }
 
 // versionFromImage extracts the Talos version from an image URI tag.
