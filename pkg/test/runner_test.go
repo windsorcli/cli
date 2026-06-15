@@ -980,6 +980,28 @@ func TestTestRunner_matchBlueprint(t *testing.T) {
 		}
 	})
 
+	t.Run("MatchesCrdReferences", func(t *testing.T) {
+		// Given a blueprint whose crds: layer carries a reference
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"},
+		}
+
+		// When the expectation asserts a present and an absent reference
+		present := runner.matchBlueprint(blueprint, &blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}})
+		absent := runner.matchBlueprint(blueprint, &blueprintv1alpha1.Blueprint{Crds: []string{"missing-crd"}})
+
+		// Then a present reference passes and a missing one is reported
+		if len(present) != 0 {
+			t.Errorf("Expected no diffs for present crd, got: %v", present)
+		}
+		if len(absent) != 1 || !strings.Contains(absent[0], "crd reference not found: missing-crd") {
+			t.Errorf("Expected missing-crd diff, got: %v", absent)
+		}
+	})
+
 	t.Run("ReturnsDiffsWhenTerraformComponentNotFound", func(t *testing.T) {
 		// Given a blueprint missing expected component
 		mocks := setupTestRunnerMocks(t)
@@ -1926,6 +1948,27 @@ func TestTestRunner_validateBlueprint(t *testing.T) {
 		}
 		if !strings.Contains(errors[0], "depends on non-existent kustomization") {
 			t.Errorf("Expected invalid dependency error, got: %v", errors)
+		}
+	})
+
+	t.Run("AcceptsCrdLayerDependency", func(t *testing.T) {
+		// Given a blueprint with a crds: layer and a root wired to it by the barrier
+		mocks := setupTestRunnerMocks(t)
+		runner := createRunnerWithMockGenerator(mocks)
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Crds: []string{"cert-manager-1.16.2"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "cert-manager", Path: "pki/cert-manager", DependsOn: []string{"crds"}},
+			},
+		}
+
+		// When validating
+		errors := runner.validateBlueprint(blueprint)
+
+		// Then the synthesized crds layer is a valid dependency target, not flagged as missing
+		if len(errors) != 0 {
+			t.Errorf("Expected no errors for crds dependency, got: %v", errors)
 		}
 	})
 
