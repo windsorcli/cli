@@ -21,7 +21,9 @@ import (
 // =============================================================================
 
 // CrdLayerName is the name of the synthesized kustomization that installs the vendored CRD layer
-// (its components are the blueprint's crds: references). The stack depends on it by this name.
+// (its components are the blueprint's crds: references). The stack depends on it by this name, and
+// ToFluxKustomization keys its PostBuild skip on it — so it is reserved: the composer rejects any
+// user-authored kustomization that claims this name.
 const CrdLayerName = "crds"
 
 // =============================================================================
