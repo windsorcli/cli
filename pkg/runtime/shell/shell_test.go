@@ -1312,6 +1312,107 @@ func TestShell_ExecSilentWithEnv(t *testing.T) {
 	})
 }
 
+func TestShell_ExecCaptureWithEnv(t *testing.T) {
+	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
+		t.Helper()
+		mocks := setupShellMocks(t)
+		shell := NewDefaultShell()
+		shell.shims = mocks.Shims
+		return shell, mocks
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		// Given a shell with mocked command execution
+		shell, _ := setup(t)
+
+		// When capturing a command's output
+		out, err := shell.ExecCaptureWithEnv("test", map[string]string{"FOO": "bar"}, "arg")
+
+		// Then it succeeds and returns the captured output
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if out != "test\n" {
+			t.Errorf("Expected output 'test\n', got '%s'", out)
+		}
+	})
+
+	t.Run("NeverStreamsEvenInVerboseMode", func(t *testing.T) {
+		// Given a shell in verbose mode whose command emits sensitive machine output
+		shell, mocks := setup(t)
+		shell.SetVerbosity(true)
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			if cmd.Stdout != nil {
+				if _, err := cmd.Stdout.Write([]byte("cluster-pki-secret\n")); err != nil {
+					return fmt.Errorf("failed to write: %v", err)
+				}
+			}
+			return nil
+		}
+
+		// Capture what reaches os.Stdout
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		// When capturing the output in verbose mode
+		out, err := shell.ExecCaptureWithEnv("test", nil, "arg")
+
+		w.Close()
+		os.Stdout = oldStdout
+		streamed, _ := io.ReadAll(r)
+
+		// Then the output is returned to the caller but never echoed to the terminal
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if out != "cluster-pki-secret\n" {
+			t.Errorf("Expected captured output, got %q", out)
+		}
+		if strings.Contains(string(streamed), "cluster-pki-secret") {
+			t.Errorf("Expected nothing streamed to stdout in verbose mode, got %q", string(streamed))
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		// Given a shell whose CmdRun returns an error
+		shell, mocks := setup(t)
+		mocks.Shims.CmdRun = func(cmd *exec.Cmd) error {
+			return fmt.Errorf("command failed")
+		}
+
+		// When capturing output
+		out, err := shell.ExecCaptureWithEnv("test", nil, "arg")
+
+		// Then an error is returned and output is empty
+		if err == nil || !strings.Contains(err.Error(), "command failed") {
+			t.Errorf("Expected 'command failed' error, got %v", err)
+		}
+		if out != "" {
+			t.Errorf("Expected empty output, got %q", out)
+		}
+	})
+
+	t.Run("CommandNil", func(t *testing.T) {
+		// Given a shell whose Command shim returns nil
+		shell, mocks := setup(t)
+		mocks.Shims.Command = func(name string, args ...string) *exec.Cmd {
+			return nil
+		}
+
+		// When capturing output
+		output, err := shell.ExecCaptureWithEnv("test", nil, "arg")
+
+		// Then an error about command creation is returned
+		if err == nil || !strings.Contains(err.Error(), "failed to create command") {
+			t.Errorf("Expected error about command creation, got: %v", err)
+		}
+		if output != "" {
+			t.Errorf("Expected empty output, got %q", output)
+		}
+	})
+}
+
 func TestShell_GetSessionToken(t *testing.T) {
 	setup := func(t *testing.T) (*DefaultShell, *ShellTestMocks) {
 		t.Helper()
