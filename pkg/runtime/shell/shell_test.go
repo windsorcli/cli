@@ -1352,7 +1352,10 @@ func TestShell_ExecCaptureWithEnv(t *testing.T) {
 
 		// Capture what reaches os.Stdout
 		oldStdout := os.Stdout
-		r, w, _ := os.Pipe()
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("failed to create pipe: %v", err)
+		}
 		os.Stdout = w
 
 		// When capturing the output in verbose mode
