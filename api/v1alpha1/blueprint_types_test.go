@@ -2481,6 +2481,24 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 	})
 
+	t.Run("CrdLayerSkipsPostBuildEvenWithConfigMaps", func(t *testing.T) {
+		configMaps := map[string]map[string]string{"values-common": {"key": "value"}}
+
+		// A normal kustomization picks up the global ConfigMaps via PostBuild.
+		normal := (&Kustomization{Name: "telemetry-base", Path: "telemetry/base"}).
+			ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull, configMaps)
+		if normal.Spec.PostBuild == nil {
+			t.Fatal("Expected PostBuild on a normal kustomization with global ConfigMaps")
+		}
+
+		// The CRD layer skips PostBuild entirely.
+		crds := (&Kustomization{Name: CrdLayerName, Path: CrdLayerName}).
+			ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull, configMaps)
+		if crds.Spec.PostBuild != nil {
+			t.Errorf("Expected nil PostBuild for the %q layer, got %v", CrdLayerName, crds.Spec.PostBuild)
+		}
+	})
+
 	t.Run("WithOCISource", func(t *testing.T) {
 		kustomization := &Kustomization{
 			Name:   "test-kustomization",

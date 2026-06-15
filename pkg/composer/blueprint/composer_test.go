@@ -2997,6 +2997,40 @@ func TestComposer_validateSources(t *testing.T) {
 // Test validateDependencies
 // =============================================================================
 
+func TestComposer_validateReservedNames(t *testing.T) {
+	t.Run("RejectsUserKustomizationNamedCrds", func(t *testing.T) {
+		// Given a user-authored kustomization that claims the reserved CRD-layer name
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: blueprintv1alpha1.CrdLayerName, Path: "crds"}},
+		}
+
+		// When validating
+		err := composer.validateReservedNames(bp)
+
+		// Then it is rejected as reserved
+		if err == nil || !strings.Contains(err.Error(), "reserved for the CRD layer") {
+			t.Errorf("expected reserved-name error, got %v", err)
+		}
+	})
+
+	t.Run("AllowsTheCrdsSectionItself", func(t *testing.T) {
+		// Given the CRD layer expressed through the crds: section (not a kustomization)
+		mocks := setupComposerMocks(t)
+		composer := NewBlueprintComposer(mocks.Runtime)
+		bp := &blueprintv1alpha1.Blueprint{
+			Crds:           []string{"cert-manager-1.16.2"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", Path: "pki/cert-manager"}},
+		}
+
+		// When validating
+		if err := composer.validateReservedNames(bp); err != nil {
+			t.Errorf("expected no error for crds: section, got %v", err)
+		}
+	})
+}
+
 func TestComposer_validateDependencies(t *testing.T) {
 	t.Run("ReturnsNilForValidTerraformDependencies", func(t *testing.T) {
 		mocks := setupComposerMocks(t)

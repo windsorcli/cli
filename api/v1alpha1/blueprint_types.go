@@ -21,7 +21,9 @@ import (
 // =============================================================================
 
 // CrdLayerName is the name of the synthesized kustomization that installs the vendored CRD layer
-// (its components are the blueprint's crds: references). The stack depends on it by this name.
+// (its components are the blueprint's crds: references). The stack depends on it by this name, and
+// ToFluxKustomization keys its PostBuild skip on it — so it is reserved: the composer rejects any
+// user-authored kustomization that claims this name.
 const CrdLayerName = "crds"
 
 // =============================================================================
@@ -991,7 +993,9 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 // level Interval overrides still win over both mode defaults.
 // An optional configMaps argument (blueprint-level ConfigMaps such as values-common) is added to
 // postBuild.substituteFrom so they are available to all kustomizations, matching what the provisioner applies.
-// PostBuild is constructed based on the kustomization's Substitutions field.
+// PostBuild is constructed from the kustomization's Substitutions field, except for the synthesized CRD layer
+// (k.Name == CrdLayerName), which skips PostBuild entirely: vendored CRDs need no substitution and their
+// ${...} description text would otherwise fail envsubst (e.g. fluent-operator's ${record.to_json}).
 func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName string, sources []Source, mode constants.GitopsMode, configMaps ...map[string]map[string]string) kustomizev1.Kustomization {
 	dependsOn := make([]kustomizev1.DependencyReference, len(k.DependsOn))
 	for idx, dep := range k.DependsOn {
@@ -1091,30 +1095,32 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 	}
 
 	var postBuild *kustomizev1.PostBuild
-	if len(k.Substitutions) > 0 {
-		configMapName := fmt.Sprintf("values-%s", k.Name)
-		postBuild = &kustomizev1.PostBuild{
-			SubstituteFrom: []kustomizev1.SubstituteReference{
-				{
-					Kind:     "ConfigMap",
-					Name:     configMapName,
-					Optional: false,
-				},
-			},
-		}
-	}
-	if len(configMaps) > 0 && len(configMaps[0]) > 0 {
-		if postBuild == nil {
+	if k.Name != CrdLayerName {
+		if len(k.Substitutions) > 0 {
+			configMapName := fmt.Sprintf("values-%s", k.Name)
 			postBuild = &kustomizev1.PostBuild{
-				SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
+				SubstituteFrom: []kustomizev1.SubstituteReference{
+					{
+						Kind:     "ConfigMap",
+						Name:     configMapName,
+						Optional: false,
+					},
+				},
 			}
 		}
-		for name := range configMaps[0] {
-			postBuild.SubstituteFrom = append(postBuild.SubstituteFrom, kustomizev1.SubstituteReference{
-				Kind:     "ConfigMap",
-				Name:     name,
-				Optional: false,
-			})
+		if len(configMaps) > 0 && len(configMaps[0]) > 0 {
+			if postBuild == nil {
+				postBuild = &kustomizev1.PostBuild{
+					SubstituteFrom: make([]kustomizev1.SubstituteReference, 0),
+				}
+			}
+			for name := range configMaps[0] {
+				postBuild.SubstituteFrom = append(postBuild.SubstituteFrom, kustomizev1.SubstituteReference{
+					Kind:     "ConfigMap",
+					Name:     name,
+					Optional: false,
+				})
+			}
 		}
 	}
 

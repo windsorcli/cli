@@ -166,7 +166,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	c.dropEmptyCompositionFragments(result)
 	c.resolveTierDependencies(result)
 	c.applyCrdLayerBarrier(result)
-	validationErr := errors.Join(c.validateSources(result), c.validateDependencies(result))
+	validationErr := errors.Join(c.validateSources(result), c.validateReservedNames(result), c.validateDependencies(result))
 	return result, validationErr
 }
 
@@ -731,6 +731,19 @@ func (c *BaseBlueprintComposer) validateSources(bp *blueprintv1alpha1.Blueprint)
 		}
 		if !strings.HasPrefix(s.Url, "oci://") {
 			return fmt.Errorf("source %q has install: true but URL %q is not an OCI source (oci://); install is only supported for OCI sources", s.Name, s.Url)
+		}
+	}
+	return nil
+}
+
+// validateReservedNames rejects a user-authored kustomization that takes the name reserved for the
+// synthesized CRD layer. That name is owned by the crds: layer the provisioner materializes; allowing
+// a kustomize: entry to claim it would collide with the synthesized entry and silently change how its
+// PostBuild is built, so it is an error rather than a silent override.
+func (c *BaseBlueprintComposer) validateReservedNames(bp *blueprintv1alpha1.Blueprint) error {
+	for _, k := range bp.Kustomizations {
+		if k.Name == blueprintv1alpha1.CrdLayerName {
+			return fmt.Errorf("kustomization name %q is reserved for the CRD layer; use the crds: section instead", blueprintv1alpha1.CrdLayerName)
 		}
 	}
 	return nil
