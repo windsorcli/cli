@@ -1260,9 +1260,12 @@ func (i *Provisioner) ensureClusterClient() error {
 // manifests from where they live rather than defaulting to the project git source. A layer's
 // components are its CRD references, pruning is disabled (pruning a CRD deletes every custom resource
 // of that kind cluster-wide), and wait is enabled so dependents block until the CRDs are Established.
-// The layers are prepended ahead of the stack. The composed blueprint carries the CRD layers as the
-// crds: section; the provisioner materializes them here, at the point it applies, waits on, or plans
-// the kustomization set. Returns bp unchanged when it has no crds:.
+// The layers are prepended ahead of the stack. Each layer's Path is the fixed catalog root
+// CrdLayerName (which ToFluxKustomization expands to kustomize/crds), so a layer's source must vendor
+// its manifests at <source>/kustomize/crds/<ref>; the path is a uniform convention, not a per-source
+// value, because refs are authored as a bare list. The composed blueprint carries the CRD layers as
+// the crds: section; the provisioner materializes them here, at the point it applies, waits on, or
+// plans the kustomization set. Returns bp unchanged when it has no crds:.
 func withCrdLayer(bp *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint {
 	if bp == nil || len(bp.Crds) == 0 {
 		return bp

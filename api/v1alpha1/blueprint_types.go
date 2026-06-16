@@ -333,7 +333,10 @@ type Blueprint struct {
 // CrdLayer groups the vendored CRD references that share a source. The composer produces one layer
 // per source whose facets declared crds:; the provisioner materializes each into its own
 // kustomization bound to Source. A flux Kustomization reads from one source root, so refs from
-// different sources cannot share a layer.
+// different sources cannot share a layer. Each ref resolves under the source's fixed kustomize/crds/
+// catalog root (the synthesized kustomization always uses Path: CrdLayerName); the path is not
+// per-layer configurable because facets author crds: as a bare ref list, so a ref present here is a
+// promise that the source vendors its manifests at <source>/kustomize/crds/<ref>.
 type CrdLayer struct {
 	// Source names the source that carries these CRD manifests. Empty means the default/project
 	// source, which materializes as the base "crds" kustomization.
