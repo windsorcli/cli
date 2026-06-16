@@ -524,9 +524,11 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 		diffs = append(diffs, kustomizeDiffs...)
 	}
 
-	for _, expectCrd := range expect.Crds {
-		if !contains(bp.Crds, expectCrd) {
-			diffs = append(diffs, fmt.Sprintf("crd reference not found: %s", expectCrd))
+	for _, expectLayer := range expect.Crds {
+		for _, ref := range expectLayer.Refs {
+			if !crdLayerContains(bp.Crds, expectLayer.Source, ref) {
+				diffs = append(diffs, fmt.Sprintf("crd reference not found: %s", ref))
+			}
 		}
 	}
 
@@ -564,9 +566,11 @@ func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *b
 		}
 	}
 
-	for _, excludeCrd := range exclude.Crds {
-		if contains(bp.Crds, excludeCrd) {
-			diffs = append(diffs, fmt.Sprintf("crd reference should not exist: %s", excludeCrd))
+	for _, excludeLayer := range exclude.Crds {
+		for _, ref := range excludeLayer.Refs {
+			if crdLayerContains(bp.Crds, excludeLayer.Source, ref) {
+				diffs = append(diffs, fmt.Sprintf("crd reference should not exist: %s", ref))
+			}
 		}
 	}
 
@@ -825,8 +829,8 @@ func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint
 	for _, k := range bp.Kustomizations {
 		kNames[k.Name] = struct{}{}
 	}
-	if len(bp.Crds) > 0 {
-		kNames[blueprintv1alpha1.CrdLayerName] = struct{}{}
+	for _, layer := range bp.Crds {
+		kNames[layer.KustomizationName()] = struct{}{}
 	}
 
 	for _, tf := range bp.TerraformComponents {
@@ -957,6 +961,20 @@ func detectCycles(graph map[string][]string, validNodes map[string]struct{}, nod
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// crdLayerContains reports whether the CRD layers carry ref under source. An empty source matches a
+// ref in any layer, so a test can assert a CRD's presence without naming the source that vendors it.
+func crdLayerContains(layers []blueprintv1alpha1.CrdLayer, source, ref string) bool {
+	for _, layer := range layers {
+		if source != "" && layer.Source != source {
+			continue
+		}
+		if contains(layer.Refs, ref) {
 			return true
 		}
 	}

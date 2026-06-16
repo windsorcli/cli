@@ -19,12 +19,14 @@ func intExprPtr(i int) *IntExpression {
 	return &IntExpression{Value: &i, IsExpr: false}
 }
 
-func TestBlueprint_CrdsRenderAsStringList(t *testing.T) {
-	t.Run("MarshalsAsAPlainStringList", func(t *testing.T) {
-		// Given a blueprint whose crds: layer is a list of references
+func TestBlueprint_CrdsRenderAsSourceGroupedList(t *testing.T) {
+	t.Run("MarshalsAsSourceGroupedLayers", func(t *testing.T) {
+		// Given a blueprint whose crds: layer groups references under their source
 		bp := &Blueprint{
 			Kind: "Blueprint",
-			Crds: []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"},
+			Crds: []CrdLayer{
+				{Source: "core", Refs: []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"}},
+			},
 			Kustomizations: []Kustomization{
 				{Name: "cert-manager", Path: "pki/cert-manager", DependsOn: []string{"crds"}},
 			},
@@ -36,31 +38,93 @@ func TestBlueprint_CrdsRenderAsStringList(t *testing.T) {
 			t.Fatalf("marshal: %v", err)
 		}
 
-		// Then crds: renders as a bare string list (no name/path/wait/prune objects)
+		// Then crds: renders as a list of {source, refs} layers (no wait/prune kustomization fields)
 		text := string(out)
-		if !strings.Contains(text, "crds:\n- gateway-api-experimental-1.5.1\n- envoy-gateway-1.7.1") {
-			t.Errorf("expected crds: as a string list, got:\n%s", text)
+		if !strings.Contains(text, "source: core") || !strings.Contains(text, "- gateway-api-experimental-1.5.1") {
+			t.Errorf("expected crds: as source-grouped layers, got:\n%s", text)
 		}
-		if strings.Contains(text, "path: crds/") || strings.Contains(text, "prune:") {
+		if strings.Contains(text, "prune:") {
 			t.Errorf("did not expect crds rendered as kustomization objects, got:\n%s", text)
 		}
 	})
 }
 
 func TestBlueprint_StrategicMerge_Crds(t *testing.T) {
-	t.Run("UnionsOverlayCrdReferences", func(t *testing.T) {
-		// Given a base and overlay that each carry crds: references, with one shared
-		base := &Blueprint{Crds: []string{"cert-manager-1.16.2"}}
-		overlay := &Blueprint{Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}}
+	t.Run("UnionsOverlayRefsWithinSameSource", func(t *testing.T) {
+		// Given a base and overlay whose layers share a source, with one shared ref
+		base := &Blueprint{Crds: []CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2"}}}}
+		overlay := &Blueprint{Crds: []CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}}}}
 
 		// When merged
 		if err := base.StrategicMerge(overlay); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Then the references are unioned without duplicating the shared one
-		if len(base.Crds) != 2 || base.Crds[0] != "cert-manager-1.16.2" || base.Crds[1] != "gateway-api-1.5.1" {
-			t.Errorf("expected deduped union [cert-manager-1.16.2, gateway-api-1.5.1], got %+v", base.Crds)
+		// Then the refs are unioned into the one source layer without duplicating the shared one
+		if len(base.Crds) != 1 {
+			t.Fatalf("expected a single source layer, got %+v", base.Crds)
+		}
+		got := base.Crds[0]
+		if got.Source != "core" || len(got.Refs) != 2 || got.Refs[0] != "cert-manager-1.16.2" || got.Refs[1] != "gateway-api-1.5.1" {
+			t.Errorf("expected deduped union under core, got %+v", got)
+		}
+	})
+
+	t.Run("KeepsDifferentSourcesInSeparateLayers", func(t *testing.T) {
+		// Given a base and overlay whose CRDs come from different sources
+		base := &Blueprint{Crds: []CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2"}}}}
+		overlay := &Blueprint{Crds: []CrdLayer{{Source: "acme-oci", Refs: []string{"acme-crd-2.0.0"}}}}
+
+		// When merged
+		if err := base.StrategicMerge(overlay); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then each source keeps its own layer — a flux Kustomization reads from one source root
+		if len(base.Crds) != 2 {
+			t.Fatalf("expected two source layers, got %+v", base.Crds)
+		}
+		if base.Crds[0].Source != "core" || base.Crds[1].Source != "acme-oci" {
+			t.Errorf("expected core then acme-oci layers, got %+v", base.Crds)
+		}
+	})
+}
+
+func TestCrdLayer_KustomizationName(t *testing.T) {
+	t.Run("DefaultSourceTakesBaseName", func(t *testing.T) {
+		// Given a layer for the default/project source
+		layer := CrdLayer{Source: "", Refs: []string{"cert-manager-1.16.2"}}
+
+		// Then it materializes as the base "crds" kustomization
+		if got := layer.KustomizationName(); got != "crds" {
+			t.Errorf("expected crds, got %q", got)
+		}
+	})
+
+	t.Run("NamedSourceIsSuffixed", func(t *testing.T) {
+		// Given a layer for a named source
+		layer := CrdLayer{Source: "core", Refs: []string{"cert-manager-1.16.2"}}
+
+		// Then it materializes as "crds-<source>"
+		if got := layer.KustomizationName(); got != "crds-core" {
+			t.Errorf("expected crds-core, got %q", got)
+		}
+	})
+}
+
+func TestIsCrdLayerName(t *testing.T) {
+	t.Run("MatchesBaseAndNamespacedNames", func(t *testing.T) {
+		// Given the synthesized CRD layer namespace
+		for _, name := range []string{"crds", "crds-core", "crds-acme-oci"} {
+			if !IsCrdLayerName(name) {
+				t.Errorf("expected %q to be a CRD layer name", name)
+			}
+		}
+		// And unrelated kustomization names are not in the namespace
+		for _, name := range []string{"cert-manager", "crd", "crdsuffix"} {
+			if IsCrdLayerName(name) {
+				t.Errorf("did not expect %q to be a CRD layer name", name)
+			}
 		}
 	})
 }
@@ -4145,6 +4209,20 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 		}
 		if copy.Sources[0].Install.Value == nil || *copy.Sources[0].Install.Value {
 			t.Error("Expected Install to be false in copy")
+		}
+	})
+
+	t.Run("CopiesCrdLayersDeeply", func(t *testing.T) {
+		blueprint := &Blueprint{Crds: []CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2"}}}}
+
+		copy := blueprint.DeepCopy()
+		if len(copy.Crds) != 1 || copy.Crds[0].Source != "core" || len(copy.Crds[0].Refs) != 1 {
+			t.Fatalf("Expected CRD layer copied, got %+v", copy.Crds)
+		}
+		// Mutating the copy's refs must not touch the original (deep copy, not aliased)
+		copy.Crds[0].Refs[0] = "mutated"
+		if blueprint.Crds[0].Refs[0] != "cert-manager-1.16.2" {
+			t.Error("Expected original CRD refs untouched after mutating copy")
 		}
 	})
 

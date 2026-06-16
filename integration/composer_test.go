@@ -64,9 +64,25 @@ func TestWindsorTest_DerivedConfigFixture(t *testing.T) {
 	}
 }
 
+// crdLayer mirrors the composed blueprint's source-grouped crds: section for YAML parsing.
+type crdLayer struct {
+	Source string   `yaml:"source"`
+	Refs   []string `yaml:"refs"`
+}
+
+// crdRefsContain reports whether any composed CRD layer carries ref, regardless of its source.
+func crdRefsContain(layers []crdLayer, ref string) bool {
+	for _, l := range layers {
+		if slices.Contains(l.Refs, ref) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestShowBlueprint_CrdsFacetSection verifies a facet's `crds:` declaration composes into the
-// blueprint's first-class `crds:` section as a plain list of references (not kustomization objects),
-// and that the stack's root depends on the synthesized "crds" layer via the barrier.
+// blueprint's first-class `crds:` section (source-grouped, not kustomization objects), and that the
+// stack's root depends on the synthesized "crds" layer via the barrier.
 func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "facet-crds")
@@ -77,7 +93,7 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 	}
 
 	var bp struct {
-		Crds      []string `yaml:"crds"`
+		Crds      []crdLayer `yaml:"crds"`
 		Kustomize []struct {
 			Name      string   `yaml:"name"`
 			DependsOn []string `yaml:"dependsOn"`
@@ -87,19 +103,20 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
 	}
 
-	// crds: is a bare string list of references
-	if !slices.Contains(bp.Crds, "cert-manager-1.16.2") {
-		t.Fatalf("expected cert-manager-1.16.2 in the crds: list, got %+v", bp.Crds)
+	// crds: is a source-grouped layer carrying the reference
+	if !crdRefsContain(bp.Crds, "cert-manager-1.16.2") {
+		t.Fatalf("expected cert-manager-1.16.2 in the crds: layer, got %+v", bp.Crds)
 	}
 
-	// The CRD layer is not folded into kustomize: — and the stack's root depends on "crds"
-	// (the barrier), so Flux orders the CRD layer first without the provisioner waiting.
+	// The CRD layer is not folded into kustomize: — and the stack's root depends on "crds" (the
+	// barrier), so Flux orders the CRD layer first without the provisioner waiting. The fixture is
+	// purely local, so the template source collapses to the default and the layer keeps the bare name.
 	var certManager *struct {
 		Name      string   `yaml:"name"`
 		DependsOn []string `yaml:"dependsOn"`
 	}
 	for i := range bp.Kustomize {
-		if bp.Kustomize[i].Name == "cert-manager-1.16.2" || bp.Kustomize[i].Name == "crds" {
+		if strings.HasPrefix(bp.Kustomize[i].Name, "crds") || bp.Kustomize[i].Name == "cert-manager-1.16.2" {
 			t.Errorf("did not expect the CRD layer in the kustomize: section, got %+v", bp.Kustomize)
 		}
 		if bp.Kustomize[i].Name == "cert-manager" {
@@ -135,7 +152,7 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 			}
 
 			var bp struct {
-				Crds      []string `yaml:"crds"`
+				Crds      []crdLayer `yaml:"crds"`
 				Kustomize []struct {
 					Name      string   `yaml:"name"`
 					DependsOn []string `yaml:"dependsOn"`
@@ -145,11 +162,11 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 				t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
 			}
 
-			// Only the active driver's CRD reference is present in the crds: list
-			if !slices.Contains(bp.Crds, tc.want) {
+			// Only the active driver's CRD reference is present in the crds: layer
+			if !crdRefsContain(bp.Crds, tc.want) {
 				t.Errorf("expected CRD %q in crds: for context %s, got %+v", tc.want, tc.context, bp.Crds)
 			}
-			if slices.Contains(bp.Crds, tc.absent) {
+			if crdRefsContain(bp.Crds, tc.absent) {
 				t.Errorf("did not expect CRD %q for context %s, got %+v", tc.absent, tc.context, bp.Crds)
 			}
 
