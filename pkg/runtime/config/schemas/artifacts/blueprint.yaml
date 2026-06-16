@@ -145,15 +145,31 @@ properties:
   crds:
     type: array
     description: |
-      The vendored CRD layer: a list of references into the crds/ catalog (e.g.
-      'cert-manager-1.16.2'). The provisioner materializes these into a single
-      'crds' kustomization (its components are these references, pruning disabled
-      and wait enabled) applied ahead of the kustomize: layer, so every
-      kustomization sees its CRDs Established first. Populated by the composer
-      from facet crds: declarations; the stack depends on the layer by the name
-      'crds'.
+      The vendored CRD layer, grouped by the source that carries the manifests.
+      The provisioner materializes one kustomization per source (named 'crds' for
+      the default/project source and 'crds-<source>' for a named source), with the
+      layer's references as its components, pruning disabled and wait enabled,
+      bound to that source and applied ahead of the kustomize: layer — so every
+      kustomization sees its CRDs Established first. A flux Kustomization reads
+      from one source root, so CRDs from different sources live in separate
+      layers. Populated by the composer from facet crds: declarations; the stack
+      depends on each layer by its name.
     items:
-      type: string
+      type: object
+      properties:
+        source:
+          type: string
+          description: |
+            The source carrying these CRD manifests. Empty means the
+            default/project source, which materializes as the base 'crds'
+            kustomization.
+        refs:
+          type: array
+          description: |
+            References into the source's crds/ catalog (e.g.
+            'cert-manager-1.16.2').
+          items:
+            type: string
   kustomize:
     type: array
     description: |

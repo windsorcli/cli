@@ -1255,27 +1255,36 @@ func (i *Provisioner) ensureClusterClient() error {
 	return nil
 }
 
-// withCrdLayer returns a blueprint whose Kustomizations include the synthesized "crds" kustomization
-// built from bp.Crds — its components are the CRD references, pruning is disabled (pruning a CRD
-// deletes every custom resource of that kind cluster-wide), and wait is enabled so dependents block
-// until the CRDs are Established. The entry is prepended ahead of the stack. The composed blueprint
-// carries the CRD layer as the crds: string list; the provisioner materializes it here, at the point
-// it applies, waits on, or plans the kustomization set. Returns bp unchanged when it has no crds:.
+// withCrdLayer returns a blueprint whose Kustomizations include the synthesized CRD layers built
+// from bp.Crds — one kustomization per source, each bound to that source so it reads the CRD
+// manifests from where they live rather than defaulting to the project git source. A layer's
+// components are its CRD references, pruning is disabled (pruning a CRD deletes every custom resource
+// of that kind cluster-wide), and wait is enabled so dependents block until the CRDs are Established.
+// The layers are prepended ahead of the stack. Each layer's Path is the fixed catalog root
+// CrdLayerName (which ToFluxKustomization expands to kustomize/crds), so a layer's source must vendor
+// its manifests at <source>/kustomize/crds/<ref>; the path is a uniform convention, not a per-source
+// value, because refs are authored as a bare list. The composed blueprint carries the CRD layers as
+// the crds: section; the provisioner materializes them here, at the point it applies, waits on, or
+// plans the kustomization set. Returns bp unchanged when it has no crds:.
 func withCrdLayer(bp *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint {
 	if bp == nil || len(bp.Crds) == 0 {
 		return bp
 	}
 	prune := false
 	wait := true
-	crd := blueprintv1alpha1.Kustomization{
-		Name:       blueprintv1alpha1.CrdLayerName,
-		Path:       blueprintv1alpha1.CrdLayerName,
-		Components: slices.Clone(bp.Crds),
-		Prune:      &prune,
-		Wait:       &wait,
+	crds := make([]blueprintv1alpha1.Kustomization, 0, len(bp.Crds))
+	for _, layer := range bp.Crds {
+		crds = append(crds, blueprintv1alpha1.Kustomization{
+			Name:       layer.KustomizationName(),
+			Path:       blueprintv1alpha1.CrdLayerName,
+			Source:     layer.Source,
+			Components: slices.Clone(layer.Refs),
+			Prune:      &prune,
+			Wait:       &wait,
+		})
 	}
 	out := *bp
-	out.Kustomizations = append([]blueprintv1alpha1.Kustomization{crd}, bp.Kustomizations...)
+	out.Kustomizations = append(crds, bp.Kustomizations...)
 	return &out
 }
 

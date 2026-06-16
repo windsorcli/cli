@@ -2106,9 +2106,16 @@ func TestProcessor_ProcessFacets_Backend(t *testing.T) {
 }
 
 func TestProcessor_ProcessFacets_Crds(t *testing.T) {
+	allRefs := func(bp *blueprintv1alpha1.Blueprint) []string {
+		var refs []string
+		for _, layer := range bp.Crds {
+			refs = append(refs, layer.Refs...)
+		}
+		return refs
+	}
 	requireCrd := func(t *testing.T, bp *blueprintv1alpha1.Blueprint, ref string) {
 		t.Helper()
-		if !slices.Contains(bp.Crds, ref) {
+		if !slices.Contains(allRefs(bp), ref) {
 			t.Fatalf("Expected crd reference %q in crds: layer, got %v", ref, bp.Crds)
 		}
 	}
@@ -2160,7 +2167,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 		count := 0
-		for _, ref := range target.Crds {
+		for _, ref := range allRefs(target) {
 			if ref == "gateway-api-1.5.1" {
 				count++
 			}
@@ -2211,7 +2218,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if slices.Contains(target.Crds, "cert-manager-1.16.2") {
+		if slices.Contains(allRefs(target), "cert-manager-1.16.2") {
 			t.Errorf("Expected no CRD reference from excluded facet, got %v", target.Crds)
 		}
 	})
@@ -2263,34 +2270,37 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if slices.Contains(target.Crds, "") {
+		if slices.Contains(allRefs(target), "") {
 			t.Errorf("Expected no empty crd reference, got %v", target.Crds)
 		}
 		requireCrd(t, target, "cert-manager-1.16.2")
 	})
 
 	t.Run("UnionsWithBaseBlueprintCrds", func(t *testing.T) {
-		// Given a base blueprint that already carries a crds: reference
+		// Given a base blueprint that already carries a crds: reference on the default source
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
 
 		target := &blueprintv1alpha1.Blueprint{
-			Crds: []string{"cert-manager-1.16.2"},
+			Crds: []blueprintv1alpha1.CrdLayer{{Refs: []string{"cert-manager-1.16.2"}}},
 		}
 
 		facets := []blueprintv1alpha1.Facet{
 			{Metadata: blueprintv1alpha1.Metadata{Name: "gateway"}, Crds: []string{"gateway-api-1.5.1"}},
 		}
 
-		// When a facet contributes another reference
+		// When a facet from the same (default) source contributes another reference
 		_, err := processor.ProcessFacets(target, facets)
 
-		// Then both are present, deduped and sorted
+		// Then both land in the one default-source layer, deduped and sorted
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
-		if !slices.Equal(target.Crds, []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}) {
-			t.Errorf("Expected unioned sorted crds, got %v", target.Crds)
+		if len(target.Crds) != 1 || target.Crds[0].Source != "" {
+			t.Fatalf("Expected a single default-source layer, got %+v", target.Crds)
+		}
+		if !slices.Equal(target.Crds[0].Refs, []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}) {
+			t.Errorf("Expected unioned sorted crds, got %v", target.Crds[0].Refs)
 		}
 	})
 
@@ -2334,7 +2344,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 					t.Fatalf("Expected no error, got %v", err)
 				}
 				requireCrd(t, target, tc.want)
-				if slices.Contains(target.Crds, tc.absent) {
+				if slices.Contains(allRefs(target), tc.absent) {
 					t.Errorf("Expected %q absent for driver %s, got %v", tc.absent, tc.driver, target.Crds)
 				}
 			})
@@ -2393,6 +2403,80 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 		k := target.Kustomizations[0]
 		if len(k.DependsOn) != 1 || k.DependsOn[0] != "infra" {
 			t.Errorf("Expected dependsOn=[infra] unchanged, got %v", k.DependsOn)
+		}
+	})
+
+	t.Run("BindsCrdLayerToNamedSource", func(t *testing.T) {
+		// Given a facet from a named source that declares a CRD reference
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{Metadata: blueprintv1alpha1.Metadata{Name: "addon-private-ca"}, Crds: []string{"cert-manager-1.16.2"}},
+		}
+
+		// When processing facets for the "core" source
+		target := &blueprintv1alpha1.Blueprint{}
+		_, err := processor.ProcessFacets(target, facets, "core")
+
+		// Then the layer records that source so the provisioner binds to it, not the default
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Crds) != 1 || target.Crds[0].Source != "core" {
+			t.Fatalf("Expected one layer bound to core, got %+v", target.Crds)
+		}
+		if !slices.Contains(target.Crds[0].Refs, "cert-manager-1.16.2") {
+			t.Errorf("Expected cert-manager ref under core, got %v", target.Crds[0].Refs)
+		}
+	})
+
+	t.Run("LeavesSourceEmptyForDefaultSource", func(t *testing.T) {
+		// Given a facet from the default/primary source that declares a CRD reference
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+
+		facets := []blueprintv1alpha1.Facet{
+			{Metadata: blueprintv1alpha1.Metadata{Name: "addon-private-ca"}, Crds: []string{"cert-manager-1.16.2"}},
+		}
+
+		// When processing facets for the primary source
+		target := &blueprintv1alpha1.Blueprint{}
+		_, err := processor.ProcessFacets(target, facets, "primary")
+
+		// Then the layer's source stays empty so it keeps defaulting to the project source
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(target.Crds) != 1 || target.Crds[0].Source != "" {
+			t.Errorf("Expected one default-source layer, got %+v", target.Crds)
+		}
+	})
+
+	t.Run("SplitsCrdsAcrossSourcesIntoSeparateLayers", func(t *testing.T) {
+		// Given facets from two different sources are processed into the same blueprint
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		target := &blueprintv1alpha1.Blueprint{}
+
+		// When each source's facets are processed in turn
+		if _, err := processor.ProcessFacets(target, []blueprintv1alpha1.Facet{
+			{Metadata: blueprintv1alpha1.Metadata{Name: "core-ca"}, Crds: []string{"cert-manager-1.16.2"}},
+		}, "core"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if _, err := processor.ProcessFacets(target, []blueprintv1alpha1.Facet{
+			{Metadata: blueprintv1alpha1.Metadata{Name: "acme"}, Crds: []string{"acme-crd-2.0.0"}},
+		}, "acme-oci"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then each source gets its own layer — a flux Kustomization reads from one source root
+		if len(target.Crds) != 2 {
+			t.Fatalf("Expected two source layers, got %+v", target.Crds)
+		}
+		if target.Crds[0].Source != "core" || target.Crds[1].Source != "acme-oci" {
+			t.Errorf("Expected core then acme-oci layers, got %+v", target.Crds)
 		}
 	})
 }

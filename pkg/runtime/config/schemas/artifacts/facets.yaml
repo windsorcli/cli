@@ -99,11 +99,12 @@ properties:
     description: |
       References into the vendored CRD catalog, version-pinned (e.g.
       'cert-manager-1.16.2'). The composer collects these across all enabled
-      facets, dedups them, and surfaces them as the composed blueprint's
-      top-level 'crds:' list — a first-class layer the provisioner materializes
-      into a single 'crds' kustomization (these references become its components)
-      applied ahead of the kustomize layer, so every kustomization sees its CRDs
-      Established without a facet author naming a CRD in dependsOn. Entries may
+      facets, dedups them, and surfaces them on the composed blueprint's
+      first-class 'crds:' layer, grouped by the source that carries each facet's
+      manifests. The provisioner materializes one kustomization per source (bound
+      to that source) applied ahead of the kustomize layer, so every
+      kustomization sees its CRDs Established without a facet author naming a CRD
+      in dependsOn. Entries may
       use '${...}' expressions that resolve against the facet scope and prune to
       empty — e.g. "${gateway.driver == 'envoy' ? 'envoy-gateway-1.7.1' : ''}" —
       so one facet can select different CRDs per driver. Each resolved reference
