@@ -18,7 +18,7 @@ variable substitutions shared across them.
 | `metadata` | `object` | Identity for the blueprint. **(required)** |
 | `backend` | `string` | Names the terraform component that terminates the backend tier. When set, 'windsor bootstrap' applies the backend component (and every component declared before it) against local state first, then migrates state to the configured remote backend before applying the rest of the graph. |
 | `configMaps` | `map<object>` | Standalone ConfigMaps to create. Each top-level key is a ConfigMap name; its map-of-string value is the .data payload. These are referenced by every kustomization in PostBuild substitution. |
-| `crds` | `array<object>` | The vendored CRD layer, grouped by the source that carries the manifests. Each entry has a `source` (empty for the default/project source) and `refs` (references into that source's crds/ catalog, e.g. 'cert-manager-1.16.2'). The provisioner materializes one kustomization per source — named 'crds' for the default source and 'crds-<source>' for a named source — with the layer's refs as components, pruning disabled and wait enabled, bound to that source and applied ahead of the kustomize: layer, so every kustomization sees its CRDs Established first. A flux Kustomization reads from one source root, so CRDs from different sources live in separate layers. Populated by the composer from facet crds: declarations; the stack depends on each layer by its name. |
+| `crds` | `array<object>` | The vendored CRD layer, grouped by the source that carries the manifests. The provisioner materializes one kustomization per source (named 'crds' for the default/project source and 'crds-<source>' for a named source), with the layer's references as its components, pruning disabled and wait enabled, bound to that source and applied ahead of the kustomize: layer — so every kustomization sees its CRDs Established first. A flux Kustomization reads from one source root, so CRDs from different sources live in separate layers. Populated by the composer from facet crds: declarations; the stack depends on each layer by its name. |
 | `kustomize` | `array<object>` | Flux kustomizations included in the blueprint. Each entry maps to a Kustomization resource the provisioner applies to the cluster, in topologically sorted dependsOn order. |
 | `repository` | `object` | Source repository this blueprint was bootstrapped from. |
 | `sources` | `array<object>` | External resources referenced by the blueprint. Each source is an OCI blueprint artifact or a Git repository that contributes Terraform modules and/or kustomize bases consumable by the components below. |
@@ -31,6 +31,13 @@ variable substitutions shared across them.
 |------|------|-------------|
 | `name` | `string` | Blueprint's unique identifier within the project. **(required)** |
 | `description` | `string` | One-line overview of what this blueprint provisions. |
+
+## crds[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `refs` | `array<string>` | References into the source's crds/ catalog (e.g. 'cert-manager-1.16.2'). |
+| `source` | `string` | The source carrying these CRD manifests. Empty means the default/project source, which materializes as the base 'crds' kustomization. |
 
 ## kustomize[]
 
