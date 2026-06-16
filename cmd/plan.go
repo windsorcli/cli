@@ -319,13 +319,20 @@ func blueprintHasTerraformComponent(blueprint *blueprintv1alpha1.Blueprint, comp
 	return false
 }
 
-// blueprintHasKustomization reports whether the blueprint contains a Kustomization with the given name.
+// blueprintHasKustomization reports whether the blueprint contains a Kustomization with the given
+// name, including the synthesized CRD layers (crds / crds-<source>) the provisioner materializes
+// from crds: at plan time — so those layers are valid `windsor plan <name>` targets.
 func blueprintHasKustomization(blueprint *blueprintv1alpha1.Blueprint, componentID string) bool {
 	if blueprint == nil {
 		return false
 	}
 	for _, k := range blueprint.Kustomizations {
 		if k.Name == componentID {
+			return true
+		}
+	}
+	for _, layer := range blueprint.Crds {
+		if layer.KustomizationName() == componentID {
 			return true
 		}
 	}

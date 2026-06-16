@@ -139,6 +139,82 @@ func newKustomizePlanProject(mocks *PlanMocks, fluxStack *fluxinfra.MockStack) *
 // Test Cases
 // =============================================================================
 
+func TestPlanCmd(t *testing.T) {
+	createTestPlanCmd := func() *cobra.Command {
+		cmd := &cobra.Command{
+			Use:  "plan",
+			RunE: planCmd.RunE,
+		}
+		planCmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
+			cmd.Flags().AddFlag(flag)
+		})
+		cmd.Args = planCmd.Args
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		return cmd
+	}
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	t.Run("CrdLayerIsAValidComponentTarget", func(t *testing.T) {
+		// Given a blueprint whose only kustomize layer is the synthesized crds layer
+		mocks := setupPlanTest(t)
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+				Crds:     []blueprintv1alpha1.CrdLayer{{Refs: []string{"cert-manager-1.16.2"}}},
+			}
+		}
+		fluxStack := fluxinfra.NewMockStack()
+		planned := ""
+		fluxStack.PlanFunc = func(bp *blueprintv1alpha1.Blueprint, componentID string) error {
+			planned = componentID
+			return nil
+		}
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When planning the crds layer by name
+		cmd := createTestPlanCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"crds"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the command routes to the kustomize layer rather than failing the existence check
+		if err != nil {
+			t.Fatalf("expected crds to be a valid plan target, got: %v", err)
+		}
+		if planned != "crds" {
+			t.Errorf("expected the crds layer to be planned, got %q", planned)
+		}
+	})
+
+	t.Run("UnknownComponentIsRejected", func(t *testing.T) {
+		// Given a blueprint with no component matching the requested name
+		mocks := setupPlanTest(t)
+		fluxStack := fluxinfra.NewMockStack()
+		proj := newKustomizePlanProject(mocks, fluxStack)
+
+		// When planning a component that exists in neither layer
+		cmd := createTestPlanCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"nonexistent"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the existence check rejects it
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "not found in blueprint") {
+			t.Errorf("expected not-found error, got: %v", err)
+		}
+	})
+}
+
 func TestPlanTerraformCmd(t *testing.T) {
 	createTestPlanTerraformCmd := func() *cobra.Command {
 		cmd := &cobra.Command{

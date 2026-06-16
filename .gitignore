@@ -56,6 +56,9 @@ age.public.key
 # Investigation/spike artifacts
 docs/spikes/
 
+# Architecture decision records (kept local for now)
+docs/adrs/
+
 # managed by windsor cli
 .windsor/
 .volumes/

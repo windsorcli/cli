@@ -238,6 +238,27 @@ func TestPlanKustomize_FailsWhenKustomizationNotInBlueprint(t *testing.T) {
 	}
 }
 
+// TestPlan_CrdLayerIsAValidComponentTarget confirms that the synthesized CRD layer
+// is reachable by name: `windsor plan crds` routes to the kustomize layer rather than
+// failing the cmd-level existence check with "not found in blueprint". The facet-crds
+// fixture's pki facet declares a vendored CRD, which composes into the default-source
+// "crds" layer.
+func TestPlan_CrdLayerIsAValidComponentTarget(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-crds")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"plan", "crds", "--summary"}, env)
+	if err != nil {
+		t.Fatalf("plan crds --summary: %v\nstderr: %s", err, stderr)
+	}
+	if strings.Contains(string(stderr), "not found in blueprint") {
+		t.Errorf("expected crds to route to the kustomize layer, got not-found: %s", stderr)
+	}
+	if !strings.Contains(string(stdout), "crds") {
+		t.Errorf("expected the crds layer in the plan summary, got: %s", stdout)
+	}
+}
+
 // TestPlan_FooterHintAppearsForNewComponents confirms that the operator-facing
 // "drill in for full diffs" hint surfaces in the summary whenever a component
 // represents pending work. The plan fixture's `null` component has never been
