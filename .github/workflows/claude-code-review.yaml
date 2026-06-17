@@ -202,7 +202,7 @@ jobs:
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 80
-            --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh pr view:*),Bash(gh pr edit:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task scan:*),Bash(go vet:*),Write
+            --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task:*),Bash(go:*),Write
             --disallowedTools WebSearch,WebFetch
 
   review-on-dispatch:
@@ -385,7 +385,7 @@ jobs:
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 80
-            --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh pr view:*),Bash(gh pr edit:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task scan:*),Bash(go vet:*),Write
+            --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task:*),Bash(go:*),Write
             --disallowedTools WebSearch,WebFetch
 
   resolve-threads:
@@ -479,5 +479,5 @@ jobs:
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 15
-            --allowedTools Read,Bash(gh api:*),Bash(cat:*),Bash(jq:*)
+            --allowedTools Read,Bash(gh:*),Bash(cat:*),Bash(jq:*)
             --disallowedTools WebSearch,WebFetch
