@@ -36,7 +36,13 @@ import (
 // surfaces as a clear refusal rather than silently auto-copying state. MigrateState and
 // MigrateComponentState pass `-migrate-state -force-copy` explicitly when migration is
 // the requested operation; see migrateOneComponent.
-var defaultInitFlags = []string{"-upgrade"}
+//
+// -input=false runs init non-interactively. ExecSilentWithEnv never sets cmd.Stdin, so a
+// terraform prompt (e.g. the backend-migration confirmation triggered on the next init after
+// destroy clears state) would read EOF from a closed stdin and abort with an opaque "Error
+// asking for confirmation: EOF". -input=false makes that surface as a clear, fail-fast error
+// instead of a stdin read against nothing.
+var defaultInitFlags = []string{"-upgrade", "-input=false"}
 
 // =============================================================================
 // Types

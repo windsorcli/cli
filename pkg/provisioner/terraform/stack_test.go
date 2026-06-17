@@ -720,6 +720,37 @@ func TestStack_Up(t *testing.T) {
 			t.Error("Expected Up's init not to include -force-copy; the flag belongs only on the explicit state-migration path")
 		}
 	})
+
+	t.Run("PassesInputFalseFlag", func(t *testing.T) {
+		stack, mocks := setup(t)
+		blueprint := createTestBlueprint()
+
+		var inputFalseSeen bool
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			if len(args) >= 2 && args[1] == "init" {
+				for _, a := range args {
+					if a == "-input=false" {
+						inputFalseSeen = true
+					}
+				}
+			}
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+
+		// When Up runs
+		if _, err := stack.Up(blueprint); err != nil {
+			t.Fatalf("Expected Up to succeed, got %v", err)
+		}
+
+		// Then init ran non-interactively so a backend-migration prompt after destroy
+		// fails fast with a clear error instead of reading EOF from a closed stdin
+		if !inputFalseSeen {
+			t.Error("Expected Up's init to include -input=false so terraform never blocks on an interactive prompt")
+		}
+	})
 }
 
 func TestStack_MigrateState(t *testing.T) {
