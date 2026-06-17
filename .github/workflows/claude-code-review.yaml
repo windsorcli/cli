@@ -201,7 +201,7 @@ jobs:
               sticky summary instead.
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 50
+            --max-turns 80
             --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh pr view:*),Bash(gh pr edit:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task scan:*),Bash(go vet:*),Write
             --disallowedTools WebSearch,WebFetch
 
@@ -384,7 +384,7 @@ jobs:
               sticky summary instead.
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 50
+            --max-turns 80
             --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh pr view:*),Bash(gh pr edit:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task scan:*),Bash(go vet:*),Write
             --disallowedTools WebSearch,WebFetch
 
