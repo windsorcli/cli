@@ -1639,8 +1639,8 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		if crd.Name != "crds-core" || crd.Source != "core" {
 			t.Errorf("expected crds-core bound to core, got name=%q source=%q", crd.Name, crd.Source)
 		}
-		if crd.Prune == nil || *crd.Prune != false {
-			t.Errorf("expected prune=false so CRDs are retained, got prune=%v", crd.Prune)
+		if crd.Prune == nil || *crd.Prune != false || crd.Wait == nil || *crd.Wait != true {
+			t.Errorf("expected prune=false wait=true, got prune=%v wait=%v", crd.Prune, crd.Wait)
 		}
 	})
 
