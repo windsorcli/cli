@@ -1608,6 +1608,42 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		}
 	})
 
+	t.Run("MaterializesCrdLayerForDestroy", func(t *testing.T) {
+		// Given a blueprint whose crds: layer must be torn down with the stack
+		mocks := setupProvisionerMocks(t)
+		var deleted *blueprintv1alpha1.Blueprint
+		mocks.KubernetesManager.DeleteBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			deleted = blueprint
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Crds: []blueprintv1alpha1.CrdLayer{
+				{Source: "core", Refs: []string{"cert-manager-1.16.2"}},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", DependsOn: []string{"crds-core"}}},
+		}
+
+		// When uninstalling
+		if err := provisioner.Uninstall(blueprint); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the synthesized crds layer is part of the destroy walk so the Flux
+		// Kustomization object is removed, with pruning left disabled so the CRDs survive
+		if deleted == nil || len(deleted.Kustomizations) != 2 {
+			t.Fatalf("expected crds kustomization included in destroy, got %+v", deleted)
+		}
+		crd := deleted.Kustomizations[0]
+		if crd.Name != "crds-core" || crd.Source != "core" {
+			t.Errorf("expected crds-core bound to core, got name=%q source=%q", crd.Name, crd.Source)
+		}
+		if crd.Prune == nil || *crd.Prune != false {
+			t.Errorf("expected prune=false so CRDs are retained, got prune=%v", crd.Prune)
+		}
+	})
+
 	t.Run("ErrorNilBlueprint", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler)

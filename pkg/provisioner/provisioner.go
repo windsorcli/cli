@@ -947,7 +947,9 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 }
 
 // Uninstall orchestrates the high-level kustomization teardown process from the blueprint.
-// It initializes the kubernetes manager and deletes all blueprint kustomizations.
+// It initializes the kubernetes manager and deletes all blueprint kustomizations, including the
+// synthesized CRD layer (withCrdLayer) so its Flux Kustomization objects are removed symmetrically
+// with apply; the layer keeps Prune disabled, so the vendored CRDs themselves are retained.
 // DeleteBlueprint emits its own per-Kustomization progress (Start/Done/Fail spinners),
 // so this method does not wrap the call in WithProgress — doing so would suppress the
 // inner per-Kustomization output and produce a single opaque "Removing blueprint
@@ -961,6 +963,8 @@ func (i *Provisioner) Uninstall(blueprint *blueprintv1alpha1.Blueprint) error {
 	if i.KubernetesManager == nil {
 		return fmt.Errorf("kubernetes manager not configured")
 	}
+
+	blueprint = withCrdLayer(blueprint)
 
 	if err := i.KubernetesManager.DeleteBlueprint(blueprint, i.fluxNamespace()); err != nil {
 		return fmt.Errorf("failed to delete blueprint: %w", err)
