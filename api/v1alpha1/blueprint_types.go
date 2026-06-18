@@ -809,8 +809,6 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 				sourceMap[overlaySource.Name] = overlaySource
 				continue
 			}
-			// Overlay wins on scalar fields, but CRDs union: a source accumulates the CRDs of every
-			// loader whose facets declared them, so attribution survives composition.
 			merged := overlaySource
 			for _, ref := range existing.Crds {
 				if !slices.Contains(merged.Crds, ref) {

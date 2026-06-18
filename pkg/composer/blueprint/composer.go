@@ -718,9 +718,12 @@ func sourceInstalls(source blueprintv1alpha1.Source) bool {
 // finalizeCrdLayers assigns each CRD reference to exactly one owner before the barrier wires the stack
 // to them, so two kustomizations never apply the same CRD object. The default/project list (bp.Crds)
 // owns first, then install sources alphabetically by name; a reference claimed by an earlier owner is
-// pruned from later ones. A local template source collapses into the default/project list (the same
-// condition ToFluxKustomization uses), so a purely local blueprint installs its CRDs as "crds" rather
-// than a "crds-template" layer. Ownership by name keeps a CRD stable across source reordering.
+// pruned from later ones. Only install-eligible sources (the same sourceInstalls predicate CrdLayers
+// materializes on) may claim ownership: a non-install source claiming a ref would strip it from a real
+// owner while never installing it itself, silently orphaning the CRD. A local template source collapses
+// into the default/project list (the same condition ToFluxKustomization uses), so a purely local
+// blueprint installs its CRDs as "crds" rather than a "crds-template" layer. Ownership by name keeps a
+// CRD stable across source reordering.
 func (c *BaseBlueprintComposer) finalizeCrdLayers(bp *blueprintv1alpha1.Blueprint) {
 	if !blueprintv1alpha1.HasRemoteTemplateSource(bp.Sources) {
 		for i := range bp.Sources {
@@ -741,7 +744,7 @@ func (c *BaseBlueprintComposer) finalizeCrdLayers(bp *blueprintv1alpha1.Blueprin
 
 	idx := make([]int, 0, len(bp.Sources))
 	for i := range bp.Sources {
-		if len(bp.Sources[i].Crds) > 0 {
+		if len(bp.Sources[i].Crds) > 0 && sourceInstalls(bp.Sources[i]) {
 			idx = append(idx, i)
 		}
 	}

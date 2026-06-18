@@ -1011,7 +1011,10 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 		return nil
 	}
 
-	ociInstall := func() *blueprintv1alpha1.BoolExpression { v := true; return &blueprintv1alpha1.BoolExpression{Value: &v} }
+	ociInstall := func() *blueprintv1alpha1.BoolExpression {
+		v := true
+		return &blueprintv1alpha1.BoolExpression{Value: &v}
+	}
 
 	t.Run("WiresRootsToTheCrdLayer", func(t *testing.T) {
 		// Given a blueprint with a local crds: list, a root, and a non-root
@@ -1096,6 +1099,10 @@ func sourceByName(bp *blueprintv1alpha1.Blueprint, name string) blueprintv1alpha
 }
 
 func TestComposer_finalizeCrdLayers(t *testing.T) {
+	// Sources only carry CRDs when they are install-eligible (their facets were merged), so the
+	// per-source tests mark them installed; finalize claims ownership only for install sources.
+	install := &blueprintv1alpha1.BoolExpression{Value: func() *bool { v := true; return &v }()}
+
 	t.Run("CollapsesLocalTemplateToTheDefaultCrdsList", func(t *testing.T) {
 		// Given CRDs on the local template source with no remote template source declared
 		composer := &BaseBlueprintComposer{}
@@ -1138,8 +1145,8 @@ func TestComposer_finalizeCrdLayers(t *testing.T) {
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
 			Sources: []blueprintv1alpha1.Source{
-				{Name: "core", Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}},
-				{Name: "acme-oci", Crds: []string{"cert-manager-1.16.2", "acme-crd-2.0.0"}},
+				{Name: "core", Install: install, Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}},
+				{Name: "acme-oci", Install: install, Crds: []string{"cert-manager-1.16.2", "acme-crd-2.0.0"}},
 			},
 		}
 
@@ -1161,12 +1168,12 @@ func TestComposer_finalizeCrdLayers(t *testing.T) {
 		// Given the same two sources vendoring a shared ref, declared in opposite orders
 		composer := &BaseBlueprintComposer{}
 		forward := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{
-			{Name: "core", Crds: []string{"cert-manager-1.16.2"}},
-			{Name: "acme-oci", Crds: []string{"cert-manager-1.16.2"}},
+			{Name: "core", Install: install, Crds: []string{"cert-manager-1.16.2"}},
+			{Name: "acme-oci", Install: install, Crds: []string{"cert-manager-1.16.2"}},
 		}}
 		reversed := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{
-			{Name: "acme-oci", Crds: []string{"cert-manager-1.16.2"}},
-			{Name: "core", Crds: []string{"cert-manager-1.16.2"}},
+			{Name: "acme-oci", Install: install, Crds: []string{"cert-manager-1.16.2"}},
+			{Name: "core", Install: install, Crds: []string{"cert-manager-1.16.2"}},
 		}}
 
 		composer.finalizeCrdLayers(forward)
@@ -1188,7 +1195,7 @@ func TestComposer_finalizeCrdLayers(t *testing.T) {
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
 			Crds:    []string{"cert-manager-1.16.2"},
-			Sources: []blueprintv1alpha1.Source{{Name: "core", Crds: []string{"cert-manager-1.16.2"}}},
+			Sources: []blueprintv1alpha1.Source{{Name: "core", Install: install, Crds: []string{"cert-manager-1.16.2"}}},
 		}
 
 		composer.finalizeCrdLayers(bp)
@@ -1200,6 +1207,26 @@ func TestComposer_finalizeCrdLayers(t *testing.T) {
 		}
 		if len(bp.Sources[0].Crds) != 0 {
 			t.Errorf("expected the named source's copy emptied, got %v", bp.Sources[0].Crds)
+		}
+	})
+
+	t.Run("NonInstallSourceDoesNotStealOwnership", func(t *testing.T) {
+		// Given a non-install source (no install signal) and an install source that both vendor a ref,
+		// with the non-install one sorting first alphabetically
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "aaa-noinstall", Crds: []string{"cert-manager-1.16.2"}},
+				{Name: "core", Install: install, Crds: []string{"cert-manager-1.16.2"}},
+			},
+		}
+
+		composer.finalizeCrdLayers(bp)
+
+		// Then the install source keeps the ref — the non-install source cannot claim ownership and then
+		// fail to materialize, which would orphan the CRD
+		if !slices.Equal(sourceByName(bp, "core").Crds, []string{"cert-manager-1.16.2"}) {
+			t.Errorf("expected the install source to keep the ref, got %v", sourceByName(bp, "core").Crds)
 		}
 	})
 }
