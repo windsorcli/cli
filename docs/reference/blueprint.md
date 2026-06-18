@@ -18,7 +18,7 @@ variable substitutions shared across them.
 | `metadata` | `object` | Identity for the blueprint. **(required)** |
 | `backend` | `string` | Names the terraform component that terminates the backend tier. When set, 'windsor bootstrap' applies the backend component (and every component declared before it) against local state first, then migrates state to the configured remote backend before applying the rest of the graph. |
 | `configMaps` | `map<object>` | Standalone ConfigMaps to create. Each top-level key is a ConfigMap name; its map-of-string value is the .data payload. These are referenced by every kustomization in PostBuild substitution. |
-| `crds` | `array<object>` | The vendored CRD layer, grouped by the source that carries the manifests. The provisioner materializes one kustomization per source (named 'crds' for the default/project source and 'crds-<source>' for a named source), with the layer's references as its components, pruning disabled and wait enabled, bound to that source and applied ahead of the kustomize: layer — so every kustomization sees its CRDs Established first. A flux Kustomization reads from one source root, so CRDs from different sources live in separate layers. Populated by the composer from facet crds: declarations; the stack depends on each layer by its name. |
+| `crds` | `array<string>` | The flat list of vendored CRD references installed from the default/project source (e.g. 'cert-manager-1.16.2'), authored as a bare scalar list — the same form facets use. CRDs carried by an OCI source are not listed here: they ride with that source (see sources[].crds) and install in the background when it is install:true. The provisioner materializes this list into the 'crds' kustomization — pruning disabled, wait enabled — applied ahead of the kustomize: layer so every kustomization sees its CRDs Established first. |
 | `kustomize` | `array<object>` | Flux kustomizations included in the blueprint. Each entry maps to a Kustomization resource the provisioner applies to the cluster, in topologically sorted dependsOn order. |
 | `repository` | `object` | Source repository this blueprint was bootstrapped from. |
 | `sources` | `array<object>` | External resources referenced by the blueprint. Each source is an OCI blueprint artifact or a Git repository that contributes Terraform modules and/or kustomize bases consumable by the components below. |
@@ -31,13 +31,6 @@ variable substitutions shared across them.
 |------|------|-------------|
 | `name` | `string` | Blueprint's unique identifier within the project. **(required)** |
 | `description` | `string` | One-line overview of what this blueprint provisions. |
-
-## crds[]
-
-| Field | Type | Description |
-|------|------|-------------|
-| `refs` | `array<string>` | References into the source's crds/ catalog (e.g. 'cert-manager-1.16.2'). |
-| `source` | `string` | The source carrying these CRD manifests. Empty means the default/project source, which materializes as the base 'crds' kustomization. |
 
 ## kustomize[]
 
@@ -95,6 +88,7 @@ variable substitutions shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `name` | `string` | Identifier for the source; referenced by 'source:' on terraform / kustomize components. **(required)** |
+| `crds` | `array<string>` | CRD references this source vendors at <source>/kustomize/crds/<ref>, populated by the composer from the source's included facets. When the source is install:true the provisioner installs them in the background as a 'crds-<name>' kustomization bound to this source, so the blueprint need not list them. |
 | `install` | `boolean / string` | For OCI sources, whether to merge this source's components into the final blueprint. Accepts a boolean (true/false) or an expression (e.g. '${some.condition ?? true}') evaluated against facet config. Defaults to true. Has no effect on Git sources. |
 | `pathPrefix` | `string` | Path prefix applied to the source. Defaults to 'terraform' when unset. |
 | `ref` | `object` | A specific version or state of a repository or source (one of branch / tag / semver / commit). |

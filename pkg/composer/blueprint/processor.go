@@ -1068,45 +1068,51 @@ func buildTierEntries(processed blueprintv1alpha1.ConditionalKustomization, inst
 	return entries
 }
 
-// setCrdLayer records the deduped, sorted CRD references on the crds: layer for sourceName, unioned
-// with any references that source's layer already carries. The provisioner materializes each layer
-// into its own kustomization (components = the refs, pruning disabled, wait enabled) bound to the
-// source and applied ahead of the stack, so every kustomization sees its CRDs Established without a
-// facet naming one in dependsOn. sourceName is the source carrying these CRD manifests; an empty
-// sourceName is the default/project source. Refs from different sources stay in separate layers
-// because a flux Kustomization reads from one source root.
+// setCrdLayer records the deduped, sorted CRD references for sourceName. Refs from the default/project
+// source (empty sourceName) land on the blueprint's flat crds: list; refs from a named source land on
+// that Source's crds (creating the Source entry if the loader blueprint has not declared it yet), so
+// they ride with the source and install in the background when it is install:true. Either way the
+// references are authored as a bare scalar list; the source attribution is derived from which source's
+// facets declared them, never hand-written.
 func setCrdLayer(target *blueprintv1alpha1.Blueprint, crdRefs map[string]struct{}, sourceName string) {
 	if len(crdRefs) == 0 {
 		return
 	}
-	var layer *blueprintv1alpha1.CrdLayer
-	for i := range target.Crds {
-		if target.Crds[i].Source == sourceName {
-			layer = &target.Crds[i]
-			break
+	if sourceName == "" {
+		target.Crds = unionCrdRefs(target.Crds, crdRefs)
+		return
+	}
+	for i := range target.Sources {
+		if target.Sources[i].Name == sourceName {
+			target.Sources[i].Crds = unionCrdRefs(target.Sources[i].Crds, crdRefs)
+			return
 		}
 	}
-	if layer == nil {
-		target.Crds = append(target.Crds, blueprintv1alpha1.CrdLayer{Source: sourceName})
-		layer = &target.Crds[len(target.Crds)-1]
-	}
+	target.Sources = append(target.Sources, blueprintv1alpha1.Source{
+		Name: sourceName,
+		Crds: unionCrdRefs(nil, crdRefs),
+	})
+}
 
-	seen := make(map[string]struct{}, len(layer.Refs)+len(crdRefs))
-	refs := make([]string, 0, len(layer.Refs)+len(crdRefs))
-	for _, ref := range layer.Refs {
+// unionCrdRefs returns existing unioned with refs, deduped and sorted. Sorting keeps the composed
+// output stable across edits so diffs and the synthesized kustomization stay deterministic.
+func unionCrdRefs(existing []string, refs map[string]struct{}) []string {
+	seen := make(map[string]struct{}, len(existing)+len(refs))
+	out := make([]string, 0, len(existing)+len(refs))
+	for _, ref := range existing {
 		if _, ok := seen[ref]; !ok {
 			seen[ref] = struct{}{}
-			refs = append(refs, ref)
+			out = append(out, ref)
 		}
 	}
-	for ref := range crdRefs {
+	for ref := range refs {
 		if _, ok := seen[ref]; !ok {
 			seen[ref] = struct{}{}
-			refs = append(refs, ref)
+			out = append(out, ref)
 		}
 	}
-	sort.Strings(refs)
-	layer.Refs = refs
+	sort.Strings(out)
+	return out
 }
 
 // shouldIncludeFacet evaluates whether a facet should be included based on its 'when' condition.

@@ -23,7 +23,7 @@ import (
 // CrdLayerName is the base name of the synthesized kustomizations that install the vendored CRD
 // layer. One CRD kustomization is materialized per source that carries CRDs: the layer for the
 // default/project source takes this name verbatim, and a layer for a named source takes
-// "crds-<source>" (see CrdLayer.KustomizationName). The stack depends on these layers by name, and
+// "crds-<source>" (see CrdKustomizationName). The stack depends on these layers by name, and
 // ToFluxKustomization keys its PostBuild skip on them (see IsCrdLayerName) — so the "crds" name and
 // the "crds-" namespace are reserved: the composer rejects user-authored kustomizations that claim
 // them.
@@ -310,12 +310,12 @@ type Blueprint struct {
 	// TerraformComponents are Terraform modules in the blueprint.
 	TerraformComponents []TerraformComponent `yaml:"terraform,omitempty"`
 
-	// Crds is the vendored CRD layer, grouped by the source that carries the manifests. The composer
-	// produces one CrdLayer per source whose facets declared crds:; the provisioner materializes each
-	// into its own kustomization (components = that layer's refs, pruning disabled, wait enabled)
-	// bound to that source and applied ahead of the stack. A flux Kustomization reads from a single
-	// source root, so CRDs from different sources must live in separate layers.
-	Crds []CrdLayer `yaml:"crds,omitempty"`
+	// Crds is the flat list of vendored CRD references the blueprint installs from the default/project
+	// source (e.g. "cert-manager-1.16.2"). It is authored and asserted as a bare scalar list, the same
+	// form facets use. CRDs carried by an OCI source are not listed here — they ride with that Source
+	// (see Source.Crds) and install in the background when the source is install:true. The provisioner
+	// materializes these into the "crds" kustomization, bound to the default source, ahead of the stack.
+	Crds []string `yaml:"crds,omitempty"`
 
 	// Kustomizations are kustomization configs in the blueprint.
 	Kustomizations []Kustomization `yaml:"kustomize,omitempty"`
@@ -330,30 +330,14 @@ type Blueprint struct {
 	ConfigMaps map[string]map[string]string `yaml:"configMaps,omitempty"`
 }
 
-// CrdLayer groups the vendored CRD references that share a source. The composer produces one layer
-// per source whose facets declared crds:; the provisioner materializes each into its own
-// kustomization bound to Source. A flux Kustomization reads from one source root, so refs from
-// different sources cannot share a layer. Each ref resolves under the source's fixed kustomize/crds/
-// catalog root (the synthesized kustomization always uses Path: CrdLayerName); the path is not
-// per-layer configurable because facets author crds: as a bare ref list, so a ref present here is a
-// promise that the source vendors its manifests at <source>/kustomize/crds/<ref>.
-type CrdLayer struct {
-	// Source names the source that carries these CRD manifests. Empty means the default/project
-	// source, which materializes as the base "crds" kustomization.
-	Source string `yaml:"source,omitempty"`
-
-	// Refs are references into the source's kustomize/crds/ catalog (e.g. "cert-manager-1.16.2").
-	Refs []string `yaml:"refs"`
-}
-
-// KustomizationName returns the name of the kustomization the provisioner synthesizes for this
-// layer: "crds" for the default/project source and "crds-<source>" for a named source. The barrier
-// makes every root kustomization depend on this name so the stack waits on the layer's CRDs.
-func (c CrdLayer) KustomizationName() string {
-	if c.Source == "" {
+// CrdKustomizationName returns the name of the kustomization the provisioner synthesizes for a CRD
+// source: "crds" for the default/project source (empty name) and "crds-<source>" for a named source.
+// The barrier makes every root kustomization depend on this name so the stack waits on the CRDs.
+func CrdKustomizationName(source string) string {
+	if source == "" {
 		return CrdLayerName
 	}
-	return CrdLayerName + "-" + c.Source
+	return CrdLayerName + "-" + source
 }
 
 // Metadata describes a blueprint.
@@ -398,6 +382,12 @@ type Source struct {
 	// Defaults to false if not specified.
 	// Supports expressions in facets: use "${some.condition ?? true}" for dynamic values.
 	Install *BoolExpression `yaml:"install,omitempty"`
+
+	// Crds is the flat list of CRD references this source vendors at <source>/kustomize/crds/<ref>.
+	// Populated by the composer from the source's included facets. When the source is install:true,
+	// the provisioner materializes these into a background "crds-<name>" kustomization bound to this
+	// source, so its CRDs install ahead of the stack without the blueprint author listing them.
+	Crds []string `yaml:"crds,omitempty"`
 }
 
 // IsLocalTemplateSource returns true when the source is the template source with no URL (local context template).
@@ -734,6 +724,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 			},
 			SecretName: source.SecretName,
 			Install:    installCopy,
+			Crds:       slices.Clone(source.Crds),
 		}
 	}
 
@@ -754,11 +745,6 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		}
 	}
 
-	crdsCopy := make([]CrdLayer, len(b.Crds))
-	for i, layer := range b.Crds {
-		crdsCopy[i] = CrdLayer{Source: layer.Source, Refs: slices.Clone(layer.Refs)}
-	}
-
 	return &Blueprint{
 		Kind:                b.Kind,
 		ApiVersion:          b.ApiVersion,
@@ -767,7 +753,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		Repository:          repositoryCopy,
 		Sources:             sourcesCopy,
 		TerraformComponents: terraformComponentsCopy,
-		Crds:                crdsCopy,
+		Crds:                slices.Clone(b.Crds),
 		Kustomizations:      kustomizationsCopy,
 		Substitutions:       maps.Clone(b.Substitutions),
 		ConfigMaps:          configMapsCopy,
@@ -814,12 +800,22 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 			}
 		}
 		for _, overlaySource := range overlay.Sources {
-			if overlaySource.Name != "" {
-				if _, exists := sourceMap[overlaySource.Name]; !exists {
-					sourceOrder = append(sourceOrder, overlaySource.Name)
-				}
-				sourceMap[overlaySource.Name] = overlaySource
+			if overlaySource.Name == "" {
+				continue
 			}
+			existing, exists := sourceMap[overlaySource.Name]
+			if !exists {
+				sourceOrder = append(sourceOrder, overlaySource.Name)
+				sourceMap[overlaySource.Name] = overlaySource
+				continue
+			}
+			merged := overlaySource
+			for _, ref := range existing.Crds {
+				if !slices.Contains(merged.Crds, ref) {
+					merged.Crds = append(merged.Crds, ref)
+				}
+			}
+			sourceMap[overlaySource.Name] = merged
 		}
 		b.Sources = make([]Source, 0, len(sourceMap))
 		for _, name := range sourceOrder {
@@ -834,8 +830,10 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 			}
 		}
 
-		for _, overlayLayer := range overlay.Crds {
-			b.mergeCrdLayer(overlayLayer)
+		for _, ref := range overlay.Crds {
+			if !slices.Contains(b.Crds, ref) {
+				b.Crds = append(b.Crds, ref)
+			}
 		}
 
 		for _, overlayK := range overlay.Kustomizations {
@@ -1217,24 +1215,6 @@ func (b *Blueprint) validateTerraformComponents() error {
 	}
 
 	return nil
-}
-
-// mergeCrdLayer folds an overlay CRD layer into the receiver's crds: by source. Refs for a source
-// already present are unioned without duplication; a new source appends a new layer. Layers stay
-// keyed by source because a flux Kustomization reads from one source root.
-func (b *Blueprint) mergeCrdLayer(overlay CrdLayer) {
-	for i := range b.Crds {
-		if b.Crds[i].Source != overlay.Source {
-			continue
-		}
-		for _, ref := range overlay.Refs {
-			if !slices.Contains(b.Crds[i].Refs, ref) {
-				b.Crds[i].Refs = append(b.Crds[i].Refs, ref)
-			}
-		}
-		return
-	}
-	b.Crds = append(b.Crds, CrdLayer{Source: overlay.Source, Refs: slices.Clone(overlay.Refs)})
 }
 
 // strategicMergeTerraformComponent performs a strategic merge of the provided TerraformComponent into the Blueprint.

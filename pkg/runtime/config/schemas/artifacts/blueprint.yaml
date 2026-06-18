@@ -90,6 +90,16 @@ properties:
             final blueprint. Accepts a boolean (true/false) or an expression
             (e.g. '${some.condition ?? true}') evaluated against facet config.
             Defaults to true. Has no effect on Git sources.
+        crds:
+          type: array
+          description: |
+            CRD references this source vendors at <source>/kustomize/crds/<ref>,
+            populated by the composer from the source's included facets. When the
+            source is install:true the provisioner installs them in the background
+            as a 'crds-<name>' kustomization bound to this source, so the blueprint
+            need not list them.
+          items:
+            type: string
   terraform:
     type: array
     description: |
@@ -145,31 +155,16 @@ properties:
   crds:
     type: array
     description: |
-      The vendored CRD layer, grouped by the source that carries the manifests.
-      The provisioner materializes one kustomization per source (named 'crds' for
-      the default/project source and 'crds-<source>' for a named source), with the
-      layer's references as its components, pruning disabled and wait enabled,
-      bound to that source and applied ahead of the kustomize: layer — so every
-      kustomization sees its CRDs Established first. A flux Kustomization reads
-      from one source root, so CRDs from different sources live in separate
-      layers. Populated by the composer from facet crds: declarations; the stack
-      depends on each layer by its name.
+      The flat list of vendored CRD references installed from the default/project
+      source (e.g. 'cert-manager-1.16.2'), authored as a bare scalar list — the
+      same form facets use. CRDs carried by an OCI source are not listed here:
+      they ride with that source (see sources[].crds) and install in the
+      background when it is install:true. The provisioner materializes this list
+      into the 'crds' kustomization — pruning disabled, wait enabled — applied
+      ahead of the kustomize: layer so every kustomization sees its CRDs
+      Established first.
     items:
-      type: object
-      properties:
-        source:
-          type: string
-          description: |
-            The source carrying these CRD manifests. Empty means the
-            default/project source, which materializes as the base 'crds'
-            kustomization.
-        refs:
-          type: array
-          description: |
-            References into the source's crds/ catalog (e.g.
-            'cert-manager-1.16.2').
-          items:
-            type: string
+      type: string
   kustomize:
     type: array
     description: |

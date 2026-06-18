@@ -111,7 +111,9 @@ func (w *BaseBlueprintWriter) Write(blueprint *blueprintv1alpha1.Blueprint, over
 // their metadata names from the loaded blueprints. When contexts/_template exists, a "template"
 // source (install: true, no URL) is included so the blueprint declares local template; no
 // GitRepository/OCIRepository is created for it—components from template reference repository:
-// or another source by name.
+// or another source by name. A source's CRDs are dropped: they are derived by the composer from
+// that source's facets, so persisting them in the referential override would go stale against the
+// source and re-enter composition as if user-authored.
 func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha1.Blueprint, initBlueprintURLs ...string) *blueprintv1alpha1.Blueprint {
 	metadata := blueprint.Metadata
 	if w.runtime != nil && w.runtime.ContextName != "" {
@@ -158,6 +160,7 @@ func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha
 		}
 		existingSourceNames[source.Name] = true
 		cleanedSource := source
+		cleanedSource.Crds = nil
 		if cleanedSource.Install != nil && !cleanedSource.Install.IsExpr {
 			if cleanedSource.Install.Value != nil && !*cleanedSource.Install.Value {
 				cleanedSource.Install = nil
@@ -179,6 +182,7 @@ func (w *BaseBlueprintWriter) createMinimalBlueprint(blueprint *blueprintv1alpha
 		}
 		if source != nil && !existingSourceNames[source.Name] {
 			sourceCopy := *source
+			sourceCopy.Crds = nil
 			sourceCopy.Install = &blueprintv1alpha1.BoolExpression{Value: &trueVal, IsExpr: false}
 			minimal.Sources = append(minimal.Sources, sourceCopy)
 			existingSourceNames[source.Name] = true

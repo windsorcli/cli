@@ -532,6 +532,38 @@ func TestWriter_Write(t *testing.T) {
 		}
 	})
 
+	t.Run("OmitsSourceCrdsFromReferentialForm", func(t *testing.T) {
+		// Given a composed blueprint whose source carries CRDs derived from its facets
+		mocks := setupWriterMocks(t)
+		writer := NewBlueprintWriter(mocks.Runtime)
+
+		var writtenData []byte
+		writer.shims.Stat = func(path string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+		writer.shims.MkdirAll = func(path string, perm os.FileMode) error { return nil }
+		writer.shims.WriteFile = func(path string, data []byte, perm os.FileMode) error {
+			writtenData = data
+			return nil
+		}
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:latest", Crds: []string{"cert-manager-1.16.2"}},
+			},
+		}
+
+		// When writing the referential blueprint
+		if err := writer.Write(blueprint, true); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the source's derived CRDs are not persisted — the referential form selects and overrides,
+		// it does not carry facet-derived data that would go stale against the source
+		if strings.Contains(string(writtenData), "cert-manager-1.16.2") {
+			t.Errorf("expected source crds omitted from referential blueprint, got:\n%s", writtenData)
+		}
+	})
+
 	t.Run("ReturnsErrorForNilBlueprint", func(t *testing.T) {
 		// Given a writer and nil blueprint
 		mocks := setupWriterMocks(t)

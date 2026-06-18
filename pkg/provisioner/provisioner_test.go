@@ -1013,7 +1013,7 @@ func TestProvisioner_ApplyKustomize(t *testing.T) {
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
 		// When applying the crds layer by name
-		if err := provisioner.ApplyKustomize(context.Background(), &blueprintv1alpha1.Blueprint{Crds: []blueprintv1alpha1.CrdLayer{{Refs: []string{"cert-manager-1.16.2"}}}}, "crds"); err != nil {
+		if err := provisioner.ApplyKustomize(context.Background(), &blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
@@ -1241,8 +1241,8 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 	})
 
-	t.Run("MaterializesCrdLayerFromCrdsList", func(t *testing.T) {
-		// Given a blueprint whose crds: layer is a list of references
+	t.Run("MaterializesCrdLayerFromLocalCrdsList", func(t *testing.T) {
+		// Given a blueprint whose crds: is a flat list of local references
 		mocks := setupProvisionerMocks(t)
 		var applied *blueprintv1alpha1.Blueprint
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
@@ -1252,10 +1252,8 @@ func TestProvisioner_Install(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 		blueprint := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{
-				{Source: "core", Refs: []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"}},
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", DependsOn: []string{"crds-core"}}},
+			Crds:           []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", DependsOn: []string{"crds"}}},
 		}
 
 		// When installing
@@ -1263,21 +1261,17 @@ func TestProvisioner_Install(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// Then a "crds-core" kustomization is materialized ahead of the stack, with the references
-		// as its components, pruning disabled and wait enabled
+		// Then a "crds" kustomization is materialized ahead of the stack, bound to the default/project
+		// source, with the references as its components, pruning disabled and wait enabled
 		if applied == nil || len(applied.Kustomizations) != 2 {
 			t.Fatalf("expected crds kustomization prepended, got %+v", applied)
 		}
 		crd := applied.Kustomizations[0]
-		// Named per source and bound to the source carrying the CRDs, not the default project source
-		if crd.Name != "crds-core" || crd.Path != "crds" {
-			t.Errorf("expected name 'crds-core' path 'crds', got name=%q path=%q", crd.Name, crd.Path)
-		}
-		if crd.Source != "core" {
-			t.Errorf("expected source 'core', got %q", crd.Source)
+		if crd.Name != "crds" || crd.Path != "crds" || crd.Source != "" {
+			t.Errorf("expected name 'crds' path 'crds' source '', got name=%q path=%q source=%q", crd.Name, crd.Path, crd.Source)
 		}
 		if !slices.Equal(crd.Components, []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"}) {
-			t.Errorf("expected components from layer refs, got %v", crd.Components)
+			t.Errorf("expected components from the local crds list, got %v", crd.Components)
 		}
 		if crd.Prune == nil || *crd.Prune != false || crd.Wait == nil || *crd.Wait != true {
 			t.Errorf("expected prune=false wait=true, got prune=%v wait=%v", crd.Prune, crd.Wait)
@@ -1288,8 +1282,8 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 	})
 
-	t.Run("MaterializesOneCrdLayerPerSource", func(t *testing.T) {
-		// Given a blueprint whose CRDs come from two different sources
+	t.Run("MaterializesBackgroundLayerPerInstallSource", func(t *testing.T) {
+		// Given CRDs carried by two different install sources
 		mocks := setupProvisionerMocks(t)
 		var applied *blueprintv1alpha1.Blueprint
 		mocks.KubernetesManager.ApplyBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
@@ -1298,10 +1292,12 @@ func TestProvisioner_Install(t *testing.T) {
 		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		installed := true
+		install := &blueprintv1alpha1.BoolExpression{Value: &installed}
 		blueprint := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{
-				{Source: "core", Refs: []string{"cert-manager-1.16.2"}},
-				{Source: "acme-oci", Refs: []string{"acme-crd-2.0.0"}},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Install: install, Crds: []string{"cert-manager-1.16.2"}},
+				{Name: "acme-oci", Install: install, Crds: []string{"acme-crd-2.0.0"}},
 			},
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app", DependsOn: []string{"crds-core", "crds-acme-oci"}}},
 		}
@@ -1311,16 +1307,16 @@ func TestProvisioner_Install(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// Then each source gets its own layer, bound to its source, ahead of the stack
+		// Then each install source gets its own background layer (alphabetical), bound to its source
 		if applied == nil || len(applied.Kustomizations) != 3 {
 			t.Fatalf("expected two crds layers prepended, got %+v", applied)
 		}
-		core, acme := applied.Kustomizations[0], applied.Kustomizations[1]
-		if core.Name != "crds-core" || core.Source != "core" {
-			t.Errorf("expected crds-core bound to core, got name=%q source=%q", core.Name, core.Source)
-		}
+		acme, core := applied.Kustomizations[0], applied.Kustomizations[1]
 		if acme.Name != "crds-acme-oci" || acme.Source != "acme-oci" {
 			t.Errorf("expected crds-acme-oci bound to acme-oci, got name=%q source=%q", acme.Name, acme.Source)
+		}
+		if core.Name != "crds-core" || core.Source != "core" {
+			t.Errorf("expected crds-core bound to core, got name=%q source=%q", core.Name, core.Source)
 		}
 	})
 
@@ -1618,9 +1614,10 @@ func TestProvisioner_Uninstall(t *testing.T) {
 		}
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+		installed := true
 		blueprint := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{
-				{Source: "core", Refs: []string{"cert-manager-1.16.2"}},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &installed}, Crds: []string{"cert-manager-1.16.2"}},
 			},
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", DependsOn: []string{"crds-core"}}},
 		}
@@ -2940,7 +2937,7 @@ func TestProvisioner_PlanKustomization(t *testing.T) {
 		})
 
 		// When planning the crds component directly
-		if err := provisioner.PlanKustomization(&blueprintv1alpha1.Blueprint{Crds: []blueprintv1alpha1.CrdLayer{{Refs: []string{"cert-manager-1.16.2"}}}}, "crds"); err != nil {
+		if err := provisioner.PlanKustomization(&blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}}, "crds"); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 

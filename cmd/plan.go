@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	composerblueprint "github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
@@ -331,8 +332,8 @@ func blueprintHasKustomization(blueprint *blueprintv1alpha1.Blueprint, component
 			return true
 		}
 	}
-	for _, layer := range blueprint.Crds {
-		if layer.KustomizationName() == componentID {
+	for _, layer := range composerblueprint.CrdLayers(blueprint) {
+		if blueprintv1alpha1.CrdKustomizationName(layer.Source) == componentID {
 			return true
 		}
 	}
