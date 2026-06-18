@@ -100,7 +100,9 @@ func (i *Provisioner) Bootstrap(blueprint *blueprintv1alpha1.Blueprint, onApply 
 
 // BuildBootstrapSummary constructs the operator-visible intent description for a bootstrap,
 // independent of any Provisioner instance so the project layer can render the plan before
-// committing to privileged work.
+// committing to privileged work. The CRD layers are materialized via withCrdLayer so the bootstrap
+// plan lists the synthesized "crds"/"crds-<source>" kustomizations the stack installs, matching what
+// `windsor plan` shows rather than hiding them until apply.
 func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, backendType string) *BootstrapSummary {
 	summary := &BootstrapSummary{
 		ContextName: contextName,
@@ -118,7 +120,7 @@ func BuildBootstrapSummary(blueprint *blueprintv1alpha1.Blueprint, contextName, 
 			Path:        c.Path,
 		})
 	}
-	for _, k := range blueprint.Kustomizations {
+	for _, k := range withCrdLayer(blueprint).Kustomizations {
 		summary.Kustomize = append(summary.Kustomize, k.Name)
 	}
 	return summary

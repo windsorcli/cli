@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -657,6 +658,33 @@ func TestBuildBootstrapSummary(t *testing.T) {
 		}
 		if len(s.Kustomize) != 2 || s.Kustomize[0] != "argocd" || s.Kustomize[1] != "monitoring" {
 			t.Errorf("Expected kustomize [argocd, monitoring], got %#v", s.Kustomize)
+		}
+	})
+
+	t.Run("IncludesSynthesizedCrdLayers", func(t *testing.T) {
+		// Given a blueprint with local CRDs and an install source that vendors CRDs — the same layers
+		// `windsor plan` materializes via withCrdLayer
+		installed := true
+		bp := &blueprintv1alpha1.Blueprint{
+			Crds: []string{"cert-manager-1.16.2"},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Install: &blueprintv1alpha1.BoolExpression{Value: &installed}, Crds: []string{"gateway-api-1.5.1"}},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "argocd"}},
+		}
+
+		s := BuildBootstrapSummary(bp, "local", "s3")
+
+		// Then the bootstrap plan lists the synthesized CRD kustomizations ahead of the stack, matching
+		// what `windsor plan` shows — operators see every CRD layer before confirming
+		if !slices.Contains(s.Kustomize, "crds") {
+			t.Errorf("expected synthesized 'crds' layer in bootstrap summary, got %#v", s.Kustomize)
+		}
+		if !slices.Contains(s.Kustomize, "crds-core") {
+			t.Errorf("expected synthesized 'crds-core' layer in bootstrap summary, got %#v", s.Kustomize)
+		}
+		if !slices.Contains(s.Kustomize, "argocd") {
+			t.Errorf("expected the regular kustomization retained, got %#v", s.Kustomize)
 		}
 	})
 
