@@ -64,25 +64,9 @@ func TestWindsorTest_DerivedConfigFixture(t *testing.T) {
 	}
 }
 
-// crdLayer mirrors the composed blueprint's source-grouped crds: section for YAML parsing.
-type crdLayer struct {
-	Source string   `yaml:"source"`
-	Refs   []string `yaml:"refs"`
-}
-
-// crdRefsContain reports whether any composed CRD layer carries ref, regardless of its source.
-func crdRefsContain(layers []crdLayer, ref string) bool {
-	for _, l := range layers {
-		if slices.Contains(l.Refs, ref) {
-			return true
-		}
-	}
-	return false
-}
-
 // TestShowBlueprint_CrdsFacetSection verifies a facet's `crds:` declaration composes into the
-// blueprint's first-class `crds:` section (source-grouped, not kustomization objects), and that the
-// stack's root depends on the synthesized "crds" layer via the barrier.
+// blueprint's first-class `crds:` section (a flat scalar list, not kustomization objects), and that
+// the stack's root depends on the synthesized "crds" layer via the barrier.
 func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "facet-crds")
@@ -93,7 +77,7 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 	}
 
 	var bp struct {
-		Crds      []crdLayer `yaml:"crds"`
+		Crds      []string `yaml:"crds"`
 		Kustomize []struct {
 			Name      string   `yaml:"name"`
 			DependsOn []string `yaml:"dependsOn"`
@@ -103,9 +87,9 @@ func TestShowBlueprint_CrdsFacetSection(t *testing.T) {
 		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
 	}
 
-	// crds: is a source-grouped layer carrying the reference
-	if !crdRefsContain(bp.Crds, "cert-manager-1.16.2") {
-		t.Fatalf("expected cert-manager-1.16.2 in the crds: layer, got %+v", bp.Crds)
+	// crds: is a flat scalar list carrying the reference (the fixture is purely local)
+	if !slices.Contains(bp.Crds, "cert-manager-1.16.2") {
+		t.Fatalf("expected cert-manager-1.16.2 in the crds: list, got %+v", bp.Crds)
 	}
 
 	// The CRD layer is not folded into kustomize: — and the stack's root depends on "crds" (the
@@ -152,7 +136,7 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 			}
 
 			var bp struct {
-				Crds      []crdLayer `yaml:"crds"`
+				Crds      []string `yaml:"crds"`
 				Kustomize []struct {
 					Name      string   `yaml:"name"`
 					DependsOn []string `yaml:"dependsOn"`
@@ -162,11 +146,11 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 				t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
 			}
 
-			// Only the active driver's CRD reference is present in the crds: layer
-			if !crdRefsContain(bp.Crds, tc.want) {
+			// Only the active driver's CRD reference is present in the crds: list
+			if !slices.Contains(bp.Crds, tc.want) {
 				t.Errorf("expected CRD %q in crds: for context %s, got %+v", tc.want, tc.context, bp.Crds)
 			}
-			if crdRefsContain(bp.Crds, tc.absent) {
+			if slices.Contains(bp.Crds, tc.absent) {
 				t.Errorf("did not expect CRD %q for context %s, got %+v", tc.absent, tc.context, bp.Crds)
 			}
 
