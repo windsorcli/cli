@@ -986,12 +986,12 @@ func TestTestRunner_matchBlueprint(t *testing.T) {
 		runner := createRunnerWithMockGenerator(mocks)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}}},
+			Sources: []blueprintv1alpha1.Source{{Name: "core", Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}}},
 		}
 
 		// When the expectation asserts a present and an absent reference (source-agnostic)
-		present := runner.matchBlueprint(blueprint, &blueprintv1alpha1.Blueprint{Crds: []blueprintv1alpha1.CrdLayer{{Refs: []string{"cert-manager-1.16.2"}}}})
-		absent := runner.matchBlueprint(blueprint, &blueprintv1alpha1.Blueprint{Crds: []blueprintv1alpha1.CrdLayer{{Refs: []string{"missing-crd"}}}})
+		present := runner.matchBlueprint(blueprint, &blueprintv1alpha1.Blueprint{Crds: []string{"cert-manager-1.16.2"}})
+		absent := runner.matchBlueprint(blueprint, &blueprintv1alpha1.Blueprint{Crds: []string{"missing-crd"}})
 
 		// Then a present reference passes and a missing one is reported
 		if len(present) != 0 {
@@ -1957,7 +1957,7 @@ func TestTestRunner_validateBlueprint(t *testing.T) {
 		runner := createRunnerWithMockGenerator(mocks)
 
 		blueprint := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{{Refs: []string{"cert-manager-1.16.2"}}},
+			Crds: []string{"cert-manager-1.16.2"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "cert-manager", Path: "pki/cert-manager", DependsOn: []string{"crds"}},
 			},

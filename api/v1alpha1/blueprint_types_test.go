@@ -19,14 +19,12 @@ func intExprPtr(i int) *IntExpression {
 	return &IntExpression{Value: &i, IsExpr: false}
 }
 
-func TestBlueprint_CrdsRenderAsSourceGroupedList(t *testing.T) {
-	t.Run("MarshalsAsSourceGroupedLayers", func(t *testing.T) {
-		// Given a blueprint whose crds: layer groups references under their source
+func TestBlueprint_CrdsRenderAsScalarList(t *testing.T) {
+	t.Run("MarshalsAsFlatScalarList", func(t *testing.T) {
+		// Given a blueprint whose crds: is a flat list of local refs
 		bp := &Blueprint{
 			Kind: "Blueprint",
-			Crds: []CrdLayer{
-				{Source: "core", Refs: []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"}},
-			},
+			Crds: []string{"gateway-api-experimental-1.5.1", "envoy-gateway-1.7.1"},
 			Kustomizations: []Kustomization{
 				{Name: "cert-manager", Path: "pki/cert-manager", DependsOn: []string{"crds"}},
 			},
@@ -38,75 +36,94 @@ func TestBlueprint_CrdsRenderAsSourceGroupedList(t *testing.T) {
 			t.Fatalf("marshal: %v", err)
 		}
 
-		// Then crds: renders as a list of {source, refs} layers (no wait/prune kustomization fields)
+		// Then crds: renders as a bare scalar list — no source/refs objects, no kustomization fields
 		text := string(out)
-		if !strings.Contains(text, "source: core") || !strings.Contains(text, "- gateway-api-experimental-1.5.1") {
-			t.Errorf("expected crds: as source-grouped layers, got:\n%s", text)
+		if !strings.Contains(text, "- gateway-api-experimental-1.5.1") {
+			t.Errorf("expected crds: as a flat scalar list, got:\n%s", text)
 		}
-		if strings.Contains(text, "prune:") {
-			t.Errorf("did not expect crds rendered as kustomization objects, got:\n%s", text)
+		if strings.Contains(text, "source:") || strings.Contains(text, "refs:") || strings.Contains(text, "prune:") {
+			t.Errorf("did not expect source/refs/prune in crds output, got:\n%s", text)
+		}
+	})
+
+	t.Run("UnmarshalsFlatScalarList", func(t *testing.T) {
+		// Given the natural flat form facets and test assertions author
+		const doc = `
+kind: Blueprint
+crds:
+  - gateway-api-experimental-1.5.1
+  - envoy-gateway-1.7.1
+`
+		// When unmarshaled
+		var bp Blueprint
+		if err := yaml.Unmarshal([]byte(doc), &bp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then the bare refs land in Crds without forcing the verbose refs: nesting
+		if len(bp.Crds) != 2 || bp.Crds[0] != "gateway-api-experimental-1.5.1" || bp.Crds[1] != "envoy-gateway-1.7.1" {
+			t.Errorf("expected flat refs, got %+v", bp.Crds)
+		}
+	})
+}
+
+func TestSource_CrdsRoundTrip(t *testing.T) {
+	t.Run("ParsesAndRendersScalarCrdsUnderSource", func(t *testing.T) {
+		// Given a source that carries its own flat CRD list (installed in the background when install:true)
+		const doc = `
+name: core
+url: oci://example.com/core
+install: true
+crds:
+  - cert-manager-1.16.2
+`
+		// When unmarshaled then marshaled
+		var src Source
+		if err := yaml.Unmarshal([]byte(doc), &src); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(src.Crds) != 1 || src.Crds[0] != "cert-manager-1.16.2" {
+			t.Fatalf("expected source to carry a scalar crds list, got %+v", src.Crds)
+		}
+		out, err := yaml.Marshal(&src)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if !strings.Contains(string(out), "- cert-manager-1.16.2") {
+			t.Errorf("expected source crds rendered as a scalar list, got:\n%s", string(out))
 		}
 	})
 }
 
 func TestBlueprint_StrategicMerge_Crds(t *testing.T) {
-	t.Run("UnionsOverlayRefsWithinSameSource", func(t *testing.T) {
-		// Given a base and overlay whose layers share a source, with one shared ref
-		base := &Blueprint{Crds: []CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2"}}}}
-		overlay := &Blueprint{Crds: []CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}}}}
+	t.Run("UnionsOverlayRefsDeduped", func(t *testing.T) {
+		// Given a base and overlay sharing one local ref
+		base := &Blueprint{Crds: []string{"cert-manager-1.16.2"}}
+		overlay := &Blueprint{Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}}
 
 		// When merged
 		if err := base.StrategicMerge(overlay); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Then the refs are unioned into the one source layer without duplicating the shared one
-		if len(base.Crds) != 1 {
-			t.Fatalf("expected a single source layer, got %+v", base.Crds)
-		}
-		got := base.Crds[0]
-		if got.Source != "core" || len(got.Refs) != 2 || got.Refs[0] != "cert-manager-1.16.2" || got.Refs[1] != "gateway-api-1.5.1" {
-			t.Errorf("expected deduped union under core, got %+v", got)
-		}
-	})
-
-	t.Run("KeepsDifferentSourcesInSeparateLayers", func(t *testing.T) {
-		// Given a base and overlay whose CRDs come from different sources
-		base := &Blueprint{Crds: []CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2"}}}}
-		overlay := &Blueprint{Crds: []CrdLayer{{Source: "acme-oci", Refs: []string{"acme-crd-2.0.0"}}}}
-
-		// When merged
-		if err := base.StrategicMerge(overlay); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		// Then each source keeps its own layer — a flux Kustomization reads from one source root
-		if len(base.Crds) != 2 {
-			t.Fatalf("expected two source layers, got %+v", base.Crds)
-		}
-		if base.Crds[0].Source != "core" || base.Crds[1].Source != "acme-oci" {
-			t.Errorf("expected core then acme-oci layers, got %+v", base.Crds)
+		// Then the refs union without duplicating the shared one
+		if len(base.Crds) != 2 || base.Crds[0] != "cert-manager-1.16.2" || base.Crds[1] != "gateway-api-1.5.1" {
+			t.Errorf("expected deduped union, got %+v", base.Crds)
 		}
 	})
 }
 
-func TestCrdLayer_KustomizationName(t *testing.T) {
+func TestCrdKustomizationName(t *testing.T) {
 	t.Run("DefaultSourceTakesBaseName", func(t *testing.T) {
-		// Given a layer for the default/project source
-		layer := CrdLayer{Source: "", Refs: []string{"cert-manager-1.16.2"}}
-
-		// Then it materializes as the base "crds" kustomization
-		if got := layer.KustomizationName(); got != "crds" {
+		// Given the default/project source (empty name)
+		if got := CrdKustomizationName(""); got != "crds" {
 			t.Errorf("expected crds, got %q", got)
 		}
 	})
 
 	t.Run("NamedSourceIsSuffixed", func(t *testing.T) {
-		// Given a layer for a named source
-		layer := CrdLayer{Source: "core", Refs: []string{"cert-manager-1.16.2"}}
-
-		// Then it materializes as "crds-<source>"
-		if got := layer.KustomizationName(); got != "crds-core" {
+		// Given a named source
+		if got := CrdKustomizationName("core"); got != "crds-core" {
 			t.Errorf("expected crds-core, got %q", got)
 		}
 	})
@@ -4212,17 +4229,27 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 		}
 	})
 
-	t.Run("CopiesCrdLayersDeeply", func(t *testing.T) {
-		blueprint := &Blueprint{Crds: []CrdLayer{{Source: "core", Refs: []string{"cert-manager-1.16.2"}}}}
+	t.Run("CopiesCrdsDeeply", func(t *testing.T) {
+		blueprint := &Blueprint{
+			Crds:    []string{"cert-manager-1.16.2"},
+			Sources: []Source{{Name: "core", Crds: []string{"gateway-api-1.5.1"}}},
+		}
 
 		copy := blueprint.DeepCopy()
-		if len(copy.Crds) != 1 || copy.Crds[0].Source != "core" || len(copy.Crds[0].Refs) != 1 {
-			t.Fatalf("Expected CRD layer copied, got %+v", copy.Crds)
+		if len(copy.Crds) != 1 || copy.Crds[0] != "cert-manager-1.16.2" {
+			t.Fatalf("Expected local crds copied, got %+v", copy.Crds)
 		}
-		// Mutating the copy's refs must not touch the original (deep copy, not aliased)
-		copy.Crds[0].Refs[0] = "mutated"
-		if blueprint.Crds[0].Refs[0] != "cert-manager-1.16.2" {
-			t.Error("Expected original CRD refs untouched after mutating copy")
+		if len(copy.Sources) != 1 || len(copy.Sources[0].Crds) != 1 || copy.Sources[0].Crds[0] != "gateway-api-1.5.1" {
+			t.Fatalf("Expected source crds copied, got %+v", copy.Sources)
+		}
+		// Mutating the copy must not touch the original (deep copy, not aliased)
+		copy.Crds[0] = "mutated"
+		copy.Sources[0].Crds[0] = "mutated"
+		if blueprint.Crds[0] != "cert-manager-1.16.2" {
+			t.Error("Expected original local crds untouched after mutating copy")
+		}
+		if blueprint.Sources[0].Crds[0] != "gateway-api-1.5.1" {
+			t.Error("Expected original source crds untouched after mutating copy")
 		}
 	})
 

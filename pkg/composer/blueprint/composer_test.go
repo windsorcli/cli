@@ -1011,11 +1011,13 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 		return nil
 	}
 
+	ociInstall := func() *blueprintv1alpha1.BoolExpression { v := true; return &blueprintv1alpha1.BoolExpression{Value: &v} }
+
 	t.Run("WiresRootsToTheCrdLayer", func(t *testing.T) {
-		// Given a blueprint with a crds: layer, a root, and a non-root
+		// Given a blueprint with a local crds: list, a root, and a non-root
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{{Refs: []string{"gateway-api-1.5.1", "envoy-gateway-1.7.1"}}},
+			Crds: []string{"gateway-api-1.5.1", "envoy-gateway-1.7.1"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "policy-base", Path: "policy/base"},
 				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"policy-base"}},
@@ -1037,7 +1039,7 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 		// Given a facet-authored kustomization that already depends on crds
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{{Refs: []string{"gateway-api-1.5.1"}}},
+			Crds: []string{"gateway-api-1.5.1"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{
 				{Name: "gateway-base", Path: "gateway/base", DependsOn: []string{"crds"}},
 			},
@@ -1052,20 +1054,20 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 	})
 
 	t.Run("WiresRootsToEveryPerSourceCrdLayer", func(t *testing.T) {
-		// Given CRDs vendored by two different sources
+		// Given CRDs vendored by two different install sources
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{
-				{Source: "core", Refs: []string{"cert-manager-1.16.2"}},
-				{Source: "acme-oci", Refs: []string{"acme-crd-2.0.0"}},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Install: ociInstall(), Crds: []string{"cert-manager-1.16.2"}},
+				{Name: "acme-oci", Install: ociInstall(), Crds: []string{"acme-crd-2.0.0"}},
 			},
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "policy-base", Path: "policy/base"}},
 		}
 
 		composer.applyCrdLayerBarrier(bp)
 
-		// Then the root waits on both source layers, so neither source's CRDs are skipped
-		if !slices.Equal(depsOf(bp, "policy-base"), []string{"crds-core", "crds-acme-oci"}) {
+		// Then the root waits on both source layers (alphabetical), so neither source's CRDs are skipped
+		if !slices.Equal(depsOf(bp, "policy-base"), []string{"crds-acme-oci", "crds-core"}) {
 			t.Errorf("expected policy-base wired to both crds layers, got %v", depsOf(bp, "policy-base"))
 		}
 	})
@@ -1084,22 +1086,32 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 	})
 }
 
+func sourceByName(bp *blueprintv1alpha1.Blueprint, name string) blueprintv1alpha1.Source {
+	for _, s := range bp.Sources {
+		if s.Name == name {
+			return s
+		}
+	}
+	return blueprintv1alpha1.Source{}
+}
+
 func TestComposer_finalizeCrdLayers(t *testing.T) {
-	t.Run("CollapsesLocalTemplateToTheBaseCrdsLayer", func(t *testing.T) {
-		// Given CRDs from the local template source with no remote template source declared
+	t.Run("CollapsesLocalTemplateToTheDefaultCrdsList", func(t *testing.T) {
+		// Given CRDs on the local template source with no remote template source declared
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{{Source: "template", Refs: []string{"cert-manager-1.16.2"}}},
+			Sources: []blueprintv1alpha1.Source{{Name: "template", Crds: []string{"cert-manager-1.16.2"}}},
 		}
 
 		composer.finalizeCrdLayers(bp)
 
-		// Then the layer collapses to the default source so it keeps the bare "crds" name
-		if len(bp.Crds) != 1 || bp.Crds[0].Source != "" {
-			t.Fatalf("expected template collapsed to the default source, got %+v", bp.Crds)
+		// Then the refs collapse into the default/project list (installed as "crds") and the template
+		// source no longer carries them
+		if !slices.Equal(bp.Crds, []string{"cert-manager-1.16.2"}) {
+			t.Fatalf("expected template collapsed into the default crds list, got %+v", bp.Crds)
 		}
-		if bp.Crds[0].KustomizationName() != "crds" {
-			t.Errorf("expected base crds name, got %q", bp.Crds[0].KustomizationName())
+		if len(bp.Sources[0].Crds) != 0 {
+			t.Errorf("expected template source crds cleared, got %v", bp.Sources[0].Crds)
 		}
 	})
 
@@ -1107,18 +1119,17 @@ func TestComposer_finalizeCrdLayers(t *testing.T) {
 		// Given a remote template source, "template" is a real fetchable source
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
-			Sources: []blueprintv1alpha1.Source{{Name: "template", Url: "oci://example.com/template:1.0.0"}},
-			Crds:    []blueprintv1alpha1.CrdLayer{{Source: "template", Refs: []string{"cert-manager-1.16.2"}}},
+			Sources: []blueprintv1alpha1.Source{{Name: "template", Url: "oci://example.com/template:1.0.0", Crds: []string{"cert-manager-1.16.2"}}},
 		}
 
 		composer.finalizeCrdLayers(bp)
 
-		// Then the template layer is preserved and binds to its own source
-		if len(bp.Crds) != 1 || bp.Crds[0].Source != "template" {
-			t.Fatalf("expected template layer preserved, got %+v", bp.Crds)
+		// Then the template source keeps its own CRDs (it will install as "crds-template")
+		if len(bp.Crds) != 0 {
+			t.Fatalf("expected no default-source crds, got %+v", bp.Crds)
 		}
-		if bp.Crds[0].KustomizationName() != "crds-template" {
-			t.Errorf("expected crds-template name, got %q", bp.Crds[0].KustomizationName())
+		if !slices.Equal(bp.Sources[0].Crds, []string{"cert-manager-1.16.2"}) {
+			t.Errorf("expected template source to keep its crds, got %v", bp.Sources[0].Crds)
 		}
 	})
 
@@ -1126,70 +1137,69 @@ func TestComposer_finalizeCrdLayers(t *testing.T) {
 		// Given two sources that both vendor the same CRD bundle
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{
-				{Source: "core", Refs: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}},
-				{Source: "acme-oci", Refs: []string{"cert-manager-1.16.2", "acme-crd-2.0.0"}},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Crds: []string{"cert-manager-1.16.2", "gateway-api-1.5.1"}},
+				{Name: "acme-oci", Crds: []string{"cert-manager-1.16.2", "acme-crd-2.0.0"}},
 			},
 		}
 
 		composer.finalizeCrdLayers(bp)
 
-		// Then the shared ref is owned by acme-oci (sorts before core), not by declaration order;
-		// layers and refs are emitted sorted
-		if len(bp.Crds) != 2 || bp.Crds[0].Source != "acme-oci" || bp.Crds[1].Source != "core" {
-			t.Fatalf("expected sources sorted [acme-oci, core], got %+v", bp.Crds)
+		// Then the shared ref is owned by acme-oci (sorts before core), not by declaration order; refs
+		// are emitted sorted
+		core := sourceByName(bp, "core")
+		acme := sourceByName(bp, "acme-oci")
+		if !slices.Equal(acme.Crds, []string{"acme-crd-2.0.0", "cert-manager-1.16.2"}) {
+			t.Errorf("expected acme-oci to own the shared ref, got %v", acme.Crds)
 		}
-		if !slices.Equal(bp.Crds[0].Refs, []string{"acme-crd-2.0.0", "cert-manager-1.16.2"}) {
-			t.Errorf("expected acme-oci to own the shared ref, got %v", bp.Crds[0].Refs)
-		}
-		if !slices.Equal(bp.Crds[1].Refs, []string{"gateway-api-1.5.1"}) {
-			t.Errorf("expected core to drop the shared ref, got %v", bp.Crds[1].Refs)
+		if !slices.Equal(core.Crds, []string{"gateway-api-1.5.1"}) {
+			t.Errorf("expected core to drop the shared ref, got %v", core.Crds)
 		}
 	})
 
 	t.Run("OwnershipIsStableWhenSourcesAreReordered", func(t *testing.T) {
 		// Given the same two sources vendoring a shared ref, declared in opposite orders
 		composer := &BaseBlueprintComposer{}
-		forward := &blueprintv1alpha1.Blueprint{Crds: []blueprintv1alpha1.CrdLayer{
-			{Source: "core", Refs: []string{"cert-manager-1.16.2"}},
-			{Source: "acme-oci", Refs: []string{"cert-manager-1.16.2"}},
+		forward := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{
+			{Name: "core", Crds: []string{"cert-manager-1.16.2"}},
+			{Name: "acme-oci", Crds: []string{"cert-manager-1.16.2"}},
 		}}
-		reversed := &blueprintv1alpha1.Blueprint{Crds: []blueprintv1alpha1.CrdLayer{
-			{Source: "acme-oci", Refs: []string{"cert-manager-1.16.2"}},
-			{Source: "core", Refs: []string{"cert-manager-1.16.2"}},
+		reversed := &blueprintv1alpha1.Blueprint{Sources: []blueprintv1alpha1.Source{
+			{Name: "acme-oci", Crds: []string{"cert-manager-1.16.2"}},
+			{Name: "core", Crds: []string{"cert-manager-1.16.2"}},
 		}}
 
 		composer.finalizeCrdLayers(forward)
 		composer.finalizeCrdLayers(reversed)
 
-		// Then both compose to the identical result — ownership does not depend on declaration order
-		if len(forward.Crds) != 1 || len(reversed.Crds) != 1 {
-			t.Fatalf("expected one layer each, got forward=%+v reversed=%+v", forward.Crds, reversed.Crds)
+		// Then both compose to the identical result — acme-oci owns the ref, core drops it, regardless
+		// of declaration order
+		if !slices.Equal(sourceByName(forward, "acme-oci").Crds, []string{"cert-manager-1.16.2"}) ||
+			!slices.Equal(sourceByName(reversed, "acme-oci").Crds, []string{"cert-manager-1.16.2"}) {
+			t.Errorf("expected acme-oci to own the ref regardless of order")
 		}
-		if forward.Crds[0].Source != "acme-oci" || reversed.Crds[0].Source != "acme-oci" {
-			t.Errorf("expected acme-oci to own the ref regardless of order, got forward=%+v reversed=%+v", forward.Crds, reversed.Crds)
-		}
-		if !slices.Equal(forward.Crds[0].Refs, reversed.Crds[0].Refs) {
-			t.Errorf("expected order-independent refs, got forward=%v reversed=%v", forward.Crds[0].Refs, reversed.Crds[0].Refs)
+		if len(sourceByName(forward, "core").Crds) != 0 || len(sourceByName(reversed, "core").Crds) != 0 {
+			t.Errorf("expected core to drop the shared ref regardless of order")
 		}
 	})
 
-	t.Run("DefaultSourceWinsTiesAndDropsEmptiedLayer", func(t *testing.T) {
-		// Given the project/default source and a named source both vendoring a ref
+	t.Run("DefaultSourceWinsTiesAndEmptiesNamedSource", func(t *testing.T) {
+		// Given the project/default list and a named source both vendoring a ref
 		composer := &BaseBlueprintComposer{}
 		bp := &blueprintv1alpha1.Blueprint{
-			Crds: []blueprintv1alpha1.CrdLayer{
-				{Source: "core", Refs: []string{"cert-manager-1.16.2"}},
-				{Source: "", Refs: []string{"cert-manager-1.16.2"}},
-			},
+			Crds:    []string{"cert-manager-1.16.2"},
+			Sources: []blueprintv1alpha1.Source{{Name: "core", Crds: []string{"cert-manager-1.16.2"}}},
 		}
 
 		composer.finalizeCrdLayers(bp)
 
-		// Then the default source (empty name) wins and the emptied core layer is dropped, leaving no
-		// dangling barrier target
-		if len(bp.Crds) != 1 || bp.Crds[0].Source != "" {
-			t.Fatalf("expected only the default-source layer to remain, got %+v", bp.Crds)
+		// Then the default list (crds) owns the ref and the named source's copy is emptied, so no second
+		// kustomization fights over the same CRD
+		if !slices.Equal(bp.Crds, []string{"cert-manager-1.16.2"}) {
+			t.Fatalf("expected the default list to keep the ref, got %+v", bp.Crds)
+		}
+		if len(bp.Sources[0].Crds) != 0 {
+			t.Errorf("expected the named source's copy emptied, got %v", bp.Sources[0].Crds)
 		}
 	})
 }
@@ -3149,7 +3159,7 @@ func TestComposer_validateReservedNames(t *testing.T) {
 		mocks := setupComposerMocks(t)
 		composer := NewBlueprintComposer(mocks.Runtime)
 		bp := &blueprintv1alpha1.Blueprint{
-			Crds:           []blueprintv1alpha1.CrdLayer{{Refs: []string{"cert-manager-1.16.2"}}},
+			Crds:           []string{"cert-manager-1.16.2"},
 			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "cert-manager", Path: "pki/cert-manager"}},
 		}
 

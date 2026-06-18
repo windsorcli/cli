@@ -33,6 +33,13 @@ type BaseBlueprintComposer struct {
 	shims               *Shims
 }
 
+// CrdInstallLayer is a CRD kustomization the provisioner will synthesize: a source (empty for the
+// default/project source) and the references it owns. Derived from the composed blueprint by CrdLayers.
+type CrdInstallLayer struct {
+	Source string
+	Refs   []string
+}
+
 // =============================================================================
 // Constructor
 // =============================================================================
@@ -178,6 +185,28 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 // environment that should be available to every kustomization's postBuild substitution.
 func (c *BaseBlueprintComposer) SetCommonSubstitutions(substitutions map[string]string) {
 	c.commonSubstitutions = substitutions
+}
+
+// CrdLayers returns the CRD kustomization layers a composed blueprint implies: the default/project
+// layer (empty source) from bp.Crds, then one per install source that vendors CRDs, alphabetically by
+// name. The composer wires the stack to these names and the provisioner materializes them, so both
+// must agree on the set — they share this single derivation.
+func CrdLayers(bp *blueprintv1alpha1.Blueprint) []CrdInstallLayer {
+	var layers []CrdInstallLayer
+	if len(bp.Crds) > 0 {
+		layers = append(layers, CrdInstallLayer{Source: "", Refs: bp.Crds})
+	}
+	idx := make([]int, 0, len(bp.Sources))
+	for i := range bp.Sources {
+		if len(bp.Sources[i].Crds) > 0 && sourceInstalls(bp.Sources[i]) {
+			idx = append(idx, i)
+		}
+	}
+	sort.Slice(idx, func(a, b int) bool { return bp.Sources[idx[a]].Name < bp.Sources[idx[b]].Name })
+	for _, i := range idx {
+		layers = append(layers, CrdInstallLayer{Source: bp.Sources[i].Name, Refs: bp.Sources[i].Crds})
+	}
+	return layers
 }
 
 // =============================================================================
@@ -391,10 +420,7 @@ func (c *BaseBlueprintComposer) orderSources(userBlueprint *blueprintv1alpha1.Bl
 // sourceShouldBeMerged returns true if the source's components should be merged into the composed blueprint.
 // OCI sources with Install omitted (nil) are treated as merge for backward compatibility; otherwise Install must be true.
 func (c *BaseBlueprintComposer) sourceShouldBeMerged(source blueprintv1alpha1.Source) bool {
-	if source.Install == nil && strings.HasPrefix(source.Url, "oci://") {
-		return true
-	}
-	return source.Install != nil && source.Install.IsInstalled()
+	return sourceInstalls(source)
 }
 
 // applyCommonSubstitutions extracts common substitutions from values.yaml, merges legacy special
@@ -679,81 +705,80 @@ func (c *BaseBlueprintComposer) applyPerKustomizationSubstitutions(blueprint *bl
 	return nil
 }
 
-// finalizeCrdLayers normalizes the composed CRD layers before the barrier wires the stack to them,
-// producing a result that is a pure function of which sources vendor which references — independent
-// of source declaration or load order. It collapses the local template source to the default/project
-// source (using the same condition as ToFluxKustomization, so a purely local blueprint keeps the base
-// "crds" name and binding rather than a "crds-template" layer) and unions references per source.
-//
-// A reference vendored by more than one source must be applied by exactly one kustomization, or two
-// owners fight over the same CRD object. The owner is the source that sorts first among those that
-// vendor it — the default/project source (empty name) first, then named sources alphabetically.
-// Choosing the owner by name, not by position, keeps ownership stable across edits to sources:
-// reordering sources or adding/removing an unrelated source never moves a CRD; only removing its
-// owner or adding a lexicographically earlier source that also vendors it does, and both are
-// predictable. Sources, and the references within each layer, are emitted sorted for the same reason.
+// sourceInstalls reports whether a source's components — including its vendored CRDs — are merged and
+// installed: an OCI source with install omitted defaults to true for backward compatibility, otherwise
+// install must be explicitly true. sourceShouldBeMerged delegates here so the two never diverge.
+func sourceInstalls(source blueprintv1alpha1.Source) bool {
+	if source.Install == nil {
+		return strings.HasPrefix(source.Url, "oci://")
+	}
+	return source.Install.IsInstalled()
+}
+
+// finalizeCrdLayers assigns each CRD reference to exactly one owner before the barrier wires the stack
+// to them, so two kustomizations never apply the same CRD object. The default/project list (bp.Crds)
+// owns first, then install sources alphabetically by name; a reference claimed by an earlier owner is
+// pruned from later ones. A local template source collapses into the default/project list (the same
+// condition ToFluxKustomization uses), so a purely local blueprint installs its CRDs as "crds" rather
+// than a "crds-template" layer. Ownership by name keeps a CRD stable across source reordering.
 func (c *BaseBlueprintComposer) finalizeCrdLayers(bp *blueprintv1alpha1.Blueprint) {
-	if len(bp.Crds) == 0 {
-		return
-	}
-	localTemplate := !blueprintv1alpha1.HasRemoteTemplateSource(bp.Sources)
-
-	refsBySource := make(map[string]map[string]struct{})
-	for _, layer := range bp.Crds {
-		source := layer.Source
-		if source == "template" && localTemplate {
-			source = ""
-		}
-		set := refsBySource[source]
-		if set == nil {
-			set = make(map[string]struct{})
-			refsBySource[source] = set
-		}
-		for _, ref := range layer.Refs {
-			set[ref] = struct{}{}
-		}
-	}
-
-	sources := make([]string, 0, len(refsBySource))
-	for source := range refsBySource {
-		sources = append(sources, source)
-	}
-	sort.Strings(sources)
-
-	claimed := make(map[string]struct{})
-	out := make([]blueprintv1alpha1.CrdLayer, 0, len(sources))
-	for _, source := range sources {
-		var refs []string
-		for ref := range refsBySource[source] {
-			if _, taken := claimed[ref]; taken {
+	if !blueprintv1alpha1.HasRemoteTemplateSource(bp.Sources) {
+		for i := range bp.Sources {
+			if bp.Sources[i].Name != "template" || len(bp.Sources[i].Crds) == 0 {
 				continue
 			}
-			claimed[ref] = struct{}{}
-			refs = append(refs, ref)
+			for _, ref := range bp.Sources[i].Crds {
+				if !slices.Contains(bp.Crds, ref) {
+					bp.Crds = append(bp.Crds, ref)
+				}
+			}
+			bp.Sources[i].Crds = nil
 		}
-		if len(refs) == 0 {
+	}
+
+	claimed := make(map[string]struct{})
+	bp.Crds = claimCrdRefs(bp.Crds, claimed)
+
+	idx := make([]int, 0, len(bp.Sources))
+	for i := range bp.Sources {
+		if len(bp.Sources[i].Crds) > 0 {
+			idx = append(idx, i)
+		}
+	}
+	sort.Slice(idx, func(a, b int) bool { return bp.Sources[idx[a]].Name < bp.Sources[idx[b]].Name })
+	for _, i := range idx {
+		bp.Sources[i].Crds = claimCrdRefs(bp.Sources[i].Crds, claimed)
+	}
+}
+
+// claimCrdRefs returns refs minus any already in claimed, recording the survivors as claimed, sorted.
+func claimCrdRefs(refs []string, claimed map[string]struct{}) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if _, taken := claimed[ref]; taken {
 			continue
 		}
-		sort.Strings(refs)
-		out = append(out, blueprintv1alpha1.CrdLayer{Source: source, Refs: refs})
+		claimed[ref] = struct{}{}
+		out = append(out, ref)
 	}
-	bp.Crds = out
+	sort.Strings(out)
+	return out
 }
 
 // applyCrdLayerBarrier orders the vendored CRD layers ahead of the whole stack: when the blueprint
-// declares crds: layers, every root kustomization (one with no dependsOn of its own) is made to
-// depend on every synthesized CRD kustomization (one per source). Dependents of those roots reach
-// the layers transitively, so the stack reconciles after the CRDs are Established — without any
-// facet author naming a CRD in dependsOn, and without the provisioner waiting: Flux honors the edges
-// on every reconcile. The CRD kustomizations themselves are materialized by the provisioner from
-// bp.Crds, one per source so each reads the manifests from where they live.
+// implies CRD layers, every root kustomization (one with no dependsOn of its own) is made to depend on
+// every synthesized CRD kustomization. Dependents of those roots reach the layers transitively, so the
+// stack reconciles after the CRDs are Established — without any facet author naming a CRD in dependsOn,
+// and without the provisioner waiting: Flux honors the edges on every reconcile. The CRD kustomizations
+// themselves are materialized by the provisioner from the same CrdLayers derivation.
 func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Blueprint) {
-	if len(bp.Crds) == 0 {
+	layers := CrdLayers(bp)
+	if len(layers) == 0 {
 		return
 	}
-	names := make([]string, len(bp.Crds))
-	for i, layer := range bp.Crds {
-		names[i] = layer.KustomizationName()
+	names := make([]string, len(layers))
+	for i, layer := range layers {
+		names[i] = blueprintv1alpha1.CrdKustomizationName(layer.Source)
 	}
 	for i := range bp.Kustomizations {
 		k := &bp.Kustomizations[i]
@@ -827,12 +852,12 @@ func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Bluep
 		tfIDs[tf.GetID()] = struct{}{}
 	}
 
-	kNames := make(map[string]struct{}, len(bp.Kustomizations)+len(bp.Crds))
+	kNames := make(map[string]struct{}, len(bp.Kustomizations)+len(bp.Sources)+1)
 	for _, k := range bp.Kustomizations {
 		kNames[k.Name] = struct{}{}
 	}
-	for _, layer := range bp.Crds {
-		kNames[layer.KustomizationName()] = struct{}{}
+	for _, layer := range CrdLayers(bp) {
+		kNames[blueprintv1alpha1.CrdKustomizationName(layer.Source)] = struct{}{}
 	}
 
 	for _, tf := range bp.TerraformComponents {

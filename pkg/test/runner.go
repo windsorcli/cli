@@ -524,11 +524,9 @@ func (r *TestRunner) matchBlueprint(bp *blueprintv1alpha1.Blueprint, expect *blu
 		diffs = append(diffs, kustomizeDiffs...)
 	}
 
-	for _, expectLayer := range expect.Crds {
-		for _, ref := range expectLayer.Refs {
-			if !crdLayerContains(bp.Crds, expectLayer.Source, ref) {
-				diffs = append(diffs, fmt.Sprintf("crd reference not found: %s", ref))
-			}
+	for _, ref := range expect.Crds {
+		if !blueprintInstallsCrd(bp, ref) {
+			diffs = append(diffs, fmt.Sprintf("crd reference not found: %s", ref))
 		}
 	}
 
@@ -566,11 +564,9 @@ func (r *TestRunner) matchExclusions(bp *blueprintv1alpha1.Blueprint, exclude *b
 		}
 	}
 
-	for _, excludeLayer := range exclude.Crds {
-		for _, ref := range excludeLayer.Refs {
-			if crdLayerContains(bp.Crds, excludeLayer.Source, ref) {
-				diffs = append(diffs, fmt.Sprintf("crd reference should not exist: %s", ref))
-			}
+	for _, ref := range exclude.Crds {
+		if blueprintInstallsCrd(bp, ref) {
+			diffs = append(diffs, fmt.Sprintf("crd reference should not exist: %s", ref))
 		}
 	}
 
@@ -829,8 +825,8 @@ func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint
 	for _, k := range bp.Kustomizations {
 		kNames[k.Name] = struct{}{}
 	}
-	for _, layer := range bp.Crds {
-		kNames[layer.KustomizationName()] = struct{}{}
+	for _, layer := range blueprint.CrdLayers(bp) {
+		kNames[blueprintv1alpha1.CrdKustomizationName(layer.Source)] = struct{}{}
 	}
 
 	for _, tf := range bp.TerraformComponents {
@@ -967,14 +963,15 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-// crdLayerContains reports whether the CRD layers carry ref under source. An empty source matches a
-// ref in any layer, so a test can assert a CRD's presence without naming the source that vendors it.
-func crdLayerContains(layers []blueprintv1alpha1.CrdLayer, source, ref string) bool {
-	for _, layer := range layers {
-		if source != "" && layer.Source != source {
-			continue
-		}
-		if contains(layer.Refs, ref) {
+// blueprintInstallsCrd reports whether the composed blueprint installs ref — either from its own
+// (default/project) crds list or from any source that vendors it. A test asserts a CRD's presence with
+// the bare ref; the source it rides on is a composition detail the assertion need not name.
+func blueprintInstallsCrd(bp *blueprintv1alpha1.Blueprint, ref string) bool {
+	if contains(bp.Crds, ref) {
+		return true
+	}
+	for _, source := range bp.Sources {
+		if contains(source.Crds, ref) {
 			return true
 		}
 	}

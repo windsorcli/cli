@@ -165,7 +165,7 @@ func TestPlanCmd(t *testing.T) {
 		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
 			return &blueprintv1alpha1.Blueprint{
 				Metadata: blueprintv1alpha1.Metadata{Name: "test"},
-				Crds:     []blueprintv1alpha1.CrdLayer{{Refs: []string{"cert-manager-1.16.2"}}},
+				Crds:     []string{"cert-manager-1.16.2"},
 			}
 		}
 		fluxStack := fluxinfra.NewMockStack()
