@@ -267,6 +267,11 @@ func (s *TerraformStack) PostApply(fns ...func(id string) error) {
 // onApply hooks run inside each spinner; PostApply hooks run after each Done line and are
 // consumed (not retained across calls).
 //
+// The pre-apply plan is run through ExecCaptureWithEnv rather than a streaming exec: its output
+// is discarded (it only gates apply), and streaming it under --verbose would echo provider-generated
+// cluster PKI that the secret scrubber cannot mask because it was never registered. apply re-renders
+// the plan and a failing plan still surfaces terraform's stderr through the wrapped error.
+//
 // Returns (halted bool, err error). halted=true means a hook signaled that the component
 // apply succeeded but subsequent components should not be applied (e.g. cluster reachability
 // needs a host-side configuration step the operator hasn't done yet). halted is reported as
@@ -812,7 +817,8 @@ func (s *TerraformStack) PlanAllJSON(blueprint *blueprintv1alpha1.Blueprint) err
 // Apply runs terraform init, plan, and apply for a single component identified by componentID.
 // It resolves the component from the blueprint, sets up the environment, and executes
 // init, plan, then apply in sequence. Returns an error if the component is not found,
-// the directory does not exist, or any terraform operation fails.
+// the directory does not exist, or any terraform operation fails. As in Up, the pre-apply plan
+// uses ExecCaptureWithEnv so its discarded output cannot leak provider-generated PKI under --verbose.
 func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
 	if blueprint == nil {
 		return fmt.Errorf("blueprint not provided")
