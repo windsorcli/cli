@@ -18,7 +18,7 @@ require (
 	github.com/google/go-containerregistry v0.21.7
 	github.com/google/go-jsonnet v0.22.0
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/kaptinlin/jsonschema v0.8.0
+	github.com/kaptinlin/jsonschema v0.8.1
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/siderolabs/talos/pkg/machinery v1.13.4
 	github.com/spf13/cobra v1.10.2
