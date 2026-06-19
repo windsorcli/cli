@@ -83,6 +83,19 @@ func TestRedactSecrets(t *testing.T) {
 			t.Errorf("Expected unchanged line, got %q", result)
 		}
 	})
+
+	t.Run("LeavesLongOpaqueIdUntouched", func(t *testing.T) {
+		// Given a non-secret id whose value runs past the base64 length floor
+		input := `id = "` + strings.Repeat("A", 48) + `"`
+
+		// When the line is redacted
+		result := redactSecrets(input)
+
+		// Then the id is left intact: id is a ubiquitous terraform field, not a secret
+		if result != input {
+			t.Errorf("Expected long id left unchanged, got %q", result)
+		}
+	})
 }
 
 func TestScrubbingWriter_Write(t *testing.T) {

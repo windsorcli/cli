@@ -37,10 +37,11 @@ var pemInlinePattern = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]+-----.*?-----END
 // secretFieldPattern matches a secret-bearing field name followed by a long base64 value,
 // masking the value while leaving the field name and separator visible. The field name matches
 // either an identifier carrying a secret word (covering terraform attributes like ca_certificate
-// and client_key as well as YAML keys like secret/token) or the bare ca/id keys from Talos machine
-// config. The 40-character floor keeps ordinary identifiers intact while still catching machine-secret
-// blobs, CA bundles, and private keys.
-var secretFieldPattern = regexp.MustCompile(`(?i)([A-Za-z0-9_.-]*(?:token|key|crt|cert|secret|serviceaccount)[A-Za-z0-9_.-]*|\b(?:ca|id)\b)(\s*[:=]\s*["']?)([A-Za-z0-9+/]{40,}={0,2})(["']?)`)
+// and client_key as well as YAML keys like secret/token) or the bare ca key from Talos machine
+// config. The bare id key is deliberately excluded: id is a ubiquitous terraform output field
+// and masking a long opaque id is not worth the false positives. The 40-character floor keeps
+// ordinary identifiers intact while still catching machine-secret blobs, CA bundles, and private keys.
+var secretFieldPattern = regexp.MustCompile(`(?i)([A-Za-z0-9_.-]*(?:token|key|crt|cert|secret|serviceaccount)[A-Za-z0-9_.-]*|\bca\b)(\s*[:=]\s*["']?)([A-Za-z0-9+/]{40,}={0,2})(["']?)`)
 
 // talosTokenPattern matches the Talos bootstrap-token shape (six base32 chars, a dot, then
 // sixteen) following a token field, masking the value.
