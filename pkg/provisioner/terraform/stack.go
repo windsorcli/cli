@@ -332,7 +332,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false"}
 			planArgs = append(planArgs, terraformArgs.PlanArgs...)
 			planEnv := selectTerraformCommandEnv(terraformVars, true)
-			if _, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
+			if _, err = s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
 				return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 			}
 
@@ -841,7 +841,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
 		planEnv := selectTerraformCommandEnv(terraformVars, true)
-		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
+		if _, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
 			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		}
 
