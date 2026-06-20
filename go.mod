@@ -9,7 +9,7 @@ require (
 	github.com/briandowns/spinner v1.23.2
 	github.com/expr-lang/expr v1.17.8
 	github.com/fluxcd/helm-controller/api v1.6.0
-	github.com/fluxcd/kustomize-controller/api v1.8.5
+	github.com/fluxcd/kustomize-controller/api v1.9.0
 	github.com/fluxcd/pkg/apis/kustomize v1.19.0
 	github.com/fluxcd/pkg/apis/meta v1.30.0
 	github.com/fluxcd/source-controller/api v1.8.5
