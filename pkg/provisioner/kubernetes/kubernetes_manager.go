@@ -850,8 +850,9 @@ func (k *BaseKubernetesManager) GetNodeReadyStatus(ctx context.Context, nodeName
 // It creates the target namespace, applies all blueprint source repositories (Git and OCI),
 // applies all individual sources, applies any standalone ConfigMaps, and finally applies
 // all kustomizations and their associated ConfigMaps. This orchestrates a complete
-// blueprint installation following the intended order. CommonMetadata labels are added to all
-// kustomizations for resource provenance tracking using context info from the config handler.
+// blueprint installation following the intended order. Context ownership labels are stamped on
+// each Kustomization's ObjectMeta (so the objects are selectable by context) and propagated to
+// managed resources via CommonMetadata, using context info from the config handler.
 // Returns an error if any step fails.
 func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
 	if err := k.CreateNamespace(namespace); err != nil {
@@ -907,11 +908,9 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 		}
 		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
 
+		fluxKustomization.Labels = k.ownershipLabels()
 		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
-			Labels: map[string]string{
-				"windsorcli.dev/context":    k.configHandler.GetContext(),
-				"windsorcli.dev/context-id": k.configHandler.GetString("id"),
-			},
+			Labels: k.ownershipLabels(),
 		}
 
 		if err := k.ApplyKustomization(fluxKustomization); err != nil {
@@ -1036,11 +1035,9 @@ func (k *BaseKubernetesManager) processDestroyOnlyKustomizations(kustomizations 
 
 		fluxKustomization := kustomization.ToFluxKustomization(namespace, defaultSourceName, blueprint.Sources, mode, blueprint.ConfigMaps)
 
+		fluxKustomization.Labels = k.ownershipLabels()
 		fluxKustomization.Spec.CommonMetadata = &kustomizev1.CommonMetadata{
-			Labels: map[string]string{
-				"windsorcli.dev/context":    k.configHandler.GetContext(),
-				"windsorcli.dev/context-id": k.configHandler.GetString("id"),
-			},
+			Labels: k.ownershipLabels(),
 		}
 
 		filteredDependsOn := make([]kustomizev1.DependencyReference, 0)
@@ -1139,6 +1136,15 @@ waitLoop:
 // gitopsNamespace returns the configured gitops namespace, defaulting to DefaultGitopsNamespace.
 func (k *BaseKubernetesManager) gitopsNamespace() string {
 	return k.configHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
+}
+
+// ownershipLabels returns the Windsor context labels stamped on each Kustomization object (so the
+// objects are selectable by context) and propagated to its managed resources via CommonMetadata.
+func (k *BaseKubernetesManager) ownershipLabels() map[string]string {
+	return map[string]string{
+		"windsorcli.dev/context":    k.configHandler.GetContext(),
+		"windsorcli.dev/context-id": k.configHandler.GetString("id"),
+	}
 }
 
 // applyWithRetry applies a resource using SSA with minimal logic
