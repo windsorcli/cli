@@ -232,6 +232,10 @@ windsor bootstrap prod --yes`,
 			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error waiting for kustomizations: %w", err)
 			}
+
+			if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
+				return fmt.Errorf("error writing version marker: %w", err)
+			}
 			return nil
 		}); err != nil {
 			return err

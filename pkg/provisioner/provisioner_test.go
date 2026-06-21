@@ -1222,6 +1222,52 @@ func TestProvisioner_ApplyKustomizeAll(t *testing.T) {
 	})
 }
 
+func TestProvisioner_WriteVersionMarker(t *testing.T) {
+	t.Run("WritesMarkerToGitopsNamespaceFromBlueprintSources", func(t *testing.T) {
+		// Given a provisioner capturing the version marker write
+		mocks := setupProvisionerMocks(t)
+		var capturedNamespace string
+		var capturedMarker kubernetes.VersionMarker
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			capturedNamespace = namespace
+			capturedMarker = marker
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When writing the marker for a blueprint with one remote source
+		if err := provisioner.WriteVersionMarker(createTestBlueprint()); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it is written to the gitops namespace recording the source's resolved ref
+		if capturedNamespace != provisioner.fluxNamespace() {
+			t.Errorf("Expected namespace %q, got %q", provisioner.fluxNamespace(), capturedNamespace)
+		}
+		if capturedMarker.AppliedSources["source1"].Ref != "main" {
+			t.Errorf("Expected source1 ref 'main', got %q", capturedMarker.AppliedSources["source1"].Ref)
+		}
+	})
+
+	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		if err := provisioner.WriteVersionMarker(nil); err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+	})
+
+	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		provisioner.KubernetesManager = nil
+		if err := provisioner.WriteVersionMarker(createTestBlueprint()); err == nil {
+			t.Error("Expected error for nil kubernetes manager")
+		}
+	})
+}
+
 func TestProvisioner_Install(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)

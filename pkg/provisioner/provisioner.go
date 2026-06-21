@@ -946,6 +946,27 @@ func (i *Provisioner) Wait(ctx context.Context, blueprint *blueprintv1alpha1.Blu
 	return nil
 }
 
+// WriteVersionMarker records the blueprint version applied to this context as a marker ConfigMap
+// in the gitops namespace, capturing the resolved reference of each applied source. Only bootstrap
+// and upgrade write the marker; apply and plan only read it, so the marker stays an authoritative
+// record of what was deliberately rolled out rather than drifting with every reconcile.
+func (i *Provisioner) WriteVersionMarker(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	marker := kubernetes.BuildVersionMarker(blueprint)
+	if err := i.KubernetesManager.ApplyVersionMarker(i.fluxNamespace(), marker); err != nil {
+		return fmt.Errorf("failed to write version marker: %w", err)
+	}
+
+	return nil
+}
+
 // Uninstall orchestrates the high-level kustomization teardown process from the blueprint.
 // It initializes the kubernetes manager and deletes all blueprint kustomizations, including the
 // synthesized CRD layer (withCrdLayer) so its Flux Kustomization objects are removed symmetrically

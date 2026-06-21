@@ -200,6 +200,33 @@ func TestBootstrapCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("WritesVersionMarkerAfterInstall", func(t *testing.T) {
+		// Given a successful bootstrap
+		mocks := setupBootstrapTest(t)
+		proj := newBootstrapTestProject(mocks)
+
+		markerWritten := false
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			markerWritten = true
+			return nil
+		}
+
+		cmd := createTestBootstrapCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"--yes"})
+		cmd.SetContext(ctx)
+
+		// When executing bootstrap
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected success, got %v", err)
+		}
+
+		// Then the applied-version marker is written for the context
+		if !markerWritten {
+			t.Error("Expected the version marker to be written on successful bootstrap")
+		}
+	})
+
 	t.Run("HaltedBootstrapSkipsBlueprintInstallAndSuccessLine", func(t *testing.T) {
 		// Given a terraform stack that halts after a component (the apply hook needed host
 		// configuration the operator hasn't done yet)
