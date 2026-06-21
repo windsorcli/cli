@@ -4282,6 +4282,13 @@ func TestBaseKubernetesManager_DeleteBlueprint(t *testing.T) {
 		if contextIDLabel != "test-context-id" {
 			t.Errorf("Expected 'windsorcli.dev/context-id' label to be 'test-context-id', got '%s'", contextIDLabel)
 		}
+
+		if appliedKustomization.Labels["windsorcli.dev/context"] != "test-context" {
+			t.Errorf("Expected ObjectMeta 'windsorcli.dev/context' label 'test-context', got '%s'", appliedKustomization.Labels["windsorcli.dev/context"])
+		}
+		if appliedKustomization.Labels["windsorcli.dev/context-id"] != "test-context-id" {
+			t.Errorf("Expected ObjectMeta 'windsorcli.dev/context-id' label 'test-context-id', got '%s'", appliedKustomization.Labels["windsorcli.dev/context-id"])
+		}
 	})
 }
 
@@ -5215,6 +5222,46 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		}
 		if contextIDLabel != "test-context-id" {
 			t.Errorf("Expected 'windsorcli.dev/context-id' label to be 'test-context-id', got '%s'", contextIDLabel)
+		}
+	})
+
+	t.Run("RegularKustomizationHasObjectMetaOwnershipLabels", func(t *testing.T) {
+		// Given a manager applying a blueprint with one kustomization
+		manager := setup(t)
+		kubernetesClient := client.NewMockKubernetesClient()
+
+		var appliedKustomization kustomizev1.Kustomization
+		kubernetesClient.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+			if gvr.Resource == "kustomizations" {
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &appliedKustomization); err != nil {
+					t.Fatalf("Failed to convert kustomization: %v", err)
+				}
+			}
+			return obj, nil
+		}
+		kubernetesClient.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("not found")
+		}
+		manager.client = kubernetesClient
+
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+			Kustomizations: []blueprintv1alpha1.Kustomization{
+				{Name: "test-kustomization", Path: "test/path"},
+			},
+		}
+
+		// When the blueprint is applied
+		if err := manager.ApplyBlueprint(blueprint, "test-namespace"); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the Kustomization object itself carries the context ownership labels (selectable by context)
+		if appliedKustomization.Labels["windsorcli.dev/context"] != "test-context" {
+			t.Errorf("Expected ObjectMeta 'windsorcli.dev/context' label 'test-context', got '%s'", appliedKustomization.Labels["windsorcli.dev/context"])
+		}
+		if appliedKustomization.Labels["windsorcli.dev/context-id"] != "test-context-id" {
+			t.Errorf("Expected ObjectMeta 'windsorcli.dev/context-id' label 'test-context-id', got '%s'", appliedKustomization.Labels["windsorcli.dev/context-id"])
 		}
 	})
 
