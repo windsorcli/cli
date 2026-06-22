@@ -53,6 +53,7 @@ type KubernetesManager interface {
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+	ApplyVersionMarker(namespace string, marker VersionMarker) error
 }
 
 // InventoryEntry identifies one resource Flux is tracking for a Kustomization,
@@ -486,6 +487,17 @@ func (k *BaseKubernetesManager) ApplyConfigMap(name, namespace string, data map[
 	}
 
 	return k.applyWithRetry(gvr, obj, opts)
+}
+
+// ApplyVersionMarker writes the applied-version marker ConfigMap to the namespace, recording which
+// blueprint version the context is running. The marker is stored as JSON in a single ConfigMap so
+// its encoding can evolve without churning Kustomization labels.
+func (k *BaseKubernetesManager) ApplyVersionMarker(namespace string, marker VersionMarker) error {
+	data, err := marker.ToConfigMapData()
+	if err != nil {
+		return fmt.Errorf("failed to encode version marker: %w", err)
+	}
+	return k.ApplyConfigMap(VersionMarkerConfigMapName, namespace, data)
 }
 
 // GetHelmReleasesForKustomization gets HelmReleases associated with a Kustomization
