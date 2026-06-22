@@ -3,11 +3,183 @@ package cmd
 import (
 	"bytes"
 	stdcontext "context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
+
+func TestUpgradeCmd(t *testing.T) {
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	t.Run("PrunesAfterSuccessfulWait", func(t *testing.T) {
+		// Given an upgrade command whose terraform, install, and wait all succeed
+		mocks := setupApplyTest(t)
+		pruned := false
+		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			pruned = true
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the bare upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it completes and prunes orphaned kustomizations
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !pruned {
+			t.Error("Expected upgrade to prune orphaned kustomizations")
+		}
+	})
+
+	t.Run("WaitFailureSkipsPrune", func(t *testing.T) {
+		// Given a wait that fails before the desired set has reconciled
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx stdcontext.Context, message string, bp *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("wait failed")
+		}
+		pruned := false
+		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			pruned = true
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the wait error surfaces and prune never runs — no deletion before adoption
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error waiting for kustomizations") {
+			t.Errorf("Expected wait error, got: %v", err)
+		}
+		if pruned {
+			t.Error("Expected prune to be skipped when the wait fails")
+		}
+	})
+
+	t.Run("ErrorPruneFails", func(t *testing.T) {
+		// Given a prune step that fails after a successful wait
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("delete kustomization failed")
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the prune error surfaces
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error pruning orphaned kustomizations") {
+			t.Errorf("Expected prune error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilBlueprint", func(t *testing.T) {
+		// Given a blueprint handler that returns nil
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint { return nil }
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it reports the missing blueprint
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "blueprint is not available") {
+			t.Errorf("Expected blueprint error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorNilResolvedBlueprint", func(t *testing.T) {
+		// Given a handler whose resolved blueprint comes back nil after terraform runs
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return nil, nil }
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it reports the missing resolved blueprint rather than feeding nil downstream
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "resolved blueprint is not available") {
+			t.Errorf("Expected resolved-blueprint error, got: %v", err)
+		}
+	})
+
+	t.Run("ErrorTerraformFails", func(t *testing.T) {
+		// Given a terraform stack whose Up fails
+		mocks := setupApplyTest(t)
+		mocks.TerraformStack.UpFunc = func(bp *blueprintv1alpha1.Blueprint, onApply ...func(id string) (bool, error)) (bool, error) {
+			return false, fmt.Errorf("terraform up failed")
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the terraform error surfaces before any kustomization work
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error applying terraform") {
+			t.Errorf("Expected terraform error, got: %v", err)
+		}
+	})
+
+	t.Run("RejectsUnexpectedArgs", func(t *testing.T) {
+		// Given a bare upgrade command with a stray positional argument
+		mocks := setupApplyTest(t)
+		proj := newApplyAllProject(mocks)
+
+		// When executing with an unexpected argument
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetArgs([]string{"bogus"})
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it is rejected — bare upgrade takes no positional args
+		if err == nil {
+			t.Error("Expected error for unexpected argument, got nil")
+		}
+	})
+}
 
 func TestUpgradeNodeCmd(t *testing.T) {
 	t.Cleanup(func() {
