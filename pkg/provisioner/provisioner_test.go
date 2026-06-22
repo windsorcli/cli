@@ -1388,6 +1388,100 @@ func TestProvisioner_GetVersionMarker(t *testing.T) {
 	})
 }
 
+func TestProvisioner_BeginVersionTransition(t *testing.T) {
+	t.Run("PreservesAppliedAndRecordsTargetUnderUpgradingPhase", func(t *testing.T) {
+		// Given a context already running an older version
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{
+				Phase:          kubernetes.VersionMarkerPhaseIdle,
+				AppliedSources: map[string]kubernetes.SourceRef{"source1": {URL: "old", Ref: "v0"}},
+			}, true, nil
+		}
+		var captured kubernetes.VersionMarker
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			captured = marker
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+
+		// When beginning a transition toward the blueprint
+		if err := provisioner.BeginVersionTransition(createTestBlueprint()); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the written marker is in-flight, preserves the old applied set, and records the new target
+		if captured.Phase != kubernetes.VersionMarkerPhaseUpgrading {
+			t.Errorf("Expected phase %q, got %q", kubernetes.VersionMarkerPhaseUpgrading, captured.Phase)
+		}
+		if captured.AppliedSources["source1"].Ref != "v0" {
+			t.Errorf("Expected applied ref preserved as 'v0', got %q", captured.AppliedSources["source1"].Ref)
+		}
+		target, _ := kubernetes.BuildVersionMarker(createTestBlueprint())
+		if !kubernetes.SourcesEqual(captured.TargetSources, target.AppliedSources) {
+			t.Errorf("Expected target to equal the blueprint source set, got %+v", captured.TargetSources)
+		}
+	})
+
+	t.Run("EmptyAppliedForLegacyContext", func(t *testing.T) {
+		// Given a legacy/first-upgrade context with no recorded marker
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{}, false, nil
+		}
+		var captured kubernetes.VersionMarker
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			captured = marker
+			return nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+
+		// When beginning a transition
+		if err := provisioner.BeginVersionTransition(createTestBlueprint()); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then there is no applied set to preserve, but the target is still recorded
+		if len(captured.AppliedSources) != 0 {
+			t.Errorf("Expected empty applied set for a legacy context, got %+v", captured.AppliedSources)
+		}
+		if len(captured.TargetSources) == 0 {
+			t.Error("Expected the target set to be recorded")
+		}
+	})
+
+	t.Run("ReadFailurePropagates", func(t *testing.T) {
+		// Given a marker read that fails
+		mocks := setupProvisionerMocks(t)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{}, false, fmt.Errorf("connection refused")
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+
+		// When beginning a transition, the read error surfaces rather than writing a wrong marker
+		if err := provisioner.BeginVersionTransition(createTestBlueprint()); err == nil {
+			t.Error("Expected an error when the current marker cannot be read")
+		}
+	})
+
+	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		if err := provisioner.BeginVersionTransition(nil); err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+	})
+
+	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		provisioner.KubernetesManager = nil
+		if err := provisioner.BeginVersionTransition(createTestBlueprint()); err == nil {
+			t.Error("Expected error for nil kubernetes manager")
+		}
+	})
+}
+
 func TestProvisioner_CheckVersionGate(t *testing.T) {
 	// matchingMarker returns a settled marker whose source set equals the test blueprint's.
 	matchingMarker := func() kubernetes.VersionMarker {

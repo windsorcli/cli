@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
 
@@ -40,6 +41,114 @@ func TestUpgradeCmd(t *testing.T) {
 		}
 		if !pruned {
 			t.Error("Expected upgrade to prune orphaned kustomizations")
+		}
+	})
+
+	t.Run("WritesInFlightMarkerThenSettledMarker", func(t *testing.T) {
+		// Given an upgrade whose every step succeeds
+		mocks := setupApplyTest(t)
+		var phases []string
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			phases = append(phases, marker.Phase)
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the bare upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it records the in-flight marker first, then settles it to idle on success
+		if len(phases) != 2 || phases[0] != kubernetes.VersionMarkerPhaseUpgrading || phases[1] != kubernetes.VersionMarkerPhaseIdle {
+			t.Errorf("Expected marker writes [upgrading idle], got %v", phases)
+		}
+	})
+
+	t.Run("LeavesInFlightMarkerWhenWaitFails", func(t *testing.T) {
+		// Given a wait that fails after the transition has been recorded
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.WaitForKustomizationsFunc = func(ctx stdcontext.Context, message string, bp *blueprintv1alpha1.Blueprint) error {
+			return fmt.Errorf("wait failed")
+		}
+		var phases []string
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			phases = append(phases, marker.Phase)
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the failure surfaces and the marker is left in-flight (never settled) so apply refuses
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if len(phases) != 1 || phases[0] != kubernetes.VersionMarkerPhaseUpgrading {
+			t.Errorf("Expected only the in-flight marker write, got %v", phases)
+		}
+	})
+
+	t.Run("LeavesInFlightMarkerWhenInstallFails", func(t *testing.T) {
+		// Given an install that fails after the transition has been recorded
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("install failed")
+		}
+		var phases []string
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			phases = append(phases, marker.Phase)
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the failure surfaces and the marker is never settled
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if len(phases) != 1 || phases[0] != kubernetes.VersionMarkerPhaseUpgrading {
+			t.Errorf("Expected only the in-flight marker write, got %v", phases)
+		}
+	})
+
+	t.Run("LeavesInFlightMarkerWhenPruneFails", func(t *testing.T) {
+		// Given a prune that fails after install and wait succeed
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("prune failed")
+		}
+		var phases []string
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			phases = append(phases, marker.Phase)
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the failure surfaces and the marker is never settled
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if len(phases) != 1 || phases[0] != kubernetes.VersionMarkerPhaseUpgrading {
+			t.Errorf("Expected only the in-flight marker write, got %v", phases)
 		}
 	})
 

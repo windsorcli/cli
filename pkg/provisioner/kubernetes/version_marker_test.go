@@ -110,11 +110,12 @@ func TestBuildVersionMarker(t *testing.T) {
 
 func TestVersionMarker_ConfigMapRoundTrip(t *testing.T) {
 	t.Run("EncodesAndDecodesToTheSameMarker", func(t *testing.T) {
-		// Given a marker
+		// Given an in-flight marker carrying both applied and target source sets
 		original := VersionMarker{
 			SchemaVersion:  versionMarkerSchemaVersion,
-			Phase:          VersionMarkerPhaseIdle,
+			Phase:          VersionMarkerPhaseUpgrading,
 			AppliedSources: map[string]SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}},
+			TargetSources:  map[string]SourceRef{"core": {URL: "oci://example/core", Ref: "v2.0.0"}},
 		}
 
 		// When it is encoded to ConfigMap data and parsed back
@@ -127,11 +128,11 @@ func TestVersionMarker_ConfigMapRoundTrip(t *testing.T) {
 			t.Fatalf("Expected no parse error, got %v", err)
 		}
 
-		// Then the round-trip preserves the marker
+		// Then the round-trip preserves the phase and both source sets
 		if !ok {
 			t.Fatal("Expected marker to be present")
 		}
-		if parsed.Phase != original.Phase || parsed.AppliedSources["core"] != original.AppliedSources["core"] {
+		if parsed.Phase != original.Phase || parsed.AppliedSources["core"] != original.AppliedSources["core"] || parsed.TargetSources["core"] != original.TargetSources["core"] {
 			t.Errorf("Round-trip mismatch: got %+v, want %+v", parsed, original)
 		}
 	})
@@ -159,6 +160,48 @@ func TestVersionMarker_ConfigMapRoundTrip(t *testing.T) {
 		// Then it errors rather than returning silently zero-valued fields from an unrecognized schema
 		if err == nil {
 			t.Error("Expected an error for an unsupported schema version")
+		}
+	})
+}
+
+func TestBuildTransitionMarker(t *testing.T) {
+	t.Run("PreservesAppliedAndRecordsTargetUnderUpgradingPhase", func(t *testing.T) {
+		// Given the currently-applied source set and a blueprint pinned to a newer ref
+		applied := map[string]SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}}
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata: blueprintv1alpha1.Metadata{Name: "bp"},
+			Sources:  []blueprintv1alpha1.Source{{Name: "core", Url: "oci://example/core", Ref: blueprintv1alpha1.Reference{SemVer: "v2.0.0"}}},
+		}
+
+		// When the transition marker is built
+		marker, err := BuildTransitionMarker(applied, blueprint)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it is in-flight, preserves the applied ref, and records the target ref
+		if marker.Phase != VersionMarkerPhaseUpgrading {
+			t.Errorf("Expected phase %q, got %q", VersionMarkerPhaseUpgrading, marker.Phase)
+		}
+		if marker.AppliedSources["core"].Ref != "v1.0.0" {
+			t.Errorf("Expected applied ref 'v1.0.0', got %q", marker.AppliedSources["core"].Ref)
+		}
+		if marker.TargetSources["core"].Ref != "v2.0.0" {
+			t.Errorf("Expected target ref 'v2.0.0', got %q", marker.TargetSources["core"].Ref)
+		}
+	})
+
+	t.Run("PropagatesBlueprintReductionError", func(t *testing.T) {
+		// Given a blueprint whose repository name collides with a declared source
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:   blueprintv1alpha1.Metadata{Name: "core"},
+			Repository: blueprintv1alpha1.Repository{Url: "http://git.test/core", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+			Sources:    []blueprintv1alpha1.Source{{Name: "core", Url: "oci://example/core", Ref: blueprintv1alpha1.Reference{SemVer: "v2.0.0"}}},
+		}
+
+		// When the transition marker is built, the underlying reduction error surfaces
+		if _, err := BuildTransitionMarker(nil, blueprint); err == nil {
+			t.Error("Expected an error when the blueprint cannot be reduced to an unambiguous set")
 		}
 	})
 }

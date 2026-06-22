@@ -28,6 +28,10 @@ const (
 
 	// VersionMarkerPhaseIdle marks a context with no upgrade in flight.
 	VersionMarkerPhaseIdle = "idle"
+
+	// VersionMarkerPhaseUpgrading is the phase of a context with an upgrade in flight. apply's
+	// version gate refuses any non-idle phase, so an interrupted upgrade is resumed, not reconciled.
+	VersionMarkerPhaseUpgrading = "upgrading"
 )
 
 // =============================================================================
@@ -50,6 +54,7 @@ type VersionMarker struct {
 	SchemaVersion  int                  `json:"schemaVersion"`
 	Phase          string               `json:"phase"`
 	AppliedSources map[string]SourceRef `json:"appliedSources,omitempty"`
+	TargetSources  map[string]SourceRef `json:"targetSources,omitempty"`
 }
 
 // =============================================================================
@@ -97,6 +102,22 @@ func BuildVersionMarker(blueprint *blueprintv1alpha1.Blueprint) (VersionMarker, 
 		}
 	}
 	return marker, nil
+}
+
+// BuildTransitionMarker returns an in-flight marker for an upgrade toward blueprint: the applied
+// source set (empty for a legacy context) plus the blueprint's set as the target, under the
+// upgrading phase. WriteVersionMarker replaces it with a settled marker once the upgrade succeeds.
+func BuildTransitionMarker(applied map[string]SourceRef, blueprint *blueprintv1alpha1.Blueprint) (VersionMarker, error) {
+	target, err := BuildVersionMarker(blueprint)
+	if err != nil {
+		return VersionMarker{}, err
+	}
+	return VersionMarker{
+		SchemaVersion:  versionMarkerSchemaVersion,
+		Phase:          VersionMarkerPhaseUpgrading,
+		AppliedSources: applied,
+		TargetSources:  target.AppliedSources,
+	}, nil
 }
 
 // ToConfigMapData encodes the marker as ConfigMap data (a single JSON document).
