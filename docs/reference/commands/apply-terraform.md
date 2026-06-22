@@ -5,10 +5,16 @@ description: "Apply Terraform changes for a single component."
 # windsor apply terraform
 
 ```sh
-windsor apply terraform <component>
+windsor apply terraform <component> [flags]
 ```
 
 Run terraform apply for a single component. The <component> argument is required and must match a terraform component declared in the blueprint.
+
+## Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--force` | `false` | Apply even if the blueprint version differs from what is applied (skips the upgrade version gate). |
 
 ## Examples
 

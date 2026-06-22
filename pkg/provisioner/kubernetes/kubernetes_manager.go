@@ -55,6 +55,7 @@ type KubernetesManager interface {
 	DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	PruneBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	ApplyVersionMarker(namespace string, marker VersionMarker) error
+	GetVersionMarker(namespace string) (VersionMarker, bool, error)
 }
 
 // InventoryEntry identifies one resource Flux is tracking for a Kustomization,
@@ -499,6 +500,33 @@ func (k *BaseKubernetesManager) ApplyVersionMarker(namespace string, marker Vers
 		return fmt.Errorf("failed to encode version marker: %w", err)
 	}
 	return k.ApplyConfigMap(VersionMarkerConfigMapName, namespace, data)
+}
+
+// GetVersionMarker reads the applied-version marker ConfigMap from the namespace, reporting false
+// when no marker is present — a missing ConfigMap (pre-bootstrap context) or one without marker data
+// (legacy cluster). It returns an error only on a real read or decode failure, so callers can tell
+// "no marker yet" (proceed as legacy) apart from "could not read the marker" (cluster unreachable).
+func (k *BaseKubernetesManager) GetVersionMarker(namespace string) (VersionMarker, bool, error) {
+	gvr := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "configmaps",
+	}
+	obj, err := k.client.GetResource(gvr, namespace, VersionMarkerConfigMapName)
+	if err != nil {
+		if isNotFoundError(err) {
+			return VersionMarker{}, false, nil
+		}
+		return VersionMarker{}, false, fmt.Errorf("failed to read version marker: %w", err)
+	}
+	data, found, err := unstructured.NestedStringMap(obj.Object, "data")
+	if err != nil {
+		return VersionMarker{}, false, fmt.Errorf("failed to read version marker data: %w", err)
+	}
+	if !found {
+		return VersionMarker{}, false, nil
+	}
+	return ParseVersionMarker(data)
 }
 
 // GetHelmReleasesForKustomization gets HelmReleases associated with a Kustomization

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -150,6 +152,216 @@ func makeApplyTestCmd(source *cobra.Command) *cobra.Command {
 // =============================================================================
 // Test Cases
 // =============================================================================
+
+// seedKubeconfig points the runtime's config root at a temp dir holding a kubeconfig so the
+// version gate's kubeconfigPresent() probe engages (the apply harness leaves ConfigRoot empty,
+// which short-circuits the gate). Returns the config root.
+func seedKubeconfig(t *testing.T, mocks *ApplyMocks) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".kube"), 0755); err != nil {
+		t.Fatalf("seed kubeconfig dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".kube", "config"), []byte("apiVersion: v1\nkind: Config\n"), 0644); err != nil {
+		t.Fatalf("seed kubeconfig: %v", err)
+	}
+	mocks.Runtime.ConfigRoot = root
+	return root
+}
+
+func TestApplyCmd_VersionGate(t *testing.T) {
+	createTestApplyCmd := func() *cobra.Command { return makeApplyTestCmd(applyCmd) }
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	run := func(t *testing.T, proj *project.Project, args ...string) error {
+		t.Helper()
+		cmd := createTestApplyCmd()
+		cmd.SetArgs(args)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		return cmd.Execute()
+	}
+
+	t.Run("RefusesWhenVersionDiffers", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given a cluster whose applied marker differs from the blueprint
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{
+				SchemaVersion:  1,
+				Phase:          kubernetes.VersionMarkerPhaseIdle,
+				AppliedSources: map[string]kubernetes.SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}},
+			}, true, nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When applying without --force
+		err := run(t, proj)
+
+		// Then apply refuses and points at upgrade
+		if err == nil {
+			t.Fatal("Expected apply to refuse a version mismatch, got nil")
+		}
+		if !strings.Contains(err.Error(), "upgrade") {
+			t.Errorf("Expected redirect to upgrade, got: %v", err)
+		}
+	})
+
+	t.Run("ForceAppliesAcrossVersionMismatch", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given the same version mismatch
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{
+				SchemaVersion:  1,
+				Phase:          kubernetes.VersionMarkerPhaseIdle,
+				AppliedSources: map[string]kubernetes.SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}},
+			}, true, nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When applying with --force
+		err := run(t, proj, "--force")
+
+		// Then the gate is overridden and apply proceeds
+		if err != nil {
+			t.Errorf("Expected --force to apply across a mismatch, got %v", err)
+		}
+	})
+
+	t.Run("RefusesWhenUpgradeInFlight", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given a marker mid-transition
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{SchemaVersion: 1, Phase: "migrating"}, true, nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When applying, even with --force, an in-flight transition is refused
+		err := run(t, proj, "--force")
+		if err == nil {
+			t.Fatal("Expected apply to refuse during an in-flight upgrade, got nil")
+		}
+		if !strings.Contains(err.Error(), "upgrade") {
+			t.Errorf("Expected an in-flight upgrade message, got: %v", err)
+		}
+	})
+
+	t.Run("ProceedsForLegacyContextWithNoMarker", func(t *testing.T) {
+		// Given a cluster with no marker recorded
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{}, false, nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When applying, the legacy context is allowed through
+		if err := run(t, proj); err != nil {
+			t.Errorf("Expected apply to proceed for a legacy context, got %v", err)
+		}
+	})
+
+	t.Run("ProceedsBestEffortWhenMarkerReadFails", func(t *testing.T) {
+		// Given a marker read that fails (cluster unreachable)
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{}, false, fmt.Errorf("connection refused")
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When applying, the gate is best-effort and does not block recovery
+		if err := run(t, proj); err != nil {
+			t.Errorf("Expected apply to proceed when the marker cannot be read, got %v", err)
+		}
+	})
+
+	// mismatchMarker returns a marker whose source set cannot match the bare test blueprint
+	// (which has no sources), so the gate always sees a version mismatch.
+	mismatchMarker := func(namespace string) (kubernetes.VersionMarker, bool, error) {
+		return kubernetes.VersionMarker{
+			SchemaVersion:  1,
+			Phase:          kubernetes.VersionMarkerPhaseIdle,
+			AppliedSources: map[string]kubernetes.SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}},
+		}, true, nil
+	}
+
+	runCmd := func(t *testing.T, source *cobra.Command, proj *project.Project, args ...string) error {
+		t.Helper()
+		cmd := makeApplyTestCmd(source)
+		cmd.SetArgs(args)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		return cmd.Execute()
+	}
+
+	t.Run("RefusesOnApplyTerraformSubcommand", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given a version mismatch, the apply terraform subcommand must also gate
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = mismatchMarker
+		proj := newApplyAllProject(mocks)
+
+		err := runCmd(t, applyTerraformCmd, proj, "cluster")
+		if err == nil {
+			t.Fatal("Expected apply terraform to refuse a version mismatch, got nil")
+		}
+		if !strings.Contains(err.Error(), "upgrade") {
+			t.Errorf("Expected redirect to upgrade, got: %v", err)
+		}
+	})
+
+	t.Run("ForceOnApplyTerraformSubcommand", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given the same mismatch, --force must be honored on the subcommand
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = mismatchMarker
+		proj := newApplyAllProject(mocks)
+
+		if err := runCmd(t, applyTerraformCmd, proj, "cluster", "--force"); err != nil {
+			t.Errorf("Expected --force to apply terraform across a mismatch, got %v", err)
+		}
+	})
+
+	t.Run("RefusesOnApplyKustomizeSubcommand", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given a version mismatch, the apply kustomize subcommand must also gate
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = mismatchMarker
+		proj := newApplyAllProject(mocks)
+
+		err := runCmd(t, applyKustomizeCmd, proj)
+		if err == nil {
+			t.Fatal("Expected apply kustomize to refuse a version mismatch, got nil")
+		}
+		if !strings.Contains(err.Error(), "upgrade") {
+			t.Errorf("Expected redirect to upgrade, got: %v", err)
+		}
+	})
+
+	t.Run("ForceOnApplyKustomizeSubcommand", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given the same mismatch, --force must be honored on the subcommand
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = mismatchMarker
+		proj := newApplyAllProject(mocks)
+
+		if err := runCmd(t, applyKustomizeCmd, proj, "--force"); err != nil {
+			t.Errorf("Expected --force to apply kustomize across a mismatch, got %v", err)
+		}
+	})
+}
 
 func TestApplyCmd(t *testing.T) {
 	createTestApplyCmd := func() *cobra.Command { return makeApplyTestCmd(applyCmd) }

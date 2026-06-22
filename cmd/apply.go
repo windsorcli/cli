@@ -5,11 +5,13 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
-var applyWaitFlag bool // Wait for kustomization resources to be ready after applying
+var applyWaitFlag bool  // Wait for kustomization resources to be ready after applying
+var applyForceFlag bool // Apply even when the blueprint version differs from what is applied
 
 var applyCmd = &cobra.Command{
 	Use:   "apply",
@@ -50,6 +52,10 @@ windsor apply kustomize dns`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 		if blueprint == nil {
 			return fmt.Errorf("blueprint is not available")
+		}
+
+		if err := enforceApplyVersionGate(cmd, proj, blueprint, applyForceFlag); err != nil {
+			return err
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
@@ -114,6 +120,9 @@ windsor apply tf cluster`,
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
+		if err := enforceApplyVersionGate(cmd, proj, blueprint, applyForceFlag); err != nil {
+			return err
+		}
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
 			if err := proj.Provisioner.Apply(blueprint, componentID); err != nil {
 				return fmt.Errorf("error applying terraform for %s: %w", componentID, err)
@@ -155,6 +164,9 @@ windsor apply kustomize dns --wait`,
 		if blueprint == nil {
 			return fmt.Errorf("blueprint is not available")
 		}
+		if err := enforceApplyVersionGate(cmd, proj, blueprint, applyForceFlag); err != nil {
+			return err
+		}
 		waitBlueprint := blueprint
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
@@ -190,9 +202,46 @@ windsor apply kustomize dns --wait`,
 	},
 }
 
+// enforceApplyVersionGate enforces the version-equality seam for `apply`: apply reconciles the
+// currently-applied blueprint version and refuses to cross a version boundary, which belongs to
+// `upgrade`. A context with no readable marker (pre-bootstrap, no cluster, or legacy) is allowed —
+// there is nothing applied to cross. An in-flight upgrade is refused so a half-finished transition
+// is resumed with `upgrade`, never reconciled by `apply`; --force does not override this, since
+// applying over a live transition risks corrupting it. A version mismatch is refused and redirected
+// to `upgrade`, unless --force is set, in which case it warns and proceeds. A marker read failure
+// (cluster unreachable) is best-effort: it warns and proceeds rather than blocking terraform-based
+// recovery, since apply's later steps would surface a genuinely-unreachable cluster anyway.
+func enforceApplyVersionGate(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, force bool) error {
+	gate, err := proj.Provisioner.CheckVersionGate(blueprint)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not verify the applied blueprint version (%v); proceeding without the version gate.\n", err)
+		return nil
+	}
+	if !gate.MarkerFound {
+		return nil
+	}
+	if gate.InFlight {
+		silenceErrorsOnAncestors(cmd)
+		return fmt.Errorf("an upgrade is in progress for this context; run `windsor upgrade` to resume it. apply cannot reconcile a half-finished version transition")
+	}
+	if !gate.VersionMatch {
+		if force {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: the blueprint version differs from what is applied; applying anyway because --force was set.")
+			return nil
+		}
+		silenceErrorsOnAncestors(cmd)
+		return fmt.Errorf("the blueprint version differs from what is applied; run `windsor upgrade` to transition versions, or re-run with --force to apply against the current version anyway")
+	}
+	return nil
+}
+
 func init() {
+	const forceUsage = "Apply even if the blueprint version differs from what is applied (skips the upgrade version gate)."
 	applyCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	applyCmd.Flags().BoolVar(&applyForceFlag, "force", false, forceUsage)
 	applyKustomizeCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	applyKustomizeCmd.Flags().BoolVar(&applyForceFlag, "force", false, forceUsage)
+	applyTerraformCmd.Flags().BoolVar(&applyForceFlag, "force", false, forceUsage)
 	applyCmd.AddCommand(applyTerraformCmd)
 	applyCmd.AddCommand(applyKustomizeCmd)
 	rootCmd.AddCommand(applyCmd)
