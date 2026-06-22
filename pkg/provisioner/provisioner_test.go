@@ -1282,8 +1282,12 @@ func TestProvisioner_Prune(t *testing.T) {
 		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
 		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
 
+		// And a blueprint that vendors CRDs, so Prune must synthesize the CRD layer
+		blueprint := createTestBlueprint()
+		blueprint.Crds = []string{"example.com_widgets"}
+
 		// When pruning
-		if err := provisioner.Prune(createTestBlueprint()); err != nil {
+		if err := provisioner.Prune(blueprint); err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
@@ -1291,8 +1295,23 @@ func TestProvisioner_Prune(t *testing.T) {
 		if capturedNamespace != provisioner.fluxNamespace() {
 			t.Errorf("Expected namespace %q, got %q", provisioner.fluxNamespace(), capturedNamespace)
 		}
+
+		// And the captured blueprint carries the synthesized CRD layer, proving withCrdLayer
+		// was applied so the CRD kustomizations stay in the desired set and are never pruned
 		if capturedBlueprint == nil {
-			t.Error("Expected a blueprint to be passed to the manager")
+			t.Fatal("Expected a blueprint to be passed to the manager")
+		}
+		crdName := blueprintv1alpha1.CrdKustomizationName("")
+		found := false
+		names := make([]string, 0, len(capturedBlueprint.Kustomizations))
+		for _, k := range capturedBlueprint.Kustomizations {
+			names = append(names, k.Name)
+			if k.Name == crdName {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected synthesized CRD kustomization %q in pruned blueprint, got %v", crdName, names)
 		}
 	})
 
