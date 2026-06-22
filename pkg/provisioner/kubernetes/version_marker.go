@@ -7,6 +7,7 @@ package kubernetes
 
 import (
 	"encoding/json"
+	"fmt"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 )
@@ -58,31 +59,44 @@ type VersionMarker struct {
 // BuildVersionMarker captures a settled (idle) marker from the applied blueprint: the repository
 // source (keyed by the blueprint name) and every declared remote source, each with its resolved
 // reference. Local template sources are skipped — they track the working tree and have no version.
-func BuildVersionMarker(blueprint *blueprintv1alpha1.Blueprint) VersionMarker {
+// It errors on a source-name collision (two sources sharing a name, or a source matching the
+// repository's blueprint name) rather than silently overwriting and misrepresenting what was applied.
+func BuildVersionMarker(blueprint *blueprintv1alpha1.Blueprint) (VersionMarker, error) {
 	marker := VersionMarker{
 		SchemaVersion:  versionMarkerSchemaVersion,
 		Phase:          VersionMarkerPhaseIdle,
 		AppliedSources: map[string]SourceRef{},
 	}
 	if blueprint == nil {
-		return marker
+		return marker, nil
+	}
+	addSource := func(name string, ref SourceRef) error {
+		if _, exists := marker.AppliedSources[name]; exists {
+			return fmt.Errorf("duplicate source name %q; cannot record an unambiguous version marker", name)
+		}
+		marker.AppliedSources[name] = ref
+		return nil
 	}
 	if blueprint.Repository.Url != "" {
-		marker.AppliedSources[blueprint.Metadata.Name] = SourceRef{
+		if err := addSource(blueprint.Metadata.Name, SourceRef{
 			URL: blueprint.Repository.Url,
 			Ref: effectiveRef(blueprint.Repository.Ref),
+		}); err != nil {
+			return VersionMarker{}, err
 		}
 	}
 	for _, source := range blueprint.Sources {
 		if blueprintv1alpha1.IsLocalTemplateSource(source) {
 			continue
 		}
-		marker.AppliedSources[source.Name] = SourceRef{
+		if err := addSource(source.Name, SourceRef{
 			URL: source.Url,
 			Ref: effectiveRef(source.Ref),
+		}); err != nil {
+			return VersionMarker{}, err
 		}
 	}
-	return marker
+	return marker, nil
 }
 
 // ToConfigMapData encodes the marker as ConfigMap data (a single JSON document).

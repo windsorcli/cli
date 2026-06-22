@@ -959,7 +959,10 @@ func (i *Provisioner) WriteVersionMarker(blueprint *blueprintv1alpha1.Blueprint)
 		return fmt.Errorf("kubernetes manager not configured")
 	}
 
-	marker := kubernetes.BuildVersionMarker(blueprint)
+	marker, err := kubernetes.BuildVersionMarker(blueprint)
+	if err != nil {
+		return fmt.Errorf("failed to build version marker: %w", err)
+	}
 	if err := i.KubernetesManager.ApplyVersionMarker(i.fluxNamespace(), marker); err != nil {
 		return fmt.Errorf("failed to write version marker: %w", err)
 	}

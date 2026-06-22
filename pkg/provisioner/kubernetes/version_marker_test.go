@@ -26,7 +26,10 @@ func TestBuildVersionMarker(t *testing.T) {
 		}
 
 		// When the marker is built
-		marker := BuildVersionMarker(blueprint)
+		marker, err := BuildVersionMarker(blueprint)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 
 		// Then it is idle, schema-versioned, and records the repository and remote source (not the local template)
 		if marker.Phase != VersionMarkerPhaseIdle {
@@ -58,7 +61,10 @@ func TestBuildVersionMarker(t *testing.T) {
 		}
 
 		// When the marker is built
-		marker := BuildVersionMarker(blueprint)
+		marker, err := BuildVersionMarker(blueprint)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 
 		// Then the commit wins over the tag
 		if marker.AppliedSources["s"].Ref != "abc123" {
@@ -66,9 +72,31 @@ func TestBuildVersionMarker(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorsOnDuplicateSourceName", func(t *testing.T) {
+		// Given a blueprint whose repository name collides with a declared source name
+		blueprint := &blueprintv1alpha1.Blueprint{
+			Metadata:   blueprintv1alpha1.Metadata{Name: "core"},
+			Repository: blueprintv1alpha1.Repository{Url: "http://git.test/git/core", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.6.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.6.0"}},
+			},
+		}
+
+		// When the marker is built
+		_, err := BuildVersionMarker(blueprint)
+
+		// Then it errors rather than silently overwriting the colliding entry
+		if err == nil {
+			t.Error("Expected an error on a duplicate source name")
+		}
+	})
+
 	t.Run("NilBlueprintYieldsIdleMarkerWithNoSources", func(t *testing.T) {
 		// When the marker is built from a nil blueprint
-		marker := BuildVersionMarker(nil)
+		marker, err := BuildVersionMarker(nil)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
 
 		// Then it is idle with an empty source set
 		if marker.Phase != VersionMarkerPhaseIdle {
