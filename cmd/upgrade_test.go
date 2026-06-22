@@ -118,6 +118,27 @@ func TestUpgradeCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrorNilResolvedBlueprint", func(t *testing.T) {
+		// Given a handler whose resolved blueprint comes back nil after terraform runs
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.GenerateResolvedFunc = func() (*blueprintv1alpha1.Blueprint, error) { return nil, nil }
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it reports the missing resolved blueprint rather than feeding nil downstream
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "resolved blueprint is not available") {
+			t.Errorf("Expected resolved-blueprint error, got: %v", err)
+		}
+	})
+
 	t.Run("ErrorTerraformFails", func(t *testing.T) {
 		// Given a terraform stack whose Up fails
 		mocks := setupApplyTest(t)

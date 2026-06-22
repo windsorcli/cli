@@ -70,6 +70,9 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			if resolveErr != nil {
 				return fmt.Errorf("error resolving blueprint substitutions: %w", resolveErr)
 			}
+			if blueprint == nil {
+				return fmt.Errorf("resolved blueprint is not available")
+			}
 
 			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error installing blueprint: %w", err)
