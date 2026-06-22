@@ -6,6 +6,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes/client"
+	"github.com/windsorcli/cli/pkg/runtime/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -155,6 +156,41 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		wire(manager)
 		if err := manager.PruneBlueprint(nil, "system-gitops"); err == nil {
 			t.Error("Expected error for nil blueprint")
+		}
+	})
+
+	t.Run("EmptyContextIDReturnsError", func(t *testing.T) {
+		// Given a manager whose config handler reports no context id
+		mocks := setupKubernetesMocks(t, func(m *KubernetesTestMocks) {
+			m.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				return ""
+			}
+		})
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
+
+		// When pruning without a context id, the guard rejects it before listing anything
+		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err == nil {
+			t.Error("Expected error when context id is not set")
+		}
+	})
+
+	t.Run("ListResourcesErrorIsPropagated", func(t *testing.T) {
+		// Given a client whose kustomization list fails
+		manager := setup(t)
+		c := client.NewMockKubernetesClient()
+		c.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return nil, fmt.Errorf("api server unreachable")
+		}
+		manager.client = c
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{}}
+
+		// When pruning, the list failure is surfaced rather than swallowed
+		if err := manager.PruneBlueprint(blueprint, "system-gitops"); err == nil {
+			t.Error("Expected error when listing kustomizations fails")
 		}
 	})
 }
