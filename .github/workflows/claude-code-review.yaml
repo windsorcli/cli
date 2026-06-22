@@ -478,6 +478,6 @@ jobs:
             description. Be fast.
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 15
+            --max-turns 40
             --allowedTools Read,Bash(gh:*),Bash(cat:*),Bash(jq:*)
             --disallowedTools WebSearch,WebFetch
