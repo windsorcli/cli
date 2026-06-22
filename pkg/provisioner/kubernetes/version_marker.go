@@ -118,6 +118,9 @@ func ParseVersionMarker(data map[string]string) (VersionMarker, bool, error) {
 	if err := json.Unmarshal([]byte(raw), &marker); err != nil {
 		return VersionMarker{}, false, err
 	}
+	if marker.SchemaVersion != versionMarkerSchemaVersion {
+		return VersionMarker{}, false, fmt.Errorf("unsupported version marker schema version %d (supported %d)", marker.SchemaVersion, versionMarkerSchemaVersion)
+	}
 	return marker, true, nil
 }
 

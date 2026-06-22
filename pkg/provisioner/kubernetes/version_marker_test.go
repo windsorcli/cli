@@ -148,6 +148,19 @@ func TestVersionMarker_ConfigMapRoundTrip(t *testing.T) {
 			t.Error("Expected ok=false for data without a marker key")
 		}
 	})
+
+	t.Run("RejectsUnknownSchemaVersion", func(t *testing.T) {
+		// Given ConfigMap data holding a marker written under a newer, unknown schema version
+		data := map[string]string{versionMarkerDataKey: `{"schemaVersion":999,"phase":"idle"}`}
+
+		// When parsing it
+		_, _, err := ParseVersionMarker(data)
+
+		// Then it errors rather than returning silently zero-valued fields from an unrecognized schema
+		if err == nil {
+			t.Error("Expected an error for an unsupported schema version")
+		}
+	})
 }
 
 func TestBaseKubernetesManager_ApplyVersionMarker(t *testing.T) {
