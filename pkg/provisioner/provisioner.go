@@ -970,6 +970,28 @@ func (i *Provisioner) WriteVersionMarker(blueprint *blueprintv1alpha1.Blueprint)
 	return nil
 }
 
+// Prune removes Kustomizations belonging to this context that are no longer present in the
+// blueprint, leaving every still-declared kustomization (platform and user) and any other
+// context's kustomizations untouched. It prepares the blueprint with the synthesized CRD layers —
+// matching what Install applied — so those layers are recognized as desired and not pruned.
+func (i *Provisioner) Prune(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	blueprint = withCrdLayer(blueprint)
+
+	if err := i.KubernetesManager.PruneBlueprint(blueprint, i.fluxNamespace()); err != nil {
+		return fmt.Errorf("failed to prune blueprint: %w", err)
+	}
+
+	return nil
+}
+
 // Uninstall orchestrates the high-level kustomization teardown process from the blueprint.
 // It initializes the kubernetes manager and deletes all blueprint kustomizations, including the
 // synthesized CRD layer (withCrdLayer) so its Flux Kustomization objects are removed symmetrically
