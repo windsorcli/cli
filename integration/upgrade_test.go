@@ -11,6 +11,46 @@ import (
 )
 
 // =============================================================================
+// Integration Tests — upgrade (blueprint)
+// =============================================================================
+
+func TestUpgrade_FailsWhenNotInTrustedDirectory(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	// Bare `upgrade` now runs the blueprint flow, so it must enforce the trusted-directory
+	// gate. A no-op parent would have printed help and exited 0 instead.
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if !strings.Contains(string(stderr), "trusted") {
+		t.Errorf("expected stderr to mention 'trusted', got: %s", stderr)
+	}
+}
+
+func TestUpgrade_RunsBlueprintFlowInLocalContext(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// Bare `upgrade` drives terraform + the blueprint install/wait/prune flow. With no live
+	// cluster the install/wait phase fails, which proves the command reaches real
+	// provisioning rather than dispatching to the talos subcommands or printing help.
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade"}, env)
+	if err == nil {
+		t.Fatal("expected upgrade to fail without a live cluster, got success")
+	}
+	out := string(stderr)
+	if strings.Contains(out, "unknown command") || strings.Contains(out, "Available Commands") {
+		t.Errorf("expected bare upgrade to run the blueprint flow, not print help, got: %s", out)
+	}
+}
+
+// =============================================================================
 // Integration Tests — upgrade cluster
 // =============================================================================
 

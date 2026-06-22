@@ -9,7 +9,9 @@ import (
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/provisioner"
+	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime"
+	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
 
 var (
@@ -23,13 +25,67 @@ var (
 
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
-	Short: "Upgrade cluster components.",
-	Long:  `Upgrade cluster components. Currently supports Talos node upgrades via the 'cluster' (parallel) and 'node' (one-at-a-time, with health verification) subcommands.`,
+	Short: "Upgrade the blueprint, pruning kustomizations it no longer declares.",
+	Long: `Apply terraform and the Flux blueprint, wait for kustomizations to be ready, then prune any kustomizations this context no longer declares. Pruning runs only after a successful wait, so resources are never deleted before the desired set has reconciled.
+
+Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.`,
+	Example: `# Upgrade the blueprint and prune orphaned kustomizations
+windsor upgrade
+
+# Upgrade Talos nodes in parallel (see 'upgrade cluster')
+windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0`,
 	Annotations: map[string]string{
-		"docs.seealso": "[`check node-health`](check-node-health.md)",
+		"docs.seealso": "[`apply`](apply.md), [`bootstrap`](bootstrap.md), [`plan`](plan.md)",
 		"docs.source":  "cmd/upgrade.go",
 	},
+	Args:         cobra.NoArgs,
 	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// `windsor upgrade` runs the full blueprint — terraform components and Flux
+		// kustomizations both — so the tool surface is not statically narrowable; mirror
+		// `apply` and request AllRequirements(), letting the per-tool config gates decide.
+		proj, err := prepareProject(cmd, tools.AllRequirements())
+		if err != nil {
+			return err
+		}
+
+		if err := requireCloudAuth(cmd, proj); err != nil {
+			return err
+		}
+
+		blueprint := proj.Composer.BlueprintHandler.Generate()
+		if blueprint == nil {
+			return fmt.Errorf("blueprint is not available")
+		}
+
+		return stacklock.With(cmd.Context(), proj.Runtime, "upgrade", func() error {
+			if _, err := proj.Provisioner.Up(blueprint); err != nil {
+				return fmt.Errorf("error applying terraform: %w", err)
+			}
+
+			// Re-generate with deferred substitutions resolved now that terraform
+			// outputs are available from the Up step above.
+			var resolveErr error
+			blueprint, resolveErr = proj.Composer.BlueprintHandler.GenerateResolved()
+			if resolveErr != nil {
+				return fmt.Errorf("error resolving blueprint substitutions: %w", resolveErr)
+			}
+
+			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
+				return fmt.Errorf("error installing blueprint: %w", err)
+			}
+
+			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
+				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			}
+
+			if err := proj.Provisioner.Prune(blueprint); err != nil {
+				return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
+			}
+
+			return nil
+		})
+	},
 }
 
 var upgradeClusterCmd = &cobra.Command{
