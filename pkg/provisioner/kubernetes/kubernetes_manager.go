@@ -53,6 +53,7 @@ type KubernetesManager interface {
 	GetNodeReadyStatus(ctx context.Context, nodeNames []string) (map[string]bool, error)
 	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+	PruneBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	ApplyVersionMarker(namespace string, marker VersionMarker) error
 }
 
@@ -1016,6 +1017,72 @@ func (k *BaseKubernetesManager) DeleteBlueprint(blueprint *blueprintv1alpha1.Blu
 	return nil
 }
 
+// PruneBlueprint deletes Kustomizations belonging to the current context that are no longer part of
+// the blueprint. It scopes strictly to this context — only objects carrying the
+// windsorcli.dev/context-id label for this context are considered, so kustomizations owned by other
+// contexts (or by no Windsor context) are never touched. Every non-DestroyOnly kustomization in the
+// blueprint is treated as desired; the live remainder is deleted in reverse-dependency order (read
+// from each object's live spec.dependsOn) so dependents tear down before their dependencies, each
+// honoring its own deletionPolicy. The caller passes the same prepared blueprint Install applied
+// (CRD layers included) so the synthesized crds/crds-<source> layers are recognized as desired and
+// not pruned. Deletion errors are collected and joined rather than aborting on the first.
+func (k *BaseKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+
+	contextID := k.configHandler.GetString("id")
+	if contextID == "" {
+		return fmt.Errorf("context id not set; cannot scope pruning to this context")
+	}
+
+	desired := make(map[string]bool, len(blueprint.Kustomizations))
+	for _, kustomization := range blueprint.Kustomizations {
+		if kustomization.DestroyOnly != nil && *kustomization.DestroyOnly {
+			continue
+		}
+		desired[kustomization.Name] = true
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+	list, err := k.client.ListResources(gvr, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to list kustomizations for pruning: %w", err)
+	}
+
+	orphans := make([]blueprintv1alpha1.Kustomization, 0)
+	for i := range list.Items {
+		item := list.Items[i]
+		if item.GetLabels()["windsorcli.dev/context-id"] != contextID {
+			continue
+		}
+		name := item.GetName()
+		if desired[name] {
+			continue
+		}
+		orphans = append(orphans, blueprintv1alpha1.Kustomization{
+			Name:      name,
+			DependsOn: dependsOnFromObject(item),
+		})
+	}
+
+	if len(orphans) == 0 {
+		return nil
+	}
+
+	var errs []error
+	for _, orphan := range orderForDestroy(orphans, "prune") {
+		if err := k.DeleteKustomization(orphan.Name, namespace); err != nil {
+			errs = append(errs, fmt.Errorf("failed to prune kustomization %q: %w", orphan.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // processDestroyOnlyKustomizations applies all destroy-only kustomizations, waits for all to become ready, then deletes all.
 // This approach ensures dependencies remain available while Flux reconciles dependent kustomizations.
 // Returns a slice of errors encountered during the process, which may be empty if no errors occurred.
@@ -1586,6 +1653,26 @@ func isNotFoundError(err error) bool {
 		strings.Contains(errMsg, "the server could not find the requested resource") ||
 		strings.Contains(errMsg, "\" not found")) &&
 		!strings.Contains(errMsg, "namespace not found")
+}
+
+// dependsOnFromObject extracts the dependency names from a live Kustomization's spec.dependsOn,
+// used to order pruned kustomizations so dependents are deleted before their dependencies.
+func dependsOnFromObject(obj unstructured.Unstructured) []string {
+	raw, found, err := unstructured.NestedSlice(obj.Object, "spec", "dependsOn")
+	if err != nil || !found {
+		return nil
+	}
+	deps := make([]string, 0, len(raw))
+	for _, entry := range raw {
+		entryMap, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, ok := entryMap["name"].(string); ok && name != "" {
+			deps = append(deps, name)
+		}
+	}
+	return deps
 }
 
 // orderForDestroy returns the input slice ordered for destroy: reverse-topological

@@ -1268,6 +1268,52 @@ func TestProvisioner_WriteVersionMarker(t *testing.T) {
 	})
 }
 
+func TestProvisioner_Prune(t *testing.T) {
+	t.Run("DelegatesToManagerWithGitopsNamespace", func(t *testing.T) {
+		// Given a provisioner capturing the prune call
+		mocks := setupProvisionerMocks(t)
+		var capturedNamespace string
+		var capturedBlueprint *blueprintv1alpha1.Blueprint
+		mocks.KubernetesManager.PruneBlueprintFunc = func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error {
+			capturedNamespace = namespace
+			capturedBlueprint = blueprint
+			return nil
+		}
+		opts := &Provisioner{KubernetesManager: mocks.KubernetesManager}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, opts)
+
+		// When pruning
+		if err := provisioner.Prune(createTestBlueprint()); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it delegates to the manager against the gitops namespace
+		if capturedNamespace != provisioner.fluxNamespace() {
+			t.Errorf("Expected namespace %q, got %q", provisioner.fluxNamespace(), capturedNamespace)
+		}
+		if capturedBlueprint == nil {
+			t.Error("Expected a blueprint to be passed to the manager")
+		}
+	})
+
+	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		if err := provisioner.Prune(nil); err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+	})
+
+	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		provisioner.KubernetesManager = nil
+		if err := provisioner.Prune(createTestBlueprint()); err == nil {
+			t.Error("Expected error for nil kubernetes manager")
+		}
+	})
+}
+
 func TestProvisioner_Install(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		mocks := setupProvisionerMocks(t)
