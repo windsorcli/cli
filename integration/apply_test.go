@@ -100,6 +100,22 @@ func TestApply_AcceptsWaitFlag(t *testing.T) {
 	_ = err // may fail due to infrastructure not being available; flag must be accepted
 }
 
+func TestApply_AcceptsForceFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
+	if err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "--force"}, env)
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("--force should be a recognised flag on apply, got: %s", stderr)
+	}
+	_ = err // may fail due to infrastructure not being available; the flag must be accepted
+}
+
 // TestApplyTerraform_MissingBinary_ShowsActionableError verifies the registry-formatted
 // missing-tool error reaches the user end-to-end: when an `apply terraform` preflight
 // fails because terraform is not on PATH, stderr must include the vendor download URL

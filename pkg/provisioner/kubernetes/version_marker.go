@@ -124,6 +124,23 @@ func ParseVersionMarker(data map[string]string) (VersionMarker, bool, error) {
 	return marker, true, nil
 }
 
+// SourcesEqual reports whether two applied-source sets are identical: the same source names, each
+// carrying the same URL and resolved ref. It is the version-equality test the apply gate uses —
+// equal sets mean the blueprint matches what is applied, so apply may reconcile in place rather than
+// redirect to upgrade. SourceRef is a plain comparable struct, so values compare by field.
+func SourcesEqual(a, b map[string]SourceRef) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for name, ref := range a {
+		other, ok := b[name]
+		if !ok || other != ref {
+			return false
+		}
+	}
+	return true
+}
+
 // effectiveRef resolves a reference in priority order Commit → SemVer → Tag → Branch, matching the
 // composer and terraform provisioner; it returns an empty string when none are set.
 func effectiveRef(ref blueprintv1alpha1.Reference) string {

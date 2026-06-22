@@ -163,6 +163,145 @@ func TestVersionMarker_ConfigMapRoundTrip(t *testing.T) {
 	})
 }
 
+func TestSourcesEqual(t *testing.T) {
+	base := map[string]SourceRef{"core": {URL: "u", Ref: "v1"}}
+
+	t.Run("EqualForIdenticalSets", func(t *testing.T) {
+		if !SourcesEqual(base, map[string]SourceRef{"core": {URL: "u", Ref: "v1"}}) {
+			t.Error("Expected identical sets to be equal")
+		}
+	})
+
+	t.Run("UnequalWhenRefDiffers", func(t *testing.T) {
+		if SourcesEqual(base, map[string]SourceRef{"core": {URL: "u", Ref: "v2"}}) {
+			t.Error("Expected differing refs to be unequal")
+		}
+	})
+
+	t.Run("UnequalWhenKeyMissing", func(t *testing.T) {
+		if SourcesEqual(base, map[string]SourceRef{"other": {URL: "u", Ref: "v1"}}) {
+			t.Error("Expected sets with different keys to be unequal")
+		}
+	})
+
+	t.Run("UnequalWhenLengthDiffers", func(t *testing.T) {
+		if SourcesEqual(base, map[string]SourceRef{"core": {URL: "u", Ref: "v1"}, "extra": {URL: "x", Ref: "v1"}}) {
+			t.Error("Expected sets of different sizes to be unequal")
+		}
+	})
+}
+
+func TestBaseKubernetesManager_GetVersionMarker(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		return NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+	}
+
+	t.Run("ReturnsParsedMarkerWhenPresent", func(t *testing.T) {
+		// Given a marker ConfigMap present in the gitops namespace
+		manager := setup(t)
+		marker := VersionMarker{
+			SchemaVersion:  versionMarkerSchemaVersion,
+			Phase:          VersionMarkerPhaseIdle,
+			AppliedSources: map[string]SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}},
+		}
+		data, err := marker.ToConfigMapData()
+		if err != nil {
+			t.Fatalf("encode marker: %v", err)
+		}
+		c := client.NewMockKubernetesClient()
+		c.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			d := map[string]any{}
+			for k, v := range data {
+				d[k] = v
+			}
+			return &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata":   map[string]any{"name": name, "namespace": ns},
+				"data":       d,
+			}}, nil
+		}
+		manager.client = c
+
+		// When the marker is read
+		got, found, err := manager.GetVersionMarker("system-gitops")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it is found and decoded
+		if !found {
+			t.Fatal("Expected marker to be found")
+		}
+		if got.AppliedSources["core"].Ref != "v1.0.0" {
+			t.Errorf("Expected core ref 'v1.0.0', got %q", got.AppliedSources["core"].Ref)
+		}
+	})
+
+	t.Run("ReportsAbsentWhenConfigMapNotFound", func(t *testing.T) {
+		// Given no marker ConfigMap (pre-bootstrap context)
+		manager := setup(t)
+		c := client.NewMockKubernetesClient()
+		c.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("configmaps %q not found", name)
+		}
+		manager.client = c
+
+		// When the marker is read
+		_, found, err := manager.GetVersionMarker("system-gitops")
+
+		// Then it reports absent without error
+		if err != nil {
+			t.Fatalf("Expected no error for a missing marker, got %v", err)
+		}
+		if found {
+			t.Error("Expected found=false when the ConfigMap is absent")
+		}
+	})
+
+	t.Run("ReportsAbsentWhenConfigMapHasNoData", func(t *testing.T) {
+		// Given a marker ConfigMap that carries no data (legacy)
+		manager := setup(t)
+		c := client.NewMockKubernetesClient()
+		c.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata":   map[string]any{"name": name, "namespace": ns},
+			}}, nil
+		}
+		manager.client = c
+
+		// When the marker is read
+		_, found, err := manager.GetVersionMarker("system-gitops")
+
+		// Then it reports absent without error
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if found {
+			t.Error("Expected found=false when the ConfigMap carries no data")
+		}
+	})
+
+	t.Run("ErrorsOnReadFailure", func(t *testing.T) {
+		// Given a cluster that is unreachable
+		manager := setup(t)
+		c := client.NewMockKubernetesClient()
+		c.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+		manager.client = c
+
+		// When the marker is read, the failure surfaces rather than being mistaken for "absent"
+		if _, _, err := manager.GetVersionMarker("system-gitops"); err == nil {
+			t.Error("Expected an error when the marker read fails")
+		}
+	})
+}
+
 func TestBaseKubernetesManager_ApplyVersionMarker(t *testing.T) {
 	setup := func(t *testing.T) *BaseKubernetesManager {
 		t.Helper()

@@ -27,6 +27,7 @@ type MockKubernetesManager struct {
 	DeleteNamespaceFunc                 func(name string) error
 	ApplyConfigMapFunc                  func(name, namespace string, data map[string]string) error
 	ApplyVersionMarkerFunc              func(namespace string, marker VersionMarker) error
+	GetVersionMarkerFunc                func(namespace string) (VersionMarker, bool, error)
 	GetHelmReleasesForKustomizationFunc func(name, namespace string) ([]helmv2.HelmRelease, error)
 	ApplyGitRepositoryFunc              func(repo *sourcev1.GitRepository) error
 	ApplyOCIRepositoryFunc              func(repo *sourcev1.OCIRepository) error
@@ -115,6 +116,14 @@ func (m *MockKubernetesManager) ApplyVersionMarker(namespace string, marker Vers
 		return m.ApplyVersionMarkerFunc(namespace, marker)
 	}
 	return nil
+}
+
+// GetVersionMarker implements KubernetesManager interface
+func (m *MockKubernetesManager) GetVersionMarker(namespace string) (VersionMarker, bool, error) {
+	if m.GetVersionMarkerFunc != nil {
+		return m.GetVersionMarkerFunc(namespace)
+	}
+	return VersionMarker{}, false, nil
 }
 
 // GetHelmReleasesForKustomization implements KubernetesManager interface

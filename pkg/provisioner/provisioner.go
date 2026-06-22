@@ -83,6 +83,17 @@ type DestroyPlanSummary struct {
 	Kustomize []fluxinfra.KustomizePlan
 }
 
+// VersionGate describes how the blueprint a command is about to apply relates to the version marker
+// recorded in the cluster. It is the input to apply's version-equality seam: apply may reconcile in
+// place only when a settled marker matches the blueprint it would apply. Any other state — a version
+// mismatch or an in-flight transition — belongs to upgrade. The caller decides policy (proceed,
+// refuse, or honor --force); this struct only reports the relation.
+type VersionGate struct {
+	MarkerFound  bool // a marker exists for this context (false = pre-bootstrap, no cluster, or legacy)
+	InFlight     bool // an upgrade is mid-transition (marker phase is not idle)
+	VersionMatch bool // the blueprint's resolved source-ref set equals the applied set
+}
+
 // NodeHealthCheckOptions contains options for node health checking.
 type NodeHealthCheckOptions struct {
 	Nodes               []string
@@ -990,6 +1001,53 @@ func (i *Provisioner) Prune(blueprint *blueprintv1alpha1.Blueprint) error {
 	}
 
 	return nil
+}
+
+// GetVersionMarker reads the applied-version marker for this context's gitops namespace, reporting
+// false when no marker exists (a pre-bootstrap, no-cluster, or legacy context). apply and plan read
+// the marker to gate on the blueprint version; only bootstrap and upgrade write it. Returns false
+// without consulting the cluster when no context-scoped kubeconfig is present — there is no cluster,
+// so nothing is applied and there is no version to read.
+func (i *Provisioner) GetVersionMarker() (kubernetes.VersionMarker, bool, error) {
+	if i.KubernetesManager == nil {
+		return kubernetes.VersionMarker{}, false, fmt.Errorf("kubernetes manager not configured")
+	}
+	if !i.kubeconfigPresent() {
+		return kubernetes.VersionMarker{}, false, nil
+	}
+	return i.KubernetesManager.GetVersionMarker(i.fluxNamespace())
+}
+
+// CheckVersionGate reads the version marker and reports how the given blueprint relates to it,
+// without deciding policy. A missing marker (pre-bootstrap, no cluster, or legacy) yields
+// MarkerFound=false so callers treat it as "nothing applied yet — proceed". When a marker exists,
+// InFlight reflects a non-idle phase and VersionMatch compares the blueprint's resolved source-ref
+// set against the applied set. Returns an error only on a real read/decode failure or when the
+// blueprint's sources cannot be reduced to an unambiguous set; callers may treat a read failure as
+// best-effort (cluster unreachable) rather than a hard stop.
+func (i *Provisioner) CheckVersionGate(blueprint *blueprintv1alpha1.Blueprint) (VersionGate, error) {
+	if blueprint == nil {
+		return VersionGate{}, fmt.Errorf("blueprint not provided")
+	}
+
+	marker, found, err := i.GetVersionMarker()
+	if err != nil {
+		return VersionGate{}, err
+	}
+	if !found {
+		return VersionGate{MarkerFound: false}, nil
+	}
+
+	target, err := kubernetes.BuildVersionMarker(blueprint)
+	if err != nil {
+		return VersionGate{}, fmt.Errorf("failed to derive blueprint version: %w", err)
+	}
+
+	return VersionGate{
+		MarkerFound:  true,
+		InFlight:     marker.Phase != "" && marker.Phase != kubernetes.VersionMarkerPhaseIdle,
+		VersionMatch: kubernetes.SourcesEqual(marker.AppliedSources, target.AppliedSources),
+	}, nil
 }
 
 // Uninstall orchestrates the high-level kustomization teardown process from the blueprint.
