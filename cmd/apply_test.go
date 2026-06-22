@@ -282,6 +282,85 @@ func TestApplyCmd_VersionGate(t *testing.T) {
 			t.Errorf("Expected apply to proceed when the marker cannot be read, got %v", err)
 		}
 	})
+
+	// mismatchMarker returns a marker whose source set cannot match the bare test blueprint
+	// (which has no sources), so the gate always sees a version mismatch.
+	mismatchMarker := func(namespace string) (kubernetes.VersionMarker, bool, error) {
+		return kubernetes.VersionMarker{
+			SchemaVersion:  1,
+			Phase:          kubernetes.VersionMarkerPhaseIdle,
+			AppliedSources: map[string]kubernetes.SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}},
+		}, true, nil
+	}
+
+	runCmd := func(t *testing.T, source *cobra.Command, proj *project.Project, args ...string) error {
+		t.Helper()
+		cmd := makeApplyTestCmd(source)
+		cmd.SetArgs(args)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		return cmd.Execute()
+	}
+
+	t.Run("RefusesOnApplyTerraformSubcommand", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given a version mismatch, the apply terraform subcommand must also gate
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = mismatchMarker
+		proj := newApplyAllProject(mocks)
+
+		err := runCmd(t, applyTerraformCmd, proj, "cluster")
+		if err == nil {
+			t.Fatal("Expected apply terraform to refuse a version mismatch, got nil")
+		}
+		if !strings.Contains(err.Error(), "upgrade") {
+			t.Errorf("Expected redirect to upgrade, got: %v", err)
+		}
+	})
+
+	t.Run("ForceOnApplyTerraformSubcommand", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given the same mismatch, --force must be honored on the subcommand
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = mismatchMarker
+		proj := newApplyAllProject(mocks)
+
+		if err := runCmd(t, applyTerraformCmd, proj, "cluster", "--force"); err != nil {
+			t.Errorf("Expected --force to apply terraform across a mismatch, got %v", err)
+		}
+	})
+
+	t.Run("RefusesOnApplyKustomizeSubcommand", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given a version mismatch, the apply kustomize subcommand must also gate
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = mismatchMarker
+		proj := newApplyAllProject(mocks)
+
+		err := runCmd(t, applyKustomizeCmd, proj)
+		if err == nil {
+			t.Fatal("Expected apply kustomize to refuse a version mismatch, got nil")
+		}
+		if !strings.Contains(err.Error(), "upgrade") {
+			t.Errorf("Expected redirect to upgrade, got: %v", err)
+		}
+	})
+
+	t.Run("ForceOnApplyKustomizeSubcommand", func(t *testing.T) {
+		t.Cleanup(func() { applyForceFlag = false })
+		// Given the same mismatch, --force must be honored on the subcommand
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = mismatchMarker
+		proj := newApplyAllProject(mocks)
+
+		if err := runCmd(t, applyKustomizeCmd, proj, "--force"); err != nil {
+			t.Errorf("Expected --force to apply kustomize across a mismatch, got %v", err)
+		}
+	})
 }
 
 func TestApplyCmd(t *testing.T) {

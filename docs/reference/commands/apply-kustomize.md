@@ -16,6 +16,7 @@ When a name is supplied with --wait, the wait scope is narrowed to only that kus
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--force` | `false` | Apply even if the blueprint version differs from what is applied (skips the upgrade version gate). |
 | `--wait` | `false` | Wait for kustomization resources to be ready. |
 
 ## Examples

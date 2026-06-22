@@ -120,6 +120,9 @@ windsor apply tf cluster`,
 		}
 
 		blueprint := proj.Composer.BlueprintHandler.Generate()
+		if err := enforceApplyVersionGate(cmd, proj, blueprint, applyForceFlag); err != nil {
+			return err
+		}
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
 			if err := proj.Provisioner.Apply(blueprint, componentID); err != nil {
 				return fmt.Errorf("error applying terraform for %s: %w", componentID, err)
@@ -160,6 +163,9 @@ windsor apply kustomize dns --wait`,
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 		if blueprint == nil {
 			return fmt.Errorf("blueprint is not available")
+		}
+		if err := enforceApplyVersionGate(cmd, proj, blueprint, applyForceFlag); err != nil {
+			return err
 		}
 		waitBlueprint := blueprint
 
@@ -230,9 +236,12 @@ func enforceApplyVersionGate(cmd *cobra.Command, proj *project.Project, blueprin
 }
 
 func init() {
+	const forceUsage = "Apply even if the blueprint version differs from what is applied (skips the upgrade version gate)."
 	applyCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
-	applyCmd.Flags().BoolVar(&applyForceFlag, "force", false, "Apply even if the blueprint version differs from what is applied (skips the upgrade version gate).")
+	applyCmd.Flags().BoolVar(&applyForceFlag, "force", false, forceUsage)
 	applyKustomizeCmd.Flags().BoolVar(&applyWaitFlag, "wait", false, "Wait for kustomization resources to be ready.")
+	applyKustomizeCmd.Flags().BoolVar(&applyForceFlag, "force", false, forceUsage)
+	applyTerraformCmd.Flags().BoolVar(&applyForceFlag, "force", false, forceUsage)
 	applyCmd.AddCommand(applyTerraformCmd)
 	applyCmd.AddCommand(applyKustomizeCmd)
 	rootCmd.AddCommand(applyCmd)
