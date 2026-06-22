@@ -96,6 +96,62 @@ func TestUpgradeCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("LeavesInFlightMarkerWhenInstallFails", func(t *testing.T) {
+		// Given an install that fails after the transition has been recorded
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("install failed")
+		}
+		var phases []string
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			phases = append(phases, marker.Phase)
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the failure surfaces and the marker is never settled
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if len(phases) != 1 || phases[0] != kubernetes.VersionMarkerPhaseUpgrading {
+			t.Errorf("Expected only the in-flight marker write, got %v", phases)
+		}
+	})
+
+	t.Run("LeavesInFlightMarkerWhenPruneFails", func(t *testing.T) {
+		// Given a prune that fails after install and wait succeed
+		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			return fmt.Errorf("prune failed")
+		}
+		var phases []string
+		mocks.KubernetesManager.ApplyVersionMarkerFunc = func(namespace string, marker kubernetes.VersionMarker) error {
+			phases = append(phases, marker.Phase)
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When executing the upgrade command
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the failure surfaces and the marker is never settled
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if len(phases) != 1 || phases[0] != kubernetes.VersionMarkerPhaseUpgrading {
+			t.Errorf("Expected only the in-flight marker write, got %v", phases)
+		}
+	})
+
 	t.Run("WaitFailureSkipsPrune", func(t *testing.T) {
 		// Given a wait that fails before the desired set has reconciled
 		mocks := setupApplyTest(t)
