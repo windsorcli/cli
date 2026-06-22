@@ -90,7 +90,7 @@ type DestroyPlanSummary struct {
 // refuse, or honor --force); this struct only reports the relation.
 type VersionGate struct {
 	MarkerFound  bool // a marker exists for this context (false = pre-bootstrap, no cluster, or legacy)
-	InFlight     bool // an upgrade is mid-transition (marker phase is not idle)
+	InFlight     bool // the marker phase is not idle (an upgrade is in flight)
 	VersionMatch bool // the blueprint's resolved source-ref set equals the applied set
 }
 
@@ -978,6 +978,37 @@ func (i *Provisioner) WriteVersionMarker(blueprint *blueprintv1alpha1.Blueprint)
 		return fmt.Errorf("failed to write version marker: %w", err)
 	}
 
+	return nil
+}
+
+// BeginVersionTransition writes the in-flight marker for an upgrade toward blueprint: it preserves
+// the applied source set from the existing marker (empty for a legacy context) and records the
+// blueprint's set as the target under the upgrading phase. apply's version gate refuses while the
+// marker is non-idle; WriteVersionMarker settles it to idle on success.
+func (i *Provisioner) BeginVersionTransition(blueprint *blueprintv1alpha1.Blueprint) error {
+	if blueprint == nil {
+		return fmt.Errorf("blueprint not provided")
+	}
+	if i.KubernetesManager == nil {
+		return fmt.Errorf("kubernetes manager not configured")
+	}
+
+	current, found, err := i.GetVersionMarker()
+	if err != nil {
+		return fmt.Errorf("failed to read current version marker: %w", err)
+	}
+	var applied map[string]kubernetes.SourceRef
+	if found {
+		applied = current.AppliedSources
+	}
+
+	marker, err := kubernetes.BuildTransitionMarker(applied, blueprint)
+	if err != nil {
+		return fmt.Errorf("failed to build transition marker: %w", err)
+	}
+	if err := i.KubernetesManager.ApplyVersionMarker(i.fluxNamespace(), marker); err != nil {
+		return fmt.Errorf("failed to write transition marker: %w", err)
+	}
 	return nil
 }
 

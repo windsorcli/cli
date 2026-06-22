@@ -74,6 +74,10 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 				return fmt.Errorf("resolved blueprint is not available")
 			}
 
+			if err := proj.Provisioner.BeginVersionTransition(blueprint); err != nil {
+				return fmt.Errorf("error recording version transition: %w", err)
+			}
+
 			if err := proj.Provisioner.Install(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error installing blueprint: %w", err)
 			}
@@ -84,6 +88,10 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 
 			if err := proj.Provisioner.Prune(blueprint); err != nil {
 				return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
+			}
+
+			if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
+				return fmt.Errorf("error recording applied version: %w", err)
 			}
 
 			return nil
