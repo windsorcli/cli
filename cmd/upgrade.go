@@ -3,11 +3,13 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/constants"
+	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -15,8 +17,9 @@ import (
 )
 
 var (
-	upgradeNodes []string
-	upgradeImage string
+	upgradeNodes   []string
+	upgradeImage   string
+	upgradeSources []string
 
 	upgradeNodeAddr    string
 	upgradeNodeImage   string
@@ -56,6 +59,16 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 		blueprint := proj.Composer.BlueprintHandler.Generate()
 		if blueprint == nil {
 			return fmt.Errorf("blueprint is not available")
+		}
+
+		if len(upgradeSources) > 0 {
+			if err := retargetSources(cmd, proj, upgradeSources); err != nil {
+				return err
+			}
+			blueprint = proj.Composer.BlueprintHandler.Generate()
+			if blueprint == nil {
+				return fmt.Errorf("blueprint is not available")
+			}
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "upgrade", func() error {
@@ -209,10 +222,41 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 	},
 }
 
+// retargetSources applies each `name=url` spec to the context's declared sources, persists the bumps
+// to blueprint.yaml via the same writer init uses, and prints what changed for the operator to
+// commit. An unknown source name or malformed spec aborts before anything is written, so a failed
+// retarget never leaves blueprint.yaml half-edited.
+func retargetSources(cmd *cobra.Command, proj *project.Project, specs []string) error {
+	type change struct{ name, previous, target string }
+	changes := make([]change, 0, len(specs))
+	for _, spec := range specs {
+		name, url, ok := strings.Cut(spec, "=")
+		if !ok || name == "" || url == "" {
+			return fmt.Errorf("invalid --source %q; expected name=url", spec)
+		}
+		previous, err := proj.Composer.BlueprintHandler.RetargetSource(name, url)
+		if err != nil {
+			return err
+		}
+		changes = append(changes, change{name: name, previous: previous, target: url})
+	}
+
+	if err := proj.Composer.BlueprintHandler.Write(true); err != nil {
+		return fmt.Errorf("failed to persist source changes to blueprint.yaml: %w", err)
+	}
+
+	for _, c := range changes {
+		fmt.Fprintf(cmd.OutOrStdout(), "Retargeted %s from %s to %s\n", c.name, c.previous, c.target)
+	}
+	return nil
+}
+
 func init() {
 	rootCmd.AddCommand(upgradeCmd)
 	upgradeCmd.AddCommand(upgradeClusterCmd)
 	upgradeCmd.AddCommand(upgradeNodeCmd)
+
+	upgradeCmd.Flags().StringArrayVar(&upgradeSources, "source", nil, "Retarget a declared source to a new tagged URL (name=url); repeatable. Persisted to blueprint.yaml.")
 
 	upgradeClusterCmd.Flags().StringSliceVar(&upgradeNodes, "nodes", []string{}, "Node addresses to upgrade. Required.")
 	upgradeClusterCmd.Flags().StringVar(&upgradeImage, "image", "", "Talos image to upgrade to. Required.")

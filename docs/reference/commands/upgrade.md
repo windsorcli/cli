@@ -5,12 +5,18 @@ description: "Upgrade the blueprint, pruning kustomizations it no longer declare
 # windsor upgrade
 
 ```sh
-windsor upgrade
+windsor upgrade [flags]
 ```
 
 Apply terraform and the Flux blueprint, wait for kustomizations to be ready, then prune any kustomizations this context no longer declares. Pruning runs only after a successful wait, so resources are never deleted before the desired set has reconciled.
 
 Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
+
+## Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--source` | `[]` | Retarget a declared source to a new tagged URL (name=url); repeatable. Persisted to blueprint.yaml. |
 
 ## Subcommands
 
