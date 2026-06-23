@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	composerblueprint "github.com/windsorcli/cli/pkg/composer/blueprint"
+	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
 	"github.com/windsorcli/cli/pkg/provisioner/stacklock"
@@ -74,6 +75,7 @@ windsor plan terraform cluster`,
 				if planJSON {
 					return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, summary.Kustomize)
 				}
+				describePlanMode(cmd, proj, blueprint)
 				tuiplan.Summary(os.Stdout, summary.Terraform, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
 				return nil
 			})
@@ -300,6 +302,24 @@ func init() {
 	planCmd.AddCommand(planTerraformCmd)
 	planCmd.AddCommand(planKustomizeCmd)
 	rootCmd.AddCommand(planCmd)
+}
+
+// describePlanMode prints to stderr whether `plan` is previewing in-version content drift or a
+// pending version transition, so the operator knows the path forward is apply or upgrade. It is
+// best-effort: a legacy or unreadable marker prints nothing and lets the content plan speak for
+// itself. The transition's content delta is the plan shown below; this only labels which mode the
+// operator is in.
+func describePlanMode(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint) {
+	gate, err := proj.Provisioner.CheckVersionGate(blueprint)
+	if err != nil || !gate.MarkerFound {
+		return
+	}
+	switch {
+	case gate.InFlight:
+		fmt.Fprintln(cmd.ErrOrStderr(), "An upgrade is in progress for this context. Run `windsor upgrade` to resume it; the plan below shows the current content delta.")
+	case !gate.VersionMatch:
+		fmt.Fprintln(cmd.ErrOrStderr(), "The blueprint targets a different version than what is applied. The plan below shows the content delta; run `windsor upgrade` to transition versions.")
+	}
 }
 
 // blueprintHasTerraformComponent reports whether the blueprint contains an enabled Terraform component with the given ID.

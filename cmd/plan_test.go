@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/windsorcli/cli/pkg/project"
 	"github.com/windsorcli/cli/pkg/provisioner"
 	fluxinfra "github.com/windsorcli/cli/pkg/provisioner/flux"
+	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	terraforminfra "github.com/windsorcli/cli/pkg/provisioner/terraform"
 	"github.com/windsorcli/cli/pkg/runtime"
 	"github.com/windsorcli/cli/pkg/runtime/config"
@@ -211,6 +215,94 @@ func TestPlanCmd(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "not found in blueprint") {
 			t.Errorf("expected not-found error, got: %v", err)
+		}
+	})
+}
+
+func TestDescribePlanMode(t *testing.T) {
+	// projectWithMarker wires a seeded kubeconfig (so the version gate engages) and a mock
+	// kubernetes manager returning the given marker into a plan project.
+	projectWithMarker := func(t *testing.T, getFn func(string) (kubernetes.VersionMarker, bool, error)) *project.Project {
+		t.Helper()
+		mocks := setupPlanTest(t)
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, ".kube"), 0755); err != nil {
+			t.Fatalf("seed kubeconfig dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".kube", "config"), []byte("apiVersion: v1\nkind: Config\n"), 0644); err != nil {
+			t.Fatalf("seed kubeconfig: %v", err)
+		}
+		mocks.Runtime.ConfigRoot = root
+		km := kubernetes.NewMockKubernetesManager()
+		km.GetVersionMarkerFunc = getFn
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		prov := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: km,
+		})
+		return project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp, Provisioner: prov})
+	}
+
+	// The bare test blueprint has no sources, so its derived source set is empty; a marker with a
+	// non-empty applied set is therefore a version mismatch.
+	blueprint := &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "test"}}
+
+	run := func(proj *project.Project) string {
+		var buf bytes.Buffer
+		cmd := &cobra.Command{}
+		cmd.SetErr(&buf)
+		describePlanMode(cmd, proj, blueprint)
+		return buf.String()
+	}
+
+	t.Run("AnnouncesPendingTransitionWhenVersionDiffers", func(t *testing.T) {
+		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{
+				Phase:          kubernetes.VersionMarkerPhaseIdle,
+				AppliedSources: map[string]kubernetes.SourceRef{"core": {URL: "oci://example/core", Ref: "v1.0.0"}},
+			}, true, nil
+		})
+		out := run(proj)
+		if !strings.Contains(out, "targets a different version") || !strings.Contains(out, "upgrade") {
+			t.Errorf("Expected a version-transition notice, got: %q", out)
+		}
+	})
+
+	t.Run("AnnouncesInFlightUpgrade", func(t *testing.T) {
+		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{Phase: kubernetes.VersionMarkerPhaseUpgrading}, true, nil
+		})
+		out := run(proj)
+		if !strings.Contains(out, "in progress") || !strings.Contains(out, "upgrade") {
+			t.Errorf("Expected an in-flight upgrade notice, got: %q", out)
+		}
+	})
+
+	t.Run("SilentWhenVersionMatches", func(t *testing.T) {
+		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{Phase: kubernetes.VersionMarkerPhaseIdle}, true, nil
+		})
+		if out := run(proj); out != "" {
+			t.Errorf("Expected no notice when the version matches, got: %q", out)
+		}
+	})
+
+	t.Run("SilentForLegacyContextWithNoMarker", func(t *testing.T) {
+		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{}, false, nil
+		})
+		if out := run(proj); out != "" {
+			t.Errorf("Expected no notice for a legacy context, got: %q", out)
+		}
+	})
+
+	t.Run("SilentWhenMarkerReadFails", func(t *testing.T) {
+		proj := projectWithMarker(t, func(string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{}, false, fmt.Errorf("connection refused")
+		})
+		if out := run(proj); out != "" {
+			t.Errorf("Expected best-effort silence when the marker cannot be read, got: %q", out)
 		}
 	})
 }
