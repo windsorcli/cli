@@ -100,7 +100,7 @@ func TestApply_AcceptsWaitFlag(t *testing.T) {
 	_ = err // may fail due to infrastructure not being available; flag must be accepted
 }
 
-func TestApply_AcceptsForceFlag(t *testing.T) {
+func TestApply_AcceptsYesFlag(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")
 	helpers.MarkAsGitRepo(t, dir)
@@ -109,41 +109,9 @@ func TestApply_AcceptsForceFlag(t *testing.T) {
 		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
-	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "--force"}, env)
+	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "--yes"}, env)
 	if strings.Contains(string(stderr), "unknown flag") {
-		t.Errorf("--force should be a recognised flag on apply, got: %s", stderr)
-	}
-	_ = err // may fail due to infrastructure not being available; the flag must be accepted
-}
-
-func TestApplyTerraform_AcceptsForceFlag(t *testing.T) {
-	t.Parallel()
-	dir, env := helpers.CopyFixtureOnly(t, "plan")
-	helpers.MarkAsGitRepo(t, dir)
-	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
-	if err != nil {
-		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
-	}
-	env = append(env, "WINDSOR_CONTEXT=local")
-	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "terraform", "null", "--force"}, env)
-	if strings.Contains(string(stderr), "unknown flag") {
-		t.Errorf("--force should be a recognised flag on apply terraform, got: %s", stderr)
-	}
-	_ = err // may fail due to infrastructure not being available; the flag must be accepted
-}
-
-func TestApplyKustomize_AcceptsForceFlag(t *testing.T) {
-	t.Parallel()
-	dir, env := helpers.CopyFixtureOnly(t, "plan")
-	helpers.MarkAsGitRepo(t, dir)
-	_, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env)
-	if err != nil {
-		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
-	}
-	env = append(env, "WINDSOR_CONTEXT=local")
-	_, stderr, err = helpers.RunCLI(dir, []string{"apply", "kustomize", "--force"}, env)
-	if strings.Contains(string(stderr), "unknown flag") {
-		t.Errorf("--force should be a recognised flag on apply kustomize, got: %s", stderr)
+		t.Errorf("--yes should be a recognised flag on apply, got: %s", stderr)
 	}
 	_ = err // may fail due to infrastructure not being available; the flag must be accepted
 }

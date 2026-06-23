@@ -20,8 +20,12 @@ func TestUpgradeCmd(t *testing.T) {
 	suppressProcessStderr(t)
 
 	t.Run("PrunesAfterSuccessfulWait", func(t *testing.T) {
-		// Given an upgrade command whose terraform, install, and wait all succeed
+		t.Cleanup(func() { upgradeYes = false })
+		// Given an upgrade with an orphaned kustomization, run with --yes
 		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+			return []string{"old-thing"}, nil
+		}
 		pruned := false
 		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			pruned = true
@@ -29,8 +33,9 @@ func TestUpgradeCmd(t *testing.T) {
 		}
 		proj := newApplyAllProject(mocks)
 
-		// When executing the bare upgrade command
+		// When executing the bare upgrade command with --yes
 		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--yes"})
 		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -125,8 +130,12 @@ func TestUpgradeCmd(t *testing.T) {
 	})
 
 	t.Run("LeavesInFlightMarkerWhenPruneFails", func(t *testing.T) {
-		// Given a prune that fails after install and wait succeed
+		t.Cleanup(func() { upgradeYes = false })
+		// Given an orphan to prune and a prune that fails after install and wait succeed
 		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+			return []string{"old-thing"}, nil
+		}
 		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("prune failed")
 		}
@@ -137,8 +146,9 @@ func TestUpgradeCmd(t *testing.T) {
 		}
 		proj := newApplyAllProject(mocks)
 
-		// When executing the upgrade command
+		// When executing the upgrade command with --yes
 		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--yes"})
 		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
@@ -184,15 +194,20 @@ func TestUpgradeCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorPruneFails", func(t *testing.T) {
-		// Given a prune step that fails after a successful wait
+		t.Cleanup(func() { upgradeYes = false })
+		// Given an orphan to prune and a prune step that fails after a successful wait
 		mocks := setupApplyTest(t)
+		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+			return []string{"old-thing"}, nil
+		}
 		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
 			return fmt.Errorf("delete kustomization failed")
 		}
 		proj := newApplyAllProject(mocks)
 
-		// When executing the upgrade command
+		// When executing the upgrade command with --yes
 		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--yes"})
 		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()

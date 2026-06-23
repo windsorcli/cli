@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer"
 	"github.com/windsorcli/cli/pkg/constants"
 	"github.com/windsorcli/cli/pkg/project"
@@ -104,16 +105,8 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			if err != nil {
 				return fmt.Errorf("error listing kustomizations to prune: %w", err)
 			}
-			if len(prunable) > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "The following kustomizations are no longer declared and will be pruned:\n  %s\n", strings.Join(prunable, "\n  "))
-				if !upgradeYes {
-					silenceErrorsOnAncestors(cmd)
-					return fmt.Errorf("upgrade would prune %d kustomization(s); re-run with --yes to proceed", len(prunable))
-				}
-			}
-
-			if err := proj.Provisioner.Prune(blueprint); err != nil {
-				return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
+			if err := confirmAndPrune(cmd, proj, blueprint, prunable, upgradeYes); err != nil {
+				return err
 			}
 
 			if err := proj.Provisioner.WriteVersionMarker(blueprint); err != nil {
@@ -233,6 +226,25 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 
 		return nil
 	},
+}
+
+// confirmAndPrune prunes the kustomizations the blueprint no longer declares, after printing them
+// and requiring --yes. prunable is the already-computed prune set (empty → no-op). The caller must
+// have waited for the desired set to be Ready first, so any migrated resources are adopted before a
+// deletion. Shared by apply and upgrade, which reconcile identically.
+func confirmAndPrune(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, prunable []string, yes bool) error {
+	if len(prunable) == 0 {
+		return nil
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "The following kustomizations are no longer declared and will be pruned:\n  %s\n", strings.Join(prunable, "\n  "))
+	if !yes {
+		silenceErrorsOnAncestors(cmd)
+		return fmt.Errorf("this would prune %d kustomization(s); re-run with --yes to proceed", len(prunable))
+	}
+	if err := proj.Provisioner.Prune(blueprint); err != nil {
+		return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
+	}
+	return nil
 }
 
 // retargetSources applies each `name=url` spec to the context's declared sources, persists the bumps
