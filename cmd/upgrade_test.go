@@ -290,6 +290,111 @@ func TestUpgradeCmd(t *testing.T) {
 	})
 }
 
+func TestUpgradeCmd_Source(t *testing.T) {
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	t.Run("RetargetsPersistsAndUpgrades", func(t *testing.T) {
+		t.Cleanup(func() { upgradeSources = nil })
+		// Given a declared source being bumped to a new tag
+		mocks := setupApplyTest(t)
+		var gotName, gotURL string
+		persisted := false
+		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
+			gotName, gotURL = name, url
+			return "oci://ghcr.io/windsorcli/core:v0.3.0", nil
+		}
+		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
+			if len(overwrite) > 0 && overwrite[0] {
+				persisted = true
+			}
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When upgrading with --source
+		var out bytes.Buffer
+		cmd := createTestUpgradeCmd()
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{"--source", "core=oci://ghcr.io/windsorcli/core:v0.6.0"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the source is retargeted, persisted, reported, and the upgrade proceeds
+		if gotName != "core" || gotURL != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected retarget core to new URL, got %q=%q", gotName, gotURL)
+		}
+		if !persisted {
+			t.Error("Expected the bump to be persisted via Write(true)")
+		}
+		if !strings.Contains(out.String(), "Retargeted core") {
+			t.Errorf("Expected a retarget report, got: %q", out.String())
+		}
+	})
+
+	t.Run("UnknownSourceAbortsBeforeWrite", func(t *testing.T) {
+		t.Cleanup(func() { upgradeSources = nil })
+		// Given a source name that is not declared
+		mocks := setupApplyTest(t)
+		persisted := false
+		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
+			return "", fmt.Errorf("source %q is not declared in the blueprint", name)
+		}
+		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
+			if len(overwrite) > 0 && overwrite[0] {
+				persisted = true
+			}
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When upgrading with an undeclared --source
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--source", "addons=oci://ghcr.io/acme/addons:v0.5.0"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it aborts with the error and never writes blueprint.yaml
+		if err == nil {
+			t.Fatal("Expected error for an undeclared source, got nil")
+		}
+		if !strings.Contains(err.Error(), "not declared") {
+			t.Errorf("Expected an undeclared-source error, got: %v", err)
+		}
+		if persisted {
+			t.Error("Expected no Write(true) when a retarget fails")
+		}
+	})
+
+	t.Run("MalformedSourceSpecIsRejected", func(t *testing.T) {
+		t.Cleanup(func() { upgradeSources = nil })
+		// Given a --source value missing the name=url separator
+		mocks := setupApplyTest(t)
+		proj := newApplyAllProject(mocks)
+
+		// When upgrading with the malformed spec
+		cmd := createTestUpgradeCmd()
+		cmd.SetArgs([]string{"--source", "coreonly"})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it is rejected with a format error
+		if err == nil {
+			t.Fatal("Expected error for a malformed --source, got nil")
+		}
+		if !strings.Contains(err.Error(), "name=url") {
+			t.Errorf("Expected a name=url format error, got: %v", err)
+		}
+	})
+}
+
 func TestUpgradeNodeCmd(t *testing.T) {
 	t.Cleanup(func() {
 		rootCmd.SetContext(stdcontext.Background())

@@ -9,6 +9,7 @@ type MockBlueprintHandler struct {
 	LoadBlueprintFunc          func(...string) error
 	SetSkipValidationFunc      func(skip bool)
 	WriteFunc                  func(overwrite ...bool) error
+	RetargetSourceFunc         func(name, url string) (string, error)
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateDataFunc   func() (map[string][]byte, error)
 	GenerateFunc               func() *blueprintv1alpha1.Blueprint
@@ -61,6 +62,14 @@ func (m *MockBlueprintHandler) Write(overwrite ...bool) error {
 		return m.WriteFunc(overwrite...)
 	}
 	return nil
+}
+
+// RetargetSource calls the mock RetargetSourceFunc if set, otherwise returns an empty previous URL.
+func (m *MockBlueprintHandler) RetargetSource(name, url string) (string, error) {
+	if m.RetargetSourceFunc != nil {
+		return m.RetargetSourceFunc(name, url)
+	}
+	return "", nil
 }
 
 // GetTerraformComponents calls the mock GetTerraformComponentsFunc if set, otherwise returns empty slice.

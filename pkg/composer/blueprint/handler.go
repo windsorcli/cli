@@ -19,6 +19,7 @@ type BlueprintHandler interface {
 	LoadBlueprint(blueprintURL ...string) error
 	SetSkipValidation(skip bool)
 	Write(overwrite ...bool) error
+	RetargetSource(name, url string) (string, error)
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
@@ -181,6 +182,30 @@ func (h *BaseBlueprintHandler) Write(overwrite ...bool) error {
 	h.setRepositoryDefaults()
 
 	return h.writer.Write(h.composedBlueprint, shouldOverwrite, h.initBlueprintURLs...)
+}
+
+// RetargetSource repoints an already-declared source to a new tagged OCI URL and returns the
+// source's previous URL for diff reporting. The new URL must include a version tag, validated via
+// OCI parsing; the tag is carried in the URL (the canonical source form), so any prior ref fields
+// are cleared. It errors when the source name is not declared, since adding or removing a source is
+// a structural edit to blueprint.yaml rather than a retarget. RetargetSource mutates the composed
+// blueprint in memory only; call Write to persist.
+func (h *BaseBlueprintHandler) RetargetSource(name, url string) (string, error) {
+	if h.composedBlueprint == nil {
+		return "", fmt.Errorf("blueprint not loaded")
+	}
+	if _, err := artifact.ParseOCIReference(url); err != nil {
+		return "", fmt.Errorf("invalid source url %q: %w", url, err)
+	}
+	for i := range h.composedBlueprint.Sources {
+		if h.composedBlueprint.Sources[i].Name == name {
+			previous := h.composedBlueprint.Sources[i].Url
+			h.composedBlueprint.Sources[i].Url = url
+			h.composedBlueprint.Sources[i].Ref = blueprintv1alpha1.Reference{}
+			return previous, nil
+		}
+	}
+	return "", fmt.Errorf("source %q is not declared in the blueprint; add it to blueprint.yaml before retargeting", name)
 }
 
 // GetTerraformComponents returns a copy of the composed blueprint's terraform components with

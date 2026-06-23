@@ -50,6 +50,26 @@ func TestUpgrade_RunsBlueprintFlowInLocalContext(t *testing.T) {
 	}
 }
 
+func TestUpgrade_SourceRejectsUndeclaredSource(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// --source must refuse a source the blueprint does not declare, before any cluster work —
+	// adding a source is a structural edit to blueprint.yaml, not a retarget.
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--source", "bogus=oci://ghcr.io/windsorcli/bogus:v1.0.0"}, env)
+	if err == nil {
+		t.Fatal("expected upgrade to reject an undeclared --source, got success")
+	}
+	if !strings.Contains(string(stderr), "not declared") {
+		t.Errorf("expected an undeclared-source error, got: %s", stderr)
+	}
+}
+
 // =============================================================================
 // Integration Tests — upgrade cluster
 // =============================================================================

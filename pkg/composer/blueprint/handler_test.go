@@ -2099,3 +2099,68 @@ func TestHandler_deriveConfigMapDeferredPaths(t *testing.T) {
 		}
 	})
 }
+
+func TestHandler_RetargetSource(t *testing.T) {
+	setup := func(t *testing.T) *BaseBlueprintHandler {
+		t.Helper()
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.3.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.3.0"}},
+			},
+		}
+		return handler
+	}
+
+	t.Run("RepointsDeclaredSourceAndReturnsPrevious", func(t *testing.T) {
+		// Given a handler with a declared core source
+		handler := setup(t)
+
+		// When retargeting it to a newer tagged URL
+		previous, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core:v0.6.0")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then the previous URL is returned and the source carries the new URL with its ref cleared
+		if previous != "oci://ghcr.io/windsorcli/core:v0.3.0" {
+			t.Errorf("Expected previous URL, got %q", previous)
+		}
+		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected URL repointed, got %q", handler.composedBlueprint.Sources[0].Url)
+		}
+		if handler.composedBlueprint.Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
+			t.Errorf("Expected ref cleared (tag lives in URL), got %+v", handler.composedBlueprint.Sources[0].Ref)
+		}
+	})
+
+	t.Run("ErrorsOnUndeclaredSource", func(t *testing.T) {
+		// Given a handler without an 'addons' source
+		handler := setup(t)
+
+		// When retargeting an undeclared source, it errors rather than adding one
+		if _, err := handler.RetargetSource("addons", "oci://ghcr.io/acme/addons:v0.5.0"); err == nil {
+			t.Error("Expected an error for an undeclared source")
+		}
+	})
+
+	t.Run("ErrorsOnURLWithoutVersion", func(t *testing.T) {
+		// Given a handler with a declared source
+		handler := setup(t)
+
+		// When the new URL omits a version tag, it is rejected
+		if _, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core"); err == nil {
+			t.Error("Expected an error for a URL missing a version")
+		}
+	})
+
+	t.Run("ErrorsWhenBlueprintNotLoaded", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = nil
+		if _, err := handler.RetargetSource("core", "oci://ghcr.io/windsorcli/core:v0.6.0"); err == nil {
+			t.Error("Expected an error when no blueprint is loaded")
+		}
+	})
+}
