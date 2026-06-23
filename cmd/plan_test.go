@@ -307,6 +307,60 @@ func TestDescribePlanMode(t *testing.T) {
 	})
 }
 
+func TestDescribePendingPrunes(t *testing.T) {
+	projectWithPrunable := func(t *testing.T, listFn func(*blueprintv1alpha1.Blueprint, string) ([]string, error)) *project.Project {
+		t.Helper()
+		mocks := setupPlanTest(t)
+		km := kubernetes.NewMockKubernetesManager()
+		km.ListPrunableKustomizationsFunc = listFn
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+		prov := provisioner.NewProvisioner(mocks.Runtime, comp.BlueprintHandler, &provisioner.Provisioner{
+			TerraformStack:    mocks.TerraformStack,
+			KubernetesManager: km,
+		})
+		return project.NewProject("", &project.Project{Runtime: mocks.Runtime, Composer: comp, Provisioner: prov})
+	}
+
+	blueprint := &blueprintv1alpha1.Blueprint{Metadata: blueprintv1alpha1.Metadata{Name: "test"}}
+
+	run := func(proj *project.Project) string {
+		var buf bytes.Buffer
+		cmd := &cobra.Command{}
+		cmd.SetErr(&buf)
+		describePendingPrunes(cmd, proj, blueprint)
+		return buf.String()
+	}
+
+	t.Run("ListsPendingPrunes", func(t *testing.T) {
+		proj := projectWithPrunable(t, func(*blueprintv1alpha1.Blueprint, string) ([]string, error) {
+			return []string{"old-thing", "stale-app"}, nil
+		})
+		out := run(proj)
+		if !strings.Contains(out, "would be pruned") || !strings.Contains(out, "old-thing") || !strings.Contains(out, "stale-app") {
+			t.Errorf("Expected a prune preview listing the orphans, got: %q", out)
+		}
+	})
+
+	t.Run("SilentWhenNothingPrunable", func(t *testing.T) {
+		proj := projectWithPrunable(t, func(*blueprintv1alpha1.Blueprint, string) ([]string, error) {
+			return nil, nil
+		})
+		if out := run(proj); out != "" {
+			t.Errorf("Expected no output when nothing is prunable, got: %q", out)
+		}
+	})
+
+	t.Run("SilentWhenListingFails", func(t *testing.T) {
+		proj := projectWithPrunable(t, func(*blueprintv1alpha1.Blueprint, string) ([]string, error) {
+			return nil, fmt.Errorf("cluster unreachable")
+		})
+		if out := run(proj); out != "" {
+			t.Errorf("Expected best-effort silence on error, got: %q", out)
+		}
+	})
+}
+
 func TestPlanTerraformCmd(t *testing.T) {
 	createTestPlanTerraformCmd := func() *cobra.Command {
 		cmd := &cobra.Command{

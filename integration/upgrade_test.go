@@ -70,6 +70,21 @@ func TestUpgrade_SourceRejectsUndeclaredSource(t *testing.T) {
 	}
 }
 
+func TestUpgrade_AcceptsYesFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--yes"}, env)
+	if strings.Contains(string(stderr), "unknown flag") {
+		t.Errorf("--yes should be a recognised flag on upgrade, got: %s", stderr)
+	}
+	_ = err // fails without a live cluster; the flag must be accepted
+}
+
 // =============================================================================
 // Integration Tests — upgrade cluster
 // =============================================================================

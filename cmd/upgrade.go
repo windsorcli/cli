@@ -20,6 +20,7 @@ var (
 	upgradeNodes   []string
 	upgradeImage   string
 	upgradeSources []string
+	upgradeYes     bool
 
 	upgradeNodeAddr    string
 	upgradeNodeImage   string
@@ -97,6 +98,18 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 
 			if err := proj.Provisioner.Wait(cmd.Context(), blueprint); err != nil {
 				return fmt.Errorf("error waiting for kustomizations: %w", err)
+			}
+
+			prunable, err := proj.Provisioner.PrunableKustomizations(blueprint)
+			if err != nil {
+				return fmt.Errorf("error listing kustomizations to prune: %w", err)
+			}
+			if len(prunable) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "The following kustomizations are no longer declared and will be pruned:\n  %s\n", strings.Join(prunable, "\n  "))
+				if !upgradeYes {
+					silenceErrorsOnAncestors(cmd)
+					return fmt.Errorf("upgrade would prune %d kustomization(s); re-run with --yes to proceed", len(prunable))
+				}
 			}
 
 			if err := proj.Provisioner.Prune(blueprint); err != nil {
@@ -257,6 +270,7 @@ func init() {
 	upgradeCmd.AddCommand(upgradeNodeCmd)
 
 	upgradeCmd.Flags().StringArrayVar(&upgradeSources, "source", nil, "Retarget a declared source to a new tagged URL (name=url); repeatable. Persisted to blueprint.yaml.")
+	upgradeCmd.Flags().BoolVar(&upgradeYes, "yes", false, "Proceed without confirmation when the upgrade would prune kustomizations.")
 
 	upgradeClusterCmd.Flags().StringSliceVar(&upgradeNodes, "nodes", []string{}, "Node addresses to upgrade. Required.")
 	upgradeClusterCmd.Flags().StringVar(&upgradeImage, "image", "", "Talos image to upgrade to. Required.")

@@ -39,6 +39,7 @@ type MockKubernetesManager struct {
 	ApplyBlueprintFunc                  func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	DeleteBlueprintFunc                 func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	PruneBlueprintFunc                  func(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+	ListPrunableKustomizationsFunc      func(blueprint *blueprintv1alpha1.Blueprint, namespace string) ([]string, error)
 }
 
 // =============================================================================
@@ -214,6 +215,14 @@ func (m *MockKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blue
 		return m.PruneBlueprintFunc(blueprint, namespace)
 	}
 	return nil
+}
+
+// ListPrunableKustomizations implements KubernetesManager interface
+func (m *MockKubernetesManager) ListPrunableKustomizations(blueprint *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+	if m.ListPrunableKustomizationsFunc != nil {
+		return m.ListPrunableKustomizationsFunc(blueprint, namespace)
+	}
+	return nil, nil
 }
 
 // =============================================================================
