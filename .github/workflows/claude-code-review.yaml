@@ -2,17 +2,8 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, ready_for_review, synchronize]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        required: true
-        type: string
-      head_sha:
-        required: true
-        type: string
-      base_ref:
-        required: true
-        type: string
+  issue_comment:
+    types: [created]
 permissions:
   contents: read
   pull-requests: write
@@ -205,23 +196,40 @@ jobs:
             --allowedTools Read,Grep,Glob,Bash(git:*),Bash(gh:*),Bash(jq:*),Bash(cat:*),Bash(tee:*),Bash(mktemp:*),Bash(head:*),Bash(xargs:*),Bash(python3:*),Bash(task:*),Bash(go:*),Write
             --disallowedTools WebSearch,WebFetch
 
-  review-on-dispatch:
+  review-on-comment:
     name: Full Review (on-demand)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/review')
     steps:
+      - name: Get PR details
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
+          echo "head_sha=$(echo "$PR_JSON" | jq -r .head.sha)" >> "$GITHUB_OUTPUT"
+          echo "base_ref=$(echo "$PR_JSON" | jq -r .base.ref)" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(echo "$PR_JSON" | jq -r .head.ref)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          ref: ${{ inputs.head_sha }}
+          ref: ${{ steps.pr.outputs.head_ref }}
           fetch-depth: 0
       - name: Fetch base ref
-        run: git fetch --depth=1 origin ${{ inputs.base_ref }}
+        run: git fetch --depth=1 origin ${{ steps.pr.outputs.base_ref }}
       - uses: anthropics/claude-code-action@80b31826338489861333dc17217865dfe8085cdc # v1.0.155
         env:
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PR_HEAD_SHA: ${{ inputs.head_sha }}
-          BASE_REF: ${{ inputs.base_ref }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
           GH_REPO: ${{ github.repository }}
           STICKY_MARKER: "<!-- claude-code-review:summary -->"
         with:
