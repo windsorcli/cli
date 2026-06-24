@@ -332,7 +332,7 @@ func describePendingPrunes(cmd *cobra.Command, proj *project.Project, blueprint 
 	if err != nil || len(prunable) == 0 {
 		return
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "These kustomizations are no longer declared and would be pruned by `windsor upgrade`:\n  %s\n", strings.Join(prunable, "\n  "))
+	fmt.Fprintf(cmd.ErrOrStderr(), "These kustomizations are no longer declared and would be pruned by `windsor apply --yes` or `windsor upgrade --yes`:\n  %s\n", strings.Join(prunable, "\n  "))
 }
 
 // blueprintHasTerraformComponent reports whether the blueprint contains an enabled Terraform component with the given ID.

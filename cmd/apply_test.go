@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -151,11 +154,52 @@ func makeApplyTestCmd(source *cobra.Command) *cobra.Command {
 // Test Cases
 // =============================================================================
 
+// seedKubeconfig points the runtime's config root at a temp dir holding a kubeconfig so the marker
+// read in apply's in-flight check engages (the apply harness leaves ConfigRoot empty, which makes
+// CheckVersionGate short-circuit to "no marker").
+func seedKubeconfig(t *testing.T, mocks *ApplyMocks) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".kube"), 0755); err != nil {
+		t.Fatalf("seed kubeconfig dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".kube", "config"), []byte("apiVersion: v1\nkind: Config\n"), 0644); err != nil {
+		t.Fatalf("seed kubeconfig: %v", err)
+	}
+	mocks.Runtime.ConfigRoot = root
+}
+
 func TestApplyCmd_Prune(t *testing.T) {
 	createTestApplyCmd := func() *cobra.Command { return makeApplyTestCmd(applyCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
+
+	t.Run("WarnsButProceedsWhenUpgradeInFlight", func(t *testing.T) {
+		// Given an interrupted upgrade (marker mid-transition)
+		mocks := setupApplyTest(t)
+		seedKubeconfig(t, mocks)
+		mocks.KubernetesManager.GetVersionMarkerFunc = func(namespace string) (kubernetes.VersionMarker, bool, error) {
+			return kubernetes.VersionMarker{SchemaVersion: 1, Phase: "upgrading"}, true, nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When applying
+		var stderr bytes.Buffer
+		cmd := createTestApplyCmd()
+		cmd.SetErr(&stderr)
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it warns but does not refuse — apply reconciles regardless
+		if err != nil {
+			t.Errorf("Expected apply to proceed during an in-flight upgrade, got %v", err)
+		}
+		if !strings.Contains(stderr.String(), "upgrade is in progress") {
+			t.Errorf("Expected an in-flight warning on stderr, got: %q", stderr.String())
+		}
+	})
 
 	t.Run("RefusesPruneWithoutYes", func(t *testing.T) {
 		t.Cleanup(func() { applyYesFlag = false })

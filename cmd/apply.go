@@ -53,6 +53,13 @@ windsor apply kustomize dns`,
 			return fmt.Errorf("blueprint is not available")
 		}
 
+		// apply reconciles to the declared blueprint and never refuses on version, but an
+		// interrupted upgrade leaves the marker mid-transition; surface that (best-effort) so the
+		// operator can finish it with `upgrade` rather than silently reconciling past it.
+		if gate, gateErr := proj.Provisioner.CheckVersionGate(blueprint); gateErr == nil && gate.InFlight {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: an upgrade is in progress or was interrupted for this context. apply will reconcile to the declared blueprint; run `windsor upgrade` to complete the version transition.")
+		}
+
 		return stacklock.With(cmd.Context(), proj.Runtime, "apply", func() error {
 			// 'apply' doesn't run the workstation prep that registers MakeApplyHook, so no
 			// onApply hooks fire and the halted return is always false. Ignore it.
