@@ -184,6 +184,8 @@ func (s *DefaultShell) Exec(command string, args ...string) (string, error) {
 
 	scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
 	scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+	defer func() { _ = scrubbingStdoutWriter.Flush() }()
+	defer func() { _ = scrubbingStderrWriter.Flush() }()
 
 	cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
 	cmd.Stderr = io.MultiWriter(scrubbingStderrWriter, &stderrBuf)
@@ -242,6 +244,8 @@ func (s *DefaultShell) ExecSilentWithEnv(command string, env map[string]string, 
 	if s.verbose {
 		scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
 		scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+		defer func() { _ = scrubbingStdoutWriter.Flush() }()
+		defer func() { _ = scrubbingStderrWriter.Flush() }()
 		cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
 		cmd.Stderr = io.MultiWriter(scrubbingStderrWriter, &stderrBuf)
 	} else {
@@ -386,6 +390,8 @@ func (s *DefaultShell) ExecProgressWithEnv(message string, command string, env m
 		var stdoutBuf, stderrBuf bytes.Buffer
 		scrubbingStdoutWriter := &scrubbingWriter{writer: os.Stdout, scrubFunc: s.scrubString}
 		scrubbingStderrWriter := &scrubbingWriter{writer: os.Stderr, scrubFunc: s.scrubString}
+		defer func() { _ = scrubbingStdoutWriter.Flush() }()
+		defer func() { _ = scrubbingStderrWriter.Flush() }()
 		cmd.Stdout = io.MultiWriter(scrubbingStdoutWriter, &stdoutBuf)
 		cmd.Stderr = io.MultiWriter(scrubbingStderrWriter, &stderrBuf)
 		cmd.Env = mergeEnvVars(s.shims.Environ(), env)
