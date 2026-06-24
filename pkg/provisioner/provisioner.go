@@ -1034,6 +1034,27 @@ func (i *Provisioner) Prune(blueprint *blueprintv1alpha1.Blueprint) error {
 	return nil
 }
 
+// PrunableKustomizations returns the names of this context's Kustomizations that the blueprint no
+// longer declares — exactly what Prune would delete. It is the read-only input to plan's prune
+// preview and upgrade's confirmation gate; it deletes nothing. It prepares the blueprint with the
+// synthesized CRD layers so the desired set matches what Prune deletes against.
+func (i *Provisioner) PrunableKustomizations(blueprint *blueprintv1alpha1.Blueprint) ([]string, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
+	}
+	if i.KubernetesManager == nil {
+		return nil, fmt.Errorf("kubernetes manager not configured")
+	}
+
+	blueprint = withCrdLayer(blueprint)
+
+	names, err := i.KubernetesManager.ListPrunableKustomizations(blueprint, i.fluxNamespace())
+	if err != nil {
+		return nil, fmt.Errorf("failed to list prunable kustomizations: %w", err)
+	}
+	return names, nil
+}
+
 // GetVersionMarker reads the applied-version marker for this context's gitops namespace, reporting
 // false when no marker exists (a pre-bootstrap, no-cluster, or legacy context). apply and plan read
 // the marker to gate on the blueprint version; only bootstrap and upgrade write it. Returns false

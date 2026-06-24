@@ -194,3 +194,73 @@ func TestBaseKubernetesManager_PruneBlueprint(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseKubernetesManager_ListPrunableKustomizations(t *testing.T) {
+	setup := func(t *testing.T) *BaseKubernetesManager {
+		t.Helper()
+		mocks := setupKubernetesMocks(t)
+		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+		manager.shims = mocks.Shims
+		return manager
+	}
+
+	ctxItem := func(name string) unstructured.Unstructured {
+		return unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+			"kind":       "Kustomization",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": "system-gitops",
+				"labels":    map[string]any{"windsorcli.dev/context-id": "test-context-id"},
+			},
+		}}
+	}
+
+	wire := func(manager *BaseKubernetesManager, items ...unstructured.Unstructured) {
+		c := client.NewMockKubernetesClient()
+		c.ListResourcesFunc = func(gvr schema.GroupVersionResource, ns string) (*unstructured.UnstructuredList, error) {
+			return &unstructured.UnstructuredList{Items: items}, nil
+		}
+		manager.client = c
+	}
+
+	t.Run("ReturnsOrphanNames", func(t *testing.T) {
+		// Given a desired kustomization and an orphan, both owned by this context
+		manager := setup(t)
+		wire(manager, ctxItem("app"), ctxItem("old-thing"))
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}}}
+
+		// When listing prunable kustomizations
+		got, err := manager.ListPrunableKustomizations(blueprint, "system-gitops")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then only the orphan is reported
+		if len(got) != 1 || got[0] != "old-thing" {
+			t.Errorf("Expected [old-thing], got %v", got)
+		}
+	})
+
+	t.Run("EmptyWhenNothingOrphaned", func(t *testing.T) {
+		manager := setup(t)
+		wire(manager, ctxItem("app"))
+		blueprint := &blueprintv1alpha1.Blueprint{Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app"}}}
+
+		got, err := manager.ListPrunableKustomizations(blueprint, "system-gitops")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("Expected no prunable kustomizations, got %v", got)
+		}
+	})
+
+	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		manager := setup(t)
+		wire(manager)
+		if _, err := manager.ListPrunableKustomizations(nil, "system-gitops"); err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+	})
+}

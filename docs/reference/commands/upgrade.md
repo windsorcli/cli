@@ -17,6 +17,7 @@ Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--source` | `[]` | Retarget a declared source to a new tagged URL (name=url); repeatable. Persisted to blueprint.yaml. |
+| `--yes` | `false` | Proceed without confirmation when the upgrade would prune kustomizations. |
 
 ## Subcommands
 

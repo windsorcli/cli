@@ -1333,6 +1333,50 @@ func TestProvisioner_Prune(t *testing.T) {
 	})
 }
 
+func TestProvisioner_PrunableKustomizations(t *testing.T) {
+	t.Run("DelegatesAndReturnsNames", func(t *testing.T) {
+		// Given a manager that reports an orphan kustomization
+		mocks := setupProvisionerMocks(t)
+		var capturedNamespace string
+		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+			capturedNamespace = namespace
+			return []string{"old-thing"}, nil
+		}
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+
+		// When listing prunable kustomizations
+		got, err := provisioner.PrunableKustomizations(createTestBlueprint())
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it delegates against the gitops namespace and returns the names
+		if capturedNamespace != provisioner.fluxNamespace() {
+			t.Errorf("Expected namespace %q, got %q", provisioner.fluxNamespace(), capturedNamespace)
+		}
+		if len(got) != 1 || got[0] != "old-thing" {
+			t.Errorf("Expected [old-thing], got %v", got)
+		}
+	})
+
+	t.Run("NilBlueprintReturnsError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		if _, err := provisioner.PrunableKustomizations(nil); err == nil {
+			t.Error("Expected error for nil blueprint")
+		}
+	})
+
+	t.Run("NilManagerReturnsError", func(t *testing.T) {
+		mocks := setupProvisionerMocks(t)
+		provisioner := NewProvisioner(mocks.Runtime, mocks.BlueprintHandler, &Provisioner{KubernetesManager: mocks.KubernetesManager})
+		provisioner.KubernetesManager = nil
+		if _, err := provisioner.PrunableKustomizations(createTestBlueprint()); err == nil {
+			t.Error("Expected error for nil kubernetes manager")
+		}
+	})
+}
+
 func TestProvisioner_GetVersionMarker(t *testing.T) {
 	t.Run("DelegatesToManagerWhenKubeconfigPresent", func(t *testing.T) {
 		// Given a manager that returns a marker and a context with a kubeconfig

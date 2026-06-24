@@ -18,8 +18,8 @@ Pass --wait to block until kustomizations report ready.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--force` | `false` | Apply even if the blueprint version differs from what is applied (skips the upgrade version gate). |
 | `--wait` | `false` | Wait for kustomization resources to be ready. |
+| `--yes` | `false` | Proceed without confirmation when the apply would prune kustomizations. |
 
 ## Subcommands
 

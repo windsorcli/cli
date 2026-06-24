@@ -54,6 +54,7 @@ type KubernetesManager interface {
 	ApplyBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	DeleteBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
 	PruneBlueprint(blueprint *blueprintv1alpha1.Blueprint, namespace string) error
+	ListPrunableKustomizations(blueprint *blueprintv1alpha1.Blueprint, namespace string) ([]string, error)
 	ApplyVersionMarker(namespace string, marker VersionMarker) error
 	GetVersionMarker(namespace string) (VersionMarker, bool, error)
 }
@@ -1059,9 +1060,33 @@ func (k *BaseKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blue
 		return fmt.Errorf("blueprint not provided")
 	}
 
+	orphans, err := k.contextOrphanKustomizations(blueprint, namespace)
+	if err != nil {
+		return err
+	}
+
+	if len(orphans) == 0 {
+		return nil
+	}
+
+	var errs []error
+	for _, orphan := range orderForDestroy(orphans, "prune") {
+		if err := k.DeleteKustomization(orphan.Name, namespace); err != nil {
+			errs = append(errs, fmt.Errorf("failed to prune kustomization %q: %w", orphan.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// contextOrphanKustomizations lists the live Kustomizations belonging to this context (by the
+// windsorcli.dev/context-id label) that the blueprint no longer declares — the set Prune deletes and
+// ListPrunableKustomizations reports. It scopes strictly to this context, so kustomizations owned by
+// other contexts (or by no Windsor context) are never returned. DestroyOnly entries are not desired.
+// Each orphan carries its live spec.dependsOn for reverse-dependency ordering.
+func (k *BaseKubernetesManager) contextOrphanKustomizations(blueprint *blueprintv1alpha1.Blueprint, namespace string) ([]blueprintv1alpha1.Kustomization, error) {
 	contextID := k.configHandler.GetString("id")
 	if contextID == "" {
-		return fmt.Errorf("context id not set; cannot scope pruning to this context")
+		return nil, fmt.Errorf("context id not set; cannot scope pruning to this context")
 	}
 
 	desired := make(map[string]bool, len(blueprint.Kustomizations))
@@ -1079,7 +1104,7 @@ func (k *BaseKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blue
 	}
 	list, err := k.client.ListResources(gvr, namespace)
 	if err != nil {
-		return fmt.Errorf("failed to list kustomizations for pruning: %w", err)
+		return nil, fmt.Errorf("failed to list kustomizations: %w", err)
 	}
 
 	orphans := make([]blueprintv1alpha1.Kustomization, 0)
@@ -1097,18 +1122,27 @@ func (k *BaseKubernetesManager) PruneBlueprint(blueprint *blueprintv1alpha1.Blue
 			DependsOn: dependsOnFromObject(item),
 		})
 	}
+	return orphans, nil
+}
 
-	if len(orphans) == 0 {
-		return nil
+// ListPrunableKustomizations returns the names of this context's Kustomizations that the blueprint no
+// longer declares — exactly what PruneBlueprint would delete, in reverse-dependency order. It is the
+// read-only input to plan's prune preview and upgrade's confirmation gate; it deletes nothing.
+func (k *BaseKubernetesManager) ListPrunableKustomizations(blueprint *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
+	if blueprint == nil {
+		return nil, fmt.Errorf("blueprint not provided")
 	}
 
-	var errs []error
+	orphans, err := k.contextOrphanKustomizations(blueprint, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(orphans))
 	for _, orphan := range orderForDestroy(orphans, "prune") {
-		if err := k.DeleteKustomization(orphan.Name, namespace); err != nil {
-			errs = append(errs, fmt.Errorf("failed to prune kustomization %q: %w", orphan.Name, err))
-		}
+		names = append(names, orphan.Name)
 	}
-	return errors.Join(errs...)
+	return names, nil
 }
 
 // processDestroyOnlyKustomizations applies all destroy-only kustomizations, waits for all to become ready, then deletes all.

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
@@ -76,6 +77,7 @@ windsor plan terraform cluster`,
 					return tuiplan.SummaryJSON(os.Stdout, summary.Terraform, summary.Kustomize)
 				}
 				describePlanMode(cmd, proj, blueprint)
+				describePendingPrunes(cmd, proj, blueprint)
 				tuiplan.Summary(os.Stdout, summary.Terraform, summary.Kustomize, summary.Hints, planNoColor || os.Getenv("NO_COLOR") != "")
 				return nil
 			})
@@ -320,6 +322,17 @@ func describePlanMode(cmd *cobra.Command, proj *project.Project, blueprint *blue
 	case !gate.VersionMatch:
 		fmt.Fprintln(cmd.ErrOrStderr(), "The blueprint targets a different version than what is applied. The plan below shows the content delta; run `windsor upgrade` to transition versions.")
 	}
+}
+
+// describePendingPrunes prints to stderr the kustomizations a `windsor upgrade` would prune — those
+// this context still has live but the blueprint no longer declares — so a pending removal is visible
+// before it happens. It is best-effort: a legacy/unreachable cluster or no orphans prints nothing.
+func describePendingPrunes(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint) {
+	prunable, err := proj.Provisioner.PrunableKustomizations(blueprint)
+	if err != nil || len(prunable) == 0 {
+		return
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "These kustomizations are no longer declared and would be pruned by `windsor apply --yes` or `windsor upgrade --yes`:\n  %s\n", strings.Join(prunable, "\n  "))
 }
 
 // blueprintHasTerraformComponent reports whether the blueprint contains an enabled Terraform component with the given ID.
