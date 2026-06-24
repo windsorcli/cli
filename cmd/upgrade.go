@@ -66,6 +66,11 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			return fmt.Errorf("blueprint is not available")
 		}
 
+		if !upgradeYes {
+			silenceErrorsOnAncestors(cmd)
+			return fmt.Errorf("upgrade rewrites blueprint.yaml and reconciles the cluster (apply, wait, prune); re-run with --yes to proceed, or use `windsor plan` to preview")
+		}
+
 		if len(upgradeSources) > 0 {
 			if err := retargetSources(cmd, proj, upgradeSources); err != nil {
 				return err

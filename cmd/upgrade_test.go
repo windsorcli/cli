@@ -20,9 +20,12 @@ func TestUpgradeCmd(t *testing.T) {
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
+	// These subtests exercise the executing path; upgrade requires --yes to mutate, so confirm it.
+	upgradeYes = true
+	t.Cleanup(func() { upgradeYes = false })
+
 	t.Run("PrunesAfterSuccessfulWait", func(t *testing.T) {
-		t.Cleanup(func() { upgradeYes = false })
-		// Given an upgrade with an orphaned kustomization, run with --yes
+		// Given an upgrade with an orphaned kustomization
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
 			return []string{"old-thing"}, nil
@@ -131,7 +134,6 @@ func TestUpgradeCmd(t *testing.T) {
 	})
 
 	t.Run("LeavesInFlightMarkerWhenPruneFails", func(t *testing.T) {
-		t.Cleanup(func() { upgradeYes = false })
 		// Given an orphan to prune and a prune that fails after install and wait succeed
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
@@ -195,7 +197,6 @@ func TestUpgradeCmd(t *testing.T) {
 	})
 
 	t.Run("ErrorPruneFails", func(t *testing.T) {
-		t.Cleanup(func() { upgradeYes = false })
 		// Given an orphan to prune and a prune step that fails after a successful wait
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
@@ -312,6 +313,9 @@ func TestUpgradeCmd_Latest(t *testing.T) {
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
+	upgradeYes = true
+	t.Cleanup(func() { upgradeYes = false })
+
 	t.Run("ResolvesLatestPersistsAndUpgrades", func(t *testing.T) {
 		// Given sources with a newer version available (implicit upgrade, no --source)
 		mocks := setupApplyTest(t)
@@ -403,6 +407,9 @@ func TestUpgradeCmd_Source(t *testing.T) {
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
+
+	upgradeYes = true
+	t.Cleanup(func() { upgradeYes = false })
 
 	t.Run("RetargetsPersistsAndUpgrades", func(t *testing.T) {
 		t.Cleanup(func() { upgradeSources = nil })
@@ -503,18 +510,20 @@ func TestUpgradeCmd_Source(t *testing.T) {
 	})
 }
 
-func TestUpgradeCmd_PruneGate(t *testing.T) {
+func TestUpgradeCmd_Confirmation(t *testing.T) {
 	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
 
 	suppressProcessStdout(t)
 	suppressProcessStderr(t)
 
-	t.Run("RefusesPruneWithoutYes", func(t *testing.T) {
+	t.Run("RefusesWithoutYes", func(t *testing.T) {
 		t.Cleanup(func() { upgradeYes = false })
-		// Given a transition that would prune a kustomization
+		// Given an upgrade that would rewrite blueprint.yaml and reconcile
 		mocks := setupApplyTest(t)
-		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
-			return []string{"old-thing"}, nil
+		installed := false
+		mocks.KubernetesManager.ApplyBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
+			installed = true
+			return nil
 		}
 		pruned := false
 		mocks.KubernetesManager.PruneBlueprintFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) error {
@@ -529,21 +538,24 @@ func TestUpgradeCmd_PruneGate(t *testing.T) {
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then it refuses and never prunes
+		// Then it refuses up front and reconciles nothing
 		if err == nil {
-			t.Fatal("Expected refusal without --yes when a prune is pending, got nil")
+			t.Fatal("Expected refusal without --yes, got nil")
 		}
 		if !strings.Contains(err.Error(), "--yes") {
 			t.Errorf("Expected the message to point at --yes, got: %v", err)
 		}
+		if installed {
+			t.Error("Expected install to be skipped when the guard refuses")
+		}
 		if pruned {
-			t.Error("Expected prune to be skipped when the gate refuses")
+			t.Error("Expected prune to be skipped when the guard refuses")
 		}
 	})
 
 	t.Run("ProceedsWithYes", func(t *testing.T) {
 		t.Cleanup(func() { upgradeYes = false })
-		// Given the same pending prune
+		// Given a pending prune
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
 			return []string{"old-thing"}, nil
@@ -567,28 +579,6 @@ func TestUpgradeCmd_PruneGate(t *testing.T) {
 		// Then the prune runs
 		if !pruned {
 			t.Error("Expected prune to run under --yes")
-		}
-	})
-
-	t.Run("ProceedsWhenNothingPrunable", func(t *testing.T) {
-		// Given a transition that prunes nothing
-		mocks := setupApplyTest(t)
-		listed := false
-		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
-			listed = true
-			return nil, nil
-		}
-		proj := newApplyAllProject(mocks)
-
-		// When upgrading, the gate runs and allows it through without --yes
-		cmd := createTestUpgradeCmd()
-		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
-		cmd.SetContext(ctx)
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if !listed {
-			t.Error("Expected the prune gate to run")
 		}
 	})
 }
