@@ -2274,4 +2274,31 @@ func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
 			t.Error("Expected an error when no blueprint is loaded")
 		}
 	})
+
+	t.Run("LeavesBlueprintUntouchedWhenAListFailsMidway", func(t *testing.T) {
+		// Given a resolvable first source and a second source whose tag listing fails
+		handler, mock := setup(t,
+			[]blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"},
+				{Name: "addons", Url: "oci://ghcr.io/acme/addons:v0.5.0"},
+			},
+			nil,
+		)
+		mock.ListTagsFunc = func(ociRef string) ([]string, error) {
+			if ociRef == "oci://ghcr.io/acme/addons:v0.5.0" {
+				return nil, fmt.Errorf("registry unreachable")
+			}
+			return []string{"v0.6.0"}, nil
+		}
+
+		// When upgrading, the second source's failure aborts the whole operation
+		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
+			t.Fatal("Expected an error when a source's tag listing fails")
+		}
+
+		// Then the first source is left untouched — no partial in-memory mutation
+		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.5.0" {
+			t.Errorf("Expected the first source unmutated, got %q", handler.composedBlueprint.Sources[0].Url)
+		}
+	})
 }

@@ -221,15 +221,22 @@ type SourceUpgrade struct {
 // published in its repository, mutating the composed blueprint in memory (call Write to persist) and
 // returning the changes for reporting. Sources that are not OCI, not semver-pinned (a branch, a
 // mutable tag like :latest), or already at the latest are left untouched, as are prerelease tags. It
-// resolves directly to the latest — it does not step minor-by-minor.
+// resolves directly to the latest — it does not step minor-by-minor. All tags are resolved before any
+// source is mutated, so a registry failure mid-resolution leaves the in-memory blueprint untouched.
 func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error) {
 	if h.composedBlueprint == nil {
 		return nil, fmt.Errorf("blueprint not loaded")
 	}
 
-	var upgrades []SourceUpgrade
+	type plannedUpgrade struct {
+		index  int
+		newURL string
+		change SourceUpgrade
+	}
+
+	var planned []plannedUpgrade
 	for i := range h.composedBlueprint.Sources {
-		src := &h.composedBlueprint.Sources[i]
+		src := h.composedBlueprint.Sources[i]
 		if !strings.HasPrefix(src.Url, "oci://") {
 			continue
 		}
@@ -252,9 +259,18 @@ func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 		}
 
 		newURL := strings.TrimSuffix(src.Url, ":"+info.Tag) + ":" + latestTag
-		upgrades = append(upgrades, SourceUpgrade{Name: src.Name, From: src.Url, To: newURL})
-		src.Url = newURL
-		src.Ref = blueprintv1alpha1.Reference{}
+		planned = append(planned, plannedUpgrade{
+			index:  i,
+			newURL: newURL,
+			change: SourceUpgrade{Name: src.Name, From: src.Url, To: newURL},
+		})
+	}
+
+	upgrades := make([]SourceUpgrade, 0, len(planned))
+	for _, p := range planned {
+		h.composedBlueprint.Sources[p.index].Url = p.newURL
+		h.composedBlueprint.Sources[p.index].Ref = blueprintv1alpha1.Reference{}
+		upgrades = append(upgrades, p.change)
 	}
 	return upgrades, nil
 }
