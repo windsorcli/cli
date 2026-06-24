@@ -2164,3 +2164,114 @@ func TestHandler_RetargetSource(t *testing.T) {
 		}
 	})
 }
+
+func TestLatestStableSemver(t *testing.T) {
+	t.Run("PicksHighestStableSkippingPrereleases", func(t *testing.T) {
+		tag, v, ok := latestStableSemver([]string{"v0.5.0", "v0.6.0", "v0.7.0-rc.1", "not-a-version"})
+		if !ok {
+			t.Fatal("Expected a stable version to be found")
+		}
+		if tag != "v0.6.0" {
+			t.Errorf("Expected v0.6.0 (highest stable), got %q", tag)
+		}
+		if v == nil || v.String() != "0.6.0" {
+			t.Errorf("Expected parsed 0.6.0, got %v", v)
+		}
+	})
+
+	t.Run("FalseWhenOnlyPrereleasesOrJunk", func(t *testing.T) {
+		if _, _, ok := latestStableSemver([]string{"v1.0.0-rc.1", "garbage"}); ok {
+			t.Error("Expected no stable version among prereleases/junk")
+		}
+	})
+}
+
+func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
+	setup := func(t *testing.T, sources []blueprintv1alpha1.Source, tags map[string][]string) (*BaseBlueprintHandler, *artifact.MockArtifact) {
+		t.Helper()
+		mocks := setupHandlerMocks(t)
+		mocks.ArtifactBuilder.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return tags[ociRef], nil
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{Sources: sources}
+		return handler, mocks.ArtifactBuilder
+	}
+
+	t.Run("BumpsOCISemverSourceToLatestStable", func(t *testing.T) {
+		// Given a core source at v0.5.0 with newer stable and prerelease tags available
+		handler, _ := setup(t,
+			[]blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.5.0"}}},
+			map[string][]string{"oci://ghcr.io/windsorcli/core:v0.5.0": {"v0.5.0", "v0.6.0", "v0.7.0-rc.1"}},
+		)
+
+		// When upgrading sources to latest
+		upgrades, err := handler.UpgradeSourcesToLatest()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it moves to the latest stable (v0.6.0), skipping the rc, and clears the ref
+		if len(upgrades) != 1 || upgrades[0].Name != "core" {
+			t.Fatalf("Expected one core upgrade, got %v", upgrades)
+		}
+		if upgrades[0].To != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected target v0.6.0, got %q", upgrades[0].To)
+		}
+		if handler.composedBlueprint.Sources[0].Url != "oci://ghcr.io/windsorcli/core:v0.6.0" {
+			t.Errorf("Expected source URL bumped, got %q", handler.composedBlueprint.Sources[0].Url)
+		}
+		if handler.composedBlueprint.Sources[0].Ref != (blueprintv1alpha1.Reference{}) {
+			t.Errorf("Expected ref cleared, got %+v", handler.composedBlueprint.Sources[0].Ref)
+		}
+	})
+
+	t.Run("SkipsNonOCIAndNonSemverAndAlreadyLatest", func(t *testing.T) {
+		// Given a git source, a mutable-tag OCI source, and an already-latest OCI source
+		handler, _ := setup(t,
+			[]blueprintv1alpha1.Source{
+				{Name: "modules", Url: "github.com/org/modules", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+				{Name: "dev", Url: "oci://ghcr.io/acme/dev:latest"},
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.6.0", Ref: blueprintv1alpha1.Reference{SemVer: "v0.6.0"}},
+			},
+			map[string][]string{
+				"oci://ghcr.io/acme/dev:latest":        {"v9.9.9"},
+				"oci://ghcr.io/windsorcli/core:v0.6.0": {"v0.5.0", "v0.6.0"},
+			},
+		)
+
+		// When upgrading
+		upgrades, err := handler.UpgradeSourcesToLatest()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then nothing is upgraded (git skipped, :latest not semver, core already latest)
+		if len(upgrades) != 0 {
+			t.Errorf("Expected no upgrades, got %v", upgrades)
+		}
+	})
+
+	t.Run("PropagatesListTagsError", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		mocks.ArtifactBuilder.ListTagsFunc = func(ociRef string) ([]string, error) {
+			return nil, fmt.Errorf("registry unreachable")
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			Sources: []blueprintv1alpha1.Source{{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.5.0"}},
+		}
+		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
+			t.Error("Expected an error when tag listing fails")
+		}
+	})
+
+	t.Run("ErrorsWhenBlueprintNotLoaded", func(t *testing.T) {
+		mocks := setupHandlerMocks(t)
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = nil
+		if _, err := handler.UpgradeSourcesToLatest(); err == nil {
+			t.Error("Expected an error when no blueprint is loaded")
+		}
+	})
+}

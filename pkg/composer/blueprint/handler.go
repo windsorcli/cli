@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Masterminds/semver/v3"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/runtime"
@@ -20,6 +21,7 @@ type BlueprintHandler interface {
 	SetSkipValidation(skip bool)
 	Write(overwrite ...bool) error
 	RetargetSource(name, url string) (string, error)
+	UpgradeSourcesToLatest() ([]SourceUpgrade, error)
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
@@ -206,6 +208,74 @@ func (h *BaseBlueprintHandler) RetargetSource(name, url string) (string, error) 
 		}
 	}
 	return "", fmt.Errorf("source %q is not declared in the blueprint; add it to blueprint.yaml before retargeting", name)
+}
+
+// SourceUpgrade records one source moved to a newer version by UpgradeSourcesToLatest.
+type SourceUpgrade struct {
+	Name string
+	From string
+	To   string
+}
+
+// UpgradeSourcesToLatest moves each remote OCI source pinned to a semver to the latest stable tag
+// published in its repository, mutating the composed blueprint in memory (call Write to persist) and
+// returning the changes for reporting. Sources that are not OCI, not semver-pinned (a branch, a
+// mutable tag like :latest), or already at the latest are left untouched, as are prerelease tags. It
+// resolves directly to the latest — it does not step minor-by-minor.
+func (h *BaseBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error) {
+	if h.composedBlueprint == nil {
+		return nil, fmt.Errorf("blueprint not loaded")
+	}
+
+	var upgrades []SourceUpgrade
+	for i := range h.composedBlueprint.Sources {
+		src := &h.composedBlueprint.Sources[i]
+		if !strings.HasPrefix(src.Url, "oci://") {
+			continue
+		}
+		info, err := artifact.ParseOCIReference(src.Url)
+		if err != nil || info == nil {
+			continue
+		}
+		current, err := semver.NewVersion(info.Tag)
+		if err != nil {
+			continue
+		}
+
+		tags, err := h.artifactBuilder.ListTags(src.Url)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tags for source %q: %w", src.Name, err)
+		}
+		latestTag, latest, ok := latestStableSemver(tags)
+		if !ok || !latest.GreaterThan(current) {
+			continue
+		}
+
+		newURL := strings.TrimSuffix(src.Url, ":"+info.Tag) + ":" + latestTag
+		upgrades = append(upgrades, SourceUpgrade{Name: src.Name, From: src.Url, To: newURL})
+		src.Url = newURL
+		src.Ref = blueprintv1alpha1.Reference{}
+	}
+	return upgrades, nil
+}
+
+// latestStableSemver returns the highest non-prerelease semver among tags, alongside its original tag
+// string (preserving any "v" prefix) for rebuilding the URL. Non-semver and prerelease tags are
+// ignored. Reports false when no stable semver tag is present.
+func latestStableSemver(tags []string) (string, *semver.Version, bool) {
+	var best *semver.Version
+	var bestTag string
+	for _, t := range tags {
+		v, err := semver.NewVersion(t)
+		if err != nil || v.Prerelease() != "" {
+			continue
+		}
+		if best == nil || v.GreaterThan(best) {
+			best = v
+			bestTag = t
+		}
+	}
+	return bestTag, best, best != nil
 }
 
 // GetTerraformComponents returns a copy of the composed blueprint's terraform components with

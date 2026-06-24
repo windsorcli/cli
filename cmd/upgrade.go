@@ -30,12 +30,15 @@ var (
 
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
-	Short: "Upgrade the blueprint, pruning kustomizations it no longer declares.",
-	Long: `Apply terraform and the Flux blueprint, wait for kustomizations to be ready, then prune any kustomizations this context no longer declares. Pruning runs only after a successful wait, so resources are never deleted before the desired set has reconciled.
+	Short: "Move sources to their latest version and reconcile the blueprint.",
+	Long: `With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. Prunes run only after a successful wait and are gated by --yes.
 
 Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.`,
-	Example: `# Upgrade the blueprint and prune orphaned kustomizations
-windsor upgrade
+	Example: `# Move all sources to their latest stable version and reconcile
+windsor upgrade --yes
+
+# Move a specific source to a specific version
+windsor upgrade --source core=oci://ghcr.io/windsorcli/core:v0.6.0 --yes
 
 # Upgrade Talos nodes in parallel (see 'upgrade cluster')
 windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0`,
@@ -67,10 +70,14 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			if err := retargetSources(cmd, proj, upgradeSources); err != nil {
 				return err
 			}
-			blueprint = proj.Composer.BlueprintHandler.Generate()
-			if blueprint == nil {
-				return fmt.Errorf("blueprint is not available")
+		} else {
+			if err := upgradeToLatest(cmd, proj); err != nil {
+				return err
 			}
+		}
+		blueprint = proj.Composer.BlueprintHandler.Generate()
+		if blueprint == nil {
+			return fmt.Errorf("blueprint is not available")
 		}
 
 		return stacklock.With(cmd.Context(), proj.Runtime, "upgrade", func() error {
@@ -243,6 +250,27 @@ func confirmAndPrune(cmd *cobra.Command, proj *project.Project, blueprint *bluep
 	}
 	if err := proj.Provisioner.Prune(blueprint); err != nil {
 		return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
+	}
+	return nil
+}
+
+// upgradeToLatest moves every remote OCI source pinned to a semver to its latest stable tag,
+// persists the bumps to blueprint.yaml, and prints what changed. Sources that are not OCI, not
+// semver-pinned, or already current are left untouched; it reports when nothing moved.
+func upgradeToLatest(cmd *cobra.Command, proj *project.Project) error {
+	upgrades, err := proj.Composer.BlueprintHandler.UpgradeSourcesToLatest()
+	if err != nil {
+		return fmt.Errorf("error resolving latest source versions: %w", err)
+	}
+	if len(upgrades) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "All sources are already at their latest version.")
+		return nil
+	}
+	if err := proj.Composer.BlueprintHandler.Write(true); err != nil {
+		return fmt.Errorf("failed to persist source upgrades to blueprint.yaml: %w", err)
+	}
+	for _, u := range upgrades {
+		fmt.Fprintf(cmd.OutOrStdout(), "Upgraded %s from %s to %s\n", u.Name, u.From, u.To)
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ type MockArtifact struct {
 	ExtractModulePathFunc func(registry, repository, tag, modulePath string) (string, error)
 	ParseOCIRefFunc       func(ociRef string) (registry, repository, tag string, err error)
 	GetCacheDirFunc       func(registry, repository, tag string) (string, error)
+	ListTagsFunc          func(ociRef string) ([]string, error)
 }
 
 // =============================================================================
@@ -66,6 +67,14 @@ func (m *MockArtifact) Pull(ociRefs []string) (map[string]string, error) {
 		return m.PullFunc(ociRefs)
 	}
 	return make(map[string]string), nil
+}
+
+// ListTags calls the mock ListTagsFunc if set, otherwise returns an empty slice and nil error
+func (m *MockArtifact) ListTags(ociRef string) ([]string, error) {
+	if m.ListTagsFunc != nil {
+		return m.ListTagsFunc(ociRef)
+	}
+	return nil, nil
 }
 
 // ExtractModulePath calls the mock ExtractModulePathFunc if set, otherwise returns empty string and nil error

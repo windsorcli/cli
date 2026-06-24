@@ -64,6 +64,8 @@ type Shims struct {
 	RemoteGet         func(ref name.Reference, options ...remote.Option) (*remote.Descriptor, error)
 	RemoteWriteLayer  func(repo name.Repository, layer v1.Layer, options ...remote.Option) error
 	RemoteWrite       func(ref name.Reference, img v1.Image, options ...remote.Option) error
+	RemoteList        func(repo name.Repository, options ...remote.Option) ([]string, error)
+	NewRepository     func(repo string, opts ...name.Option) (name.Repository, error)
 	MkdirAll           func(path string, perm os.FileMode) error
 	NewBytesReader     func(b []byte) *bytes.Reader
 	NewTarReader       func(r io.Reader) TarReader
@@ -106,6 +108,8 @@ func NewShims() *Shims {
 		RemoteGet:        remote.Get,
 		RemoteWriteLayer: remote.WriteLayer,
 		RemoteWrite:      remote.Write,
+		RemoteList:       remote.List,
+		NewRepository:    func(repo string, opts ...name.Option) (name.Repository, error) { return name.NewRepository(repo, opts...) },
 		MkdirAll:          os.MkdirAll,
 		NewBytesReader:    func(b []byte) *bytes.Reader { return bytes.NewReader(b) },
 		NewTarReader:      func(r io.Reader) TarReader { return tar.NewReader(r) },

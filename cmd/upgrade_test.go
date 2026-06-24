@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
+	"github.com/windsorcli/cli/pkg/composer/blueprint"
 	"github.com/windsorcli/cli/pkg/provisioner/kubernetes"
 	"github.com/windsorcli/cli/pkg/runtime/config"
 )
@@ -301,6 +302,98 @@ func TestUpgradeCmd(t *testing.T) {
 		// Then it is rejected — bare upgrade takes no positional args
 		if err == nil {
 			t.Error("Expected error for unexpected argument, got nil")
+		}
+	})
+}
+
+func TestUpgradeCmd_Latest(t *testing.T) {
+	createTestUpgradeCmd := func() *cobra.Command { return makeApplyTestCmd(upgradeCmd) }
+
+	suppressProcessStdout(t)
+	suppressProcessStderr(t)
+
+	t.Run("ResolvesLatestPersistsAndUpgrades", func(t *testing.T) {
+		// Given sources with a newer version available (implicit upgrade, no --source)
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
+			return []blueprint.SourceUpgrade{{
+				Name: "core",
+				From: "oci://ghcr.io/windsorcli/core:v0.5.0",
+				To:   "oci://ghcr.io/windsorcli/core:v0.6.0",
+			}}, nil
+		}
+		persisted := false
+		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
+			if len(overwrite) > 0 && overwrite[0] {
+				persisted = true
+			}
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When running bare upgrade
+		var out bytes.Buffer
+		cmd := createTestUpgradeCmd()
+		cmd.SetOut(&out)
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it resolves latest, persists the bump, reports it, and proceeds
+		if !persisted {
+			t.Error("Expected the resolved versions to be persisted via Write(true)")
+		}
+		if !strings.Contains(out.String(), "Upgraded core") {
+			t.Errorf("Expected an upgrade report, got: %q", out.String())
+		}
+	})
+
+	t.Run("ReportsWhenAlreadyLatest", func(t *testing.T) {
+		// Given nothing newer is available
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
+			return nil, nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When running bare upgrade
+		var out bytes.Buffer
+		cmd := createTestUpgradeCmd()
+		cmd.SetOut(&out)
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it reports already-latest and still reconciles
+		if !strings.Contains(out.String(), "already at their latest") {
+			t.Errorf("Expected an already-latest report, got: %q", out.String())
+		}
+	})
+
+	t.Run("ResolutionErrorAborts", func(t *testing.T) {
+		// Given resolving latest fails
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.UpgradeSourcesToLatestFunc = func() ([]blueprint.SourceUpgrade, error) {
+			return nil, fmt.Errorf("registry unreachable")
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When running bare upgrade
+		cmd := createTestUpgradeCmd()
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then it aborts with the resolution error
+		if err == nil {
+			t.Fatal("Expected an error when resolving latest fails, got nil")
+		}
+		if !strings.Contains(err.Error(), "resolving latest source versions") {
+			t.Errorf("Expected a resolution error, got: %v", err)
 		}
 	})
 }
