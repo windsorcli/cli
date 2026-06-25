@@ -37,16 +37,36 @@ func TestUpgrade_RunsBlueprintFlowInLocalContext(t *testing.T) {
 	}
 	env = append(env, "WINDSOR_CONTEXT=local")
 
-	// Bare `upgrade` drives terraform + the blueprint install/wait/prune flow. With no live
+	// `upgrade --yes` drives terraform + the blueprint install/wait/prune flow. With no live
 	// cluster the install/wait phase fails, which proves the command reaches real
 	// provisioning rather than dispatching to the talos subcommands or printing help.
-	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade"}, env)
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--yes"}, env)
 	if err == nil {
 		t.Fatal("expected upgrade to fail without a live cluster, got success")
 	}
 	out := string(stderr)
 	if strings.Contains(out, "unknown command") || strings.Contains(out, "Available Commands") {
-		t.Errorf("expected bare upgrade to run the blueprint flow, not print help, got: %s", out)
+		t.Errorf("expected upgrade to run the blueprint flow, not print help, got: %s", out)
+	}
+}
+
+func TestUpgrade_RefusesWithoutYes(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "plan")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// Bare `upgrade` rewrites blueprint.yaml and reconciles the cluster, so it must refuse up
+	// front without --yes and point the operator at the read-only preview.
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade"}, env)
+	if err == nil {
+		t.Fatal("expected upgrade to refuse without --yes, got success")
+	}
+	if !strings.Contains(string(stderr), "--yes") {
+		t.Errorf("expected the refusal to point at --yes, got: %s", stderr)
 	}
 }
 
@@ -61,7 +81,7 @@ func TestUpgrade_SourceRejectsUndeclaredSource(t *testing.T) {
 
 	// --source must refuse a source the blueprint does not declare, before any cluster work —
 	// adding a source is a structural edit to blueprint.yaml, not a retarget.
-	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--source", "bogus=oci://ghcr.io/windsorcli/bogus:v1.0.0"}, env)
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--source", "bogus=oci://ghcr.io/windsorcli/bogus:v1.0.0", "--yes"}, env)
 	if err == nil {
 		t.Fatal("expected upgrade to reject an undeclared --source, got success")
 	}
