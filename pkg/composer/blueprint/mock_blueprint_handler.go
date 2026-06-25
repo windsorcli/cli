@@ -10,6 +10,7 @@ type MockBlueprintHandler struct {
 	SetSkipValidationFunc      func(skip bool)
 	WriteFunc                  func(overwrite ...bool) error
 	RetargetSourceFunc         func(name, url string) (string, error)
+	UpgradeSourcesToLatestFunc func() ([]SourceUpgrade, error)
 	GetTerraformComponentsFunc func() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateDataFunc   func() (map[string][]byte, error)
 	GenerateFunc               func() *blueprintv1alpha1.Blueprint
@@ -70,6 +71,14 @@ func (m *MockBlueprintHandler) RetargetSource(name, url string) (string, error) 
 		return m.RetargetSourceFunc(name, url)
 	}
 	return "", nil
+}
+
+// UpgradeSourcesToLatest calls the mock UpgradeSourcesToLatestFunc if set, otherwise returns nil.
+func (m *MockBlueprintHandler) UpgradeSourcesToLatest() ([]SourceUpgrade, error) {
+	if m.UpgradeSourcesToLatestFunc != nil {
+		return m.UpgradeSourcesToLatestFunc()
+	}
+	return nil, nil
 }
 
 // GetTerraformComponents calls the mock GetTerraformComponentsFunc if set, otherwise returns empty slice.

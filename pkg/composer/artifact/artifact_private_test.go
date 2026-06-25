@@ -2803,3 +2803,54 @@ func (m *mockWriteCloser) Close() error {
 // =============================================================================
 // Test Helper Functions
 // =============================================================================
+
+func TestArtifactBuilder_ListTags(t *testing.T) {
+	setup := func(t *testing.T) *ArtifactBuilder {
+		t.Helper()
+		mocks := setupArtifactMocks(t)
+		builder := NewArtifactBuilder(mocks.Runtime)
+		builder.shims = mocks.Shims
+		return builder
+	}
+
+	t.Run("ReturnsTagsForRepository", func(t *testing.T) {
+		// Given a registry that lists two tags for the repository
+		builder := setup(t)
+		var listedRepo string
+		builder.shims.RemoteList = func(repo name.Repository, options ...remote.Option) ([]string, error) {
+			listedRepo = repo.String()
+			return []string{"v0.5.0", "v0.6.0"}, nil
+		}
+
+		// When listing tags for an OCI reference (the tag in the ref is ignored)
+		tags, err := builder.ListTags("oci://ghcr.io/windsorcli/core:v0.6.0")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then it lists the repository's tags
+		if !strings.Contains(listedRepo, "ghcr.io/windsorcli/core") {
+			t.Errorf("Expected the repository to be listed, got %q", listedRepo)
+		}
+		if len(tags) != 2 || tags[1] != "v0.6.0" {
+			t.Errorf("Expected [v0.5.0 v0.6.0], got %v", tags)
+		}
+	})
+
+	t.Run("ErrorsOnMalformedReference", func(t *testing.T) {
+		builder := setup(t)
+		if _, err := builder.ListTags("not-an-oci-ref"); err == nil {
+			t.Error("Expected an error for a malformed OCI reference")
+		}
+	})
+
+	t.Run("PropagatesRegistryError", func(t *testing.T) {
+		builder := setup(t)
+		builder.shims.RemoteList = func(repo name.Repository, options ...remote.Option) ([]string, error) {
+			return nil, fmt.Errorf("registry down")
+		}
+		if _, err := builder.ListTags("oci://ghcr.io/windsorcli/core:v0.6.0"); err == nil {
+			t.Error("Expected the registry error to surface")
+		}
+	})
+}

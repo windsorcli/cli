@@ -1,6 +1,6 @@
 ---
 title: "windsor upgrade"
-description: "Upgrade the blueprint, pruning kustomizations it no longer declares."
+description: "Move sources to their latest version and reconcile the blueprint."
 ---
 # windsor upgrade
 
@@ -8,7 +8,7 @@ description: "Upgrade the blueprint, pruning kustomizations it no longer declare
 windsor upgrade [flags]
 ```
 
-Apply terraform and the Flux blueprint, wait for kustomizations to be ready, then prune any kustomizations this context no longer declares. Pruning runs only after a successful wait, so resources are never deleted before the desired set has reconciled.
+With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. Prunes run only after a successful wait and are gated by --yes.
 
 Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 
@@ -27,8 +27,11 @@ Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 ## Examples
 
 ```sh
-# Upgrade the blueprint and prune orphaned kustomizations
-windsor upgrade
+# Move all sources to their latest stable version and reconcile
+windsor upgrade --yes
+
+# Move a specific source to a specific version
+windsor upgrade --source core=oci://ghcr.io/windsorcli/core:v0.6.0 --yes
 
 # Upgrade Talos nodes in parallel (see 'upgrade cluster')
 windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.0

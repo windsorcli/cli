@@ -52,6 +52,7 @@ type Artifact interface {
 	ExtractModulePath(registry, repository, tag, modulePath string) (string, error)
 	ParseOCIRef(ociRef string) (registry, repository, tag string, err error)
 	GetCacheDir(registry, repository, tag string) (string, error)
+	ListTags(ociRef string) ([]string, error)
 }
 
 // =============================================================================
@@ -218,6 +219,25 @@ func (a *ArtifactBuilder) ParseOCIRef(ociRef string) (registry, repository, tag 
 	repository = repoParts[1]
 
 	return registry, repository, tag, nil
+}
+
+// ListTags returns the tags published for the repository of an OCI reference (the tag in ociRef is
+// ignored). It is used to resolve the latest available version when upgrading a source. Returns an
+// error if the reference is malformed or the registry cannot be reached.
+func (a *ArtifactBuilder) ListTags(ociRef string) ([]string, error) {
+	registry, repository, _, err := a.ParseOCIRef(ociRef)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := a.shims.NewRepository(registry + "/" + repository)
+	if err != nil {
+		return nil, fmt.Errorf("invalid repository %q/%q: %w", registry, repository, err)
+	}
+	tags, err := a.shims.RemoteList(repo, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tags for %s/%s: %w", registry, repository, err)
+	}
+	return tags, nil
 }
 
 // GetCacheDir returns the cache directory path for an OCI artifact identified by registry, repository, and tag.

@@ -64,13 +64,15 @@ type Shims struct {
 	RemoteGet         func(ref name.Reference, options ...remote.Option) (*remote.Descriptor, error)
 	RemoteWriteLayer  func(repo name.Repository, layer v1.Layer, options ...remote.Option) error
 	RemoteWrite       func(ref name.Reference, img v1.Image, options ...remote.Option) error
-	MkdirAll           func(path string, perm os.FileMode) error
-	NewBytesReader     func(b []byte) *bytes.Reader
-	NewTarReader       func(r io.Reader) TarReader
-	Copy               func(dst io.Writer, src io.Reader) (int64, error)
-	Chmod              func(name string, mode os.FileMode) error
-	Rename             func(oldpath, newpath string) error
-	RemoveAll          func(path string) error
+	RemoteList        func(repo name.Repository, options ...remote.Option) ([]string, error)
+	NewRepository     func(repo string, opts ...name.Option) (name.Repository, error)
+	MkdirAll          func(path string, perm os.FileMode) error
+	NewBytesReader    func(b []byte) *bytes.Reader
+	NewTarReader      func(r io.Reader) TarReader
+	Copy              func(dst io.Writer, src io.Reader) (int64, error)
+	Chmod             func(name string, mode os.FileMode) error
+	Rename            func(oldpath, newpath string) error
+	RemoveAll         func(path string) error
 }
 
 // =============================================================================
@@ -82,17 +84,21 @@ func NewShims() *Shims {
 	return &Shims{
 		Stat: os.Stat,
 		// #nosec G304 - User-controlled output path is intentional for build artifact creation
-		Create:            func(name string) (io.WriteCloser, error) { return os.Create(name) },
-		ReadFile:          os.ReadFile,
-		Walk:              filepath.Walk,
-		NewGzipWriter:     gzip.NewWriter,
-		NewTarWriter:      func(w io.Writer) TarWriter { return tar.NewWriter(w) },
-		YamlUnmarshal:     yaml.Unmarshal,
-		FilepathRel:       filepath.Rel,
-		YamlMarshal:       yaml.Marshal,
-		ReadAll:           io.ReadAll,
-		ParseReference:    func(ref string, opts ...name.Option) (name.Reference, error) { return name.ParseReference(ref, opts...) },
-		RemoteImage:       func(ref name.Reference, options ...remote.Option) (v1.Image, error) { return remote.Image(ref, options...) },
+		Create:        func(name string) (io.WriteCloser, error) { return os.Create(name) },
+		ReadFile:      os.ReadFile,
+		Walk:          filepath.Walk,
+		NewGzipWriter: gzip.NewWriter,
+		NewTarWriter:  func(w io.Writer) TarWriter { return tar.NewWriter(w) },
+		YamlUnmarshal: yaml.Unmarshal,
+		FilepathRel:   filepath.Rel,
+		YamlMarshal:   yaml.Marshal,
+		ReadAll:       io.ReadAll,
+		ParseReference: func(ref string, opts ...name.Option) (name.Reference, error) {
+			return name.ParseReference(ref, opts...)
+		},
+		RemoteImage: func(ref name.Reference, options ...remote.Option) (v1.Image, error) {
+			return remote.Image(ref, options...)
+		},
 		ImageLayers:       func(img v1.Image) ([]v1.Layer, error) { return img.Layers() },
 		LayerUncompressed: func(layer v1.Layer) (io.ReadCloser, error) { return layer.Uncompressed() },
 		AppendLayers:      mutate.AppendLayers,
@@ -106,12 +112,16 @@ func NewShims() *Shims {
 		RemoteGet:        remote.Get,
 		RemoteWriteLayer: remote.WriteLayer,
 		RemoteWrite:      remote.Write,
-		MkdirAll:          os.MkdirAll,
-		NewBytesReader:    func(b []byte) *bytes.Reader { return bytes.NewReader(b) },
-		NewTarReader:      func(r io.Reader) TarReader { return tar.NewReader(r) },
-		Copy:              io.Copy,
-		Chmod:             os.Chmod,
-		Rename:            os.Rename,
-		RemoveAll:         os.RemoveAll,
+		RemoteList:       remote.List,
+		NewRepository: func(repo string, opts ...name.Option) (name.Repository, error) {
+			return name.NewRepository(repo, opts...)
+		},
+		MkdirAll:       os.MkdirAll,
+		NewBytesReader: func(b []byte) *bytes.Reader { return bytes.NewReader(b) },
+		NewTarReader:   func(r io.Reader) TarReader { return tar.NewReader(r) },
+		Copy:           io.Copy,
+		Chmod:          os.Chmod,
+		Rename:         os.Rename,
+		RemoveAll:      os.RemoveAll,
 	}
 }
