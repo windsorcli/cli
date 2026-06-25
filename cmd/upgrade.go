@@ -297,6 +297,17 @@ func upgradeToLatest(cmd *cobra.Command, proj *project.Project) error {
 	return nil
 }
 
+// parseSourceSpec splits a `--source` value into its name and URL, rejecting any spec missing the
+// separator or either half. Both the downgrade gate and the retarget writer parse the same specs,
+// so they share this one parser to stay in lockstep on what a valid spec is.
+func parseSourceSpec(spec string) (name, url string, err error) {
+	name, url, ok := strings.Cut(spec, "=")
+	if !ok || name == "" || url == "" {
+		return "", "", fmt.Errorf("invalid --source %q; expected name=url", spec)
+	}
+	return name, url, nil
+}
+
 // retargetSources applies each `name=url` spec to the context's declared sources, persists the bumps
 // to blueprint.yaml via the same writer init uses, and prints what changed for the operator to
 // commit. An unknown source name or malformed spec aborts before anything is written, so a failed
@@ -306,9 +317,9 @@ func retargetSources(cmd *cobra.Command, proj *project.Project, specs []string) 
 	type change struct{ name, previous, target string }
 	changes := make([]change, 0, len(specs))
 	for _, spec := range specs {
-		name, url, ok := strings.Cut(spec, "=")
-		if !ok || name == "" || url == "" {
-			return fmt.Errorf("invalid --source %q; expected name=url", spec)
+		name, url, err := parseSourceSpec(spec)
+		if err != nil {
+			return err
 		}
 		previous, err := proj.Composer.BlueprintHandler.RetargetSource(name, url)
 		if err != nil {
@@ -337,9 +348,9 @@ func checkSourceDowngrades(cmd *cobra.Command, proj *project.Project, specs []st
 	type change struct{ name, previous, target string }
 	targets := make([]change, 0, len(specs))
 	for _, spec := range specs {
-		name, url, ok := strings.Cut(spec, "=")
-		if !ok || name == "" || url == "" {
-			return fmt.Errorf("invalid --source %q; expected name=url", spec)
+		name, url, err := parseSourceSpec(spec)
+		if err != nil {
+			return err
 		}
 		targets = append(targets, change{name: name, target: url})
 	}
