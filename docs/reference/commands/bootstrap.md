@@ -25,7 +25,7 @@ Re-running on an existing context prompts for confirmation. Pass --yes (or -y) t
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--blueprint` | `""` | Blueprint OCI reference. Accepts oci://host/org/repo:tag, host/org/repo:tag, or org/repo:tag (host defaults to ghcr.io). Tag is required. |
-| `--platform` | `""` | Target platform: none, metal, docker, aws, azure, gcp, hyperv. |
+| `--platform` | `""` | Target platform: none, metal, docker, aws, azure, gcp, hyperv, vsphere. |
 | `--set` | `[]` | Override config values, e.g. --set dns.enabled=false. May be repeated. |
 | `-y`, `--yes` | `false` | Skip all confirmation prompts. |
 

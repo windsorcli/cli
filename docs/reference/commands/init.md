@@ -25,7 +25,7 @@ The directory must be a git repository — init refuses to run in an empty or no
 | `--docker` | `false` | Enable Docker. |
 | `--endpoint` | `""` | Kubernetes API endpoint. |
 | `--git-livereload` | `false` | Enable git livereload. |
-| `--platform` | `""` | Target platform: none, metal, docker, aws, azure, gcp, hyperv. |
+| `--platform` | `""` | Target platform: none, metal, docker, aws, azure, gcp, hyperv, vsphere. |
 | `--reset` | `false` | Overwrite existing files and clean .terraform. |
 | `--set` | `[]` | Override config values, e.g. --set dns.enabled=false. May be repeated. |
 | `--vm-arch` | `""` | CPU architecture for the workstation VM. |
