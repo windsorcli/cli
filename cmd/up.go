@@ -214,7 +214,7 @@ func buildUpFlagOverrides() (map[string]any, error) {
 func init() {
 	upCmd.Flags().BoolVar(&waitFlag, "wait", false, "Wait for kustomization resources to be ready.")
 	upCmd.Flags().StringVar(&upVmDriver, "vm-driver", "", "VM driver: colima, colima-incus, docker-desktop, docker.")
-	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Target platform: none, metal, docker, aws, azure, gcp, hyperv.")
+	upCmd.Flags().StringVar(&upPlatform, "platform", "", "Target platform: none, metal, docker, aws, azure, gcp, hyperv, vsphere.")
 	upCmd.Flags().StringVar(&upBlueprint, "blueprint", "", "Blueprint OCI reference or local path.")
 	upCmd.Flags().StringSliceVar(&upSetFlags, "set", []string{}, "Override config values, e.g. --set dns.enabled=false. May be repeated.")
 	rootCmd.AddCommand(upCmd)

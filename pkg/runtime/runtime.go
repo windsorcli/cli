@@ -59,6 +59,7 @@ type Runtime struct {
 		AwsEnv       env.EnvPrinter
 		AzureEnv     env.EnvPrinter
 		GcpEnv       env.EnvPrinter
+		VsphereEnv   env.EnvPrinter
 		DockerEnv    env.EnvPrinter
 		KubeEnv      env.EnvPrinter
 		TalosEnv     env.EnvPrinter
@@ -140,6 +141,9 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		}
 		if overrides.EnvPrinters.GcpEnv != nil {
 			rt.EnvPrinters.GcpEnv = overrides.EnvPrinters.GcpEnv
+		}
+		if overrides.EnvPrinters.VsphereEnv != nil {
+			rt.EnvPrinters.VsphereEnv = overrides.EnvPrinters.VsphereEnv
 		}
 		if overrides.EnvPrinters.DockerEnv != nil {
 			rt.EnvPrinters.DockerEnv = overrides.EnvPrinters.DockerEnv
@@ -727,6 +731,7 @@ func (rt *Runtime) initializeEnvPrinters() {
 	hasAWSConfig := configData != nil && configData.AWS != nil
 	hasAzureConfig := configData != nil && configData.Azure != nil
 	hasGCPConfig := configData != nil && configData.GCP != nil
+	hasVSphereConfig := configData != nil && configData.VSphere != nil
 
 	if rt.EnvPrinters.AwsEnv == nil && (hasAWSConfig || platform == "aws") {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
@@ -736,6 +741,9 @@ func (rt *Runtime) initializeEnvPrinters() {
 	}
 	if rt.EnvPrinters.GcpEnv == nil && gcpEnabled && hasGCPConfig {
 		rt.EnvPrinters.GcpEnv = env.NewGcpEnvPrinter(rt.Shell, rt.ConfigHandler)
+	}
+	if rt.EnvPrinters.VsphereEnv == nil && (hasVSphereConfig || platform == "vsphere") {
+		rt.EnvPrinters.VsphereEnv = env.NewVsphereEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
 	if rt.EnvPrinters.DockerEnv == nil && needsDocker {
 		rt.EnvPrinters.DockerEnv = env.NewVirtEnvPrinter(rt.Shell, rt.ConfigHandler)
@@ -881,6 +889,7 @@ func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 		rt.EnvPrinters.AwsEnv,
 		rt.EnvPrinters.AzureEnv,
 		rt.EnvPrinters.GcpEnv,
+		rt.EnvPrinters.VsphereEnv,
 		rt.EnvPrinters.DockerEnv,
 		rt.EnvPrinters.KubeEnv,
 		rt.EnvPrinters.TalosEnv,

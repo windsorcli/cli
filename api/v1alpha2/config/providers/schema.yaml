@@ -61,4 +61,37 @@ properties:
         description: Project to use for quota and billing
     additionalProperties: false
 
+  vsphere:
+    type: object
+    description: vSphere provider configuration. vSphere integration activates whenever this block is present in a context (or when platform is "vsphere"); there is no separate enabled flag.
+    properties:
+      server:
+        type: string
+        description: vCenter server hostname or IP address, exported as VSPHERE_SERVER
+      user:
+        type: string
+        description: vCenter username, exported as VSPHERE_USER
+      datacenter:
+        type: string
+        description: vSphere datacenter name (exact inventory match, e.g. "dc-prod")
+      cluster:
+        type: string
+        description: vSphere compute cluster name where VMs are scheduled (e.g. "cluster-01")
+      datastore:
+        type: string
+        description: Datastore or datastore cluster name for VM disk placement
+      network:
+        type: string
+        description: Port group name the VM primary NIC attaches to
+      resource_pool:
+        type: string
+        description: Resource pool path relative to the compute cluster. Defaults to the cluster root pool.
+      folder:
+        type: string
+        description: VM folder path relative to the datacenter VM folder root. Defaults to the datacenter root.
+      insecure:
+        type: boolean
+        description: Disable TLS certificate verification when connecting to vCenter, exported as VSPHERE_ALLOW_UNVERIFIED_SSL
+    additionalProperties: false
+
 additionalProperties: false
