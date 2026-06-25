@@ -90,6 +90,48 @@ func TestUpgrade_SourceRejectsUndeclaredSource(t *testing.T) {
 	}
 }
 
+func TestUpgrade_RefusesDowngrade(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "upgrade-source")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// Retargeting a declared source to an older semver of the same repository is forward-only by
+	// default: it must refuse before writing or reconciling and point at --allow-downgrade.
+	_, stderr, err := helpers.RunCLI(dir, []string{"upgrade", "--source", "core=oci://ghcr.io/windsorcli/core:v0.3.0", "--yes"}, env)
+	if err == nil {
+		t.Fatal("expected upgrade to refuse a downgrade, got success")
+	}
+	out := string(stderr)
+	if !strings.Contains(out, "downgrade") || !strings.Contains(out, "--allow-downgrade") {
+		t.Errorf("expected a downgrade refusal pointing at --allow-downgrade, got: %s", out)
+	}
+}
+
+func TestUpgrade_AllowsDowngradeWithFlag(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.CopyFixtureOnly(t, "upgrade-source")
+	helpers.MarkAsGitRepo(t, dir)
+	if _, stderr, err := helpers.RunCLI(dir, []string{"init", "local"}, env); err != nil {
+		t.Fatalf("init local: %v\nstderr: %s", err, stderr)
+	}
+	env = append(env, "WINDSOR_CONTEXT=local")
+
+	// With --allow-downgrade the guard is cleared: it warns that data is not reversed and proceeds
+	// past the refusal (reconcile then fails without a live cluster, which is expected here).
+	_, stderr, _ := helpers.RunCLI(dir, []string{"upgrade", "--source", "core=oci://ghcr.io/windsorcli/core:v0.3.0", "--yes", "--allow-downgrade"}, env)
+	out := string(stderr)
+	if strings.Contains(out, "refusing to downgrade") {
+		t.Errorf("expected --allow-downgrade to clear the refusal, got: %s", out)
+	}
+	if !strings.Contains(out, "does NOT reverse application data") {
+		t.Errorf("expected a data-loss warning under --allow-downgrade, got: %s", out)
+	}
+}
+
 func TestUpgrade_AcceptsYesFlag(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.CopyFixtureOnly(t, "plan")

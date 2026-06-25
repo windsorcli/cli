@@ -1,0 +1,10 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: upgrade-source
+  description: Upgrade fixture with a declared OCI source for downgrade-guard tests
+sources:
+  - name: core
+    url: oci://ghcr.io/windsorcli/core:v0.6.0
+terraform:
+  - path: "null"

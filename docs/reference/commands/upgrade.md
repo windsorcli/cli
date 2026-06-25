@@ -16,6 +16,7 @@ Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--allow-downgrade` | `false` | Permit moving a source to an older version. Reverts infrastructure declaratively; does NOT reverse application data. |
 | `--source` | `[]` | Retarget a declared source to a new tagged URL (name=url); repeatable. Persisted to blueprint.yaml. |
 | `--yes` | `false` | Proceed without confirmation when the upgrade would prune kustomizations. |
 
