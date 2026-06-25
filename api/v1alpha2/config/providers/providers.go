@@ -4,13 +4,15 @@ import (
 	"github.com/windsorcli/cli/api/v1alpha2/config/providers/aws"
 	"github.com/windsorcli/cli/api/v1alpha2/config/providers/azure"
 	"github.com/windsorcli/cli/api/v1alpha2/config/providers/gcp"
+	"github.com/windsorcli/cli/api/v1alpha2/config/providers/vsphere"
 )
 
 // ProvidersConfig represents the configuration for all cloud providers
 type ProvidersConfig struct {
-	AWS   *aws.AWSConfig     `yaml:"aws,omitempty"`
-	Azure *azure.AzureConfig `yaml:"azure,omitempty"`
-	GCP   *gcp.GCPConfig     `yaml:"gcp,omitempty"`
+	AWS     *aws.AWSConfig         `yaml:"aws,omitempty"`
+	Azure   *azure.AzureConfig     `yaml:"azure,omitempty"`
+	GCP     *gcp.GCPConfig         `yaml:"gcp,omitempty"`
+	VSphere *vsphere.VSphereConfig `yaml:"vsphere,omitempty"`
 }
 
 // Merge performs a deep merge of the current ProvidersConfig with another ProvidersConfig.
@@ -36,6 +38,12 @@ func (base *ProvidersConfig) Merge(overlay *ProvidersConfig) {
 		}
 		base.GCP.Merge(overlay.GCP)
 	}
+	if overlay.VSphere != nil {
+		if base.VSphere == nil {
+			base.VSphere = &vsphere.VSphereConfig{}
+		}
+		base.VSphere.Merge(overlay.VSphere)
+	}
 }
 
 // DeepCopy creates a deep copy of the ProvidersConfig object
@@ -53,6 +61,9 @@ func (c *ProvidersConfig) DeepCopy() *ProvidersConfig {
 	}
 	if c.GCP != nil {
 		copied.GCP = c.GCP.DeepCopy()
+	}
+	if c.VSphere != nil {
+		copied.VSphere = c.VSphere.DeepCopy()
 	}
 
 	return copied

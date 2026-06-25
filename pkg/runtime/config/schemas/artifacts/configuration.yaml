@@ -62,6 +62,7 @@ $defs:
           - azure
           - gcp
           - hyperv
+          - vsphere
         description: |
           Target deployment platform. Selects platform-specific facets and
           drives backend type inference.
@@ -87,6 +88,8 @@ $defs:
         $ref: '#/$defs/azure'
       gcp:
         $ref: '#/$defs/gcp'
+      vsphere:
+        $ref: '#/$defs/vsphere'
       docker:
         $ref: '#/$defs/docker'
       git:
@@ -197,6 +200,47 @@ $defs:
       quota_project:
         type: string
         description: Project to bill quota usage against.
+  vsphere:
+    type: object
+    additionalProperties: false
+    description: |
+      vSphere integration. Activates whenever this block is present (or when
+      platform is 'vsphere'); there is no separate 'enabled' flag.
+      Connection credentials (server, user, password) are env-var driven by the
+      Terraform provider (VSPHERE_SERVER, VSPHERE_USER, VSPHERE_PASSWORD,
+      VSPHERE_ALLOW_UNVERIFIED_SSL). Server and user may optionally be set here
+      so the CLI can export them into the shell; password must come from secrets
+      or the ambient environment and is never written to this file.
+      Inventory pointers (datacenter, cluster, datastore, network) are wired as
+      Terraform variable inputs by the vsphere platform facet.
+    properties:
+      server:
+        type: string
+        description: vCenter server hostname or IP address. Exported as VSPHERE_SERVER.
+      user:
+        type: string
+        description: vCenter username. Exported as VSPHERE_USER.
+      datacenter:
+        type: string
+        description: vSphere datacenter name (exact inventory match, e.g. "dc-prod").
+      cluster:
+        type: string
+        description: vSphere compute cluster name where VMs are scheduled (e.g. "cluster-01").
+      datastore:
+        type: string
+        description: Datastore or datastore cluster name for VM disk placement.
+      network:
+        type: string
+        description: Port group name the VM primary NIC attaches to.
+      resource_pool:
+        type: string
+        description: Resource pool path relative to the compute cluster. Defaults to the cluster root pool.
+      folder:
+        type: string
+        description: VM folder path relative to the datacenter VM folder root. Defaults to the datacenter root.
+      insecure:
+        type: boolean
+        description: Disable TLS certificate verification when connecting to vCenter. Exported as VSPHERE_ALLOW_UNVERIFIED_SSL.
   docker:
     type: object
     additionalProperties: false

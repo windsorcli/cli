@@ -12,6 +12,7 @@ properties:
       - azure
       - gcp
       - hyperv
+      - vsphere
 
   workstation:
     type: object
