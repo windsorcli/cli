@@ -33,11 +33,12 @@ system-managed and not covered here.
 | `git` | `object` | Git / livereload configuration. |
 | `id` | `string` | Stable identifier for the context, distinct from its map key. Used for cross-context references where the key may change. |
 | `network` | `object` | Cluster network configuration. |
-| `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. One of: `none`, `docker`, `incus`, `metal`, `aws`, `azure`, `gcp`, `hyperv`. |
+| `platform` | `string` | Target deployment platform. Selects platform-specific facets and drives backend type inference. One of: `none`, `docker`, `incus`, `metal`, `aws`, `azure`, `gcp`, `hyperv`, `vsphere`. |
 | `provider` | `string` | Deprecated alias for 'platform'. New configs should use 'platform'; the loader still reads 'provider' for backwards compatibility. |
 | `secrets` | `object` | Secrets provider configuration. Currently 1Password is the only supported provider. |
 | `terraform` | `object` | Per-context Terraform settings (state backend, lock policy, timeout). The runtime-validator sub-types (BackendConfig, LockConfig) are authored in api/v1alpha1/terraform/terraform_config.go; expansion to full field detail is a planned follow-up. |
 | `vm` | `object` | Workstation VM settings. Applies to colima / colima-incus / docker- desktop driver choices; ignored when the workstation runs directly on Docker without a VM. |
+| `vsphere` | `object` | vSphere integration. Activates whenever this block is present (or when platform is 'vsphere'); there is no separate 'enabled' flag. Connection credentials (server, user, password) are env-var driven by the Terraform provider (VSPHERE_SERVER, VSPHERE_USER, VSPHERE_PASSWORD, VSPHERE_ALLOW_UNVERIFIED_SSL). Server and user may optionally be set here so the CLI can export them into the shell; password must come from secrets or the ambient environment and is never written to this file. Inventory pointers (datacenter, cluster, datastore, network) are wired as Terraform variable inputs by the vsphere platform facet. |
 
 ### contexts{}.aws
 
@@ -185,6 +186,20 @@ system-managed and not covered here.
 | `driver` | `string` | VM driver. One of 'colima', 'colima-incus', 'docker-desktop', 'docker'. |
 | `memory` | `integer` | Memory in GB. |
 | `runtime` | `string` | Container runtime inside the VM (typically 'docker'). |
+
+### contexts{}.vsphere
+
+| Field | Type | Description |
+|------|------|-------------|
+| `cluster` | `string` | vSphere compute cluster name where VMs are scheduled (e.g. "cluster-01"). |
+| `datacenter` | `string` | vSphere datacenter name (exact inventory match, e.g. "dc-prod"). |
+| `datastore` | `string` | Datastore or datastore cluster name for VM disk placement. |
+| `folder` | `string` | VM folder path relative to the datacenter VM folder root. Defaults to the datacenter root. |
+| `insecure` | `boolean` | Disable TLS certificate verification when connecting to vCenter. Exported as VSPHERE_ALLOW_UNVERIFIED_SSL. |
+| `network` | `string` | Port group name the VM primary NIC attaches to. |
+| `resource_pool` | `string` | Resource pool path relative to the compute cluster. Defaults to the cluster root pool. |
+| `server` | `string` | vCenter server hostname or IP address. Exported as VSPHERE_SERVER. |
+| `user` | `string` | vCenter username. Exported as VSPHERE_USER. |
 
 ## terraform
 
