@@ -600,6 +600,57 @@ func TestUpgradeCmd_Source(t *testing.T) {
 			t.Error("Expected the downgrade to be persisted under --allow-downgrade")
 		}
 	})
+
+	t.Run("RefusesWholeOperationWhenAnySourceDowngrades", func(t *testing.T) {
+		t.Cleanup(func() { upgradeSources = nil; upgradeAllowDowngrade = false })
+		// Given two declared sources, one bumped forward and one moved back
+		mocks := setupApplyTest(t)
+		mocks.BlueprintHandler.GetDeclaredSourcesFunc = func() ([]blueprintv1alpha1.Source, error) {
+			return []blueprintv1alpha1.Source{
+				{Name: "core", Url: "oci://ghcr.io/windsorcli/core:v0.6.0"},
+				{Name: "addons", Url: "oci://ghcr.io/windsorcli/addons:v0.2.0"},
+			}, nil
+		}
+		retargeted := false
+		mocks.BlueprintHandler.RetargetSourceFunc = func(name, url string) (string, error) {
+			retargeted = true
+			return "", nil
+		}
+		persisted := false
+		mocks.BlueprintHandler.WriteFunc = func(overwrite ...bool) error {
+			if len(overwrite) > 0 && overwrite[0] {
+				persisted = true
+			}
+			return nil
+		}
+		proj := newApplyAllProject(mocks)
+
+		// When one spec is a forward bump and the other is a downgrade, without --allow-downgrade
+		var errOut bytes.Buffer
+		cmd := createTestUpgradeCmd()
+		cmd.SetErr(&errOut)
+		cmd.SetArgs([]string{
+			"--source", "addons=oci://ghcr.io/windsorcli/addons:v0.3.0",
+			"--source", "core=oci://ghcr.io/windsorcli/core:v0.4.0",
+		})
+		ctx := stdcontext.WithValue(stdcontext.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		err := cmd.Execute()
+
+		// Then the whole operation is refused before any source is retargeted or written
+		if err == nil {
+			t.Fatal("Expected the downgrade in one spec to refuse the whole operation, got nil")
+		}
+		if !strings.Contains(err.Error(), "--allow-downgrade") {
+			t.Errorf("Expected a downgrade refusal pointing at --allow-downgrade, got: %v", err)
+		}
+		if !strings.Contains(errOut.String(), "Downgrading core") {
+			t.Errorf("Expected the refused downgrade to name core, got: %q", errOut.String())
+		}
+		if retargeted || persisted {
+			t.Error("Expected no retarget or write when any spec is a refused downgrade")
+		}
+	})
 }
 
 func TestUpgradeCmd_Confirmation(t *testing.T) {

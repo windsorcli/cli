@@ -344,6 +344,12 @@ func retargetSources(cmd *cobra.Command, proj *project.Project, specs []string) 
 // refused unless allowDowngrade is set, since Windsor reverts infrastructure declaratively but does
 // not reverse application data. Specs naming an undeclared source are left for retargetSources to
 // reject; malformed specs are rejected here.
+//
+// The comparison baseline is the ref declared in blueprint.yaml, not the running version recorded in
+// the cluster marker — a deliberate trade-off that keeps this a cheap, offline pre-flight (the marker
+// would require a cluster read). The normal flow keeps declared and applied in lockstep; the gap is a
+// blueprint.yaml hand-edited below the running version, where a move that is forward relative to the
+// declared ref but still behind what is applied would not be flagged.
 func checkSourceDowngrades(cmd *cobra.Command, proj *project.Project, specs []string, allowDowngrade bool) error {
 	type change struct{ name, previous, target string }
 	targets := make([]change, 0, len(specs))
