@@ -2186,6 +2186,65 @@ func TestLatestStableSemver(t *testing.T) {
 	})
 }
 
+func TestIsDowngrade(t *testing.T) {
+	t.Run("TrueWhenTargetTagIsOlderInSameRepo", func(t *testing.T) {
+		// Given a target that pins an older semver than the previous ref of the same repository
+		// When comparing them
+		// Then it is reported as a downgrade
+		if !IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:v0.3.0") {
+			t.Error("Expected v0.3.0 after v0.6.0 to be a downgrade")
+		}
+	})
+
+	t.Run("FalseWhenTargetTagIsNewer", func(t *testing.T) {
+		// Given a target that pins a newer semver
+		// When comparing them
+		// Then it is not a downgrade
+		if IsDowngrade("oci://ghcr.io/windsorcli/core:v0.3.0", "oci://ghcr.io/windsorcli/core:v0.6.0") {
+			t.Error("Expected v0.6.0 after v0.3.0 to be an upgrade, not a downgrade")
+		}
+	})
+
+	t.Run("FalseWhenTagsAreEqual", func(t *testing.T) {
+		// Given identical tags
+		// When comparing them
+		// Then it is not a downgrade
+		if IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:v0.6.0") {
+			t.Error("Expected an unchanged tag not to be a downgrade")
+		}
+	})
+
+	t.Run("FalseWhenRepositoriesDiffer", func(t *testing.T) {
+		// Given a target that points at a different repository, even at a lower tag
+		// When comparing them
+		// Then it is a re-source, not an ordered downgrade
+		if IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/acme/core:v0.3.0") {
+			t.Error("Expected a different repository not to be treated as a downgrade")
+		}
+	})
+
+	t.Run("FalseWhenEitherTagIsNotSemver", func(t *testing.T) {
+		// Given a ref pinned to a branch or mutable tag rather than a semver
+		// When comparing them
+		// Then the change is not ordered and not a downgrade
+		if IsDowngrade("oci://ghcr.io/windsorcli/core:main", "oci://ghcr.io/windsorcli/core:v0.3.0") {
+			t.Error("Expected a non-semver previous ref not to be ordered")
+		}
+		if IsDowngrade("oci://ghcr.io/windsorcli/core:v0.6.0", "oci://ghcr.io/windsorcli/core:latest") {
+			t.Error("Expected a non-semver target ref not to be ordered")
+		}
+	})
+
+	t.Run("FalseWhenEitherURLIsNotOCI", func(t *testing.T) {
+		// Given a ref that is not a parseable OCI reference
+		// When comparing them
+		// Then no regression can be asserted
+		if IsDowngrade("https://example.com/core", "oci://ghcr.io/windsorcli/core:v0.3.0") {
+			t.Error("Expected a non-OCI previous ref not to be a downgrade")
+		}
+	})
+}
+
 func TestHandler_UpgradeSourcesToLatest(t *testing.T) {
 	setup := func(t *testing.T, sources []blueprintv1alpha1.Source, tags map[string][]string) (*BaseBlueprintHandler, *artifact.MockArtifact) {
 		t.Helper()

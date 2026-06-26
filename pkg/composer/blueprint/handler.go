@@ -22,6 +22,7 @@ type BlueprintHandler interface {
 	Write(overwrite ...bool) error
 	RetargetSource(name, url string) (string, error)
 	UpgradeSourcesToLatest() ([]SourceUpgrade, error)
+	GetDeclaredSources() ([]blueprintv1alpha1.Source, error)
 	GetTerraformComponents() []blueprintv1alpha1.TerraformComponent
 	GetLocalTemplateData() (map[string][]byte, error)
 	Generate() *blueprintv1alpha1.Blueprint
@@ -292,6 +293,50 @@ func latestStableSemver(tags []string) (string, *semver.Version, bool) {
 		}
 	}
 	return bestTag, best, best != nil
+}
+
+// IsDowngrade reports whether targetURL pins an older stable semver than previousURL for the same
+// OCI repository. It returns false when either URL is not a parseable OCI reference, when the two
+// reference different repositories (a re-source is not an ordered version change), or when either
+// tag is not a semver (a branch, mutable tag, or commit is not ordered) — in those cases a
+// regression cannot be asserted, so the caller must not treat the change as a downgrade.
+func IsDowngrade(previousURL, targetURL string) bool {
+	prev, err := artifact.ParseOCIReference(previousURL)
+	if err != nil || prev == nil {
+		return false
+	}
+	target, err := artifact.ParseOCIReference(targetURL)
+	if err != nil || target == nil {
+		return false
+	}
+	if strings.TrimSuffix(prev.URL, ":"+prev.Tag) != strings.TrimSuffix(target.URL, ":"+target.Tag) {
+		return false
+	}
+	from, err := semver.NewVersion(prev.Tag)
+	if err != nil {
+		return false
+	}
+	to, err := semver.NewVersion(target.Tag)
+	if err != nil {
+		return false
+	}
+	return to.LessThan(from)
+}
+
+// GetDeclaredSources loads only the context's blueprint.yaml (the user blueprint) and returns its
+// declared sources, without loading remote source content or composing. It is the cheap pre-flight
+// read upgrade uses to evaluate a --source change before pulling or composing anything, so a refused
+// downgrade never triggers a registry round-trip. Returns an empty slice when no blueprint.yaml or
+// no sources are declared.
+func (h *BaseBlueprintHandler) GetDeclaredSources() ([]blueprintv1alpha1.Source, error) {
+	if err := h.loadUser(); err != nil {
+		return nil, err
+	}
+	userBp := h.userBlueprintLoader.GetBlueprint()
+	if userBp == nil {
+		return nil, nil
+	}
+	return userBp.Sources, nil
 }
 
 // GetTerraformComponents returns a copy of the composed blueprint's terraform components with
