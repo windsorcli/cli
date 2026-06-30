@@ -10,7 +10,7 @@ require (
 	github.com/expr-lang/expr v1.17.8
 	github.com/fluxcd/helm-controller/api v1.6.0
 	github.com/fluxcd/kustomize-controller/api v1.9.0
-	github.com/fluxcd/pkg/apis/kustomize v1.19.0
+	github.com/fluxcd/pkg/apis/kustomize v1.20.0
 	github.com/fluxcd/pkg/apis/meta v1.30.0
 	github.com/fluxcd/source-controller/api v1.9.0
 	github.com/goccy/go-yaml v1.19.2
@@ -132,7 +132,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
-	k8s.io/apiextensions-apiserver v0.36.1 // indirect
+	k8s.io/apiextensions-apiserver v0.36.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260603220949-865597e52e25 // indirect
 	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2 // indirect
