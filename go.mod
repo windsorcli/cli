@@ -8,10 +8,10 @@ require (
 	github.com/abiosoft/colima v0.10.3
 	github.com/briandowns/spinner v1.23.2
 	github.com/expr-lang/expr v1.17.8
-	github.com/fluxcd/helm-controller/api v1.6.0
+	github.com/fluxcd/helm-controller/api v1.6.1
 	github.com/fluxcd/kustomize-controller/api v1.9.0
 	github.com/fluxcd/pkg/apis/kustomize v1.20.0
-	github.com/fluxcd/pkg/apis/meta v1.30.0
+	github.com/fluxcd/pkg/apis/meta v1.30.1
 	github.com/fluxcd/source-controller/api v1.9.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gofrs/flock v0.13.0
