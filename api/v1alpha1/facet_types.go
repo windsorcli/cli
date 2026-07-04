@@ -112,6 +112,28 @@ type Facet struct {
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
 }
 
+// UnmarshalYAML accepts `flux:` as an alias for `kustomize:`. Both keys deserialize into
+// Kustomizations; a file may use either (or, transitionally, both). `flux:` is the preferred
+// spelling — every entry compiles to a Flux Kustomization — with `kustomize:` kept as a permanent
+// backward-compatible alias. The aliased type carries no UnmarshalYAML of its own, so decoding it
+// does not recurse.
+func (f *Facet) UnmarshalYAML(unmarshal func(any) error) error {
+	type alias Facet
+	var a alias
+	if err := unmarshal(&a); err != nil {
+		return err
+	}
+	*f = Facet(a)
+	var aux struct {
+		Flux []ConditionalKustomization `yaml:"flux,omitempty"`
+	}
+	if err := unmarshal(&aux); err != nil {
+		return err
+	}
+	f.Kustomizations = append(f.Kustomizations, aux.Flux...)
+	return nil
+}
+
 // ConditionalTerraformComponent extends TerraformComponent with conditional logic support.
 type ConditionalTerraformComponent struct {
 	TerraformComponent `yaml:",inline"`

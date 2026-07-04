@@ -91,7 +91,18 @@ properties:
     description: |
       Kustomizations contributed by this facet. Each entry extends the
       blueprint's Kustomization shape with conditional fields (when,
-      strategy, ordinal, requires).
+      strategy, ordinal, requires). Deprecated alias of 'flux:'; both keys are
+      accepted and merge into the same list.
+    items:
+      $ref: '#/$defs/conditionalKustomization'
+  flux:
+    type: array
+    description: |
+      Flux Kustomizations contributed by this facet — the preferred spelling of
+      'kustomize:' (every entry compiles to a Flux Kustomization object). Each
+      entry extends the blueprint's Kustomization shape with conditional fields
+      (when, strategy, ordinal, requires). 'kustomize:' remains accepted as a
+      backward-compatible alias; both keys merge into the same list.
     items:
       $ref: '#/$defs/conditionalKustomization'
   crds:

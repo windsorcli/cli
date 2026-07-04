@@ -19,7 +19,8 @@ variable substitutions shared across them.
 | `backend` | `string` | Names the terraform component that terminates the backend tier. When set, 'windsor bootstrap' applies the backend component (and every component declared before it) against local state first, then migrates state to the configured remote backend before applying the rest of the graph. |
 | `configMaps` | `map<object>` | Standalone ConfigMaps to create. Each top-level key is a ConfigMap name; its map-of-string value is the .data payload. These are referenced by every kustomization in PostBuild substitution. |
 | `crds` | `array<string>` | The flat list of vendored CRD references installed from the default/project source (e.g. 'cert-manager-1.16.2'), authored as a bare scalar list — the same form facets use. CRDs carried by an OCI source are not listed here: they ride with that source (see sources[].crds) and install in the background when it is install:true. The provisioner materializes this list into the 'crds' kustomization — pruning disabled, wait enabled — applied ahead of the kustomize: layer so every kustomization sees its CRDs Established first. |
-| `kustomize` | `array<object>` | Flux kustomizations included in the blueprint. Each entry maps to a Kustomization resource the provisioner applies to the cluster, in topologically sorted dependsOn order. |
+| `flux` | `array<object>` | Flux Kustomizations included in the blueprint — the preferred spelling of 'kustomize:' (every entry compiles to a Flux Kustomization). 'kustomize:' remains accepted as a backward-compatible alias; both keys merge into one list. |
+| `kustomize` | `array<object>` | Flux kustomizations included in the blueprint. Each entry maps to a Kustomization resource the provisioner applies to the cluster, in topologically sorted dependsOn order. Deprecated alias of 'flux:'; both keys are accepted and merge into the same list. |
 | `repository` | `object` | Source repository this blueprint was bootstrapped from. |
 | `sources` | `array<object>` | External resources referenced by the blueprint. Each source is an OCI blueprint artifact or a Git repository that contributes Terraform modules and/or kustomize bases consumable by the components below. |
 | `substitutions` | `map<string>` | Blueprint-level substitutions injected into 'values-common' and made available to every kustomization via PostBuild substitution. Values may use expression syntax (e.g. '${dns.domain}') resolved against facet config blocks. |
@@ -31,6 +32,39 @@ variable substitutions shared across them.
 |------|------|-------------|
 | `name` | `string` | Blueprint's unique identifier within the project. **(required)** |
 | `description` | `string` | One-line overview of what this blueprint provisions. |
+
+## flux[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `name` | `string` | Identifier for the kustomization; referenced by dependsOn. **(required)** |
+| `path` | `string` | Path within the source containing the kustomize base. **(required)** |
+| `components` | `array<string>` | Kustomize components to compose into this kustomization. |
+| `dependsOn` | `array<string>` | Names of kustomizations that must reconcile before this one. |
+| `destroy` | `boolean / string` | Whether to delete this kustomization during 'windsor down' / 'windsor destroy'. Boolean or expression. Defaults to true. |
+| `destroyOnly` | `boolean` | When true, the kustomization only runs during destroy. Useful for teardown-only resources (e.g. cleanup jobs). |
+| `enabled` | `boolean / string` | Whether to include this kustomization in the final blueprint. Boolean or expression. Defaults to true. |
+| `force` | `boolean` | Force-apply resources Flux would otherwise refuse to update. |
+| `install` | `array<string>` | Components of the install (controller/operator) tier. Like components, each entry may be a '${...}' expression that prunes to empty. When install and/or resources are set, the entry expands into separate kustomizations sharing this path: '<name>-install' carrying these components and '<name>-resources' depending on it, so the controller is reconciled before the custom resources it admits. |
+| `interval` | `string` | Reconciliation interval, expressed as a Go duration string (e.g. '5m', '1h'). Defaults to a mode-appropriate value chosen by the provisioner (short poll for pull mode, long fallback for push). |
+| `namespace` | `string` | Namespace where the Flux Kustomization object itself lives. Defaults to the gitops namespace. DependsOn references always resolve in the gitops namespace; cross-namespace dependencies are not supported. |
+| `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to the kustomization. Each entry is either a 'path:' to a patch file relative to the kustomization, or a 'patch:' inline YAML body with an optional 'target:' selector (kind / name / namespace). |
+| `prune` | `boolean` | Garbage-collect resources removed from the source. Defaults to true. |
+| `resources` | `array<string>` | Components of the custom-resource tier. See install. |
+| `retryInterval` | `string` | Duration to wait before retrying a failed reconciliation (e.g. '2m'). |
+| `source` | `string` | Name of the source (from the sources list) that provides this kustomization. Defaults to the blueprint's primary source when unset. |
+| `substitutions` | `map<string>` | PostBuild variable substitutions for this kustomization. Collected into a 'values-<name>' ConfigMap that Flux substitutes from. |
+| `targetNamespace` | `string` | Populates spec.targetNamespace, instructing Flux to override the namespace of every resource reconciled by this kustomization. |
+| `timeout` | `string` | Maximum duration for a single reconciliation attempt (e.g. '10m'). |
+| `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |
+
+### flux[].patches[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `patch` | `string` | Inline patch body as YAML (Flux format). |
+| `path` | `string` | Path to a patch file relative to the kustomization (blueprint format). |
+| `target` | `object` | Selector for the patch (Flux format). Used with 'patch:'. |
 
 ## kustomize[]
 
