@@ -170,8 +170,9 @@ properties:
     description: |
       Flux kustomizations included in the blueprint. Each entry maps to a
       Kustomization resource the provisioner applies to the cluster, in
-      topologically sorted dependsOn order.
-    items:
+      topologically sorted dependsOn order. Deprecated alias of 'flux:'; both
+      keys are accepted and merge into the same list.
+    items: &blueprintKustomizationItems
       type: object
       required:
         - name
@@ -288,6 +289,14 @@ properties:
           description: |
             PostBuild variable substitutions for this kustomization. Collected
             into a 'values-<name>' ConfigMap that Flux substitutes from.
+  flux:
+    type: array
+    description: |
+      Flux Kustomizations included in the blueprint — the preferred spelling of
+      'kustomize:' (every entry compiles to a Flux Kustomization). 'kustomize:'
+      remains accepted as a backward-compatible alias; both keys merge into one
+      list.
+    items: *blueprintKustomizationItems
   substitutions:
     type: object
     additionalProperties:

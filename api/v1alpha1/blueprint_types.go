@@ -330,6 +330,27 @@ type Blueprint struct {
 	ConfigMaps map[string]map[string]string `yaml:"configMaps,omitempty"`
 }
 
+// UnmarshalYAML accepts `flux:` as an alias for `kustomize:`, mirroring Facet. Both keys
+// deserialize into Kustomizations; `flux:` is the preferred spelling and `kustomize:` a permanent
+// backward-compatible alias. The aliased type carries no UnmarshalYAML of its own, so decoding it
+// does not recurse.
+func (b *Blueprint) UnmarshalYAML(unmarshal func(any) error) error {
+	type alias Blueprint
+	var a alias
+	if err := unmarshal(&a); err != nil {
+		return err
+	}
+	*b = Blueprint(a)
+	var aux struct {
+		Flux []Kustomization `yaml:"flux,omitempty"`
+	}
+	if err := unmarshal(&aux); err != nil {
+		return err
+	}
+	b.Kustomizations = append(b.Kustomizations, aux.Flux...)
+	return nil
+}
+
 // CrdKustomizationName returns the name of the kustomization the provisioner synthesizes for a CRD
 // source: "crds" for the default/project source (empty name) and "crds-<source>" for a named source.
 // The barrier makes every root kustomization depend on this name so the stack waits on the CRDs.
