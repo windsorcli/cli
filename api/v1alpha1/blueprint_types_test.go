@@ -4557,3 +4557,69 @@ terraform:
 		}
 	})
 }
+
+// The `flux:` key is a preferred alias of `kustomize:` on the blueprint, mirroring Facet.
+func TestBlueprint_FluxAlias(t *testing.T) {
+	t.Run("FluxKeyPopulatesKustomizations", func(t *testing.T) {
+		// Given a blueprint authored with the flux: key
+		src := `kind: Blueprint
+flux:
+  - name: x
+    path: x
+`
+		// When it is unmarshaled
+		var b Blueprint
+		if err := yaml.Unmarshal([]byte(src), &b); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then the entry lands in Kustomizations
+		if len(b.Kustomizations) != 1 || b.Kustomizations[0].Name != "x" {
+			t.Fatalf("flux entry not merged into Kustomizations: %+v", b.Kustomizations)
+		}
+	})
+
+	t.Run("KustomizeKeyStillWorksAndBothMerge", func(t *testing.T) {
+		// Given both keys
+		src := `kind: Blueprint
+kustomize:
+  - name: a
+    path: a
+flux:
+  - name: b
+    path: b
+`
+		// When it is unmarshaled
+		var b Blueprint
+		if err := yaml.Unmarshal([]byte(src), &b); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then both are present
+		if len(b.Kustomizations) != 2 {
+			t.Fatalf("expected both entries, got %+v", b.Kustomizations)
+		}
+	})
+
+	t.Run("SameNameUnderBothKeysAreBothKept", func(t *testing.T) {
+		// Given the same name under both keys
+		src := `kind: Blueprint
+kustomize:
+  - name: foo
+    path: from-kustomize
+flux:
+  - name: foo
+    path: from-flux
+`
+		// When it is unmarshaled
+		var b Blueprint
+		if err := yaml.Unmarshal([]byte(src), &b); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then the alias appends both without dedup — a pure spelling merge, same as Facet
+		if len(b.Kustomizations) != 2 {
+			t.Fatalf("expected the alias to append both same-name entries, got %+v", b.Kustomizations)
+		}
+	})
+}

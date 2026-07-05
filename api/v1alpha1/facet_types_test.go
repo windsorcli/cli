@@ -892,3 +892,111 @@ kustomize:
 		}
 	})
 }
+
+// The `flux:` key is a preferred alias of `kustomize:`; both deserialize into Kustomizations and a
+// file may use either or, transitionally, both.
+func TestFacet_FluxAlias(t *testing.T) {
+	t.Run("FluxKeyPopulatesKustomizations", func(t *testing.T) {
+		// Given a facet authored with the flux: key
+		src := `kind: Facet
+flux:
+  - name: pki-install
+    path: pki/install
+`
+		// When it is unmarshaled
+		var f Facet
+		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then the entry lands in Kustomizations, indistinguishable from a kustomize: entry
+		if len(f.Kustomizations) != 1 || f.Kustomizations[0].Name != "pki-install" || f.Kustomizations[0].Path != "pki/install" {
+			t.Fatalf("flux entry not merged into Kustomizations: %+v", f.Kustomizations)
+		}
+	})
+
+	t.Run("KustomizeKeyStillWorks", func(t *testing.T) {
+		// Given the legacy kustomize: key
+		src := `kind: Facet
+kustomize:
+  - name: legacy
+    path: legacy
+`
+		// When it is unmarshaled
+		var f Facet
+		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then it parses exactly as before
+		if len(f.Kustomizations) != 1 || f.Kustomizations[0].Name != "legacy" {
+			t.Fatalf("kustomize entry regressed: %+v", f.Kustomizations)
+		}
+	})
+
+	t.Run("BothKeysMerge", func(t *testing.T) {
+		// Given a file using both keys during a transition
+		src := `kind: Facet
+kustomize:
+  - name: a
+    path: a
+flux:
+  - name: b
+    path: b
+`
+		// When it is unmarshaled
+		var f Facet
+		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then both contribute to Kustomizations
+		if len(f.Kustomizations) != 2 {
+			t.Fatalf("expected both kustomize: and flux: entries, got %+v", f.Kustomizations)
+		}
+	})
+
+	t.Run("SameNameUnderBothKeysAreBothKept", func(t *testing.T) {
+		// Given the same name declared under both keys (an authoring overlap during migration)
+		src := `kind: Facet
+kustomize:
+  - name: foo
+    path: from-kustomize
+flux:
+  - name: foo
+    path: from-flux
+`
+		// When it is unmarshaled
+		var f Facet
+		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then the alias layer appends both without dedup: it is a pure spelling merge. Collapsing a
+		// same-name overlap is composition's job (updateKustomizationEntry merges facet kustomizations
+		// by name), not the parser's, so both entries survive here.
+		if len(f.Kustomizations) != 2 {
+			t.Fatalf("expected the alias to append both same-name entries, got %+v", f.Kustomizations)
+		}
+	})
+
+	t.Run("ConditionalFieldsSurviveTheAlias", func(t *testing.T) {
+		// Given a flux entry carrying conditional fields
+		src := `kind: Facet
+flux:
+  - name: dns
+    path: dns
+    when: "dns.enabled == true"
+`
+		// When it is unmarshaled
+		var f Facet
+		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// Then the conditional fields are preserved (it decodes as a ConditionalKustomization)
+		if len(f.Kustomizations) != 1 || f.Kustomizations[0].When != "dns.enabled == true" {
+			t.Fatalf("conditional fields lost through the alias: %+v", f.Kustomizations)
+		}
+	})
+}
