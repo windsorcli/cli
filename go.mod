@@ -18,7 +18,7 @@ require (
 	github.com/google/go-containerregistry v0.21.7
 	github.com/google/go-jsonnet v0.22.0
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/kaptinlin/jsonschema v0.9.2
+	github.com/kaptinlin/jsonschema v0.9.3
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/siderolabs/talos/pkg/machinery v1.13.5
 	github.com/spf13/cobra v1.10.2
@@ -56,7 +56,7 @@ require (
 	github.com/fluxcd/pkg/apis/acl v0.10.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/gertd/go-pluralize v0.2.1 // indirect
-	github.com/go-json-experiment/json v0.0.0-20260601182631-00ed12fed2a6 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.22.4 // indirect
@@ -85,7 +85,7 @@ require (
 	github.com/ianlancetaylor/demangle v0.0.0-20251118225945-96ee0021ea0f // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kaptinlin/jsonpointer v0.4.26 // indirect
+	github.com/kaptinlin/jsonpointer v0.4.27 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
