@@ -21,7 +21,7 @@ and are composed in ordinal order (lower-priority first).
 | `backend` | `string` | Contributes to Blueprint.backend (the terraform component that terminates the backend tier). The composer merges this across active facets by ordinal precedence; the highest-ordinal non-empty value wins. |
 | `config` | `array<object>` | Named configuration blocks exposed at scope root. Terraform inputs and kustomize substitutions reference '<name>' (scalar/list values) or '<name>.<key>' (map values), e.g. 'talos.controlplanes'. |
 | `crds` | `array<string>` | References into the vendored CRD catalog, version-pinned (e.g. 'cert-manager-1.16.2'). The composer collects these across all enabled facets and dedups them; a facet's CRDs install from the source that carries it — the blueprint's own (default/project) crds: list, or that source's crds when it comes from an install:true OCI source. The provisioner installs each ahead of the kustomize layer, so every kustomization sees its CRDs Established without a facet author naming a CRD in dependsOn. Entries may use '${...}' expressions that resolve against the facet scope and prune to empty — e.g. "${gateway.driver == 'envoy' ? 'envoy-gateway-1.7.1' : ''}" — so one facet can select different CRDs per driver. Each resolved reference must be a single path segment; values containing '/', '\', or '..' are rejected at composition time because they would escape the crds/ catalog directory. |
-| `flux` | `array<object>` | Flux Kustomizations contributed by this facet — the preferred spelling of 'kustomize:' (every entry compiles to a Flux Kustomization object). Each entry extends the blueprint's Kustomization shape with conditional fields (when, strategy, ordinal, requires). 'kustomize:' remains accepted as a backward-compatible alias; both keys merge into the same list. |
+| `flux` | `array<object>` | System entries contributed by this facet — functional layers that each compile to an install Kustomization plus resources-variant Kustomizations. Distinct from 'kustomize:' (1:1 passthrough). See the flux: shape in the [Blueprint reference](blueprint.md): name (required), path, source, enabled, destroy, when, dependsOn, strategy, ordinal, install, resources. |
 | `kustomize` | `array<object>` | Kustomizations contributed by this facet. Each entry extends the blueprint's Kustomization shape with conditional fields (when, strategy, ordinal, requires). Deprecated alias of 'flux:'; both keys are accepted and merge into the same list. |
 | `ordinal` | `integer` | Merge precedence relative to other facets. Higher ordinal wins on conflict (processed later). When unset, the loader derives an ordinal from the file basename: 'config-*' = 100; 'provider-*' or 'platform-*' with '-base' in the name = 199; other 'provider-*' / 'platform-*' = 200; 'option-*' / 'options-*' = 300; 'addon-*' / 'addons-*' = 400; no match = 0. |
 | `requires` | `array<object>` | Input-requirement blocks for the facet as a whole. When the facet is active and a block's optional 'when' holds, every path in that block must resolve to a present, non-empty value in the merged scope. Unsatisfied paths across every active facet are aggregated into a single user-facing error. |
@@ -48,23 +48,6 @@ and are composed in ordinal order (lower-priority first).
 | `when` | `string` | Optional expression that gates this block. Empty means the block is always evaluated when the parent facet is active. |
 
 ### config[].requires[]
-
-| Field | Type | Description |
-|------|------|-------------|
-| `paths` | `array<string>` | Dotted scope keys whose values must be present and non-empty. Required; the parser rejects an empty list. **(required)** |
-| `message` | `string` | Optional author-supplied context surfaced under this block's heading in the aggregated error. |
-| `when` | `string` | Optional expression gating this requirement. Empty means the paths are required whenever the parent (facet, config block, or component) is active. |
-
-## flux[]
-
-| Field | Type | Description |
-|------|------|-------------|
-| `ordinal` | `integer` | Per-kustomization override of the facet's ordinal for merge precedence. |
-| `requires` | `array<object>` | Requirement blocks scoped to this kustomization. Evaluated only when the parent facet is active and this kustomization's 'when' holds. |
-| `strategy` | `string` | How this kustomization is merged into the blueprint. 'merge' (default) deep-merges with existing kustomizations matching the same Name; 'replace' overwrites; 'remove' deletes the matching existing kustomization's non-index fields. Remove operations are always applied last. One of: `merge`, `replace`, `remove`. |
-| `when` | `string` | Expression that gates this kustomization. Empty means the kustomization is always applied when the parent facet matches. |
-
-### flux[].requires[]
 
 | Field | Type | Description |
 |------|------|-------------|

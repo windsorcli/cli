@@ -2494,209 +2494,196 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 		return blueprintv1alpha1.Kustomization{}, false
 	}
-
-	t.Run("ExpandsInstallAndResourcesSharingThePath", func(t *testing.T) {
-		// Given an entry that partitions a vendor's components into install and resources tiers
+	process := func(t *testing.T, system blueprintv1alpha1.FluxSystem) *blueprintv1alpha1.Blueprint {
+		t.Helper()
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "pki"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{
-						Name:      "cert-manager",
-						Path:      "pki/cert-manager",
-						Install:   []string{"helm-release"},
-						Resources: []string{"private-issuer/ca"},
-					}},
-				},
-			},
-		}
-
-		// When processing facets
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata:    blueprintv1alpha1.Metadata{Name: system.Name},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{system},
+		}}
 		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then two kustomizations are emitted at the same path, resources depending on install
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
 		}
+		return target
+	}
+
+	t.Run("CompilesInstallAndResourcesTiersAtTierPaths", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:      "cert-manager",
+			Path:      "pki/cert-manager",
+			Install:   &blueprintv1alpha1.Kustomization{Components: []string{"helm-release"}},
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}}},
+		})
 		install, ok := find(target, "cert-manager-install")
-		if !ok {
-			t.Fatalf("Expected cert-manager-install, got %+v", target.Kustomizations)
+		if !ok || install.Path != "pki/cert-manager/install" {
+			t.Fatalf("expected cert-manager-install at pki/cert-manager/install, got %+v", install)
 		}
 		res, ok := find(target, "cert-manager-resources")
-		if !ok {
-			t.Fatalf("Expected cert-manager-resources, got %+v", target.Kustomizations)
+		if !ok || res.Path != "pki/cert-manager/resources" {
+			t.Fatalf("expected cert-manager-resources at pki/cert-manager/resources, got %+v", res)
 		}
-		if _, ok := find(target, "cert-manager"); ok {
-			t.Errorf("Did not expect a bare cert-manager kustomization without components")
-		}
-		if install.Path != "pki/cert-manager" || res.Path != "pki/cert-manager" {
-			t.Errorf("Expected both tiers at pki/cert-manager, got install=%q resources=%q", install.Path, res.Path)
-		}
-		if !slices.Contains(install.Components, "helm-release") {
-			t.Errorf("Expected install components [helm-release], got %v", install.Components)
-		}
-		if !slices.Contains(res.Components, "private-issuer/ca") {
-			t.Errorf("Expected resources components [private-issuer/ca], got %v", res.Components)
+		if !slices.Contains(install.Components, "helm-release") || !slices.Contains(res.Components, "private-issuer/ca") {
+			t.Errorf("tier components wrong: install=%v resources=%v", install.Components, res.Components)
 		}
 		if !slices.Contains(res.DependsOn, "cert-manager-install") {
-			t.Errorf("Expected resources to depend on cert-manager-install, got %v", res.DependsOn)
+			t.Errorf("expected resources to depend on cert-manager-install, got %v", res.DependsOn)
 		}
 	})
 
-	t.Run("EmitsLegacyComponentsAlongsideTiers", func(t *testing.T) {
-		// Given an entry that sets components AND install AND resources
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "vendor"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{
-						Name:       "vendor",
-						Path:       "vendor",
-						Components: []string{"legacy"},
-						Install:    []string{"helm-release"},
-						Resources:  []string{"cr"},
-					}},
-				},
+	t.Run("PathDefaultsToName", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:    "dns",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"coredns-controller"}},
+		})
+		install, ok := find(target, "dns-install")
+		if !ok || install.Path != "dns/install" {
+			t.Fatalf("expected dns-install at dns/install (path defaults to name), got %+v", install)
+		}
+	})
+
+	t.Run("NamedResourcesVariantsShareThePathWithOwnSubstitutions", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:    "gateway",
+			Path:    "gateway",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+			Resources: []blueprintv1alpha1.FluxVariant{
+				{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"internal"}, Substitute: map[string]string{"gateway_name": "internal"}}},
+				{Kustomization: blueprintv1alpha1.Kustomization{Name: "external", Components: []string{"external"}, Substitute: map[string]string{"gateway_name": "external"}}},
 			},
+		})
+		in, ok := find(target, "gateway-resources-internal")
+		if !ok || in.Path != "gateway/resources" || in.Substitutions["gateway_name"] != "internal" {
+			t.Fatalf("internal variant wrong: %+v", in)
 		}
-
-		// When processing facets
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then all three kustomizations exist
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		ex, ok := find(target, "gateway-resources-external")
+		if !ok || ex.Path != "gateway/resources" || ex.Substitutions["gateway_name"] != "external" {
+			t.Fatalf("external variant wrong: %+v", ex)
 		}
-		for _, name := range []string{"vendor", "vendor-install", "vendor-resources"} {
-			if _, ok := find(target, name); !ok {
-				t.Errorf("Expected kustomization %q, got %+v", name, target.Kustomizations)
+		for _, v := range []blueprintv1alpha1.Kustomization{in, ex} {
+			if !slices.Contains(v.DependsOn, "gateway-install") {
+				t.Errorf("expected %s to depend on gateway-install, got %v", v.Name, v.DependsOn)
 			}
 		}
 	})
 
-	t.Run("InstallOnlyEmitsSingleTier", func(t *testing.T) {
-		// Given an entry with only an install tier
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "metallb"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{Name: "metallb", Path: "lb/metallb", Install: []string{"helm-release"}}},
-				},
-			},
-		}
-
-		// When processing facets
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then only the install tier is emitted
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if _, ok := find(target, "metallb-install"); !ok {
-			t.Fatalf("Expected metallb-install, got %+v", target.Kustomizations)
-		}
-		if _, ok := find(target, "metallb-resources"); ok {
-			t.Errorf("Did not expect a resources tier")
+	t.Run("InstallSubstituteFlowsToInstallKustomization", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:    "lb",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"aws-lb-controller"}, Substitute: map[string]string{"cluster_name": "prod"}},
+		})
+		install, ok := find(target, "lb-install")
+		if !ok || install.Substitutions["cluster_name"] != "prod" {
+			t.Fatalf("expected install substitute merged into substitutions, got %+v", install)
 		}
 	})
 
-	t.Run("ResourcesOnlyHasNoInstallDependency", func(t *testing.T) {
-		// Given an entry with only a resources tier
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "issuers"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{Name: "issuers", Path: "pki/issuers", Resources: []string{"public-issuer"}}},
-				},
-			},
+	t.Run("SystemDependsOnAttachesToInstallAndResourcesReachItTransitively", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:      "gateway",
+			Path:      "gateway",
+			DependsOn: []string{"pki-install", "lb-install"},
+			Install:   &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"internal"}}}},
+		})
+		install, _ := find(target, "gateway-install")
+		if !slices.Contains(install.DependsOn, "pki-install") || !slices.Contains(install.DependsOn, "lb-install") {
+			t.Errorf("expected system deps on install, got %v", install.DependsOn)
 		}
-
-		// When processing facets
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then the resources tier exists and depends on no install tier
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		res, _ := find(target, "gateway-resources")
+		if slices.Contains(res.DependsOn, "pki-install") {
+			t.Errorf("expected resources to reach cross-layer deps transitively via install, got %v", res.DependsOn)
 		}
+		if !slices.Contains(res.DependsOn, "gateway-install") {
+			t.Errorf("expected resources -> gateway-install, got %v", res.DependsOn)
+		}
+	})
+
+	t.Run("NoInstallAttachesSystemDependsOnToEachVariant", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:      "issuers",
+			Path:      "pki/issuers",
+			DependsOn: []string{"cert-manager-install"},
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"public-issuer"}}}},
+		})
 		res, ok := find(target, "issuers-resources")
 		if !ok {
-			t.Fatalf("Expected issuers-resources, got %+v", target.Kustomizations)
+			t.Fatalf("expected issuers-resources, got %+v", target.Kustomizations)
+		}
+		if !slices.Contains(res.DependsOn, "cert-manager-install") {
+			t.Errorf("expected system deps on the variant, got %v", res.DependsOn)
 		}
 		if slices.Contains(res.DependsOn, "issuers-install") {
-			t.Errorf("Expected no install dependency, got %v", res.DependsOn)
+			t.Errorf("did not expect an implicit install edge without an install tier: %v", res.DependsOn)
 		}
 	})
 
-	t.Run("TierEntriesDoNotSharePatchesBacking", func(t *testing.T) {
-		// Given a tiered entry that carries a patch
-		processed := blueprintv1alpha1.ConditionalKustomization{
-			Kustomization: blueprintv1alpha1.Kustomization{
-				Name:    "cert-manager",
-				Path:    "pki/cert-manager",
-				Patches: []blueprintv1alpha1.BlueprintPatch{{Patch: "original"}},
-			},
-		}
-
-		// When the entry is expanded into install and resources tiers
-		entries := buildTierEntries(processed, []string{"helm-release"}, []string{"ca"})
-		if len(entries) != 2 {
-			t.Fatalf("Expected install and resources entries, got %d", len(entries))
-		}
-
-		// Then mutating one tier's patches leaves the other tier untouched
-		entries[0].Patches[0].Patch = "mutated"
-		entries[0].Patches = append(entries[0].Patches, blueprintv1alpha1.BlueprintPatch{Patch: "added"})
-		if entries[1].Patches[0].Patch != "original" || len(entries[1].Patches) != 1 {
-			t.Errorf("Expected resources tier patches independent, got %+v", entries[1].Patches)
+	t.Run("VariantDependsOnIsAppended", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:      "gateway",
+			Path:      "gateway",
+			Install:   &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"internal"}, DependsOn: []string{"dns"}}}},
+		})
+		res, _ := find(target, "gateway-resources")
+		if !slices.Contains(res.DependsOn, "gateway-install") || !slices.Contains(res.DependsOn, "dns") {
+			t.Errorf("expected [gateway-install, dns], got %v", res.DependsOn)
 		}
 	})
 
-	t.Run("PrunesConditionalTierToNothing", func(t *testing.T) {
-		// Given a tier whose only component is a false expression
-		mocks := setupProcessorMocks(t)
-		processor := NewBlueprintProcessor(mocks.Runtime)
-		mocks.ConfigHandler.GetContextValuesFunc = func() (map[string]any, error) {
-			return map[string]any{"gateway": map[string]any{"driver": "cilium"}}, nil
+	t.Run("InstallOnlyEmitsSingleTier", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:    "metallb",
+			Path:    "lb/metallb",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"helm-release"}},
+		})
+		install, ok := find(target, "metallb-install")
+		if !ok || install.Path != "lb/metallb/install" {
+			t.Fatalf("expected metallb-install at lb/metallb/install, got %+v", install)
 		}
-		facets := []blueprintv1alpha1.Facet{
-			{
-				Metadata: blueprintv1alpha1.Metadata{Name: "gateway"},
-				Kustomizations: []blueprintv1alpha1.ConditionalKustomization{
-					{Kustomization: blueprintv1alpha1.Kustomization{
-						Name:    "gateway-envoy",
-						Path:    "gateway/envoy",
-						Install: []string{"${gateway.driver == 'envoy' ? 'helm-release' : ''}"},
-					}},
-				},
+		if _, ok := find(target, "metallb-resources"); ok {
+			t.Error("did not expect a resources tier")
+		}
+	})
+
+	t.Run("VariantWhenFalseIsDropped", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:    "gateway",
+			Path:    "gateway",
+			Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+			Resources: []blueprintv1alpha1.FluxVariant{
+				{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"internal"}}, When: "false"},
+				{Kustomization: blueprintv1alpha1.Kustomization{Name: "external", Components: []string{"external"}}, When: "true"},
 			},
+		})
+		if _, ok := find(target, "gateway-resources-internal"); ok {
+			t.Error("expected the when:false variant to be dropped")
 		}
-
-		// When processing facets with a non-matching driver
-		target := &blueprintv1alpha1.Blueprint{}
-		_, err := processor.ProcessFacets(target, facets)
-
-		// Then the install tier prunes to empty and is not emitted
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		if _, ok := find(target, "gateway-resources-external"); !ok {
+			t.Error("expected the when:true variant to be kept")
 		}
-		if _, ok := find(target, "gateway-envoy-install"); ok {
-			t.Errorf("Expected no install tier when its components prune to empty, got %+v", target.Kustomizations)
+	})
+
+	t.Run("InstallPrunesToNothingWhenComponentsEmpty", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:      "gateway",
+			Path:      "gateway",
+			Install:   &blueprintv1alpha1.Kustomization{Components: []string{"${false ? 'helm-release' : ''}"}},
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"internal"}}}},
+		})
+		if _, ok := find(target, "gateway-install"); ok {
+			t.Error("expected no install tier when its components prune to empty")
+		}
+		res, ok := find(target, "gateway-resources")
+		if !ok {
+			t.Fatalf("expected gateway-resources, got %+v", target.Kustomizations)
+		}
+		if slices.Contains(res.DependsOn, "gateway-install") {
+			t.Errorf("expected no implicit install edge when install pruned away, got %v", res.DependsOn)
 		}
 	})
 }
-
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
 		base := map[string]any{"a": 1, "b": map[string]any{"x": 10}}

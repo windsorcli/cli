@@ -218,8 +218,8 @@ func TestShowBlueprint_InstallResourcesTiers(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected cert-manager-resources, got %+v", bp.Kustomize)
 	}
-	if install.path != "pki/cert-manager" || res.path != "pki/cert-manager" {
-		t.Errorf("expected both tiers at pki/cert-manager, got install=%q resources=%q", install.path, res.path)
+	if install.path != "pki/cert-manager/install" || res.path != "pki/cert-manager/resources" {
+		t.Errorf("expected tiers at pki/cert-manager/{install,resources}, got install=%q resources=%q", install.path, res.path)
 	}
 	if !slices.Contains(install.components, "helm-release") {
 		t.Errorf("expected install components [helm-release], got %v", install.components)

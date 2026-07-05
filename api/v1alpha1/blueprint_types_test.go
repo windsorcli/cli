@@ -4559,67 +4559,35 @@ terraform:
 }
 
 // The `flux:` key is a preferred alias of `kustomize:` on the blueprint, mirroring Facet.
-func TestBlueprint_FluxAlias(t *testing.T) {
-	t.Run("FluxKeyPopulatesKustomizations", func(t *testing.T) {
-		// Given a blueprint authored with the flux: key
-		src := `kind: Blueprint
-flux:
-  - name: x
-    path: x
-`
-		// When it is unmarshaled
-		var b Blueprint
-		if err := yaml.Unmarshal([]byte(src), &b); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-
-		// Then the entry lands in Kustomizations
-		if len(b.Kustomizations) != 1 || b.Kustomizations[0].Name != "x" {
-			t.Fatalf("flux entry not merged into Kustomizations: %+v", b.Kustomizations)
-		}
-	})
-
-	t.Run("KustomizeKeyStillWorksAndBothMerge", func(t *testing.T) {
-		// Given both keys
+// flux: on a blueprint is a distinct FluxSystems collection, separate from kustomize:.
+func TestBlueprint_FluxSystems(t *testing.T) {
+	t.Run("FluxKeyParsesSystemEntriesSeparateFromKustomize", func(t *testing.T) {
 		src := `kind: Blueprint
 kustomize:
-  - name: a
-    path: a
+  - name: plain
+    path: plain
 flux:
-  - name: b
-    path: b
+  - name: dns
+    install:
+      components: [coredns-controller]
+    resources:
+      - components: [coredns, external-dns]
 `
-		// When it is unmarshaled
-		var b Blueprint
-		if err := yaml.Unmarshal([]byte(src), &b); err != nil {
+		var bp Blueprint
+		if err := yaml.Unmarshal([]byte(src), &bp); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-
-		// Then both are present
-		if len(b.Kustomizations) != 2 {
-			t.Fatalf("expected both entries, got %+v", b.Kustomizations)
+		if len(bp.Kustomizations) != 1 || bp.Kustomizations[0].Name != "plain" {
+			t.Fatalf("kustomize entry wrong: %+v", bp.Kustomizations)
 		}
-	})
-
-	t.Run("SameNameUnderBothKeysAreBothKept", func(t *testing.T) {
-		// Given the same name under both keys
-		src := `kind: Blueprint
-kustomize:
-  - name: foo
-    path: from-kustomize
-flux:
-  - name: foo
-    path: from-flux
-`
-		// When it is unmarshaled
-		var b Blueprint
-		if err := yaml.Unmarshal([]byte(src), &b); err != nil {
-			t.Fatalf("unmarshal: %v", err)
+		if len(bp.FluxSystems) != 1 || bp.FluxSystems[0].Name != "dns" {
+			t.Fatalf("expected one flux system dns, got %+v", bp.FluxSystems)
 		}
-
-		// Then the alias appends both without dedup — a pure spelling merge, same as Facet
-		if len(b.Kustomizations) != 2 {
-			t.Fatalf("expected the alias to append both same-name entries, got %+v", b.Kustomizations)
+		if bp.FluxSystems[0].Install == nil || bp.FluxSystems[0].Install.Components[0] != "coredns-controller" {
+			t.Fatalf("install wrong: %+v", bp.FluxSystems[0].Install)
+		}
+		if len(bp.FluxSystems[0].Resources) != 1 {
+			t.Fatalf("expected one resources variant, got %+v", bp.FluxSystems[0].Resources)
 		}
 	})
 }

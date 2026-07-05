@@ -402,32 +402,23 @@ func TestConditionalKustomizationDeepCopy(t *testing.T) {
 		}
 	})
 
-	t.Run("CopiesInstallAndResourceTiersIndependently", func(t *testing.T) {
+	t.Run("CopiesSubstituteIndependently", func(t *testing.T) {
 		original := &ConditionalKustomization{
 			Kustomization: Kustomization{
-				Name:      "cert-manager",
-				Path:      "pki/cert-manager",
-				Install:   []string{"helm-release"},
-				Resources: []string{"private-issuer/ca"},
+				Name:       "cert-manager",
+				Path:       "pki/cert-manager",
+				Substitute: map[string]string{"region": "us-east-1"},
 			},
 		}
 
 		copy := original.DeepCopy()
 
-		if len(copy.Install) != 1 || copy.Install[0] != "helm-release" {
-			t.Fatalf("Expected install components copied, got %v", copy.Install)
+		if copy.Substitute["region"] != "us-east-1" {
+			t.Fatalf("Expected substitute copied, got %v", copy.Substitute)
 		}
-		if len(copy.Resources) != 1 || copy.Resources[0] != "private-issuer/ca" {
-			t.Fatalf("Expected resources components copied, got %v", copy.Resources)
-		}
-
-		original.Install[0] = "modified"
-		if copy.Install[0] == "modified" {
-			t.Error("Deep copy failed: install components slice was not copied")
-		}
-		original.Resources[0] = "modified"
-		if copy.Resources[0] == "modified" {
-			t.Error("Deep copy failed: resources components slice was not copied")
+		original.Substitute["region"] = "modified"
+		if copy.Substitute["region"] == "modified" {
+			t.Error("Deep copy failed: substitute map was not copied")
 		}
 	})
 }
@@ -893,110 +884,52 @@ kustomize:
 	})
 }
 
-// The `flux:` key is a preferred alias of `kustomize:`; both deserialize into Kustomizations and a
-// file may use either or, transitionally, both.
-func TestFacet_FluxAlias(t *testing.T) {
-	t.Run("FluxKeyPopulatesKustomizations", func(t *testing.T) {
-		// Given a facet authored with the flux: key
-		src := `kind: Facet
-flux:
-  - name: pki-install
-    path: pki/install
-`
-		// When it is unmarshaled
-		var f Facet
-		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-
-		// Then the entry lands in Kustomizations, indistinguishable from a kustomize: entry
-		if len(f.Kustomizations) != 1 || f.Kustomizations[0].Name != "pki-install" || f.Kustomizations[0].Path != "pki/install" {
-			t.Fatalf("flux entry not merged into Kustomizations: %+v", f.Kustomizations)
-		}
-	})
-
-	t.Run("KustomizeKeyStillWorks", func(t *testing.T) {
-		// Given the legacy kustomize: key
+// flux: is a distinct collection of system entries; kustomize: remains the plain-Kustomization
+// passthrough. The two do not merge.
+func TestFacet_FluxSystems(t *testing.T) {
+	t.Run("FluxKeyParsesSystemEntriesSeparateFromKustomize", func(t *testing.T) {
 		src := `kind: Facet
 kustomize:
-  - name: legacy
-    path: legacy
-`
-		// When it is unmarshaled
-		var f Facet
-		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-
-		// Then it parses exactly as before
-		if len(f.Kustomizations) != 1 || f.Kustomizations[0].Name != "legacy" {
-			t.Fatalf("kustomize entry regressed: %+v", f.Kustomizations)
-		}
-	})
-
-	t.Run("BothKeysMerge", func(t *testing.T) {
-		// Given a file using both keys during a transition
-		src := `kind: Facet
-kustomize:
-  - name: a
-    path: a
+  - name: gateway-cilium
+    path: gateway/cilium
+    components: [base]
 flux:
-  - name: b
-    path: b
+  - name: gateway
+    dependsOn: [pki]
+    install:
+      components: [envoy]
+      substitute: {cluster: prod}
+    resources:
+      - name: internal
+        when: "${x}"
+        components: [internal]
 `
-		// When it is unmarshaled
 		var f Facet
 		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-
-		// Then both contribute to Kustomizations
-		if len(f.Kustomizations) != 2 {
-			t.Fatalf("expected both kustomize: and flux: entries, got %+v", f.Kustomizations)
+		// kustomize: stays in Kustomizations; flux: lands in FluxSystems; they are disjoint
+		if len(f.Kustomizations) != 1 || f.Kustomizations[0].Name != "gateway-cilium" {
+			t.Fatalf("kustomize entry wrong: %+v", f.Kustomizations)
 		}
-	})
-
-	t.Run("SameNameUnderBothKeysAreBothKept", func(t *testing.T) {
-		// Given the same name declared under both keys (an authoring overlap during migration)
-		src := `kind: Facet
-kustomize:
-  - name: foo
-    path: from-kustomize
-flux:
-  - name: foo
-    path: from-flux
-`
-		// When it is unmarshaled
-		var f Facet
-		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
-			t.Fatalf("unmarshal: %v", err)
+		if len(f.FluxSystems) != 1 {
+			t.Fatalf("expected one flux system, got %+v", f.FluxSystems)
 		}
-
-		// Then the alias layer appends both without dedup: it is a pure spelling merge. Collapsing a
-		// same-name overlap is composition's job (updateKustomizationEntry merges facet kustomizations
-		// by name), not the parser's, so both entries survive here.
-		if len(f.Kustomizations) != 2 {
-			t.Fatalf("expected the alias to append both same-name entries, got %+v", f.Kustomizations)
+		sys := f.FluxSystems[0]
+		if sys.Name != "gateway" || len(sys.DependsOn) != 1 || sys.DependsOn[0] != "pki" {
+			t.Fatalf("system descriptor wrong: %+v", sys)
 		}
-	})
-
-	t.Run("ConditionalFieldsSurviveTheAlias", func(t *testing.T) {
-		// Given a flux entry carrying conditional fields
-		src := `kind: Facet
-flux:
-  - name: dns
-    path: dns
-    when: "dns.enabled == true"
-`
-		// When it is unmarshaled
-		var f Facet
-		if err := yaml.Unmarshal([]byte(src), &f); err != nil {
-			t.Fatalf("unmarshal: %v", err)
+		if sys.Install == nil || len(sys.Install.Components) != 1 || sys.Install.Components[0] != "envoy" {
+			t.Fatalf("install tier wrong: %+v", sys.Install)
 		}
-
-		// Then the conditional fields are preserved (it decodes as a ConditionalKustomization)
-		if len(f.Kustomizations) != 1 || f.Kustomizations[0].When != "dns.enabled == true" {
-			t.Fatalf("conditional fields lost through the alias: %+v", f.Kustomizations)
+		if sys.Install.Substitute["cluster"] != "prod" {
+			t.Fatalf("install substitute wrong: %+v", sys.Install.Substitute)
+		}
+		if len(sys.Resources) != 1 || sys.Resources[0].Name != "internal" || sys.Resources[0].When != "${x}" {
+			t.Fatalf("resources variant wrong: %+v", sys.Resources)
+		}
+		if len(sys.Resources[0].Components) != 1 || sys.Resources[0].Components[0] != "internal" {
+			t.Fatalf("variant components wrong: %+v", sys.Resources[0])
 		}
 	})
 }
