@@ -53,18 +53,62 @@ variable substitutions shared across them.
 
 | Field | Type | Description |
 |------|------|-------------|
-| `components` | `array<string>` |  |
-| `substitute` | `map<string>` |  |
+| `components` | `array<string>` | Kustomize components to compose into the install tier. |
+| `destroy` | `boolean / string` | Whether to delete this tier during 'windsor down'. Boolean or expression. Defaults to true. |
+| `destroyOnly` | `boolean` | When true, this tier only runs during destroy operations. |
+| `enabled` | `boolean / string` | Whether to include this tier in the final blueprint. Boolean or expression. Defaults to true. |
+| `force` | `boolean` | Force-apply resources Flux would otherwise refuse to update. |
+| `interval` | `string` | Reconciliation interval as a Go duration string (e.g. '5m', '1h'). |
+| `namespace` | `string` | Namespace where the Flux Kustomization object lives. Defaults to the gitops namespace. |
+| `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to this tier. |
+| `prune` | `boolean` | Garbage-collect resources removed from the source. Defaults to true. |
+| `retryInterval` | `string` | Duration to wait before retrying a failed reconciliation (e.g. '2m'). |
+| `source` | `string` | Source override for this tier. Defaults to the system source. |
+| `substitute` | `map<string>` | PostBuild substitutions (preferred spelling); merges with substitutions. |
+| `substitutions` | `map<string>` | PostBuild variable substitutions for this tier. |
+| `targetNamespace` | `string` | Populates spec.targetNamespace, overriding the namespace of reconciled resources. |
+| `timeout` | `string` | Maximum duration for a single reconciliation attempt (e.g. '10m'). |
+| `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |
+
+#### flux[].install.patches[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `patch` | `string` |  |
+| `path` | `string` |  |
+| `target` | `object` |  |
 
 ### flux[].resources[]
 
 | Field | Type | Description |
 |------|------|-------------|
-| `components` | `array<string>` |  |
+| `components` | `array<string>` | Kustomize components to compose into this variant. |
 | `dependsOn` | `array<string>` | Extra cross-layer edges, appended to the implicit install edge. |
+| `destroy` | `boolean / string` | Whether to delete this variant during 'windsor down'. Boolean or expression. Defaults to true. |
+| `destroyOnly` | `boolean` | When true, this variant only runs during destroy operations. |
+| `enabled` | `boolean / string` | Whether to include this variant in the final blueprint. Boolean or expression. Defaults to true. |
+| `force` | `boolean` | Force-apply resources Flux would otherwise refuse to update. |
+| `interval` | `string` | Reconciliation interval as a Go duration string (e.g. '5m', '1h'). |
 | `name` | `string` | Variant suffix ('<system>-resources-<name>'); omit for a single unnamed variant. |
-| `substitute` | `map<string>` |  |
+| `namespace` | `string` | Namespace where the Flux Kustomization object lives. Defaults to the gitops namespace. |
+| `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to this variant. |
+| `prune` | `boolean` | Garbage-collect resources removed from the source. Defaults to true. |
+| `retryInterval` | `string` | Duration to wait before retrying a failed reconciliation (e.g. '2m'). |
+| `source` | `string` | Source override for this variant. Defaults to the system source. |
+| `substitute` | `map<string>` | PostBuild substitutions (preferred spelling); merges with substitutions. |
+| `substitutions` | `map<string>` | PostBuild variable substitutions for this variant. |
+| `targetNamespace` | `string` | Populates spec.targetNamespace, overriding the namespace of reconciled resources. |
+| `timeout` | `string` | Maximum duration for a single reconciliation attempt (e.g. '10m'). |
+| `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |
 | `when` | `string` | Gates the variant; combined (AND) with the system's condition. |
+
+#### flux[].resources[].patches[]
+
+| Field | Type | Description |
+|------|------|-------------|
+| `patch` | `string` |  |
+| `path` | `string` |  |
+| `target` | `object` |  |
 
 ## kustomize[]
 
