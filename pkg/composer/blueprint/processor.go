@@ -1120,6 +1120,7 @@ func (p *BaseBlueprintProcessor) buildFluxSystemEntries(system blueprintv1alpha1
 
 	var entries []blueprintv1alpha1.ConditionalKustomization
 	installEmitted := false
+	seenVariants := make(map[string]bool)
 	if system.Install != nil {
 		comps, err := p.evalDropEmpty(system.Install.Components, facet.Path, scope)
 		if err != nil {
@@ -1155,6 +1156,10 @@ func (p *BaseBlueprintProcessor) buildFluxSystemEntries(system blueprintv1alpha1
 		if v.Name != "" {
 			variantName += "-" + v.Name
 		}
+		if seenVariants[variantName] {
+			return nil, fmt.Errorf("duplicate resources variant %q in system %q; add a unique name: field to each variant", variantName, name)
+		}
+		seenVariants[variantName] = true
 		extraDeps, err := p.evalDropEmpty(v.DependsOn, facet.Path, scope)
 		if err != nil {
 			return nil, fmt.Errorf("error evaluating resources dependsOn for system '%s': %w", name, err)

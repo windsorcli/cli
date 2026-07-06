@@ -2683,6 +2683,25 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			t.Errorf("expected no implicit install edge when install pruned away, got %v", res.DependsOn)
 		}
 	})
+
+	t.Run("DuplicateUnnamedVariantsReturnsError", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{{
+			Metadata: blueprintv1alpha1.Metadata{Name: "gateway"},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name: "gateway",
+				Resources: []blueprintv1alpha1.FluxVariant{
+					{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"a"}}},
+					{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"b"}}},
+				},
+			}},
+		}}
+		_, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
+		if err == nil {
+			t.Fatal("expected error for duplicate unnamed resources variant, got nil")
+		}
+	})
 }
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
