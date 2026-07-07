@@ -98,13 +98,16 @@ properties:
   flux:
     type: array
     description: |
-      Flux Kustomizations contributed by this facet — the preferred spelling of
-      'kustomize:' (every entry compiles to a Flux Kustomization object). Each
-      entry extends the blueprint's Kustomization shape with conditional fields
-      (when, strategy, ordinal, requires). 'kustomize:' remains accepted as a
-      backward-compatible alias; both keys merge into the same list.
+      System entries contributed by this facet — functional layers that each
+      compile to an install Kustomization plus resources-variant Kustomizations.
+      Distinct from 'kustomize:' (1:1 passthrough). See the flux: shape in the
+      [Blueprint reference](blueprint.md): name (required), path, source, enabled,
+      destroy, when, dependsOn, strategy, ordinal, install, resources.
     items:
-      $ref: '#/$defs/conditionalKustomization'
+      type: object
+      required:
+        - name
+      additionalProperties: true
   crds:
     type: array
     description: |
@@ -252,10 +255,10 @@ $defs:
     description: |
       Inherits every field from the blueprint's Kustomization shape (name,
       path, source, namespace, targetNamespace, dependsOn, interval,
-      retryInterval, timeout, patches, wait, force, prune, components, install,
-      resources, destroy, destroyOnly, enabled, substitutions) and adds the
-      conditional fields below. See the [Blueprint reference](blueprint.md) for
-      the inherited fields.
+      retryInterval, timeout, patches, wait, force, prune, components, destroy,
+      destroyOnly, enabled, substitutions, substitute) and adds the conditional
+      fields below. See the [Blueprint reference](blueprint.md) for the inherited
+      fields.
     properties:
       when:
         type: string

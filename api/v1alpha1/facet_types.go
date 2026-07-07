@@ -101,6 +101,10 @@ type Facet struct {
 	// Kustomizations are kustomization configs in the facet.
 	Kustomizations []ConditionalKustomization `yaml:"kustomize,omitempty"`
 
+	// FluxSystems are system entries (the flux: collection) contributed by this facet; each compiles
+	// to an install plus resources-variant Kustomizations.
+	FluxSystems []FluxSystem `yaml:"flux,omitempty"`
+
 	// Crds lists references into the vendored CRD catalog (e.g. "cert-manager-1.16.2").
 	// The composer emits one deduped kustomization per reference at kustomize/crds/<ref>
 	// and makes every kustomization in this facet depend on it.
@@ -110,28 +114,6 @@ type Facet struct {
 	// values-common, making them available to all kustomizations via PostBuild substitution.
 	// Values may use expression syntax (e.g. "${dns.domain}") resolved against facet config blocks.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
-}
-
-// UnmarshalYAML accepts `flux:` as an alias for `kustomize:`. Both keys deserialize into
-// Kustomizations; a file may use either (or, transitionally, both). `flux:` is the preferred
-// spelling — every entry compiles to a Flux Kustomization — with `kustomize:` kept as a permanent
-// backward-compatible alias. The aliased type carries no UnmarshalYAML of its own, so decoding it
-// does not recurse.
-func (f *Facet) UnmarshalYAML(unmarshal func(any) error) error {
-	type alias Facet
-	var a alias
-	if err := unmarshal(&a); err != nil {
-		return err
-	}
-	*f = Facet(a)
-	var aux struct {
-		Flux []ConditionalKustomization `yaml:"flux,omitempty"`
-	}
-	if err := unmarshal(&aux); err != nil {
-		return err
-	}
-	f.Kustomizations = append(f.Kustomizations, aux.Flux...)
-	return nil
 }
 
 // ConditionalTerraformComponent extends TerraformComponent with conditional logic support.

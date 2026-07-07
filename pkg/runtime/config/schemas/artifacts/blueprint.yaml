@@ -168,11 +168,11 @@ properties:
   kustomize:
     type: array
     description: |
-      Flux kustomizations included in the blueprint. Each entry maps to a
-      Kustomization resource the provisioner applies to the cluster, in
-      topologically sorted dependsOn order. Deprecated alias of 'flux:'; both
-      keys are accepted and merge into the same list.
-    items: &blueprintKustomizationItems
+      Plain Flux kustomizations included in the blueprint — a 1:1 passthrough:
+      each entry maps to one Kustomization the provisioner applies, in
+      topologically sorted dependsOn order. System entries (install/resources
+      tiers) live under 'flux:' instead.
+    items:
       type: object
       required:
         - name
@@ -251,22 +251,13 @@ properties:
           items:
             type: string
           description: Kustomize components to compose into this kustomization.
-        install:
-          type: array
-          items:
+        substitute:
+          type: object
+          additionalProperties:
             type: string
           description: |
-            Components of the install (controller/operator) tier. Like
-            components, each entry may be a '${...}' expression that prunes to
-            empty. When install and/or resources are set, the entry expands into
-            separate kustomizations sharing this path: '<name>-install' carrying
-            these components and '<name>-resources' depending on it, so the
-            controller is reconciled before the custom resources it admits.
-        resources:
-          type: array
-          items:
-            type: string
-          description: Components of the custom-resource tier. See install.
+            Preferred spelling of substitutions (matching Flux
+            postBuild.substitute); both merge into the same map.
         destroy:
           type: [boolean, string]
           description: |
@@ -292,11 +283,209 @@ properties:
   flux:
     type: array
     description: |
-      Flux Kustomizations included in the blueprint — the preferred spelling of
-      'kustomize:' (every entry compiles to a Flux Kustomization). 'kustomize:'
-      remains accepted as a backward-compatible alias; both keys merge into one
-      list.
-    items: *blueprintKustomizationItems
+      System entries — functional layers that each compile to an install
+      Kustomization plus one or more resources-variant Kustomizations. Distinct
+      from 'kustomize:', which is a 1:1 Kustomization passthrough.
+    items:
+      type: object
+      required:
+        - name
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: System identifier; tiers compile to '<name>-install' and '<name>-resources[-<variant>]'.
+        path:
+          type: string
+          description: Base path; tiers reconcile from '<path>/install' and '<path>/resources'. Defaults to name.
+        source:
+          type: string
+          description: Name of the source that provides the tier bases.
+        enabled:
+          type: [boolean, string]
+          description: Include or exclude the whole system. Defaults to true.
+        destroy:
+          type: [boolean, string]
+          description: Whether the system's kustomizations are removed on teardown. Defaults to true.
+        when:
+          type: string
+          description: Gates the system; combined (AND) with each resources variant's condition.
+        dependsOn:
+          type: array
+          items:
+            type: string
+          description: |
+            Cross-layer edges to other systems (a bare '<other>' resolves to
+            '<other>-install'). Attached to the install tier when present
+            (resources reach them transitively), otherwise to each variant.
+        strategy:
+          type: string
+          enum:
+            - merge
+            - replace
+            - remove
+          description: How a system with this name merges across facets. Defaults to merge.
+        ordinal:
+          type: integer
+          description: Overrides the facet ordinal for this system's merge precedence.
+        install:
+          type: object
+          additionalProperties: false
+          description: |
+            Controller/operator tier. Reuses the Kustomization shape — its
+            components/substitute and operational properties (interval, timeout,
+            wait, prune, patches, namespace, …) flow to '<name>-install'; its
+            name/path/dependsOn are derived. When every component prunes to empty,
+            no install Kustomization is emitted.
+          properties:
+            source:
+              type: string
+              description: Source override for this tier. Defaults to the system source.
+            namespace:
+              type: string
+              description: Namespace where the Flux Kustomization object lives. Defaults to the gitops namespace.
+            targetNamespace:
+              type: string
+              description: Populates spec.targetNamespace, overriding the namespace of reconciled resources.
+            interval:
+              type: string
+              description: Reconciliation interval as a Go duration string (e.g. '5m', '1h').
+            retryInterval:
+              type: string
+              description: Duration to wait before retrying a failed reconciliation (e.g. '2m').
+            timeout:
+              type: string
+              description: Maximum duration for a single reconciliation attempt (e.g. '10m').
+            patches:
+              type: array
+              description: Strategic-merge or Flux-style patches applied to this tier.
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  path:
+                    type: string
+                  patch:
+                    type: string
+                  target:
+                    type: object
+                    additionalProperties: true
+            wait:
+              type: boolean
+              description: Wait for resources to settle before declaring reconciliation complete.
+            force:
+              type: boolean
+              description: Force-apply resources Flux would otherwise refuse to update.
+            prune:
+              type: boolean
+              description: Garbage-collect resources removed from the source. Defaults to true.
+            components:
+              type: array
+              items:
+                type: string
+              description: Kustomize components to compose into the install tier.
+            substitute:
+              type: object
+              additionalProperties:
+                type: string
+              description: PostBuild substitutions (preferred spelling); merges with substitutions.
+            substitutions:
+              type: object
+              additionalProperties:
+                type: string
+              description: PostBuild variable substitutions for this tier.
+            destroy:
+              type: [boolean, string]
+              description: Whether to delete this tier during 'windsor down'. Boolean or expression. Defaults to true.
+            destroyOnly:
+              type: boolean
+              description: When true, this tier only runs during destroy operations.
+            enabled:
+              type: [boolean, string]
+              description: Whether to include this tier in the final blueprint. Boolean or expression. Defaults to true.
+        resources:
+          type: array
+          description: Custom-resource tier variants, all sharing '<path>/resources'.
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              name:
+                type: string
+                description: Variant suffix ('<system>-resources-<name>'); omit for a single unnamed variant.
+              when:
+                type: string
+                description: Gates the variant; combined (AND) with the system's condition.
+              source:
+                type: string
+                description: Source override for this variant. Defaults to the system source.
+              namespace:
+                type: string
+                description: Namespace where the Flux Kustomization object lives. Defaults to the gitops namespace.
+              targetNamespace:
+                type: string
+                description: Populates spec.targetNamespace, overriding the namespace of reconciled resources.
+              dependsOn:
+                type: array
+                items:
+                  type: string
+                description: Extra cross-layer edges, appended to the implicit install edge.
+              interval:
+                type: string
+                description: Reconciliation interval as a Go duration string (e.g. '5m', '1h').
+              retryInterval:
+                type: string
+                description: Duration to wait before retrying a failed reconciliation (e.g. '2m').
+              timeout:
+                type: string
+                description: Maximum duration for a single reconciliation attempt (e.g. '10m').
+              patches:
+                type: array
+                description: Strategic-merge or Flux-style patches applied to this variant.
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    path:
+                      type: string
+                    patch:
+                      type: string
+                    target:
+                      type: object
+                      additionalProperties: true
+              wait:
+                type: boolean
+                description: Wait for resources to settle before declaring reconciliation complete.
+              force:
+                type: boolean
+                description: Force-apply resources Flux would otherwise refuse to update.
+              prune:
+                type: boolean
+                description: Garbage-collect resources removed from the source. Defaults to true.
+              components:
+                type: array
+                items:
+                  type: string
+                description: Kustomize components to compose into this variant.
+              substitute:
+                type: object
+                additionalProperties:
+                  type: string
+                description: PostBuild substitutions (preferred spelling); merges with substitutions.
+              substitutions:
+                type: object
+                additionalProperties:
+                  type: string
+                description: PostBuild variable substitutions for this variant.
+              destroy:
+                type: [boolean, string]
+                description: Whether to delete this variant during 'windsor down'. Boolean or expression. Defaults to true.
+              destroyOnly:
+                type: boolean
+                description: When true, this variant only runs during destroy operations.
+              enabled:
+                type: [boolean, string]
+                description: Whether to include this variant in the final blueprint. Boolean or expression. Defaults to true.
   substitutions:
     type: object
     additionalProperties:

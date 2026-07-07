@@ -317,8 +317,12 @@ type Blueprint struct {
 	// materializes these into the "crds" kustomization, bound to the default source, ahead of the stack.
 	Crds []string `yaml:"crds,omitempty"`
 
-	// Kustomizations are kustomization configs in the blueprint.
+	// Kustomizations are plain Flux Kustomization configs (the kustomize: passthrough).
 	Kustomizations []Kustomization `yaml:"kustomize,omitempty"`
+
+	// FluxSystems are system entries (the flux: collection): each compiles to an install plus
+	// resources-variant Kustomizations. Distinct from Kustomizations, which are 1:1 passthroughs.
+	FluxSystems []FluxSystem `yaml:"flux,omitempty"`
 
 	// Substitutions are top-level key/value pairs evaluated with facet scope and injected into
 	// values-common, making them available to all kustomizations via PostBuild substitution.
@@ -328,27 +332,6 @@ type Blueprint struct {
 	// ConfigMaps are standalone ConfigMaps to be created, not tied to specific kustomizations.
 	// These ConfigMaps are referenced by all kustomizations in PostBuild substitution.
 	ConfigMaps map[string]map[string]string `yaml:"configMaps,omitempty"`
-}
-
-// UnmarshalYAML accepts `flux:` as an alias for `kustomize:`, mirroring Facet. Both keys
-// deserialize into Kustomizations; `flux:` is the preferred spelling and `kustomize:` a permanent
-// backward-compatible alias. The aliased type carries no UnmarshalYAML of its own, so decoding it
-// does not recurse.
-func (b *Blueprint) UnmarshalYAML(unmarshal func(any) error) error {
-	type alias Blueprint
-	var a alias
-	if err := unmarshal(&a); err != nil {
-		return err
-	}
-	*b = Blueprint(a)
-	var aux struct {
-		Flux []Kustomization `yaml:"flux,omitempty"`
-	}
-	if err := unmarshal(&aux); err != nil {
-		return err
-	}
-	b.Kustomizations = append(b.Kustomizations, aux.Flux...)
-	return nil
 }
 
 // CrdKustomizationName returns the name of the kustomization the provisioner synthesizes for a CRD
@@ -621,18 +604,63 @@ type Kustomization struct {
 	// These are used for generating ConfigMaps and are not written to the final context blueprint.yaml.
 	Substitutions map[string]string `yaml:"substitutions,omitempty"`
 
-	// Install lists the components of the install (controller/operator) tier. Like Components, each
-	// entry is a component path and may be a '${...}' expression that prunes to empty. When Install
-	// and/or Resources are set, the composer expands this entry into two kustomizations sharing this
-	// entry's Path: an install named after the entry carrying the Install components, and a resources
-	// kustomization (named "<name>-resources") carrying the Resources components and depending on the
-	// install, so the controller is reconciled before the custom resources it admits. When both are
-	// empty the entry stays a single flat kustomization built from Components. Tiers desugar during
-	// composition and never appear in the composed blueprint.
-	Install []string `yaml:"install,omitempty"`
+	// Substitute is the preferred spelling of Substitutions; both keys merge into Substitutions
+	// during composition. It exists so `flux:` system tiers and `kustomize:` entries can spell
+	// postBuild substitutions the same short way (matching Flux's `postBuild.substitute`).
+	Substitute map[string]string `yaml:"substitute,omitempty"`
+}
 
-	// Resources lists the components of the custom-resource tier. See Install.
-	Resources []string `yaml:"resources,omitempty"`
+// FluxSystem is a system entry under a blueprint or facet's `flux:` list — a functional layer that
+// compiles to an install Kustomization plus zero or more resources-variant Kustomizations. The
+// descriptor carries identity, lifecycle, and merge fields; the Install/Resources tiers reuse the
+// Kustomization type and carry the Flux operational properties per tier. It holds no operational
+// properties itself — those belong on the tiers that produce Kustomization objects.
+type FluxSystem struct {
+	// Name identifies the system; tiers compile to "<name>-install" / "<name>-resources[-<variant>]".
+	Name string `yaml:"name"`
+
+	// Path is the base; tiers reconcile from "<path>/install" and "<path>/resources". Defaults to Name.
+	Path string `yaml:"path,omitempty"`
+
+	// Source is the blueprint source that provides the tier bases.
+	Source string `yaml:"source,omitempty"`
+
+	// Enabled includes or excludes the whole system. Defaults to true.
+	Enabled *BoolExpression `yaml:"enabled,omitempty"`
+
+	// Destroy governs whether the system's kustomizations are removed on teardown. Defaults to true.
+	Destroy *BoolExpression `yaml:"destroy,omitempty"`
+
+	// When gates the system; combined (AND) with each resources variant's own condition.
+	When string `yaml:"when,omitempty"`
+
+	// DependsOn are cross-layer edges to other systems, attached to the install tier when present
+	// (resources reach them transitively) or to each resources variant otherwise. It never names the
+	// intra-system install edge — that edge is implicit.
+	DependsOn []string `yaml:"dependsOn,omitempty"`
+
+	// Strategy governs how a system with this Name merges across facets (merge | replace | remove).
+	Strategy string `yaml:"strategy,omitempty"`
+
+	// Ordinal overrides the facet's ordinal for this system's merge precedence.
+	Ordinal *int `yaml:"ordinal,omitempty"`
+
+	// Install is the controller/operator tier (at most one). Its Components/Substitute and operational
+	// fields flow to "<name>-install"; its Name/Path/DependsOn are derived by the composer.
+	Install *Kustomization `yaml:"install,omitempty"`
+
+	// Resources are the custom-resource tier variants, all sharing "<path>/resources".
+	Resources []FluxVariant `yaml:"resources,omitempty"`
+}
+
+// FluxVariant is one resources-tier Kustomization of a system. It reuses Kustomization for its
+// components, substitutions, and operational properties; the authored `name` becomes the variant
+// suffix ("<system>-resources-<name>") and `dependsOn` is appended to the implicit install edge.
+type FluxVariant struct {
+	Kustomization `yaml:",inline"`
+
+	// When gates this variant; combined (AND) with the system's own condition.
+	When string `yaml:"when,omitempty"`
 }
 
 // PostBuild is a post-build step to run after the kustomization is applied.
@@ -1034,8 +1062,7 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		DestroyOnly:     k.DestroyOnly,
 		Enabled:         enabledCopy,
 		Substitutions:   maps.Clone(k.Substitutions),
-		Install:         slices.Clone(k.Install),
-		Resources:       slices.Clone(k.Resources),
+		Substitute:      maps.Clone(k.Substitute),
 	}
 }
 

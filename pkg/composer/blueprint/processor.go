@@ -3,6 +3,7 @@ package blueprint
 import (
 	"fmt"
 	"maps"
+	"path"
 	"reflect"
 	"slices"
 	"sort"
@@ -272,6 +273,9 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 			return nil, err
 		}
 		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
+			return nil, err
+		}
+		if err := p.collectFluxSystems(facet, sourceName, kustomizationByName, scope); err != nil {
 			return nil, err
 		}
 		for _, ref := range facet.Crds {
@@ -900,6 +904,10 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 
 		processed := k
 		processed.When = componentWhen
+		if len(processed.Substitute) > 0 {
+			processed.Substitutions = mergeSubstitute(processed.Kustomization)
+			processed.Substitute = nil
+		}
 		if processed.Substitutions != nil {
 			evaluated, deferredKeys, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path, facetScope)
 			if err != nil {
@@ -941,15 +949,6 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			}
 			processed.Components = evaluated
 		}
-		installComponents, err := p.evaluateTierComponents(processed.Install, facet.Path, facetScope)
-		if err != nil {
-			return fmt.Errorf("error evaluating install for kustomization '%s': %w", processed.Name, err)
-		}
-		resourceComponents, err := p.evaluateTierComponents(processed.Resources, facet.Path, facetScope)
-		if err != nil {
-			return fmt.Errorf("error evaluating resources for kustomization '%s': %w", processed.Name, err)
-		}
-		tiered := len(installComponents) > 0 || len(resourceComponents) > 0
 		if processed.Destroy != nil && processed.Destroy.IsExpr {
 			evaluated, err := p.evaluateBooleanExpression(processed.Destroy.Expr, facet.Path, facetScope)
 			if err != nil {
@@ -989,16 +988,6 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			return p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope)
 		}
 
-		if tiered {
-			for _, entry := range buildTierEntries(processed, installComponents, resourceComponents) {
-				p.recordKustomizationTraces(entry.Name, entry.Components, entry.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
-				if err := addEntry(entry); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-
 		p.recordKustomizationTraces(processed.Name, k.Components, k.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
 		if err := addEntry(processed); err != nil {
 			return err
@@ -1035,37 +1024,215 @@ func validateCrdRef(ref string) error {
 // explicit dependencies; resources reaches those transitively through the install tier. The CRD
 // layer is ordered ahead of everything by the provisioner phase, not by per-entry dependsOn. Each
 // entry gets its own Substitutions copy and clears the tier fields.
-func buildTierEntries(processed blueprintv1alpha1.ConditionalKustomization, install, resources []string) []blueprintv1alpha1.ConditionalKustomization {
-	name := processed.Name
-	explicit := slices.Clone(processed.DependsOn)
-	installName := name + "-install"
-	resourcesName := name + "-resources"
+// mergeSubstitute returns k's Substitutions with its Substitute alias merged in (substitute wins on
+// key conflict). Returns nil when both are empty.
+func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
+	if len(k.Substitute) == 0 {
+		return k.Substitutions
+	}
+	out := maps.Clone(k.Substitutions)
+	if out == nil {
+		out = make(map[string]string, len(k.Substitute))
+	}
+	maps.Copy(out, k.Substitute)
+	return out
+}
 
-	mk := func(tierName string, components, dependsOn []string) blueprintv1alpha1.ConditionalKustomization {
-		entry := *processed.DeepCopy()
-		entry.Name = tierName
-		entry.Components = components
-		entry.DependsOn = dependsOn
-		entry.Install = nil
-		entry.Resources = nil
-		return entry
+// combineWhen ANDs two condition expressions, dropping empties. A system entry's own condition is
+// combined with each resources variant's.
+func combineWhen(a, b string) string {
+	switch {
+	case a != "" && b != "":
+		return fmt.Sprintf("(%s) && (%s)", a, b)
+	case a != "":
+		return a
+	default:
+		return b
+	}
+}
+
+// evalDropEmpty evaluates a slice of expressions against the facet scope and drops entries that
+// resolved to empty.
+func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, scope map[string]any) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	evaluated, err := p.evaluateStringSlice(raw, facetPath, scope)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(evaluated, func(s string) bool { return s == "" }), nil
+}
+
+// buildFluxSystemEntries expands a flux: system descriptor into its Flux Kustomizations:
+// "<name>-install" at "<path>/install" from the install tier, and one
+// "<name>-resources[-<variant>]" per resources variant at "<path>/resources". Each resources
+// variant depends on "<name>-install" when an install tier is emitted (the controller-liveness
+// edge); otherwise it carries the system's cross-layer dependsOn directly. Install and variants
+// reuse the Kustomization type for their operational properties; the system supplies identity, path
+// base, lifecycle (source/enabled/destroy), and its cross-layer dependsOn. Components,
+// substitutions, and per-variant when/dependsOn are evaluated against the facet scope; a tier whose
+// components prune to empty, or a variant whose when is false, is dropped.
+func (p *BaseBlueprintProcessor) buildFluxSystemEntries(system blueprintv1alpha1.FluxSystem, facet blueprintv1alpha1.Facet, scope map[string]any) ([]blueprintv1alpha1.ConditionalKustomization, error) {
+	name := system.Name
+	base := system.Path
+	if base == "" {
+		base = name
+	}
+	installName := name + "-install"
+	systemDeps, err := p.evalDropEmpty(system.DependsOn, facet.Path, scope)
+	if err != nil {
+		return nil, fmt.Errorf("error evaluating dependsOn for system '%s': %w", name, err)
+	}
+
+	mk := func(tier blueprintv1alpha1.Kustomization, tierName, tierSegment string, components, dependsOn []string, when string) (blueprintv1alpha1.ConditionalKustomization, error) {
+		k := *tier.DeepCopy()
+		k.Name = tierName
+		k.Path = path.Join(base, tierSegment)
+		k.Components = components
+		k.DependsOn = dependsOn
+		if k.Source == "" {
+			k.Source = system.Source
+		}
+		if k.Enabled == nil {
+			k.Enabled = system.Enabled
+		}
+		if k.Destroy == nil {
+			k.Destroy = system.Destroy
+		}
+		subs := mergeSubstitute(k)
+		k.Substitute = nil
+		k.Substitutions = nil
+		if len(subs) > 0 {
+			evaluated, deferredKeys, err := p.evaluateSubstitutions(subs, facet.Path, scope)
+			if err != nil {
+				return blueprintv1alpha1.ConditionalKustomization{}, err
+			}
+			k.Substitutions = evaluated
+			for key, isDeferred := range deferredKeys {
+				if isDeferred {
+					p.markDeferredPath("kustomize." + tierName + ".substitutions." + key)
+				}
+			}
+		}
+		return blueprintv1alpha1.ConditionalKustomization{Kustomization: k, When: when}, nil
 	}
 
 	var entries []blueprintv1alpha1.ConditionalKustomization
-	if len(processed.Components) > 0 {
-		entries = append(entries, mk(name, slices.Clone(processed.Components), slices.Clone(explicit)))
-	}
-	if len(install) > 0 {
-		entries = append(entries, mk(installName, install, slices.Clone(explicit)))
-	}
-	if len(resources) > 0 {
-		if len(install) > 0 {
-			entries = append(entries, mk(resourcesName, resources, []string{installName}))
-		} else {
-			entries = append(entries, mk(resourcesName, resources, slices.Clone(explicit)))
+	installEmitted := false
+	seenVariants := make(map[string]bool)
+	if system.Install != nil {
+		comps, err := p.evalDropEmpty(system.Install.Components, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating install components for system '%s': %w", name, err)
+		}
+		if len(comps) > 0 {
+			entry, err := mk(*system.Install, installName, "install", comps, systemDeps, system.When)
+			if err != nil {
+				return nil, fmt.Errorf("error building install tier for system '%s': %w", name, err)
+			}
+			entries = append(entries, entry)
+			installEmitted = true
 		}
 	}
-	return entries
+
+	for _, v := range system.Resources {
+		when := combineWhen(system.When, v.When)
+		include, err := p.shouldIncludeComponent(when, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating resources condition for system '%s': %w", name, err)
+		}
+		if !include {
+			continue
+		}
+		comps, err := p.evalDropEmpty(v.Components, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating resources components for system '%s': %w", name, err)
+		}
+		if len(comps) == 0 {
+			continue
+		}
+		variantName := name + "-resources"
+		if v.Name != "" {
+			variantName += "-" + v.Name
+		}
+		if seenVariants[variantName] {
+			return nil, fmt.Errorf("duplicate resources variant %q in system %q; add a unique name: field to each variant", variantName, name)
+		}
+		seenVariants[variantName] = true
+		extraDeps, err := p.evalDropEmpty(v.DependsOn, facet.Path, scope)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating resources dependsOn for system '%s': %w", name, err)
+		}
+		var deps []string
+		if installEmitted {
+			deps = append([]string{installName}, extraDeps...)
+		} else {
+			deps = append(slices.Clone(systemDeps), extraDeps...)
+		}
+		entry, err := mk(v.Kustomization, variantName, "resources", comps, deps, when)
+		if err != nil {
+			return nil, fmt.Errorf("error building resources tier for system '%s': %w", name, err)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// collectFluxSystems compiles a facet's flux: system descriptors into their tier Kustomizations and
+// merges them into kustomizationByName, exactly as collectKustomizations does for plain entries —
+// so ToFluxKustomization and the merge/validation logic apply to the generated tiers unchanged.
+func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, facetScope map[string]any) error {
+	for _, system := range facet.FluxSystems {
+		when := system.When
+		if when == "" && facet.When != "" {
+			when = facet.When
+		}
+		shouldInclude, err := p.shouldIncludeComponent(when, facet.Path, facetScope)
+		if err != nil {
+			return fmt.Errorf("error evaluating flux system condition: %w", err)
+		}
+		if !shouldInclude {
+			continue
+		}
+		system.When = when
+		if system.Source == "" {
+			system.Source = resolveSourceName(sourceName)
+		}
+
+		effectiveOrdinal := resolvedFacetOrdinal(facet)
+		if system.Ordinal != nil {
+			effectiveOrdinal = *system.Ordinal
+		}
+		strategy := system.Strategy
+		if strategy == "" {
+			strategy = "merge"
+		}
+		sn := ""
+		if len(sourceName) > 0 {
+			sn = sourceName[0]
+		}
+
+		entries, err := p.buildFluxSystemEntries(system, facet, facetScope)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			entry.Ordinal = &effectiveOrdinal
+			p.recordKustomizationTraces(entry.Name, entry.Components, entry.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
+			if _, exists := kustomizationByName[entry.Name]; !exists {
+				entry.Strategy = strategy
+				stored := new(blueprintv1alpha1.ConditionalKustomization)
+				*stored = entry
+				kustomizationByName[entry.Name] = stored
+				continue
+			}
+			if err := p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // setCrdLayer records the deduped, sorted CRD references for sourceName. Refs from the default/project
@@ -1692,20 +1859,6 @@ func (p *BaseBlueprintProcessor) evaluateStringSlice(slice []string, facetPath s
 	}
 
 	return result, nil
-}
-
-// evaluateTierComponents evaluates a tier's component list (install or resources) the same way as
-// Components, then prunes entries that resolved to empty so a "${...}" expression that selects no
-// component leaves the tier — and the decision to emit it — empty.
-func (p *BaseBlueprintProcessor) evaluateTierComponents(components []string, facetPath string, scope map[string]any) ([]string, error) {
-	if len(components) == 0 {
-		return nil, nil
-	}
-	evaluated, err := p.evaluateStringSlice(components, facetPath, scope)
-	if err != nil {
-		return nil, err
-	}
-	return slices.DeleteFunc(evaluated, func(s string) bool { return s == "" }), nil
 }
 
 // evaluateBooleanExpression evaluates a boolean expression string. When scope is non-nil, it is

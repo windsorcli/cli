@@ -2,15 +2,19 @@ kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: pki
-  description: cert-manager split into install and resources tiers
+  description: cert-manager as a flux system entry with install and resources tiers
 
-kustomize:
+flux:
 
 - name: cert-manager
   path: pki/cert-manager
   install:
-  - helm-release
+    components:
+    - helm-release
+    timeout: 5m
+    interval: 5m
   resources:
-  - private-issuer/ca
-  timeout: 5m
-  interval: 5m
+  - components:
+    - private-issuer/ca
+    timeout: 5m
+    interval: 5m
