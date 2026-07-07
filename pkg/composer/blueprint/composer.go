@@ -789,6 +789,11 @@ func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Bluep
 			k.DependsOn = slices.Clone(names)
 		}
 	}
+	for i := range bp.FluxSystems {
+		if len(bp.FluxSystems[i].DependsOn) == 0 {
+			bp.FluxSystems[i].DependsOn = slices.Clone(names)
+		}
+	}
 }
 
 // resolveTierDependencies rewrites a dependsOn reference to a vendor's bare name into its install
@@ -797,19 +802,30 @@ func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Bluep
 // exists but "cert-manager-install" does, so "depend on cert-manager" means "wait for its
 // controller". An exact name match always wins, so the legacy flat form is unaffected.
 func (c *BaseBlueprintComposer) resolveTierDependencies(bp *blueprintv1alpha1.Blueprint) {
-	names := make(map[string]struct{}, len(bp.Kustomizations))
+	names := make(map[string]struct{}, len(bp.Kustomizations)+len(bp.FluxSystems))
 	for _, k := range bp.Kustomizations {
 		names[k.Name] = struct{}{}
 	}
-	for i := range bp.Kustomizations {
-		for j, dep := range bp.Kustomizations[i].DependsOn {
+	for _, sys := range bp.FluxSystems {
+		if sys.Install != nil {
+			names[sys.Name+"-install"] = struct{}{}
+		}
+	}
+	resolve := func(deps []string) {
+		for j, dep := range deps {
 			if _, ok := names[dep]; ok {
 				continue
 			}
 			if _, ok := names[dep+"-install"]; ok {
-				bp.Kustomizations[i].DependsOn[j] = dep + "-install"
+				deps[j] = dep + "-install"
 			}
 		}
+	}
+	for i := range bp.Kustomizations {
+		resolve(bp.Kustomizations[i].DependsOn)
+	}
+	for i := range bp.FluxSystems {
+		resolve(bp.FluxSystems[i].DependsOn)
 	}
 }
 
@@ -855,8 +871,9 @@ func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Bluep
 		tfIDs[tf.GetID()] = struct{}{}
 	}
 
-	kNames := make(map[string]struct{}, len(bp.Kustomizations)+len(bp.Sources)+1)
-	for _, k := range bp.Kustomizations {
+	allK := bp.AllKustomizations()
+	kNames := make(map[string]struct{}, len(allK)+len(bp.Sources)+1)
+	for _, k := range allK {
 		kNames[k.Name] = struct{}{}
 	}
 	for _, layer := range CrdLayers(bp) {
@@ -871,7 +888,7 @@ func (c *BaseBlueprintComposer) validateDependencies(bp *blueprintv1alpha1.Bluep
 		}
 	}
 
-	for _, k := range bp.Kustomizations {
+	for _, k := range allK {
 		for _, dep := range k.DependsOn {
 			if _, exists := kNames[dep]; !exists {
 				return fmt.Errorf("kustomization %q depends on non-existent kustomization %q", k.Name, dep)

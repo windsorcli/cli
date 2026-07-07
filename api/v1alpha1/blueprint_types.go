@@ -5,6 +5,7 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"path"
 	"reflect"
 	"slices"
 	"strings"
@@ -891,6 +892,12 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 			}
 		}
 
+		for _, sys := range overlay.FluxSystems {
+			if err := b.UpsertFluxSystem(sys); err != nil {
+				return err
+			}
+		}
+
 		if overlay.Substitutions != nil {
 			if b.Substitutions == nil {
 				b.Substitutions = make(map[string]string)
@@ -1026,6 +1033,92 @@ func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 		}
 	}
 	return nil
+}
+
+// UpsertFluxSystem replaces the FluxSystem with the same Name if one exists in b.FluxSystems,
+// or appends it when none does.
+func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
+	for i, existing := range b.FluxSystems {
+		if existing.Name == sys.Name {
+			b.FluxSystems[i] = sys
+			return nil
+		}
+	}
+	b.FluxSystems = append(b.FluxSystems, sys)
+	return nil
+}
+
+// AllKustomizations returns a flat list of every compiled Kustomization — plain kustomize: entries
+// first, then the install and resources tiers compiled from each FluxSystem. Expressions on stored
+// FluxSystems are already evaluated; this method only performs name/path/dependency assembly.
+func (b *Blueprint) AllKustomizations() []Kustomization {
+	all := make([]Kustomization, 0, len(b.Kustomizations))
+	all = append(all, b.Kustomizations...)
+	for _, sys := range b.FluxSystems {
+		all = append(all, compileFluxSystemTiers(sys)...)
+	}
+	return all
+}
+
+// compileFluxSystemTiers converts a pre-evaluated FluxSystem into its tier Kustomizations without
+// any expression evaluation. Install compiles to "<name>-install" at "<path>/install"; each
+// resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources".
+func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
+	name := sys.Name
+	base := sys.Path
+	if base == "" {
+		base = name
+	}
+	installName := name + "-install"
+
+	var out []Kustomization
+	installEmitted := false
+
+	if sys.Install != nil && len(sys.Install.Components) > 0 {
+		k := *sys.Install.DeepCopy()
+		k.Name = installName
+		k.Path = path.Join(base, "install")
+		k.DependsOn = slices.Clone(sys.DependsOn)
+		if k.Source == "" {
+			k.Source = sys.Source
+		}
+		if k.Enabled == nil {
+			k.Enabled = sys.Enabled
+		}
+		if k.Destroy == nil {
+			k.Destroy = sys.Destroy
+		}
+		k.Substitute = nil
+		out = append(out, k)
+		installEmitted = true
+	}
+
+	for _, v := range sys.Resources {
+		variantName := name + "-resources"
+		if v.Name != "" {
+			variantName += "-" + v.Name
+		}
+		k := *v.Kustomization.DeepCopy()
+		k.Name = variantName
+		k.Path = path.Join(base, "resources")
+		if installEmitted {
+			k.DependsOn = append([]string{installName}, v.DependsOn...)
+		} else {
+			k.DependsOn = append(slices.Clone(sys.DependsOn), v.DependsOn...)
+		}
+		if k.Source == "" {
+			k.Source = sys.Source
+		}
+		if k.Enabled == nil {
+			k.Enabled = sys.Enabled
+		}
+		if k.Destroy == nil {
+			k.Destroy = sys.Destroy
+		}
+		k.Substitute = nil
+		out = append(out, k)
+	}
+	return out
 }
 
 // DeepCopy creates a deep copy of the Kustomization object.

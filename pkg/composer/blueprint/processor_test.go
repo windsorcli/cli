@@ -2487,7 +2487,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 	find := func(bp *blueprintv1alpha1.Blueprint, name string) (blueprintv1alpha1.Kustomization, bool) {
-		for _, k := range bp.Kustomizations {
+		for _, k := range bp.AllKustomizations() {
 			if k.Name == name {
 				return k, true
 			}
@@ -2609,7 +2609,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		})
 		res, ok := find(target, "issuers-resources")
 		if !ok {
-			t.Fatalf("expected issuers-resources, got %+v", target.Kustomizations)
+			t.Fatalf("expected issuers-resources, got %+v", target.AllKustomizations())
 		}
 		if !slices.Contains(res.DependsOn, "cert-manager-install") {
 			t.Errorf("expected system deps on the variant, got %v", res.DependsOn)
@@ -2677,7 +2677,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 		res, ok := find(target, "gateway-resources")
 		if !ok {
-			t.Fatalf("expected gateway-resources, got %+v", target.Kustomizations)
+			t.Fatalf("expected gateway-resources, got %+v", target.AllKustomizations())
 		}
 		if slices.Contains(res.DependsOn, "gateway-install") {
 			t.Errorf("expected no implicit install edge when install pruned away, got %v", res.DependsOn)
@@ -3492,7 +3492,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, kustomizationByName, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID, kustomizationByName: kustomizationByName}, nil)
 
 		// Then specified fields should be removed (removes are applied last)
 		if err != nil {
@@ -3528,7 +3528,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be replaced
 		if err != nil {
@@ -3558,7 +3558,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be merged
 		if err != nil {
@@ -3588,7 +3588,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then should default to merge
 		if err != nil {
@@ -3615,7 +3615,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, nil, kustomizationByName, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{kustomizationByName: kustomizationByName}, nil)
 
 		// Then kustomization should be replaced
 		if err != nil {
@@ -3650,7 +3650,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then strategies should be applied correctly
 		if err != nil {
@@ -3683,7 +3683,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// First apply merge
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on merge, got %v", err)
 		}
@@ -3695,7 +3695,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": "value"}},
 			},
 		}
-		err = processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err = processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on replace, got %v", err)
 		}
@@ -3707,7 +3707,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": nil}},
 			},
 		}
-		err = processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err = processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on remove, got %v", err)
 		}
@@ -5198,7 +5198,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be removed (condition is false)
 		if err != nil {
@@ -5229,7 +5229,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, nil, kustomizationByName, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{kustomizationByName: kustomizationByName}, nil)
 
 		// Then kustomization should be removed (condition is false)
 		if err != nil {
@@ -5260,7 +5260,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be preserved (condition is true)
 		if err != nil {
@@ -5297,7 +5297,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be removed (combined condition is false)
 		if err != nil {
@@ -5324,7 +5324,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then should return error
 		if err == nil {
