@@ -2702,6 +2702,117 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			t.Fatal("expected error for duplicate unnamed resources variant, got nil")
 		}
 	})
+
+	t.Run("CrossFacetSameNamedVariantDeepMerges", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"a"}}}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-b"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"b"}}}},
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		count := 0
+		var got blueprintv1alpha1.Kustomization
+		for _, k := range target.AllKustomizations() {
+			if k.Name == "gateway-resources-internal" {
+				count++
+				got = k
+			}
+		}
+		if count != 1 {
+			t.Fatalf("expected a single gateway-resources-internal after cross-facet merge, got %d", count)
+		}
+		if !slices.Contains(got.Components, "a") || !slices.Contains(got.Components, "b") {
+			t.Errorf("expected merged variant components to union [a b], got %v", got.Components)
+		}
+	})
+
+	t.Run("CrossOrdinalFacetsStillMergeFluxSystem", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		ordProvider := 200
+		ordAddon := 300
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "provider-gateway"},
+				Ordinal:  &ordProvider,
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Install:   &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"internal"}}}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "addon-gateway-external"},
+				Ordinal:  &ordAddon,
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "external", Components: []string{"external"}}}},
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		install, ok := find(target, "gateway-install")
+		if !ok || !slices.Contains(install.Components, "envoy") {
+			t.Fatalf("expected the lower-ordinal facet's install to survive a higher-ordinal merge, got %+v", target.AllKustomizations())
+		}
+		if _, ok := find(target, "gateway-resources-internal"); !ok {
+			t.Errorf("expected the lower-ordinal facet's resources variant to survive, got %+v", target.AllKustomizations())
+		}
+		if _, ok := find(target, "gateway-resources-external"); !ok {
+			t.Errorf("expected the higher-ordinal facet's resources variant to be added rather than replace the system, got %+v", target.AllKustomizations())
+		}
+	})
+
+	t.Run("SameOrdinalInstallDeepMerges", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:    "gateway",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-b"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:    "gateway",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		install, ok := find(target, "gateway-install")
+		if !ok {
+			t.Fatalf("expected gateway-install, got %+v", target.AllKustomizations())
+		}
+		if !slices.Contains(install.Components, "envoy") || !slices.Contains(install.Components, "cert-manager") {
+			t.Errorf("expected install components to union [cert-manager envoy], got %v", install.Components)
+		}
+	})
 }
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {

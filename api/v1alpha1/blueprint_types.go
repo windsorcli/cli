@@ -1438,71 +1438,82 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 
 	for i, existing := range b.Kustomizations {
 		if existing.Name == kustomization.Name {
-			for _, component := range kustomization.Components {
-				if component == "" || !slices.Contains(existing.Components, component) {
-					existing.Components = append(existing.Components, component)
-				}
-			}
-			slices.Sort(existing.Components)
-			for _, dep := range kustomization.DependsOn {
-				if dep != "" && !slices.Contains(existing.DependsOn, dep) {
-					existing.DependsOn = append(existing.DependsOn, dep)
-				}
-			}
-			if kustomization.Path != "" {
-				existing.Path = kustomization.Path
-			}
-			if kustomization.Source != "" {
-				existing.Source = kustomization.Source
-			}
-			if kustomization.Namespace != "" {
-				existing.Namespace = kustomization.Namespace
-			}
-			if kustomization.TargetNamespace != "" {
-				existing.TargetNamespace = kustomization.TargetNamespace
-			}
-			if kustomization.Destroy != nil {
-				existing.Destroy = kustomization.Destroy
-			}
-			if kustomization.Enabled != nil {
-				existing.Enabled = kustomization.Enabled
-			}
-			if kustomization.DestroyOnly != nil {
-				existing.DestroyOnly = kustomization.DestroyOnly
-			}
-			if kustomization.Interval != nil {
-				existing.Interval = kustomization.Interval
-			}
-			if kustomization.RetryInterval != nil {
-				existing.RetryInterval = kustomization.RetryInterval
-			}
-			if kustomization.Timeout != nil {
-				existing.Timeout = kustomization.Timeout
-			}
-			if kustomization.Wait != nil {
-				existing.Wait = kustomization.Wait
-			}
-			if kustomization.Force != nil {
-				existing.Force = kustomization.Force
-			}
-			if kustomization.Prune != nil {
-				existing.Prune = kustomization.Prune
-			}
-			if len(kustomization.Patches) > 0 {
-				existing.Patches = append(existing.Patches, kustomization.Patches...)
-			}
-			if len(kustomization.Substitutions) > 0 {
-				if existing.Substitutions == nil {
-					existing.Substitutions = make(map[string]string)
-				}
-				maps.Copy(existing.Substitutions, kustomization.Substitutions)
-			}
-			b.Kustomizations[i] = existing
+			b.Kustomizations[i] = MergeKustomizationFields(existing, kustomization)
 			return b.sortKustomize()
 		}
 	}
 	b.Kustomizations = append(b.Kustomizations, kustomization)
 	return b.sortKustomize()
+}
+
+// MergeKustomizationFields deep-merges overlay onto base and returns the result: Components and
+// DependsOn accumulate (deduplicated, Components sorted), Patches accumulate, Substitutions copy
+// in, and every other field is overridden by overlay when overlay sets it. Callers that need
+// by-name matching within a Blueprint's Kustomizations list use strategicMergeKustomization, which
+// calls this once a match is found; callers merging two already-matched Kustomization values
+// directly (e.g. FluxSystem tiers, which carry no Name until tier compilation) call this directly.
+func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
+	existing := base
+	for _, component := range overlay.Components {
+		if component == "" || !slices.Contains(existing.Components, component) {
+			existing.Components = append(existing.Components, component)
+		}
+	}
+	slices.Sort(existing.Components)
+	for _, dep := range overlay.DependsOn {
+		if dep != "" && !slices.Contains(existing.DependsOn, dep) {
+			existing.DependsOn = append(existing.DependsOn, dep)
+		}
+	}
+	if overlay.Path != "" {
+		existing.Path = overlay.Path
+	}
+	if overlay.Source != "" {
+		existing.Source = overlay.Source
+	}
+	if overlay.Namespace != "" {
+		existing.Namespace = overlay.Namespace
+	}
+	if overlay.TargetNamespace != "" {
+		existing.TargetNamespace = overlay.TargetNamespace
+	}
+	if overlay.Destroy != nil {
+		existing.Destroy = overlay.Destroy
+	}
+	if overlay.Enabled != nil {
+		existing.Enabled = overlay.Enabled
+	}
+	if overlay.DestroyOnly != nil {
+		existing.DestroyOnly = overlay.DestroyOnly
+	}
+	if overlay.Interval != nil {
+		existing.Interval = overlay.Interval
+	}
+	if overlay.RetryInterval != nil {
+		existing.RetryInterval = overlay.RetryInterval
+	}
+	if overlay.Timeout != nil {
+		existing.Timeout = overlay.Timeout
+	}
+	if overlay.Wait != nil {
+		existing.Wait = overlay.Wait
+	}
+	if overlay.Force != nil {
+		existing.Force = overlay.Force
+	}
+	if overlay.Prune != nil {
+		existing.Prune = overlay.Prune
+	}
+	if len(overlay.Patches) > 0 {
+		existing.Patches = append(existing.Patches, overlay.Patches...)
+	}
+	if len(overlay.Substitutions) > 0 {
+		if existing.Substitutions == nil {
+			existing.Substitutions = make(map[string]string)
+		}
+		maps.Copy(existing.Substitutions, overlay.Substitutions)
+	}
+	return existing
 }
 
 // sortKustomize reorders the Blueprint's Kustomizations so that dependencies precede dependents.

@@ -264,6 +264,139 @@ func TestShowBlueprint_InstallResourcesTiers(t *testing.T) {
 	}
 }
 
+// TestShowBlueprint_FluxSystemCrossFacetMerge verifies that two facets contributing to the same
+// flux: system name at different ordinals still merge under the default "merge" strategy instead
+// of the higher-ordinal facet wholesale-replacing the lower-ordinal one's install/resources: pki's
+// cert-manager install/resources (ordinal 0) and addon-cert-manager-extra's additional install
+// component and resources variant (ordinal 400, from the "addon-" filename prefix) must both
+// survive in the composed blueprint.
+func TestShowBlueprint_FluxSystemCrossFacetMerge(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+
+	var bp struct {
+		Flux []struct {
+			Name    string `yaml:"name"`
+			Install struct {
+				Components []string `yaml:"components"`
+			} `yaml:"install"`
+			Resources []struct {
+				Name       string   `yaml:"name"`
+				Components []string `yaml:"components"`
+			} `yaml:"resources"`
+		} `yaml:"flux"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+
+	var certMgr *struct {
+		Name    string `yaml:"name"`
+		Install struct {
+			Components []string `yaml:"components"`
+		} `yaml:"install"`
+		Resources []struct {
+			Name       string   `yaml:"name"`
+			Components []string `yaml:"components"`
+		} `yaml:"resources"`
+	}
+	for i := range bp.Flux {
+		if bp.Flux[i].Name == "cert-manager" {
+			certMgr = &bp.Flux[i]
+			break
+		}
+	}
+	if certMgr == nil {
+		t.Fatalf("expected cert-manager in flux:, got flux=%+v", bp.Flux)
+	}
+
+	if !slices.Contains(certMgr.Install.Components, "helm-release") || !slices.Contains(certMgr.Install.Components, "helm-release-extra-metrics") {
+		t.Errorf("expected install components to union across facets, got %v", certMgr.Install.Components)
+	}
+
+	var hasDefaultVariant, hasExtraVariant bool
+	for _, r := range certMgr.Resources {
+		if r.Name == "" && slices.Contains(r.Components, "private-issuer/ca") {
+			hasDefaultVariant = true
+		}
+		if r.Name == "extra" && slices.Contains(r.Components, "public-issuer") {
+			hasExtraVariant = true
+		}
+	}
+	if !hasDefaultVariant {
+		t.Errorf("expected the lower-ordinal facet's unnamed resources variant to survive, got %+v", certMgr.Resources)
+	}
+	if !hasExtraVariant {
+		t.Errorf("expected the higher-ordinal facet's resources variant to be added rather than replace the system, got %+v", certMgr.Resources)
+	}
+}
+
+// TestShowBlueprint_FluxSystemSameOrdinalVariantMerge verifies the original review-flagged
+// scenario: two facets at the SAME ordinal each contributing a resources variant under the same
+// key (both unnamed, so both would compile to "cert-manager-resources") merge into a single
+// variant instead of surviving as two colliding entries. pki's and pki-extra's unnamed variants
+// (both ordinal 0, since neither filename matches an ordinal-prefix rule) must union into one
+// resources entry carrying both facets' components, not appear as two separate list entries.
+func TestShowBlueprint_FluxSystemSameOrdinalVariantMerge(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+
+	var bp struct {
+		Flux []struct {
+			Name      string `yaml:"name"`
+			Resources []struct {
+				Name       string   `yaml:"name"`
+				Components []string `yaml:"components"`
+			} `yaml:"resources"`
+		} `yaml:"flux"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+
+	var certMgr *struct {
+		Name      string `yaml:"name"`
+		Resources []struct {
+			Name       string   `yaml:"name"`
+			Components []string `yaml:"components"`
+		} `yaml:"resources"`
+	}
+	for i := range bp.Flux {
+		if bp.Flux[i].Name == "cert-manager" {
+			certMgr = &bp.Flux[i]
+			break
+		}
+	}
+	if certMgr == nil {
+		t.Fatalf("expected cert-manager in flux:, got flux=%+v", bp.Flux)
+	}
+
+	var unnamedCount int
+	var unnamedComponents []string
+	for _, r := range certMgr.Resources {
+		if r.Name == "" {
+			unnamedCount++
+			unnamedComponents = r.Components
+		}
+	}
+	if unnamedCount != 1 {
+		t.Fatalf("expected pki's and pki-extra's same-key unnamed variant to merge into a single resources entry, got %d unnamed entries in %+v", unnamedCount, certMgr.Resources)
+	}
+	if !slices.Contains(unnamedComponents, "private-issuer/ca") || !slices.Contains(unnamedComponents, "private-issuer/wildcard") {
+		t.Errorf("expected the merged unnamed variant to union both facets' components, got %v", unnamedComponents)
+	}
+}
+
 // TestShowBlueprint_FacetRequires_Satisfied verifies the success path: when every required
 // path resolves to a present, non-empty value, ProcessFacets returns no error and the
 // blueprint renders normally.

@@ -1,0 +1,14 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: pki-extra
+  description: Same-ordinal facet contributing an unnamed resources variant to pki's cert-manager flux system under the same implicit key, to exercise the original review-flagged scenario -- two facets, same ordinal, colliding variant key -- merging into one entry instead of compiling to two colliding Kustomization names.
+
+flux:
+
+- name: cert-manager
+  resources:
+  - components:
+    - private-issuer/wildcard
+    timeout: 5m
+    interval: 5m
