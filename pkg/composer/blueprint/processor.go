@@ -1347,9 +1347,11 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 // applyFluxSystemEntryByStrategy applies new to existing's slot in entries per strategy, mirroring
 // applyKustomizationEntryByStrategy: "replace" swaps the whole entry, "remove" deletes it outright
 // (FluxSystem has no field-level removal the way RemoveKustomization strips individual
-// components/patches/dependsOn), and "merge" unions DependsOn and deep-merges both Install and
-// Resources variants via blueprintv1alpha1.MergeKustomizationFields — the same semantics same-name
-// Kustomizations get elsewhere — instead of replacing either wholesale.
+// components/patches/dependsOn), and "merge" unions DependsOn and deep-merges both Install
+// (blueprintv1alpha1.MergeFluxInstall) and Resources variants (blueprintv1alpha1.MergeFluxVariants)
+// — the same semantics same-name Kustomizations get elsewhere, and the same helpers
+// Blueprint.UpsertFluxSystem uses to merge FluxSystems across sources — instead of replacing
+// either wholesale.
 func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new *blueprintv1alpha1.FluxSystem, strategy string, existing *blueprintv1alpha1.FluxSystem, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	switch strategy {
 	case "replace":
@@ -1360,8 +1362,8 @@ func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new
 	case "merge":
 		merged := *existing
 		merged.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
-		merged.Install = mergeFluxInstall(existing.Install, new.Install)
-		merged.Resources = mergeFluxVariants(existing.Resources, new.Resources)
+		merged.Install = blueprintv1alpha1.MergeFluxInstall(existing.Install, new.Install)
+		merged.Resources = blueprintv1alpha1.MergeFluxVariants(existing.Resources, new.Resources)
 		merged.Ordinal = new.Ordinal
 		entries[name] = &merged
 	}
@@ -2414,55 +2416,6 @@ func deepMergeMap(base, overlay map[string]any) map[string]any {
 		result[k] = v
 	}
 	return result
-}
-
-// mergeFluxInstall deep-merges new's Install tier into existing's via
-// blueprintv1alpha1.MergeKustomizationFields (Components/DependsOn accumulate, other fields are
-// overridden by new when set) rather than Blueprint.StrategicMerge, since Install carries no Name
-// until tier compilation and StrategicMerge's by-name matching is a no-op on an unnamed
-// Kustomization. Either side being nil just takes the other, matching how a facet with no Install
-// opinion shouldn't erase one contributed earlier.
-func mergeFluxInstall(existing, new *blueprintv1alpha1.Kustomization) *blueprintv1alpha1.Kustomization {
-	if new == nil {
-		return existing
-	}
-	if existing == nil {
-		return new
-	}
-	merged := blueprintv1alpha1.MergeKustomizationFields(*existing, *new)
-	return &merged
-}
-
-// mergeFluxVariants combines two resources-variant lists keyed by variant name. A variant from new
-// deep-merges into the same-named variant in existing via
-// blueprintv1alpha1.MergeKustomizationFields (see mergeFluxInstall for why this is used instead of
-// Blueprint.StrategicMerge), and the two When conditions combine with AND. A variant with a new
-// name is appended in order. This keeps a cross-facet merge from emitting two Kustomizations with
-// the same "<system>-resources[-<name>]" identity.
-func mergeFluxVariants(existing, new []blueprintv1alpha1.FluxVariant) []blueprintv1alpha1.FluxVariant {
-	merged := slices.Clone(existing)
-	for _, nv := range new {
-		idx := slices.IndexFunc(merged, func(v blueprintv1alpha1.FluxVariant) bool { return v.Name == nv.Name })
-		if idx == -1 {
-			merged = append(merged, nv)
-			continue
-		}
-
-		mergedK := blueprintv1alpha1.MergeKustomizationFields(merged[idx].Kustomization, nv.Kustomization)
-
-		combinedWhen := merged[idx].When
-		switch {
-		case merged[idx].When != "" && nv.When != "":
-			combinedWhen = fmt.Sprintf("(%s) && (%s)", merged[idx].When, nv.When)
-		case nv.When != "":
-			combinedWhen = nv.When
-		}
-		merged[idx] = blueprintv1alpha1.FluxVariant{
-			Kustomization: mergedK,
-			When:          combinedWhen,
-		}
-	}
-	return merged
 }
 
 // accumulateStringSlice merges two string slices into a deduplicated, sorted slice.

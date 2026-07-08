@@ -1543,6 +1543,50 @@ func TestBlueprint_StrategicMerge(t *testing.T) {
 			t.Errorf("Expected base-only key to be preserved, got '%s'", base.Substitutions["keep_me"])
 		}
 	})
+
+	t.Run("MergesSameNameFluxSystemsAcrossSourcesInsteadOfReplacing", func(t *testing.T) {
+		// Given a base blueprint (one source's already-composed facets) with a cert-manager
+		// system carrying an install and one resources variant
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:      "cert-manager",
+					Install:   &Kustomization{Components: []string{"helm-release"}},
+					Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}}},
+				},
+			},
+		}
+
+		// And an overlay (a second source's already-composed facets) contributing to the same
+		// system name with an extra install component and a new named resources variant
+		overlay := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:      "cert-manager",
+					Install:   &Kustomization{Components: []string{"helm-release-extra-metrics"}},
+					Resources: []FluxVariant{{Kustomization: Kustomization{Name: "extra", Components: []string{"public-issuer"}}}},
+				},
+			},
+		}
+
+		// When strategic merging (the path composer.Compose uses to combine per-source blueprints)
+		if err := base.StrategicMerge(overlay); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then the two sources' contributions merge into one system instead of the overlay's
+		// source wholesale-replacing the base source's install/resources
+		if len(base.FluxSystems) != 1 {
+			t.Fatalf("expected one merged cert-manager system, not two colliding sources' entries, got %+v", base.FluxSystems)
+		}
+		merged := base.FluxSystems[0]
+		if merged.Install == nil || !contains(merged.Install.Components, "helm-release") || !contains(merged.Install.Components, "helm-release-extra-metrics") {
+			t.Errorf("expected install components to union across sources, got %+v", merged.Install)
+		}
+		if len(merged.Resources) != 2 {
+			t.Fatalf("expected both sources' resources variants to survive, got %+v", merged.Resources)
+		}
+	})
 }
 
 func TestBlueprint_ReplaceTerraformComponent(t *testing.T) {
@@ -4588,6 +4632,65 @@ flux:
 		}
 		if len(bp.FluxSystems[0].Resources) != 1 {
 			t.Fatalf("expected one resources variant, got %+v", bp.FluxSystems[0].Resources)
+		}
+	})
+}
+
+func TestBlueprint_UpsertFluxSystem(t *testing.T) {
+	t.Run("AppendsWhenNoExistingSystemOfThatName", func(t *testing.T) {
+		// Given a blueprint with no cert-manager system yet
+		b := &Blueprint{}
+
+		// When a system is upserted
+		if err := b.UpsertFluxSystem(FluxSystem{Name: "cert-manager"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then it is appended
+		if len(b.FluxSystems) != 1 || b.FluxSystems[0].Name != "cert-manager" {
+			t.Fatalf("expected cert-manager appended, got %+v", b.FluxSystems)
+		}
+	})
+
+	t.Run("MergesInsteadOfReplacingOnNameCollision", func(t *testing.T) {
+		// Given a blueprint already carrying a cert-manager system with an install and one
+		// resources variant (as if written by one source's already-merged facets)
+		b := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:      "cert-manager",
+					DependsOn: []string{"pki-base"},
+					Install:   &Kustomization{Components: []string{"helm-release"}},
+					Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}}},
+				},
+			},
+		}
+
+		// When a second same-named system (as if from another source) is upserted, contributing
+		// an additional install component, an extra dependsOn edge, and a new resources variant
+		if err := b.UpsertFluxSystem(FluxSystem{
+			Name:      "cert-manager",
+			DependsOn: []string{"lb-base"},
+			Install:   &Kustomization{Components: []string{"helm-release-extra-metrics"}},
+			Resources: []FluxVariant{{Kustomization: Kustomization{Name: "extra", Components: []string{"public-issuer"}}}},
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Then the two contributions merge into one entry instead of the second wholesale
+		// replacing the first
+		if len(b.FluxSystems) != 1 {
+			t.Fatalf("expected one merged cert-manager entry, not two colliding entries, got %+v", b.FluxSystems)
+		}
+		merged := b.FluxSystems[0]
+		if !contains(merged.DependsOn, "pki-base") || !contains(merged.DependsOn, "lb-base") {
+			t.Errorf("expected dependsOn to union, got %v", merged.DependsOn)
+		}
+		if merged.Install == nil || !contains(merged.Install.Components, "helm-release") || !contains(merged.Install.Components, "helm-release-extra-metrics") {
+			t.Errorf("expected install components to union across the collision, got %+v", merged.Install)
+		}
+		if len(merged.Resources) != 2 {
+			t.Fatalf("expected the original unnamed variant and the new named variant to both survive, got %+v", merged.Resources)
 		}
 	})
 }

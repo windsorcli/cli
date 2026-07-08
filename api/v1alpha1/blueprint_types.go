@@ -1035,17 +1035,80 @@ func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 	return nil
 }
 
-// UpsertFluxSystem replaces the FluxSystem with the same Name if one exists in b.FluxSystems,
-// or appends it when none does.
+// UpsertFluxSystem merges sys into the FluxSystem with the same Name if one exists in
+// b.FluxSystems, or appends it when none does. On a match, DependsOn accumulates (union) and
+// Install/Resources deep-merge via MergeFluxInstall/MergeFluxVariants — the same field-level
+// semantics strategicMergeKustomization already gives same-name plain kustomize: entries — rather
+// than sys wholesale-replacing what is already there. This is the path StrategicMerge uses to
+// combine FluxSystems across sources (each source's facets already merged among themselves before
+// reaching here), so a same-name collision here must not silently drop one side's install/resources
+// tiers the way a blind replace would.
 func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
 	for i, existing := range b.FluxSystems {
 		if existing.Name == sys.Name {
-			b.FluxSystems[i] = sys
+			merged := existing
+			for _, dep := range sys.DependsOn {
+				if dep != "" && !slices.Contains(merged.DependsOn, dep) {
+					merged.DependsOn = append(merged.DependsOn, dep)
+				}
+			}
+			merged.Install = MergeFluxInstall(existing.Install, sys.Install)
+			merged.Resources = MergeFluxVariants(existing.Resources, sys.Resources)
+			b.FluxSystems[i] = merged
 			return nil
 		}
 	}
 	b.FluxSystems = append(b.FluxSystems, sys)
 	return nil
+}
+
+// MergeFluxInstall deep-merges new's Install tier into existing's via MergeKustomizationFields
+// (Components/DependsOn accumulate, other fields are overridden by new when set) rather than via
+// by-name Blueprint.Kustomizations matching, since Install carries no Name until tier compilation
+// and that by-name path is a no-op on an unnamed Kustomization. Either side being nil just takes
+// the other, matching how a facet or source with no Install opinion shouldn't erase one
+// contributed elsewhere.
+func MergeFluxInstall(existing, new *Kustomization) *Kustomization {
+	if new == nil {
+		return existing
+	}
+	if existing == nil {
+		return new
+	}
+	merged := MergeKustomizationFields(*existing, *new)
+	return &merged
+}
+
+// MergeFluxVariants combines two resources-variant lists keyed by variant name. A variant from new
+// deep-merges into the same-named variant in existing via MergeKustomizationFields (see
+// MergeFluxInstall for why by-name Blueprint.Kustomizations matching isn't used instead), and the
+// two When conditions combine with AND. A variant with a new name is appended in order. This keeps
+// a cross-facet or cross-source merge from emitting two Kustomizations with the same
+// "<system>-resources[-<name>]" identity.
+func MergeFluxVariants(existing, new []FluxVariant) []FluxVariant {
+	merged := slices.Clone(existing)
+	for _, nv := range new {
+		idx := slices.IndexFunc(merged, func(v FluxVariant) bool { return v.Name == nv.Name })
+		if idx == -1 {
+			merged = append(merged, nv)
+			continue
+		}
+
+		mergedK := MergeKustomizationFields(merged[idx].Kustomization, nv.Kustomization)
+
+		combinedWhen := merged[idx].When
+		switch {
+		case merged[idx].When != "" && nv.When != "":
+			combinedWhen = fmt.Sprintf("(%s) && (%s)", merged[idx].When, nv.When)
+		case nv.When != "":
+			combinedWhen = nv.When
+		}
+		merged[idx] = FluxVariant{
+			Kustomization: mergedK,
+			When:          combinedWhen,
+		}
+	}
+	return merged
 }
 
 // AllKustomizations returns a flat list of every compiled Kustomization — plain kustomize: entries
