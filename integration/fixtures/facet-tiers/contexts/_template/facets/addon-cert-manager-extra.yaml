@@ -1,0 +1,18 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: addon-cert-manager-extra
+  description: Higher-ordinal facet contributing to pki's cert-manager flux system, to exercise cross-ordinal merge (install components accumulate, an extra resources variant is added) rather than wholesale replacement.
+
+flux:
+
+- name: cert-manager
+  install:
+    components:
+    - helm-release-extra-metrics
+  resources:
+  - name: extra
+    components:
+    - public-issuer
+    timeout: 5m
+    interval: 5m

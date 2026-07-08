@@ -2487,7 +2487,7 @@ func TestProcessor_ProcessFacets_Crds(t *testing.T) {
 
 func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 	find := func(bp *blueprintv1alpha1.Blueprint, name string) (blueprintv1alpha1.Kustomization, bool) {
-		for _, k := range bp.Kustomizations {
+		for _, k := range bp.AllKustomizations() {
 			if k.Name == name {
 				return k, true
 			}
@@ -2609,7 +2609,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		})
 		res, ok := find(target, "issuers-resources")
 		if !ok {
-			t.Fatalf("expected issuers-resources, got %+v", target.Kustomizations)
+			t.Fatalf("expected issuers-resources, got %+v", target.AllKustomizations())
 		}
 		if !slices.Contains(res.DependsOn, "cert-manager-install") {
 			t.Errorf("expected system deps on the variant, got %v", res.DependsOn)
@@ -2677,7 +2677,7 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 		res, ok := find(target, "gateway-resources")
 		if !ok {
-			t.Fatalf("expected gateway-resources, got %+v", target.Kustomizations)
+			t.Fatalf("expected gateway-resources, got %+v", target.AllKustomizations())
 		}
 		if slices.Contains(res.DependsOn, "gateway-install") {
 			t.Errorf("expected no implicit install edge when install pruned away, got %v", res.DependsOn)
@@ -2700,6 +2700,187 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		_, err := processor.ProcessFacets(&blueprintv1alpha1.Blueprint{}, facets)
 		if err == nil {
 			t.Fatal("expected error for duplicate unnamed resources variant, got nil")
+		}
+	})
+
+	t.Run("CrossFacetSameNamedVariantDeepMerges", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"a"}}}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-b"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"b"}}}},
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		count := 0
+		var got blueprintv1alpha1.Kustomization
+		for _, k := range target.AllKustomizations() {
+			if k.Name == "gateway-resources-internal" {
+				count++
+				got = k
+			}
+		}
+		if count != 1 {
+			t.Fatalf("expected a single gateway-resources-internal after cross-facet merge, got %d", count)
+		}
+		if !slices.Contains(got.Components, "a") || !slices.Contains(got.Components, "b") {
+			t.Errorf("expected merged variant components to union [a b], got %v", got.Components)
+		}
+	})
+
+	t.Run("CrossOrdinalFacetsStillMergeFluxSystem", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		ordProvider := 200
+		ordAddon := 300
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "provider-gateway"},
+				Ordinal:  &ordProvider,
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Install:   &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"internal"}}}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "addon-gateway-external"},
+				Ordinal:  &ordAddon,
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "external", Components: []string{"external"}}}},
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		install, ok := find(target, "gateway-install")
+		if !ok || !slices.Contains(install.Components, "envoy") {
+			t.Fatalf("expected the lower-ordinal facet's install to survive a higher-ordinal merge, got %+v", target.AllKustomizations())
+		}
+		if _, ok := find(target, "gateway-resources-internal"); !ok {
+			t.Errorf("expected the lower-ordinal facet's resources variant to survive, got %+v", target.AllKustomizations())
+		}
+		if _, ok := find(target, "gateway-resources-external"); !ok {
+			t.Errorf("expected the higher-ordinal facet's resources variant to be added rather than replace the system, got %+v", target.AllKustomizations())
+		}
+	})
+
+	t.Run("SameOrdinalInstallDeepMerges", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:    "gateway",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-b"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:    "gateway",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"cert-manager"}},
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		install, ok := find(target, "gateway-install")
+		if !ok {
+			t.Fatalf("expected gateway-install, got %+v", target.AllKustomizations())
+		}
+		if !slices.Contains(install.Components, "envoy") || !slices.Contains(install.Components, "cert-manager") {
+			t.Errorf("expected install components to union [cert-manager envoy], got %v", install.Components)
+		}
+	})
+
+	t.Run("HigherOrdinalRemoveDeletesFluxSystem", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		ordProvider := 200
+		ordRemoval := 300
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "provider-gateway"},
+				Ordinal:  &ordProvider,
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:    "gateway",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "option-remove-gateway"},
+				Ordinal:  &ordRemoval,
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:     "gateway",
+					Strategy: "remove",
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		if _, ok := find(target, "gateway-install"); ok {
+			t.Errorf("expected a higher-ordinal remove to delete the system, but gateway-install survived: %+v", target.AllKustomizations())
+		}
+		for _, sys := range target.FluxSystems {
+			if sys.Name == "gateway" {
+				t.Errorf("expected no gateway FluxSystem entry after a higher-ordinal remove, got %+v", sys)
+			}
+		}
+	})
+
+	t.Run("EqualOrdinalRemoveStrategyPrecedenceDeletesFluxSystem", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:    "gateway",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-b"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:     "gateway",
+					Strategy: "remove",
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		if _, ok := find(target, "gateway-install"); ok {
+			t.Errorf("expected equal-ordinal remove (higher strategy precedence) to delete the system, but gateway-install survived: %+v", target.AllKustomizations())
+		}
+		for _, sys := range target.FluxSystems {
+			if sys.Name == "gateway" {
+				t.Errorf("expected no gateway FluxSystem entry after remove wins on strategy precedence, got %+v", sys)
+			}
 		}
 	})
 }
@@ -3492,7 +3673,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, kustomizationByName, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID, kustomizationByName: kustomizationByName}, nil)
 
 		// Then specified fields should be removed (removes are applied last)
 		if err != nil {
@@ -3528,7 +3709,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be replaced
 		if err != nil {
@@ -3558,7 +3739,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be merged
 		if err != nil {
@@ -3588,7 +3769,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then should default to merge
 		if err != nil {
@@ -3615,7 +3796,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, nil, kustomizationByName, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{kustomizationByName: kustomizationByName}, nil)
 
 		// Then kustomization should be replaced
 		if err != nil {
@@ -3650,7 +3831,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then strategies should be applied correctly
 		if err != nil {
@@ -3683,7 +3864,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 		}
 
 		// First apply merge
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on merge, got %v", err)
 		}
@@ -3695,7 +3876,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": "value"}},
 			},
 		}
-		err = processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err = processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on replace, got %v", err)
 		}
@@ -3707,7 +3888,7 @@ func TestProcessor_applyCollectedComponents(t *testing.T) {
 				TerraformComponent: blueprintv1alpha1.TerraformComponent{Path: "vpc", Inputs: map[string]any{"replaced": nil}},
 			},
 		}
-		err = processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err = processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 		if err != nil {
 			t.Fatalf("Expected no error on remove, got %v", err)
 		}
@@ -5198,7 +5379,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be removed (condition is false)
 		if err != nil {
@@ -5229,7 +5410,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, nil, kustomizationByName, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{kustomizationByName: kustomizationByName}, nil)
 
 		// Then kustomization should be removed (condition is false)
 		if err != nil {
@@ -5260,7 +5441,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be preserved (condition is true)
 		if err != nil {
@@ -5297,7 +5478,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then component should be removed (combined condition is false)
 		if err != nil {
@@ -5324,7 +5505,7 @@ func TestProcessor_PostProcessingConditionEvaluation(t *testing.T) {
 		}
 
 		// When applying collected components
-		err := processor.applyCollectedComponents(target, terraformByID, nil, nil)
+		err := processor.applyCollectedComponents(target, collectedComponents{terraformByID: terraformByID}, nil)
 
 		// Then should return error
 		if err == nil {

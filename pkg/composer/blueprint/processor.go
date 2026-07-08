@@ -74,6 +74,14 @@ type facetRequirementMisses struct {
 	Misses []requirementBlockMiss
 }
 
+// collectedComponents holds the intermediate accumulation maps built during ProcessFacets before
+// they are written to the target blueprint by applyCollectedComponents.
+type collectedComponents struct {
+	terraformByID       map[string]*blueprintv1alpha1.ConditionalTerraformComponent
+	kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization
+	fluxSystemByName    map[string]*blueprintv1alpha1.FluxSystem
+}
+
 // =============================================================================
 // Constructor
 // =============================================================================
@@ -179,8 +187,11 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 		return sortedFacets[i].Metadata.Name < sortedFacets[j].Metadata.Name
 	})
 
-	terraformByID := make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent)
-	kustomizationByName := make(map[string]*blueprintv1alpha1.ConditionalKustomization)
+	collected := collectedComponents{
+		terraformByID:       make(map[string]*blueprintv1alpha1.ConditionalTerraformComponent),
+		kustomizationByName: make(map[string]*blueprintv1alpha1.ConditionalKustomization),
+		fluxSystemByName:    make(map[string]*blueprintv1alpha1.FluxSystem),
+	}
 	crdRefs := make(map[string]struct{})
 	scope := contextScope
 	var globalScope map[string]any
@@ -269,13 +280,13 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 				}
 			}
 		}
-		if err := p.collectTerraformComponents(facet, sourceName, terraformByID, scope); err != nil {
+		if err := p.collectTerraformComponents(facet, sourceName, collected.terraformByID, scope); err != nil {
 			return nil, err
 		}
-		if err := p.collectKustomizations(facet, sourceName, kustomizationByName, scope); err != nil {
+		if err := p.collectKustomizations(facet, sourceName, collected.kustomizationByName, scope); err != nil {
 			return nil, err
 		}
-		if err := p.collectFluxSystems(facet, sourceName, kustomizationByName, scope); err != nil {
+		if err := p.collectFluxSystems(facet, sourceName, collected.fluxSystemByName, scope); err != nil {
 			return nil, err
 		}
 		for _, ref := range facet.Crds {
@@ -319,7 +330,7 @@ func (p *BaseBlueprintProcessor) ProcessFacets(target *blueprintv1alpha1.Bluepri
 
 	setCrdLayer(target, crdRefs, resolveSourceName(sourceName))
 
-	if err := p.applyCollectedComponents(target, terraformByID, kustomizationByName, scope); err != nil {
+	if err := p.applyCollectedComponents(target, collected, scope); err != nil {
 		return nil, err
 	}
 	return globalScope, nil
@@ -1100,20 +1111,8 @@ func (p *BaseBlueprintProcessor) buildFluxSystemEntries(system blueprintv1alpha1
 		if k.Destroy == nil {
 			k.Destroy = system.Destroy
 		}
-		subs := mergeSubstitute(k)
-		k.Substitute = nil
-		k.Substitutions = nil
-		if len(subs) > 0 {
-			evaluated, deferredKeys, err := p.evaluateSubstitutions(subs, facet.Path, scope)
-			if err != nil {
-				return blueprintv1alpha1.ConditionalKustomization{}, err
-			}
-			k.Substitutions = evaluated
-			for key, isDeferred := range deferredKeys {
-				if isDeferred {
-					p.markDeferredPath("kustomize." + tierName + ".substitutions." + key)
-				}
-			}
+		if err := p.evalKustomizationSubstitutions(&k, facet.Path, "kustomize."+tierName+".substitutions.", scope); err != nil {
+			return blueprintv1alpha1.ConditionalKustomization{}, err
 		}
 		return blueprintv1alpha1.ConditionalKustomization{Kustomization: k, When: when}, nil
 	}
@@ -1179,10 +1178,13 @@ func (p *BaseBlueprintProcessor) buildFluxSystemEntries(system blueprintv1alpha1
 	return entries, nil
 }
 
-// collectFluxSystems compiles a facet's flux: system descriptors into their tier Kustomizations and
-// merges them into kustomizationByName, exactly as collectKustomizations does for plain entries —
-// so ToFluxKustomization and the merge/validation logic apply to the generated tiers unchanged.
-func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, facetScope map[string]any) error {
+// collectFluxSystems evaluates a facet's flux: system descriptors — resolving expressions on
+// DependsOn, Install components/substitutions, and each resources variant — and stores the result
+// in fluxSystemByName. Variants whose when condition is false or whose components evaluate to empty
+// are dropped; an install tier whose components prune to empty sets Install to nil. This preserves
+// the FluxSystem structure in the composed blueprint (for show blueprint and YAML output) while
+// keeping tier compilation deferred to AllKustomizations().
+func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
 	for _, system := range facet.FluxSystems {
 		when := system.When
 		if when == "" && facet.When != "" {
@@ -1208,28 +1210,195 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 		if strategy == "" {
 			strategy = "merge"
 		}
-		sn := ""
-		if len(sourceName) > 0 {
-			sn = sourceName[0]
+
+		deps, err := p.evalDropEmpty(system.DependsOn, facet.Path, facetScope)
+		if err != nil {
+			return fmt.Errorf("error evaluating dependsOn for system '%s': %w", system.Name, err)
+		}
+		system.DependsOn = deps
+
+		if system.Install != nil {
+			comps, err := p.evalDropEmpty(system.Install.Components, facet.Path, facetScope)
+			if err != nil {
+				return fmt.Errorf("error evaluating install components for system '%s': %w", system.Name, err)
+			}
+			if len(comps) > 0 {
+				installCopy := *system.Install.DeepCopy()
+				installCopy.Components = comps
+				if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
+					return fmt.Errorf("error evaluating install substitutions for system '%s': %w", system.Name, err)
+				}
+				system.Install = &installCopy
+			} else {
+				system.Install = nil
+			}
 		}
 
-		entries, err := p.buildFluxSystemEntries(system, facet, facetScope)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			entry.Ordinal = &effectiveOrdinal
-			p.recordKustomizationTraces(entry.Name, entry.Components, entry.Substitutions, facet.Path, sn, effectiveOrdinal, strategy)
-			if _, exists := kustomizationByName[entry.Name]; !exists {
-				entry.Strategy = strategy
-				stored := new(blueprintv1alpha1.ConditionalKustomization)
-				*stored = entry
-				kustomizationByName[entry.Name] = stored
+		seenVariants := make(map[string]bool)
+		var evaluatedResources []blueprintv1alpha1.FluxVariant
+		for _, v := range system.Resources {
+			combined := combineWhen(system.When, v.When)
+			include, err := p.shouldIncludeComponent(combined, facet.Path, facetScope)
+			if err != nil {
+				return fmt.Errorf("error evaluating resources condition for system '%s': %w", system.Name, err)
+			}
+			if !include {
 				continue
 			}
-			if err := p.updateKustomizationEntry(entry.Name, &entry, strategy, kustomizationByName, facetScope); err != nil {
-				return err
+			comps, err := p.evalDropEmpty(v.Components, facet.Path, facetScope)
+			if err != nil {
+				return fmt.Errorf("error evaluating resources components for system '%s': %w", system.Name, err)
 			}
+			if len(comps) == 0 {
+				continue
+			}
+			variantKey := system.Name + "-resources"
+			if v.Name != "" {
+				variantKey += "-" + v.Name
+			}
+			if seenVariants[variantKey] {
+				return fmt.Errorf("duplicate resources variant %q in system %q; add a unique name: field to each variant", variantKey, system.Name)
+			}
+			seenVariants[variantKey] = true
+
+			evalV := blueprintv1alpha1.FluxVariant{Kustomization: *v.Kustomization.DeepCopy()}
+			evalV.Components = comps
+			evalV.When = ""
+
+			extraDeps, err := p.evalDropEmpty(v.DependsOn, facet.Path, facetScope)
+			if err != nil {
+				return fmt.Errorf("error evaluating resources dependsOn for system '%s': %w", system.Name, err)
+			}
+			evalV.DependsOn = extraDeps
+
+			if err := p.evalKustomizationSubstitutions(&evalV.Kustomization, facet.Path, "flux."+system.Name+".resources.substitutions.", facetScope); err != nil {
+				return fmt.Errorf("error evaluating resources substitutions for system '%s': %w", system.Name, err)
+			}
+			evaluatedResources = append(evaluatedResources, evalV)
+		}
+		system.Resources = evaluatedResources
+		system.Ordinal = &effectiveOrdinal
+		system.Strategy = strategy
+
+		if _, exists := fluxSystemByName[system.Name]; !exists {
+			stored := system
+			fluxSystemByName[system.Name] = &stored
+			continue
+		}
+		if err := p.updateFluxSystemEntry(system.Name, &system, strategy, fluxSystemByName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// updateFluxSystemEntry merges a new FluxSystem into an existing entry in fluxSystemByName using
+// the same ordinal/strategy precedence rules as updateKustomizationEntry: a higher ordinal still
+// runs applyFluxSystemEntryByStrategy (so a "merge" strategy keeps merging across ordinal bands
+// instead of wholesale-replacing) unless either side's strategy is "remove"; equal ordinal falls
+// back to strategy precedence (remove > replace > merge) before merging at equal precedence.
+// Whenever new's own strategy is "remove" and it wins, the outcome is always delete(entries, name),
+// never entries[name] = new: unlike Kustomization/Terraform entries, FluxSystem has no deferred
+// removal pass in applyCollectedComponents that later interprets a stored Strategy == "remove" —
+// the final write loop upserts every remaining map entry unconditionally, so a "remove"-tagged
+// FluxSystem left sitting in the map would be written to the target blueprint unchanged.
+func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *blueprintv1alpha1.FluxSystem, strategy string, entries map[string]*blueprintv1alpha1.FluxSystem) error {
+	existing := entries[name]
+	existingStrategy := existing.Strategy
+	if existingStrategy == "" {
+		existingStrategy = "merge"
+	}
+
+	newStrategyPrec, ok := strategyPrecedence[strategy]
+	if !ok {
+		return fmt.Errorf("invalid strategy '%s' for flux system '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
+	}
+
+	newOrdinal := 0
+	if new.Ordinal != nil {
+		newOrdinal = *new.Ordinal
+	}
+	existingOrdinal := 0
+	if existing.Ordinal != nil {
+		existingOrdinal = *existing.Ordinal
+	}
+
+	if newOrdinal > existingOrdinal {
+		if strategy == "remove" {
+			delete(entries, name)
+			return nil
+		}
+		if existingStrategy == "remove" {
+			new.Strategy = strategy
+			entries[name] = new
+			return nil
+		}
+		return p.applyFluxSystemEntryByStrategy(name, new, strategy, existing, entries)
+	}
+	if newOrdinal < existingOrdinal {
+		return nil
+	}
+
+	existingStrategyPrec := strategyPrecedence[existingStrategy]
+	if newStrategyPrec > existingStrategyPrec {
+		if strategy == "remove" {
+			delete(entries, name)
+			return nil
+		}
+		new.Strategy = strategy
+		entries[name] = new
+		return nil
+	}
+	if newStrategyPrec < existingStrategyPrec {
+		return nil
+	}
+
+	return p.applyFluxSystemEntryByStrategy(name, new, strategy, existing, entries)
+}
+
+// applyFluxSystemEntryByStrategy applies new to existing's slot in entries per strategy, mirroring
+// applyKustomizationEntryByStrategy: "replace" swaps the whole entry, "remove" deletes it outright
+// (FluxSystem has no field-level removal the way RemoveKustomization strips individual
+// components/patches/dependsOn), and "merge" unions DependsOn and deep-merges both Install
+// (blueprintv1alpha1.MergeFluxInstall) and Resources variants (blueprintv1alpha1.MergeFluxVariants)
+// — the same semantics same-name Kustomizations get elsewhere, and the same helpers
+// Blueprint.UpsertFluxSystem uses to merge FluxSystems across sources — instead of replacing
+// either wholesale.
+func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new *blueprintv1alpha1.FluxSystem, strategy string, existing *blueprintv1alpha1.FluxSystem, entries map[string]*blueprintv1alpha1.FluxSystem) error {
+	switch strategy {
+	case "replace":
+		new.Strategy = strategy
+		entries[name] = new
+	case "remove":
+		delete(entries, name)
+	case "merge":
+		merged := *existing
+		merged.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
+		merged.Install = blueprintv1alpha1.MergeFluxInstall(existing.Install, new.Install)
+		merged.Resources = blueprintv1alpha1.MergeFluxVariants(existing.Resources, new.Resources)
+		merged.Ordinal = new.Ordinal
+		entries[name] = &merged
+	}
+	return nil
+}
+
+// evalKustomizationSubstitutions merges substitute into substitutions, clears substitute, evaluates
+// all substitution values, and marks any deferred keys under deferredPrefix.
+func (p *BaseBlueprintProcessor) evalKustomizationSubstitutions(k *blueprintv1alpha1.Kustomization, facetPath, deferredPrefix string, scope map[string]any) error {
+	subs := mergeSubstitute(*k)
+	k.Substitute = nil
+	k.Substitutions = nil
+	if len(subs) == 0 {
+		return nil
+	}
+	evaluated, deferredKeys, err := p.evaluateSubstitutions(subs, facetPath, scope)
+	if err != nil {
+		return err
+	}
+	k.Substitutions = evaluated
+	for key, isDeferred := range deferredKeys {
+		if isDeferred {
+			p.markDeferredPath(deferredPrefix + key)
 		}
 	}
 	return nil
@@ -1583,7 +1752,10 @@ func (p *BaseBlueprintProcessor) applyKustomizationEntryByStrategy(name string, 
 // blueprint in the documented order: replace operations first, then merge operations, then remove
 // operations last. This ensures that remove operations are applied after all merge/replace
 // operations, as documented. Returns an error if any application operation fails.
-func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alpha1.Blueprint, terraformByID map[string]*blueprintv1alpha1.ConditionalTerraformComponent, kustomizationByName map[string]*blueprintv1alpha1.ConditionalKustomization, scope map[string]any) error {
+func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alpha1.Blueprint, collected collectedComponents, scope map[string]any) error {
+	terraformByID := collected.terraformByID
+	kustomizationByName := collected.kustomizationByName
+	fluxSystemByName := collected.fluxSystemByName
 	for componentID, entry := range terraformByID {
 		if entry.When != "" {
 			shouldInclude, err := p.shouldIncludeComponent(entry.When, "", scope)
@@ -1700,6 +1872,20 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 	for _, removal := range kustomizationRemovals {
 		if err := target.RemoveKustomization(removal); err != nil {
 			return fmt.Errorf("error removing kustomization '%s': %w", removal.Name, err)
+		}
+	}
+
+	fluxKeys := make([]string, 0, len(fluxSystemByName))
+	for key := range fluxSystemByName {
+		fluxKeys = append(fluxKeys, key)
+	}
+	sort.Strings(fluxKeys)
+	for _, key := range fluxKeys {
+		sys := *fluxSystemByName[key]
+		sys.Strategy = ""
+		sys.Ordinal = nil
+		if err := target.UpsertFluxSystem(sys); err != nil {
+			return fmt.Errorf("error writing flux system '%s': %w", key, err)
 		}
 	}
 

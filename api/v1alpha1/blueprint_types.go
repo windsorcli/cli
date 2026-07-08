@@ -5,6 +5,7 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"path"
 	"reflect"
 	"slices"
 	"strings"
@@ -891,6 +892,12 @@ func (b *Blueprint) StrategicMerge(overlays ...*Blueprint) error {
 			}
 		}
 
+		for _, sys := range overlay.FluxSystems {
+			if err := b.UpsertFluxSystem(sys); err != nil {
+				return err
+			}
+		}
+
 		if overlay.Substitutions != nil {
 			if b.Substitutions == nil {
 				b.Substitutions = make(map[string]string)
@@ -1026,6 +1033,155 @@ func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 		}
 	}
 	return nil
+}
+
+// UpsertFluxSystem merges sys into the FluxSystem with the same Name if one exists in
+// b.FluxSystems, or appends it when none does. On a match, DependsOn accumulates (union) and
+// Install/Resources deep-merge via MergeFluxInstall/MergeFluxVariants — the same field-level
+// semantics strategicMergeKustomization already gives same-name plain kustomize: entries — rather
+// than sys wholesale-replacing what is already there. This is the path StrategicMerge uses to
+// combine FluxSystems across sources (each source's facets already merged among themselves before
+// reaching here), so a same-name collision here must not silently drop one side's install/resources
+// tiers the way a blind replace would.
+func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
+	for i, existing := range b.FluxSystems {
+		if existing.Name == sys.Name {
+			merged := existing
+			for _, dep := range sys.DependsOn {
+				if dep != "" && !slices.Contains(merged.DependsOn, dep) {
+					merged.DependsOn = append(merged.DependsOn, dep)
+				}
+			}
+			merged.Install = MergeFluxInstall(existing.Install, sys.Install)
+			merged.Resources = MergeFluxVariants(existing.Resources, sys.Resources)
+			b.FluxSystems[i] = merged
+			return nil
+		}
+	}
+	b.FluxSystems = append(b.FluxSystems, sys)
+	return nil
+}
+
+// MergeFluxInstall deep-merges new's Install tier into existing's via MergeKustomizationFields
+// (Components/DependsOn accumulate, other fields are overridden by new when set) rather than via
+// by-name Blueprint.Kustomizations matching, since Install carries no Name until tier compilation
+// and that by-name path is a no-op on an unnamed Kustomization. Either side being nil just takes
+// the other, matching how a facet or source with no Install opinion shouldn't erase one
+// contributed elsewhere.
+func MergeFluxInstall(existing, new *Kustomization) *Kustomization {
+	if new == nil {
+		return existing
+	}
+	if existing == nil {
+		return new
+	}
+	merged := MergeKustomizationFields(*existing, *new)
+	return &merged
+}
+
+// MergeFluxVariants combines two resources-variant lists keyed by variant name. A variant from new
+// deep-merges into the same-named variant in existing via MergeKustomizationFields (see
+// MergeFluxInstall for why by-name Blueprint.Kustomizations matching isn't used instead), and the
+// two When conditions combine with AND. A variant with a new name is appended in order. This keeps
+// a cross-facet or cross-source merge from emitting two Kustomizations with the same
+// "<system>-resources[-<name>]" identity.
+func MergeFluxVariants(existing, new []FluxVariant) []FluxVariant {
+	merged := slices.Clone(existing)
+	for _, nv := range new {
+		idx := slices.IndexFunc(merged, func(v FluxVariant) bool { return v.Name == nv.Name })
+		if idx == -1 {
+			merged = append(merged, nv)
+			continue
+		}
+
+		mergedK := MergeKustomizationFields(merged[idx].Kustomization, nv.Kustomization)
+
+		combinedWhen := merged[idx].When
+		switch {
+		case merged[idx].When != "" && nv.When != "":
+			combinedWhen = fmt.Sprintf("(%s) && (%s)", merged[idx].When, nv.When)
+		case nv.When != "":
+			combinedWhen = nv.When
+		}
+		merged[idx] = FluxVariant{
+			Kustomization: mergedK,
+			When:          combinedWhen,
+		}
+	}
+	return merged
+}
+
+// AllKustomizations returns a flat list of every compiled Kustomization — plain kustomize: entries
+// first, then the install and resources tiers compiled from each FluxSystem. Expressions on stored
+// FluxSystems are already evaluated; this method only performs name/path/dependency assembly.
+func (b *Blueprint) AllKustomizations() []Kustomization {
+	all := make([]Kustomization, 0, len(b.Kustomizations))
+	all = append(all, b.Kustomizations...)
+	for _, sys := range b.FluxSystems {
+		all = append(all, compileFluxSystemTiers(sys)...)
+	}
+	return all
+}
+
+// compileFluxSystemTiers converts a pre-evaluated FluxSystem into its tier Kustomizations without
+// any expression evaluation. Install compiles to "<name>-install" at "<path>/install"; each
+// resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources".
+func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
+	name := sys.Name
+	base := sys.Path
+	if base == "" {
+		base = name
+	}
+	installName := name + "-install"
+
+	var out []Kustomization
+	installEmitted := false
+
+	if sys.Install != nil && len(sys.Install.Components) > 0 {
+		k := *sys.Install.DeepCopy()
+		k.Name = installName
+		k.Path = path.Join(base, "install")
+		k.DependsOn = slices.Clone(sys.DependsOn)
+		if k.Source == "" {
+			k.Source = sys.Source
+		}
+		if k.Enabled == nil {
+			k.Enabled = sys.Enabled
+		}
+		if k.Destroy == nil {
+			k.Destroy = sys.Destroy
+		}
+		k.Substitute = nil
+		out = append(out, k)
+		installEmitted = true
+	}
+
+	for _, v := range sys.Resources {
+		variantName := name + "-resources"
+		if v.Name != "" {
+			variantName += "-" + v.Name
+		}
+		k := *v.Kustomization.DeepCopy()
+		k.Name = variantName
+		k.Path = path.Join(base, "resources")
+		if installEmitted {
+			k.DependsOn = append([]string{installName}, v.DependsOn...)
+		} else {
+			k.DependsOn = append(slices.Clone(sys.DependsOn), v.DependsOn...)
+		}
+		if k.Source == "" {
+			k.Source = sys.Source
+		}
+		if k.Enabled == nil {
+			k.Enabled = sys.Enabled
+		}
+		if k.Destroy == nil {
+			k.Destroy = sys.Destroy
+		}
+		k.Substitute = nil
+		out = append(out, k)
+	}
+	return out
 }
 
 // DeepCopy creates a deep copy of the Kustomization object.
@@ -1345,71 +1501,82 @@ func (b *Blueprint) strategicMergeKustomization(kustomization Kustomization) err
 
 	for i, existing := range b.Kustomizations {
 		if existing.Name == kustomization.Name {
-			for _, component := range kustomization.Components {
-				if component == "" || !slices.Contains(existing.Components, component) {
-					existing.Components = append(existing.Components, component)
-				}
-			}
-			slices.Sort(existing.Components)
-			for _, dep := range kustomization.DependsOn {
-				if dep != "" && !slices.Contains(existing.DependsOn, dep) {
-					existing.DependsOn = append(existing.DependsOn, dep)
-				}
-			}
-			if kustomization.Path != "" {
-				existing.Path = kustomization.Path
-			}
-			if kustomization.Source != "" {
-				existing.Source = kustomization.Source
-			}
-			if kustomization.Namespace != "" {
-				existing.Namespace = kustomization.Namespace
-			}
-			if kustomization.TargetNamespace != "" {
-				existing.TargetNamespace = kustomization.TargetNamespace
-			}
-			if kustomization.Destroy != nil {
-				existing.Destroy = kustomization.Destroy
-			}
-			if kustomization.Enabled != nil {
-				existing.Enabled = kustomization.Enabled
-			}
-			if kustomization.DestroyOnly != nil {
-				existing.DestroyOnly = kustomization.DestroyOnly
-			}
-			if kustomization.Interval != nil {
-				existing.Interval = kustomization.Interval
-			}
-			if kustomization.RetryInterval != nil {
-				existing.RetryInterval = kustomization.RetryInterval
-			}
-			if kustomization.Timeout != nil {
-				existing.Timeout = kustomization.Timeout
-			}
-			if kustomization.Wait != nil {
-				existing.Wait = kustomization.Wait
-			}
-			if kustomization.Force != nil {
-				existing.Force = kustomization.Force
-			}
-			if kustomization.Prune != nil {
-				existing.Prune = kustomization.Prune
-			}
-			if len(kustomization.Patches) > 0 {
-				existing.Patches = append(existing.Patches, kustomization.Patches...)
-			}
-			if len(kustomization.Substitutions) > 0 {
-				if existing.Substitutions == nil {
-					existing.Substitutions = make(map[string]string)
-				}
-				maps.Copy(existing.Substitutions, kustomization.Substitutions)
-			}
-			b.Kustomizations[i] = existing
+			b.Kustomizations[i] = MergeKustomizationFields(existing, kustomization)
 			return b.sortKustomize()
 		}
 	}
 	b.Kustomizations = append(b.Kustomizations, kustomization)
 	return b.sortKustomize()
+}
+
+// MergeKustomizationFields deep-merges overlay onto base and returns the result: Components and
+// DependsOn accumulate (deduplicated, Components sorted), Patches accumulate, Substitutions copy
+// in, and every other field is overridden by overlay when overlay sets it. Callers that need
+// by-name matching within a Blueprint's Kustomizations list use strategicMergeKustomization, which
+// calls this once a match is found; callers merging two already-matched Kustomization values
+// directly (e.g. FluxSystem tiers, which carry no Name until tier compilation) call this directly.
+func MergeKustomizationFields(base, overlay Kustomization) Kustomization {
+	existing := base
+	for _, component := range overlay.Components {
+		if component == "" || !slices.Contains(existing.Components, component) {
+			existing.Components = append(existing.Components, component)
+		}
+	}
+	slices.Sort(existing.Components)
+	for _, dep := range overlay.DependsOn {
+		if dep != "" && !slices.Contains(existing.DependsOn, dep) {
+			existing.DependsOn = append(existing.DependsOn, dep)
+		}
+	}
+	if overlay.Path != "" {
+		existing.Path = overlay.Path
+	}
+	if overlay.Source != "" {
+		existing.Source = overlay.Source
+	}
+	if overlay.Namespace != "" {
+		existing.Namespace = overlay.Namespace
+	}
+	if overlay.TargetNamespace != "" {
+		existing.TargetNamespace = overlay.TargetNamespace
+	}
+	if overlay.Destroy != nil {
+		existing.Destroy = overlay.Destroy
+	}
+	if overlay.Enabled != nil {
+		existing.Enabled = overlay.Enabled
+	}
+	if overlay.DestroyOnly != nil {
+		existing.DestroyOnly = overlay.DestroyOnly
+	}
+	if overlay.Interval != nil {
+		existing.Interval = overlay.Interval
+	}
+	if overlay.RetryInterval != nil {
+		existing.RetryInterval = overlay.RetryInterval
+	}
+	if overlay.Timeout != nil {
+		existing.Timeout = overlay.Timeout
+	}
+	if overlay.Wait != nil {
+		existing.Wait = overlay.Wait
+	}
+	if overlay.Force != nil {
+		existing.Force = overlay.Force
+	}
+	if overlay.Prune != nil {
+		existing.Prune = overlay.Prune
+	}
+	if len(overlay.Patches) > 0 {
+		existing.Patches = append(existing.Patches, overlay.Patches...)
+	}
+	if len(overlay.Substitutions) > 0 {
+		if existing.Substitutions == nil {
+			existing.Substitutions = make(map[string]string)
+		}
+		maps.Copy(existing.Substitutions, overlay.Substitutions)
+	}
+	return existing
 }
 
 // sortKustomize reorders the Blueprint's Kustomizations so that dependencies precede dependents.

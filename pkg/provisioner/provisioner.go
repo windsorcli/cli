@@ -461,7 +461,7 @@ func (i *Provisioner) DestroyKustomize(blueprint *blueprintv1alpha1.Blueprint, c
 	}
 
 	var found *blueprintv1alpha1.Kustomization
-	for _, k := range blueprint.Kustomizations {
+	for _, k := range blueprint.AllKustomizations() {
 		if k.Name == componentID {
 			kCopy := k
 			found = &kCopy
@@ -507,7 +507,7 @@ func (i *Provisioner) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, continu
 			}
 			result.Failed = append(result.Failed, ComponentFailure{ID: KustomizeFailureID, Err: err})
 		} else {
-			for _, k := range blueprint.Kustomizations {
+			for _, k := range blueprint.AllKustomizations() {
 				if fluxinfra.KustomizationDestroyEligible(k) {
 					result.Destroyed = append(result.Destroyed, k.Name)
 				}
@@ -1415,17 +1415,10 @@ func (i *Provisioner) ensureClusterClient() error {
 	return nil
 }
 
-// withCrdLayer returns a blueprint whose Kustomizations include the synthesized CRD layers — the
-// "crds" layer for the blueprint's own (default/project) CRDs and a "crds-<source>" layer per install
-// source that vendors CRDs, each bound to that source so it reads the manifests from where they live
-// rather than defaulting to the project git source (blueprint.CrdLayers derives the set; the composer
-// wires the stack to the same names). A layer's components are its CRD references, pruning is disabled
-// (pruning a CRD deletes every custom resource of that kind cluster-wide), and wait is enabled so
-// dependents block until the CRDs are Established. The layers are prepended ahead of the stack. Each
-// layer's Path is the fixed catalog root CrdLayerName (which ToFluxKustomization expands to
-// kustomize/crds), so a layer's source must vendor its manifests at <source>/kustomize/crds/<ref>. The
-// provisioner materializes the layers here, at the point it applies, waits on, or plans the
-// kustomization set. Returns bp unchanged when it implies no CRD layers.
+// withCrdLayer returns a copy of the blueprint with synthesized CRD kustomizations prepended ahead of
+// the stack. Pruning is disabled (pruning a CRD deletes every custom resource of that kind cluster-wide)
+// and wait is enabled so dependents block until the CRDs are Established. Returns the blueprint unchanged
+// when it implies no CRD layers.
 func withCrdLayer(bp *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint {
 	if bp == nil {
 		return bp
@@ -1448,7 +1441,8 @@ func withCrdLayer(bp *blueprintv1alpha1.Blueprint) *blueprintv1alpha1.Blueprint 
 		})
 	}
 	out := *bp
-	out.Kustomizations = append(crds, bp.Kustomizations...)
+	out.Kustomizations = append(crds, bp.AllKustomizations()...)
+	out.FluxSystems = nil
 	return &out
 }
 

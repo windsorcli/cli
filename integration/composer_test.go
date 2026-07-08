@@ -174,9 +174,11 @@ func TestShowBlueprint_CrdsDriverSelection(t *testing.T) {
 	}
 }
 
-// TestShowBlueprint_InstallResourcesTiers verifies a tiered facet entry expands into separate
-// install and resources kustomizations sharing the entry's path, and that a consumer depending on
-// the vendor by its bare name resolves to the install tier.
+// TestShowBlueprint_InstallResourcesTiers verifies that flux: system entries appear in the
+// composed blueprint's flux: section (not kustomize:), that their tiers have correct paths and
+// components, that the implicit install→resources edge is encoded in the flux: structure, and
+// that a plain kustomize: consumer depending on the system by its bare name resolves to its
+// install tier.
 func TestShowBlueprint_InstallResourcesTiers(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "facet-tiers")
@@ -187,56 +189,211 @@ func TestShowBlueprint_InstallResourcesTiers(t *testing.T) {
 	}
 
 	var bp struct {
+		Flux []struct {
+			Name    string `yaml:"name"`
+			Path    string `yaml:"path"`
+			Install struct {
+				Components []string `yaml:"components"`
+			} `yaml:"install"`
+			Resources []struct {
+				Components []string `yaml:"components"`
+			} `yaml:"resources"`
+		} `yaml:"flux"`
 		Kustomize []struct {
-			Name       string   `yaml:"name"`
-			Path       string   `yaml:"path"`
-			Components []string `yaml:"components"`
-			DependsOn  []string `yaml:"dependsOn"`
+			Name      string   `yaml:"name"`
+			DependsOn []string `yaml:"dependsOn"`
 		} `yaml:"kustomize"`
 	}
 	if err := yaml.Unmarshal(stdout, &bp); err != nil {
 		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
 	}
-	byName := map[string]struct {
-		path       string
-		components []string
-		dependsOn  []string
-	}{}
+
+	// cert-manager must be in flux:, not kustomize:.
+	var certMgr *struct {
+		Name    string `yaml:"name"`
+		Path    string `yaml:"path"`
+		Install struct {
+			Components []string `yaml:"components"`
+		} `yaml:"install"`
+		Resources []struct {
+			Components []string `yaml:"components"`
+		} `yaml:"resources"`
+	}
+	for i := range bp.Flux {
+		if bp.Flux[i].Name == "cert-manager" {
+			certMgr = &bp.Flux[i]
+			break
+		}
+	}
+	if certMgr == nil {
+		t.Fatalf("expected cert-manager in flux:, got flux=%+v", bp.Flux)
+	}
+	if certMgr.Path != "pki/cert-manager" {
+		t.Errorf("expected path pki/cert-manager, got %q", certMgr.Path)
+	}
+	if !slices.Contains(certMgr.Install.Components, "helm-release") {
+		t.Errorf("expected install components [helm-release], got %v", certMgr.Install.Components)
+	}
+	if len(certMgr.Resources) == 0 || !slices.Contains(certMgr.Resources[0].Components, "private-issuer/ca") {
+		t.Errorf("expected resources[0] components [private-issuer/ca], got %v", certMgr.Resources)
+	}
+
+	// cert-manager must NOT appear under kustomize:.
 	for _, k := range bp.Kustomize {
-		byName[k.Name] = struct {
-			path       string
-			components []string
-			dependsOn  []string
-		}{k.Path, k.Components, k.DependsOn}
+		if k.Name == "cert-manager-install" || k.Name == "cert-manager-resources" {
+			t.Errorf("flux system tier %q must not appear under kustomize:", k.Name)
+		}
 	}
 
-	install, ok := byName["cert-manager-install"]
-	if !ok {
-		t.Fatalf("expected cert-manager-install, got %+v", bp.Kustomize)
+	// Plain kustomize: consumer's bare-name dependency must resolve to the install tier.
+	var dns *struct {
+		Name      string   `yaml:"name"`
+		DependsOn []string `yaml:"dependsOn"`
 	}
-	res, ok := byName["cert-manager-resources"]
-	if !ok {
-		t.Fatalf("expected cert-manager-resources, got %+v", bp.Kustomize)
+	for i := range bp.Kustomize {
+		if bp.Kustomize[i].Name == "dns" {
+			dns = &bp.Kustomize[i]
+			break
+		}
 	}
-	if install.path != "pki/cert-manager/install" || res.path != "pki/cert-manager/resources" {
-		t.Errorf("expected tiers at pki/cert-manager/{install,resources}, got install=%q resources=%q", install.path, res.path)
+	if dns == nil {
+		t.Fatalf("expected dns in kustomize:, got %+v", bp.Kustomize)
 	}
-	if !slices.Contains(install.components, "helm-release") {
-		t.Errorf("expected install components [helm-release], got %v", install.components)
+	if !slices.Contains(dns.DependsOn, "cert-manager-install") {
+		t.Errorf("expected dns bare-name dependency to resolve to cert-manager-install, got %v", dns.DependsOn)
 	}
-	if !slices.Contains(res.components, "private-issuer/ca") {
-		t.Errorf("expected resources components [private-issuer/ca], got %v", res.components)
-	}
-	if !slices.Contains(res.dependsOn, "cert-manager-install") {
-		t.Errorf("expected resources to depend on cert-manager-install, got %v", res.dependsOn)
+}
+
+// TestShowBlueprint_FluxSystemCrossFacetMerge verifies that two facets contributing to the same
+// flux: system name at different ordinals still merge under the default "merge" strategy instead
+// of the higher-ordinal facet wholesale-replacing the lower-ordinal one's install/resources: pki's
+// cert-manager install/resources (ordinal 0) and addon-cert-manager-extra's additional install
+// component and resources variant (ordinal 400, from the "addon-" filename prefix) must both
+// survive in the composed blueprint.
+func TestShowBlueprint_FluxSystemCrossFacetMerge(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
 	}
 
-	dns, ok := byName["dns"]
-	if !ok {
-		t.Fatalf("expected dns, got %+v", bp.Kustomize)
+	var bp struct {
+		Flux []struct {
+			Name    string `yaml:"name"`
+			Install struct {
+				Components []string `yaml:"components"`
+			} `yaml:"install"`
+			Resources []struct {
+				Name       string   `yaml:"name"`
+				Components []string `yaml:"components"`
+			} `yaml:"resources"`
+		} `yaml:"flux"`
 	}
-	if !slices.Contains(dns.dependsOn, "cert-manager-install") {
-		t.Errorf("expected dns bare-name dependency to resolve to cert-manager-install, got %v", dns.dependsOn)
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+
+	var certMgr *struct {
+		Name    string `yaml:"name"`
+		Install struct {
+			Components []string `yaml:"components"`
+		} `yaml:"install"`
+		Resources []struct {
+			Name       string   `yaml:"name"`
+			Components []string `yaml:"components"`
+		} `yaml:"resources"`
+	}
+	for i := range bp.Flux {
+		if bp.Flux[i].Name == "cert-manager" {
+			certMgr = &bp.Flux[i]
+			break
+		}
+	}
+	if certMgr == nil {
+		t.Fatalf("expected cert-manager in flux:, got flux=%+v", bp.Flux)
+	}
+
+	if !slices.Contains(certMgr.Install.Components, "helm-release") || !slices.Contains(certMgr.Install.Components, "helm-release-extra-metrics") {
+		t.Errorf("expected install components to union across facets, got %v", certMgr.Install.Components)
+	}
+
+	var hasDefaultVariant, hasExtraVariant bool
+	for _, r := range certMgr.Resources {
+		if r.Name == "" && slices.Contains(r.Components, "private-issuer/ca") {
+			hasDefaultVariant = true
+		}
+		if r.Name == "extra" && slices.Contains(r.Components, "public-issuer") {
+			hasExtraVariant = true
+		}
+	}
+	if !hasDefaultVariant {
+		t.Errorf("expected the lower-ordinal facet's unnamed resources variant to survive, got %+v", certMgr.Resources)
+	}
+	if !hasExtraVariant {
+		t.Errorf("expected the higher-ordinal facet's resources variant to be added rather than replace the system, got %+v", certMgr.Resources)
+	}
+}
+
+// TestShowBlueprint_FluxSystemSameOrdinalVariantMerge verifies the original review-flagged
+// scenario: two facets at the SAME ordinal each contributing a resources variant under the same
+// key (both unnamed, so both would compile to "cert-manager-resources") merge into a single
+// variant instead of surviving as two colliding entries. pki's and pki-extra's unnamed variants
+// (both ordinal 0, since neither filename matches an ordinal-prefix rule) must union into one
+// resources entry carrying both facets' components, not appear as two separate list entries.
+func TestShowBlueprint_FluxSystemSameOrdinalVariantMerge(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+
+	var bp struct {
+		Flux []struct {
+			Name      string `yaml:"name"`
+			Resources []struct {
+				Name       string   `yaml:"name"`
+				Components []string `yaml:"components"`
+			} `yaml:"resources"`
+		} `yaml:"flux"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+
+	var certMgr *struct {
+		Name      string `yaml:"name"`
+		Resources []struct {
+			Name       string   `yaml:"name"`
+			Components []string `yaml:"components"`
+		} `yaml:"resources"`
+	}
+	for i := range bp.Flux {
+		if bp.Flux[i].Name == "cert-manager" {
+			certMgr = &bp.Flux[i]
+			break
+		}
+	}
+	if certMgr == nil {
+		t.Fatalf("expected cert-manager in flux:, got flux=%+v", bp.Flux)
+	}
+
+	var unnamedCount int
+	var unnamedComponents []string
+	for _, r := range certMgr.Resources {
+		if r.Name == "" {
+			unnamedCount++
+			unnamedComponents = r.Components
+		}
+	}
+	if unnamedCount != 1 {
+		t.Fatalf("expected pki's and pki-extra's same-key unnamed variant to merge into a single resources entry, got %d unnamed entries in %+v", unnamedCount, certMgr.Resources)
+	}
+	if !slices.Contains(unnamedComponents, "private-issuer/ca") || !slices.Contains(unnamedComponents, "private-issuer/wildcard") {
+		t.Errorf("expected the merged unnamed variant to union both facets' components, got %v", unnamedComponents)
 	}
 }
 
