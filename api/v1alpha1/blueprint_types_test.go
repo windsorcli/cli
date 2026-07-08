@@ -4694,3 +4694,51 @@ func TestBlueprint_UpsertFluxSystem(t *testing.T) {
 		}
 	})
 }
+
+func TestFluxSystem_TierNames(t *testing.T) {
+	t.Run("ReturnsInstallThenResourcesVariantNames", func(t *testing.T) {
+		sys := FluxSystem{
+			Name:    "cert-manager",
+			Install: &Kustomization{Components: []string{"helm-release"}},
+			Resources: []FluxVariant{
+				{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}},
+				{Kustomization: Kustomization{Name: "extra", Components: []string{"public-issuer"}}},
+			},
+		}
+
+		names := sys.TierNames()
+
+		want := []string{"cert-manager-install", "cert-manager-resources", "cert-manager-resources-extra"}
+		if len(names) != len(want) {
+			t.Fatalf("expected %v, got %v", want, names)
+		}
+		for i := range want {
+			if names[i] != want[i] {
+				t.Errorf("expected %v, got %v", want, names)
+				break
+			}
+		}
+	})
+
+	t.Run("ReturnsEmptyForSystemWithNoTiers", func(t *testing.T) {
+		sys := FluxSystem{Name: "empty-sys"}
+
+		if names := sys.TierNames(); len(names) != 0 {
+			t.Errorf("expected no tier names for a system with no install or resources, got %v", names)
+		}
+	})
+
+	t.Run("DoesNotLeakAnUnrelatedSystemsNamePrefixCollision", func(t *testing.T) {
+		// Given a system literally named "cert-manager-resources", distinct from "cert-manager"
+		sys := FluxSystem{
+			Name:    "cert-manager-resources",
+			Install: &Kustomization{Components: []string{"x"}},
+		}
+
+		names := sys.TierNames()
+
+		if len(names) != 1 || names[0] != "cert-manager-resources-install" {
+			t.Fatalf("expected only cert-manager-resources-install, got %v", names)
+		}
+	})
+}

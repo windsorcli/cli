@@ -1123,6 +1123,17 @@ func (b *Blueprint) AllKustomizations() []Kustomization {
 	return all
 }
 
+// TierNames returns the compiled Kustomization names this system produces (its install tier, if
+// any, followed by each resources variant), in compiled order.
+func (sys FluxSystem) TierNames() []string {
+	tiers := compileFluxSystemTiers(sys)
+	names := make([]string, len(tiers))
+	for i, t := range tiers {
+		names[i] = t.Name
+	}
+	return names
+}
+
 // compileFluxSystemTiers converts a pre-evaluated FluxSystem into its tier Kustomizations without
 // any expression evaluation. Install compiles to "<name>-install" at "<path>/install"; each
 // resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources".

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -936,6 +937,221 @@ func TestShowKustomizationCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessWithNoArgsListsNames", func(t *testing.T) {
+		mocks := setupShowTest(t)
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:  mocks.Runtime,
+			Composer: comp,
+		})
+
+		stdout, stderr, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		if got := strings.TrimSpace(stdout.String()); got != "test-kustomization" {
+			t.Errorf("Expected listing to contain 'test-kustomization', got %q", got)
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SuccessWithNoArgsListsFluxSystemTiers", func(t *testing.T) {
+		mocks := setupShowTest(t)
+
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "test-kustomization", Path: "test/path"},
+				},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{
+					{
+						Name: "cert-manager",
+						Path: "pki/cert-manager",
+						Install: &blueprintv1alpha1.Kustomization{
+							Components: []string{"helm-release"},
+						},
+						Resources: []blueprintv1alpha1.FluxVariant{
+							{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+						},
+					},
+				},
+			}
+		}
+		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool { return nil }
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:  mocks.Runtime,
+			Composer: comp,
+		})
+
+		stdout, stderr, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"--json"})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		var names []string
+		if err := json.Unmarshal(stdout.Bytes(), &names); err != nil {
+			t.Fatalf("Expected valid JSON array output, got error: %v\noutput: %s", err, stdout.String())
+		}
+		expected := []string{"test-kustomization", "cert-manager-install", "cert-manager-resources"}
+		if !slices.Equal(names, expected) {
+			t.Errorf("Expected names %v, got %v", expected, names)
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("SuccessWithFluxSystemTierLookup", func(t *testing.T) {
+		mocks := setupShowTest(t)
+
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				FluxSystems: []blueprintv1alpha1.FluxSystem{
+					{
+						Name: "cert-manager",
+						Path: "pki/cert-manager",
+						Install: &blueprintv1alpha1.Kustomization{
+							Components: []string{"helm-release"},
+						},
+					},
+				},
+			}
+		}
+		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool { return nil }
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:  mocks.Runtime,
+			Composer: comp,
+		})
+
+		stdout, stderr, closePipes := setupOutput(t)
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"cert-manager-install"})
+		_ = cmd.Execute()
+
+		closePipes()
+
+		var kustomization kustomizev1.Kustomization
+		if err := yaml.Unmarshal(stdout.Bytes(), &kustomization); err != nil {
+			t.Fatalf("Expected valid YAML output, got error: %v\noutput: %s", err, stdout.String())
+		}
+		if kustomization.Name != "cert-manager-install" {
+			t.Errorf("Expected kustomization name 'cert-manager-install', got %q", kustomization.Name)
+		}
+		if kustomization.Spec.Path != "kustomize/pki/cert-manager/install" {
+			t.Errorf("Expected path 'kustomize/pki/cert-manager/install', got %q", kustomization.Spec.Path)
+		}
+		if stderr.String() != "" {
+			t.Error("Expected empty stderr")
+		}
+	})
+
+	t.Run("FluxSystemNameReturnsTierList", func(t *testing.T) {
+		mocks := setupShowTest(t)
+
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				FluxSystems: []blueprintv1alpha1.FluxSystem{
+					{
+						Name: "cert-manager",
+						Path: "pki/cert-manager",
+						Install: &blueprintv1alpha1.Kustomization{
+							Components: []string{"helm-release"},
+						},
+						Resources: []blueprintv1alpha1.FluxVariant{
+							{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"private-issuer/ca"}}},
+						},
+					},
+				},
+			}
+		}
+		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool { return nil }
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:  mocks.Runtime,
+			Composer: comp,
+		})
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"cert-manager"})
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "cert-manager-install") || !strings.Contains(err.Error(), "cert-manager-resources") {
+			t.Errorf("Expected error to list tier names, got: %v", err)
+		}
+	})
+
+	t.Run("FluxSystemWithNoTiersReturnsClearError", func(t *testing.T) {
+		mocks := setupShowTest(t)
+
+		mocks.BlueprintHandler.GenerateFunc = func() *blueprintv1alpha1.Blueprint {
+			return &blueprintv1alpha1.Blueprint{
+				FluxSystems: []blueprintv1alpha1.FluxSystem{
+					{Name: "empty-sys"},
+				},
+			}
+		}
+		mocks.BlueprintHandler.GetDeferredPathsFunc = func() map[string]bool { return nil }
+
+		comp := composer.NewComposer(mocks.Runtime)
+		comp.BlueprintHandler = mocks.BlueprintHandler
+
+		proj := project.NewProject("", &project.Project{
+			Runtime:  mocks.Runtime,
+			Composer: comp,
+		})
+
+		cmd := createTestCmd()
+		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
+		cmd.SetContext(ctx)
+		cmd.SetArgs([]string{"empty-sys"})
+		err := cmd.Execute()
+
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "no compiled install or resources tiers") {
+			t.Errorf("Expected error to explain the system has no tiers, got: %v", err)
+		}
+		if strings.HasSuffix(err.Error(), ": ") {
+			t.Errorf("Expected error to not end with a dangling colon, got: %v", err)
+		}
+	})
+
 	t.Run("KustomizationNotFound", func(t *testing.T) {
 		mocks := setupShowTest(t)
 
@@ -1025,8 +1241,11 @@ func TestShowKustomizationCmd(t *testing.T) {
 	t.Run("CommandInitialization", func(t *testing.T) {
 		cmd := showKustomizationCmd
 
-		if cmd.Use != "kustomization <component-name>" {
-			t.Errorf("Expected Use to be 'kustomization <component-name>', got %q", cmd.Use)
+		if cmd.Use != "kustomization [component-name]" {
+			t.Errorf("Expected Use to be 'kustomization [component-name]', got %q", cmd.Use)
+		}
+		if len(cmd.Aliases) != 1 || cmd.Aliases[0] != "kustomizations" {
+			t.Errorf("Expected Aliases to be ['kustomizations'], got %v", cmd.Aliases)
 		}
 		if cmd.Short == "" {
 			t.Error("Expected non-empty Short description")
