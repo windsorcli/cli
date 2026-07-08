@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/goccy/go-yaml"
@@ -75,10 +76,14 @@ windsor show blueprint --json`,
 }
 
 var showKustomizationCmd = &cobra.Command{
-	Use:   "kustomization <component-name>",
-	Short: "Display the Flux Kustomization resource for a component.",
-	Long:  `Print the Flux Kustomization resource for the named component, including blueprint-level ConfigMaps in postBuild.substituteFrom. The output matches what 'windsor apply' would write to the cluster. Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.`,
-	Example: `# Inspect the Flux Kustomization for one component
+	Use:     "kustomization [component-name]",
+	Aliases: []string{"kustomizations"},
+	Short:   "Display the Flux Kustomization resource for a component.",
+	Long:    `Print the Flux Kustomization resource for the named component, including blueprint-level ConfigMaps in postBuild.substituteFrom. The output matches what 'windsor apply' would write to the cluster. Omit the name to list every compiled component. Defaults to YAML; use --json for JSON. Unresolved deferred values render as '<deferred>' by default; use --raw to keep the original expression text instead.`,
+	Example: `# List every compiled component
+windsor show kustomization
+
+# Inspect the Flux Kustomization for one component
 windsor show kustomization dns
 
 # JSON for tooling
@@ -88,11 +93,9 @@ windsor show kustomization dns --json`,
 			"[Blueprint reference](../blueprint.md)",
 		"docs.source": "cmd/show.go",
 	},
-	Args:         cobra.ExactArgs(1),
+	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		componentName := args[0]
-
 		proj, blueprint, deferredPaths, validationErr := getBlueprint(cmd)
 		if blueprint == nil {
 			if validationErr != nil {
@@ -101,9 +104,20 @@ windsor show kustomization dns --json`,
 			return fmt.Errorf("failed to generate blueprint")
 		}
 
+		if len(args) == 0 {
+			if err := listKustomizations(blueprint, showKustomizationJSON); err != nil {
+				return err
+			}
+			if validationErr != nil {
+				fmt.Fprintf(os.Stderr, "\033[33mWarning: %v\033[0m\n", validationErr)
+			}
+			return nil
+		}
+
+		componentName := args[0]
 		kustomization := findKustomization(blueprint, componentName)
 		if kustomization == nil {
-			return errKustomizationNotFound(componentName)
+			return errKustomizationNotFound(blueprint, componentName)
 		}
 
 		namespace := proj.Runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
@@ -219,20 +233,54 @@ func outputResource(resource any, useJSON bool, resourceType string) error {
 	return nil
 }
 
-// findKustomization searches for a kustomization by name in the blueprint and returns a pointer
-// to it if found, or nil if not found.
+// findKustomization searches the blueprint's full compiled Kustomization set (plain kustomize:
+// entries plus every flux: system's install/resources tiers) for the given name.
 func findKustomization(blueprint *blueprintv1alpha1.Blueprint, name string) *blueprintv1alpha1.Kustomization {
-	for i := range blueprint.Kustomizations {
-		if blueprint.Kustomizations[i].Name == name {
-			return &blueprint.Kustomizations[i]
+	for _, k := range blueprint.AllKustomizations() {
+		if k.Name == name {
+			return &k
 		}
 	}
 	return nil
 }
 
-// errKustomizationNotFound returns a formatted error for when a kustomization is not found.
-func errKustomizationNotFound(name string) error {
+// errKustomizationNotFound returns a formatted error for when a kustomization is not found. If the
+// name instead matches a flux: system descriptor rather than one of its compiled tiers, the error
+// lists that system's tier names, since a system name (e.g. "cert-manager") is never itself a valid
+// argument.
+func errKustomizationNotFound(blueprint *blueprintv1alpha1.Blueprint, name string) error {
+	for _, sys := range blueprint.FluxSystems {
+		if sys.Name != name {
+			continue
+		}
+		tiers := sys.TierNames()
+		if len(tiers) == 0 {
+			return fmt.Errorf("%q is a flux system with no compiled install or resources tiers", name)
+		}
+		return fmt.Errorf("%q is a flux system, not a kustomization; use one of its tiers instead: %s",
+			name, strings.Join(tiers, ", "))
+	}
 	return fmt.Errorf("kustomization %q not found in blueprint", name)
+}
+
+// listKustomizations prints the name of every compiled Kustomization in the blueprint (plain
+// kustomize: entries plus every flux: system's install/resources tiers), one per line as plain
+// text, or as a JSON array when useJSON is true.
+func listKustomizations(blueprint *blueprintv1alpha1.Blueprint, useJSON bool) error {
+	all := blueprint.AllKustomizations()
+	names := make([]string, len(all))
+	for i, k := range all {
+		names[i] = k.Name
+	}
+
+	if useJSON {
+		return outputResource(names, true, "kustomization names")
+	}
+
+	for _, name := range names {
+		fmt.Println(name)
+	}
+	return nil
 }
 
 // getValues configures the project and returns the effective context values and loaded schema without

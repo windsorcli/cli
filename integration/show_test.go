@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -92,6 +93,76 @@ func TestShowBlueprint_DefaultRendersDeferredPlaceholder(t *testing.T) {
 	}
 	if strings.Contains(string(stdout), "${terraform_output(") {
 		t.Fatalf("expected output to hide deferred expression text, got:\n%s", stdout)
+	}
+}
+
+func TestShowKustomization_PluralAliasBehavesIdentically(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomizations"}, env)
+	if err != nil {
+		t.Fatalf("show kustomizations: %v\nstderr: %s", err, stderr)
+	}
+	names := strings.Fields(string(stdout))
+	if !slices.Contains(names, "dns") || !slices.Contains(names, "cert-manager-install") {
+		t.Errorf("expected plural alias listing to contain dns and cert-manager-install, got %v", names)
+	}
+}
+
+func TestShowKustomization_NoArgsListsPlainAndFluxSystemTierNames(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization"}, env)
+	if err != nil {
+		t.Fatalf("show kustomization: %v\nstderr: %s", err, stderr)
+	}
+	names := strings.Fields(string(stdout))
+	for _, want := range []string{"dns", "cert-manager-install", "cert-manager-resources", "cert-manager-resources-extra"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("expected listing to contain %q, got %v", want, names)
+		}
+	}
+}
+
+func TestShowKustomization_TierNameRendersCompiledKustomization(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", "cert-manager-install"}, env)
+	if err != nil {
+		t.Fatalf("show kustomization cert-manager-install: %v\nstderr: %s", err, stderr)
+	}
+	var k struct {
+		Metadata struct {
+			Name string `yaml:"name"`
+		} `yaml:"metadata"`
+		Spec struct {
+			Path string `yaml:"path"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(stdout, &k); err != nil {
+		t.Fatalf("parse kustomization YAML: %v\nstdout: %s", err, stdout)
+	}
+	if k.Metadata.Name != "cert-manager-install" {
+		t.Errorf("expected metadata.name cert-manager-install, got %q", k.Metadata.Name)
+	}
+	if k.Spec.Path != "kustomize/pki/cert-manager/install" {
+		t.Errorf("expected spec.path kustomize/pki/cert-manager/install, got %q", k.Spec.Path)
+	}
+}
+
+func TestShowKustomization_SystemNameReturnsTierListError(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	_, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", "cert-manager"}, env)
+	if err == nil {
+		t.Fatal("expected failure but command succeeded")
+	}
+	if !strings.Contains(string(stderr), "cert-manager-install") {
+		t.Errorf("expected stderr to list tier names, got: %s", stderr)
 	}
 }
 
