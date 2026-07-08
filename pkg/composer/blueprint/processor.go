@@ -1295,9 +1295,13 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 // updateFluxSystemEntry merges a new FluxSystem into an existing entry in fluxSystemByName using
 // the same ordinal/strategy precedence rules as updateKustomizationEntry: a higher ordinal still
 // runs applyFluxSystemEntryByStrategy (so a "merge" strategy keeps merging across ordinal bands
-// instead of wholesale-replacing) unless either side's strategy is "remove", in which case it wins
-// outright; equal ordinal falls back to strategy precedence (remove > replace > merge) before
-// merging at equal precedence.
+// instead of wholesale-replacing) unless either side's strategy is "remove"; equal ordinal falls
+// back to strategy precedence (remove > replace > merge) before merging at equal precedence.
+// Whenever new's own strategy is "remove" and it wins, the outcome is always delete(entries, name),
+// never entries[name] = new: unlike Kustomization/Terraform entries, FluxSystem has no deferred
+// removal pass in applyCollectedComponents that later interprets a stored Strategy == "remove" —
+// the final write loop upserts every remaining map entry unconditionally, so a "remove"-tagged
+// FluxSystem left sitting in the map would be written to the target blueprint unchanged.
 func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *blueprintv1alpha1.FluxSystem, strategy string, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -1320,7 +1324,11 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 	}
 
 	if newOrdinal > existingOrdinal {
-		if existingStrategy == "remove" || strategy == "remove" {
+		if strategy == "remove" {
+			delete(entries, name)
+			return nil
+		}
+		if existingStrategy == "remove" {
 			new.Strategy = strategy
 			entries[name] = new
 			return nil
@@ -1333,6 +1341,10 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 
 	existingStrategyPrec := strategyPrecedence[existingStrategy]
 	if newStrategyPrec > existingStrategyPrec {
+		if strategy == "remove" {
+			delete(entries, name)
+			return nil
+		}
 		new.Strategy = strategy
 		entries[name] = new
 		return nil

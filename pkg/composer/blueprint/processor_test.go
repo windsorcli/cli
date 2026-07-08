@@ -2813,6 +2813,76 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			t.Errorf("expected install components to union [cert-manager envoy], got %v", install.Components)
 		}
 	})
+
+	t.Run("HigherOrdinalRemoveDeletesFluxSystem", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		ordProvider := 200
+		ordRemoval := 300
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "provider-gateway"},
+				Ordinal:  &ordProvider,
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:    "gateway",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "option-remove-gateway"},
+				Ordinal:  &ordRemoval,
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:     "gateway",
+					Strategy: "remove",
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		if _, ok := find(target, "gateway-install"); ok {
+			t.Errorf("expected a higher-ordinal remove to delete the system, but gateway-install survived: %+v", target.AllKustomizations())
+		}
+		for _, sys := range target.FluxSystems {
+			if sys.Name == "gateway" {
+				t.Errorf("expected no gateway FluxSystem entry after a higher-ordinal remove, got %+v", sys)
+			}
+		}
+	})
+
+	t.Run("EqualOrdinalRemoveStrategyPrecedenceDeletesFluxSystem", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-a"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:    "gateway",
+					Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "gateway-b"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:     "gateway",
+					Strategy: "remove",
+				}},
+			},
+		}
+		target := &blueprintv1alpha1.Blueprint{}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+		if _, ok := find(target, "gateway-install"); ok {
+			t.Errorf("expected equal-ordinal remove (higher strategy precedence) to delete the system, but gateway-install survived: %+v", target.AllKustomizations())
+		}
+		for _, sys := range target.FluxSystems {
+			if sys.Name == "gateway" {
+				t.Errorf("expected no gateway FluxSystem entry after remove wins on strategy precedence, got %+v", sys)
+			}
+		}
+	})
 }
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {
