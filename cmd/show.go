@@ -115,14 +115,14 @@ windsor show kustomization dns --json`,
 		}
 
 		componentName := args[0]
-		kustomization := findKustomization(blueprint, componentName)
-		if kustomization == nil {
+		kustomization, found := findKustomization(blueprint, componentName)
+		if !found {
 			return errKustomizationNotFound(blueprint, componentName)
 		}
 
 		namespace := proj.Runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
 		mode := constants.ParseGitopsMode(proj.Runtime.ConfigHandler.GetString("gitops.mode", ""))
-		fluxKustomization := buildFluxKustomization(blueprint, kustomization, namespace, mode)
+		fluxKustomization := buildFluxKustomization(blueprint, &kustomization, namespace, mode)
 		resource := blueprintcomposer.RenderDeferredPlaceholders(fluxKustomization, showKustomizationRaw, deferredPaths)
 
 		if err := outputResource(resource, showKustomizationJSON, "kustomization"); err != nil {
@@ -234,14 +234,15 @@ func outputResource(resource any, useJSON bool, resourceType string) error {
 }
 
 // findKustomization searches the blueprint's full compiled Kustomization set (plain kustomize:
-// entries plus every flux: system's install/resources tiers) for the given name.
-func findKustomization(blueprint *blueprintv1alpha1.Blueprint, name string) *blueprintv1alpha1.Kustomization {
+// entries plus every flux: system's install/resources tiers) for the given name. Returns a copy,
+// not a reference into the blueprint, since AllKustomizations() compiles tiers fresh on each call.
+func findKustomization(blueprint *blueprintv1alpha1.Blueprint, name string) (blueprintv1alpha1.Kustomization, bool) {
 	for _, k := range blueprint.AllKustomizations() {
 		if k.Name == name {
-			return &k
+			return k, true
 		}
 	}
-	return nil
+	return blueprintv1alpha1.Kustomization{}, false
 }
 
 // errKustomizationNotFound returns a formatted error for when a kustomization is not found. If the
