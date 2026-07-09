@@ -81,6 +81,58 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		}
 	})
 
+	t.Run("RewritesDeferredFluxSystemInstallAndResourcesSubstitutionsToPlaceholder", func(t *testing.T) {
+		// Given a blueprint with deferred substitutions on a flux: system's install and
+		// resources tiers. Blueprint.DeepCopy() previously always dropped FluxSystems, which
+		// masked the fact that applyDeferredPathsToBlueprint never walked them either — a
+		// deferred flux install/resources substitution would render its raw expression text
+		// instead of '<deferred>'. Now that DeepCopy carries FluxSystems, this path must
+		// actually render the placeholder.
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "gateway",
+					Install: &blueprintv1alpha1.Kustomization{
+						Substitutions: map[string]string{
+							"cluster_name": "${terraform_output('cluster', 'cluster_name')}",
+							"resolved_key": "already-resolved",
+						},
+					},
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{
+							Kustomization: blueprintv1alpha1.Kustomization{
+								Name: "internal",
+								Substitutions: map[string]string{
+									"gateway_lb_ip": "${terraform_output('network', 'lb_ip')}",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		deferredPaths := map[string]bool{
+			"flux.gateway.install.substitutions.cluster_name":    true,
+			"flux.gateway.resources.substitutions.gateway_lb_ip": true,
+		}
+
+		// When rendering deferred placeholders
+		result := RenderDeferredPlaceholders(bp, false, deferredPaths)
+
+		// Then the deferred install/resources keys become <deferred>, unrelated keys are unchanged
+		got := result.(*blueprintv1alpha1.Blueprint)
+		sys := got.FluxSystems[0]
+		if sys.Install.Substitutions["cluster_name"] != deferredPlaceholder {
+			t.Errorf("Expected deferred install substitution to be '%s', got '%s'", deferredPlaceholder, sys.Install.Substitutions["cluster_name"])
+		}
+		if sys.Install.Substitutions["resolved_key"] != "already-resolved" {
+			t.Errorf("Expected resolved install substitution unchanged, got '%s'", sys.Install.Substitutions["resolved_key"])
+		}
+		if sys.Resources[0].Substitutions["gateway_lb_ip"] != deferredPlaceholder {
+			t.Errorf("Expected deferred resources substitution to be '%s', got '%s'", deferredPlaceholder, sys.Resources[0].Substitutions["gateway_lb_ip"])
+		}
+	})
+
 	t.Run("DoesNotMutateOriginalBlueprint", func(t *testing.T) {
 		// Given a blueprint with a deferred substitution
 		bp := &blueprintv1alpha1.Blueprint{

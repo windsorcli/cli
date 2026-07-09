@@ -2883,6 +2883,62 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("EqualOrdinalRemoveFacetsAccumulateAndStripFieldsFromPreexistingSystem", func(t *testing.T) {
+		mocks := setupProcessorMocks(t)
+		processor := NewBlueprintProcessor(mocks.Runtime)
+		facets := []blueprintv1alpha1.Facet{
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "remove-install-component"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:     "gateway",
+					Strategy: "remove",
+					Install:  &blueprintv1alpha1.Kustomization{Components: []string{"envoy"}},
+				}},
+			},
+			{
+				Metadata: blueprintv1alpha1.Metadata{Name: "remove-resources-variant"},
+				FluxSystems: []blueprintv1alpha1.FluxSystem{{
+					Name:      "gateway",
+					Strategy:  "remove",
+					Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal"}}},
+				}},
+			},
+		}
+		// A pre-existing FluxSystem, standing in for one already declared in the loader's parsed
+		// blueprint.yaml (bp := loader.GetBlueprint() in handler.go's processLoader) before facets
+		// are layered on, so the two remove-strategy facets above have a real entry to subtract from.
+		target := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{{
+				Name:    "gateway",
+				Install: &blueprintv1alpha1.Kustomization{Components: []string{"envoy", "keep_component"}},
+				Resources: []blueprintv1alpha1.FluxVariant{
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "internal", Components: []string{"internal"}}},
+					{Kustomization: blueprintv1alpha1.Kustomization{Name: "external", Components: []string{"external"}}},
+				},
+			}},
+		}
+		if _, err := processor.ProcessFacets(target, facets); err != nil {
+			t.Fatalf("ProcessFacets: %v", err)
+		}
+
+		var sys blueprintv1alpha1.FluxSystem
+		found := false
+		for _, s := range target.FluxSystems {
+			if s.Name == "gateway" {
+				sys, found = s, true
+			}
+		}
+		if !found {
+			t.Fatalf("expected the gateway FluxSystem to survive field-level removal, got %+v", target.FluxSystems)
+		}
+		if sys.Install == nil || len(sys.Install.Components) != 1 || sys.Install.Components[0] != "keep_component" {
+			t.Errorf("expected only 'keep_component' to remain on install, got %+v", sys.Install)
+		}
+		if len(sys.Resources) != 1 || sys.Resources[0].Name != "external" {
+			t.Errorf("expected only the 'external' resources variant to remain, got %+v", sys.Resources)
+		}
+	})
 }
 func TestProcessor_mergeHelpers(t *testing.T) {
 	t.Run("deepMergeMapMergesNestedMaps", func(t *testing.T) {

@@ -1,0 +1,17 @@
+kind: Facet
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: remove-gateway-fields
+  description: Strips specific dependsOn/install/resources fields from the base blueprint's gateway flux system, leaving the rest of the system intact.
+
+flux:
+
+- name: gateway
+  strategy: remove
+  dependsOn:
+  - pki-install
+  install:
+    components:
+    - envoy-metrics
+  resources:
+  - name: internal

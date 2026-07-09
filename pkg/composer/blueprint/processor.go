@@ -1183,7 +1183,10 @@ func (p *BaseBlueprintProcessor) buildFluxSystemEntries(system blueprintv1alpha1
 // in fluxSystemByName. Variants whose when condition is false or whose components evaluate to empty
 // are dropped; an install tier whose components prune to empty sets Install to nil. This preserves
 // the FluxSystem structure in the composed blueprint (for show blueprint and YAML output) while
-// keeping tier compilation deferred to AllKustomizations().
+// keeping tier compilation deferred to AllKustomizations(). The empty-components pruning is skipped
+// for strategy == "remove": a removal descriptor's resources variants are identified by Name alone,
+// not by a non-empty Components list, so dropping a variant with no evaluated components (as merge/
+// replace do) would erase the very variant name a removal is naming.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
 	for _, system := range facet.FluxSystems {
 		when := system.When
@@ -1222,7 +1225,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			if err != nil {
 				return fmt.Errorf("error evaluating install components for system '%s': %w", system.Name, err)
 			}
-			if len(comps) > 0 {
+			if len(comps) > 0 || strategy == "remove" {
 				installCopy := *system.Install.DeepCopy()
 				installCopy.Components = comps
 				if err := p.evalKustomizationSubstitutions(&installCopy, facet.Path, "flux."+system.Name+".install.substitutions.", facetScope); err != nil {
@@ -1249,7 +1252,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			if err != nil {
 				return fmt.Errorf("error evaluating resources components for system '%s': %w", system.Name, err)
 			}
-			if len(comps) == 0 {
+			if len(comps) == 0 && strategy != "remove" {
 				continue
 			}
 			variantKey := system.Name + "-resources"
@@ -1295,13 +1298,18 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 // updateFluxSystemEntry merges a new FluxSystem into an existing entry in fluxSystemByName using
 // the same ordinal/strategy precedence rules as updateKustomizationEntry: a higher ordinal still
 // runs applyFluxSystemEntryByStrategy (so a "merge" strategy keeps merging across ordinal bands
-// instead of wholesale-replacing) unless either side's strategy is "remove"; equal ordinal falls
-// back to strategy precedence (remove > replace > merge) before merging at equal precedence.
-// Whenever new's own strategy is "remove" and it wins, the outcome is always delete(entries, name),
-// never entries[name] = new: unlike Kustomization/Terraform entries, FluxSystem has no deferred
-// removal pass in applyCollectedComponents that later interprets a stored Strategy == "remove" —
-// the final write loop upserts every remaining map entry unconditionally, so a "remove"-tagged
-// FluxSystem left sitting in the map would be written to the target blueprint unchanged.
+// instead of wholesale-replacing) unless either side's strategy is "remove", in which case new
+// wins outright (entries[name] = new, tagged with strategy); equal ordinal falls back to strategy
+// precedence (remove > replace > merge) before merging at equal precedence. A winning "remove"
+// is never deleted from entries here — like Kustomization/Terraform entries, it is carried as a
+// Strategy == "remove" descriptor into applyCollectedComponents's deferred removal pass, which
+// accumulates it there and applies Blueprint.RemoveFluxSystem after all merges/replaces write.
+// Note this map-level "new wins outright" replacement is itself wholesale, same as
+// updateKustomizationEntry: if a lower-ordinal (or lower-precedence) facet had already merged
+// real Install/Resources content into this map slot, a winning "remove" discards it from the map
+// before RemoveFluxSystem ever runs — RemoveFluxSystem's field-level subtraction only has
+// something to act on when the target blueprint already has a matching entry (e.g. declared
+// directly in blueprint.yaml) independent of this collection pass.
 func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *blueprintv1alpha1.FluxSystem, strategy string, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	existing := entries[name]
 	existingStrategy := existing.Strategy
@@ -1324,11 +1332,7 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 	}
 
 	if newOrdinal > existingOrdinal {
-		if strategy == "remove" {
-			delete(entries, name)
-			return nil
-		}
-		if existingStrategy == "remove" {
+		if existingStrategy == "remove" || strategy == "remove" {
 			new.Strategy = strategy
 			entries[name] = new
 			return nil
@@ -1341,10 +1345,6 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 
 	existingStrategyPrec := strategyPrecedence[existingStrategy]
 	if newStrategyPrec > existingStrategyPrec {
-		if strategy == "remove" {
-			delete(entries, name)
-			return nil
-		}
 		new.Strategy = strategy
 		entries[name] = new
 		return nil
@@ -1357,20 +1357,23 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 }
 
 // applyFluxSystemEntryByStrategy applies new to existing's slot in entries per strategy, mirroring
-// applyKustomizationEntryByStrategy: "replace" swaps the whole entry, "remove" deletes it outright
-// (FluxSystem has no field-level removal the way RemoveKustomization strips individual
-// components/patches/dependsOn), and "merge" unions DependsOn and deep-merges both Install
-// (blueprintv1alpha1.MergeFluxInstall) and Resources variants (blueprintv1alpha1.MergeFluxVariants)
-// — the same semantics same-name Kustomizations get elsewhere, and the same helpers
-// Blueprint.UpsertFluxSystem uses to merge FluxSystems across sources — instead of replacing
-// either wholesale.
+// applyKustomizationEntryByStrategy: "replace" swaps the whole entry, "remove" accumulates a
+// combined removal descriptor via accumulateFluxSystemRemovals (field-level, matching
+// RemoveKustomization's semantics for plain kustomize: entries — never a whole-system deletion),
+// and "merge" unions DependsOn and deep-merges both Install (blueprintv1alpha1.MergeFluxInstall)
+// and Resources variants (blueprintv1alpha1.MergeFluxVariants) — the same semantics same-name
+// Kustomizations get elsewhere, and the same helpers Blueprint.UpsertFluxSystem uses to merge
+// FluxSystems across sources — instead of replacing either wholesale.
 func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new *blueprintv1alpha1.FluxSystem, strategy string, existing *blueprintv1alpha1.FluxSystem, entries map[string]*blueprintv1alpha1.FluxSystem) error {
 	switch strategy {
 	case "replace":
 		new.Strategy = strategy
 		entries[name] = new
 	case "remove":
-		delete(entries, name)
+		accumulated := p.accumulateFluxSystemRemovals(*existing, *new)
+		accumulated.Strategy = "remove"
+		accumulated.Ordinal = new.Ordinal
+		entries[name] = &accumulated
 	case "merge":
 		merged := *existing
 		merged.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
@@ -1875,6 +1878,8 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 		}
 	}
 
+	var fluxRemovals []blueprintv1alpha1.FluxSystem
+
 	fluxKeys := make([]string, 0, len(fluxSystemByName))
 	for key := range fluxSystemByName {
 		fluxKeys = append(fluxKeys, key)
@@ -1882,10 +1887,25 @@ func (p *BaseBlueprintProcessor) applyCollectedComponents(target *blueprintv1alp
 	sort.Strings(fluxKeys)
 	for _, key := range fluxKeys {
 		sys := *fluxSystemByName[key]
+		strategy := sys.Strategy
+		if strategy == "" {
+			strategy = "merge"
+		}
 		sys.Strategy = ""
 		sys.Ordinal = nil
+
+		if strategy == "remove" {
+			fluxRemovals = append(fluxRemovals, sys)
+			continue
+		}
 		if err := target.UpsertFluxSystem(sys); err != nil {
 			return fmt.Errorf("error writing flux system '%s': %w", key, err)
+		}
+	}
+
+	for _, removal := range fluxRemovals {
+		if err := target.RemoveFluxSystem(removal); err != nil {
+			return fmt.Errorf("error removing flux system '%s': %w", removal.Name, err)
 		}
 	}
 
@@ -1932,6 +1952,40 @@ func (p *BaseBlueprintProcessor) accumulateKustomizationRemovals(existing, new b
 	accumulated.Substitutions = accumulateMapKeys(existing.Substitutions, new.Substitutions)
 
 	return accumulated
+}
+
+// accumulateFluxSystemRemovals unions two removal-strategy FluxSystem descriptors from different
+// facets into one combined descriptor, mirroring accumulateKustomizationRemovals: DependsOn
+// accumulates via accumulateStringSlice, and Resources concatenates removal-descriptor variants
+// (each identified by Name; Blueprint.RemoveFluxSystem drops the named variant outright, so
+// duplicates surviving accumulation are harmless). Install's removable fields accumulate via
+// accumulateKustomizationRemovals itself, treating a nil Install on either side as a zero-value
+// Kustomization{} — Install carries no Name until tier compilation, so the same field-level union
+// accumulateKustomizationRemovals gives two facets' top-level removal descriptors applies here.
+func (p *BaseBlueprintProcessor) accumulateFluxSystemRemovals(existing, new blueprintv1alpha1.FluxSystem) blueprintv1alpha1.FluxSystem {
+	accumulated := blueprintv1alpha1.FluxSystem{
+		Name: existing.Name,
+	}
+
+	accumulated.DependsOn = accumulateStringSlice(existing.DependsOn, new.DependsOn)
+
+	if existing.Install != nil || new.Install != nil {
+		mergedInstall := p.accumulateKustomizationRemovals(kustomizationOrZero(existing.Install), kustomizationOrZero(new.Install))
+		accumulated.Install = &mergedInstall
+	}
+
+	accumulated.Resources = append(accumulated.Resources, existing.Resources...)
+	accumulated.Resources = append(accumulated.Resources, new.Resources...)
+
+	return accumulated
+}
+
+// kustomizationOrZero dereferences k, or returns a zero-value Kustomization when k is nil.
+func kustomizationOrZero(k *blueprintv1alpha1.Kustomization) blueprintv1alpha1.Kustomization {
+	if k == nil {
+		return blueprintv1alpha1.Kustomization{}
+	}
+	return *k
 }
 
 // evaluateCondition uses the expression evaluator to evaluate a 'when' condition string against

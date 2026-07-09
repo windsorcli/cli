@@ -436,7 +436,8 @@ func (h *BaseBlueprintHandler) GetDeferredPaths() map[string]bool {
 // so that helpers like terraform_output() resolve using outputs available at generate time
 // (after terraform apply). Only substitutions marked as deferred during composition are
 // re-evaluated; already-resolved substitutions are left untouched. Covers global substitutions,
-// blueprint-level ConfigMaps, and per-kustomization substitutions.
+// blueprint-level ConfigMaps, per-kustomization substitutions, and flux: systems' install/
+// resources tier substitutions.
 //
 // Returns the first evaluation error encountered (with the substitution path named, e.g.
 // "kustomize.dns.substitutions.external_dns_tenant_id") so the operator sees exactly which
@@ -491,6 +492,35 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 				return fmt.Errorf("kustomize.%s.substitutions.%s: %w", k.Name, key, err)
 			}
 			k.Substitutions[key] = str
+		}
+	}
+
+	for i := range bp.FluxSystems {
+		sys := &bp.FluxSystems[i]
+		if sys.Install != nil {
+			for key, value := range sys.Install.Substitutions {
+				if !deferred["flux."+sys.Name+".install.substitutions."+key] {
+					continue
+				}
+				str, err := h.resolveDeferred(value)
+				if err != nil {
+					return fmt.Errorf("flux.%s.install.substitutions.%s: %w", sys.Name, key, err)
+				}
+				sys.Install.Substitutions[key] = str
+			}
+		}
+		for j := range sys.Resources {
+			v := &sys.Resources[j]
+			for key, value := range v.Substitutions {
+				if !deferred["flux."+sys.Name+".resources.substitutions."+key] {
+					continue
+				}
+				str, err := h.resolveDeferred(value)
+				if err != nil {
+					return fmt.Errorf("flux.%s.resources.substitutions.%s: %w", sys.Name, key, err)
+				}
+				v.Substitutions[key] = str
+			}
 		}
 	}
 

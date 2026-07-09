@@ -1286,6 +1286,62 @@ func TestHandler_GenerateResolved(t *testing.T) {
 			t.Error("Expected nil blueprint on resolve failure (no partial results to consume)")
 		}
 	})
+
+	t.Run("ResolvesFluxSystemInstallAndResourcesSubstitutions", func(t *testing.T) {
+		// Given a handler with deferred substitutions on a flux: system's install and resources
+		// tiers. Blueprint.DeepCopy() previously always dropped FluxSystems, which masked the
+		// fact that resolveDeferredSubstitutions never walked them either — a deferred
+		// terraform_output() under flux: would reach a cluster ConfigMap unresolved. Now that
+		// DeepCopy carries FluxSystems, this path must actually resolve them.
+		mocks := setupHandlerMocks(t)
+		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
+			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
+				return "resolved-value", nil
+			},
+		}
+		handler := NewBlueprintHandler(mocks.Runtime, mocks.ArtifactBuilder)
+		handler.composedBlueprint = &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "gateway",
+					Install: &blueprintv1alpha1.Kustomization{
+						Substitutions: map[string]string{
+							"cluster_name": "${terraform_output('cluster', 'cluster_name') ?? ''}",
+						},
+					},
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{
+							Kustomization: blueprintv1alpha1.Kustomization{
+								Name: "internal",
+								Substitutions: map[string]string{
+									"gateway_lb_ip": "${terraform_output('network', 'lb_ip') ?? ''}",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		handler.deferredPaths = map[string]bool{
+			"flux.gateway.install.substitutions.cluster_name":    true,
+			"flux.gateway.resources.substitutions.gateway_lb_ip": true,
+		}
+
+		// When calling GenerateResolved
+		resolved, err := handler.GenerateResolved()
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then both the install and resources deferred substitutions are resolved
+		sys := resolved.FluxSystems[0]
+		if sys.Install.Substitutions["cluster_name"] != "resolved-value" {
+			t.Errorf("Expected install substitution resolved, got %q", sys.Install.Substitutions["cluster_name"])
+		}
+		if sys.Resources[0].Substitutions["gateway_lb_ip"] != "resolved-value" {
+			t.Errorf("Expected resources substitution resolved, got %q", sys.Resources[0].Substitutions["gateway_lb_ip"])
+		}
+	})
 }
 
 func TestHandler_getConfigValues(t *testing.T) {
