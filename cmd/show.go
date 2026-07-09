@@ -117,7 +117,7 @@ windsor show kustomization dns --json`,
 		componentName := args[0]
 		kustomization, found := findKustomization(blueprint, componentName)
 		if !found {
-			return errKustomizationNotFound(blueprint, componentName)
+			return kustomizationNotFoundError(blueprint, componentName)
 		}
 
 		namespace := proj.Runtime.ConfigHandler.GetString("gitops.namespace", constants.DefaultGitopsNamespace)
@@ -245,11 +245,11 @@ func findKustomization(blueprint *blueprintv1alpha1.Blueprint, name string) (blu
 	return blueprintv1alpha1.Kustomization{}, false
 }
 
-// errKustomizationNotFound returns a formatted error for when a kustomization is not found. If the
+// kustomizationNotFoundError returns a formatted error for when a kustomization is not found. If the
 // name instead matches a flux: system descriptor rather than one of its compiled tiers, the error
 // lists that system's tier names, since a system name (e.g. "cert-manager") is never itself a valid
 // argument.
-func errKustomizationNotFound(blueprint *blueprintv1alpha1.Blueprint, name string) error {
+func kustomizationNotFoundError(blueprint *blueprintv1alpha1.Blueprint, name string) error {
 	for _, sys := range blueprint.FluxSystems {
 		if sys.Name != name {
 			continue
