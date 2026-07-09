@@ -2304,6 +2304,211 @@ func TestBlueprint_RemoveKustomization(t *testing.T) {
 	})
 }
 
+func TestBlueprint_RemoveFluxSystem(t *testing.T) {
+	t.Run("RemovesDependsOnFromExistingSystem", func(t *testing.T) {
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:      "gateway",
+					DependsOn: []string{"pki-install", "lb-install", "keep_dep"},
+				},
+			},
+		}
+
+		removal := FluxSystem{
+			Name:      "gateway",
+			DependsOn: []string{"pki-install", "lb-install"},
+		}
+
+		err := base.RemoveFluxSystem(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		sys := base.FluxSystems[0]
+		if len(sys.DependsOn) != 1 || sys.DependsOn[0] != "keep_dep" {
+			t.Errorf("Expected only 'keep_dep' to remain, got %v", sys.DependsOn)
+		}
+	})
+
+	t.Run("RemovesInstallComponentsFromExistingSystem", func(t *testing.T) {
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:    "gateway",
+					Install: &Kustomization{Components: []string{"envoy", "envoy/prometheus", "keep_component"}},
+				},
+			},
+		}
+
+		removal := FluxSystem{
+			Name:    "gateway",
+			Install: &Kustomization{Components: []string{"envoy", "envoy/prometheus"}},
+		}
+
+		err := base.RemoveFluxSystem(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		sys := base.FluxSystems[0]
+		if sys.Install == nil || len(sys.Install.Components) != 1 || sys.Install.Components[0] != "keep_component" {
+			t.Errorf("Expected only 'keep_component' to remain, got %+v", sys.Install)
+		}
+	})
+
+	t.Run("LeavesInstallUnchangedWhenRemovalHasNoInstall", func(t *testing.T) {
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:    "gateway",
+					Install: &Kustomization{Components: []string{"envoy"}},
+				},
+			},
+		}
+
+		removal := FluxSystem{
+			Name:      "gateway",
+			DependsOn: []string{"pki-install"},
+		}
+
+		err := base.RemoveFluxSystem(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		sys := base.FluxSystems[0]
+		if sys.Install == nil || len(sys.Install.Components) != 1 || sys.Install.Components[0] != "envoy" {
+			t.Errorf("Expected install to be unchanged, got %+v", sys.Install)
+		}
+	})
+
+	t.Run("DropsNamedResourcesVariant", func(t *testing.T) {
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name: "gateway",
+					Resources: []FluxVariant{
+						{Kustomization: Kustomization{Name: "internal", Components: []string{"internal"}}},
+						{Kustomization: Kustomization{Name: "external", Components: []string{"external"}}},
+					},
+				},
+			},
+		}
+
+		removal := FluxSystem{
+			Name:      "gateway",
+			Resources: []FluxVariant{{Kustomization: Kustomization{Name: "internal"}}},
+		}
+
+		err := base.RemoveFluxSystem(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		sys := base.FluxSystems[0]
+		if len(sys.Resources) != 1 || sys.Resources[0].Name != "external" {
+			t.Errorf("Expected only 'external' variant to remain, got %+v", sys.Resources)
+		}
+	})
+
+	t.Run("DropsUnnamedResourcesVariant", func(t *testing.T) {
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name: "dns",
+					Resources: []FluxVariant{
+						{Kustomization: Kustomization{Components: []string{"coredns"}}},
+					},
+				},
+			},
+		}
+
+		removal := FluxSystem{
+			Name:      "dns",
+			Resources: []FluxVariant{{}},
+		}
+
+		err := base.RemoveFluxSystem(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		sys := base.FluxSystems[0]
+		if len(sys.Resources) != 0 {
+			t.Errorf("Expected the unnamed variant to be dropped, got %+v", sys.Resources)
+		}
+	})
+
+	t.Run("NoOpWhenSystemNotFound", func(t *testing.T) {
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:    "existing",
+					Install: &Kustomization{Components: []string{"component1"}},
+				},
+			},
+		}
+
+		removal := FluxSystem{
+			Name:    "non-existent",
+			Install: &Kustomization{Components: []string{"component1"}},
+		}
+
+		err := base.RemoveFluxSystem(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(base.FluxSystems) != 1 {
+			t.Errorf("Expected 1 system unchanged, got %d", len(base.FluxSystems))
+		}
+		if len(base.FluxSystems[0].Install.Components) != 1 {
+			t.Errorf("Expected existing system to be unchanged")
+		}
+	})
+
+	t.Run("PreservesIndexField", func(t *testing.T) {
+		base := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:    "gateway",
+					Path:    "original-path",
+					Source:  "original-source",
+					Install: &Kustomization{Components: []string{"envoy"}},
+				},
+			},
+		}
+
+		removal := FluxSystem{
+			Name:    "gateway",
+			Install: &Kustomization{Components: []string{"envoy"}},
+		}
+
+		err := base.RemoveFluxSystem(removal)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		sys := base.FluxSystems[0]
+		if sys.Name != "gateway" {
+			t.Errorf("Expected Name to be preserved, got '%s'", sys.Name)
+		}
+		if sys.Path != "original-path" {
+			t.Errorf("Expected Path to be preserved, got '%s'", sys.Path)
+		}
+		if sys.Source != "original-source" {
+			t.Errorf("Expected Source to be preserved, got '%s'", sys.Source)
+		}
+	})
+}
+
 func TestBlueprint_DeepCopy(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		blueprint := &Blueprint{
@@ -4294,6 +4499,47 @@ func TestBlueprint_DeepCopy_WithNewFields(t *testing.T) {
 		}
 		if blueprint.Sources[0].Crds[0] != "gateway-api-1.5.1" {
 			t.Error("Expected original source crds untouched after mutating copy")
+		}
+	})
+
+	t.Run("CopiesFluxSystemsDeeply", func(t *testing.T) {
+		blueprint := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:      "gateway",
+					DependsOn: []string{"pki-install"},
+					Install:   &Kustomization{Components: []string{"envoy"}},
+					Resources: []FluxVariant{
+						{Kustomization: Kustomization{Name: "internal", Components: []string{"internal"}}},
+					},
+				},
+			},
+		}
+
+		copy := blueprint.DeepCopy()
+		if len(copy.FluxSystems) != 1 {
+			t.Fatalf("Expected 1 flux system, got %d", len(copy.FluxSystems))
+		}
+		sys := copy.FluxSystems[0]
+		if sys.Install == nil || len(sys.Install.Components) != 1 || sys.Install.Components[0] != "envoy" {
+			t.Fatalf("Expected install copied, got %+v", sys.Install)
+		}
+		if len(sys.Resources) != 1 || sys.Resources[0].Name != "internal" {
+			t.Fatalf("Expected resources copied, got %+v", sys.Resources)
+		}
+
+		// Mutating the copy must not touch the original (deep copy, not aliased)
+		copy.FluxSystems[0].DependsOn[0] = "mutated"
+		copy.FluxSystems[0].Install.Components[0] = "mutated"
+		copy.FluxSystems[0].Resources[0].Components[0] = "mutated"
+		if blueprint.FluxSystems[0].DependsOn[0] != "pki-install" {
+			t.Error("Expected original dependsOn untouched after mutating copy")
+		}
+		if blueprint.FluxSystems[0].Install.Components[0] != "envoy" {
+			t.Error("Expected original install untouched after mutating copy")
+		}
+		if blueprint.FluxSystems[0].Resources[0].Components[0] != "internal" {
+			t.Error("Expected original resources untouched after mutating copy")
 		}
 	})
 

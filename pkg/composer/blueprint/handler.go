@@ -391,14 +391,11 @@ func (h *BaseBlueprintHandler) Generate() *blueprintv1alpha1.Blueprint {
 // Generate() instead to preserve deferred placeholders.
 //
 // Returns an error when a deferred substitution cannot be resolved (e.g. terraform_output()
-// references a missing key, or terraform itself errors during the lookup). The previous behavior
-// was to swallow these errors and leave the raw `${...}` source in the substitution map — which
-// then leaked into Flux ConfigMaps and downstream Helm renders, where the literal expression
-// text was treated as a config value (e.g. external-dns reading "${terraform_output('cluster',
-// 'tenant_id') ?? ''}" as the tenant ID and crashlooping with "invalid tenantID"). The contract
-// is now: an unresolved expression must never reach a ConfigMap. Operators see the failure at
-// blueprint-resolution time with the offending key + path called out by name, instead of via a
-// downstream pod crashloop minutes later.
+// references a missing key, or terraform itself errors during the lookup), named by the
+// offending substitution path (e.g. "kustomize.dns.substitutions.external_dns_tenant_id") so
+// operators see the failure at blueprint-resolution time rather than via a downstream pod
+// crashloop. An unresolved expression must never reach a ConfigMap: raw `${...}` source text
+// left in place would be treated as a literal config value by downstream Helm renders.
 func (h *BaseBlueprintHandler) GenerateResolved() (*blueprintv1alpha1.Blueprint, error) {
 	bp := h.Generate()
 	if bp == nil {
@@ -436,14 +433,12 @@ func (h *BaseBlueprintHandler) GetDeferredPaths() map[string]bool {
 // so that helpers like terraform_output() resolve using outputs available at generate time
 // (after terraform apply). Only substitutions marked as deferred during composition are
 // re-evaluated; already-resolved substitutions are left untouched. Covers global substitutions,
-// blueprint-level ConfigMaps, and per-kustomization substitutions.
+// blueprint-level ConfigMaps, per-kustomization substitutions, and flux: systems' install/
+// resources tier substitutions.
 //
-// Returns the first evaluation error encountered (with the substitution path named, e.g.
-// "kustomize.dns.substitutions.external_dns_tenant_id") so the operator sees exactly which
-// expression failed. Leaving an unresolved expression in place — the previous behavior — let
-// raw `${terraform_output(...)}` source text leak into Flux ConfigMaps; downstream Helm
-// renders then treated the literal expression as a config value. Failing here surfaces the
-// problem at blueprint-resolution time, before anything is written to the cluster.
+// Returns the first evaluation error encountered, with the substitution path named (e.g.
+// "kustomize.dns.substitutions.external_dns_tenant_id"), surfacing the problem at
+// blueprint-resolution time, before anything is written to the cluster.
 func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 	if h.runtime == nil || h.runtime.Evaluator == nil || h.composedBlueprint == nil {
 		return nil
@@ -494,18 +489,49 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 		}
 	}
 
+	for i := range bp.FluxSystems {
+		sys := &bp.FluxSystems[i]
+		if sys.Install != nil {
+			for key, value := range sys.Install.Substitutions {
+				if !deferred["flux."+sys.Name+".install.substitutions."+key] {
+					continue
+				}
+				str, err := h.resolveDeferred(value)
+				if err != nil {
+					return fmt.Errorf("flux.%s.install.substitutions.%s: %w", sys.Name, key, err)
+				}
+				sys.Install.Substitutions[key] = str
+			}
+		}
+		for j := range sys.Resources {
+			v := &sys.Resources[j]
+			resourcesPrefix := "flux." + sys.Name + ".resources"
+			if v.Name != "" {
+				resourcesPrefix += "-" + v.Name
+			}
+			resourcesPrefix += ".substitutions."
+			for key, value := range v.Substitutions {
+				if !deferred[resourcesPrefix+key] {
+					continue
+				}
+				str, err := h.resolveDeferred(value)
+				if err != nil {
+					return fmt.Errorf("%s%s: %w", resourcesPrefix, key, err)
+				}
+				v.Substitutions[key] = str
+			}
+		}
+	}
+
 	return nil
 }
 
 // resolveDeferred evaluates a single expression with evaluateDeferred=true using the composed
 // scope. Returns the resolved string on success, or an error when the expression cannot be
 // evaluated (e.g. terraform_output() references a missing module output, or terraform itself
-// errors). The previous behavior — swallowing the error and returning a sentinel that callers
-// interpreted as "leave the original raw expression in place" — is the bug that lets unresolved
-// `${terraform_output(...)}` text leak into ConfigMaps. Operators with a legitimately-optional
-// reference should write `?? <fallback>` in the expression itself; nil from the evaluator
-// (with no coalesce) renders as the empty string here, which is the operator's explicit choice
-// rather than a silent failure.
+// errors). Operators with a legitimately-optional reference should write `?? <fallback>` in the
+// expression itself; nil from the evaluator (with no coalesce) renders as the empty string here,
+// which is the operator's explicit choice rather than a silent failure.
 func (h *BaseBlueprintHandler) resolveDeferred(expr string) (string, error) {
 	resolved, err := h.runtime.Evaluator.Evaluate(expr, "", h.composedScope, true)
 	if err != nil {

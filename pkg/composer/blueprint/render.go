@@ -88,6 +88,28 @@ func applyDeferredPathsToBlueprint(bp *blueprintv1alpha1.Blueprint, deferredPath
 			}
 		}
 	}
+	for i := range bp.FluxSystems {
+		sys := &bp.FluxSystems[i]
+		if sys.Install != nil {
+			for key := range sys.Install.Substitutions {
+				if deferredPaths["flux."+sys.Name+".install.substitutions."+key] {
+					sys.Install.Substitutions[key] = deferredPlaceholder
+				}
+			}
+		}
+		for j := range sys.Resources {
+			resourcesPrefix := "flux." + sys.Name + ".resources"
+			if sys.Resources[j].Name != "" {
+				resourcesPrefix += "-" + sys.Resources[j].Name
+			}
+			resourcesPrefix += ".substitutions."
+			for key := range sys.Resources[j].Substitutions {
+				if deferredPaths[resourcesPrefix+key] {
+					sys.Resources[j].Substitutions[key] = deferredPlaceholder
+				}
+			}
+		}
+	}
 }
 
 // applyDeferredPathsToFluxKustomization rewrites deferred fields on flux kustomization output.

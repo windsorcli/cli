@@ -1,0 +1,30 @@
+kind: Blueprint
+apiVersion: blueprints.windsorcli.dev/v1alpha1
+metadata:
+  name: facet-tiers-remove
+  description: "Field-level flux: strategy remove integration fixture"
+
+kustomize:
+
+- name: pki-install
+  path: pki
+  components:
+  - cert-manager
+
+flux:
+
+- name: gateway
+  path: gateway
+  dependsOn:
+  - pki-install
+  install:
+    components:
+    - envoy
+    - envoy-metrics
+  resources:
+  - name: internal
+    components:
+    - internal
+  - name: external
+    components:
+    - external

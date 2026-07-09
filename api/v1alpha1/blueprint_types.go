@@ -795,6 +795,11 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		}
 	}
 
+	fluxSystemsCopy := make([]FluxSystem, len(b.FluxSystems))
+	for i, sys := range b.FluxSystems {
+		fluxSystemsCopy[i] = *sys.DeepCopy()
+	}
+
 	return &Blueprint{
 		Kind:                b.Kind,
 		ApiVersion:          b.ApiVersion,
@@ -805,6 +810,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 		TerraformComponents: terraformComponentsCopy,
 		Crds:                slices.Clone(b.Crds),
 		Kustomizations:      kustomizationsCopy,
+		FluxSystems:         fluxSystemsCopy,
 		Substitutions:       maps.Clone(b.Substitutions),
 		ConfigMaps:          configMapsCopy,
 	}
@@ -996,41 +1002,44 @@ func (b *Blueprint) RemoveTerraformComponent(removal TerraformComponent) error {
 func (b *Blueprint) RemoveKustomization(removal Kustomization) error {
 	for i, existing := range b.Kustomizations {
 		if existing.Name == removal.Name {
-			if len(removal.DependsOn) > 0 {
-				existing.DependsOn = slices.DeleteFunc(existing.DependsOn, func(dep string) bool {
-					return slices.Contains(removal.DependsOn, dep)
-				})
-			}
-
-			if len(removal.Components) > 0 {
-				existing.Components = slices.DeleteFunc(existing.Components, func(comp string) bool {
-					return slices.Contains(removal.Components, comp)
-				})
-			}
-
-			if len(removal.Patches) > 0 {
-				existing.Patches = slices.DeleteFunc(existing.Patches, func(patch BlueprintPatch) bool {
-					for _, removalPatch := range removal.Patches {
-						if removalPatch.Path != "" && patch.Path == removalPatch.Path {
-							return true
-						}
-						if removalPatch.Patch != "" && patch.Patch == removalPatch.Patch {
-							return true
-						}
-					}
-					return false
-				})
-			}
-
-			if len(removal.Substitutions) > 0 && existing.Substitutions != nil {
-				for key := range removal.Substitutions {
-					delete(existing.Substitutions, key)
-				}
-			}
-
-			b.Kustomizations[i] = existing
+			b.Kustomizations[i] = subtractKustomizationFields(existing, removal)
 			return b.sortKustomize()
 		}
+	}
+	return nil
+}
+
+// RemoveFluxSystem removes specified non-index fields from an existing FluxSystem. It finds a
+// system matching the same Name, then subtracts dependsOn entries and any install fields named in
+// removal.Install (reusing subtractKustomizationFields, since Install is itself a Kustomization
+// carrying no Name until tier compilation, so it cannot go through RemoveKustomization's by-Name
+// lookup), and drops any resources variant whose Name is named in removal.Resources (empty Name
+// matches the unnamed variant). A resources variant has no kustomize: analog — it compiles to its
+// own distinct Kustomization — so naming it is itself the field-level operation, not a whole-system
+// deletion. The index field (Name) is not affected. If no matching system exists, no action is taken.
+func (b *Blueprint) RemoveFluxSystem(removal FluxSystem) error {
+	for i, existing := range b.FluxSystems {
+		if existing.Name != removal.Name {
+			continue
+		}
+
+		existing.DependsOn = subtractStringSlice(existing.DependsOn, removal.DependsOn)
+
+		if removal.Install != nil && existing.Install != nil {
+			subtracted := subtractKustomizationFields(*existing.Install, *removal.Install)
+			existing.Install = &subtracted
+		}
+
+		if len(removal.Resources) > 0 {
+			existing.Resources = slices.DeleteFunc(existing.Resources, func(v FluxVariant) bool {
+				return slices.ContainsFunc(removal.Resources, func(rv FluxVariant) bool {
+					return rv.Name == v.Name
+				})
+			})
+		}
+
+		b.FluxSystems[i] = existing
+		return nil
 	}
 	return nil
 }
@@ -1233,6 +1242,61 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 	}
 }
 
+// DeepCopy returns a deep copy of the FluxVariant, including its embedded Kustomization.
+func (v *FluxVariant) DeepCopy() *FluxVariant {
+	if v == nil {
+		return nil
+	}
+	return &FluxVariant{
+		Kustomization: *v.Kustomization.DeepCopy(),
+		When:          v.When,
+	}
+}
+
+// DeepCopy returns a deep copy of the FluxSystem, including its Install tier and Resources
+// variants (each deep-copied via Kustomization.DeepCopy/FluxVariant.DeepCopy).
+func (s *FluxSystem) DeepCopy() *FluxSystem {
+	if s == nil {
+		return nil
+	}
+
+	var enabledCopy *BoolExpression
+	if s.Enabled != nil {
+		enabledCopy = s.Enabled.DeepCopy()
+	}
+	var destroyCopy *BoolExpression
+	if s.Destroy != nil {
+		destroyCopy = s.Destroy.DeepCopy()
+	}
+	var ordinalCopy *int
+	if s.Ordinal != nil {
+		o := *s.Ordinal
+		ordinalCopy = &o
+	}
+	var installCopy *Kustomization
+	if s.Install != nil {
+		installCopy = s.Install.DeepCopy()
+	}
+	resourcesCopy := make([]FluxVariant, len(s.Resources))
+	for i, v := range s.Resources {
+		resourcesCopy[i] = *v.DeepCopy()
+	}
+
+	return &FluxSystem{
+		Name:      s.Name,
+		Path:      s.Path,
+		Source:    s.Source,
+		Enabled:   enabledCopy,
+		Destroy:   destroyCopy,
+		When:      s.When,
+		DependsOn: slices.Clone(s.DependsOn),
+		Strategy:  s.Strategy,
+		Ordinal:   ordinalCopy,
+		Install:   installCopy,
+		Resources: resourcesCopy,
+	}
+}
+
 // ToFluxKustomization converts a blueprint Kustomization to a Flux Kustomization.
 // It takes the default namespace for the kustomization (overridden per-kustomization
 // by k.Namespace when set), the default source name to use if no source is specified,
@@ -1412,6 +1476,50 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 // =============================================================================
 // Private Methods
 // =============================================================================
+
+// subtractStringSlice returns existing with every element also present in removal deleted.
+// Shared by subtractKustomizationFields (DependsOn, Components) and RemoveFluxSystem
+// (DependsOn), the two field-level removal entry points.
+func subtractStringSlice(existing, removal []string) []string {
+	if len(removal) == 0 {
+		return existing
+	}
+	return slices.DeleteFunc(existing, func(item string) bool {
+		return slices.Contains(removal, item)
+	})
+}
+
+// subtractKustomizationFields returns existing with the patches, components, dependencies, and
+// substitutions named in removal stripped out. Patches match by Path or Patch content equality;
+// everything else matches by value/key. Fields removal leaves empty are left untouched on
+// existing. The Name field is never touched, so this is safe to use on both indexed
+// (Blueprint.Kustomizations) and unindexed (a FluxSystem's Install tier) Kustomizations.
+func subtractKustomizationFields(existing, removal Kustomization) Kustomization {
+	existing.DependsOn = subtractStringSlice(existing.DependsOn, removal.DependsOn)
+	existing.Components = subtractStringSlice(existing.Components, removal.Components)
+
+	if len(removal.Patches) > 0 {
+		existing.Patches = slices.DeleteFunc(existing.Patches, func(patch BlueprintPatch) bool {
+			for _, removalPatch := range removal.Patches {
+				if removalPatch.Path != "" && patch.Path == removalPatch.Path {
+					return true
+				}
+				if removalPatch.Patch != "" && patch.Patch == removalPatch.Patch {
+					return true
+				}
+			}
+			return false
+		})
+	}
+
+	if len(removal.Substitutions) > 0 && existing.Substitutions != nil {
+		for key := range removal.Substitutions {
+			delete(existing.Substitutions, key)
+		}
+	}
+
+	return existing
+}
 
 // validateTerraformComponents validates that all terraform component IDs are unique.
 // Component IDs are either the Name (if provided) or Path (if no name).

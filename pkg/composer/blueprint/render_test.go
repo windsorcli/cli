@@ -81,6 +81,64 @@ func TestRenderDeferredPlaceholders(t *testing.T) {
 		}
 	})
 
+	t.Run("RewritesDeferredFluxSystemInstallAndResourcesSubstitutionsToPlaceholder", func(t *testing.T) {
+		// Two resources variants share a substitution key name; only "internal"'s is deferred.
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{
+					Name: "gateway",
+					Install: &blueprintv1alpha1.Kustomization{
+						Substitutions: map[string]string{
+							"cluster_name": "${terraform_output('cluster', 'cluster_name')}",
+							"resolved_key": "already-resolved",
+						},
+					},
+					Resources: []blueprintv1alpha1.FluxVariant{
+						{
+							Kustomization: blueprintv1alpha1.Kustomization{
+								Name: "internal",
+								Substitutions: map[string]string{
+									"gateway_lb_ip": "${terraform_output('network', 'internal_lb_ip')}",
+								},
+							},
+						},
+						{
+							Kustomization: blueprintv1alpha1.Kustomization{
+								Name: "external",
+								Substitutions: map[string]string{
+									"gateway_lb_ip": "already-resolved",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		deferredPaths := map[string]bool{
+			"flux.gateway.install.substitutions.cluster_name":             true,
+			"flux.gateway.resources-internal.substitutions.gateway_lb_ip": true,
+		}
+
+		// When rendering deferred placeholders
+		result := RenderDeferredPlaceholders(bp, false, deferredPaths)
+
+		// Then the deferred install/resources keys become <deferred>, unrelated keys are unchanged
+		got := result.(*blueprintv1alpha1.Blueprint)
+		sys := got.FluxSystems[0]
+		if sys.Install.Substitutions["cluster_name"] != deferredPlaceholder {
+			t.Errorf("Expected deferred install substitution to be '%s', got '%s'", deferredPlaceholder, sys.Install.Substitutions["cluster_name"])
+		}
+		if sys.Install.Substitutions["resolved_key"] != "already-resolved" {
+			t.Errorf("Expected resolved install substitution unchanged, got '%s'", sys.Install.Substitutions["resolved_key"])
+		}
+		if sys.Resources[0].Substitutions["gateway_lb_ip"] != deferredPlaceholder {
+			t.Errorf("Expected deferred 'internal' resources substitution to be '%s', got '%s'", deferredPlaceholder, sys.Resources[0].Substitutions["gateway_lb_ip"])
+		}
+		if sys.Resources[1].Substitutions["gateway_lb_ip"] != "already-resolved" {
+			t.Errorf("Expected 'external' resources substitution unchanged, got '%s'", sys.Resources[1].Substitutions["gateway_lb_ip"])
+		}
+	})
+
 	t.Run("DoesNotMutateOriginalBlueprint", func(t *testing.T) {
 		// Given a blueprint with a deferred substitution
 		bp := &blueprintv1alpha1.Blueprint{

@@ -264,6 +264,74 @@ func TestShowBlueprint_InstallResourcesTiers(t *testing.T) {
 	}
 }
 
+// TestShowBlueprint_FluxSystemFieldRemoval verifies that a facet's "strategy: remove" flux: entry
+// subtracts only the named dependsOn/install.components/resources[].name fields from a flux system
+// already declared in the base blueprint.yaml, leaving the rest of the system (and any resources
+// variant not named in the removal) intact -- Blueprint.RemoveFluxSystem's field-level semantics,
+// matching how kustomize:'s "remove" strategy already behaves, rather than deleting the system.
+func TestShowBlueprint_FluxSystemFieldRemoval(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers-remove")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "blueprint"}, env)
+	if err != nil {
+		t.Fatalf("show blueprint: %v\nstderr: %s", err, stderr)
+	}
+
+	var bp struct {
+		Flux []struct {
+			Name      string   `yaml:"name"`
+			DependsOn []string `yaml:"dependsOn"`
+			Install   struct {
+				Components []string `yaml:"components"`
+			} `yaml:"install"`
+			Resources []struct {
+				Name       string   `yaml:"name"`
+				Components []string `yaml:"components"`
+			} `yaml:"resources"`
+		} `yaml:"flux"`
+	}
+	if err := yaml.Unmarshal(stdout, &bp); err != nil {
+		t.Fatalf("parse blueprint YAML: %v\nstdout: %s", err, stdout)
+	}
+
+	var gateway *struct {
+		Name      string   `yaml:"name"`
+		DependsOn []string `yaml:"dependsOn"`
+		Install   struct {
+			Components []string `yaml:"components"`
+		} `yaml:"install"`
+		Resources []struct {
+			Name       string   `yaml:"name"`
+			Components []string `yaml:"components"`
+		} `yaml:"resources"`
+	}
+	for i := range bp.Flux {
+		if bp.Flux[i].Name == "gateway" {
+			gateway = &bp.Flux[i]
+			break
+		}
+	}
+	if gateway == nil {
+		t.Fatalf("expected gateway to survive field-level removal, got flux=%+v", bp.Flux)
+	}
+
+	if slices.Contains(gateway.DependsOn, "pki-install") {
+		t.Errorf("expected pki-install to be removed from dependsOn, got %v", gateway.DependsOn)
+	}
+
+	if slices.Contains(gateway.Install.Components, "envoy-metrics") {
+		t.Errorf("expected envoy-metrics to be removed from install components, got %v", gateway.Install.Components)
+	}
+	if !slices.Contains(gateway.Install.Components, "envoy") {
+		t.Errorf("expected envoy to remain in install components, got %v", gateway.Install.Components)
+	}
+
+	if len(gateway.Resources) != 1 || gateway.Resources[0].Name != "external" {
+		t.Errorf("expected only the 'external' resources variant to remain, got %+v", gateway.Resources)
+	}
+}
+
 // TestShowBlueprint_FluxSystemCrossFacetMerge verifies that two facets contributing to the same
 // flux: system name at different ordinals still merge under the default "merge" strategy instead
 // of the higher-ordinal facet wholesale-replacing the lower-ordinal one's install/resources: pki's
