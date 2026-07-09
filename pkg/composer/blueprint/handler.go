@@ -505,11 +505,7 @@ func (h *BaseBlueprintHandler) resolveDeferredSubstitutions() error {
 		}
 		for j := range sys.Resources {
 			v := &sys.Resources[j]
-			resourcesPrefix := "flux." + sys.Name + ".resources"
-			if v.Name != "" {
-				resourcesPrefix += "-" + v.Name
-			}
-			resourcesPrefix += ".substitutions."
+			resourcesPrefix := fluxResourcesSubstitutionPrefix(sys.Name, v.Name)
 			for key, value := range v.Substitutions {
 				if !deferred[resourcesPrefix+key] {
 					continue

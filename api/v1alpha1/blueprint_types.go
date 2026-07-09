@@ -491,23 +491,8 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 		return nil
 	}
 
-	inputsCopy := maps.Clone(t.Inputs)
-
 	dependsOnCopy := make([]string, len(t.DependsOn))
 	copy(dependsOnCopy, t.DependsOn)
-
-	var destroyCopy *BoolExpression
-	if t.Destroy != nil {
-		destroyCopy = t.Destroy.DeepCopy()
-	}
-	var parallelismCopy *IntExpression
-	if t.Parallelism != nil {
-		parallelismCopy = t.Parallelism.DeepCopy()
-	}
-	var enabledCopy *BoolExpression
-	if t.Enabled != nil {
-		enabledCopy = t.Enabled.DeepCopy()
-	}
 
 	return &TerraformComponent{
 		Name:         t.Name,
@@ -515,10 +500,10 @@ func (t *TerraformComponent) DeepCopy() *TerraformComponent {
 		Path:         t.Path,
 		FullPath:     t.FullPath,
 		DependsOn:    dependsOnCopy,
-		Inputs:       inputsCopy,
-		Destroy:      destroyCopy,
-		Parallelism:  parallelismCopy,
-		Enabled:      enabledCopy,
+		Inputs:       maps.Clone(t.Inputs),
+		Destroy:      t.Destroy.DeepCopy(),
+		Parallelism:  t.Parallelism.DeepCopy(),
+		Enabled:      t.Enabled.DeepCopy(),
 		InputOrigins: maps.Clone(t.InputOrigins),
 	}
 }
@@ -757,10 +742,6 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 
 	sourcesCopy := make([]Source, len(b.Sources))
 	for i, source := range b.Sources {
-		var installCopy *BoolExpression
-		if source.Install != nil {
-			installCopy = source.Install.DeepCopy()
-		}
 		sourcesCopy[i] = Source{
 			Name:       source.Name,
 			Url:        source.Url,
@@ -773,7 +754,7 @@ func (b *Blueprint) DeepCopy() *Blueprint {
 				Commit: source.Ref.Commit,
 			},
 			SecretName: source.SecretName,
-			Install:    installCopy,
+			Install:    source.Install.DeepCopy(),
 			Crds:       slices.Clone(source.Crds),
 		}
 	}
@@ -1071,32 +1052,32 @@ func (b *Blueprint) UpsertFluxSystem(sys FluxSystem) error {
 	return nil
 }
 
-// MergeFluxInstall deep-merges new's Install tier into existing's via MergeKustomizationFields
-// (Components/DependsOn accumulate, other fields are overridden by new when set) rather than via
-// by-name Blueprint.Kustomizations matching, since Install carries no Name until tier compilation
-// and that by-name path is a no-op on an unnamed Kustomization. Either side being nil just takes
-// the other, matching how a facet or source with no Install opinion shouldn't erase one
+// MergeFluxInstall deep-merges overlay's Install tier into existing's via MergeKustomizationFields
+// (Components/DependsOn accumulate, other fields are overridden by overlay when set) rather than
+// via by-name Blueprint.Kustomizations matching, since Install carries no Name until tier
+// compilation and that by-name path is a no-op on an unnamed Kustomization. Either side being nil
+// just takes the other, matching how a facet or source with no Install opinion shouldn't erase one
 // contributed elsewhere.
-func MergeFluxInstall(existing, new *Kustomization) *Kustomization {
-	if new == nil {
+func MergeFluxInstall(existing, overlay *Kustomization) *Kustomization {
+	if overlay == nil {
 		return existing
 	}
 	if existing == nil {
-		return new
+		return overlay
 	}
-	merged := MergeKustomizationFields(*existing, *new)
+	merged := MergeKustomizationFields(*existing, *overlay)
 	return &merged
 }
 
-// MergeFluxVariants combines two resources-variant lists keyed by variant name. A variant from new
-// deep-merges into the same-named variant in existing via MergeKustomizationFields (see
+// MergeFluxVariants combines two resources-variant lists keyed by variant name. A variant from
+// overlay deep-merges into the same-named variant in existing via MergeKustomizationFields (see
 // MergeFluxInstall for why by-name Blueprint.Kustomizations matching isn't used instead), and the
 // two When conditions combine with AND. A variant with a new name is appended in order. This keeps
 // a cross-facet or cross-source merge from emitting two Kustomizations with the same
 // "<system>-resources[-<name>]" identity.
-func MergeFluxVariants(existing, new []FluxVariant) []FluxVariant {
+func MergeFluxVariants(existing, overlay []FluxVariant) []FluxVariant {
 	merged := slices.Clone(existing)
-	for _, nv := range new {
+	for _, nv := range overlay {
 		idx := slices.IndexFunc(merged, func(v FluxVariant) bool { return v.Name == nv.Name })
 		if idx == -1 {
 			merged = append(merged, nv)
@@ -1162,16 +1143,7 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 		k.Name = installName
 		k.Path = path.Join(base, "install")
 		k.DependsOn = slices.Clone(sys.DependsOn)
-		if k.Source == "" {
-			k.Source = sys.Source
-		}
-		if k.Enabled == nil {
-			k.Enabled = sys.Enabled
-		}
-		if k.Destroy == nil {
-			k.Destroy = sys.Destroy
-		}
-		k.Substitute = nil
+		applySystemTierDefaults(&k, sys)
 		out = append(out, k)
 		installEmitted = true
 	}
@@ -1189,34 +1161,32 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 		} else {
 			k.DependsOn = append(slices.Clone(sys.DependsOn), v.DependsOn...)
 		}
-		if k.Source == "" {
-			k.Source = sys.Source
-		}
-		if k.Enabled == nil {
-			k.Enabled = sys.Enabled
-		}
-		if k.Destroy == nil {
-			k.Destroy = sys.Destroy
-		}
-		k.Substitute = nil
+		applySystemTierDefaults(&k, sys)
 		out = append(out, k)
 	}
 	return out
+}
+
+// applySystemTierDefaults fills a compiled tier Kustomization's Source/Enabled/Destroy from the
+// owning FluxSystem when the tier didn't set its own, and clears Substitute (already merged into
+// Substitutions during collection, so it carries no further meaning on the compiled tier).
+func applySystemTierDefaults(k *Kustomization, sys FluxSystem) {
+	if k.Source == "" {
+		k.Source = sys.Source
+	}
+	if k.Enabled == nil {
+		k.Enabled = sys.Enabled
+	}
+	if k.Destroy == nil {
+		k.Destroy = sys.Destroy
+	}
+	k.Substitute = nil
 }
 
 // DeepCopy creates a deep copy of the Kustomization object.
 func (k *Kustomization) DeepCopy() *Kustomization {
 	if k == nil {
 		return nil
-	}
-
-	var destroyCopy *BoolExpression
-	if k.Destroy != nil {
-		destroyCopy = k.Destroy.DeepCopy()
-	}
-	var enabledCopy *BoolExpression
-	if k.Enabled != nil {
-		enabledCopy = k.Enabled.DeepCopy()
 	}
 
 	return &Kustomization{
@@ -1234,9 +1204,9 @@ func (k *Kustomization) DeepCopy() *Kustomization {
 		Force:           k.Force,
 		Prune:           k.Prune,
 		Components:      slices.Clone(k.Components),
-		Destroy:         destroyCopy,
+		Destroy:         k.Destroy.DeepCopy(),
 		DestroyOnly:     k.DestroyOnly,
-		Enabled:         enabledCopy,
+		Enabled:         k.Enabled.DeepCopy(),
 		Substitutions:   maps.Clone(k.Substitutions),
 		Substitute:      maps.Clone(k.Substitute),
 	}
@@ -1260,22 +1230,10 @@ func (s *FluxSystem) DeepCopy() *FluxSystem {
 		return nil
 	}
 
-	var enabledCopy *BoolExpression
-	if s.Enabled != nil {
-		enabledCopy = s.Enabled.DeepCopy()
-	}
-	var destroyCopy *BoolExpression
-	if s.Destroy != nil {
-		destroyCopy = s.Destroy.DeepCopy()
-	}
 	var ordinalCopy *int
 	if s.Ordinal != nil {
 		o := *s.Ordinal
 		ordinalCopy = &o
-	}
-	var installCopy *Kustomization
-	if s.Install != nil {
-		installCopy = s.Install.DeepCopy()
 	}
 	resourcesCopy := make([]FluxVariant, len(s.Resources))
 	for i, v := range s.Resources {
@@ -1286,13 +1244,13 @@ func (s *FluxSystem) DeepCopy() *FluxSystem {
 		Name:      s.Name,
 		Path:      s.Path,
 		Source:    s.Source,
-		Enabled:   enabledCopy,
-		Destroy:   destroyCopy,
+		Enabled:   s.Enabled.DeepCopy(),
+		Destroy:   s.Destroy.DeepCopy(),
 		When:      s.When,
 		DependsOn: slices.Clone(s.DependsOn),
 		Strategy:  s.Strategy,
 		Ordinal:   ordinalCopy,
-		Install:   installCopy,
+		Install:   s.Install.DeepCopy(),
 		Resources: resourcesCopy,
 	}
 }

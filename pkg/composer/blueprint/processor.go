@@ -3,7 +3,6 @@ package blueprint
 import (
 	"fmt"
 	"maps"
-	"path"
 	"reflect"
 	"slices"
 	"sort"
@@ -523,15 +522,9 @@ func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existin
 		if strategy != "merge" && strategy != "replace" && strategy != "remove" {
 			return nil, nil, fmt.Errorf("invalid strategy %q for config block %q: must be 'merge', 'replace', or 'remove'", strategy, name)
 		}
-		incOrdinal := 0
-		if inc.Ordinal != nil {
-			incOrdinal = *inc.Ordinal
-		}
+		incOrdinal := ordinalOrZero(inc.Ordinal)
 		if prev, hasPrev := merged[name]; hasPrev {
-			prevOrdinal := 0
-			if prev.Ordinal != nil {
-				prevOrdinal = *prev.Ordinal
-			}
+			prevOrdinal := ordinalOrZero(prev.Ordinal)
 			prevStrategy := prev.Strategy
 			if prevStrategy == "" {
 				prevStrategy = "merge"
@@ -825,11 +818,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			processed.Source = resolveSourceName(sourceName)
 		}
 
-		facetOrd := resolvedFacetOrdinal(facet)
-		effectiveOrdinal := facetOrd
-		if processed.Ordinal != nil {
-			effectiveOrdinal = *processed.Ordinal
-		}
+		effectiveOrdinal := resolveOrdinal(facet, processed.Ordinal)
 		processed.Ordinal = &effectiveOrdinal
 
 		strategy := processed.Strategy
@@ -915,21 +904,8 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 
 		processed := k
 		processed.When = componentWhen
-		if len(processed.Substitute) > 0 {
-			processed.Substitutions = mergeSubstitute(processed.Kustomization)
-			processed.Substitute = nil
-		}
-		if processed.Substitutions != nil {
-			evaluated, deferredKeys, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path, facetScope)
-			if err != nil {
-				return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
-			}
-			processed.Substitutions = evaluated
-			for key, isDeferred := range deferredKeys {
-				if isDeferred {
-					p.markDeferredPath("kustomize." + processed.Name + ".substitutions." + key)
-				}
-			}
+		if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, "kustomize."+processed.Name+".substitutions.", facetScope); err != nil {
+			return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
 		}
 		if evaluator.ContainsExpression(processed.Path) {
 			evaluatedPath, err := p.evaluator.Evaluate(processed.Path, facet.Path, facetScope, false)
@@ -946,13 +922,11 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 				processed.Path = fmt.Sprintf("%v", evaluatedPath)
 			}
 		}
-		if len(processed.DependsOn) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
-			if err != nil {
-				return fmt.Errorf("error evaluating dependsOn for kustomization '%s': %w", processed.Name, err)
-			}
-			processed.DependsOn = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
+		dependsOn, err := p.evalDropEmpty(processed.DependsOn, facet.Path, facetScope)
+		if err != nil {
+			return fmt.Errorf("error evaluating dependsOn for kustomization '%s': %w", processed.Name, err)
 		}
+		processed.DependsOn = dependsOn
 		if len(processed.Components) > 0 {
 			evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path, facetScope)
 			if err != nil {
@@ -971,11 +945,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			processed.Source = resolveSourceName(sourceName)
 		}
 
-		facetOrd := resolvedFacetOrdinal(facet)
-		effectiveOrdinal := facetOrd
-		if processed.Ordinal != nil {
-			effectiveOrdinal = *processed.Ordinal
-		}
+		effectiveOrdinal := resolveOrdinal(facet, processed.Ordinal)
 		processed.Ordinal = &effectiveOrdinal
 
 		strategy := processed.Strategy
@@ -1027,14 +997,6 @@ func validateCrdRef(ref string) error {
 	return nil
 }
 
-// buildTierEntries expands a processed kustomization that declares install/resources component
-// groups into separate entries sharing the entry's path: "<name>-install" carries the install
-// components and "<name>-resources" carries the resources components and depends on the install,
-// so the controller is reconciled before the custom resources it admits. A legacy "<name>" entry
-// is emitted when Components is also set. The install (and legacy) entries carry the entry's
-// explicit dependencies; resources reaches those transitively through the install tier. The CRD
-// layer is ordered ahead of everything by the provisioner phase, not by per-entry dependsOn. Each
-// entry gets its own Substitutions copy and clears the tier fields.
 // mergeSubstitute returns k's Substitutions with its Substitute alias merged in (substitute wins on
 // key conflict). Returns nil when both are empty.
 func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
@@ -1047,6 +1009,17 @@ func mergeSubstitute(k blueprintv1alpha1.Kustomization) map[string]string {
 	}
 	maps.Copy(out, k.Substitute)
 	return out
+}
+
+// fluxResourcesSubstitutionPrefix returns the deferred-path prefix for a flux system's resources
+// tier substitutions, scoped per resources variant (empty variantName for the unnamed variant) so
+// two variants sharing a substitution key name don't collide on the same deferred-path entry.
+func fluxResourcesSubstitutionPrefix(systemName, variantName string) string {
+	prefix := "flux." + systemName + ".resources"
+	if variantName != "" {
+		prefix += "-" + variantName
+	}
+	return prefix + ".substitutions."
 }
 
 // combineWhen ANDs two condition expressions, dropping empties. A system entry's own condition is
@@ -1073,109 +1046,6 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 		return nil, err
 	}
 	return slices.DeleteFunc(evaluated, func(s string) bool { return s == "" }), nil
-}
-
-// buildFluxSystemEntries expands a flux: system descriptor into its Flux Kustomizations:
-// "<name>-install" at "<path>/install" from the install tier, and one
-// "<name>-resources[-<variant>]" per resources variant at "<path>/resources". Each resources
-// variant depends on "<name>-install" when an install tier is emitted (the controller-liveness
-// edge); otherwise it carries the system's cross-layer dependsOn directly. Install and variants
-// reuse the Kustomization type for their operational properties; the system supplies identity, path
-// base, lifecycle (source/enabled/destroy), and its cross-layer dependsOn. Components,
-// substitutions, and per-variant when/dependsOn are evaluated against the facet scope; a tier whose
-// components prune to empty, or a variant whose when is false, is dropped.
-func (p *BaseBlueprintProcessor) buildFluxSystemEntries(system blueprintv1alpha1.FluxSystem, facet blueprintv1alpha1.Facet, scope map[string]any) ([]blueprintv1alpha1.ConditionalKustomization, error) {
-	name := system.Name
-	base := system.Path
-	if base == "" {
-		base = name
-	}
-	installName := name + "-install"
-	systemDeps, err := p.evalDropEmpty(system.DependsOn, facet.Path, scope)
-	if err != nil {
-		return nil, fmt.Errorf("error evaluating dependsOn for system '%s': %w", name, err)
-	}
-
-	mk := func(tier blueprintv1alpha1.Kustomization, tierName, tierSegment string, components, dependsOn []string, when string) (blueprintv1alpha1.ConditionalKustomization, error) {
-		k := *tier.DeepCopy()
-		k.Name = tierName
-		k.Path = path.Join(base, tierSegment)
-		k.Components = components
-		k.DependsOn = dependsOn
-		if k.Source == "" {
-			k.Source = system.Source
-		}
-		if k.Enabled == nil {
-			k.Enabled = system.Enabled
-		}
-		if k.Destroy == nil {
-			k.Destroy = system.Destroy
-		}
-		if err := p.evalKustomizationSubstitutions(&k, facet.Path, "kustomize."+tierName+".substitutions.", scope); err != nil {
-			return blueprintv1alpha1.ConditionalKustomization{}, err
-		}
-		return blueprintv1alpha1.ConditionalKustomization{Kustomization: k, When: when}, nil
-	}
-
-	var entries []blueprintv1alpha1.ConditionalKustomization
-	installEmitted := false
-	seenVariants := make(map[string]bool)
-	if system.Install != nil {
-		comps, err := p.evalDropEmpty(system.Install.Components, facet.Path, scope)
-		if err != nil {
-			return nil, fmt.Errorf("error evaluating install components for system '%s': %w", name, err)
-		}
-		if len(comps) > 0 {
-			entry, err := mk(*system.Install, installName, "install", comps, systemDeps, system.When)
-			if err != nil {
-				return nil, fmt.Errorf("error building install tier for system '%s': %w", name, err)
-			}
-			entries = append(entries, entry)
-			installEmitted = true
-		}
-	}
-
-	for _, v := range system.Resources {
-		when := combineWhen(system.When, v.When)
-		include, err := p.shouldIncludeComponent(when, facet.Path, scope)
-		if err != nil {
-			return nil, fmt.Errorf("error evaluating resources condition for system '%s': %w", name, err)
-		}
-		if !include {
-			continue
-		}
-		comps, err := p.evalDropEmpty(v.Components, facet.Path, scope)
-		if err != nil {
-			return nil, fmt.Errorf("error evaluating resources components for system '%s': %w", name, err)
-		}
-		if len(comps) == 0 {
-			continue
-		}
-		variantName := name + "-resources"
-		if v.Name != "" {
-			variantName += "-" + v.Name
-		}
-		if seenVariants[variantName] {
-			return nil, fmt.Errorf("duplicate resources variant %q in system %q; add a unique name: field to each variant", variantName, name)
-		}
-		seenVariants[variantName] = true
-		extraDeps, err := p.evalDropEmpty(v.DependsOn, facet.Path, scope)
-		if err != nil {
-			return nil, fmt.Errorf("error evaluating resources dependsOn for system '%s': %w", name, err)
-		}
-		var deps []string
-		if installEmitted {
-			deps = append([]string{installName}, extraDeps...)
-		} else {
-			deps = append(slices.Clone(systemDeps), extraDeps...)
-		}
-		entry, err := mk(v.Kustomization, variantName, "resources", comps, deps, when)
-		if err != nil {
-			return nil, fmt.Errorf("error building resources tier for system '%s': %w", name, err)
-		}
-		entries = append(entries, entry)
-	}
-	return entries, nil
 }
 
 // collectFluxSystems evaluates a facet's flux: system descriptors — resolving expressions on
@@ -1205,10 +1075,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			system.Source = resolveSourceName(sourceName)
 		}
 
-		effectiveOrdinal := resolvedFacetOrdinal(facet)
-		if system.Ordinal != nil {
-			effectiveOrdinal = *system.Ordinal
-		}
+		effectiveOrdinal := resolveOrdinal(facet, system.Ordinal)
 		strategy := system.Strategy
 		if strategy == "" {
 			strategy = "merge"
@@ -1274,11 +1141,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			}
 			evalV.DependsOn = extraDeps
 
-			resourcesDeferredPrefix := "flux." + system.Name + ".resources"
-			if v.Name != "" {
-				resourcesDeferredPrefix += "-" + v.Name
-			}
-			resourcesDeferredPrefix += ".substitutions."
+			resourcesDeferredPrefix := fluxResourcesSubstitutionPrefix(system.Name, v.Name)
 			if err := p.evalKustomizationSubstitutions(&evalV.Kustomization, facet.Path, resourcesDeferredPrefix, facetScope); err != nil {
 				return fmt.Errorf("error evaluating resources substitutions for system '%s': %w", system.Name, err)
 			}
@@ -1327,14 +1190,8 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 		return fmt.Errorf("invalid strategy '%s' for flux system '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
 	}
 
-	newOrdinal := 0
-	if new.Ordinal != nil {
-		newOrdinal = *new.Ordinal
-	}
-	existingOrdinal := 0
-	if existing.Ordinal != nil {
-		existingOrdinal = *existing.Ordinal
-	}
+	newOrdinal := ordinalOrZero(new.Ordinal)
+	existingOrdinal := ordinalOrZero(existing.Ordinal)
 
 	if newOrdinal > existingOrdinal {
 		if existingStrategy == "remove" || strategy == "remove" {
@@ -1536,14 +1393,8 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
 	}
 
-	newOrdinal := 0
-	if new.Ordinal != nil {
-		newOrdinal = *new.Ordinal
-	}
-	existingOrdinal := 0
-	if existing.Ordinal != nil {
-		existingOrdinal = *existing.Ordinal
-	}
+	newOrdinal := ordinalOrZero(new.Ordinal)
+	existingOrdinal := ordinalOrZero(existing.Ordinal)
 
 	if newOrdinal > existingOrdinal {
 		if strategy == "replace" {
@@ -1670,14 +1521,8 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
 	}
 
-	newOrdinal := 0
-	if new.Ordinal != nil {
-		newOrdinal = *new.Ordinal
-	}
-	existingOrdinal := 0
-	if existing.Ordinal != nil {
-		existingOrdinal = *existing.Ordinal
-	}
+	newOrdinal := ordinalOrZero(new.Ordinal)
+	existingOrdinal := ordinalOrZero(existing.Ordinal)
 
 	if newOrdinal > existingOrdinal {
 		if existingStrategy == "remove" || strategy == "remove" {
@@ -2314,6 +2159,25 @@ func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
 		return *f.Ordinal
 	}
 	return OrdinalFromFacetPath(f.Path)
+}
+
+// ordinalOrZero dereferences ordinal, or returns 0 when it is nil. Shared by every ordinal
+// precedence comparison across terraform/kustomization/flux-system entry merging and config-block
+// merging.
+func ordinalOrZero(ordinal *int) int {
+	if ordinal == nil {
+		return 0
+	}
+	return *ordinal
+}
+
+// resolveOrdinal returns ordinal's value when set, or facet's own default ordinal otherwise.
+// Shared by each collect* function's per-entry ordinal resolution.
+func resolveOrdinal(facet blueprintv1alpha1.Facet, ordinal *int) int {
+	if ordinal != nil {
+		return *ordinal
+	}
+	return resolvedFacetOrdinal(facet)
 }
 
 // deepCopyMapStringAny returns a deep copy of m so that trace records hold a snapshot of the

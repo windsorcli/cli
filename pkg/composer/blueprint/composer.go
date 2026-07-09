@@ -769,11 +769,12 @@ func claimCrdRefs(refs []string, claimed map[string]struct{}) []string {
 }
 
 // applyCrdLayerBarrier orders the vendored CRD layers ahead of the whole stack: when the blueprint
-// implies CRD layers, every root kustomization (one with no dependsOn of its own) is made to depend on
-// every synthesized CRD kustomization. Dependents of those roots reach the layers transitively, so the
-// stack reconciles after the CRDs are Established — without any facet author naming a CRD in dependsOn,
-// and without the provisioner waiting: Flux honors the edges on every reconcile. The CRD kustomizations
-// themselves are materialized by the provisioner from the same CrdLayers derivation.
+// implies CRD layers, every root — a plain kustomize: entry or flux: system with no dependsOn of its
+// own — is made to depend on every synthesized CRD kustomization. Dependents of those roots reach the
+// layers transitively, so the stack reconciles after the CRDs are Established — without any facet
+// author naming a CRD in dependsOn, and without the provisioner waiting: Flux honors the edges on
+// every reconcile. The CRD kustomizations themselves are materialized by the provisioner from the
+// same CrdLayers derivation.
 func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Blueprint) {
 	layers := CrdLayers(bp)
 	if len(layers) == 0 {
