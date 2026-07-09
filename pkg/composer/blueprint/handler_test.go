@@ -1239,13 +1239,8 @@ func TestHandler_GenerateResolved(t *testing.T) {
 	})
 
 	t.Run("PropagatesEvaluatorErrorWithSubstitutionPath", func(t *testing.T) {
-		// Given a handler with a deferred substitution whose underlying expression errors
-		// during the deferred-resolution pass — e.g. a terraform_output() that references a
-		// missing module key, or a terraform shell failure. Previously the handler would
-		// swallow the error and leave the raw `${...}` source string in the substitution
-		// map, which then leaked into Flux ConfigMaps and downstream Helm renders. Now the
-		// error must surface here, named by its substitution path, so the operator sees the
-		// failure at blueprint-resolution time instead of via a downstream pod crashloop.
+		// A deferred substitution whose expression errors (e.g. terraform_output() referencing
+		// a missing module key) surfaces the error here, named by its substitution path.
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
 			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
@@ -1288,11 +1283,7 @@ func TestHandler_GenerateResolved(t *testing.T) {
 	})
 
 	t.Run("ResolvesFluxSystemInstallAndResourcesSubstitutions", func(t *testing.T) {
-		// Given a handler with deferred substitutions on a flux: system's install and resources
-		// tiers. Blueprint.DeepCopy() previously always dropped FluxSystems, which masked the
-		// fact that resolveDeferredSubstitutions never walked them either — a deferred
-		// terraform_output() under flux: would reach a cluster ConfigMap unresolved. Now that
-		// DeepCopy carries FluxSystems, this path must actually resolve them.
+		// Two resources variants share a substitution key name; only "internal"'s is deferred.
 		mocks := setupHandlerMocks(t)
 		mocks.Runtime.Evaluator = &evaluator.MockExpressionEvaluator{
 			EvaluateFunc: func(expr string, _ string, _ map[string]any, _ bool) (any, error) {
@@ -1314,7 +1305,15 @@ func TestHandler_GenerateResolved(t *testing.T) {
 							Kustomization: blueprintv1alpha1.Kustomization{
 								Name: "internal",
 								Substitutions: map[string]string{
-									"gateway_lb_ip": "${terraform_output('network', 'lb_ip') ?? ''}",
+									"gateway_lb_ip": "${terraform_output('network', 'internal_lb_ip') ?? ''}",
+								},
+							},
+						},
+						{
+							Kustomization: blueprintv1alpha1.Kustomization{
+								Name: "external",
+								Substitutions: map[string]string{
+									"gateway_lb_ip": "already-resolved",
 								},
 							},
 						},
@@ -1323,8 +1322,8 @@ func TestHandler_GenerateResolved(t *testing.T) {
 			},
 		}
 		handler.deferredPaths = map[string]bool{
-			"flux.gateway.install.substitutions.cluster_name":    true,
-			"flux.gateway.resources.substitutions.gateway_lb_ip": true,
+			"flux.gateway.install.substitutions.cluster_name":             true,
+			"flux.gateway.resources-internal.substitutions.gateway_lb_ip": true,
 		}
 
 		// When calling GenerateResolved
@@ -1333,13 +1332,16 @@ func TestHandler_GenerateResolved(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 
-		// Then both the install and resources deferred substitutions are resolved
+		// Then only the deferred substitutions are resolved
 		sys := resolved.FluxSystems[0]
 		if sys.Install.Substitutions["cluster_name"] != "resolved-value" {
 			t.Errorf("Expected install substitution resolved, got %q", sys.Install.Substitutions["cluster_name"])
 		}
 		if sys.Resources[0].Substitutions["gateway_lb_ip"] != "resolved-value" {
-			t.Errorf("Expected resources substitution resolved, got %q", sys.Resources[0].Substitutions["gateway_lb_ip"])
+			t.Errorf("Expected 'internal' variant's deferred substitution resolved, got %q", sys.Resources[0].Substitutions["gateway_lb_ip"])
+		}
+		if sys.Resources[1].Substitutions["gateway_lb_ip"] != "already-resolved" {
+			t.Errorf("Expected 'external' variant's already-resolved substitution left untouched, got %q", sys.Resources[1].Substitutions["gateway_lb_ip"])
 		}
 	})
 }

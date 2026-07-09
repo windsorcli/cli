@@ -1274,7 +1274,12 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			}
 			evalV.DependsOn = extraDeps
 
-			if err := p.evalKustomizationSubstitutions(&evalV.Kustomization, facet.Path, "flux."+system.Name+".resources.substitutions.", facetScope); err != nil {
+			resourcesDeferredPrefix := "flux." + system.Name + ".resources"
+			if v.Name != "" {
+				resourcesDeferredPrefix += "-" + v.Name
+			}
+			resourcesDeferredPrefix += ".substitutions."
+			if err := p.evalKustomizationSubstitutions(&evalV.Kustomization, facet.Path, resourcesDeferredPrefix, facetScope); err != nil {
 				return fmt.Errorf("error evaluating resources substitutions for system '%s': %w", system.Name, err)
 			}
 			evaluatedResources = append(evaluatedResources, evalV)
