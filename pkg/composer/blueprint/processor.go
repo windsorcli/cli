@@ -522,15 +522,9 @@ func (p *BaseBlueprintProcessor) mergeConfigBlocks(scope map[string]any, existin
 		if strategy != "merge" && strategy != "replace" && strategy != "remove" {
 			return nil, nil, fmt.Errorf("invalid strategy %q for config block %q: must be 'merge', 'replace', or 'remove'", strategy, name)
 		}
-		incOrdinal := 0
-		if inc.Ordinal != nil {
-			incOrdinal = *inc.Ordinal
-		}
+		incOrdinal := ordinalOrZero(inc.Ordinal)
 		if prev, hasPrev := merged[name]; hasPrev {
-			prevOrdinal := 0
-			if prev.Ordinal != nil {
-				prevOrdinal = *prev.Ordinal
-			}
+			prevOrdinal := ordinalOrZero(prev.Ordinal)
 			prevStrategy := prev.Strategy
 			if prevStrategy == "" {
 				prevStrategy = "merge"
@@ -824,11 +818,7 @@ func (p *BaseBlueprintProcessor) collectTerraformComponents(
 			processed.Source = resolveSourceName(sourceName)
 		}
 
-		facetOrd := resolvedFacetOrdinal(facet)
-		effectiveOrdinal := facetOrd
-		if processed.Ordinal != nil {
-			effectiveOrdinal = *processed.Ordinal
-		}
+		effectiveOrdinal := resolveOrdinal(facet, processed.Ordinal)
 		processed.Ordinal = &effectiveOrdinal
 
 		strategy := processed.Strategy
@@ -914,21 +904,8 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 
 		processed := k
 		processed.When = componentWhen
-		if len(processed.Substitute) > 0 {
-			processed.Substitutions = mergeSubstitute(processed.Kustomization)
-			processed.Substitute = nil
-		}
-		if processed.Substitutions != nil {
-			evaluated, deferredKeys, err := p.evaluateSubstitutions(processed.Substitutions, facet.Path, facetScope)
-			if err != nil {
-				return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
-			}
-			processed.Substitutions = evaluated
-			for key, isDeferred := range deferredKeys {
-				if isDeferred {
-					p.markDeferredPath("kustomize." + processed.Name + ".substitutions." + key)
-				}
-			}
+		if err := p.evalKustomizationSubstitutions(&processed.Kustomization, facet.Path, "kustomize."+processed.Name+".substitutions.", facetScope); err != nil {
+			return fmt.Errorf("error evaluating substitutions for kustomization '%s': %w", processed.Name, err)
 		}
 		if evaluator.ContainsExpression(processed.Path) {
 			evaluatedPath, err := p.evaluator.Evaluate(processed.Path, facet.Path, facetScope, false)
@@ -945,13 +922,11 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 				processed.Path = fmt.Sprintf("%v", evaluatedPath)
 			}
 		}
-		if len(processed.DependsOn) > 0 {
-			evaluated, err := p.evaluateStringSlice(processed.DependsOn, facet.Path, facetScope)
-			if err != nil {
-				return fmt.Errorf("error evaluating dependsOn for kustomization '%s': %w", processed.Name, err)
-			}
-			processed.DependsOn = slices.DeleteFunc(evaluated, func(s string) bool { return s == "" })
+		dependsOn, err := p.evalDropEmpty(processed.DependsOn, facet.Path, facetScope)
+		if err != nil {
+			return fmt.Errorf("error evaluating dependsOn for kustomization '%s': %w", processed.Name, err)
 		}
+		processed.DependsOn = dependsOn
 		if len(processed.Components) > 0 {
 			evaluated, err := p.evaluateStringSlice(processed.Components, facet.Path, facetScope)
 			if err != nil {
@@ -970,11 +945,7 @@ func (p *BaseBlueprintProcessor) collectKustomizations(facet blueprintv1alpha1.F
 			processed.Source = resolveSourceName(sourceName)
 		}
 
-		facetOrd := resolvedFacetOrdinal(facet)
-		effectiveOrdinal := facetOrd
-		if processed.Ordinal != nil {
-			effectiveOrdinal = *processed.Ordinal
-		}
+		effectiveOrdinal := resolveOrdinal(facet, processed.Ordinal)
 		processed.Ordinal = &effectiveOrdinal
 
 		strategy := processed.Strategy
@@ -1104,10 +1075,7 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			system.Source = resolveSourceName(sourceName)
 		}
 
-		effectiveOrdinal := resolvedFacetOrdinal(facet)
-		if system.Ordinal != nil {
-			effectiveOrdinal = *system.Ordinal
-		}
+		effectiveOrdinal := resolveOrdinal(facet, system.Ordinal)
 		strategy := system.Strategy
 		if strategy == "" {
 			strategy = "merge"
@@ -1222,14 +1190,8 @@ func (p *BaseBlueprintProcessor) updateFluxSystemEntry(name string, new *bluepri
 		return fmt.Errorf("invalid strategy '%s' for flux system '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
 	}
 
-	newOrdinal := 0
-	if new.Ordinal != nil {
-		newOrdinal = *new.Ordinal
-	}
-	existingOrdinal := 0
-	if existing.Ordinal != nil {
-		existingOrdinal = *existing.Ordinal
-	}
+	newOrdinal := ordinalOrZero(new.Ordinal)
+	existingOrdinal := ordinalOrZero(existing.Ordinal)
 
 	if newOrdinal > existingOrdinal {
 		if existingStrategy == "remove" || strategy == "remove" {
@@ -1431,14 +1393,8 @@ func (p *BaseBlueprintProcessor) updateTerraformComponentEntry(
 		return fmt.Errorf("invalid strategy '%s' for terraform component '%s': must be 'remove', 'replace', or 'merge'", strategy, componentID)
 	}
 
-	newOrdinal := 0
-	if new.Ordinal != nil {
-		newOrdinal = *new.Ordinal
-	}
-	existingOrdinal := 0
-	if existing.Ordinal != nil {
-		existingOrdinal = *existing.Ordinal
-	}
+	newOrdinal := ordinalOrZero(new.Ordinal)
+	existingOrdinal := ordinalOrZero(existing.Ordinal)
 
 	if newOrdinal > existingOrdinal {
 		if strategy == "replace" {
@@ -1565,14 +1521,8 @@ func (p *BaseBlueprintProcessor) updateKustomizationEntry(name string, new *blue
 		return fmt.Errorf("invalid strategy '%s' for kustomization '%s': must be 'remove', 'replace', or 'merge'", strategy, name)
 	}
 
-	newOrdinal := 0
-	if new.Ordinal != nil {
-		newOrdinal = *new.Ordinal
-	}
-	existingOrdinal := 0
-	if existing.Ordinal != nil {
-		existingOrdinal = *existing.Ordinal
-	}
+	newOrdinal := ordinalOrZero(new.Ordinal)
+	existingOrdinal := ordinalOrZero(existing.Ordinal)
 
 	if newOrdinal > existingOrdinal {
 		if existingStrategy == "remove" || strategy == "remove" {
@@ -2209,6 +2159,25 @@ func resolvedFacetOrdinal(f blueprintv1alpha1.Facet) int {
 		return *f.Ordinal
 	}
 	return OrdinalFromFacetPath(f.Path)
+}
+
+// ordinalOrZero dereferences ordinal, or returns 0 when it is nil. Shared by every ordinal
+// precedence comparison across terraform/kustomization/flux-system entry merging and config-block
+// merging.
+func ordinalOrZero(ordinal *int) int {
+	if ordinal == nil {
+		return 0
+	}
+	return *ordinal
+}
+
+// resolveOrdinal returns ordinal's value when set, or facet's own default ordinal otherwise.
+// Shared by each collect* function's per-entry ordinal resolution.
+func resolveOrdinal(facet blueprintv1alpha1.Facet, ordinal *int) int {
+	if ordinal != nil {
+		return *ordinal
+	}
+	return resolvedFacetOrdinal(facet)
 }
 
 // deepCopyMapStringAny returns a deep copy of m so that trace records hold a snapshot of the
