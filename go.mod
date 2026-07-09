@@ -1,6 +1,6 @@
 module github.com/windsorcli/cli
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/1password/onepassword-sdk-go v0.3.1
@@ -20,7 +20,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/kaptinlin/jsonschema v0.9.3
 	github.com/shirou/gopsutil v3.21.11+incompatible
-	github.com/siderolabs/talos/pkg/machinery v1.13.5
+	github.com/siderolabs/talos/pkg/machinery v1.13.6
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/zclconf/go-cty v1.18.1
@@ -102,7 +102,7 @@ require (
 	github.com/planetscale/vtprotobuf v0.6.1-0.20250313105119-ba97887b0a25 // indirect
 	github.com/sasha-s/go-deadlock v0.3.6 // indirect
 	github.com/siderolabs/crypto v0.6.5 // indirect
-	github.com/siderolabs/gen v0.8.6 // indirect
+	github.com/siderolabs/gen v0.8.7 // indirect
 	github.com/siderolabs/go-api-signature v0.3.12 // indirect
 	github.com/siderolabs/go-pointer v1.0.1 // indirect
 	github.com/siderolabs/protoenc v0.2.4 // indirect
