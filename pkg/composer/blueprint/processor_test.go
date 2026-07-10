@@ -2684,6 +2684,22 @@ func TestProcessor_ProcessFacets_Tiers(t *testing.T) {
 		}
 	})
 
+	t.Run("ResourcesVariantKeptWhenComponentsPruneToEmpty", func(t *testing.T) {
+		target := process(t, blueprintv1alpha1.FluxSystem{
+			Name:      "policy",
+			Path:      "policy",
+			Install:   &blueprintv1alpha1.Kustomization{Components: []string{"kyverno"}},
+			Resources: []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: []string{"${false ? 'resource-limits' : ''}"}}}},
+		})
+		res, ok := find(target, "policy-resources")
+		if !ok {
+			t.Fatalf("expected policy-resources to be kept even with no components, got %+v", target.AllKustomizations())
+		}
+		if len(res.Components) != 0 {
+			t.Errorf("expected empty components, got %v", res.Components)
+		}
+	})
+
 	t.Run("DuplicateUnnamedVariantsReturnsError", func(t *testing.T) {
 		mocks := setupProcessorMocks(t)
 		processor := NewBlueprintProcessor(mocks.Runtime)

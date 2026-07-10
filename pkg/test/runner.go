@@ -739,14 +739,14 @@ func (r *TestRunner) validateDuplicateTerraformComponents(bp *blueprintv1alpha1.
 }
 
 // validateDuplicateKustomizations checks for duplicate Kustomizations in the blueprint by comparing
-// kustomization names. It maintains a set of seen names and reports an error for each duplicate
-// encountered. Duplicate kustomizations indicate a composition error where multiple facets contributed
-// the same kustomization without proper merging or replacement. Returns a slice of error messages,
-// one for each duplicate found.
+// kustomization names across both plain kustomize: entries and the tiers compiled from flux: systems.
+// It maintains a set of seen names and reports an error for each duplicate encountered. Duplicate
+// kustomizations indicate a composition error where multiple facets contributed the same kustomization
+// without proper merging or replacement. Returns a slice of error messages, one for each duplicate found.
 func (r *TestRunner) validateDuplicateKustomizations(bp *blueprintv1alpha1.Blueprint) []string {
 	var errs []string
 	names := make(map[string]struct{})
-	for _, k := range bp.Kustomizations {
+	for _, k := range bp.AllKustomizations() {
 		if _, exists := names[k.Name]; exists {
 			errs = append(errs, fmt.Sprintf("duplicate kustomization name: %s", k.Name))
 		}
@@ -756,12 +756,13 @@ func (r *TestRunner) validateDuplicateKustomizations(bp *blueprintv1alpha1.Bluep
 }
 
 // validateDuplicateKustomizationComponents checks for duplicate component references within each
-// Kustomization's Components list. Empty strings are placeholders (e.g. conditional slot with no
-// component) and may appear multiple times; only non-empty duplicate component names are reported.
-// Returns a slice of error messages, one for each duplicate found.
+// Kustomization's Components list, across both plain kustomize: entries and the tiers compiled from
+// flux: systems. Empty strings are placeholders (e.g. conditional slot with no component) and may
+// appear multiple times; only non-empty duplicate component names are reported. Returns a slice of
+// error messages, one for each duplicate found.
 func (r *TestRunner) validateDuplicateKustomizationComponents(bp *blueprintv1alpha1.Blueprint) []string {
 	var errs []string
-	for _, k := range bp.Kustomizations {
+	for _, k := range bp.AllKustomizations() {
 		components := make(map[string]struct{})
 		for _, comp := range k.Components {
 			if comp == "" {
@@ -779,9 +780,11 @@ func (r *TestRunner) validateDuplicateKustomizationComponents(bp *blueprintv1alp
 // validateCircularDependencies checks for circular dependency chains in both Terraform components
 // and Kustomizations. It builds dependency graphs for each component type and uses depth-first search
 // to detect cycles. Circular dependencies would cause infinite loops or undefined ordering during
-// blueprint application, so they must be caught and reported. The function validates Terraform
-// components separately from Kustomizations, as they have independent dependency graphs. Returns a
-// slice of error messages describing each circular dependency found, including the full cycle path.
+// blueprint application, so they must be caught and reported. The Kustomization graph covers both
+// plain kustomize: entries and the tiers compiled from flux: systems, since dependsOn edges can
+// target or originate from either. The function validates Terraform components separately from
+// Kustomizations, as they have independent dependency graphs. Returns a slice of error messages
+// describing each circular dependency found, including the full cycle path.
 func (r *TestRunner) validateCircularDependencies(bp *blueprintv1alpha1.Blueprint) []string {
 	var errs []string
 
@@ -796,7 +799,7 @@ func (r *TestRunner) validateCircularDependencies(bp *blueprintv1alpha1.Blueprin
 
 	kGraph := make(map[string][]string)
 	kNames := make(map[string]struct{})
-	for _, k := range bp.Kustomizations {
+	for _, k := range bp.AllKustomizations() {
 		kNames[k.Name] = struct{}{}
 		kGraph[k.Name] = k.DependsOn
 	}
@@ -821,8 +824,9 @@ func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint
 		tfIDs[tf.GetID()] = struct{}{}
 	}
 
-	kNames := make(map[string]struct{})
-	for _, k := range bp.Kustomizations {
+	allK := bp.AllKustomizations()
+	kNames := make(map[string]struct{}, len(allK))
+	for _, k := range allK {
 		kNames[k.Name] = struct{}{}
 	}
 	for _, layer := range blueprint.CrdLayers(bp) {
@@ -837,7 +841,7 @@ func (r *TestRunner) validateInvalidDependencies(bp *blueprintv1alpha1.Blueprint
 		}
 	}
 
-	for _, k := range bp.Kustomizations {
+	for _, k := range allK {
 		for _, dep := range k.DependsOn {
 			if _, exists := kNames[dep]; !exists {
 				errs = append(errs, fmt.Sprintf("kustomization %q depends on non-existent kustomization %q", k.Name, dep))
