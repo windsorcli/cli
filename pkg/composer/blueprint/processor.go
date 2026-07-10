@@ -1050,13 +1050,13 @@ func (p *BaseBlueprintProcessor) evalDropEmpty(raw []string, facetPath string, s
 
 // collectFluxSystems evaluates a facet's flux: system descriptors — resolving expressions on
 // DependsOn, Install components/substitutions, and each resources variant — and stores the result
-// in fluxSystemByName. Variants whose when condition is false or whose components evaluate to empty
-// are dropped; an install tier whose components prune to empty sets Install to nil. This preserves
-// the FluxSystem structure in the composed blueprint (for show blueprint and YAML output) while
-// keeping tier compilation deferred to AllKustomizations(). The empty-components pruning is skipped
-// for strategy == "remove": a removal descriptor's resources variants are identified by Name alone,
-// not by a non-empty Components list, so dropping a variant with no evaluated components (as merge/
-// replace do) would erase the very variant name a removal is naming.
+// in fluxSystemByName. A resources variant is dropped only when its own when condition (combined
+// with the system's) is false — never merely because its components prune to empty, matching how
+// a plain kustomize: entry is always emitted regardless of its resolved component count; a
+// dependsOn reference to it stays valid whether or not the variant's own components ended up
+// empty. An install tier whose components prune to empty sets Install to nil, since install is
+// optional per system (a system may have none at all) and an empty install is equivalent to none
+// declared.
 func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Facet, sourceName []string, fluxSystemByName map[string]*blueprintv1alpha1.FluxSystem, facetScope map[string]any) error {
 	for _, system := range facet.FluxSystems {
 		when := system.When
@@ -1118,9 +1118,6 @@ func (p *BaseBlueprintProcessor) collectFluxSystems(facet blueprintv1alpha1.Face
 			comps, err := p.evalDropEmpty(v.Components, facet.Path, facetScope)
 			if err != nil {
 				return fmt.Errorf("error evaluating resources components for system '%s': %w", system.Name, err)
-			}
-			if len(comps) == 0 && strategy != "remove" {
-				continue
 			}
 			variantKey := system.Name + "-resources"
 			if v.Name != "" {
