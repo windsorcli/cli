@@ -8,7 +8,7 @@ description: "Move sources to their latest version and reconcile the blueprint."
 windsor upgrade [flags]
 ```
 
-With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. Prunes run only after a successful wait and are gated by --yes.
+With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. The whole reconcile — including the prune — is gated by --yes.
 
 Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.
 

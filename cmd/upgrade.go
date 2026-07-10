@@ -33,7 +33,7 @@ var (
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Move sources to their latest version and reconcile the blueprint.",
-	Long: `With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. Prunes run only after a successful wait and are gated by --yes.
+	Long: `With no arguments, move every declared OCI source to its latest stable version, then reconcile: apply terraform and the Flux blueprint, wait, and prune kustomizations this context no longer declares. Use --source name=url to move named sources to specific versions instead. The whole reconcile — including the prune — is gated by --yes.
 
 Use the 'cluster' or 'node' subcommand to upgrade Talos nodes instead.`,
 	Example: `# Move all sources to their latest stable version and reconcile
@@ -134,7 +134,7 @@ windsor upgrade cluster --nodes=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1
 			if err != nil {
 				return fmt.Errorf("error listing kustomizations to prune: %w", err)
 			}
-			if err := confirmAndPrune(cmd, proj, blueprint, prunable, upgradeYes); err != nil {
+			if err := pruneOrphaned(cmd, proj, blueprint, prunable); err != nil {
 				return err
 			}
 
@@ -257,19 +257,15 @@ windsor upgrade node --node=10.0.0.5 --image=ghcr.io/siderolabs/installer:v1.13.
 	},
 }
 
-// confirmAndPrune prunes the kustomizations the blueprint no longer declares, after printing them
-// and requiring --yes. prunable is the already-computed prune set (empty → no-op). The caller must
-// have waited for the desired set to be Ready first, so any migrated resources are adopted before a
-// deletion. Shared by apply and upgrade, which reconcile identically.
-func confirmAndPrune(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, prunable []string, yes bool) error {
+// pruneOrphaned deletes the kustomizations the blueprint no longer declares, after printing them.
+// prunable is the already-computed prune set (empty → no-op). The caller must have waited for the
+// desired set to be Ready first, so any migrated resources are adopted before a deletion. Shared by
+// apply (behind --prune) and upgrade (unconditional, since upgrade already required --yes to start).
+func pruneOrphaned(cmd *cobra.Command, proj *project.Project, blueprint *blueprintv1alpha1.Blueprint, prunable []string) error {
 	if len(prunable) == 0 {
 		return nil
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "The following kustomizations are no longer declared and will be pruned:\n  %s\n", strings.Join(prunable, "\n  "))
-	if !yes {
-		silenceErrorsOnAncestors(cmd)
-		return fmt.Errorf("this would prune %d kustomization(s); re-run with --yes to proceed", len(prunable))
-	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Pruning kustomizations no longer declared:\n  %s\n", strings.Join(prunable, "\n  "))
 	if err := proj.Provisioner.Prune(blueprint); err != nil {
 		return fmt.Errorf("error pruning orphaned kustomizations: %w", err)
 	}
