@@ -153,6 +153,27 @@ func TestShowKustomization_TierNameRendersCompiledKustomization(t *testing.T) {
 	}
 }
 
+func TestShowKustomization_PathDefaultsToNameWhenUnset(t *testing.T) {
+	t.Parallel()
+	dir, env := helpers.PrepareFixture(t, "facet-tiers")
+	env = append(env, "WINDSOR_CONTEXT=default")
+	stdout, stderr, err := helpers.RunCLI(dir, []string{"show", "kustomization", "dns"}, env)
+	if err != nil {
+		t.Fatalf("show kustomization dns: %v\nstderr: %s", err, stderr)
+	}
+	var k struct {
+		Spec struct {
+			Path string `yaml:"path"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(stdout, &k); err != nil {
+		t.Fatalf("parse kustomization YAML: %v\nstdout: %s", err, stdout)
+	}
+	if k.Spec.Path != "kustomize/dns" {
+		t.Errorf("expected spec.path kustomize/dns, got %q", k.Spec.Path)
+	}
+}
+
 func TestShowKustomization_SystemNameReturnsTierListError(t *testing.T) {
 	t.Parallel()
 	dir, env := helpers.PrepareFixture(t, "facet-tiers")

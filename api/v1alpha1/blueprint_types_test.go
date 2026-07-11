@@ -2885,8 +2885,8 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
-		if result.Spec.Path != "kustomize" {
-			t.Errorf("Expected path 'kustomize', got '%s'", result.Spec.Path)
+		if result.Spec.Path != "kustomize/test-kustomization" {
+			t.Errorf("Expected path 'kustomize/test-kustomization', got '%s'", result.Spec.Path)
 		}
 	})
 
