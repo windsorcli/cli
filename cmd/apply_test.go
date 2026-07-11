@@ -201,8 +201,8 @@ func TestApplyCmd_Prune(t *testing.T) {
 		}
 	})
 
-	t.Run("RefusesPruneWithoutYes", func(t *testing.T) {
-		t.Cleanup(func() { applyYesFlag = false })
+	t.Run("ReportsOrphansWithoutPrune", func(t *testing.T) {
+		t.Cleanup(func() { applyPruneFlag = false })
 		// Given a reconcile that would prune a kustomization
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
@@ -215,26 +215,28 @@ func TestApplyCmd_Prune(t *testing.T) {
 		}
 		proj := newApplyAllProject(mocks)
 
-		// When applying without --yes
+		// When applying without --prune
+		var stdout bytes.Buffer
 		cmd := createTestApplyCmd()
+		cmd.SetOut(&stdout)
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		err := cmd.Execute()
 
-		// Then it refuses and never prunes
-		if err == nil {
-			t.Fatal("Expected apply to refuse pruning without --yes, got nil")
+		// Then it succeeds, reports the orphan, and never prunes
+		if err != nil {
+			t.Fatalf("Expected apply to succeed without --prune, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "--yes") {
-			t.Errorf("Expected the message to point at --yes, got: %v", err)
+		if !strings.Contains(stdout.String(), "--prune") {
+			t.Errorf("Expected the report to point at --prune, got: %q", stdout.String())
 		}
 		if pruned {
-			t.Error("Expected prune to be skipped when the gate refuses")
+			t.Error("Expected prune to be skipped without --prune")
 		}
 	})
 
-	t.Run("ProceedsWithYes", func(t *testing.T) {
-		t.Cleanup(func() { applyYesFlag = false })
+	t.Run("PrunesWithPruneFlag", func(t *testing.T) {
+		t.Cleanup(func() { applyPruneFlag = false })
 		// Given the same pending prune
 		mocks := setupApplyTest(t)
 		mocks.KubernetesManager.ListPrunableKustomizationsFunc = func(bp *blueprintv1alpha1.Blueprint, namespace string) ([]string, error) {
@@ -247,18 +249,18 @@ func TestApplyCmd_Prune(t *testing.T) {
 		}
 		proj := newApplyAllProject(mocks)
 
-		// When applying with --yes
+		// When applying with --prune
 		cmd := createTestApplyCmd()
-		cmd.SetArgs([]string{"--yes"})
+		cmd.SetArgs([]string{"--prune"})
 		ctx := context.WithValue(context.Background(), projectOverridesKey, proj)
 		cmd.SetContext(ctx)
 		if err := cmd.Execute(); err != nil {
-			t.Fatalf("Expected --yes to proceed, got %v", err)
+			t.Fatalf("Expected --prune to proceed, got %v", err)
 		}
 
 		// Then the prune runs
 		if !pruned {
-			t.Error("Expected prune to run under --yes")
+			t.Error("Expected prune to run under --prune")
 		}
 	})
 
