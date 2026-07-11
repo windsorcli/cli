@@ -67,7 +67,7 @@ variable substitutions shared across them.
 | `substitute` | `map<string>` | PostBuild substitutions (preferred spelling); merges with substitutions. |
 | `substitutions` | `map<string>` | PostBuild variable substitutions for this tier. |
 | `targetNamespace` | `string` | Populates spec.targetNamespace, overriding the namespace of reconciled resources. |
-| `timeout` | `string` | Maximum duration for a single reconciliation attempt (e.g. '10m'). |
+| `timeout` | `string` | Maximum duration for a single reconciliation attempt. Defaults to 10m. |
 | `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |
 
 #### flux[].install.patches[]

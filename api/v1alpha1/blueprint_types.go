@@ -1126,7 +1126,8 @@ func (sys FluxSystem) TierNames() []string {
 
 // compileFluxSystemTiers converts a pre-evaluated FluxSystem into its tier Kustomizations without
 // any expression evaluation. Install compiles to "<name>-install" at "<path>/install"; each
-// resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources".
+// resources variant compiles to "<name>-resources[-<variant>]" at "<path>/resources". A timeout-less
+// install tier falls back to DefaultFluxKustomizationInstallTimeout instead of the generic default.
 func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 	name := sys.Name
 	base := sys.Path
@@ -1144,6 +1145,9 @@ func compileFluxSystemTiers(sys FluxSystem) []Kustomization {
 		k.Path = path.Join(base, "install")
 		k.DependsOn = slices.Clone(sys.DependsOn)
 		applySystemTierDefaults(&k, sys)
+		if k.Timeout == nil {
+			k.Timeout = &DurationString{Duration: constants.DefaultFluxKustomizationInstallTimeout}
+		}
 		out = append(out, k)
 		installEmitted = true
 	}

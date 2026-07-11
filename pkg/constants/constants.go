@@ -64,7 +64,8 @@ const DefaultWorkerMemory = 8
 
 const DefaultGitopsNamespace = "system-gitops"
 
-const DefaultFluxKustomizationInterval = 1 * time.Minute
+// DefaultFluxKustomizationInterval is the reconciliation interval for Kustomizations in pull mode.
+const DefaultFluxKustomizationInterval = 5 * time.Minute
 
 // DefaultFluxKustomizationIntervalPush is the reconciliation interval for
 // Kustomizations when gitops.mode is "push". It is intentionally long because
@@ -82,7 +83,14 @@ const DefaultFluxKustomizationForce = false
 
 const DefaultFluxKustomizationTimeout = 5 * time.Minute
 
-const DefaultFluxSourceInterval = 1 * time.Minute
+// DefaultFluxKustomizationInstallTimeout is the timeout for a flux system's install tier
+// when the facet sets none; install tiers install controllers and need more headroom
+// than plain resources.
+const DefaultFluxKustomizationInstallTimeout = 10 * time.Minute
+
+// DefaultFluxSourceInterval is the reconciliation interval for flux Sources in pull mode.
+// Kept equal to DefaultFluxKustomizationInterval so the two stay in step.
+const DefaultFluxSourceInterval = 5 * time.Minute
 
 // DefaultFluxSourceIntervalPush is the reconciliation interval for flux Sources
 // (GitRepository / OCIRepository) when gitops.mode is "push". Matches the

@@ -4988,3 +4988,61 @@ func TestFluxSystem_TierNames(t *testing.T) {
 		}
 	})
 }
+
+func TestBlueprint_AllKustomizations_InstallTierTimeoutDefault(t *testing.T) {
+	t.Run("InstallTierFallsBackToInstallTimeoutDefaultWhenUnset", func(t *testing.T) {
+		// Given a flux system whose install tier sets no timeout of its own
+		bp := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:      "cert-manager",
+					Install:   &Kustomization{Components: []string{"helm-release"}},
+					Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}}},
+				},
+			},
+		}
+
+		all := bp.AllKustomizations()
+
+		// Then the compiled install tier gets the install-specific default timeout
+		install := findKustomization(all, "cert-manager-install")
+		if install == nil || install.Timeout == nil || install.Timeout.Duration != constants.DefaultFluxKustomizationInstallTimeout {
+			t.Fatalf("expected cert-manager-install timeout %v, got %+v", constants.DefaultFluxKustomizationInstallTimeout, install)
+		}
+
+		// And the resources tier is left to ToFluxKustomization's own generic default
+		resources := findKustomization(all, "cert-manager-resources")
+		if resources == nil || resources.Timeout != nil {
+			t.Fatalf("expected cert-manager-resources timeout unset, got %+v", resources)
+		}
+	})
+
+	t.Run("ExplicitInstallTimeoutOverridesTheDefault", func(t *testing.T) {
+		// Given a flux system whose install tier sets its own timeout
+		bp := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:    "lb",
+					Install: &Kustomization{Components: []string{"aws-lb-controller"}, Timeout: &DurationString{Duration: 20 * time.Minute}},
+				},
+			},
+		}
+
+		all := bp.AllKustomizations()
+
+		// Then the explicit value wins over the install-tier default
+		install := findKustomization(all, "lb-install")
+		if install == nil || install.Timeout == nil || install.Timeout.Duration != 20*time.Minute {
+			t.Fatalf("expected lb-install timeout 20m, got %+v", install)
+		}
+	})
+}
+
+func findKustomization(all []Kustomization, name string) *Kustomization {
+	for i := range all {
+		if all[i].Name == name {
+			return &all[i]
+		}
+	}
+	return nil
+}

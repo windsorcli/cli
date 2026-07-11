@@ -355,7 +355,7 @@ properties:
               description: Duration to wait before retrying a failed reconciliation (e.g. '2m').
             timeout:
               type: string
-              description: Maximum duration for a single reconciliation attempt (e.g. '10m').
+              description: Maximum duration for a single reconciliation attempt. Defaults to 10m.
             patches:
               type: array
               description: Strategic-merge or Flux-style patches applied to this tier.
