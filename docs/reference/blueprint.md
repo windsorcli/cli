@@ -115,7 +115,6 @@ variable substitutions shared across them.
 | Field | Type | Description |
 |------|------|-------------|
 | `name` | `string` | Identifier for the kustomization; referenced by dependsOn. **(required)** |
-| `path` | `string` | Path within the source containing the kustomize base. **(required)** |
 | `components` | `array<string>` | Kustomize components to compose into this kustomization. |
 | `dependsOn` | `array<string>` | Names of kustomizations that must reconcile before this one. |
 | `destroy` | `boolean / string` | Whether to delete this kustomization during 'windsor down' / 'windsor destroy'. Boolean or expression. Defaults to true. |
@@ -125,6 +124,7 @@ variable substitutions shared across them.
 | `interval` | `string` | Reconciliation interval, expressed as a Go duration string (e.g. '5m', '1h'). Defaults to a mode-appropriate value chosen by the provisioner (short poll for pull mode, long fallback for push). |
 | `namespace` | `string` | Namespace where the Flux Kustomization object itself lives. Defaults to the gitops namespace. DependsOn references always resolve in the gitops namespace; cross-namespace dependencies are not supported. |
 | `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to the kustomization. Each entry is either a 'path:' to a patch file relative to the kustomization, or a 'patch:' inline YAML body with an optional 'target:' selector (kind / name / namespace). |
+| `path` | `string` | Path within the source containing the kustomize base. Defaults to name. |
 | `prune` | `boolean` | Garbage-collect resources removed from the source. Defaults to true. |
 | `retryInterval` | `string` | Duration to wait before retrying a failed reconciliation (e.g. '2m'). |
 | `source` | `string` | Name of the source (from the sources list) that provides this kustomization. Defaults to the blueprint's primary source when unset. |

@@ -176,7 +176,6 @@ properties:
       type: object
       required:
         - name
-        - path
       additionalProperties: false
       properties:
         name:
@@ -184,7 +183,7 @@ properties:
           description: Identifier for the kustomization; referenced by dependsOn.
         path:
           type: string
-          description: Path within the source containing the kustomize base.
+          description: Path within the source containing the kustomize base. Defaults to name.
         source:
           type: string
           description: Name of the source (from the sources list) that provides this kustomization. Defaults to the blueprint's primary source when unset.

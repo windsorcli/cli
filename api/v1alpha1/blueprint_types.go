@@ -527,8 +527,8 @@ type Kustomization struct {
 	// Name of the kustomization.
 	Name string `yaml:"name"`
 
-	// Path of the kustomization.
-	Path string `yaml:"path"`
+	// Path of the kustomization. Defaults to Name.
+	Path string `yaml:"path,omitempty"`
 
 	// Source of the kustomization.
 	Source string `yaml:"source,omitempty"`
@@ -1259,6 +1259,7 @@ func (s *FluxSystem) DeepCopy() *FluxSystem {
 // It takes the default namespace for the kustomization (overridden per-kustomization
 // by k.Namespace when set), the default source name to use if no source is specified,
 // and the list of sources to determine the source kind (GitRepository or OCIRepository).
+// A Path-less k defaults to k.Name, matching FluxSystem's own path-defaulting.
 // k.TargetNamespace is passed through to spec.targetNamespace so Flux rewrites the
 // namespace of every reconciled resource. DependsOn references are always resolved
 // in the default namespace.
@@ -1305,12 +1306,11 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 
 	path := k.Path
 	if path == "" {
-		path = "kustomize"
-	} else {
-		path = strings.ReplaceAll(path, "\\", "/")
-		if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
-			path = "kustomize/" + path
-		}
+		path = k.Name
+	}
+	path = strings.ReplaceAll(path, "\\", "/")
+	if path != "kustomize" && !strings.HasPrefix(path, "kustomize/") {
+		path = "kustomize/" + path
 	}
 
 	interval := metav1.Duration{Duration: constants.FluxKustomizationInterval(mode)}

@@ -2,12 +2,11 @@ kind: Facet
 apiVersion: blueprints.windsorcli.dev/v1alpha1
 metadata:
   name: dns
-  description: Depends on cert-manager by its bare name to exercise install-tier resolution
+  description: Depends on cert-manager by its bare name to exercise install-tier resolution; omits path to exercise path-defaults-to-name
 
 kustomize:
 
 - name: dns
-  path: dns
   components:
   - coredns
   dependsOn:
