@@ -343,9 +343,10 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("WarnsToStderrOnLoosePermissions", func(t *testing.T) {
-		// Given a .env file with group/world-readable permissions
+		// Given a .env file with group/world-readable permissions on a POSIX-like OS
 		printer, mocks := setupDotEnvPrinter(t, nil)
 		writeDotEnvFixture(t, mocks, "VALID=yes\n", 0644)
+		mocks.Shims.Goos = func() string { return "linux" }
 
 		var stderr bytes.Buffer
 		printer.warningWriter = &stderr
@@ -362,9 +363,10 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 	})
 
 	t.Run("NoWarningWhenPermissionsAreRestricted", func(t *testing.T) {
-		// Given a .env file restricted to the owner
+		// Given a .env file restricted to the owner on a POSIX-like OS
 		printer, mocks := setupDotEnvPrinter(t, nil)
 		writeDotEnvFixture(t, mocks, "VALID=yes\n", 0600)
+		mocks.Shims.Goos = func() string { return "linux" }
 
 		var stderr bytes.Buffer
 		printer.warningWriter = &stderr
@@ -377,6 +379,27 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 		// Then no warning should be written
 		if stderr.String() != "" {
 			t.Errorf("Expected no warning, got %q", stderr.String())
+		}
+	})
+
+	t.Run("NoWarningOnWindowsRegardlessOfPermissions", func(t *testing.T) {
+		// Given a .env file that would trip the loose-permissions check, on Windows
+		printer, mocks := setupDotEnvPrinter(t, nil)
+		writeDotEnvFixture(t, mocks, "VALID=yes\n", 0644)
+		mocks.Shims.Goos = func() string { return "windows" }
+
+		var stderr bytes.Buffer
+		printer.warningWriter = &stderr
+
+		// When GetEnvVars is called
+		if _, err := printer.GetEnvVars(); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		// Then no warning should be written, since Windows has no owner/group/other
+		// permission model for the check (or chmod) to act on
+		if stderr.String() != "" {
+			t.Errorf("Expected no warning on Windows, got %q", stderr.String())
 		}
 	})
 }

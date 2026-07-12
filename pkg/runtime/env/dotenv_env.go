@@ -115,7 +115,12 @@ func (e *DotEnvEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 // warnOnLoosePermissions writes a non-fatal warning to warningWriter when path is
 // group- or world-accessible rather than restricted to the owner (0600-equivalent).
+// A no-op on Windows: NTFS has no owner/group/other model, so Go's FileMode bits
+// there don't reflect real ACL restrictiveness and chmod has no equivalent.
 func (e *DotEnvEnvPrinter) warnOnLoosePermissions(path string, mode os.FileMode) {
+	if e.shims.Goos() == "windows" {
+		return
+	}
 	if mode.Perm()&0077 != 0 {
 		fmt.Fprintf(e.warningWriter, "\033[33mWarning: %s is readable by group/other; it may contain credentials. Consider running: chmod 600 %s\033[0m\n", path, path)
 	}
