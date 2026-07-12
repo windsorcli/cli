@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 )
@@ -46,6 +47,38 @@ func writeDotEnvFixture(t *testing.T, mocks *EnvTestMocks, content string, perm 
 
 	mocks.Shims.Stat = os.Stat
 	mocks.Shims.ReadFile = os.ReadFile
+
+	return path
+}
+
+// fakePermFileInfo is a minimal os.FileInfo with a caller-controlled Mode, used
+// to test permission-bit behavior independent of the host OS's real file
+// semantics (a real Stat on Windows never reports a POSIX-restrictive mode,
+// regardless of what os.WriteFile was asked for).
+type fakePermFileInfo struct {
+	mode os.FileMode
+}
+
+func (f fakePermFileInfo) Name() string       { return ".env" }
+func (f fakePermFileInfo) Size() int64        { return 0 }
+func (f fakePermFileInfo) Mode() os.FileMode  { return f.mode }
+func (f fakePermFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakePermFileInfo) IsDir() bool        { return false }
+func (f fakePermFileInfo) Sys() any           { return nil }
+
+// writeDotEnvFixtureWithMode writes a real .env file (so ReadFile returns real
+// content) but stubs Stat to report a caller-controlled FileMode, decoupling
+// permission-bit assertions from the host OS's actual file semantics.
+func writeDotEnvFixtureWithMode(t *testing.T, mocks *EnvTestMocks, content string, mode os.FileMode) string {
+	t.Helper()
+
+	path := writeDotEnvFixture(t, mocks, content, 0600)
+	mocks.Shims.Stat = func(name string) (os.FileInfo, error) {
+		if name == path {
+			return fakePermFileInfo{mode: mode}, nil
+		}
+		return os.Stat(name)
+	}
 
 	return path
 }
@@ -345,7 +378,7 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("WarnsToStderrOnLoosePermissions", func(t *testing.T) {
 		// Given a .env file with group/world-readable permissions on a POSIX-like OS
 		printer, mocks := setupDotEnvPrinter(t, nil)
-		writeDotEnvFixture(t, mocks, "VALID=yes\n", 0644)
+		writeDotEnvFixtureWithMode(t, mocks, "VALID=yes\n", 0644)
 		mocks.Shims.Goos = func() string { return "linux" }
 
 		var stderr bytes.Buffer
@@ -365,7 +398,7 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("NoWarningWhenPermissionsAreRestricted", func(t *testing.T) {
 		// Given a .env file restricted to the owner on a POSIX-like OS
 		printer, mocks := setupDotEnvPrinter(t, nil)
-		writeDotEnvFixture(t, mocks, "VALID=yes\n", 0600)
+		writeDotEnvFixtureWithMode(t, mocks, "VALID=yes\n", 0600)
 		mocks.Shims.Goos = func() string { return "linux" }
 
 		var stderr bytes.Buffer
@@ -385,7 +418,7 @@ func TestDotEnvEnvPrinter_GetEnvVars(t *testing.T) {
 	t.Run("NoWarningOnWindowsRegardlessOfPermissions", func(t *testing.T) {
 		// Given a .env file that would trip the loose-permissions check, on Windows
 		printer, mocks := setupDotEnvPrinter(t, nil)
-		writeDotEnvFixture(t, mocks, "VALID=yes\n", 0644)
+		writeDotEnvFixtureWithMode(t, mocks, "VALID=yes\n", 0644)
 		mocks.Shims.Goos = func() string { return "windows" }
 
 		var stderr bytes.Buffer
