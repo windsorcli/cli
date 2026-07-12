@@ -6,9 +6,11 @@
 package env
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 )
 
@@ -108,4 +110,33 @@ func (e *BaseEnvPrinter) Reset() {
 	e.managedEnv = make([]string, 0)
 	e.managedAlias = make([]string, 0)
 	e.shell.Reset()
+}
+
+// =============================================================================
+// Private Methods
+// =============================================================================
+
+// shouldUseCache determines if the cache should be used based on NO_CACHE environment variable.
+// Cache is enabled by default and can be disabled by setting NO_CACHE=1 or NO_CACHE=true.
+func (e *BaseEnvPrinter) shouldUseCache() bool {
+	noCache, _ := e.shims.LookupEnv("NO_CACHE")
+	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// evaluateExpressionValue evaluates value through eval with deferred evaluation
+// enabled so secrets resolve immediately. Formats a resolution error inline as
+// "<ERROR: ...>" and normalizes a nil result to the empty string.
+func evaluateExpressionValue(eval evaluator.ExpressionEvaluator, value string) string {
+	result, err := eval.Evaluate(value, "", nil, true)
+	if err != nil {
+		return fmt.Sprintf("<ERROR: %s>", err)
+	}
+	if result == nil {
+		return ""
+	}
+	return fmt.Sprint(result)
 }

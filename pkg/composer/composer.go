@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/windsorcli/cli/pkg/composer/artifact"
 	"github.com/windsorcli/cli/pkg/composer/blueprint"
@@ -186,7 +187,7 @@ const windsorMarkerContent = "*\n"
 
 // contextIgnoreContent is written to contexts/<ctx>/.gitignore to keep
 // per-context credential and state directories out of version control.
-const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n"
+const contextIgnoreContent = ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\n"
 
 // writeLocalGitignores writes self-contained .gitignore files into Windsor-owned
 // folders so re-running Windsor never touches the project-root .gitignore.
@@ -224,11 +225,53 @@ func (r *Composer) writeLocalGitignores() error {
 			continue
 		}
 		target := filepath.Join(contextsDir, entry.Name(), ".gitignore")
-		if err := writeIfMissing(target, contextIgnoreContent); err != nil {
+		if err := writeOrMergeContextIgnore(target, contextIgnoreContent); err != nil {
 			return fmt.Errorf("failed to write contexts/%s/.gitignore: %w", entry.Name(), err)
 		}
 	}
 	return nil
+}
+
+// writeOrMergeContextIgnore writes desired's content fresh when target is
+// missing, or appends any of desired's lines that a pre-existing target lacks
+// (preserving the file's other content) so a contextIgnoreContent addition
+// still reaches contexts created by an earlier CLI version.
+func writeOrMergeContextIgnore(target, desired string) error {
+	if err := writeIfMissing(target, desired); err != nil {
+		return err
+	}
+
+	// #nosec G304 - target is composed from the project's own contexts/ directory listing, not user-supplied
+	existing, err := os.ReadFile(target)
+	if err != nil {
+		return err
+	}
+
+	present := make(map[string]bool)
+	for _, line := range strings.Split(string(existing), "\n") {
+		present[strings.TrimSpace(line)] = true
+	}
+
+	var missing strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(desired, "\n"), "\n") {
+		if line != "" && !present[line] {
+			missing.WriteString(line)
+			missing.WriteString("\n")
+		}
+	}
+	if missing.Len() == 0 {
+		return nil
+	}
+
+	content := string(existing)
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	content += missing.String()
+
+	// #nosec G306 G703 - .gitignore files use standard 0644 permissions; target is
+	// composed from the project's own contexts/ directory listing, not user-supplied
+	return os.WriteFile(target, []byte(content), 0644)
 }
 
 // writeIfMissing writes content to path with 0644 perms only when the file

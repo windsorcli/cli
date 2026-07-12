@@ -56,6 +56,7 @@ type Runtime struct {
 
 	// EnvPrinters contains environment printers for various providers and tools
 	EnvPrinters struct {
+		DotEnvEnv    env.EnvPrinter
 		AwsEnv       env.EnvPrinter
 		AzureEnv     env.EnvPrinter
 		GcpEnv       env.EnvPrinter
@@ -132,6 +133,9 @@ func NewRuntime(opts ...*Runtime) *Runtime {
 		}
 		if overrides.Resolver != nil {
 			rt.Resolver = overrides.Resolver
+		}
+		if overrides.EnvPrinters.DotEnvEnv != nil {
+			rt.EnvPrinters.DotEnvEnv = overrides.EnvPrinters.DotEnvEnv
 		}
 		if overrides.EnvPrinters.AwsEnv != nil {
 			rt.EnvPrinters.AwsEnv = overrides.EnvPrinters.AwsEnv
@@ -733,6 +737,9 @@ func (rt *Runtime) initializeEnvPrinters() {
 	hasGCPConfig := configData != nil && configData.GCP != nil
 	hasVSphereConfig := configData != nil && configData.VSphere != nil
 
+	if rt.EnvPrinters.DotEnvEnv == nil {
+		rt.EnvPrinters.DotEnvEnv = env.NewDotEnvEnvPrinter(rt.Shell, rt.ConfigHandler, rt.Evaluator)
+	}
 	if rt.EnvPrinters.AwsEnv == nil && (hasAWSConfig || platform == "aws") {
 		rt.EnvPrinters.AwsEnv = env.NewAwsEnvPrinter(rt.Shell, rt.ConfigHandler)
 	}
@@ -882,10 +889,12 @@ func (rt *Runtime) registerSecretHelper() {
 }
 
 // getAllEnvPrinters returns all environment printers in a consistent order.
-// This ensures that environment variables are processed in a predictable sequence
-// with WindsorEnv being processed last to take precedence.
+// This ensures that environment variables are processed in a predictable sequence,
+// with DotEnvEnv processed first (lowest precedence, an operator-supplied base layer)
+// and WindsorEnv processed last to take precedence.
 func (rt *Runtime) getAllEnvPrinters() []env.EnvPrinter {
 	return []env.EnvPrinter{
+		rt.EnvPrinters.DotEnvEnv,
 		rt.EnvPrinters.AwsEnv,
 		rt.EnvPrinters.AzureEnv,
 		rt.EnvPrinters.GcpEnv,

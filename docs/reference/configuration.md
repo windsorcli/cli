@@ -28,7 +28,7 @@ system-managed and not covered here.
 | `cluster` | `object` | Kubernetes cluster configuration. Node-group sub-types (NodeGroupConfig) are authored in api/v1alpha1/cluster/cluster_config.go; expansion to full field detail is a planned follow-up. |
 | `dns` | `object` | DNS configuration. |
 | `docker` | `object` | Docker / container-registry configuration. |
-| `environment` | `map<string>` | Static environment variables exported into every command run in this context. Plain string-to-string map; no expression evaluation. |
+| `environment` | `map<string>` | Environment variables exported into every command run in this context. Values may contain `${...}` expressions, including `secret(...)` references. Declarative and version-controlled; see [`.env` files](contexts.md#env-files) for a git-ignored, lower-precedence alternative. |
 | `gcp` | `object` | GCP integration. |
 | `git` | `object` | Git / livereload configuration. |
 | `id` | `string` | Stable identifier for the context, distinct from its map key. Used for cross-context references where the key may change. |

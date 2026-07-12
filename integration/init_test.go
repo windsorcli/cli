@@ -569,7 +569,7 @@ func TestInit_WritesLocalGitignoresAndLeavesProjectRootAlone(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("expected contexts/local/.gitignore at %s, got %v", contextIgnore, readErr)
 	}
-	expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n"
+	expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\n"
 	if string(content) != expected {
 		t.Errorf("expected contexts/local/.gitignore to contain credential dirs, got: %q", string(content))
 	}

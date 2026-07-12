@@ -23,6 +23,7 @@ contexts/
 └── <context-name>/                         per-context configuration and credentials
     ├── blueprint.yaml                      referential blueprint for this context
     ├── values.yaml                         user-set values that feed the schema
+    ├── .env                                git-ignored operator env vars (e.g. provider credentials)
     ├── terraform/<component-id>.tfvars     user-edited Terraform variable overrides
     ├── terraform/<component-id>.tfvars.json  JSON variant of the above
     ├── terraform/backend.tfvars            optional Terraform backend overrides
@@ -58,6 +59,7 @@ live under `contexts/<context-name>/`.
 | `terraform/<component-id>.tfvars` | HCL | Operator-authored variable overrides for a Terraform component. Read at plan/apply time. |
 | `terraform/<component-id>.tfvars.json` | JSON | JSON-formatted alternative to `.tfvars`. |
 | `terraform/backend.tfvars` | HCL | Optional overrides applied to the Terraform backend init. |
+| `.env` | dotenv | Operator-supplied environment variables, auto-git-ignored. See [`.env` files](#env-files) below. |
 | `.aws/config`, `.aws/credentials` | INI | AWS CLI files; the env hook sets `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` so `aws` commands inside the windsor shell write here instead of `~/.aws/`. |
 | `.azure/` | Directory | Azure CLI config; `AZURE_CONFIG_DIR` points `az` here. |
 | `.gcp/gcloud/` | Directory | gcloud CLI config; `CLOUDSDK_CONFIG` points `gcloud` here. |
@@ -70,6 +72,25 @@ Hidden subdirectories (`.aws/`, `.azure/`, `.gcp/`, `.kube/`,
 `.talos/`, `.omni/`) keep CLI state scoped to the context so that tools
 invoked through the windsor shell never touch the operator's global
 config under `~/`.
+
+## `.env` files
+
+`contexts/<context-name>/.env` is a per-context, git-ignored dotenv file for
+provider environment variables that windsor has no native config for — Hyper-V
+(`HYPERV_USER`, `HYPERV_PASSWORD`, `HYPERV_HOST`, …) and vSphere
+(`VSPHERE_USER`, `VSPHERE_PASSWORD`, `VSPHERE_SERVER`, …) are the motivating
+cases. Use it for credentials/local values; use the `environment:` key under
+`contexts.<name>` in `windsor.yaml` for declarative, version-controlled values
+shared with the team (see [Configuration reference](configuration.md)).
+
+- Standard `KEY=VALUE` lines, one per line; `#` starts a comment.
+- Values may reference secrets, e.g. `HYPERV_PASSWORD=${secret("op://vault/item/field")}`.
+- Loaded on every `windsor env` / `windsor exec` / shell hook invocation, with
+  the **lowest precedence** of any environment source — `windsor.yaml`'s
+  `environment:` key and every provider-specific printer (AWS, Azure, GCP,
+  Terraform, …) override a same-named `.env` key.
+- Windsor warns (without failing) if the file is readable by group or other;
+  restrict it to the owner (`chmod 600`).
 
 ## See also
 
