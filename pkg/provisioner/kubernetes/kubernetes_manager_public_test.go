@@ -5265,81 +5265,95 @@ func TestBaseKubernetesManager_ApplyBlueprint(t *testing.T) {
 		}
 	})
 
-	t.Run("PushModeWritesLongIntervalsOnSourceAndKustomization", func(t *testing.T) {
-		// Given an ApplyBlueprint run with gitops.mode=push
-		mocks := setupKubernetesMocks(t)
-		mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
-			switch key {
-			case "id":
-				return "test-context-id"
-			case "gitops.mode":
-				return "push"
-			}
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
-			}
-			return ""
-		}
-		manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
-		manager.shims = mocks.Shims
-		manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
-			return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
-		}
-		manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
-			return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
-		}
-
-		var appliedRepo *sourcev1.GitRepository
-		var appliedKust *kustomizev1.Kustomization
-		kc := client.NewMockKubernetesClient()
-		kc.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
-			switch gvr.Resource {
-			case "gitrepositories":
-				var repo sourcev1.GitRepository
-				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
-					appliedRepo = &repo
+	t.Run("SourceAndKustomizationIntervalIsSameRegardlessOfGitopsMode", func(t *testing.T) {
+		// applyUnderMode runs ApplyBlueprint with gitops.mode set to mode and returns the
+		// GitRepository/Kustomization objects actually written to the client.
+		applyUnderMode := func(t *testing.T, mode string) (*sourcev1.GitRepository, *kustomizev1.Kustomization) {
+			mocks := setupKubernetesMocks(t)
+			mocks.ConfigHandler.(*config.MockConfigHandler).GetStringFunc = func(key string, defaultValue ...string) string {
+				switch key {
+				case "id":
+					return "test-context-id"
+				case "gitops.mode":
+					return mode
 				}
-			case "kustomizations":
-				var k kustomizev1.Kustomization
-				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &k); err == nil {
-					appliedKust = &k
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
 				}
+				return ""
 			}
-			return obj, nil
-		}
-		kc.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
-			return nil, fmt.Errorf("not found")
-		}
-		manager.client = kc
+			manager := NewKubernetesManager(mocks.KubernetesClient, mocks.ConfigHandler)
+			manager.shims = mocks.Shims
+			manager.shims.ToUnstructured = func(obj any) (map[string]any, error) {
+				return runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+			}
+			manager.shims.FromUnstructured = func(obj map[string]any, target any) error {
+				return runtime.DefaultUnstructuredConverter.FromUnstructured(obj, target)
+			}
 
-		blueprint := &blueprintv1alpha1.Blueprint{
-			Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
-			Sources: []blueprintv1alpha1.Source{
-				{Name: "test-source", Url: "https://github.com/example/repo.git", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
-			},
-			Kustomizations: []blueprintv1alpha1.Kustomization{
-				{Name: "test-kustomization"},
-			},
+			var appliedRepo *sourcev1.GitRepository
+			var appliedKust *kustomizev1.Kustomization
+			kc := client.NewMockKubernetesClient()
+			kc.ApplyResourceFunc = func(gvr schema.GroupVersionResource, obj *unstructured.Unstructured, opts metav1.ApplyOptions) (*unstructured.Unstructured, error) {
+				switch gvr.Resource {
+				case "gitrepositories":
+					var repo sourcev1.GitRepository
+					if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &repo); err == nil {
+						appliedRepo = &repo
+					}
+				case "kustomizations":
+					var k kustomizev1.Kustomization
+					if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &k); err == nil {
+						appliedKust = &k
+					}
+				}
+				return obj, nil
+			}
+			kc.GetResourceFunc = func(gvr schema.GroupVersionResource, ns, name string) (*unstructured.Unstructured, error) {
+				return nil, fmt.Errorf("not found")
+			}
+			manager.client = kc
+
+			blueprint := &blueprintv1alpha1.Blueprint{
+				Metadata: blueprintv1alpha1.Metadata{Name: "test-blueprint"},
+				Sources: []blueprintv1alpha1.Source{
+					{Name: "test-source", Url: "https://github.com/example/repo.git", Ref: blueprintv1alpha1.Reference{Branch: "main"}},
+				},
+				Kustomizations: []blueprintv1alpha1.Kustomization{
+					{Name: "test-kustomization"},
+				},
+			}
+
+			if err := manager.ApplyBlueprint(blueprint, "test-namespace"); err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			return appliedRepo, appliedKust
 		}
 
-		// When the blueprint is applied
-		if err := manager.ApplyBlueprint(blueprint, "test-namespace"); err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
+		// Given ApplyBlueprint runs under both pull and push mode
+		pullRepo, pullKust := applyUnderMode(t, "pull")
+		pushRepo, pushKust := applyUnderMode(t, "push")
 
-		// Then both source and kustomization carry the push-mode long interval,
-		// matching the expectation that Windsor's annotation is the primary trigger
-		if appliedRepo == nil {
-			t.Fatal("Expected GitRepository to be applied")
+		// Then both modes write the same default interval on the source and kustomization:
+		// flux content here is pinned and explicitly re-triggered by the notifier regardless
+		// of mode, so the backstop poll cadence has no reason to differ
+		if pullRepo == nil || pushRepo == nil {
+			t.Fatal("Expected GitRepository to be applied in both modes")
 		}
-		if appliedRepo.Spec.Interval.Duration != constants.DefaultFluxSourceIntervalPush {
-			t.Errorf("Expected GitRepository interval %v in push mode, got %v", constants.DefaultFluxSourceIntervalPush, appliedRepo.Spec.Interval.Duration)
+		if pullRepo.Spec.Interval.Duration != constants.DefaultFluxSourceInterval {
+			t.Errorf("Expected pull-mode GitRepository interval %v, got %v", constants.DefaultFluxSourceInterval, pullRepo.Spec.Interval.Duration)
 		}
-		if appliedKust == nil {
-			t.Fatal("Expected Kustomization to be applied")
+		if pushRepo.Spec.Interval.Duration != constants.DefaultFluxSourceInterval {
+			t.Errorf("Expected push-mode GitRepository interval %v, got %v", constants.DefaultFluxSourceInterval, pushRepo.Spec.Interval.Duration)
 		}
-		if appliedKust.Spec.Interval.Duration != constants.DefaultFluxKustomizationIntervalPush {
-			t.Errorf("Expected Kustomization interval %v in push mode, got %v", constants.DefaultFluxKustomizationIntervalPush, appliedKust.Spec.Interval.Duration)
+		if pullKust == nil || pushKust == nil {
+			t.Fatal("Expected Kustomization to be applied in both modes")
+		}
+		if pullKust.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
+			t.Errorf("Expected pull-mode Kustomization interval %v, got %v", constants.DefaultFluxKustomizationInterval, pullKust.Spec.Interval.Duration)
+		}
+		if pushKust.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
+			t.Errorf("Expected push-mode Kustomization interval %v, got %v", constants.DefaultFluxKustomizationInterval, pushKust.Spec.Interval.Duration)
 		}
 	})
 }

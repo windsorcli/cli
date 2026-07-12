@@ -3156,31 +3156,36 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 	})
 
-	t.Run("PushModeUsesLongDefaultInterval", func(t *testing.T) {
+	t.Run("DefaultIntervalIsSameRegardlessOfGitopsMode", func(t *testing.T) {
 		// Given a kustomization with no explicit Interval (leans on the default)
 		kustomization := &Kustomization{Name: "k", Path: "p"}
 
-		// When converted under push mode
-		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
+		// When converted under both pull and push mode
+		pullResult := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+		pushResult := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
 
-		// Then the rendered Interval matches the push-mode default so flux polls
-		// on a long cadence and Windsor's annotation is the primary trigger
-		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationIntervalPush {
-			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxKustomizationIntervalPush, result.Spec.Interval.Duration)
+		// Then both render the same default interval: flux content here is pinned and
+		// explicitly re-triggered by the notifier regardless of mode, so the backstop
+		// poll cadence has no reason to differ between them
+		if pullResult.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
+			t.Errorf("Expected pull-mode interval %v, got %v", constants.DefaultFluxKustomizationInterval, pullResult.Spec.Interval.Duration)
+		}
+		if pushResult.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
+			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxKustomizationInterval, pushResult.Spec.Interval.Duration)
 		}
 	})
 
-	t.Run("BlueprintIntervalOverrideBeatsPushDefault", func(t *testing.T) {
+	t.Run("BlueprintIntervalOverrideBeatsDefault", func(t *testing.T) {
 		// Given a kustomization that explicitly sets a short Interval
 		override := DurationString{Duration: 2 * time.Minute}
 		kustomization := &Kustomization{Name: "k", Path: "p", Interval: &override}
 
-		// When converted under push mode
-		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
+		// When converted
+		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
 
-		// Then the user's explicit Interval wins over the push-mode default
+		// Then the user's explicit Interval wins over the default
 		if result.Spec.Interval.Duration != override.Duration {
-			t.Errorf("Expected explicit interval %v to override push default, got %v", override.Duration, result.Spec.Interval.Duration)
+			t.Errorf("Expected explicit interval %v to override default, got %v", override.Duration, result.Spec.Interval.Duration)
 		}
 	})
 }
@@ -4987,4 +4992,62 @@ func TestFluxSystem_TierNames(t *testing.T) {
 			t.Fatalf("expected only cert-manager-resources-install, got %v", names)
 		}
 	})
+}
+
+func TestBlueprint_AllKustomizations_InstallTierTimeoutDefault(t *testing.T) {
+	t.Run("InstallTierFallsBackToInstallTimeoutDefaultWhenUnset", func(t *testing.T) {
+		// Given a flux system whose install tier sets no timeout of its own
+		bp := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:      "cert-manager",
+					Install:   &Kustomization{Components: []string{"helm-release"}},
+					Resources: []FluxVariant{{Kustomization: Kustomization{Components: []string{"private-issuer/ca"}}}},
+				},
+			},
+		}
+
+		all := bp.AllKustomizations()
+
+		// Then the compiled install tier gets the install-specific default timeout
+		install := findKustomization(all, "cert-manager-install")
+		if install == nil || install.Timeout == nil || install.Timeout.Duration != constants.DefaultFluxKustomizationInstallTimeout {
+			t.Fatalf("expected cert-manager-install timeout %v, got %+v", constants.DefaultFluxKustomizationInstallTimeout, install)
+		}
+
+		// And the resources tier is left to ToFluxKustomization's own generic default
+		resources := findKustomization(all, "cert-manager-resources")
+		if resources == nil || resources.Timeout != nil {
+			t.Fatalf("expected cert-manager-resources timeout unset, got %+v", resources)
+		}
+	})
+
+	t.Run("ExplicitInstallTimeoutOverridesTheDefault", func(t *testing.T) {
+		// Given a flux system whose install tier sets its own timeout
+		bp := &Blueprint{
+			FluxSystems: []FluxSystem{
+				{
+					Name:    "lb",
+					Install: &Kustomization{Components: []string{"aws-lb-controller"}, Timeout: &DurationString{Duration: 20 * time.Minute}},
+				},
+			},
+		}
+
+		all := bp.AllKustomizations()
+
+		// Then the explicit value wins over the install-tier default
+		install := findKustomization(all, "lb-install")
+		if install == nil || install.Timeout == nil || install.Timeout.Duration != 20*time.Minute {
+			t.Fatalf("expected lb-install timeout 20m, got %+v", install)
+		}
+	})
+}
+
+func findKustomization(all []Kustomization, name string) *Kustomization {
+	for i := range all {
+		if all[i].Name == name {
+			return &all[i]
+		}
+	}
+	return nil
 }

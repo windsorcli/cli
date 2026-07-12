@@ -64,13 +64,12 @@ const DefaultWorkerMemory = 8
 
 const DefaultGitopsNamespace = "system-gitops"
 
-const DefaultFluxKustomizationInterval = 1 * time.Minute
-
-// DefaultFluxKustomizationIntervalPush is the reconciliation interval for
-// Kustomizations when gitops.mode is "push". It is intentionally long because
-// Windsor annotates sources on every install/apply to trigger reconcile; flux's
-// own poll becomes a fallback rather than the primary path.
-const DefaultFluxKustomizationIntervalPush = 1 * time.Hour
+// DefaultFluxKustomizationInterval is the reconciliation interval for Kustomizations. Flux
+// content here is pinned and explicitly triggered (the notifier re-fetches sources on every
+// apply/up/bootstrap) rather than continuously tracked, so this is an eventual-consistency
+// backstop, not the primary propagation path. A Kustomization that genuinely wants fast,
+// continuously-polled GitOps behavior should set its own interval override.
+const DefaultFluxKustomizationInterval = 1 * time.Hour
 
 const DefaultFluxKustomizationPrune = true
 
@@ -82,19 +81,20 @@ const DefaultFluxKustomizationForce = false
 
 const DefaultFluxKustomizationTimeout = 5 * time.Minute
 
-const DefaultFluxSourceInterval = 1 * time.Minute
+// DefaultFluxKustomizationInstallTimeout is the timeout for a flux system's install tier
+// when the facet sets none; install tiers install controllers and need more headroom
+// than plain resources.
+const DefaultFluxKustomizationInstallTimeout = 10 * time.Minute
 
-// DefaultFluxSourceIntervalPush is the reconciliation interval for flux Sources
-// (GitRepository / OCIRepository) when gitops.mode is "push". Matches the
-// Kustomization push interval so the two layers stay in step.
-const DefaultFluxSourceIntervalPush = 1 * time.Hour
+// DefaultFluxSourceInterval is the reconciliation interval for flux Sources. Same rationale
+// as DefaultFluxKustomizationInterval: sources are pinned and explicitly re-fetched by the
+// notifier, so this is a backstop rather than the propagation path.
+const DefaultFluxSourceInterval = 1 * time.Hour
 
-// GitopsMode controls whether Windsor or flux drives reconciliation cadence.
-// In "pull" mode (default) flux polls sources on short intervals so changes
-// propagate without CLI involvement. In "push" mode Windsor triggers reconcile
-// via annotation during install/apply, so polling becomes a long-interval
-// fallback rather than the primary path. Unknown and empty values resolve to
-// "pull" via ParseGitopsMode so an unset config key keeps today's behaviour.
+// GitopsMode is accepted by FluxKustomizationInterval/FluxSourceInterval for call-site
+// stability but no longer changes their result: the notifier re-fetches sources on every
+// apply/up/bootstrap regardless of mode, so pull and push need the same backstop cadence.
+// Unknown and empty values resolve to "pull" via ParseGitopsMode.
 type GitopsMode string
 
 const (
@@ -112,24 +112,17 @@ func ParseGitopsMode(s string) GitopsMode {
 	return GitopsModePull
 }
 
-// FluxKustomizationInterval returns the default reconciliation interval for
-// Kustomizations under the given mode. Blueprint-level Interval overrides take
-// precedence over both defaults; this only affects Kustomizations that leave
-// Interval unset.
+// FluxKustomizationInterval returns the default reconciliation interval for Kustomizations.
+// Blueprint-level Interval overrides take precedence; this only affects Kustomizations that
+// leave Interval unset. mode is accepted but unused (see GitopsMode).
 func FluxKustomizationInterval(mode GitopsMode) time.Duration {
-	if mode == GitopsModePush {
-		return DefaultFluxKustomizationIntervalPush
-	}
 	return DefaultFluxKustomizationInterval
 }
 
-// FluxSourceInterval returns the default reconciliation interval for flux
-// Sources (GitRepository / OCIRepository) under the given mode. As with
-// FluxKustomizationInterval, blueprint-level overrides win when present.
+// FluxSourceInterval returns the default reconciliation interval for flux Sources
+// (GitRepository / OCIRepository). Blueprint-level overrides win when present. mode is
+// accepted but unused (see GitopsMode).
 func FluxSourceInterval(mode GitopsMode) time.Duration {
-	if mode == GitopsModePush {
-		return DefaultFluxSourceIntervalPush
-	}
 	return DefaultFluxSourceInterval
 }
 

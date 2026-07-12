@@ -207,8 +207,9 @@ properties:
           type: string
           description: |
             Reconciliation interval, expressed as a Go duration string
-            (e.g. '5m', '1h'). Defaults to a mode-appropriate value chosen by
-            the provisioner (short poll for pull mode, long fallback for push).
+            (e.g. '5m', '1h'). Defaults to 1h, a backstop cadence for content
+            that is pinned and explicitly re-triggered rather than
+            continuously tracked.
         retryInterval:
           type: string
           description: Duration to wait before retrying a failed reconciliation (e.g. '2m').
@@ -354,7 +355,7 @@ properties:
               description: Duration to wait before retrying a failed reconciliation (e.g. '2m').
             timeout:
               type: string
-              description: Maximum duration for a single reconciliation attempt (e.g. '10m').
+              description: Maximum duration for a single reconciliation attempt. Defaults to 10m.
             patches:
               type: array
               description: Strategic-merge or Flux-style patches applied to this tier.

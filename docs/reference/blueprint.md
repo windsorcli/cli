@@ -67,7 +67,7 @@ variable substitutions shared across them.
 | `substitute` | `map<string>` | PostBuild substitutions (preferred spelling); merges with substitutions. |
 | `substitutions` | `map<string>` | PostBuild variable substitutions for this tier. |
 | `targetNamespace` | `string` | Populates spec.targetNamespace, overriding the namespace of reconciled resources. |
-| `timeout` | `string` | Maximum duration for a single reconciliation attempt (e.g. '10m'). |
+| `timeout` | `string` | Maximum duration for a single reconciliation attempt. Defaults to 10m. |
 | `wait` | `boolean` | Wait for resources to settle before declaring reconciliation complete. |
 
 #### flux[].install.patches[]
@@ -121,7 +121,7 @@ variable substitutions shared across them.
 | `destroyOnly` | `boolean` | When true, the kustomization only runs during destroy. Useful for teardown-only resources (e.g. cleanup jobs). |
 | `enabled` | `boolean / string` | Whether to include this kustomization in the final blueprint. Boolean or expression. Defaults to true. |
 | `force` | `boolean` | Force-apply resources Flux would otherwise refuse to update. |
-| `interval` | `string` | Reconciliation interval, expressed as a Go duration string (e.g. '5m', '1h'). Defaults to a mode-appropriate value chosen by the provisioner (short poll for pull mode, long fallback for push). |
+| `interval` | `string` | Reconciliation interval, expressed as a Go duration string (e.g. '5m', '1h'). Defaults to 1h, a backstop cadence for content that is pinned and explicitly re-triggered rather than continuously tracked. |
 | `namespace` | `string` | Namespace where the Flux Kustomization object itself lives. Defaults to the gitops namespace. DependsOn references always resolve in the gitops namespace; cross-namespace dependencies are not supported. |
 | `patches` | `array<object>` | Strategic-merge or Flux-style patches applied to the kustomization. Each entry is either a 'path:' to a patch file relative to the kustomization, or a 'patch:' inline YAML body with an optional 'target:' selector (kind / name / namespace). |
 | `path` | `string` | Path within the source containing the kustomize base. Defaults to name. |
