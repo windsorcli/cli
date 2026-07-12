@@ -2682,8 +2682,8 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		if result.Spec.Path != "kustomize/test/path" {
 			t.Errorf("Expected path 'kustomize/test/path', got '%s'", result.Spec.Path)
 		}
-		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
-			t.Errorf("Expected default interval, got %v", result.Spec.Interval.Duration)
+		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
+			t.Errorf("Expected primary-repository default interval (no explicit source set), got %v", result.Spec.Interval.Duration)
 		}
 		// PostBuild should have component-specific ConfigMap when substitutions exist
 		if result.Spec.PostBuild == nil {
@@ -3001,8 +3001,8 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 
 		result := kustomization.ToFluxKustomization("test-namespace", "default-source", []Source{}, constants.GitopsModePull)
 
-		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
-			t.Errorf("Expected default interval, got %v", result.Spec.Interval.Duration)
+		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
+			t.Errorf("Expected primary-repository default interval (no explicit source set), got %v", result.Spec.Interval.Duration)
 		}
 	})
 
@@ -3157,21 +3157,52 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 	})
 
 	t.Run("DefaultIntervalIsSameRegardlessOfGitopsMode", func(t *testing.T) {
-		// Given a kustomization with no explicit Interval (leans on the default)
+		// Given a kustomization with no explicit Interval or Source (resolves to the
+		// blueprint's own/primary source)
 		kustomization := &Kustomization{Name: "k", Path: "p"}
 
 		// When converted under both pull and push mode
 		pullResult := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
 		pushResult := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
 
-		// Then both render the same default interval: flux content here is pinned and
-		// explicitly re-triggered by the notifier regardless of mode, so the backstop
-		// poll cadence has no reason to differ between them
-		if pullResult.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
-			t.Errorf("Expected pull-mode interval %v, got %v", constants.DefaultFluxKustomizationInterval, pullResult.Spec.Interval.Duration)
+		// Then both render the same default interval: the notifier re-triggers reconciliation
+		// on every apply/up/bootstrap regardless of mode, so the interval has no reason to
+		// differ between them
+		if pullResult.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
+			t.Errorf("Expected pull-mode interval %v, got %v", constants.DefaultFluxPrimaryRepositoryInterval, pullResult.Spec.Interval.Duration)
 		}
-		if pushResult.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
-			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxKustomizationInterval, pushResult.Spec.Interval.Duration)
+		if pushResult.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
+			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxPrimaryRepositoryInterval, pushResult.Spec.Interval.Duration)
+		}
+	})
+
+	t.Run("DefaultIntervalIsShortWhenSourceResolvesToPrimaryRepository", func(t *testing.T) {
+		// Given a kustomization with no explicit Source (falls back to the blueprint's own
+		// default source, e.g. the top-level repository: field)
+		kustomization := &Kustomization{Name: "k", Path: "p"}
+
+		// When converted
+		result := kustomization.ToFluxKustomization("ns", "default-source", []Source{}, constants.GitopsModePull)
+
+		// Then it gets the short, continuously-polled primary-repository default: this content
+		// is presumed live and actively pushed, not a pinned vendor dependency
+		if result.Spec.Interval.Duration != constants.DefaultFluxPrimaryRepositoryInterval {
+			t.Errorf("Expected primary-repository interval %v, got %v", constants.DefaultFluxPrimaryRepositoryInterval, result.Spec.Interval.Duration)
+		}
+	})
+
+	t.Run("DefaultIntervalIsLongForNamedVendorSource", func(t *testing.T) {
+		// Given a kustomization that explicitly names a vendor source distinct from the
+		// blueprint's default source
+		kustomization := &Kustomization{Name: "k", Path: "p", Source: "core"}
+
+		// When converted
+		result := kustomization.ToFluxKustomization("ns", "default-source", []Source{}, constants.GitopsModePull)
+
+		// Then it gets the long, backstop-only default: vendor content is pinned and
+		// explicitly re-triggered, not continuously tracked
+		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
+			t.Errorf("Expected vendor-source interval %v, got %v", constants.DefaultFluxKustomizationInterval, result.Spec.Interval.Duration)
 		}
 	})
 

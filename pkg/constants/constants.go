@@ -91,8 +91,16 @@ const DefaultFluxKustomizationInstallTimeout = 10 * time.Minute
 // notifier, so this is a backstop rather than the propagation path.
 const DefaultFluxSourceInterval = 1 * time.Hour
 
-// GitopsMode is accepted by FluxKustomizationInterval/FluxSourceInterval for call-site
-// stability but no longer changes their result: the notifier re-fetches sources on every
+// DefaultFluxPrimaryRepositoryInterval is the reconciliation interval for the blueprint's own
+// repository (the top-level "repository:" field) and any Kustomization that resolves to it by
+// default (no explicit source: set). Unlike a named vendor source, the primary repository is
+// typically a live, actively-pushed branch rather than a pinned release, and a change can land
+// there without any windsor command running (a teammate's push, a CI merge) — so flux's own
+// poll is the propagation path here, not just a backstop.
+const DefaultFluxPrimaryRepositoryInterval = 1 * time.Minute
+
+// GitopsMode is accepted by ToFluxKustomization and friends for call-site stability but no
+// longer changes reconciliation cadence: the notifier re-fetches sources on every
 // apply/up/bootstrap regardless of mode, so pull and push need the same backstop cadence.
 // Unknown and empty values resolve to "pull" via ParseGitopsMode.
 type GitopsMode string
@@ -112,17 +120,25 @@ func ParseGitopsMode(s string) GitopsMode {
 	return GitopsModePull
 }
 
-// FluxKustomizationInterval returns the default reconciliation interval for Kustomizations.
-// Blueprint-level Interval overrides take precedence; this only affects Kustomizations that
-// leave Interval unset. mode is accepted but unused (see GitopsMode).
-func FluxKustomizationInterval(mode GitopsMode) time.Duration {
+// FluxKustomizationInterval returns the default reconciliation interval for a Kustomization.
+// isPrimarySource is true when the Kustomization resolves, explicitly or by falling back to
+// the blueprint's default source, to the blueprint's own repository rather than a named vendor
+// source (see DefaultFluxPrimaryRepositoryInterval). Blueprint-level Interval overrides take
+// precedence over either default.
+func FluxKustomizationInterval(isPrimarySource bool) time.Duration {
+	if isPrimarySource {
+		return DefaultFluxPrimaryRepositoryInterval
+	}
 	return DefaultFluxKustomizationInterval
 }
 
-// FluxSourceInterval returns the default reconciliation interval for flux Sources
-// (GitRepository / OCIRepository). Blueprint-level overrides win when present. mode is
-// accepted but unused (see GitopsMode).
-func FluxSourceInterval(mode GitopsMode) time.Duration {
+// FluxSourceInterval returns the default reconciliation interval for a flux Source
+// (GitRepository / OCIRepository). isPrimary is true for the blueprint's own repository (the
+// top-level "repository:" field); see DefaultFluxPrimaryRepositoryInterval.
+func FluxSourceInterval(isPrimary bool) time.Duration {
+	if isPrimary {
+		return DefaultFluxPrimaryRepositoryInterval
+	}
 	return DefaultFluxSourceInterval
 }
 
