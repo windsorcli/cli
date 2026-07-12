@@ -4103,11 +4103,11 @@ func TestScrubbingWriter(t *testing.T) {
 		shell, buf := setup(t)
 		writer := &scrubbingWriter{writer: buf, scrubFunc: shell.scrubString}
 
-		// When writing content that contains registered secrets to the scrubbing writer
-		testContent := "This contains secret123 and other text"
+		// When writing a complete line that contains registered secrets to the scrubbing writer
+		testContent := "This contains secret123 and other text\n"
 		n, err := writer.Write([]byte(testContent))
 
-		// Then the secrets should be scrubbed from the output while maintaining byte count consistency
+		// Then the secret should be scrubbed from the emitted line
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -4116,17 +4116,12 @@ func TestScrubbingWriter(t *testing.T) {
 		if strings.Contains(output, "secret123") {
 			t.Errorf("Expected secret to be scrubbed, but found in output: %s", output)
 		}
-		// Should replace with fixed ******** and pad to maintain length
 		if !strings.Contains(output, "********") {
 			t.Errorf("Expected scrubbed output to contain ********, got: %s", output)
 		}
-		// Byte counts should match due to padding
+		// The writer reports the full input consumed even though the emitted line is shorter
 		if n != len(testContent) {
 			t.Errorf("Expected bytes written to match content length %d, got %d", len(testContent), n)
-		}
-		// Output length should match input length due to padding
-		if len(output) != len(testContent) {
-			t.Errorf("Expected output length %d to match input length %d", len(output), len(testContent))
 		}
 	})
 
@@ -4136,11 +4131,11 @@ func TestScrubbingWriter(t *testing.T) {
 		shell.RegisterSecret("password456")
 		writer := &scrubbingWriter{writer: buf, scrubFunc: shell.scrubString}
 
-		// When writing content that contains multiple different secrets
-		testContent := "User secret123 has password456 for access"
+		// When writing a complete line that contains multiple different secrets
+		testContent := "User secret123 has password456 for access\n"
 		_, err := writer.Write([]byte(testContent))
 
-		// Then all secrets should be scrubbed while maintaining output length consistency
+		// Then all secrets should be scrubbed from the emitted line
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
@@ -4149,13 +4144,8 @@ func TestScrubbingWriter(t *testing.T) {
 		if strings.Contains(output, "secret123") || strings.Contains(output, "password456") {
 			t.Errorf("Expected all secrets to be scrubbed, got: %s", output)
 		}
-		// Should contain fixed ******** replacements
 		if !strings.Contains(output, "********") {
 			t.Errorf("Expected scrubbed output to contain ********, got: %s", output)
-		}
-		// Output length should match input due to padding
-		if len(output) != len(testContent) {
-			t.Errorf("Expected output length %d to match input length %d", len(output), len(testContent))
 		}
 	})
 }
