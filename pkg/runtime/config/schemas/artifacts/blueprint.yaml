@@ -45,7 +45,12 @@ properties:
       declared before it) against local state first, then migrates state to the
       configured remote backend before applying the rest of the graph.
   repository:
-    description: Source repository this blueprint was bootstrapped from.
+    description: |
+      Source repository this blueprint was bootstrapped from. Reconciled on a
+      short, continuously-polled interval (unlike sources[], which are
+      presumed pinned vendor dependencies): this is expected to be a live,
+      actively-pushed branch, and changes can land here without any windsor
+      command running.
     type: object
     additionalProperties: false
     properties:
@@ -207,9 +212,11 @@ properties:
           type: string
           description: |
             Reconciliation interval, expressed as a Go duration string
-            (e.g. '5m', '1h'). Defaults to 1h, a backstop cadence for content
-            that is pinned and explicitly re-triggered rather than
-            continuously tracked.
+            (e.g. '5m', '1h'). Defaults to 1m when source is unset (falls
+            back to the blueprint's own repository, presumed live and
+            actively pushed); defaults to 1h when source names a vendor
+            entry (presumed pinned and explicitly re-triggered rather than
+            continuously tracked).
         retryInterval:
           type: string
           description: Duration to wait before retrying a failed reconciliation (e.g. '2m').

@@ -1267,10 +1267,9 @@ func (s *FluxSystem) DeepCopy() *FluxSystem {
 // k.TargetNamespace is passed through to spec.targetNamespace so Flux rewrites the
 // namespace of every reconciled resource. DependsOn references are always resolved
 // in the default namespace.
-// The mode parameter selects the default Interval: pull mode uses the short
-// poll-friendly default; push mode uses a long fallback interval on the
-// assumption that Windsor triggers reconciliation via annotation. Blueprint-
-// level Interval overrides still win over both mode defaults.
+// The default Interval depends on whether k resolves to the blueprint's own repository or a
+// named vendor source (see constants.FluxKustomizationInterval); mode is accepted for call-site
+// stability but no longer affects it. A blueprint-level Interval override always wins.
 // An optional configMaps argument (blueprint-level ConfigMaps such as values-common) is added to
 // postBuild.substituteFrom so they are available to all kustomizations, matching what the provisioner applies.
 // PostBuild is constructed from the kustomization's Substitutions field, except for the synthesized CRD layers
@@ -1317,7 +1316,7 @@ func (k *Kustomization) ToFluxKustomization(namespace string, defaultSourceName 
 		path = "kustomize/" + path
 	}
 
-	interval := metav1.Duration{Duration: constants.FluxKustomizationInterval(mode)}
+	interval := metav1.Duration{Duration: constants.FluxKustomizationInterval(sourceName == defaultSourceName)}
 	if k.Interval != nil && k.Interval.Duration != 0 {
 		interval = metav1.Duration{Duration: k.Interval.Duration}
 	}

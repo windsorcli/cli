@@ -914,7 +914,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 			Ref:        blueprint.Repository.Ref,
 			SecretName: secretName,
 		}
-		if err := k.applyBlueprintSource(source, namespace); err != nil {
+		if err := k.applyBlueprintSource(source, namespace, true); err != nil {
 			return fmt.Errorf("failed to apply blueprint repository: %w", err)
 		}
 	}
@@ -923,7 +923,7 @@ func (k *BaseKubernetesManager) ApplyBlueprint(blueprint *blueprintv1alpha1.Blue
 		if blueprintv1alpha1.IsLocalTemplateSource(source) {
 			continue
 		}
-		if err := k.applyBlueprintSource(source, namespace); err != nil {
+		if err := k.applyBlueprintSource(source, namespace, false); err != nil {
 			return fmt.Errorf("failed to apply source %s: %w", source.Name, err)
 		}
 	}
@@ -1334,12 +1334,15 @@ func (k *BaseKubernetesManager) getHelmRelease(name, namespace string) (*helmv2.
 }
 
 // applyBlueprintSource applies a blueprint Source as a GitRepository or OCIRepository resource.
-// It routes to the appropriate repository type based on the source URL and applies it to the cluster.
-func (k *BaseKubernetesManager) applyBlueprintSource(source blueprintv1alpha1.Source, namespace string) error {
+// It routes to the appropriate repository type based on the source URL and applies it to the
+// cluster. isPrimary is true for the blueprint's own repository (the top-level "repository:"
+// field) and selects the short, continuously-polled default interval rather than the long
+// pinned-vendor-source default; see constants.FluxSourceInterval.
+func (k *BaseKubernetesManager) applyBlueprintSource(source blueprintv1alpha1.Source, namespace string, isPrimary bool) error {
 	if strings.HasPrefix(source.Url, "oci://") {
-		return k.applyBlueprintOCIRepository(source, namespace)
+		return k.applyBlueprintOCIRepository(source, namespace, isPrimary)
 	}
-	return k.applyBlueprintGitRepository(source, namespace)
+	return k.applyBlueprintGitRepository(source, namespace, isPrimary)
 }
 
 // setKustomizationSuspend patches spec.suspend on a Kustomization. DeleteBlueprint
@@ -1483,9 +1486,10 @@ func (k *BaseKubernetesManager) waitForNodesReady(ctx context.Context, nodeNames
 }
 
 // applyBlueprintGitRepository converts and applies a blueprint Source as a GitRepository.
-func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1alpha1.Source, namespace string) error {
+// isPrimary selects the short, continuously-polled interval default for the blueprint's own
+// repository rather than the long pinned-vendor-source default; see constants.FluxSourceInterval.
+func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1alpha1.Source, namespace string, isPrimary bool) error {
 	sourceUrl := runtimegit.NormalizeRemoteURL(source.Url)
-	mode := k.gitopsMode()
 
 	gitRepo := &sourcev1.GitRepository{
 		TypeMeta: metav1.TypeMeta{
@@ -1499,7 +1503,7 @@ func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1al
 		Spec: sourcev1.GitRepositorySpec{
 			URL: sourceUrl,
 			Interval: metav1.Duration{
-				Duration: constants.FluxSourceInterval(mode),
+				Duration: constants.FluxSourceInterval(isPrimary),
 			},
 			Timeout: &metav1.Duration{
 				Duration: constants.DefaultFluxSourceTimeout,
@@ -1523,9 +1527,10 @@ func (k *BaseKubernetesManager) applyBlueprintGitRepository(source blueprintv1al
 }
 
 // applyBlueprintOCIRepository converts and applies a blueprint Source as an OCIRepository.
-func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1alpha1.Source, namespace string) error {
+// isPrimary selects the short, continuously-polled interval default for the blueprint's own
+// repository rather than the long pinned-vendor-source default; see constants.FluxSourceInterval.
+func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1alpha1.Source, namespace string, isPrimary bool) error {
 	ociURL := source.Url
-	mode := k.gitopsMode()
 	var ref *sourcev1.OCIRepositoryRef
 
 	if lastColon := strings.LastIndex(ociURL, ":"); lastColon > len("oci://") {
@@ -1563,7 +1568,7 @@ func (k *BaseKubernetesManager) applyBlueprintOCIRepository(source blueprintv1al
 		Spec: sourcev1.OCIRepositorySpec{
 			URL: ociURL,
 			Interval: metav1.Duration{
-				Duration: constants.FluxSourceInterval(mode),
+				Duration: constants.FluxSourceInterval(isPrimary),
 			},
 			Timeout: &metav1.Duration{
 				Duration: constants.DefaultFluxSourceTimeout,
