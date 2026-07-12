@@ -3156,31 +3156,36 @@ func TestKustomization_ToFluxKustomization(t *testing.T) {
 		}
 	})
 
-	t.Run("PushModeUsesLongDefaultInterval", func(t *testing.T) {
+	t.Run("DefaultIntervalIsSameRegardlessOfGitopsMode", func(t *testing.T) {
 		// Given a kustomization with no explicit Interval (leans on the default)
 		kustomization := &Kustomization{Name: "k", Path: "p"}
 
-		// When converted under push mode
-		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
+		// When converted under both pull and push mode
+		pullResult := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
+		pushResult := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
 
-		// Then the rendered Interval matches the push-mode default so flux polls
-		// on a long cadence and Windsor's annotation is the primary trigger
-		if result.Spec.Interval.Duration != constants.DefaultFluxKustomizationIntervalPush {
-			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxKustomizationIntervalPush, result.Spec.Interval.Duration)
+		// Then both render the same default interval: flux content here is pinned and
+		// explicitly re-triggered by the notifier regardless of mode, so the backstop
+		// poll cadence has no reason to differ between them
+		if pullResult.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
+			t.Errorf("Expected pull-mode interval %v, got %v", constants.DefaultFluxKustomizationInterval, pullResult.Spec.Interval.Duration)
+		}
+		if pushResult.Spec.Interval.Duration != constants.DefaultFluxKustomizationInterval {
+			t.Errorf("Expected push-mode interval %v, got %v", constants.DefaultFluxKustomizationInterval, pushResult.Spec.Interval.Duration)
 		}
 	})
 
-	t.Run("BlueprintIntervalOverrideBeatsPushDefault", func(t *testing.T) {
+	t.Run("BlueprintIntervalOverrideBeatsDefault", func(t *testing.T) {
 		// Given a kustomization that explicitly sets a short Interval
 		override := DurationString{Duration: 2 * time.Minute}
 		kustomization := &Kustomization{Name: "k", Path: "p", Interval: &override}
 
-		// When converted under push mode
-		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePush)
+		// When converted
+		result := kustomization.ToFluxKustomization("ns", "src", []Source{}, constants.GitopsModePull)
 
-		// Then the user's explicit Interval wins over the push-mode default
+		// Then the user's explicit Interval wins over the default
 		if result.Spec.Interval.Duration != override.Duration {
-			t.Errorf("Expected explicit interval %v to override push default, got %v", override.Duration, result.Spec.Interval.Duration)
+			t.Errorf("Expected explicit interval %v to override default, got %v", override.Duration, result.Spec.Interval.Duration)
 		}
 	})
 }
