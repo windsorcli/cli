@@ -153,7 +153,7 @@ func setupMockTerraformProvider(mocks *EnvTestMocks) *terraform.MockTerraformPro
 			}
 			return realProvider.GenerateTerraformArgs(componentID, interactive)
 		},
-		GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
+		GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, []string, *terraform.TerraformArgs, error) {
 			// Ensure the real provider uses the test's mocked functions
 			rv := reflect.ValueOf(realProvider)
 			if rv.Kind() == reflect.Ptr {
@@ -416,6 +416,83 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("UnsetsTerraformScopedDotEnvKeysWhenNoProjectPathFound", func(t *testing.T) {
+		// Given a terraform/.env key that is currently set in the shell, recorded by a
+		// prior GetEnvVars call in WINDSOR_MANAGED_TERRAFORM_ENV
+		printer, mocks := setup(t)
+
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_TERRAFORM_ENV" {
+				return "HYPERV_HOST"
+			}
+			return ""
+		}
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "HYPERV_HOST" {
+				return "hyperv.local", true
+			}
+			return "", false
+		}
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "", nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When GetEnvVars is called outside a Terraform directory
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then the terraform/.env key should be unset
+		if val, exists := envVars["HYPERV_HOST"]; !exists || val != "" {
+			t.Errorf("Expected HYPERV_HOST to be unset, got %v", val)
+		}
+	})
+
+	t.Run("UnsetsTerraformScopedDotEnvKeyEvenAfterFileNoLongerDeclaresIt", func(t *testing.T) {
+		// Given HYPERV_HOST was exported on a prior visit (recorded in
+		// WINDSOR_MANAGED_TERRAFORM_ENV) but terraform/.env has since been edited to no
+		// longer declare it — TerraformScopedEnvKeysFunc reflects the current, changed file
+		printer, mocks := setup(t)
+
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_TERRAFORM_ENV" {
+				return "HYPERV_HOST"
+			}
+			return ""
+		}
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "HYPERV_HOST" {
+				return "hyperv.local", true
+			}
+			return "", false
+		}
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "", nil
+		}
+		mockProvider.TerraformScopedEnvKeysFunc = func() ([]string, error) {
+			return nil, nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When GetEnvVars is called outside a Terraform directory
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then HYPERV_HOST should still be unset, since the durable record (not the
+		// live file) drives what gets cleaned up
+		if val, exists := envVars["HYPERV_HOST"]; !exists || val != "" {
+			t.Errorf("Expected HYPERV_HOST to still be unset, got %v", val)
+		}
+	})
+
 	t.Run("TrackManagedTFVarsWhenProjectPathFound", func(t *testing.T) {
 		printer, mocks := setup(t)
 
@@ -423,12 +500,12 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
 			return "cluster", nil
 		}
-		mockProvider.GetEnvVarsFunc = func(componentID string, withOutputs bool) (map[string]string, *terraform.TerraformArgs, error) {
+		mockProvider.GetEnvVarsFunc = func(componentID string, withOutputs bool) (map[string]string, []string, *terraform.TerraformArgs, error) {
 			return map[string]string{
 				"TF_DATA_DIR":             "/tmp/data",
 				"TF_CLI_ARGS_refresh":     "-var-file=/tmp/cluster.tfvars",
 				"TF_VAR_cluster_endpoint": "https://10.0.0.1:6443",
-			}, &terraform.TerraformArgs{}, nil
+			}, nil, &terraform.TerraformArgs{}, nil
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
@@ -446,6 +523,43 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 		if !slices.Contains(managed, "TF_VAR_cluster_endpoint") {
 			t.Errorf("Expected TF_VAR_cluster_endpoint to be tracked in managed env, got %v", managed)
+		}
+	})
+
+	t.Run("TracksTerraformScopedDotEnvKeysAsManaged", func(t *testing.T) {
+		// Given a component whose env vars include a non-TF_-prefixed key from terraform/.env
+		printer, mocks := setup(t)
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "cluster", nil
+		}
+		mockProvider.GetEnvVarsFunc = func(componentID string, withOutputs bool) (map[string]string, []string, *terraform.TerraformArgs, error) {
+			return map[string]string{
+				"TF_DATA_DIR": "/tmp/data",
+				"HYPERV_HOST": "hyperv.local",
+			}, []string{"HYPERV_HOST"}, &terraform.TerraformArgs{}, nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then the non-TF_-prefixed key should also be tracked as managed
+		managed := printer.GetManagedEnv()
+		if !slices.Contains(managed, "HYPERV_HOST") {
+			t.Errorf("Expected HYPERV_HOST to be tracked in managed env, got %v", managed)
+		}
+
+		// And the durable record of which keys came from terraform/.env should be set and managed
+		if envVars["WINDSOR_MANAGED_TERRAFORM_ENV"] != "HYPERV_HOST" {
+			t.Errorf("Expected WINDSOR_MANAGED_TERRAFORM_ENV=HYPERV_HOST, got %q", envVars["WINDSOR_MANAGED_TERRAFORM_ENV"])
+		}
+		if !slices.Contains(managed, "WINDSOR_MANAGED_TERRAFORM_ENV") {
+			t.Errorf("Expected WINDSOR_MANAGED_TERRAFORM_ENV to be tracked in managed env, got %v", managed)
 		}
 	})
 
@@ -1357,7 +1471,7 @@ func TestTerraformProvider_GetEnvVars(t *testing.T) {
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
 		// When generating terraform args without parallelism for interactive regular injection
-		_, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		_, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1377,7 +1491,7 @@ func TestTerraformProvider_GetEnvVars(t *testing.T) {
 		}
 
 		// And environment variables should not contain parallelism
-		envVars, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		envVars, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 		if err != nil {
 			t.Fatalf("Error getting env vars: %v", err)
 		}
@@ -1467,10 +1581,10 @@ terraform:
 				BackendConfig:   strings.Join(backendConfigArgs, " "),
 			}, nil
 		}
-		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
+		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, []string, *terraform.TerraformArgs, error) {
 			args, err := mockProvider.GenerateTerraformArgsFunc(componentID, interactive)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			envVars := make(map[string]string)
 			envVars["TF_DATA_DIR"] = args.TFDataDir
@@ -1478,12 +1592,12 @@ terraform:
 			envVars["TF_CLI_ARGS_plan"] = strings.Join(args.PlanArgs, " ")
 			envVars["TF_CLI_ARGS_apply"] = strings.Join(args.ApplyArgs, " ")
 			envVars["TF_CLI_ARGS_destroy"] = strings.Join(args.DestroyArgs, " ")
-			return envVars, args, nil
+			return envVars, nil, args, nil
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
 		// When generating terraform args with parallelism for interactive regular injection
-		_, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		_, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1509,7 +1623,7 @@ terraform:
 		}
 
 		// And environment variables should contain parallelism
-		envVars, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		envVars, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 		if err != nil {
 			t.Fatalf("Error getting env vars: %v", err)
 		}
@@ -1554,7 +1668,7 @@ terraform:
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
 		// When generating terraform args for component without parallelism for interactive regular injection
-		_, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		_, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1569,7 +1683,7 @@ terraform:
 		}
 
 		// And environment variables should not contain parallelism
-		envVars, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		envVars, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 		if err != nil {
 			t.Fatalf("Error getting env vars: %v", err)
 		}
@@ -1590,7 +1704,7 @@ terraform:
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
 		// When generating terraform args without blueprint.yaml file for interactive regular injection
-		_, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		_, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 
 		// Then no error should be returned
 		if err != nil {
@@ -1672,7 +1786,7 @@ terraform:
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
-		envVars, _, err := printer.terraformProvider.GetEnvVars(componentName, true)
+		envVars, _, _, err := printer.terraformProvider.GetEnvVars(componentName, true)
 		if err != nil {
 			t.Fatalf("Error getting env vars: %v", err)
 		}
@@ -1719,7 +1833,7 @@ terraform:
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
-		_, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		_, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -1729,7 +1843,7 @@ terraform:
 			t.Errorf("Expected TFDataDir to be %s, got %s", expectedTFDataDir, args.TFDataDir)
 		}
 
-		envVars, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		envVars, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 		if err != nil {
 			t.Fatalf("Error getting env vars: %v", err)
 		}
@@ -1761,7 +1875,7 @@ terraform:
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
 		expectedTfstatePath := filepath.ToSlash(filepath.Join(windsorScratchPath, ".tfstate", "test/path", "terraform.tfstate"))
-		envVars, _, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		envVars, _, _, err := printer.terraformProvider.GetEnvVars("test/path", true)
 		if err != nil {
 			t.Fatalf("Error getting env vars: %v", err)
 		}
@@ -1801,13 +1915,13 @@ terraform:
 			}
 			return &terraform.TerraformArgs{}, nil
 		}
-		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
+		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, []string, *terraform.TerraformArgs, error) {
 			_, err := mockProvider.GenerateTerraformArgsFunc(componentID, interactive)
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
-		_, _, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		_, _, _, err := printer.terraformProvider.GetEnvVars("test/path", true)
 		if err == nil {
 			t.Error("Expected error when GetTFDataDir fails")
 			return
@@ -1894,10 +2008,10 @@ terraform:
 				BackendConfig:   strings.Join(backendConfigArgs, " "),
 			}, nil
 		}
-		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, *terraform.TerraformArgs, error) {
+		mockProvider.GetEnvVarsFunc = func(componentID string, interactive bool) (map[string]string, []string, *terraform.TerraformArgs, error) {
 			args, err := mockProvider.GenerateTerraformArgsFunc(componentID, interactive)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			envVars := make(map[string]string)
 			envVars["TF_DATA_DIR"] = args.TFDataDir
@@ -1905,12 +2019,12 @@ terraform:
 			envVars["TF_CLI_ARGS_plan"] = strings.Join(args.PlanArgs, " ")
 			envVars["TF_CLI_ARGS_apply"] = strings.Join(args.ApplyArgs, " ")
 			envVars["TF_CLI_ARGS_destroy"] = strings.Join(args.DestroyArgs, " ")
-			return envVars, args, nil
+			return envVars, nil, args, nil
 		}
 		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
 
 		// When generating terraform args for interactive regular injection
-		_, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
+		_, _, args, err := printer.terraformProvider.GetEnvVars("test/path", true)
 
 		// Then no error should be returned
 		if err != nil {

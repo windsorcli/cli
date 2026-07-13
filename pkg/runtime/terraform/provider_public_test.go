@@ -1,12 +1,14 @@
 package terraform
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	terraformcfg "github.com/windsorcli/cli/api/v1alpha1/terraform"
@@ -15,6 +17,19 @@ import (
 	"github.com/windsorcli/cli/pkg/runtime/shell"
 	"github.com/windsorcli/cli/pkg/runtime/tools"
 )
+
+// fakeFileInfo is a minimal os.FileInfo with a caller-controlled Mode, used where a
+// Stat mock must return a real FileInfo (callers that call .Mode()) rather than nil.
+type fakeFileInfo struct {
+	mode os.FileMode
+}
+
+func (f fakeFileInfo) Name() string       { return ".env" }
+func (f fakeFileInfo) Size() int64        { return 0 }
+func (f fakeFileInfo) Mode() os.FileMode  { return f.mode }
+func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeFileInfo) IsDir() bool        { return false }
+func (f fakeFileInfo) Sys() any           { return nil }
 
 // =============================================================================
 // Test Setup
@@ -2896,7 +2911,7 @@ terraform:
 		}
 
 		// When getting env vars
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -2982,7 +2997,7 @@ terraform:
 			return "", nil
 		}
 
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3054,7 +3069,7 @@ terraform:
 		mocks.Provider.evaluator = mockEvaluator
 
 		// When getting env vars
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		// Then inputs with expressions should be evaluated
 		if err != nil {
@@ -3079,7 +3094,7 @@ terraform:
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
 
 		// When getting env vars
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		// Then non-expression inputs should not be emitted as TF_VAR_*
 		if err != nil {
@@ -3102,7 +3117,7 @@ terraform:
 			return "/my/project", nil
 		}
 
-		envVars, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3120,7 +3135,7 @@ terraform:
 		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
 
 		// When getting env vars for nonexistent component
-		envVars, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
 
 		// Then it should return empty env vars without error
 		if err != nil {
@@ -3140,7 +3155,7 @@ terraform:
 		}
 
 		// When getting env vars for nonexistent component
-		_, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("nonexistent", false)
 
 		// Then it should return an error
 		if err == nil {
@@ -3165,7 +3180,7 @@ terraform:
 		mocks.Provider.evaluator = mockEvaluator
 
 		// When getting env vars
-		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		// Then it should return an error
 		if err == nil {
@@ -3200,7 +3215,7 @@ terraform:
 		}
 
 		// When getting env vars
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		// Then non-string values should be JSON marshaled
 		if err != nil {
@@ -3239,7 +3254,7 @@ terraform:
 		}
 
 		// When getting env vars
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		// Then marshal error should be skipped and var not set
 		if err != nil {
@@ -3264,7 +3279,7 @@ terraform:
 			return "", errors.New("scratch path error")
 		}
 
-		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		if err == nil {
 			t.Fatal("Expected error when GenerateTerraformArgs fails")
@@ -3292,7 +3307,7 @@ terraform:
 			return "", errors.New("config root error")
 		}
 
-		_, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		_, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		if err == nil {
 			t.Fatal("Expected error when getBaseEnvVarsForComponent fails")
@@ -3317,7 +3332,7 @@ terraform:
 		}
 		mocks.Provider.evaluator = mockEvaluator
 
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
@@ -3363,7 +3378,7 @@ terraform:
 		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
 
 		// When getting env vars
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		// Then non-runtime expressions should remain tfvars-only and not emit TF_VAR
 		if err != nil {
@@ -3389,7 +3404,7 @@ terraform:
 		mocks.Provider.SetTerraformComponents([]blueprintv1alpha1.TerraformComponent{component})
 
 		// When getting env vars
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 
 		// Then non-expression input should remain tfvars-only and not emit TF_VAR
 		if err != nil {
@@ -3409,7 +3424,7 @@ terraform:
       talos_version: "${config.kubernetes.version}"`
 
 		mocks := setupMocks(t, &SetupOptions{BlueprintYAML: blueprintYAML, BackendType: "none"})
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3436,7 +3451,7 @@ terraform:
 		}
 		mocks.Provider.evaluator = mockEvaluator
 
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3471,7 +3486,7 @@ terraform:
 		}
 		mocks.Provider.evaluator = mockEvaluator
 
-		envVars, _, err := mocks.Provider.GetEnvVars("cluster", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("cluster", false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3521,7 +3536,7 @@ terraform:
 		mocks.Provider.evaluator = mockEvaluator
 
 		// When GetEnvVars is called
-		envVars, _, err := mocks.Provider.GetEnvVars("compute", false)
+		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -3529,6 +3544,238 @@ terraform:
 		// Then TF_VAR_network_cidr must not be set (not even to the string "null")
 		if val, exists := envVars["TF_VAR_network_cidr"]; exists {
 			t.Errorf("Expected TF_VAR_network_cidr to be absent when dependency is not applied, got %q", val)
+		}
+	})
+
+	t.Run("MergesTerraformScopedDotEnvValues", func(t *testing.T) {
+		// Given a contexts/<ctx>/terraform/.env file with a plain value
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		dotEnvPath := filepath.Join("/test/config", "terraform", ".env")
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == dotEnvPath {
+				return fakeFileInfo{mode: 0600}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == dotEnvPath {
+				return []byte("HYPERV_HOST=hyperv.local\n"), nil
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When GetEnvVars is called
+		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the terraform/.env value should be present
+		if envVars["HYPERV_HOST"] != "hyperv.local" {
+			t.Errorf("Expected HYPERV_HOST=hyperv.local, got %q", envVars["HYPERV_HOST"])
+		}
+	})
+
+	t.Run("WarnsOnLooseTerraformScopedDotEnvPermissions", func(t *testing.T) {
+		// Given a contexts/<ctx>/terraform/.env file with group/world-readable permissions
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		dotEnvPath := filepath.Join("/test/config", "terraform", ".env")
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == dotEnvPath {
+				return fakeFileInfo{mode: 0644}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == dotEnvPath {
+				return []byte("HYPERV_HOST=hyperv.local\n"), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Provider.Shims.Goos = func() string { return "linux" }
+		var stderr bytes.Buffer
+		mocks.Provider.warningWriter = &stderr
+
+		// When GetEnvVars is called
+		if _, _, _, err := mocks.Provider.GetEnvVars("compute", false); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then a warning should be written to the injected writer
+		if !strings.Contains(stderr.String(), "Warning") {
+			t.Errorf("Expected a permission warning, got %q", stderr.String())
+		}
+	})
+
+	t.Run("NoWarningOnRestrictedTerraformScopedDotEnvPermissions", func(t *testing.T) {
+		// Given a contexts/<ctx>/terraform/.env file restricted to the owner
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		dotEnvPath := filepath.Join("/test/config", "terraform", ".env")
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == dotEnvPath {
+				return fakeFileInfo{mode: 0600}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == dotEnvPath {
+				return []byte("HYPERV_HOST=hyperv.local\n"), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Provider.Shims.Goos = func() string { return "linux" }
+		var stderr bytes.Buffer
+		mocks.Provider.warningWriter = &stderr
+
+		// When GetEnvVars is called
+		if _, _, _, err := mocks.Provider.GetEnvVars("compute", false); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then no warning should be written
+		if stderr.String() != "" {
+			t.Errorf("Expected no warning, got %q", stderr.String())
+		}
+	})
+
+	t.Run("ResolvesSecretExpressionInTerraformScopedDotEnv", func(t *testing.T) {
+		// Given a terraform/.env file with a secret expression and a mock evaluator
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		dotEnvPath := filepath.Join("/test/config", "terraform", ".env")
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == dotEnvPath {
+				return fakeFileInfo{mode: 0600}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == dotEnvPath {
+				return []byte(`HYPERV_PASSWORD=${secret("op://vault/item/field")}` + "\n"), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+			if strings.Contains(expression, "secret(") {
+				return "resolved-secret", nil
+			}
+			return expression, nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		// When GetEnvVars is called
+		envVars, _, _, err := mocks.Provider.GetEnvVars("compute", false)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the expression should be resolved through the evaluator
+		if envVars["HYPERV_PASSWORD"] != "resolved-secret" {
+			t.Errorf("Expected resolved-secret, got %q", envVars["HYPERV_PASSWORD"])
+		}
+	})
+
+	t.Run("ReturnsErrorWhenTerraformScopedDotEnvReadFails", func(t *testing.T) {
+		// Given a terraform/.env file that exists but fails to read
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		dotEnvPath := filepath.Join("/test/config", "terraform", ".env")
+		mocks.Provider.Shims.Stat = func(path string) (os.FileInfo, error) {
+			if path == dotEnvPath {
+				return fakeFileInfo{mode: 0600}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == dotEnvPath {
+				return nil, fmt.Errorf("mock read error")
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When GetEnvVars is called
+		_, _, _, err := mocks.Provider.GetEnvVars("compute", false)
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error reading") {
+			t.Errorf("Unexpected error message: %v", err)
+		}
+	})
+}
+
+// TestTerraformProvider_TerraformScopedEnvKeys tests the TerraformScopedEnvKeys method.
+func TestTerraformProvider_TerraformScopedEnvKeys(t *testing.T) {
+	t.Run("ReturnsKeyNamesWithoutResolvingValues", func(t *testing.T) {
+		// Given a terraform/.env file with a secret expression and an evaluator that must not be called
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		dotEnvPath := filepath.Join("/test/config", "terraform", ".env")
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == dotEnvPath {
+				return []byte(`HYPERV_PASSWORD=${secret("op://vault/item/field")}` + "\nHYPERV_HOST=hyperv.local\n"), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		evaluateCalled := false
+		mockEvaluator := evaluator.NewMockExpressionEvaluator()
+		mockEvaluator.EvaluateFunc = func(expression string, facetPath string, scope map[string]any, evaluateDeferred bool) (any, error) {
+			evaluateCalled = true
+			return "resolved", nil
+		}
+		mocks.Provider.evaluator = mockEvaluator
+
+		// When TerraformScopedEnvKeys is called
+		keys, err := mocks.Provider.TerraformScopedEnvKeys()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then both key names should be returned and the evaluator never invoked
+		if len(keys) != 2 {
+			t.Fatalf("Expected 2 keys, got %v", keys)
+		}
+		if evaluateCalled {
+			t.Error("Expected evaluator not to be called")
+		}
+	})
+
+	t.Run("ReturnsEmptyWhenFileAbsent", func(t *testing.T) {
+		// Given no terraform/.env file
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+
+		// When TerraformScopedEnvKeys is called
+		keys, err := mocks.Provider.TerraformScopedEnvKeys()
+
+		// Then no error and no keys should be returned
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if len(keys) != 0 {
+			t.Errorf("Expected no keys, got %v", keys)
+		}
+	})
+
+	t.Run("ReturnsErrorWhenReadFailsForOtherReason", func(t *testing.T) {
+		// Given a terraform/.env file that fails to read for a non-NotExist reason
+		mocks := setupMocks(t, &SetupOptions{BackendType: "none"})
+		dotEnvPath := filepath.Join("/test/config", "terraform", ".env")
+		mocks.Provider.Shims.ReadFile = func(path string) ([]byte, error) {
+			if path == dotEnvPath {
+				return nil, fmt.Errorf("mock permission denied")
+			}
+			return nil, os.ErrNotExist
+		}
+
+		// When TerraformScopedEnvKeys is called
+		_, err := mocks.Provider.TerraformScopedEnvKeys()
+
+		// Then an error should be returned
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error reading") {
+			t.Errorf("Unexpected error message: %v", err)
 		}
 	})
 }

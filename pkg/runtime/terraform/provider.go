@@ -6,6 +6,7 @@ package terraform
 
 import (
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/dotenv"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -37,6 +39,7 @@ type terraformProvider struct {
 	cache         map[string]map[string]any
 	components    []blueprintv1alpha1.TerraformComponent
 	configScope   map[string]any
+	warningWriter io.Writer
 	mu            sync.RWMutex
 }
 
@@ -83,9 +86,10 @@ type TerraformProvider interface {
 	GetTFDataDir(componentID string) (string, error)
 	GetStatePath(componentID string) (string, error)
 	BackendConfigComplete() bool
-	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
+	GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
+	TerraformScopedEnvKeys() ([]string, error)
 }
 
 // =============================================================================
@@ -120,6 +124,7 @@ func NewTerraformProvider(
 		evaluator:     evaluator,
 		Shims:         NewShims(),
 		cache:         make(map[string]map[string]any),
+		warningWriter: os.Stderr,
 	}
 
 	provider.registerTerraformOutputHelper(evaluator)
@@ -437,22 +442,33 @@ func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 	return tfDataDir, nil
 }
 
-// GetEnvVars constructs the environment variables required for Terraform execution for the specified component ID.
-// It generates TerraformArgs internally and sets up base environment variables including TF_DATA_DIR,
-// TF_CLI_ARGS_*, and TF_VAR_context_* variables. Component inputs are evaluated to populate the cache via
-// terraform_output() calls, and resulting TF_VAR_* environment variables are populated from the evaluated
-// inputs of the current component only. Outputs from other components are used solely to evaluate inputs and
-// are not included as separate TF_VAR_* variables. Complex output values are JSON-encoded.
-// Returns the generated environment variables map, the TerraformArgs struct, or an error if processing fails.
-func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error) {
+// GetEnvVars constructs the environment variables required for Terraform execution for the specified
+// component ID: base vars (TF_DATA_DIR, TF_CLI_ARGS_*, TF_VAR_context_*), contexts/<context>/terraform/.env
+// content, and TF_VAR_* from the component's own inputs (evaluated via terraform_output(); outputs from
+// other components are used only to evaluate inputs, never emitted as separate TF_VAR_* variables).
+// Returns the environment variables map, the terraform/.env key names (for callers that must pass them
+// through a narrower allowlist or track them for later cleanup), the TerraformArgs struct, and any error.
+func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error) {
 	terraformArgs, err := p.GenerateTerraformArgs(componentID, interactive)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error generating terraform args: %w", err)
+		return nil, nil, nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
 
 	envVars, err := p.getBaseEnvVarsForComponent(terraformArgs)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+
+	scopedEnvVars, err := p.loadTerraformScopedEnv()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	scopedKeys := make([]string, 0, len(scopedEnvVars))
+	for k, v := range scopedEnvVars {
+		scopedKeys = append(scopedKeys, k)
+		if _, exists := envVars[k]; !exists {
+			envVars[k] = v
+		}
 	}
 
 	if componentID != "" && p.evaluator != nil {
@@ -469,7 +485,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					p.mu.RUnlock()
 					nonDeferred, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, false)
 					if err != nil {
-						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
+						return nil, nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
 					}
 					nonDeferredValue, exists := nonDeferred[key]
 					if !exists {
@@ -490,7 +506,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					}
 					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, true)
 					if err != nil {
-						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
+						return nil, nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
 					}
 					evaluatedValue, exists := evaluated[key]
 					if !exists {
@@ -518,7 +534,35 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 		}
 	}
 
-	return envVars, terraformArgs, nil
+	return envVars, scopedKeys, terraformArgs, nil
+}
+
+// TerraformScopedEnvKeys returns the key names declared in contexts/<context>/terraform/.env,
+// without resolving any values or paying secret-resolution cost. Used to identify which
+// environment variables to unset when leaving a Terraform directory.
+func (p *terraformProvider) TerraformScopedEnvKeys() ([]string, error) {
+	configRoot, err := p.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving config root: %w", err)
+	}
+
+	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
+
+	data, err := p.Shims.ReadFile(dotEnvPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("error reading %s: %w", dotEnvPath, err)
+	}
+
+	parsed := dotenv.Parse(string(data))
+	keys := make([]string, 0, len(parsed))
+	for k := range parsed {
+		keys = append(keys, k)
+	}
+
+	return keys, nil
 }
 
 // FormatArgsForEnv formats CLI arguments for use in environment variables.
@@ -830,6 +874,56 @@ func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformA
 		envVars["TF_VAR_os_type"] = "windows"
 	} else {
 		envVars["TF_VAR_os_type"] = "unix"
+	}
+
+	return envVars, nil
+}
+
+// loadTerraformScopedEnv reads contexts/<context>/terraform/.env, resolving secret(...)
+// expressions and registering every value with the shell for output scrubbing. A key
+// already cached in the shell is omitted rather than re-evaluated. Returns an empty map
+// when the file is absent, and warns (without failing) on loose file permissions. Reused
+// by both the interactive shell hook and windsor up/apply/plan/destroy, since both paths
+// call GetEnvVars per component.
+func (p *terraformProvider) loadTerraformScopedEnv() (map[string]string, error) {
+	envVars := make(map[string]string)
+
+	configRoot, err := p.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving config root: %w", err)
+	}
+
+	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
+
+	info, err := p.Shims.Stat(dotEnvPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return envVars, nil
+		}
+		return nil, fmt.Errorf("error checking %s: %w", dotEnvPath, err)
+	}
+
+	dotenv.WarnOnLoosePermissions(p.warningWriter, p.Shims.Goos(), dotEnvPath, info.Mode())
+
+	data, err := p.Shims.ReadFile(dotEnvPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading %s: %w", dotEnvPath, err)
+	}
+
+	for k, v := range dotenv.Parse(string(data)) {
+		normalizedValue := secretsRuntime.NormalizeLegacyBraces(v)
+
+		if p.evaluator != nil && evaluator.ContainsExpression(normalizedValue) {
+			if existingValue, exists := p.Shims.LookupEnv(k); exists &&
+				dotenv.ShouldUseCache(p.Shims.LookupEnv) && !strings.Contains(existingValue, "<ERROR") {
+				p.shell.RegisterSecret(existingValue)
+				continue
+			}
+			envVars[k] = dotenv.EvaluateExpressionValue(p.evaluator, normalizedValue)
+		} else {
+			envVars[k] = normalizedValue
+		}
+		p.shell.RegisterSecret(envVars[k])
 	}
 
 	return envVars, nil

@@ -27,6 +27,7 @@ contexts/
     ├── terraform/<component-id>.tfvars     user-edited Terraform variable overrides
     ├── terraform/<component-id>.tfvars.json  JSON variant of the above
     ├── terraform/backend.tfvars            optional Terraform backend overrides
+    ├── terraform/.env                      git-ignored, Terraform-only env vars
     ├── .aws/{config,credentials}           AWS CLI config + credentials, scoped to this context
     ├── .azure/                             Azure CLI config, scoped to this context
     ├── .gcp/gcloud/                        gcloud CLI config, scoped to this context
@@ -59,6 +60,7 @@ live under `contexts/<context-name>/`.
 | `terraform/<component-id>.tfvars` | HCL | Operator-authored variable overrides for a Terraform component. Read at plan/apply time. |
 | `terraform/<component-id>.tfvars.json` | JSON | JSON-formatted alternative to `.tfvars`. |
 | `terraform/backend.tfvars` | HCL | Optional overrides applied to the Terraform backend init. |
+| `terraform/.env` | dotenv | Terraform-only operator env vars, auto-git-ignored. See [Terraform-scoped `.env`](#terraform-scoped-env) below. |
 | `.env` | dotenv | Operator-supplied environment variables, auto-git-ignored. See [`.env` files](#env-files) below. |
 | `.aws/config`, `.aws/credentials` | INI | AWS CLI files; the env hook sets `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` so `aws` commands inside the windsor shell write here instead of `~/.aws/`. |
 | `.azure/` | Directory | Azure CLI config; `AZURE_CONFIG_DIR` points `az` here. |
@@ -91,6 +93,42 @@ shared with the team (see [Configuration reference](configuration.md)).
   Terraform, …) override a same-named `.env` key.
 - Windsor warns (without failing) if the file is readable by group or other;
   restrict it to the owner (`chmod 600`).
+
+### Committing `.env` anyway
+
+A team that wants to share `.env` (or `terraform/.env`) through git — for
+example, a file whose values are all `secret(...)` references rather than
+raw credentials — can add a negation line to the end of
+`contexts/<context-name>/.gitignore`:
+
+```
+!.env
+```
+
+Don't delete the `.env` line itself to do this. Windsor re-adds any missing
+line from its managed set on every `windsor init`/`up` (so upgrading to a
+newer CLI still protects contexts created by an older one), and deleting the
+line would just have it silently reappear. Appending `!.env` after it is
+stable: the line is still present, so Windsor leaves the file alone, and
+git's own last-match-wins rule un-ignores the file anyway.
+
+## Terraform-scoped `.env`
+
+`contexts/<context-name>/terraform/.env` is a second, narrower dotenv file
+for variables that are only ever relevant to Terraform — most commonly
+provider credentials read directly from the environment, like Hyper-V or
+vSphere. Same format as the general `.env` above, including `secret(...)`
+support.
+
+The difference is *when* it loads. The general `.env` loads on every
+`windsor env` / shell hook invocation; `terraform/.env` loads only when
+Windsor is actually doing Terraform work — either the operator is `cd`'d
+into a `terraform/<component>/` directory, or a command like `windsor up`
+is running. A plain shell prompt elsewhere never touches it, so it never
+pays secret-resolution cost for content that isn't relevant right now. Move
+a variable here instead of the general `.env` once you notice it's
+Terraform-only and secret-resolution heavy enough to matter for prompt
+latency.
 
 ## See also
 

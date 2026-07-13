@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/dotenv"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	"github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -89,7 +90,7 @@ func (e *DotEnvEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return nil, fmt.Errorf("error reading %s: %w", dotEnvPath, err)
 	}
 
-	for k, v := range parseDotEnv(string(data)) {
+	for k, v := range dotenv.Parse(string(data)) {
 		e.SetManagedEnv(k)
 
 		normalizedValue := secrets.NormalizeLegacyBraces(v)
@@ -97,6 +98,7 @@ func (e *DotEnvEnvPrinter) GetEnvVars() (map[string]string, error) {
 		if e.evaluator != nil && evaluator.ContainsExpression(normalizedValue) {
 			if existingValue, exists := e.shims.LookupEnv(k); exists &&
 				e.shouldUseCache() && !strings.Contains(existingValue, "<ERROR") {
+				e.shell.RegisterSecret(existingValue)
 				continue
 			}
 			envVars[k] = evaluateExpressionValue(e.evaluator, normalizedValue)
@@ -118,43 +120,7 @@ func (e *DotEnvEnvPrinter) GetEnvVars() (map[string]string, error) {
 // A no-op on Windows: NTFS has no owner/group/other model, so Go's FileMode bits
 // there don't reflect real ACL restrictiveness and chmod has no equivalent.
 func (e *DotEnvEnvPrinter) warnOnLoosePermissions(path string, mode os.FileMode) {
-	if e.shims.Goos() == "windows" {
-		return
-	}
-	if mode.Perm()&0077 != 0 {
-		fmt.Fprintf(e.warningWriter, "\033[33mWarning: %s is readable by group/other; it may contain credentials. Consider running: chmod 600 %s\033[0m\n", path, path)
-	}
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-// parseDotEnv parses standard dotenv content (KEY=VALUE lines, # comments, blank
-// lines) into a map. Lines without a top-level "=" are skipped silently.
-func parseDotEnv(content string) map[string]string {
-	result := make(map[string]string)
-
-	for line := range strings.SplitSeq(content, "\n") {
-		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		key, value, found := strings.Cut(line, "=")
-		if !found {
-			continue
-		}
-
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-
-		result[key] = strings.TrimSpace(value)
-	}
-
-	return result
+	dotenv.WarnOnLoosePermissions(e.warningWriter, e.shims.Goos(), path, mode)
 }
 
 // =============================================================================
