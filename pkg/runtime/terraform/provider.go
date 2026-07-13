@@ -6,6 +6,7 @@ package terraform
 
 import (
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -38,6 +39,7 @@ type terraformProvider struct {
 	cache         map[string]map[string]any
 	components    []blueprintv1alpha1.TerraformComponent
 	configScope   map[string]any
+	warningWriter io.Writer
 	mu            sync.RWMutex
 }
 
@@ -84,7 +86,7 @@ type TerraformProvider interface {
 	GetTFDataDir(componentID string) (string, error)
 	GetStatePath(componentID string) (string, error)
 	BackendConfigComplete() bool
-	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
+	GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
 	TerraformScopedEnvKeys() ([]string, error)
@@ -122,6 +124,7 @@ func NewTerraformProvider(
 		evaluator:     evaluator,
 		Shims:         NewShims(),
 		cache:         make(map[string]map[string]any),
+		warningWriter: os.Stderr,
 	}
 
 	provider.registerTerraformOutputHelper(evaluator)
@@ -439,29 +442,30 @@ func (p *terraformProvider) GetTFDataDir(componentID string) (string, error) {
 	return tfDataDir, nil
 }
 
-// GetEnvVars constructs the environment variables required for Terraform execution for the specified component ID.
-// It generates TerraformArgs internally and sets up base environment variables including TF_DATA_DIR,
-// TF_CLI_ARGS_*, and TF_VAR_context_* variables. Component inputs are evaluated to populate the cache via
-// terraform_output() calls, and resulting TF_VAR_* environment variables are populated from the evaluated
-// inputs of the current component only. Outputs from other components are used solely to evaluate inputs and
-// are not included as separate TF_VAR_* variables. Complex output values are JSON-encoded.
-// Returns the generated environment variables map, the TerraformArgs struct, or an error if processing fails.
-func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error) {
+// GetEnvVars constructs the environment variables required for Terraform execution for the specified
+// component ID: base vars (TF_DATA_DIR, TF_CLI_ARGS_*, TF_VAR_context_*), contexts/<context>/terraform/.env
+// content, and TF_VAR_* from the component's own inputs (evaluated via terraform_output(); outputs from
+// other components are used only to evaluate inputs, never emitted as separate TF_VAR_* variables).
+// Returns the environment variables map, the terraform/.env key names (for callers that must pass them
+// through a narrower allowlist or track them for later cleanup), the TerraformArgs struct, and any error.
+func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error) {
 	terraformArgs, err := p.GenerateTerraformArgs(componentID, interactive)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error generating terraform args: %w", err)
+		return nil, nil, nil, fmt.Errorf("error generating terraform args: %w", err)
 	}
 
 	envVars, err := p.getBaseEnvVarsForComponent(terraformArgs)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	scopedEnvVars, err := p.loadTerraformScopedEnv()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+	scopedKeys := make([]string, 0, len(scopedEnvVars))
 	for k, v := range scopedEnvVars {
+		scopedKeys = append(scopedKeys, k)
 		if _, exists := envVars[k]; !exists {
 			envVars[k] = v
 		}
@@ -481,7 +485,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					p.mu.RUnlock()
 					nonDeferred, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, false)
 					if err != nil {
-						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
+						return nil, nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
 					}
 					nonDeferredValue, exists := nonDeferred[key]
 					if !exists {
@@ -502,7 +506,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 					}
 					evaluated, err := p.evaluator.EvaluateMap(map[string]any{key: value}, "", evalScope, true)
 					if err != nil {
-						return nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
+						return nil, nil, nil, fmt.Errorf("error evaluating input '%s' for component %s: %w", key, componentID, err)
 					}
 					evaluatedValue, exists := evaluated[key]
 					if !exists {
@@ -530,7 +534,7 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 		}
 	}
 
-	return envVars, terraformArgs, nil
+	return envVars, scopedKeys, terraformArgs, nil
 }
 
 // TerraformScopedEnvKeys returns the key names declared in contexts/<context>/terraform/.env,
@@ -899,7 +903,7 @@ func (p *terraformProvider) loadTerraformScopedEnv() (map[string]string, error) 
 		return nil, fmt.Errorf("error checking %s: %w", dotEnvPath, err)
 	}
 
-	dotenv.WarnOnLoosePermissions(os.Stderr, p.Shims.Goos(), dotEnvPath, info.Mode())
+	dotenv.WarnOnLoosePermissions(p.warningWriter, p.Shims.Goos(), dotEnvPath, info.Mode())
 
 	data, err := p.Shims.ReadFile(dotEnvPath)
 	if err != nil {

@@ -1646,14 +1646,9 @@ func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.T
 		return nil, nil, nil, fmt.Errorf("terraform environment printer not available")
 	}
 
-	terraformVars, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
+	terraformVars, scopedKeys, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error getting terraform env vars: %w", err)
-	}
-
-	scopedKeys, err := s.runtime.TerraformProvider.TerraformScopedEnvKeys()
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error getting terraform-scoped env keys: %w", err)
 	}
 
 	if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {

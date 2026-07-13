@@ -84,12 +84,12 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 		return e.getEmptyEnvVars(), nil
 	}
 
-	terraformVars, _, err := e.terraformProvider.GetEnvVars(projectPath, true)
+	terraformVars, scopedKeys, _, err := e.terraformProvider.GetEnvVars(projectPath, true)
 	for key := range terraformVars {
 		e.SetManagedEnv(key)
 	}
 
-	if scopedKeys, keysErr := e.terraformProvider.TerraformScopedEnvKeys(); keysErr == nil && len(scopedKeys) > 0 {
+	if len(scopedKeys) > 0 {
 		if terraformVars == nil {
 			terraformVars = make(map[string]string)
 		}

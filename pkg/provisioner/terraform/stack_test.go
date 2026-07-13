@@ -1842,11 +1842,11 @@ func TestStack_DestroyAll(t *testing.T) {
 
 		// Inject a TerraformProvider whose GetEnvVars fails for "broken" only.
 		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
-			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, *terraformRuntime.TerraformArgs, error) {
+			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, []string, *terraformRuntime.TerraformArgs, error) {
 				if strings.Contains(componentID, "broken") {
-					return nil, nil, fmt.Errorf("mock setup failure for %s", componentID)
+					return nil, nil, nil, fmt.Errorf("mock setup failure for %s", componentID)
 				}
-				return map[string]string{}, &terraformRuntime.TerraformArgs{}, nil
+				return map[string]string{}, nil, &terraformRuntime.TerraformArgs{}, nil
 			},
 		}
 
@@ -3122,8 +3122,8 @@ func TestStack_Destroy(t *testing.T) {
 		// Given a stack whose provider returns RefreshArgs containing a var-file flag
 		stack, mocks := setup(t)
 		mocks.Runtime.TerraformProvider = &terraformRuntime.MockTerraformProvider{
-			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, *terraformRuntime.TerraformArgs, error) {
-				return map[string]string{}, &terraformRuntime.TerraformArgs{
+			GetEnvVarsFunc: func(componentID string, interactive bool) (map[string]string, []string, *terraformRuntime.TerraformArgs, error) {
+				return map[string]string{}, nil, &terraformRuntime.TerraformArgs{
 					RefreshArgs: []string{"-var-file=secrets.tfvars"},
 				}, nil
 			},

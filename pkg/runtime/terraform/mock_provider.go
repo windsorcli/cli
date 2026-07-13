@@ -19,7 +19,7 @@ type MockTerraformProvider struct {
 	GetTFDataDirFunc            func(componentID string) (string, error)
 	GetStatePathFunc            func(componentID string) (string, error)
 	BackendConfigCompleteFunc   func() bool
-	GetEnvVarsFunc              func(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
+	GetEnvVarsFunc              func(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error)
 	FormatArgsForEnvFunc        func(args []string) string
 	ClearCacheFunc              func()
 	TerraformScopedEnvKeysFunc  func() ([]string, error)
@@ -130,11 +130,11 @@ func (m *MockTerraformProvider) BackendConfigComplete() bool {
 }
 
 // GetEnvVars implements TerraformProvider.
-func (m *MockTerraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error) {
+func (m *MockTerraformProvider) GetEnvVars(componentID string, interactive bool) (map[string]string, []string, *TerraformArgs, error) {
 	if m.GetEnvVarsFunc != nil {
 		return m.GetEnvVarsFunc(componentID, interactive)
 	}
-	return make(map[string]string), &TerraformArgs{}, nil
+	return make(map[string]string), nil, &TerraformArgs{}, nil
 }
 
 // FormatArgsForEnv implements TerraformProvider.
