@@ -173,21 +173,7 @@ func (e *WindsorEnvPrinter) evaluateEnvValue(value string) string {
 	if e.evaluator == nil {
 		return value
 	}
-	result, err := e.evaluator.Evaluate(value, "", nil, true)
-	if err != nil {
-		return fmt.Sprintf("<ERROR: %s>", err)
-	}
-	if result == nil {
-		return ""
-	}
-	return fmt.Sprint(result)
-}
-
-// shouldUseCache determines if the cache should be used based on NO_CACHE environment variable.
-// Cache is enabled by default and can be disabled by setting NO_CACHE=1 or NO_CACHE=true.
-func (e *WindsorEnvPrinter) shouldUseCache() bool {
-	noCache, _ := e.shims.LookupEnv("NO_CACHE")
-	return noCache == "" || noCache == "0" || noCache == "false" || noCache == "False"
+	return evaluateExpressionValue(e.evaluator, value)
 }
 
 // getBuildID retrieves the current build ID from the .windsor/.build-id file.

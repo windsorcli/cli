@@ -1014,7 +1014,7 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		}
 
 		// And each non-template context should have a .gitignore with cred dirs
-		expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n"
+		expected := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n.env\n"
 		for _, name := range []string{"local", "prod"} {
 			path := filepath.Join(root, "contexts", name, ".gitignore")
 			content, readErr := os.ReadFile(path)
@@ -1030,6 +1030,98 @@ func TestComposer_writeLocalGitignores(t *testing.T) {
 		templatePath := filepath.Join(root, "contexts", "_template", ".gitignore")
 		if _, err := os.Stat(templatePath); !os.IsNotExist(err) {
 			t.Errorf("Expected contexts/_template/.gitignore to not exist, got stat err: %v", err)
+		}
+	})
+
+	t.Run("BackfillsMissingLineIntoExistingContextGitignore", func(t *testing.T) {
+		// Given a context whose .gitignore predates the ".env" line addition
+		mocks := setupComposerMocks(t)
+		root := mocks.Runtime.ProjectRoot
+		contextDir := filepath.Join(root, "contexts", "local")
+		if err := os.MkdirAll(contextDir, 0750); err != nil {
+			t.Fatalf("Failed to create context dir: %v", err)
+		}
+		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n"
+		path := filepath.Join(contextDir, ".gitignore")
+		if err := os.WriteFile(path, []byte(staleContent), 0644); err != nil {
+			t.Fatalf("Failed to seed stale .gitignore: %v", err)
+		}
+		composer := createComposerWithMocks(mocks)
+
+		// When writing local gitignores
+		err := composer.writeLocalGitignores()
+
+		// Then no error should occur
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// And the missing ".env" line should be appended
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("Failed to read .gitignore: %v", readErr)
+		}
+		if string(content) != staleContent+".env\n" {
+			t.Errorf("Expected .env to be backfilled, got: %q", string(content))
+		}
+	})
+
+	t.Run("PreservesUserLinesWhenBackfillingContextGitignore", func(t *testing.T) {
+		// Given a context .gitignore with a user-added line and no ".env" line
+		mocks := setupComposerMocks(t)
+		root := mocks.Runtime.ProjectRoot
+		contextDir := filepath.Join(root, "contexts", "local")
+		if err := os.MkdirAll(contextDir, 0750); err != nil {
+			t.Fatalf("Failed to create context dir: %v", err)
+		}
+		staleContent := ".kube/\n.talos/\n.omni/\n.aws/\n.azure/\n.gcp/\n*.bak\n"
+		path := filepath.Join(contextDir, ".gitignore")
+		if err := os.WriteFile(path, []byte(staleContent), 0644); err != nil {
+			t.Fatalf("Failed to seed stale .gitignore: %v", err)
+		}
+		composer := createComposerWithMocks(mocks)
+
+		// When writing local gitignores
+		if err := composer.writeLocalGitignores(); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the user's line should be preserved and ".env" appended
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("Failed to read .gitignore: %v", readErr)
+		}
+		if string(content) != staleContent+".env\n" {
+			t.Errorf("Expected user line preserved and .env appended, got: %q", string(content))
+		}
+	})
+
+	t.Run("IsIdempotentWhenEnvLineAlreadyPresent", func(t *testing.T) {
+		// Given a context .gitignore that already has every current line
+		mocks := setupComposerMocks(t)
+		root := mocks.Runtime.ProjectRoot
+		contextDir := filepath.Join(root, "contexts", "local")
+		if err := os.MkdirAll(contextDir, 0750); err != nil {
+			t.Fatalf("Failed to create context dir: %v", err)
+		}
+		path := filepath.Join(contextDir, ".gitignore")
+		if err := os.WriteFile(path, []byte(contextIgnoreContent), 0644); err != nil {
+			t.Fatalf("Failed to seed .gitignore: %v", err)
+		}
+		composer := createComposerWithMocks(mocks)
+
+		// When writing local gitignores
+		if err := composer.writeLocalGitignores(); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Then the file should be unchanged
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("Failed to read .gitignore: %v", readErr)
+		}
+		if string(content) != contextIgnoreContent {
+			t.Errorf("Expected .gitignore unchanged, got: %q", string(content))
 		}
 	})
 

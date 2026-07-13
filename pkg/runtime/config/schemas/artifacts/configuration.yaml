@@ -77,9 +77,11 @@ $defs:
         additionalProperties:
           type: string
         description: |
-          Static environment variables exported into every command run in
-          this context. Plain string-to-string map; no expression
-          evaluation.
+          Environment variables exported into every command run in this
+          context. Values may contain `${...}` expressions, including
+          `secret(...)` references. This key is declarative and lives in
+          version control; for local, git-ignored values instead, see
+          [`.env` files](contexts.md#env-files).
       secrets:
         $ref: '#/$defs/secrets'
       aws:

@@ -2972,4 +2972,59 @@ func TestRuntime_initializeEnvPrinters(t *testing.T) {
 			t.Error("Expected WindsorEnv to be initialized with Resolver")
 		}
 	})
+
+	t.Run("AlwaysInitializesDotEnvEnv", func(t *testing.T) {
+		// Given a runtime with no platform-specific configuration at all
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then DotEnvEnv should be initialized unconditionally
+		if rt.EnvPrinters.DotEnvEnv == nil {
+			t.Error("Expected DotEnvEnv to always be initialized")
+		}
+	})
+
+	t.Run("DoesNotOverrideExistingDotEnvEnv", func(t *testing.T) {
+		// Given a runtime with an existing DotEnvEnv printer
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+
+		existingDotEnvEnv := env.NewMockEnvPrinter()
+		rt.EnvPrinters.DotEnvEnv = existingDotEnvEnv
+
+		// When initializeEnvPrinters is called
+		rt.initializeEnvPrinters()
+
+		// Then the existing printer should be preserved
+		if rt.EnvPrinters.DotEnvEnv != existingDotEnvEnv {
+			t.Error("Expected existing DotEnvEnv to be preserved")
+		}
+	})
+}
+
+// TestRuntime_getAllEnvPrinters tests the ordering returned by getAllEnvPrinters.
+func TestRuntime_getAllEnvPrinters(t *testing.T) {
+	t.Run("DotEnvEnvIsFirst", func(t *testing.T) {
+		// Given a runtime with all env printers initialized
+		mocks := setupRuntimeMocks(t)
+		rt := mocks.Runtime
+		rt.initializeEnvPrinters()
+
+		// When getAllEnvPrinters is called
+		printers := rt.getAllEnvPrinters()
+
+		// Then DotEnvEnv should be first (lowest precedence) and WindsorEnv last
+		if len(printers) == 0 {
+			t.Fatal("Expected at least one printer")
+		}
+		if printers[0] != rt.EnvPrinters.DotEnvEnv {
+			t.Error("Expected DotEnvEnv to be first in getAllEnvPrinters")
+		}
+		if printers[len(printers)-1] != rt.EnvPrinters.WindsorEnv {
+			t.Error("Expected WindsorEnv to be last in getAllEnvPrinters")
+		}
+	})
 }
