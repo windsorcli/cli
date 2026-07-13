@@ -2017,7 +2017,7 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 			_ = os.Unsetenv("TF_VAR_talos_version")
 		}()
 
-		terraformVars, terraformArgs, err := stack.setupTerraformEnvironment(component)
+		terraformVars, _, terraformArgs, err := stack.setupTerraformEnvironment(component)
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -2046,7 +2046,7 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 			FullPath: filepath.Join(os.Getenv("WINDSOR_PROJECT_ROOT"), "terraform", "test", "path"),
 		}
 
-		_, _, err := stack.setupTerraformEnvironment(component)
+		_, _, _, err := stack.setupTerraformEnvironment(component)
 		if err == nil {
 			t.Fatal("Expected error when terraformEnv is nil")
 		}
@@ -2066,7 +2066,7 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 
 		mocks.ConfigHandler.Set("terraform.backend.type", "unsupported")
 
-		_, _, err := stack.setupTerraformEnvironment(component)
+		_, _, _, err := stack.setupTerraformEnvironment(component)
 		if err == nil {
 			t.Fatal("Expected error when GenerateTerraformArgs fails")
 		}
@@ -2082,7 +2082,7 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 			"TF_DATA_DIR":         "/tmp/data",
 			"TF_VAR_context_path": "/tmp/context",
 			"OTHER":               "ignored",
-		}, false)
+		}, false, nil)
 
 		if selected["TF_DATA_DIR"] != "/tmp/data" {
 			t.Error("Expected TF_DATA_DIR to be included")
@@ -2091,7 +2091,7 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 			t.Error("Expected TF_VAR_context_path to be omitted when includeTFVars is false")
 		}
 		if _, ok := selected["OTHER"]; ok {
-			t.Error("Expected non-TF keys to be omitted")
+			t.Error("Expected keys not named in scopedKeys to be omitted")
 		}
 		if val, ok := selected["TF_CLI_ARGS_apply"]; !ok || val != "" {
 			t.Error("Expected TF_CLI_ARGS_apply to be explicitly cleared")
@@ -2105,9 +2105,31 @@ func TestTerraformStack_setupTerraformEnvironment(t *testing.T) {
 		selected := selectTerraformCommandEnv(map[string]string{
 			"TF_DATA_DIR":         "/tmp/data",
 			"TF_VAR_context_path": "/tmp/context",
-		}, true)
+		}, true, nil)
 		if selected["TF_VAR_context_path"] == "" {
 			t.Error("Expected TF_VAR_context_path to be included when includeTFVars is true")
+		}
+	})
+
+	t.Run("SelectCommandEnvPassesThroughScopedKeysRegardlessOfIncludeTFVars", func(t *testing.T) {
+		// Given a terraform-scoped key (e.g. from contexts/<ctx>/terraform/.env) and an
+		// unrelated key that was never declared as scoped
+		terraformVars := map[string]string{
+			"TF_DATA_DIR": "/tmp/data",
+			"HYPERV_HOST": "hyperv.local",
+			"UNRELATED":   "should-not-leak",
+		}
+
+		// When selecting the command env with includeTFVars false (e.g. init/apply)
+		selected := selectTerraformCommandEnv(terraformVars, false, []string{"HYPERV_HOST"})
+
+		// Then the scoped key passes through regardless of includeTFVars
+		if selected["HYPERV_HOST"] != "hyperv.local" {
+			t.Error("Expected HYPERV_HOST to pass through as a declared scoped key")
+		}
+		// And an unrelated key not named in scopedKeys is still dropped
+		if _, ok := selected["UNRELATED"]; ok {
+			t.Error("Expected UNRELATED to be omitted since it isn't in scopedKeys")
 		}
 	})
 }
@@ -2556,6 +2578,52 @@ func TestStack_Apply(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "project root is empty") {
 			t.Errorf("Expected project root error, got: %v", err)
+		}
+	})
+
+	t.Run("TerraformScopedDotEnvValueReachesSubprocessExec", func(t *testing.T) {
+		// Given a contexts/<ctx>/terraform/.env file declaring a provider credential
+		stack, mocks := setup(t)
+		configRoot, err := mocks.ConfigHandler.GetConfigRoot()
+		if err != nil {
+			t.Fatalf("Failed to get config root: %v", err)
+		}
+		dotEnvDir := filepath.Join(configRoot, "terraform")
+		if err := os.MkdirAll(dotEnvDir, 0750); err != nil {
+			t.Fatalf("Failed to create terraform/.env directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dotEnvDir, ".env"), []byte("HYPERV_HOST=hyperv.local\n"), 0600); err != nil {
+			t.Fatalf("Failed to write terraform/.env fixture: %v", err)
+		}
+		blueprint := createTestBlueprint()
+
+		var capturedEnvs []map[string]string
+		mocks.Shell.ExecSilentWithEnvFunc = func(command string, env map[string]string, args ...string) (string, error) {
+			capturedEnvs = append(capturedEnvs, env)
+			if command == "terraform" && len(args) >= 3 && args[1] == "show" && args[2] == "-json" {
+				return `{"values":{"root_module":{"resources":[]}}}`, nil
+			}
+			return "", nil
+		}
+		mocks.Shell.ExecProgressWithEnvFunc = func(message string, command string, env map[string]string, args ...string) (string, error) {
+			capturedEnvs = append(capturedEnvs, env)
+			return "", nil
+		}
+
+		// When applying the local component
+		if err := stack.Apply(blueprint, "local/path"); err != nil {
+			t.Fatalf("Expected Apply to return nil, got %v", err)
+		}
+
+		// Then every actual terraform subprocess invocation should have received the
+		// terraform/.env value — not just the in-process terraformVars map
+		if len(capturedEnvs) == 0 {
+			t.Fatal("Expected at least one captured subprocess env")
+		}
+		for i, env := range capturedEnvs {
+			if env["HYPERV_HOST"] != "hyperv.local" {
+				t.Errorf("Exec call %d: expected HYPERV_HOST=hyperv.local in subprocess env, got %v", i, env["HYPERV_HOST"])
+			}
 		}
 	})
 

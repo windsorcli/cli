@@ -61,9 +61,18 @@ func NewTerraformEnvPrinter(shell shell.Shell, configHandler config.ConfigHandle
 // Public Methods
 // =============================================================================
 
+// terraformScopedEnvKeysVar is the managed env var recording which keys the current
+// contexts/<context>/terraform/.env last exported, so getEmptyEnvVars can unset exactly
+// those keys on a later invocation even if the file has since changed or been removed.
+const terraformScopedEnvKeysVar = "WINDSOR_MANAGED_TERRAFORM_ENV"
+
 // GetEnvVars returns a map of environment variables for Terraform operations.
-// If not in a Terraform project directory, it unsets managed TF_ variables present in the environment.
-// Otherwise, it generates Terraform arguments for the current project.
+// If not in a Terraform project directory, it unsets managed variables present in the environment.
+// Otherwise, it generates Terraform arguments for the current project, merged with any
+// contexts/<context>/terraform/.env content. Every returned key is tracked as managed so it
+// is unset cleanly when the operator leaves the directory; the terraform/.env key names are
+// additionally recorded in WINDSOR_MANAGED_TERRAFORM_ENV so getEmptyEnvVars can still unset
+// them later even if the file's contents change or the file is removed in the meantime.
 // Returns the environment variable map or an error if resolution fails.
 func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 	projectPath, err := e.terraformProvider.FindRelativeProjectPath()
@@ -77,10 +86,17 @@ func (e *TerraformEnvPrinter) GetEnvVars() (map[string]string, error) {
 
 	terraformVars, _, err := e.terraformProvider.GetEnvVars(projectPath, true)
 	for key := range terraformVars {
-		if key == "TF_DATA_DIR" || strings.HasPrefix(key, "TF_CLI_ARGS_") || strings.HasPrefix(key, "TF_VAR_") {
-			e.SetManagedEnv(key)
-		}
+		e.SetManagedEnv(key)
 	}
+
+	if scopedKeys, keysErr := e.terraformProvider.TerraformScopedEnvKeys(); keysErr == nil && len(scopedKeys) > 0 {
+		if terraformVars == nil {
+			terraformVars = make(map[string]string)
+		}
+		terraformVars[terraformScopedEnvKeysVar] = strings.Join(scopedKeys, ",")
+		e.SetManagedEnv(terraformScopedEnvKeysVar)
+	}
+
 	return terraformVars, err
 }
 
@@ -119,7 +135,12 @@ func (e *TerraformEnvPrinter) restoreEnvVar(key, originalValue string) {
 	}
 }
 
-// getEmptyEnvVars returns env vars for unsetting managed variables when not in a terraform project.
+// getEmptyEnvVars returns env vars for unsetting managed variables when not in a terraform
+// project, including any keys the last-visited contexts/<context>/terraform/.env exported.
+// Those key names come from WINDSOR_MANAGED_TERRAFORM_ENV (recorded by GetEnvVars when the
+// keys were actually exported) rather than re-reading the current terraform/.env: the file
+// may have changed or been removed since, and re-reading it would miss keys it no longer
+// declares, leaking them in the shell indefinitely.
 func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 	envVars := make(map[string]string)
 	managedVars := []string{
@@ -135,6 +156,7 @@ func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 		"TF_VAR_context_id",
 		"TF_VAR_os_type",
 		"TF_VAR_operation",
+		terraformScopedEnvKeysVar,
 	}
 	if managedEnv := e.shims.Getenv("WINDSOR_MANAGED_ENV"); managedEnv != "" {
 		for _, key := range strings.Split(managedEnv, ",") {
@@ -143,6 +165,13 @@ func (e *TerraformEnvPrinter) getEmptyEnvVars() map[string]string {
 				continue
 			}
 			if strings.HasPrefix(key, "TF_VAR_") || strings.HasPrefix(key, "TF_CLI_ARGS_") || key == "TF_DATA_DIR" {
+				managedVars = append(managedVars, key)
+			}
+		}
+	}
+	if scoped := e.shims.Getenv(terraformScopedEnvKeysVar); scoped != "" {
+		for _, key := range strings.Split(scoped, ",") {
+			if key = strings.TrimSpace(key); key != "" {
 				managedVars = append(managedVars, key)
 			}
 		}

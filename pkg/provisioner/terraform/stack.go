@@ -310,7 +310,7 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 				return fmt.Errorf("directory %s does not exist", component.FullPath)
 			}
 
-			terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+			terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(component)
 			backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 			if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
 				backendOverridePaths = append(backendOverridePaths, backendOverridePath)
@@ -320,25 +320,25 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 			}
 			terraformVars["TF_VAR_operation"] = "apply"
 
-			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+			if err := s.runTerraformInit(&component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 				return err
 			}
 
-			if err := s.refreshIfStateNonEmpty(&component, terraformVars, terraformArgs); err != nil {
+			if err := s.refreshIfStateNonEmpty(&component, terraformVars, scopedKeys, terraformArgs); err != nil {
 				return err
 			}
 
 			terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 			planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false"}
 			planArgs = append(planArgs, terraformArgs.PlanArgs...)
-			planEnv := selectTerraformCommandEnv(terraformVars, true)
+			planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 			if _, err = s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
 				return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 			}
 
 			applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
 			applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
-			applyEnv := selectTerraformCommandEnv(terraformVars, false)
+			applyEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 			if _, err = s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
 				return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 			}
@@ -385,27 +385,27 @@ func (s *TerraformStack) Up(blueprint *blueprintv1alpha1.Blueprint, onApply ...f
 // state in the currently-configured backend. Runs init + `terraform show
 // -json`; callers must invoke before any in-memory backend override.
 func (s *TerraformStack) HasRemoteState(blueprint *blueprintv1alpha1.Blueprint, componentID string) (bool, error) {
-	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
 		return false, err
 	}
 	defer cleanup()
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		return false, err
 	}
-	return s.hasStateResources(component, terraformVars)
+	return s.hasStateResources(component, terraformVars, scopedKeys)
 }
 
 // InitComponent runs `terraform init` for one component using the currently-
 // configured backend; no -migrate-state, no plan, no apply.
 func (s *TerraformStack) InitComponent(blueprint *blueprintv1alpha1.Blueprint, componentID string) error {
-	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...)
+	return s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...)
 }
 
 // HasLocalStateWithResources reports whether the per-component local state
@@ -619,7 +619,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			continue
 		}
 
-		terraformVars, terraformArgs, err := s.setupTerraformEnvironment(component)
+		terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(component)
 		backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 		if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
 			backendOverridePaths = append(backendOverridePaths, backendOverridePath)
@@ -636,13 +636,13 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 		if err := tui.WithProgress(fmt.Sprintf("Destroying %s", component.Path), func() error {
 			terraformVars["TF_VAR_operation"] = "destroy"
 
-			if err := s.runTerraformInit(&component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+			if err := s.runTerraformInit(&component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 				return err
 			}
 
 			// Skip refresh if state is already empty: refresh can only drop resources, never
 			// add them, and downstream data sources may fail against torn-down upstreams.
-			hasResourcesPre, err := s.hasStateResources(&component, terraformVars)
+			hasResourcesPre, err := s.hasStateResources(&component, terraformVars, scopedKeys)
 			if err != nil {
 				return err
 			}
@@ -662,7 +662,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			// — without it, a recurring credential or connectivity issue is invisible until
 			// destroy errors out, and a successful fallback leaves no trace at all.
 			refreshFailed := false
-			if err := s.refreshComponentState(&component, terraformVars, terraformArgs); err != nil {
+			if err := s.refreshComponentState(&component, terraformVars, scopedKeys, terraformArgs); err != nil {
 				refreshFailed = true
 				fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 			}
@@ -672,7 +672,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			// check would be redundant; if refresh succeeded but reconciliation dropped every
 			// resource, we still want the skip path.
 			if !refreshFailed {
-				hasResources, err := s.hasStateResources(&component, terraformVars)
+				hasResources, err := s.hasStateResources(&component, terraformVars, scopedKeys)
 				if err != nil {
 					return err
 				}
@@ -692,7 +692,7 @@ func (s *TerraformStack) DestroyAll(blueprint *blueprintv1alpha1.Blueprint, cont
 			}
 			destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
 			destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
-			destroyEnv := selectTerraformCommandEnv(terraformVars, true)
+			destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 			output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...)
 			if err != nil {
 				if trimmed := strings.TrimSpace(output); trimmed != "" {
@@ -732,21 +732,21 @@ func (s *TerraformStack) Plan(blueprint *blueprintv1alpha1.Blueprint, componentI
 		return fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
-	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
 		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
@@ -776,21 +776,21 @@ func (s *TerraformStack) PlanJSON(blueprint *blueprintv1alpha1.Blueprint, compon
 		return fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		return err
 	}
 
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
-	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
 		return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
@@ -821,7 +821,7 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 		return fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
 		return err
 	}
@@ -829,25 +829,25 @@ func (s *TerraformStack) Apply(blueprint *blueprintv1alpha1.Blueprint, component
 	terraformVars["TF_VAR_operation"] = "apply"
 
 	return tui.WithProgress(fmt.Sprintf("Applying %s", component.Path), func() error {
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 			return err
 		}
 
-		if err := s.refreshIfStateNonEmpty(component, terraformVars, terraformArgs); err != nil {
+		if err := s.refreshIfStateNonEmpty(component, terraformVars, scopedKeys, terraformArgs); err != nil {
 			return err
 		}
 
 		terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 		planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-refresh=false"}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
-		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 		if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...); err != nil {
 			return fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
 		}
 
 		applyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "apply"}
 		applyArgs = append(applyArgs, terraformArgs.ApplyArgs...)
-		applyEnv := selectTerraformCommandEnv(terraformVars, false)
+		applyEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 		if _, err := s.runtime.Shell.ExecProgressWithEnv(fmt.Sprintf("Applying Terraform changes in %s", component.Path), terraformCommand, applyEnv, applyArgs...); err != nil {
 			return fmt.Errorf("error running terraform apply for %s: %w", component.Path, err)
 		}
@@ -877,7 +877,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		return false, fmt.Errorf("component ID not provided")
 	}
 
-	component, terraformVars, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
+	component, terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentOp(blueprint, componentID)
 	if err != nil {
 		return false, err
 	}
@@ -887,11 +887,11 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 
 	skipped := false
 	if err := tui.WithProgress(fmt.Sprintf("Destroying %s", component.Path), func() error {
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 			return err
 		}
 
-		hasResourcesPre, err := s.hasStateResources(component, terraformVars)
+		hasResourcesPre, err := s.hasStateResources(component, terraformVars, scopedKeys)
 		if err != nil {
 			return err
 		}
@@ -901,13 +901,13 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		}
 
 		refreshFailed := false
-		if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
+		if err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs); err != nil {
 			refreshFailed = true
 			fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; falling through to destroy -refresh=true (terraform will retry refresh during destroy): %v\n", component.Path, err)
 		}
 
 		if !refreshFailed {
-			hasResources, err := s.hasStateResources(component, terraformVars)
+			hasResources, err := s.hasStateResources(component, terraformVars, scopedKeys)
 			if err != nil {
 				return err
 			}
@@ -924,7 +924,7 @@ func (s *TerraformStack) Destroy(blueprint *blueprintv1alpha1.Blueprint, compone
 		}
 		destroyArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "destroy", destroyRefreshFlag}
 		destroyArgs = append(destroyArgs, terraformArgs.DestroyArgs...)
-		destroyEnv := selectTerraformCommandEnv(terraformVars, true)
+		destroyEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 
 		output, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, destroyEnv, destroyArgs...)
 		if err != nil {
@@ -1087,7 +1087,7 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 		return false, fmt.Errorf("error checking component directory %s: %w", component.FullPath, statErr)
 	}
 
-	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component)
 	backendOverridePath := filepath.Join(component.FullPath, "backend_override.tf")
 	if _, statErr := s.shims.Stat(backendOverridePath); statErr == nil {
 		*backendOverridePaths = append(*backendOverridePaths, backendOverridePath)
@@ -1096,7 +1096,7 @@ func (s *TerraformStack) migrateOneComponent(component *blueprintv1alpha1.Terraf
 		return false, err
 	}
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs, "-migrate-state", "-force-copy"); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, "-migrate-state", "-force-copy"); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -1136,13 +1136,13 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 
 		fmt.Fprintf(os.Stderr, "\n%s\n", tui.SectionHeader("Terraform: "+component.Path))
 
-		terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+		terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 		if err != nil {
 			return err
 		}
 		terraformVars["TF_VAR_operation"] = "apply"
 
-		if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+		if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 			cleanup()
 			return err
 		}
@@ -1153,7 +1153,7 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 			planArgs = append(planArgs, "-json", "-no-color")
 		}
 		planArgs = append(planArgs, terraformArgs.PlanArgs...)
-		planEnv := selectTerraformCommandEnv(terraformVars, true)
+		planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 		planOutput, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, planEnv, planArgs...)
 		cleanup()
 		if err != nil {
@@ -1176,15 +1176,15 @@ func (s *TerraformStack) planComponents(blueprint *blueprintv1alpha1.Blueprint, 
 // itself failing is propagated; callers can't safely proceed without knowing whether state is
 // empty. Used by Up and Apply; Destroy retains its own refresh handling because its fallback
 // (-refresh=true on destroy) is destroy-specific.
-func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) error {
-	hasResources, err := s.hasStateResources(component, terraformVars)
+func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) error {
+	hasResources, err := s.hasStateResources(component, terraformVars, scopedKeys)
 	if err != nil {
 		return err
 	}
 	if !hasResources {
 		return nil
 	}
-	if err := s.refreshComponentState(component, terraformVars, terraformArgs); err != nil {
+	if err := s.refreshComponentState(component, terraformVars, scopedKeys, terraformArgs); err != nil {
 		fmt.Fprintf(s.warningWriter, "warning: terraform refresh failed for %s; continuing with plan against the last-known state (plan runs with -refresh=false; any persistent state divergence will surface as a plan error): %v\n", component.Path, err)
 	}
 	return nil
@@ -1194,11 +1194,11 @@ func (s *TerraformStack) refreshIfStateNonEmpty(component *blueprintv1alpha1.Ter
 // Errors are returned to the caller. Destroy callers tolerate refresh failures for non-
 // empty-state components by falling through to `terraform destroy -refresh=true`; see
 // Destroy / DestroyAll for the rationale.
-func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs) error {
+func (s *TerraformStack) refreshComponentState(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs) error {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	refreshArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "refresh"}
 	refreshArgs = append(refreshArgs, terraformArgs.RefreshArgs...)
-	refreshEnv := selectTerraformCommandEnv(terraformVars, true)
+	refreshEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	if _, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, refreshEnv, refreshArgs...); err != nil {
 		return fmt.Errorf("error refreshing terraform state for %s: %w", component.Path, err)
 	}
@@ -1240,10 +1240,10 @@ func (s *TerraformStack) clearBackendPointer(terraformVars map[string]string) {
 // depth in the module tree. Used by destroy to short-circuit already-destroyed components,
 // and by plan to classify never-applied components as IsNew (so plan is skipped rather than
 // running against empty state, which fails when dependent layers reference upstream state).
-func (s *TerraformStack) hasStateResources(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string) (bool, error) {
+func (s *TerraformStack) hasStateResources(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string) (bool, error) {
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	stateShowArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "show", "-json"}
-	stateJSON, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, selectTerraformCommandEnv(terraformVars, true), stateShowArgs...)
+	stateJSON, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, selectTerraformCommandEnv(terraformVars, true, scopedKeys), stateShowArgs...)
 	if err != nil {
 		return false, fmt.Errorf("error reading terraform state JSON for %s: %w", component.Path, err)
 	}
@@ -1350,7 +1350,7 @@ func (s *TerraformStack) resolveComponentPaths(blueprint *blueprintv1alpha1.Blue
 func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
 	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
 
-	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 	if err != nil {
 		result.Err = err
 		return result
@@ -1358,12 +1358,12 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "apply"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		result.Err = err
 		return result
 	}
 
-	hasState, err := s.hasStateResources(component, terraformVars)
+	hasState, err := s.hasStateResources(component, terraformVars, scopedKeys)
 	if err != nil {
 		result.Err = err
 		return result
@@ -1379,7 +1379,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 	// is required by terraform alongside -json.
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanArgs...)
-	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...)
 	if err != nil {
 		result.Err = fmt.Errorf("error running terraform plan for %s: %w", component.Path, err)
@@ -1407,7 +1407,7 @@ func (s *TerraformStack) planOneTerraformSummary(component *blueprintv1alpha1.Te
 func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1alpha1.TerraformComponent) TerraformComponentPlan {
 	result := TerraformComponentPlan{ComponentID: component.GetID(), Path: component.Path}
 
-	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 	if err != nil {
 		result.Err = err
 		return result
@@ -1415,12 +1415,12 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	defer cleanup()
 	terraformVars["TF_VAR_operation"] = "destroy"
 
-	if err := s.runTerraformInit(component, terraformVars, terraformArgs, defaultInitFlags...); err != nil {
+	if err := s.runTerraformInit(component, terraformVars, scopedKeys, terraformArgs, defaultInitFlags...); err != nil {
 		result.Err = err
 		return result
 	}
 
-	hasState, err := s.hasStateResources(component, terraformVars)
+	hasState, err := s.hasStateResources(component, terraformVars, scopedKeys)
 	if err != nil {
 		result.Err = err
 		return result
@@ -1433,7 +1433,7 @@ func (s *TerraformStack) planOneTerraformDestroySummary(component *blueprintv1al
 	terraformCommand := s.runtime.ToolsManager.GetTerraformCommand()
 	planArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "plan", "-json", "-no-color"}
 	planArgs = append(planArgs, terraformArgs.PlanDestroyArgs...)
-	planEnv := selectTerraformCommandEnv(terraformVars, true)
+	planEnv := selectTerraformCommandEnv(terraformVars, true, scopedKeys)
 	planOutput, err := s.runtime.Shell.ExecCaptureWithEnv(terraformCommand, planEnv, planArgs...)
 	// terraform exits non-zero when any resource has prevent_destroy = true,
 	// but still emits the diagnostic events naming them. Look for those addresses
@@ -1478,15 +1478,16 @@ func componentDestroyEnabled(component *blueprintv1alpha1.TerraformComponent) bo
 // prepareComponentEnv saves the current directory, validates the component's directory exists,
 // sets up the terraform environment, and returns a cleanup func that restores the working directory
 // and removes any backend_override.tf. It is the shared setup used by planComponents,
-// planOneTerraformSummary, and prepareComponentOp.
-func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.TerraformComponent) (map[string]string, *envvars.TerraformArgs, func(), error) {
+// planOneTerraformSummary, and prepareComponentOp. scopedKeys names the
+// contexts/<context>/terraform/.env keys selectTerraformCommandEnv must pass through.
+func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.TerraformComponent) (map[string]string, []string, *envvars.TerraformArgs, func(), error) {
 	currentDir, err := s.shims.Getwd()
 	if err != nil {
-		return nil, nil, func() {}, fmt.Errorf("error getting current directory: %w", err)
+		return nil, nil, nil, func() {}, fmt.Errorf("error getting current directory: %w", err)
 	}
 
 	if _, err := s.shims.Stat(component.FullPath); os.IsNotExist(err) {
-		return nil, nil, func() {}, fmt.Errorf("directory %s does not exist", component.FullPath)
+		return nil, nil, nil, func() {}, fmt.Errorf("directory %s does not exist", component.FullPath)
 	}
 
 	removeBackendOverride := func() {
@@ -1496,10 +1497,10 @@ func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.Terraf
 		}
 	}
 
-	terraformVars, terraformArgs, err := s.setupTerraformEnvironment(*component)
+	terraformVars, scopedKeys, terraformArgs, err := s.setupTerraformEnvironment(*component)
 	if err != nil {
 		removeBackendOverride()
-		return nil, nil, func() {}, err
+		return nil, nil, nil, func() {}, err
 	}
 
 	cleanup := func() {
@@ -1507,7 +1508,7 @@ func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.Terraf
 		removeBackendOverride()
 	}
 
-	return terraformVars, terraformArgs, cleanup, nil
+	return terraformVars, scopedKeys, terraformArgs, cleanup, nil
 }
 
 // prepareComponentOp validates inputs, resolves the named component from the blueprint, saves/restores
@@ -1516,13 +1517,14 @@ func (s *TerraformStack) prepareComponentEnv(component *blueprintv1alpha1.Terraf
 func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Blueprint, componentID string) (
 	*blueprintv1alpha1.TerraformComponent,
 	map[string]string,
+	[]string,
 	*envvars.TerraformArgs,
 	func(),
 	error,
 ) {
 	projectRoot := s.runtime.ProjectRoot
 	if projectRoot == "" {
-		return nil, nil, nil, func() {}, fmt.Errorf("error getting project root: project root is empty")
+		return nil, nil, nil, nil, func() {}, fmt.Errorf("error getting project root: project root is empty")
 	}
 
 	components := s.resolveTerraformComponents(blueprint, projectRoot)
@@ -1534,15 +1536,15 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 		}
 	}
 	if component == nil {
-		return nil, nil, nil, func() {}, fmt.Errorf("terraform component %q not found", componentID)
+		return nil, nil, nil, nil, func() {}, fmt.Errorf("terraform component %q not found", componentID)
 	}
 
-	terraformVars, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
+	terraformVars, scopedKeys, terraformArgs, cleanup, err := s.prepareComponentEnv(component)
 	if err != nil {
-		return nil, nil, nil, func() {}, err
+		return nil, nil, nil, nil, func() {}, err
 	}
 
-	return component, terraformVars, terraformArgs, cleanup, nil
+	return component, terraformVars, scopedKeys, terraformArgs, cleanup, nil
 }
 
 // runTerraformInit executes terraform init for the given component, inserting
@@ -1552,7 +1554,7 @@ func (s *TerraformStack) prepareComponentOp(blueprint *blueprintv1alpha1.Bluepri
 // cached. On cache miss without -migrate-state, clearStaleBackendPointer
 // drops a stale pointer file before init runs. Dedup assumes sequential
 // callers; parallel iteration would need per-key sync.Once.
-func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
+func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.TerraformComponent, terraformVars map[string]string, scopedKeys []string, terraformArgs *envvars.TerraformArgs, extraFlags ...string) error {
 	migrateState := slices.Contains(extraFlags, "-migrate-state")
 	key := initCacheKey{
 		componentID:  component.GetID(),
@@ -1573,7 +1575,7 @@ func (s *TerraformStack) runTerraformInit(component *blueprintv1alpha1.Terraform
 	initArgs := []string{fmt.Sprintf("-chdir=%s", component.FullPath), "init"}
 	initArgs = append(initArgs, extraFlags...)
 	initArgs = append(initArgs, terraformArgs.InitArgs...)
-	initEnv := selectTerraformCommandEnv(terraformVars, false)
+	initEnv := selectTerraformCommandEnv(terraformVars, false, scopedKeys)
 	_, err := s.runtime.Shell.ExecSilentWithEnv(terraformCommand, initEnv, initArgs...)
 	if err != nil {
 		return fmt.Errorf("error running terraform init for %s: %w", component.Path, err)
@@ -1635,22 +1637,30 @@ func (s *TerraformStack) clearStaleBackendPointer(terraformVars map[string]strin
 }
 
 // setupTerraformEnvironment computes Terraform-specific environment values and args for a component.
-func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.TerraformComponent) (map[string]string, *envvars.TerraformArgs, error) {
+// setupTerraformEnvironment computes Terraform-specific environment values and args for a
+// component, plus the contexts/<context>/terraform/.env key names (scopedKeys) that
+// selectTerraformCommandEnv must pass through unconditionally regardless of includeTFVars.
+func (s *TerraformStack) setupTerraformEnvironment(component blueprintv1alpha1.TerraformComponent) (map[string]string, []string, *envvars.TerraformArgs, error) {
 	terraformEnv := s.getTerraformEnv()
 	if terraformEnv == nil {
-		return nil, nil, fmt.Errorf("terraform environment printer not available")
+		return nil, nil, nil, fmt.Errorf("terraform environment printer not available")
 	}
 
 	terraformVars, terraformArgs, err := s.runtime.TerraformProvider.GetEnvVars(component.GetID(), false)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting terraform env vars: %w", err)
+		return nil, nil, nil, fmt.Errorf("error getting terraform env vars: %w", err)
+	}
+
+	scopedKeys, err := s.runtime.TerraformProvider.TerraformScopedEnvKeys()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("error getting terraform-scoped env keys: %w", err)
 	}
 
 	if err := terraformEnv.PostEnvHook(component.FullPath); err != nil {
-		return nil, nil, fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
+		return nil, nil, nil, fmt.Errorf("error creating backend override file for %s: %w", component.Path, err)
 	}
 
-	return terraformVars, terraformArgs, nil
+	return terraformVars, scopedKeys, terraformArgs, nil
 }
 
 // getTerraformEnv returns the terraform environment printer, checking the runtime if not set on the stack.
@@ -1837,8 +1847,14 @@ func stripModuleMain(addr string) string {
 	return strings.TrimPrefix(addr, "module.main.")
 }
 
-// selectTerraformCommandEnv builds per-command env overrides without mutating process-wide environment.
-func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bool) map[string]string {
+// selectTerraformCommandEnv builds per-command env overrides without mutating process-wide
+// environment. TF_CLI_ARGS_* always reset to blank; TF_DATA_DIR and, when includeTFVars is
+// true, TF_VAR_* pass through from terraformVars. scopedKeys names the additional keys to pass
+// through unconditionally (contexts/<context>/terraform/.env content — see
+// TerraformProvider.TerraformScopedEnvKeys): provider credentials are needed on every terraform
+// invocation regardless of includeTFVars. Any other key in terraformVars is dropped, preserving
+// isolation from unrelated process state.
+func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bool, scopedKeys []string) map[string]string {
 	selected := make(map[string]string)
 	for _, key := range []string{
 		"TF_CLI_ARGS",
@@ -1856,6 +1872,11 @@ func selectTerraformCommandEnv(terraformVars map[string]string, includeTFVars bo
 			selected[key] = value
 		}
 		if includeTFVars && strings.HasPrefix(key, "TF_VAR_") {
+			selected[key] = value
+		}
+	}
+	for _, key := range scopedKeys {
+		if value, exists := terraformVars[key]; exists {
 			selected[key] = value
 		}
 	}

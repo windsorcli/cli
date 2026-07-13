@@ -39,6 +39,7 @@ type Shims struct {
 	HclParseConfig func([]byte, string, hcl.Pos) (*hclwrite.File, hcl.Diagnostics)
 	Goos           func() string
 	Sleep          func(time.Duration)
+	LookupEnv      func(string) (string, bool)
 }
 
 // =============================================================================
@@ -64,5 +65,6 @@ func NewShims() *Shims {
 		HclParseConfig: hclwrite.ParseConfig,
 		Goos:           func() string { return runtime.GOOS },
 		Sleep:          time.Sleep,
+		LookupEnv:      os.LookupEnv,
 	}
 }

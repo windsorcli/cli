@@ -416,6 +416,83 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 	})
 
+	t.Run("UnsetsTerraformScopedDotEnvKeysWhenNoProjectPathFound", func(t *testing.T) {
+		// Given a terraform/.env key that is currently set in the shell, recorded by a
+		// prior GetEnvVars call in WINDSOR_MANAGED_TERRAFORM_ENV
+		printer, mocks := setup(t)
+
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_TERRAFORM_ENV" {
+				return "HYPERV_HOST"
+			}
+			return ""
+		}
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "HYPERV_HOST" {
+				return "hyperv.local", true
+			}
+			return "", false
+		}
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "", nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When GetEnvVars is called outside a Terraform directory
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then the terraform/.env key should be unset
+		if val, exists := envVars["HYPERV_HOST"]; !exists || val != "" {
+			t.Errorf("Expected HYPERV_HOST to be unset, got %v", val)
+		}
+	})
+
+	t.Run("UnsetsTerraformScopedDotEnvKeyEvenAfterFileNoLongerDeclaresIt", func(t *testing.T) {
+		// Given HYPERV_HOST was exported on a prior visit (recorded in
+		// WINDSOR_MANAGED_TERRAFORM_ENV) but terraform/.env has since been edited to no
+		// longer declare it — TerraformScopedEnvKeysFunc reflects the current, changed file
+		printer, mocks := setup(t)
+
+		mocks.Shims.Getenv = func(key string) string {
+			if key == "WINDSOR_MANAGED_TERRAFORM_ENV" {
+				return "HYPERV_HOST"
+			}
+			return ""
+		}
+		mocks.Shims.LookupEnv = func(key string) (string, bool) {
+			if key == "HYPERV_HOST" {
+				return "hyperv.local", true
+			}
+			return "", false
+		}
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "", nil
+		}
+		mockProvider.TerraformScopedEnvKeysFunc = func() ([]string, error) {
+			return nil, nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When GetEnvVars is called outside a Terraform directory
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then HYPERV_HOST should still be unset, since the durable record (not the
+		// live file) drives what gets cleaned up
+		if val, exists := envVars["HYPERV_HOST"]; !exists || val != "" {
+			t.Errorf("Expected HYPERV_HOST to still be unset, got %v", val)
+		}
+	})
+
 	t.Run("TrackManagedTFVarsWhenProjectPathFound", func(t *testing.T) {
 		printer, mocks := setup(t)
 
@@ -446,6 +523,46 @@ func TestTerraformEnv_GetEnvVars(t *testing.T) {
 		}
 		if !slices.Contains(managed, "TF_VAR_cluster_endpoint") {
 			t.Errorf("Expected TF_VAR_cluster_endpoint to be tracked in managed env, got %v", managed)
+		}
+	})
+
+	t.Run("TracksTerraformScopedDotEnvKeysAsManaged", func(t *testing.T) {
+		// Given a component whose env vars include a non-TF_-prefixed key from terraform/.env
+		printer, mocks := setup(t)
+
+		mockProvider := setupMockTerraformProvider(mocks)
+		mockProvider.FindRelativeProjectPathFunc = func(directory ...string) (string, error) {
+			return "cluster", nil
+		}
+		mockProvider.GetEnvVarsFunc = func(componentID string, withOutputs bool) (map[string]string, *terraform.TerraformArgs, error) {
+			return map[string]string{
+				"TF_DATA_DIR": "/tmp/data",
+				"HYPERV_HOST": "hyperv.local",
+			}, &terraform.TerraformArgs{}, nil
+		}
+		mockProvider.TerraformScopedEnvKeysFunc = func() ([]string, error) {
+			return []string{"HYPERV_HOST"}, nil
+		}
+		printer = setupTerraformEnvPrinter(t, mocks, mockProvider)
+
+		// When GetEnvVars is called
+		envVars, err := printer.GetEnvVars()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Then the non-TF_-prefixed key should also be tracked as managed
+		managed := printer.GetManagedEnv()
+		if !slices.Contains(managed, "HYPERV_HOST") {
+			t.Errorf("Expected HYPERV_HOST to be tracked in managed env, got %v", managed)
+		}
+
+		// And the durable record of which keys came from terraform/.env should be set and managed
+		if envVars["WINDSOR_MANAGED_TERRAFORM_ENV"] != "HYPERV_HOST" {
+			t.Errorf("Expected WINDSOR_MANAGED_TERRAFORM_ENV=HYPERV_HOST, got %q", envVars["WINDSOR_MANAGED_TERRAFORM_ENV"])
+		}
+		if !slices.Contains(managed, "WINDSOR_MANAGED_TERRAFORM_ENV") {
+			t.Errorf("Expected WINDSOR_MANAGED_TERRAFORM_ENV to be tracked in managed env, got %v", managed)
 		}
 	})
 

@@ -17,6 +17,7 @@ import (
 
 	blueprintv1alpha1 "github.com/windsorcli/cli/api/v1alpha1"
 	"github.com/windsorcli/cli/pkg/runtime/config"
+	"github.com/windsorcli/cli/pkg/runtime/dotenv"
 	"github.com/windsorcli/cli/pkg/runtime/evaluator"
 	secretsRuntime "github.com/windsorcli/cli/pkg/runtime/secrets"
 	"github.com/windsorcli/cli/pkg/runtime/shell"
@@ -86,6 +87,7 @@ type TerraformProvider interface {
 	GetEnvVars(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnv(args []string) string
 	ClearCache()
+	TerraformScopedEnvKeys() ([]string, error)
 }
 
 // =============================================================================
@@ -455,6 +457,16 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 		return nil, nil, err
 	}
 
+	scopedEnvVars, err := p.loadTerraformScopedEnv()
+	if err != nil {
+		return nil, nil, err
+	}
+	for k, v := range scopedEnvVars {
+		if _, exists := envVars[k]; !exists {
+			envVars[k] = v
+		}
+	}
+
 	if componentID != "" && p.evaluator != nil {
 		component := p.GetTerraformComponent(componentID)
 		if component != nil && component.Inputs != nil && len(component.Inputs) > 0 {
@@ -519,6 +531,34 @@ func (p *terraformProvider) GetEnvVars(componentID string, interactive bool) (ma
 	}
 
 	return envVars, terraformArgs, nil
+}
+
+// TerraformScopedEnvKeys returns the key names declared in contexts/<context>/terraform/.env,
+// without resolving any values or paying secret-resolution cost. Used to identify which
+// environment variables to unset when leaving a Terraform directory.
+func (p *terraformProvider) TerraformScopedEnvKeys() ([]string, error) {
+	configRoot, err := p.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving config root: %w", err)
+	}
+
+	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
+
+	data, err := p.Shims.ReadFile(dotEnvPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("error reading %s: %w", dotEnvPath, err)
+	}
+
+	parsed := dotenv.Parse(string(data))
+	keys := make([]string, 0, len(parsed))
+	for k := range parsed {
+		keys = append(keys, k)
+	}
+
+	return keys, nil
 }
 
 // FormatArgsForEnv formats CLI arguments for use in environment variables.
@@ -830,6 +870,56 @@ func (p *terraformProvider) getBaseEnvVarsForComponent(terraformArgs *TerraformA
 		envVars["TF_VAR_os_type"] = "windows"
 	} else {
 		envVars["TF_VAR_os_type"] = "unix"
+	}
+
+	return envVars, nil
+}
+
+// loadTerraformScopedEnv reads contexts/<context>/terraform/.env, resolving secret(...)
+// expressions and registering every value with the shell for output scrubbing. A key
+// already cached in the shell is omitted rather than re-evaluated. Returns an empty map
+// when the file is absent, and warns (without failing) on loose file permissions. Reused
+// by both the interactive shell hook and windsor up/apply/plan/destroy, since both paths
+// call GetEnvVars per component.
+func (p *terraformProvider) loadTerraformScopedEnv() (map[string]string, error) {
+	envVars := make(map[string]string)
+
+	configRoot, err := p.configHandler.GetConfigRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving config root: %w", err)
+	}
+
+	dotEnvPath := filepath.Join(configRoot, "terraform", ".env")
+
+	info, err := p.Shims.Stat(dotEnvPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return envVars, nil
+		}
+		return nil, fmt.Errorf("error checking %s: %w", dotEnvPath, err)
+	}
+
+	dotenv.WarnOnLoosePermissions(os.Stderr, p.Shims.Goos(), dotEnvPath, info.Mode())
+
+	data, err := p.Shims.ReadFile(dotEnvPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading %s: %w", dotEnvPath, err)
+	}
+
+	for k, v := range dotenv.Parse(string(data)) {
+		normalizedValue := secretsRuntime.NormalizeLegacyBraces(v)
+
+		if p.evaluator != nil && evaluator.ContainsExpression(normalizedValue) {
+			if existingValue, exists := p.Shims.LookupEnv(k); exists &&
+				dotenv.ShouldUseCache(p.Shims.LookupEnv) && !strings.Contains(existingValue, "<ERROR") {
+				p.shell.RegisterSecret(existingValue)
+				continue
+			}
+			envVars[k] = dotenv.EvaluateExpressionValue(p.evaluator, normalizedValue)
+		} else {
+			envVars[k] = normalizedValue
+		}
+		p.shell.RegisterSecret(envVars[k])
 	}
 
 	return envVars, nil

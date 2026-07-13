@@ -22,6 +22,7 @@ type MockTerraformProvider struct {
 	GetEnvVarsFunc              func(componentID string, interactive bool) (map[string]string, *TerraformArgs, error)
 	FormatArgsForEnvFunc        func(args []string) string
 	ClearCacheFunc              func()
+	TerraformScopedEnvKeysFunc  func() ([]string, error)
 }
 
 // FindRelativeProjectPath implements TerraformProvider.
@@ -149,6 +150,14 @@ func (m *MockTerraformProvider) ClearCache() {
 	if m.ClearCacheFunc != nil {
 		m.ClearCacheFunc()
 	}
+}
+
+// TerraformScopedEnvKeys implements TerraformProvider.
+func (m *MockTerraformProvider) TerraformScopedEnvKeys() ([]string, error) {
+	if m.TerraformScopedEnvKeysFunc != nil {
+		return m.TerraformScopedEnvKeysFunc()
+	}
+	return nil, nil
 }
 
 // =============================================================================
