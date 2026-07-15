@@ -1089,6 +1089,147 @@ func TestComposer_applyCrdLayerBarrier(t *testing.T) {
 	})
 }
 
+func TestComposer_applyGlobalDependencyBarrier(t *testing.T) {
+	kDeps := func(bp *blueprintv1alpha1.Blueprint, name string) []string {
+		for _, k := range bp.Kustomizations {
+			if k.Name == name {
+				return k.DependsOn
+			}
+		}
+		return nil
+	}
+	sysDeps := func(bp *blueprintv1alpha1.Blueprint, name string) []string {
+		for _, s := range bp.FluxSystems {
+			if s.Name == name {
+				return s.DependsOn
+			}
+		}
+		return nil
+	}
+	install := func(components ...string) *blueprintv1alpha1.Kustomization {
+		return &blueprintv1alpha1.Kustomization{Components: components}
+	}
+	resources := func(components ...string) []blueprintv1alpha1.FluxVariant {
+		return []blueprintv1alpha1.FluxVariant{{Kustomization: blueprintv1alpha1.Kustomization{Components: components}}}
+	}
+
+	t.Run("WiresOutsideSystemsAndKustomizationsToTheResourcesTier", func(t *testing.T) {
+		// Given a globalDependency system with a resources tier, an unrelated system, and a flat kustomization
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "policy", GlobalDependency: true, Install: install("kyverno"), Resources: resources("kyverno/policies")},
+				{Name: "telemetry", Install: install("prometheus")},
+			},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "gitops-webhook", Path: "gitops/flux"}},
+		}
+
+		composer.applyGlobalDependencyBarrier(bp)
+
+		// Then everything outside policy waits on its resources tier, and policy does not order after itself
+		if !slices.Contains(sysDeps(bp, "telemetry"), "policy-resources") {
+			t.Errorf("expected telemetry wired to policy-resources, got %v", sysDeps(bp, "telemetry"))
+		}
+		if !slices.Contains(kDeps(bp, "gitops-webhook"), "policy-resources") {
+			t.Errorf("expected gitops-webhook wired to policy-resources, got %v", kDeps(bp, "gitops-webhook"))
+		}
+		if slices.Contains(sysDeps(bp, "policy"), "policy-resources") {
+			t.Errorf("expected policy not wired to its own tier, got %v", sysDeps(bp, "policy"))
+		}
+	})
+
+	t.Run("ExcludesSystemsInTheGlobalSystemsClosure", func(t *testing.T) {
+		// Given policy depends on telemetry's install tier, so telemetry is in policy's closure
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "policy", GlobalDependency: true, DependsOn: []string{"telemetry-install"}, Install: install("kyverno"), Resources: resources("kyverno/policies")},
+				{Name: "telemetry", Install: install("prometheus")},
+			},
+		}
+
+		composer.applyGlobalDependencyBarrier(bp)
+
+		// Then telemetry is not wired back to policy-resources (that would be a cycle)
+		if slices.Contains(sysDeps(bp, "telemetry"), "policy-resources") {
+			t.Errorf("expected telemetry (in policy's closure) left unwired, got %v", sysDeps(bp, "telemetry"))
+		}
+	})
+
+	t.Run("TargetsInstallTierWhenNoResources", func(t *testing.T) {
+		// Given a globalDependency system with only an install tier
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems:    []blueprintv1alpha1.FluxSystem{{Name: "cni", GlobalDependency: true, Install: install("cilium")}},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app", Path: "app"}},
+		}
+
+		composer.applyGlobalDependencyBarrier(bp)
+
+		if !slices.Equal(kDeps(bp, "app"), []string{"cni-install"}) {
+			t.Errorf("expected app wired to cni-install, got %v", kDeps(bp, "app"))
+		}
+	})
+
+	t.Run("DoesNotDuplicateAnExistingEdge", func(t *testing.T) {
+		// Given a consumer that already depends on the terminal tier
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems:    []blueprintv1alpha1.FluxSystem{{Name: "policy", GlobalDependency: true, Install: install("kyverno"), Resources: resources("kyverno/policies")}},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app", Path: "app", DependsOn: []string{"policy-resources"}}},
+		}
+
+		composer.applyGlobalDependencyBarrier(bp)
+
+		if !slices.Equal(kDeps(bp, "app"), []string{"policy-resources"}) {
+			t.Errorf("expected app to keep a single policy-resources edge, got %v", kDeps(bp, "app"))
+		}
+	})
+
+	t.Run("ComposesWithTheCrdLayerBarrierWithoutACycle", func(t *testing.T) {
+		// Given a crds layer plus a globalDependency policy system and a consumer, both roots
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			Crds: []string{"kyverno-crds-1.0.0"},
+			FluxSystems: []blueprintv1alpha1.FluxSystem{
+				{Name: "policy", GlobalDependency: true, Install: install("kyverno"), Resources: resources("kyverno/policies")},
+				{Name: "telemetry", Install: install("prometheus")},
+			},
+		}
+
+		composer.applyCrdLayerBarrier(bp)
+		composer.applyGlobalDependencyBarrier(bp)
+
+		// Then policy roots at the crds layer and is not wired to itself
+		if !slices.Equal(sysDeps(bp, "policy"), []string{"crds"}) {
+			t.Errorf("expected policy to root at crds only, got %v", sysDeps(bp, "policy"))
+		}
+		// And telemetry waits on both the crds layer (barrier) and policy-resources (global), no duplicate
+		if !slices.Equal(sysDeps(bp, "telemetry"), []string{"crds", "policy-resources"}) {
+			t.Errorf("expected telemetry wired to crds then policy-resources, got %v", sysDeps(bp, "telemetry"))
+		}
+		// And the composed graph has no dangling dependency
+		if err := composer.validateDependencies(bp); err != nil {
+			t.Errorf("expected a valid dependency graph, got %v", err)
+		}
+	})
+
+	t.Run("NoopWithoutAGlobalDependencySystem", func(t *testing.T) {
+		// Given a system with the same shape but globalDependency unset
+		composer := &BaseBlueprintComposer{}
+		bp := &blueprintv1alpha1.Blueprint{
+			FluxSystems:    []blueprintv1alpha1.FluxSystem{{Name: "policy", Install: install("kyverno"), Resources: resources("kyverno/policies")}},
+			Kustomizations: []blueprintv1alpha1.Kustomization{{Name: "app", Path: "app"}},
+		}
+
+		composer.applyGlobalDependencyBarrier(bp)
+
+		if len(kDeps(bp, "app")) != 0 {
+			t.Errorf("expected no barrier without a globalDependency system, got %v", kDeps(bp, "app"))
+		}
+	})
+}
+
 func sourceByName(bp *blueprintv1alpha1.Blueprint, name string) blueprintv1alpha1.Source {
 	for _, s := range bp.Sources {
 		if s.Name == name {
