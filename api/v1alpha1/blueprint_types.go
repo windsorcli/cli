@@ -631,6 +631,14 @@ type FluxSystem struct {
 	// Ordinal overrides the facet's ordinal for this system's merge precedence.
 	Ordinal *int `yaml:"ordinal,omitempty"`
 
+	// GlobalDependency inverts the system's edges: when true, every kustomization and system outside
+	// this system's own dependency closure is wired to depend on its terminal tier — its resources tier
+	// if it has one, else its install tier. It lets a cluster-wide precondition (e.g. admission policies
+	// that must be enforcing before any workload lands) be declared once here rather than repeated as a
+	// dependsOn on every consumer. The closure exclusion keeps the system, and anything it depends on,
+	// from ordering after itself.
+	GlobalDependency bool `yaml:"globalDependency,omitempty"`
+
 	// Install is the controller/operator tier (at most one). Its Components/Substitute and operational
 	// fields flow to "<name>-install"; its Name/Path/DependsOn are derived by the composer.
 	Install *Kustomization `yaml:"install,omitempty"`
@@ -1245,17 +1253,18 @@ func (s *FluxSystem) DeepCopy() *FluxSystem {
 	}
 
 	return &FluxSystem{
-		Name:      s.Name,
-		Path:      s.Path,
-		Source:    s.Source,
-		Enabled:   s.Enabled.DeepCopy(),
-		Destroy:   s.Destroy.DeepCopy(),
-		When:      s.When,
-		DependsOn: slices.Clone(s.DependsOn),
-		Strategy:  s.Strategy,
-		Ordinal:   ordinalCopy,
-		Install:   s.Install.DeepCopy(),
-		Resources: resourcesCopy,
+		Name:             s.Name,
+		Path:             s.Path,
+		Source:           s.Source,
+		Enabled:          s.Enabled.DeepCopy(),
+		Destroy:          s.Destroy.DeepCopy(),
+		When:             s.When,
+		DependsOn:        slices.Clone(s.DependsOn),
+		Strategy:         s.Strategy,
+		Ordinal:          ordinalCopy,
+		GlobalDependency: s.GlobalDependency,
+		Install:          s.Install.DeepCopy(),
+		Resources:        resourcesCopy,
 	}
 }
 

@@ -176,6 +176,7 @@ func (c *BaseBlueprintComposer) Compose(loaders []BlueprintLoader, initLoaderNam
 	c.resolveTierDependencies(result)
 	c.finalizeCrdLayers(result)
 	c.applyCrdLayerBarrier(result)
+	c.applyGlobalDependencyBarrier(result)
 	validationErr := errors.Join(c.validateSources(result), c.validateReservedNames(result), c.validateDependencies(result))
 	return result, validationErr
 }
@@ -795,6 +796,117 @@ func (c *BaseBlueprintComposer) applyCrdLayerBarrier(bp *blueprintv1alpha1.Bluep
 			bp.FluxSystems[i].DependsOn = slices.Clone(names)
 		}
 	}
+}
+
+// applyGlobalDependencyBarrier wires every kustomization and flux system outside a global-dependency
+// system's own dependency closure to depend on that system's terminal tier — its resources tier if it
+// has one, else its install tier. It is the inverse of dependsOn: a system declares itself required by
+// the whole cluster once (globalDependency: true) instead of every consumer naming it. The closure
+// exclusion keeps the system, and anything it transitively depends on, from ordering after itself — the
+// same way the crds layer sits ahead of the stack without depending on it. It runs after
+// applyCrdLayerBarrier so a global system rooted at the crds layer already carries that edge when its
+// closure is computed.
+func (c *BaseBlueprintComposer) applyGlobalDependencyBarrier(bp *blueprintv1alpha1.Blueprint) {
+	type barrier struct {
+		terminals []string
+		closure   map[string]struct{}
+	}
+
+	depsByName := make(map[string][]string)
+	for _, k := range bp.AllKustomizations() {
+		depsByName[k.Name] = k.DependsOn
+	}
+
+	var barriers []barrier
+	for _, sys := range bp.FluxSystems {
+		if !sys.GlobalDependency {
+			continue
+		}
+		terminals := terminalTierNames(sys)
+		if len(terminals) == 0 {
+			continue
+		}
+		barriers = append(barriers, barrier{
+			terminals: terminals,
+			closure:   dependencyClosure(sys.TierNames(), depsByName),
+		})
+	}
+	if len(barriers) == 0 {
+		return
+	}
+
+	for _, b := range barriers {
+		for i := range bp.Kustomizations {
+			if _, inClosure := b.closure[bp.Kustomizations[i].Name]; inClosure {
+				continue
+			}
+			bp.Kustomizations[i].DependsOn = appendMissing(bp.Kustomizations[i].DependsOn, b.terminals)
+		}
+		for i := range bp.FluxSystems {
+			if fluxSystemInClosure(bp.FluxSystems[i], b.closure) {
+				continue
+			}
+			bp.FluxSystems[i].DependsOn = appendMissing(bp.FluxSystems[i].DependsOn, b.terminals)
+		}
+	}
+}
+
+// terminalTierNames returns the compiled kustomization names at which a system is fully reconciled: its
+// resources tier names when it has a resources tier, otherwise its install tier. These are the targets a
+// globalDependency system's consumers wait on.
+func terminalTierNames(sys blueprintv1alpha1.FluxSystem) []string {
+	names := sys.TierNames()
+	if len(sys.Resources) == 0 {
+		return names
+	}
+	installName := sys.Name + "-install"
+	terminals := make([]string, 0, len(names))
+	for _, n := range names {
+		if n != installName {
+			terminals = append(terminals, n)
+		}
+	}
+	return terminals
+}
+
+// dependencyClosure returns the set of kustomization names reachable from seeds by following dependsOn
+// edges (seeds included), over the compiled dependency graph depsByName.
+func dependencyClosure(seeds []string, depsByName map[string][]string) map[string]struct{} {
+	closure := make(map[string]struct{})
+	queue := slices.Clone(seeds)
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		if _, seen := closure[name]; seen {
+			continue
+		}
+		closure[name] = struct{}{}
+		queue = append(queue, depsByName[name]...)
+	}
+	return closure
+}
+
+// fluxSystemInClosure reports whether any of a system's compiled tiers is in closure. It is how a
+// globalDependency barrier skips the system it depends on (wiring it would form a cycle), the global
+// system itself included, since a system's own tiers are always in its closure.
+func fluxSystemInClosure(sys blueprintv1alpha1.FluxSystem, closure map[string]struct{}) bool {
+	for _, name := range sys.TierNames() {
+		if _, ok := closure[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// appendMissing returns deps with each addition not already present appended in order, so the barrier
+// never duplicates an edge a consumer already declares.
+func appendMissing(deps []string, additions []string) []string {
+	for _, add := range additions {
+		if !slices.Contains(deps, add) {
+			deps = append(deps, add)
+		}
+	}
+	return deps
 }
 
 // resolveTierDependencies rewrites a dependsOn reference to a vendor's bare name into its install

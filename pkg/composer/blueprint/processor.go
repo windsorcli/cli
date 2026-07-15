@@ -1239,6 +1239,7 @@ func (p *BaseBlueprintProcessor) applyFluxSystemEntryByStrategy(name string, new
 		merged.Install = blueprintv1alpha1.MergeFluxInstall(existing.Install, new.Install)
 		merged.Resources = blueprintv1alpha1.MergeFluxVariants(existing.Resources, new.Resources)
 		merged.Ordinal = new.Ordinal
+		merged.GlobalDependency = existing.GlobalDependency || new.GlobalDependency
 		entries[name] = &merged
 	}
 	return nil
